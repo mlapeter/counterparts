@@ -31,7 +31,12 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { Counterpart, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../../core/counterpart.js";
+import {
+  BOUNDARY_EVENT,
+  Counterpart,
+  RECALL_CREDIT_EVENT,
+  RECALL_DECISION_EVENT,
+} from "../../core/counterpart.js";
 import { PROBE_ROW_CEILING, probeOQ4, renderProbe } from "../../core/recall/probe.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 // `band` is imported rather than mirrored: the dashboard computes the live
@@ -121,14 +126,22 @@ import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-e
 // The what-fired reading, shared with `doctor` and the dashboard's health panel
 // so the three surfaces cannot disagree about what "silent" means.
 import { STATE_MEANING, STATE_ORDER, firedReport } from "../fired.js";
-import type { FiredReport } from "../fired.js";
+import type { FiredReport, FiredState } from "../fired.js";
+// The two snapshot readers `status` shares with doctor: the DIRECTORY is what
+// says how many copies you have, and a row only says what a run once wrote.
+import { readSnapshotsDir, resolveSnapshotsDir } from "../snapshots.js";
 // THE HOST ADAPTER'S OWN READINGS, imported rather than re-derived — the same
 // direction `install.ts` already takes (`../claude-code/config.js`). `doctor`
 // and `credentials` are the console's face on the file and the store that
 // adapter owns, and a console with its own idea of "which names are credentials"
 // or "what counts as red" is exactly the drift I32 ran inside of.
 import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js";
-import { SPAWN_REFUSAL_PREFIX } from "../claude-code/hooks.js";
+import type { CredentialLoad } from "../claude-code/credentials.js";
+import {
+  SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
+} from "../claude-code/hooks.js";
 import { loadConfig } from "../claude-code/config.js";
 import type { AdapterConfig } from "../claude-code/config.js";
 import {
@@ -153,6 +166,7 @@ import {
   throwawayDefaultRefusal,
   layoutRefusal,
   mcpCommand,
+  readHost,
   settingsBlock,
   writeOnce,
 } from "./install.js";
@@ -465,7 +479,7 @@ interface Parsed {
 export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
 
 export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
-  status: [],
+  status: ["layout"],
   install: ["budget", "name", "embedder", "force", "config"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
@@ -501,7 +515,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rebrief: ["budget", "config"],
   // Read-only, like `status`: rows in, a table out.
   "probe-oq4": [],
-  fired: [],
+  fired: ["all"],
   // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
   // the host configuration, and on a machine with two of them the reading is
   // about whichever one the hooks read.
@@ -617,6 +631,10 @@ const FLAG_HELP: Record<string, string> = {
   "retry-skipped":
     "put the ids the backfill gave up on back in the rotation: it clears every embed.failed counter and changes nothing else",
   apply: "actually do it — without this, it is a dry run",
+  layout:
+    "also print which directories the store keeps and which of them a backup carries",
+  all:
+    "print every mechanism, including the ones a store this new has had nothing to do with yet",
   config:
     "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
   batch: "rows per transaction while converting (default 500)",
@@ -1159,13 +1177,22 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // named would open. A read is not exempt: the guard is about which store gets
   // touched at all, not about who writes to it.
   if (command === "doctor") {
-    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    // `--dir` IS A NAME (2026-09-20, finding 6). The guard exists so nothing
+    // nobody named gets opened, and `--dir <store>` names one — so the refusal
+    // was about the CONFIGURATION the reading would have read beside it, whose
+    // `credentialsFile` points at the owner's live keys. `doctorCommand` now
+    // declines to read that file at all in this case and grades the store on
+    // its own; the Config line says which questions therefore went unasked, and
+    // what to type to ask them. On cut-over day this is the difference between
+    // "point doctor at the parked store" and a refusal with nothing to do.
+    const named_ = typeof parsed.flags["dir"] === "string" ? undefined : named;
+    const implicit = named_ === undefined ? null : implicitConfigRefusal(named_, env);
     if (implicit !== null) {
       io.err(implicit);
       return EXIT.refused;
     }
     try {
-      return doctorCommand(parsed, io, env, named, opts.checkout);
+      return doctorCommand(parsed, io, env, named, opts.checkout, opts.home);
     } catch (err) {
       io.err(`doctor failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
@@ -1189,7 +1216,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   try {
     switch (command) {
       case "status":
-        return statusCommand(dir, io, typeof parsed.flags["dir"] === "string");
+        return statusCommand(dir, io, typeof parsed.flags["dir"] === "string", dateOf(now()), parsed.flags["layout"] === true);
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
@@ -1221,7 +1248,13 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "probe-oq4":
         return probeCommand(dir, io, typeof parsed.flags["dir"] === "string");
       case "fired":
-        return firedCommand(dir, io, typeof parsed.flags["dir"] === "string", now);
+        return firedCommand(
+          dir,
+          io,
+          typeof parsed.flags["dir"] === "string",
+          now,
+          parsed.flags["all"] === true,
+        );
       case "self-page":
         return await selfPageCommand(
           dir,
@@ -1371,7 +1404,13 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
  * first screen, and every group carries the one line that says what its state
  * means so the reader never has to know the vocabulary in advance.
  */
-function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number): number {
+function firedCommand(
+  dir: string,
+  io: Io,
+  namedDir: boolean,
+  now: () => number,
+  all = false,
+): number {
   if (!storeExists(dir)) {
     io.err(`No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`);
     return EXIT.usage;
@@ -1384,7 +1423,7 @@ function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number)
     return EXIT.failed;
   }
   try {
-    for (const line of firedLines(firedReport(store, dateOf(now())))) io.out(line);
+    for (const line of firedLines(firedReport(store, dateOf(now())), all)) io.out(line);
     return EXIT.ok;
   } finally {
     store.close();
@@ -1569,16 +1608,62 @@ async function selfPageCommand(
   }
 }
 
+/**
+ * THE STATES A STORE TOO NEW TO GRADE STILL PRINTS (2026-09-20, finding 2).
+ *
+ * A brand-new store opened this view with twenty-eight `never` lines and no
+ * sentence saying why, which is exactly what a broken install looks like. On a
+ * store younger than a lived day or two the list narrows to what HAS happened
+ * and what was stopped; `never`, `blind` and `new` are all the same fact there
+ * — nothing has happened yet — and saying it once is more use than saying it
+ * twenty-eight times. The full list comes back on its own, and `--all` prints
+ * it today.
+ *
+ * `disabled` and `retired` are out too, and for a different reason: they are
+ * this project's own history — an emotion classifier held back until it clears
+ * its precision bar, two mechanisms retired with a parallel run against a
+ * system the reader has never heard of. True, worth keeping, and not the first
+ * three lines a stranger should meet on day 1.
+ */
+const YOUNG_STATES: readonly FiredState[] = ["firing", "blocked", "quiet"];
+
 /** The report as plain text: one mechanism per line, grouped by state. */
-export function firedLines(report: FiredReport): string[] {
+export function firedLines(report: FiredReport, all = false): string[] {
   const lines = [
     `what has fired — ${report.from}→${report.today} (UTC), against ${report.previousFrom}→${report.previousTo}`,
     "",
   ];
+  const young = report.young && !all;
+  if (young) {
+    // "0 calendar days of records" beside a FIRING section that shows three
+    // deposits is a strange thing to print (2026-09-20). The reading a person
+    // wants on day 1 is how long this has been going, so a store whose oldest
+    // row is today says "today" rather than counting zero days.
+    const age =
+      report.calendarDays === null
+        ? "nothing has been recorded here yet"
+        : report.calendarDays === 0
+          ? "everything it holds was recorded today"
+          : `${String(report.calendarDays)} calendar day${report.calendarDays === 1 ? "" : "s"} of records`;
+    lines.push(
+      `This store is on lived day ${String(report.livedDay)} — ${age}. Most mechanisms have had ` +
+        `nothing to do yet, so below is only what HAS fired and anything that was stopped. The ` +
+        `full roll-call of ${String(report.rows.length)} comes back on its own once the store is ` +
+        "old enough for silence to mean something — or run `counterparts fired --all` now.",
+      "",
+    );
+  }
+  // The blocked list FIRST: "it was stopped, and here is by what" is the more
+  // actionable of the two, and it is the one that would otherwise be buried
+  // inside a group the reader has to scroll to.
+  if (report.wentBlocked.length > 0) {
+    lines.push(`Fired last week and STOPPED this week: ${report.wentBlocked.join("; ")}`, "");
+  }
   if (report.wentQuiet.length > 0) {
     lines.push(`Fired last week and not once this week: ${report.wentQuiet.join("; ")}`, "");
   }
   for (const state of STATE_ORDER) {
+    if (young && !YOUNG_STATES.includes(state)) continue;
     const rows = report.rows.filter((r) => r.state === state);
     if (rows.length === 0) continue;
     lines.push(`${state.toUpperCase()} (${String(rows.length)}) — ${STATE_MEANING[state]}`);
@@ -1619,7 +1704,65 @@ export function firedLines(report: FiredReport): string[] {
   return lines;
 }
 
-function statusCommand(dir: string, io: Io, namedDir: boolean): number {
+/** The newest `adapter.boundary` row's calendar date, or null. A census may not
+ *  become the thing that throws, and it may not guess either. */
+function newestBoundary(store: Store, livedDay: number): string | null {
+  try {
+    const rows = store.eventLog({
+      name: BOUNDARY_EVENT,
+      sinceDay: Math.max(0, livedDay - 30),
+      limit: 2000,
+    });
+    const last = rows[rows.length - 1];
+    if (last === undefined) return null;
+    const payload = JSON.parse(last.payload ?? "{}") as Record<string, unknown>;
+    const date = payload["date"];
+    return typeof date === "string" && date.length === 10 ? date : dateOf(last.at);
+  } catch {
+    return null;
+  }
+}
+
+/** Is there a written self page, and how old. One line, never a byte of it. */
+function pageLine(store: Store): string {
+  try {
+    const ids = store.list({ type: "schema", kind: "self", archived: false });
+    for (const id of ids) {
+      const read = store.read(id);
+      if (read.doc.meta["role"] !== "page") continue;
+      const revised = read.doc.meta["revisedOn"];
+      return typeof revised === "string" && revised.length > 0
+        ? `yes, last revised ${revised}`
+        : "yes";
+    }
+    return "none yet";
+  } catch {
+    return "?";
+  }
+}
+
+/** How old the newest copy of the store is, read off the DIRECTORY rather than
+ *  off a row — a row says what a run once wrote, the directory says what you
+ *  have (the F2 review's lesson, applied to this line too). */
+function snapshotAge(dir: string): string {
+  try {
+    const resolved = resolveSnapshotsDir(dir, undefined);
+    if (resolved.dir === null) return "nowhere to keep one";
+    const disk = readSnapshotsDir(resolved.dir);
+    const newest = disk.names[disk.names.length - 1];
+    return newest === undefined ? "none yet" : `${newest.slice(0, 10)} (${disk.names.length} kept)`;
+  } catch {
+    return "?";
+  }
+}
+
+function statusCommand(
+  dir: string,
+  io: Io,
+  namedDir: boolean,
+  today: string,
+  layout = false,
+): number {
   if (!storeExists(dir)) {
     // An instrument that MINTS a data dir by looking at one is a wart — and
     // since 2026-08-26 the store itself refuses it (INTERFACE-GAPS §7 closed:
@@ -1669,6 +1812,7 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
     // against the preface's 121, the difference being exactly the 13 entities
     // and 9 beliefs. Both numbers were right; one of the labels was not.
     let memories = 0;
+    let addedToday = 0;
     let schemas = 0;
     let journal = 0;
     let archived = 0;
@@ -1700,6 +1844,11 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       }
       if (row.type === "schema") schemas += 1;
       else memories += 1;
+      // THE SAME POPULATION, so the two numbers on the page cannot disagree.
+      // `countMemories({ learnedOnFrom })` would have been one query and a
+      // different census: it counts removed and superseded rows, and reported
+      // 2 new beside `Memories: 1` the first time this line was written.
+      if (row.learned_on === today) addedToday += 1;
       byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
       // THE LIVE BAND, computed, never the stored column. Until 2026-09-14
       // `memories.band` was a birth fossil — episodic at mint, identity at
@@ -1733,22 +1882,16 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       }
     }
 
+    // ── THE NUMBERS A PERSON CAME FOR, FIRST (2026-09-20, finding 3) ────────
+    //
+    // This command is what `install` tells a new user to check with, and until
+    // now the four numbers they wanted sat above a ten-line `Layout:` block
+    // written for whoever maintains the store — "Box 1", "Box 3",
+    // `assertLayout()`, `adapters/expansions.ts`, "§14.1 G9". None of those is
+    // a thing the reader has any way to look up, and QUICKSTART §7 never
+    // mentioned the block at all. The census leads; the prose follows; the
+    // layout is behind `--layout`, where the person who wants it will ask.
     io.out(`Store: ${store.dir}`);
-    io.out(`Lived day ${store.livedDay()}, last active ${store.getMeta("lastActiveDate") || "never"}`);
-    // WHERE THIS STORE CAME FROM, when it came from a fresh start (N1). Host
-    // state out of box 2's meta table: a date and a path, written once by
-    // `start-fresh` and by nothing else, so a store that was simply installed
-    // says nothing here rather than saying something vague.
-    const began = store.getMeta(STORE_STARTED_KEY);
-    if (began !== undefined && began.length > 0) {
-      const previous = store.getMeta(STORE_PREVIOUS_PARKED_KEY);
-      io.out(
-        `This store began on ${began}` +
-          (previous === undefined || previous.length === 0
-            ? "."
-            : `; the previous one is parked at ${previous}, untouched.`),
-      );
-    }
     io.out("");
     // One line, four labelled populations, and the first number is the one the
     // wake preface says. Anything that adds them into a single "live" total is
@@ -1759,25 +1902,67 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
         `   Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}` +
         `   Archived: ${archived}   Superseded: ${superseded}`,
     );
-    io.out(`  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}   (memories + beliefs and entities)`);
-    io.out(`  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}   (computed from physics today, not the stored column)`);
-    io.out("  Memories is the number the wake preface states; the journal does not decay.");
+    io.out(
+      `  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}   (memories + beliefs and entities)`,
+    );
+    io.out(
+      `  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}   (computed from physics today, not the stored column)`,
+    );
     io.out("");
-
-    const removals = store.removalRecord().filter((r) => r.stage === "complete");
-    io.out(`Removed: ${removals.length}`);
-    for (const row of removals) {
-      // Owner side: the id and the date, no body and no content hash — ever.
-      io.out(`  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`);
+    io.out(
+      `Today (${today}): ${String(addedToday)} new` +
+        `   ·   Lived day ${day}` +
+        `   ·   Last active ${store.getMeta("lastActiveDate") || "never"}` +
+        `   ·   Last boundary ${newestBoundary(store, day) ?? "never"}`,
+    );
+    io.out(
+      `Self page: ${pageLine(store)}` +
+        `   ·   Newest snapshot: ${snapshotAge(store.dir)}` +
+        `   ·   Journal mode: ${journalModeOf(paths.operational(store.dir))}` +
+        `   ·   Removed: ${store.removalRecord().filter((r) => r.stage === "complete").length}` +
+        `   ·   Permanent: ${permanent.length}`,
+    );
+    // WHERE THIS STORE CAME FROM, when it came from a fresh start (N1). Host
+    // state out of box 2's meta table: a date and a path, written once by
+    // `start-fresh` and by nothing else, so a store that was simply installed
+    // says nothing here rather than something vague. It sits with the other
+    // facts ABOUT the store rather than above the census — E2's rule is that
+    // the numbers a person came for come first.
+    const began = store.getMeta(STORE_STARTED_KEY);
+    if (began !== undefined && began.length > 0) {
+      const previous = store.getMeta(STORE_PREVIOUS_PARKED_KEY);
+      io.out(
+        `Began: ${began}` +
+          (previous === undefined || previous.length === 0
+            ? "  (a fresh start; nothing was parked)"
+            : `   ·   the previous store is parked at ${previous}, untouched`),
+      );
     }
     io.out("");
-    io.out(`Permanent (enumerable on demand, §14.1 G9): ${permanent.length}`);
-    for (const entry of permanent) io.out(`  ${entry.id}  ${entry.title}  — ${entry.why}`);
-    io.out("");
-    io.out("Layout:");
-    for (const entry of LAYOUT) {
-      const present = existsSync(join(store.dir, entry.name)) ? " " : "-";
-      io.out(`  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`);
+    io.out("  Memories is the number the wake preface states; the journal does not decay.");
+    io.out("  counterparts doctor grades all of this; counterparts fired says which mechanisms have run.");
+
+    const removals = store.removalRecord().filter((r) => r.stage === "complete");
+    if (removals.length > 0) {
+      io.out("");
+      io.out("Removed:");
+      for (const row of removals) {
+        // Owner side: the id and the date, no body and no content hash — ever.
+        io.out(`  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`);
+      }
+    }
+    if (permanent.length > 0) {
+      io.out("");
+      io.out("Permanent (enumerable on demand, §14.1 G9):");
+      for (const entry of permanent) io.out(`  ${entry.id}  ${entry.title}  — ${entry.why}`);
+    }
+    if (layout) {
+      io.out("");
+      io.out("Layout:");
+      for (const entry of LAYOUT) {
+        const present = existsSync(join(store.dir, entry.name)) ? " " : "-";
+        io.out(`  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`);
+      }
     }
     // A STORE THAT NO SESSION CAN OPEN DOES NOT GET A GREEN CENSUS.
     //
@@ -4883,6 +5068,21 @@ function credentialsPathFor(configPath: string, config: AdapterConfig): string {
 }
 
 /** The persisted per-reason spawn refusal counters, as `doctor` wants them. */
+/** The adapter's own start tally, read the way `spawnRefusalCounters` reads the
+ *  refusal ones -- from the meta keys `hooks.ts` owns, because `doctor.ts`
+ *  cannot import that file back. */
+function spawnStartCounter(store: Store | null): { date: string | null; count: number } {
+  if (store === null) return { date: null, count: 0 };
+  try {
+    return {
+      date: store.getMeta(SPAWN_START_DATE_KEY) ?? null,
+      count: Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0"),
+    };
+  } catch {
+    return { date: null, count: 0 };
+  }
+}
+
 function spawnRefusalCounters(store: Store | null): Record<string, number> {
   if (store === null) return {};
   const out: Record<string, number> = {};
@@ -4932,11 +5132,33 @@ function doctorCommand(
   env: Record<string, string | undefined>,
   named?: ConfigChoice,
   checkout?: CheckoutReading,
+  home?: string,
 ): number {
   const configPath = named?.path ?? defaultConfigPath();
-  const { config, reason } = hostConfigFor(configPath);
-  const credentialsPath = credentialsPathFor(configPath, config);
-  const credentials = loadCredentials(credentialsPath, {});
+  // `--dir` WITH NO NAMED CONFIGURATION, under the guard (finding 6). The store
+  // was named; the default configuration beside it was not, and opening it is
+  // what reaches the owner's live credentials file. So it is not opened — not
+  // read, not reported on, not graded — and `configFindings` prints one amber
+  // naming what went unasked. Without the guard this is an ordinary run, since
+  // the default config is then a place the caller is content to read.
+  const unread =
+    typeof parsed.flags["dir"] === "string" &&
+    (named === undefined || named.source === "default") &&
+    explicitDirSetting(env).armed;
+  const { config, reason } = unread
+    ? { config: {} as AdapterConfig, reason: "not-read" as const }
+    : hostConfigFor(configPath);
+  const credentialsPath = unread ? undefined : credentialsPathFor(configPath, config);
+  const credentials = unread
+    ? ({
+        loaded: [],
+        skippedPresent: [],
+        ignoredLines: 0,
+        reason: "not-configured",
+        mode: null,
+        permissive: false,
+      } satisfies CredentialLoad)
+    : loadCredentials(credentialsPath as string, {});
   const shellNames = CREDENTIAL_NAMES.filter((n) => (env[n] ?? "").trim().length > 0);
 
   // WHICH STORE, under the guard. `--dir` is a name. A config the CALLER named
@@ -4994,11 +5216,17 @@ function doctorCommand(
       store,
       today,
       refusals: spawnRefusalCounters(store),
+      starts: spawnStartCounter(store),
       // WHICH CHECKOUT THIS CONSOLE IS RUNNING. From a worktree it grades the
       // worktree, which is the right answer for a command somebody typed; the
       // hook grades the tree the host invokes by absolute path, which is the
       // one that is live on the owner's memory.
       checkout: checkout ?? readCheckout(),
+      // DID THE TWO STEPS THE USER DOES BY HAND TAKE (finding 4). Read here
+      // rather than inside `doctorFindings` for the reason `checkout` is: it is
+      // four small reads of somebody else's files, outside this store, and the
+      // hook must not pay for them.
+      host: readHost(home ?? homedir(), process.cwd(), env),
       ...(open === undefined ? {} : { open }),
     });
     if (parsed.flags["json"] === true) {

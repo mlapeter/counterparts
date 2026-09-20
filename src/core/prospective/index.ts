@@ -58,6 +58,31 @@ export * from "./windows.js";
  */
 export type WindowState = ProspectiveInput["state"];
 
+/**
+ * THE TWO DURABLE ROWS (2026-09-20, E2).
+ *
+ * This module had none. `fires` and `last_fired_day` are columns on a row, so
+ * the store could say a window had ever fired and never when, or why one did
+ * not — the 2026-09-17 inventory marked the whole mechanism RING-ONLY, "zero
+ * `appendEvent` in the module", with fourteen rows whose counters came from a
+ * v1 import and `last_fired_day` null on every one of them.
+ *
+ * TWO NAMES, not one with an `outcome`. A refusal counted as a firing is the
+ * bug the fired view exists to catch, and the two names keep them apart in
+ * every reader by construction (the `snapshot.taken` / `snapshot.failed` split,
+ * for the same reason).
+ *
+ * The refusal is LATCHED per memory, window, reason and lived day: eligibility
+ * is re-derived every turn, so `not-eligible` on a memory whose date has passed
+ * would otherwise write a row every turn for the rest of the store's life. A
+ * fire needs no latch — `FIRES_PER_WINDOW` already bounds it.
+ *
+ * Ids, a window key, a reason and a day. Never a date the memory is about and
+ * never a word of it.
+ */
+export const PROSPECTIVE_FIRE_EVENT = "prospective.fire";
+export const PROSPECTIVE_REFUSED_EVENT = "prospective.fire.refused";
+
 const WINDOW_STATES: readonly WindowState[] = ["armed", "fired", "suppressed", "expired"];
 
 /** Box 2 hands back `state` as TEXT. An unrecognized value reads as `armed` — the
@@ -557,6 +582,7 @@ export class Prospective {
         derivation: p.reason,
         day,
       });
+      this.noteRefusal(input.memoryId, input.windowKey, "not-eligible", day, p.reason);
       return { fired: false, reason: "not-eligible", derivation: p.reason, fires: 0, state: "armed" };
     }
     const w = p.windows.find((x) => x.key === input.windowKey);
@@ -568,6 +594,7 @@ export class Prospective {
         reason: "window-not-derived",
         day,
       });
+      this.noteRefusal(input.memoryId, input.windowKey, "window-not-derived", day, null);
       return {
         fired: false,
         reason: "window-not-derived",
@@ -589,6 +616,7 @@ export class Prospective {
         reason: brake,
         day,
       });
+      this.noteRefusal(input.memoryId, input.windowKey, brake, day, null);
       return {
         fired: false,
         reason: brake,
@@ -617,7 +645,63 @@ export class Prospective {
       ramp: rampAt(w, input.at, this.tunables),
       day,
     });
+    this.note(PROSPECTIVE_FIRE_EVENT, input.memoryId, day, {
+      window: input.windowKey,
+      precision: w.precision,
+      fires,
+      cap: this.tunables.FIRES_PER_WINDOW,
+    });
     return { fired: true, reason: "fired", derivation: null, fires, state: "fired" };
+  }
+
+  /**
+   * One durable refusal row, latched per memory, window, reason and lived day.
+   *
+   * Eligibility is re-derived on every turn (§12 G2), so an unlatched row here
+   * would write once per turn forever for a window whose date has passed. The
+   * latch makes it "this window was stopped by this, on this day", which is the
+   * fact the fired view needs and the smallest one that answers it.
+   */
+  private noteRefusal(
+    memoryId: string,
+    windowKey: string,
+    reason: string,
+    day: number,
+    derivation: DeriveReason | null,
+  ): void {
+    this.note(
+      PROSPECTIVE_REFUSED_EVENT,
+      memoryId,
+      day,
+      { window: windowKey, reason, derivation },
+      `${PROSPECTIVE_REFUSED_EVENT}:${memoryId}:${windowKey}:${reason}:${String(day)}`,
+    );
+  }
+
+  /**
+   * The module's one durable seam. Observer is checked by the caller before any
+   * read (§5 G9), and a telemetry write may never be what stalls a host-facing
+   * path (§12 G12) — so this swallows, and the ring emit beside it stands.
+   */
+  private note(
+    name: string,
+    memoryId: string,
+    day: number,
+    payload: Record<string, unknown>,
+    dedupKey?: string,
+  ): void {
+    if (this.observer) return;
+    try {
+      this.store.appendEvent({
+        name,
+        day,
+        ref: memoryId,
+        payload,
+        ...(dedupKey === undefined ? {} : { dedupKey }),
+      });
+    } catch {
+      /* a lost row costs a line on a diagnostic, never a memory */
+    }
   }
 
   /**

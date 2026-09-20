@@ -125,9 +125,15 @@ import type {
   PageRevision,
   PageVersion,
   PageWriteOptions,
+  PageWriterDue,
+  PageWriterMode,
+  PageWriterOutcome,
+  PageWriterRun,
+  PageWriterStatus,
   SelfPage,
   WakeDelivery,
   WakeResult,
+  WriterInput,
 } from "./self/index.js";
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
@@ -461,6 +467,44 @@ export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
 /**
+ * THE WORKER THAT DID START (2026-09-20, E2).
+ *
+ * The three rows above prove a door that failed; none of them proves a door
+ * that opened. So a worker dead all week and a week with nothing to do read
+ * exactly alike (mechanism inventory §2 row 23), which is scar §2.4's silence
+ * with the arms the other way round.
+ *
+ * LATCHED PER CALENDAR DATE, one row a day and no more. A boundary is a hot
+ * path and a healthy machine reaches many of them; the fact worth keeping is
+ * "the worker ran today", not three hundred copies of it. The row carries the
+ * running count of starts the adapter has seen in this process, so a day's one
+ * row still says the machine was busy, and the reason the spawn planner gave.
+ */
+export const SPAWN_STARTED_EVENT = "adapter.spawn.started";
+/**
+ * ONE ROW PER DELIBERATE RECALL (2026-09-20, E2).
+ *
+ * `docs/recall-surfacing-diagnosis-2026-09-18.md`: the whole MCP tool surface
+ * wrote no durable row at all. `mcp/deliberate.ts` has run every time a session
+ * went looking for something on purpose, and the only trace was an in-process
+ * ring that died with the server — so "the session asked and nothing came back"
+ * and "the session never asked" were the same silence, and the fired view could
+ * only mark the mechanism blind.
+ *
+ * **Counts and reasons. NEVER the question, never a body, and no ids.** The
+ * question is the one field here that could carry somebody's private words
+ * (scar §2.20), so its LENGTH is recorded and its text is not; and a row
+ * pairing a set of memory ids with the moment they were asked for is a link the
+ * store does not need to hold in order to answer "did this fire, and what
+ * stopped it". `blockedBy` is the refusal column — every verdict the deeper
+ * look did not admit, by name — which is what makes "nothing came back" tell
+ * "there was nothing" from "it was all gated".
+ *
+ * NO `dedupKey`: a tool call is a deliberate act by a session, not a boundary
+ * that repeats on a timer, and it is bounded by the host's own tool budget.
+ */
+export const MCP_RECALL_EVENT = "mcp.recall";
+/**
  * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
  *
  * The host invokes the hooks by absolute path, so whatever the install tree has
@@ -559,7 +603,9 @@ export type AdapterDurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
+  | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof MCP_RECALL_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -811,6 +857,27 @@ function numberField(event: CounterpartEvent | null, key: string): number | null
 function stringField(event: CounterpartEvent, key: string): string | null {
   const v = event.data?.[key];
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * A counter map with its zeroes dropped, or null when nothing was counted.
+ *
+ * Every sleep phase pre-seeds its whole skip vocabulary with zeroes so that a
+ * category can never go missing from the report; a durable row does not want
+ * eight zeroes per phase per boundary. Null, not `{}`, so the field is absent
+ * rather than empty — "nothing was turned away" reads better as no field than
+ * as an empty object a reader has to interpret.
+ */
+function nonzero(counts: Readonly<Record<string, number>>): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const [reason, n] of Object.entries(counts)) {
+    if (typeof n === "number" && n > 0) {
+      out[reason] = n;
+      any = true;
+    }
+  }
+  return any ? out : null;
 }
 
 /**
@@ -1986,6 +2053,79 @@ export class Counterpart {
     return this.self.revisePage(body, opts);
   }
 
+  // ── the nightly page writer (S2) ───────────────────────────────────────────
+
+  /**
+   * IS THE PAGE OWED A REVISION for the day just gone? Pure; the caller that
+   * acts on it writes the claim. `off` and `observer` are named refusals, not a
+   * bare false, so a mechanism that is standing down says which kind it is.
+   */
+  pageWriterDue(opts: { mode: PageWriterMode; today?: string }): PageWriterDue {
+    return this.self.pageWriterDue(opts);
+  }
+
+  /**
+   * WHAT THE NIGHTLY WRITER IS HANDED — the page as it stands and the day just
+   * gone, bounded and ordered by salience.
+   *
+   * **CONFIDENTIAL ROWS DO NOT GO**, in either mode, and what was held back is
+   * counted onto the run's row. It is the same rule the crash fallback's wake
+   * follows (`sweepWake`) for the same reason: this material is put in front of
+   * a model call, and a row the owner marked confidential is not material for
+   * one. PROTECTED rows are not held back here, and that is the one deliberate
+   * difference: `sweepWake` hides them because its reader is about to propose
+   * new memories from a transcript and must not restate permanent ink as
+   * discovery, while this reader's whole job is to write about the self. The
+   * page itself is governed by `PAGE_ON_EGRESS` where it goes out at all; in
+   * session mode it is already in the session's own wake.
+   *
+   * Pass `omit` to widen the filter; the default is confidential-only.
+   */
+  pageWriterInput(opts: {
+    about: string;
+    today?: string;
+    day?: number;
+    budgetBytes?: number;
+    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+  }): WriterInput {
+    return this.self.pageWriterInput({
+      ...opts,
+      omit: opts.omit ?? ((m): boolean => m.confidential),
+    });
+  }
+
+  /** The run's durable row — the only thing S2 writes that is not the page. */
+  recordPageWriterRun(run: {
+    about: string;
+    mode: PageWriterMode;
+    outcome: PageWriterOutcome;
+    detail?: string;
+    bytesBefore?: number;
+    bytesAfter?: number;
+    considered?: number;
+    omitted?: number;
+    day?: number;
+    dedupKey?: string;
+  }): boolean {
+    return this.self.recordPageWriterRun(run);
+  }
+
+  /** How a date came out, with the derivation named. Pure. */
+  pageWriterStatus(about: string, today?: string): PageWriterStatus {
+    return this.self.pageWriterStatus(about, today);
+  }
+
+  /** Every recorded attempt, newest first. Pure. */
+  pageWriterRuns(opts: { about?: string; limit?: number } = {}): PageWriterRun[] {
+    return this.self.pageWriterRuns(opts);
+  }
+
+  /** Is that night's claim still open? What the page's door asks before it
+   *  writes `by: "writer"` rather than `by: "session"`. Pure. */
+  pageWriterClaimOpen(about: string, today?: string): boolean {
+    return this.self.pageWriterClaimOpen(about, today);
+  }
+
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
   noteOrphanTail(
     sessionId: string,
@@ -2528,6 +2668,22 @@ export class Counterpart {
         ? { budgetExhausted: p.budgetExhausted }
         : {}),
       ...(p.skippedForBudget === 0 ? {} : { skippedForBudget: p.skippedForBudget }),
+      // WHAT THE PHASE TURNED AWAY, BY REASON (2026-09-20, E2).
+      //
+      // `PhaseReport.skipped` has carried this since the phases had budgets —
+      // consolidate mirrors physics' whole `blockedBy` vocabulary into it as
+      // `promotion:<reason>` — and this row threw it away, so "why did this not
+      // promote" stayed unanswerable once the worker exited (mechanism
+      // inventory §1: the system records what happened and almost never records
+      // what was prevented). It is the value the phase already computed; no new
+      // read, nothing new on any path.
+      //
+      // ONLY THE NONZERO ENTRIES. Every phase pre-seeds its whole vocabulary
+      // with zeroes so a category can never go missing, and writing eight zeroes
+      // per phase every boundary is how a log gets too big to read. A category
+      // absent here was not counted; the phase's `status` and `examined` are
+      // what say whether it was reached at all.
+      ...(nonzero(p.skipped) === null ? {} : { skipped: nonzero(p.skipped) }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";

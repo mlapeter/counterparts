@@ -43,6 +43,7 @@
  * Telemetry is content-by-reference throughout: ids, counts, tiers, reasons.
  * No body text, no question text, no note text ever reaches an event.
  */
+import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
@@ -58,7 +59,14 @@ import {
   writeScopes,
 } from "../scopes.js";
 import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
-import { SESSION_TTL_MS, canonicalScope, isLive, readSession, sameScope } from "../sessions.js";
+import {
+  PAGE_WRITER_ENV,
+  SESSION_TTL_MS,
+  canonicalScope,
+  isLive,
+  readSession,
+  sameScope,
+} from "../sessions.js";
 import {
   JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
@@ -77,6 +85,7 @@ import {
 } from "./protocol.js";
 import type { Id, Request, Response } from "./protocol.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
+import type { PageWriterMode } from "../../core/self/index.js";
 import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
 import type { ToolName } from "./tools.js";
 
@@ -117,6 +126,14 @@ export interface McpServerOptions {
   scope?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
+  /**
+   * This process's environment, injected. Read for exactly one thing today —
+   * `COUNTERPARTS_PAGE_WRITER`, the date a windowless nightly writer is writing
+   * about (`claude-code/page-writer.ts`) — and injected rather than reached for
+   * so a test can prove that path without exporting anything into the suite's
+   * own environment.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
   /**
    * The embedder, for ONE purpose: embedding a deliberate question in line.
    *
@@ -276,6 +293,7 @@ export class McpServer {
   private readonly sessionTtlMs: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
+  private readonly env: Readonly<Record<string, string | undefined>>;
   private readonly ring: McpEvent[] = [];
   private initialized = false;
   /** The lazy bind's result: null until a claim is corroborated, then frozen. */
@@ -300,6 +318,7 @@ export class McpServer {
     this.embedder = this.observer ? null : opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
+    this.env = opts.env ?? process.env;
     // LAST in the constructor — `emit` needs `nowFn`. A scope nobody chose is
     // the bug this run measured, so which default won is on the record from the
     // first event rather than inferable only from the memories it stamped.
@@ -697,6 +716,7 @@ export class McpServer {
       truncated: payload["truncated"] === true,
       droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
     });
+    this.noteRecall(result, askedIds.length, question, resolved, payload);
     const bad =
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||
@@ -704,6 +724,83 @@ export class McpServer {
       result.reason === "ids-too-many" ||
       result.reason === "handle-confidential-withheld";
     return this.result(payload, bad);
+  }
+
+  /**
+   * THE DURABLE ROW for one deliberate recall (2026-09-20, E2).
+   *
+   * `docs/recall-surfacing-diagnosis-2026-09-18.md`: this adapter wrote no
+   * durable row at all, so "the session went looking and nothing came" and "the
+   * session never went looking" were the same silence, and the fired view could
+   * only call the mechanism blind. The ring emit above is unchanged — it is the
+   * live debugging channel and it dies with the process; this is the fact that
+   * outlives it.
+   *
+   * **Never the question.** `queryChars` is its LENGTH: a deliberate question
+   * is the one string on this path that could carry somebody's private words,
+   * and a row in a store that will be read months later may not hold it (scar
+   * §2.20). No memory ids either — the counts answer this row's question, and a
+   * durable pairing of ids with the moment somebody asked for them is a link
+   * the store has no need of.
+   *
+   * `blockedBy` DOES carry `confidential-withheld`, which the wire deliberately
+   * does not (§9.1 G5). The two audiences are different: the caller may be any
+   * session, and the row is the owner's own store, where the memory itself is
+   * already sitting. Without it the confidentiality gate stays exactly as
+   * unreadable as the inventory found it — a withholding that happened and one
+   * that never had to, the same absence.
+   *
+   * Never throws: a tool answer may not fail because its telemetry did.
+   */
+  private noteRecall(
+    result: DeliberateResult,
+    askedIds: number,
+    question: unknown,
+    handleResolved: boolean,
+    payload: Record<string, unknown>,
+  ): void {
+    const byAddress = result.path === "handle";
+    const blockedBy: Record<string, number> = { ...(result.blockedBy ?? {}) };
+    // The address paths' refusals are their own `reason` — one per id on the
+    // `ids` path, so three unknown ids read as three and not as one.
+    if (byAddress) {
+      const reasons =
+        result.perId === undefined
+          ? result.reason === "expanded"
+            ? []
+            : [result.reason]
+          : result.perId.filter((p) => p.reason !== "expanded").map((p) => p.reason);
+      for (const r of reasons) blockedBy[r] = (blockedBy[r] ?? 0) + 1;
+    } else if (result.path === "none") {
+      blockedBy[result.reason] = (blockedBy[result.reason] ?? 0) + 1;
+    }
+    try {
+      this.counterpart.noteAdapterEvent(MCP_RECALL_EVENT, {
+        path: result.path,
+        reason: result.reason,
+        // WHAT WAS ASKED, as shapes and sizes. Never the words.
+        queryChars: typeof question === "string" ? question.trim().length : 0,
+        askedIds,
+        handleResolved,
+        semantic: result.semantic,
+        // What came back, split the way the reader's question splits: an
+        // expansion answered an address, a surfacing answered a question.
+        surfaced: byAddress ? 0 : result.memories.filter((m) => m.tier !== "dim").length,
+        dim: byAddress ? 0 : result.memories.filter((m) => m.tier === "dim").length,
+        expanded: byAddress ? result.memories.length : 0,
+        considered: result.considered,
+        storeSize: result.storeSize,
+        owner: this.owner,
+        chars: payload["chars"] ?? 0,
+        truncated: payload["truncated"] === true,
+        droppedForBudget: payload["droppedForBudget"] ?? 0,
+        // THE POINT OF THE ROW: what kept the rest out, by name.
+        blockedBy,
+      });
+    } catch {
+      // The ring emit above already carries this call; a telemetry write that
+      // failed must not become the answer the model receives.
+    }
   }
 
   /**
@@ -1140,9 +1237,31 @@ export class McpServer {
           "`ifVersion` is the whole number the read gave you as `version` (-1 when there was no page), or leave it out.",
       });
     }
+    // BIND FIRST, AND NON-FATALLY. This server is launched from a static host
+    // configuration and never learns which session it serves; it binds lazily,
+    // on the first tool call that carries an id (`requireBoundSession`). Every
+    // other tool that needs one REFUSES without it — but this one has always
+    // worked unbound, so a session claim here is honoured when it corroborates
+    // and simply not honoured when it does not. The page is never refused over
+    // it: what a bad claim costs is the `writer` label, and the ring says why.
+    //
+    // Without this, the page-writer ask could not work at all in session mode.
+    // A session answering it right after its wake has called nothing else, so
+    // `this.session` is null, so the registry mark is never read, so every
+    // night's revision was filed as an ordinary amendment and the night read
+    // as "nothing to say" — the exact inverse of the honesty this is for.
+    const claimedSession = this.bindForPageWriter(args["session"]);
+    // WHICH DOOR THIS IS. `by` is the door's and is not claimable from outside
+    // (`self/page.ts`), so the model's word for "I am the nightly writer" is
+    // worth nothing here. What the server reads instead is the mark the
+    // SessionStart hook left on this session's registry record when it handed
+    // over the page-writer ask, and it is a DATE: a session asked to write
+    // about 09-19 writes `writer` for that run and nothing else, and a stale
+    // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
+    const writerFor = this.pageWriterMark(claimedSession);
     const written = this.counterpart.revisePage(body, {
       reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
-      by: "session",
+      by: writerFor === null ? "session" : "writer",
       // WHICH SESSION, when this server has one. `note` resolves it the same
       // way; null is recorded rather than a guess (adversarial review M3).
       session: this.session,
@@ -1153,7 +1272,27 @@ export class McpServer {
       reason: written.reason,
       bytes: written.bytes,
       version: written.version,
+      writerFor: writerFor?.about ?? null,
+      writerMode: writerFor?.mode ?? null,
     });
+    // THE NIGHT'S OWN ROW, closed here because this is where the answer arrives.
+    // Both arms are recorded: a refused revision is the writer having run and
+    // been turned away, which is a different fact from a night that never
+    // started, and only the row can tell them apart afterwards. A recording
+    // failure costs the row and never the write (§5 G7).
+    if (writerFor !== null) {
+      try {
+        this.counterpart.recordPageWriterRun({
+          about: writerFor.about,
+          mode: writerFor.mode,
+          outcome: written.written ? "revised" : "refused",
+          detail: written.written ? "" : written.reason,
+          bytesAfter: written.written ? written.bytes : 0,
+        });
+      } catch {
+        /* the page is written; the bookkeeping is not worth the answer */
+      }
+    }
     if (!written.written) {
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
@@ -1248,6 +1387,98 @@ export class McpServer {
    *      says which of the four it was, because a model that cannot tell
    *      "unknown id" from "wrong project" cannot do anything about either.
    */
+  /**
+   * IS THIS SESSION THE NIGHT'S WRITER, and for which day?
+   *
+   * `by` on a page revision is the DOOR's and is not claimable from outside
+   * (`self/page.ts`), so this server may not take a tool argument's word for it.
+   * The evidence is a mark only the SessionStart hook writes — `pageWriterFor`,
+   * a DATE, on this session's registry record (`adapters/sessions.ts`) — and it
+   * counts only while that night's claim is still open: a session that lives
+   * past midnight, or one whose night has already been answered, writes as an
+   * ordinary session again. Null on every other path, including an unbound
+   * server, which is the direction that never over-claims.
+   */
+  /**
+   * A session claim on the PAGE's door: corroborated if it can be, ignored if
+   * it cannot, and never a refusal.
+   *
+   * `requireBoundSession` is reused rather than reimplemented — it is the only
+   * place that knows what corroboration means (known to the hooks' registry,
+   * live, and in this server's scope) and it already emits the reason on every
+   * arm. Its refusal VALUE is discarded here, which is the whole difference
+   * between this door and `chapter`'s: a page amendment has never needed a
+   * session and must not start being refused for lack of one.
+   */
+  private bindForPageWriter(claimed: unknown): string | null {
+    if (typeof claimed !== "string" || claimed.length === 0) return null;
+    if (this.session !== null) return this.session === claimed ? claimed : null;
+    // CORROBORATE WITHOUT BINDING (S2 review, MINOR-3). The first version called
+    // `requireBoundSession`, which sets `lazySession` and FREEZES it for the
+    // life of the process — so a page write naming another live in-scope
+    // session would have bound this server to that session, and every later
+    // `note` and `chapter` from it would have been attributed there. The page's
+    // door needs one thing and one thing only: is this id a session I may
+    // label a write with. That is a question, not a binding.
+    const ok = this.corroborate(claimed);
+    if (!ok) {
+      this.emit("mcp.session.unbound", undefined, { reason: "page-writer-claim" });
+      return null;
+    }
+    return claimed;
+  }
+
+  /** Known to the hooks' registry, live, and in THIS server's scope — the same
+   *  three tests `requireBoundSession` makes, asked without the side effect. */
+  private corroborate(claimed: string): boolean {
+    const record = readSession(this.registryDir, claimed);
+    if (record === null) return false;
+    if (!isLive(record, this.nowFn(), this.sessionTtlMs)) return false;
+    return sameScope(record.scope, this.scope);
+  }
+
+  private pageWriterMark(
+    claimedSession: string | null,
+  ): { about: string; mode: PageWriterMode } | null {
+    try {
+      const about = this.pageWriterClaim(claimedSession);
+      if (about === null) return null;
+      // THE MODE COMES FROM THE CLAIM THIS IS CLOSING, not from the channel the
+      // mark arrived by (S2 review, MINOR-2). The env var used to assert
+      // `mode: "host"` on its own, so a session-mode night closed by a process
+      // with that variable exported wrote `mode: host` on a durable row about a
+      // night nothing started in host mode. The open claim knows which it was.
+      const open = this.counterpart
+        .pageWriterRuns({ about })
+        .find((r) => r.outcome === "asked" || r.outcome === "started");
+      if (open === undefined || !this.counterpart.pageWriterClaimOpen(about)) return null;
+      return { about, mode: open.mode };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The two channels the mark can arrive by, and neither is the tool call.
+   *
+   * The ENVIRONMENT is host mode's: the launcher pins the date onto the
+   * windowless child (`claude-code/page-writer.ts`), whose session id the host
+   * mints after the launcher is gone, so there is no registry record to mark.
+   * The REGISTRY is session mode's, written by the SessionStart hook at the
+   * moment it hands the ask over. Both are checked against the night's claim by
+   * the caller, so a value left lying in a shell reaches nothing.
+   */
+  private pageWriterClaim(claimedSession: string | null): string | null {
+    const pinned = (this.env[PAGE_WRITER_ENV] ?? "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return pinned;
+    // The session this call NAMED and that corroborated, else the one this
+    // server was launched bound to. Never an uncorroborated claim.
+    const id = claimedSession ?? this.session;
+    if (id === null) return null;
+    const about = readSession(this.registryDir, id)?.pageWriterFor;
+    return about === undefined || about.length === 0 ? null : about;
+  }
+
   private requireBoundSession(claimed: unknown, tool: ToolName): ToolResult | null {
     const bound = this.session;
     if (bound !== null) {

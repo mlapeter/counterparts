@@ -40,6 +40,13 @@
  *      durable evidence is `blind` and says which row would fix it; a stood-down
  *      one is `disabled` and names the decision; one retired with a phase of the
  *      run is `retired`. None of the three is silence, and none is a fault.
+ *   4. **What was PREVENTED is read, not only what happened** (2026-09-20, E2).
+ *      Until now a mechanism that was stopped at every attempt read exactly like
+ *      one that had nothing to do: both said `never`. A mechanism whose refusals
+ *      are durable — in its own row, or in another row that names them — and
+ *      which did not fire inside the window is `blocked`, and the line says by
+ *      what. `REFUSAL_READERS` is still the only place a refusal column comes
+ *      from, and it still reads only fields a writer already fills.
  */
 import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
 import { dateOf } from "../core/store/index.js";
@@ -74,6 +81,9 @@ export const PROBE_CEILING = 50_000;
  *   - `firing` — a row landed inside the last seven days.
  *   - `quiet` — it has fired before, and not in the last seven days. The state
  *     worth reading first, because it is the one that says something changed.
+ *   - `blocked` — it did not fire inside the window, and something durably said
+ *     why: a refusal landed instead. The difference between "never needed" and
+ *     "stopped every time", which nothing could tell before 2026-09-20.
  *   - `never` — durable evidence exists and has never carried a single row.
  *   - `new` — never fired, but its evidence is younger than the window, so there
  *     has not yet been time for it to be a worry.
@@ -84,6 +94,7 @@ export const PROBE_CEILING = 50_000;
  */
 export const FIRED_STATES = [
   "quiet",
+  "blocked",
   "never",
   "blind",
   "firing",
@@ -97,6 +108,7 @@ export type FiredState = (typeof FIRED_STATES)[number];
  *  A view whose first screen is everything that worked is one nobody scrolls. */
 export const STATE_ORDER: readonly FiredState[] = [
   "quiet",
+  "blocked",
   "never",
   "blind",
   "firing",
@@ -109,6 +121,7 @@ export const STATE_ORDER: readonly FiredState[] = [
 export const STATE_MEANING: Record<FiredState, string> = {
   firing: "a row landed in the last 7 days",
   quiet: "it has fired before, but not in the last 7 days",
+  blocked: "it did not fire this week, and a durable row says what stopped it",
   never: "the evidence exists and has never carried a row",
   new: "never fired, and its evidence is younger than the window — not yet a worry",
   blind: "nothing durable records it, so firing and silence read alike",
@@ -136,6 +149,57 @@ export type Evidence =
   | { readonly kind: "probe"; readonly probe: ProbeId; readonly undated?: string }
   | { readonly kind: "none"; readonly reason: string };
 
+/**
+ * WHERE A MECHANISM'S REFUSALS LIVE, when they are not in its own row (E2).
+ *
+ * Four of the night's mechanisms succeed under one name and are prevented under
+ * another: promotion's successes are `band.promoted` and its refusals ride the
+ * cycle row, the spawn seam's start and its refusals are three separate names.
+ * Naming the refusal rows here lets a row read "blocked, by X" without the
+ * refusal rows being mistaken for firings — `total` and `inWindow` still count
+ * only the EVIDENCE names.
+ */
+export interface RefusalSource {
+  readonly names: readonly DurableEventName[];
+  /**
+   * Take only the reasons under this prefix, and strip it for display. The
+   * cycle row carries four phases' refusals in one map, keyed `<phase>/<reason>`
+   * (`sleep/cycle.ts`), so one row answers for four mechanisms without any of
+   * them claiming another's.
+   */
+  readonly under?: string;
+  /**
+   * THE ALLOW-LIST OF REAL GATES, and the most important field here.
+   *
+   * A namespace is not a refusal channel. Physics' `blockedBy` vocabularies are
+   * mostly **"not yet"** — `base-below-identity-threshold`, `dwell-too-short`,
+   * `above-floor`, `below-tau` — which describe the ordinary condition of
+   * nearly every memory on every healthy night and scale with store size ×
+   * nights. Reading a namespace wholesale made a store where NOTHING is wrong
+   * report `BLOCKED prune … dwell-too-short ×240`, permanently, in the first
+   * section printed. That is the `journal ×14` false alarm this field exists to
+   * stop, one namespace over, and it was found by running seven real boundaries
+   * over forty ordinary memories rather than by reading.
+   *
+   * So a reason counts as a refusal only if it is named here. The test is
+   * whether a NAMED RULE turned away a candidate that otherwise qualified —
+   * `protected` is the owner saying no; `dwell-too-short` is arithmetic saying
+   * not yet. A mechanism with no such reason in its vocabulary gets no refusal
+   * column at all, which is the honest answer rather than an empty one.
+   */
+  readonly only?: readonly string[];
+  /**
+   * The date this refusal CHANNEL began carrying data, when it is recent.
+   *
+   * `wentBlocked` compares two windows, and a channel that did not exist in the
+   * older one makes a schema change look like a regression — "your prune phase
+   * stopped working on deploy day" when all that happened is that the rows
+   * started carrying a field. The state still reads `blocked`, which is true;
+   * only the WEEK-OVER-WEEK claim is withheld until both windows can answer.
+   */
+  readonly since?: string;
+}
+
 export interface Mechanism {
   /** Stable machine name — the `--json` key, and what a test pins. */
   readonly id: string;
@@ -148,6 +212,8 @@ export interface Mechanism {
   /** Where the code lives, for the reader who wants to go and look. */
   readonly module: string;
   readonly evidence: Evidence;
+  /** Rows that say this mechanism was PREVENTED, when they are not its own. */
+  readonly refusals?: RefusalSource;
   /**
    * The calendar date the EVIDENCE was added, when it is recent. A mechanism
    * that has never fired but whose row is three days old is `new`, not `never`:
@@ -320,14 +386,14 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // Durable since 2026-09-20 (E2). The row carries what was asked as shapes
+    // and sizes — never the question — how much came back, and every verdict
+    // that kept something out, which is the refusal column below.
     id: "deliberate-recall",
     label: "the session went looking for a memory on purpose and opened it in full",
     module: "mcp/deliberate.ts",
-    evidence: {
-      kind: "none",
-      reason:
-        "the whole tool surface writes no durable row; one `mcp.recall` event per call — tool, results, expanded, refused — would fix it.",
-    },
+    evidence: { kind: "event", names: ["mcp.recall"] },
+    since: "2026-09-20",
   },
   {
     id: "association",
@@ -393,24 +459,80 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "memories weaken with time and drop to a lower band",
     module: "physics/, sleep/decay.ts",
     evidence: { kind: "event", names: ["band.transition"] },
+    // NO REFUSAL COLUMN, deliberately. Every entry in `DECAY_SKIPS` is a
+    // candidate filter — archived, removed, journal, identity-band,
+    // reinforced-today, at-floor, under-audit, unchanged — and not one of them
+    // is a gate saying no to a row it considered. Decay is arithmetic; there is
+    // nothing here for it to be blocked BY.
   },
+  // The phases whose SUCCESS has always been durable and whose REFUSALS were an
+  // in-process ring until 2026-09-20 (E2).
+  //
+  // **A NAMESPACE IS NOT A REFUSAL CHANNEL, AND THAT COST TWO ROUNDS TO LEARN.**
+  // The first attempt read each phase's whole `skipped` map, which mixes
+  // candidate filters (`journal`, `archived`, `schema`) with refusals, and
+  // would have reported `blocked, most often journal ×14` every week. The
+  // second read only each phase's own refusal NAMESPACE (`promotion:`,
+  // `blocked:`, `left-alone:`) — and an adversarial review ran seven real
+  // boundaries over forty ordinary memories and found the same false alarm
+  // waiting there: `BLOCKED prune … dwell-too-short ×240` on a store where
+  // nothing whatever is wrong, because physics' refusal vocabulary is itself
+  // mostly "not yet".
+  //
+  // So every reason is classified by hand below, and only the GATES are read.
+  // The test: did a NAMED RULE turn away a candidate that otherwise qualified?
   {
+    // NO REFUSAL COLUMN. `PromotionReason` is `already-identity` (it is already
+    // there — nothing to do), `base-below-identity-threshold` and
+    // `insufficient-distinct-days` (not yet). Not one of the three is a gate:
+    // promotion is a threshold, and a memory under a threshold has not been
+    // refused, it has not arrived. `docs/promotion-diagnosis-2026-09-17.md`'s
+    // real question — "did the phase even REACH these rows" — is answered by
+    // `budgetExhausted` and `skippedForBudget` on the same cycle row, which is
+    // where it belongs.
     id: "promotion",
     label: "a memory reinforced over several days is promoted into identity",
     module: "sleep/consolidate.ts",
     evidence: { kind: "event", names: ["band.promoted"] },
   },
   {
+    // TWO GATES out of six. `declared-revision-never-merged` and
+    // `revision-successor-never-merged` are rules refusing a merge that the
+    // similarity would otherwise have made — the owner declared a revision, and
+    // a revision is not a duplicate. The rest are not: `below-tau` and
+    // `identical-content-hash`/`cosine-at-or-above-tau` are measurements, and
+    // `no-similarity-supplied` is the embedder being off, which fires for EVERY
+    // pair on the default configuration and already has its own amber on
+    // doctor's Embedder line.
     id: "dedup",
     label: "a duplicate is merged into the memory it duplicates",
     module: "sleep/dedup.ts",
     evidence: { kind: "event", names: ["memory.merged"] },
+    refusals: {
+      names: ["sleep.cycle"],
+      under: "dedup/left-alone:",
+      only: ["declared-revision-never-merged", "revision-successor-never-merged"],
+      since: "2026-09-20",
+    },
   },
   {
+    // TWO GATES out of five. `protected` is the owner saying this may never be
+    // forgotten; `in-live-revision-chain` is a live chain holding a row that
+    // the floor would otherwise have let go. Both are a rule refusing a memory
+    // that qualified. `above-floor`, `dwell-too-short` and `band-not-episodic`
+    // are the ordinary condition of almost every memory on almost every night —
+    // the reviewer measured `dwell-too-short ×240` on a healthy forty-memory
+    // store after seven boundaries.
     id: "prune",
     label: "a memory that has sat at the floor long enough is let go",
     module: "sleep/prune.ts",
     evidence: { kind: "event", names: ["memory.pruned"] },
+    refusals: {
+      names: ["sleep.cycle"],
+      under: "prune/blocked:",
+      only: ["protected", "in-live-revision-chain"],
+      since: "2026-09-20",
+    },
   },
   {
     id: "revision",
@@ -419,13 +541,19 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["revision.pressure"] },
   },
   {
+    // NARROWED 2026-09-20 (E2). This used to name all four. Promotion, prune
+    // and dedup now carry their refusals on the rows above, read out of the
+    // cycle row's per-phase skip map under each phase's own reason namespace.
+    // Revision is the one left: its refusals never reach the cycle, because the
+    // pressure arm runs in `schemas/` off a credited challenge and not in a
+    // sleep phase at all.
     id: "night-refusals",
-    label: "why a memory was NOT promoted, pruned, merged or revised",
-    module: "sleep/, physics/, schemas/",
+    label: "why a belief was NOT revised under a challenge it took",
+    module: "schemas/index.ts",
     evidence: {
       kind: "none",
       reason:
-        "each of those four writes a durable row when it succeeds and only an in-process note when it refuses, so 'why did this not promote' is unanswerable once the worker exits. A `blockedBy` roll-up on the cycle row that already exists would fix all four at once.",
+        "the credit is durable and the refusal is an in-process ring (`schemas/index.ts:682`), so a belief that refused a challenge and one that was never challenged read alike. A `refused` map on the `revision.pressure` row that already exists would fix it.",
     },
   },
   {
@@ -453,6 +581,34 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["self.page.revised"] },
     covers: ["self.page.refused"],
     since: "2026-09-18",
+  },
+  // The nightly writer (2026-09-20, S2) is its own row and not a `covers` on the
+  // one above, because the two answer different questions. `self-page` asks "has
+  // the page ever been amended", and a page the owner typed makes it green
+  // forever; this asks "did last night happen", which is the question a page
+  // that has stopped growing is the symptom of. A night that read the day and
+  // had nothing to say still fires this row — that is the mechanism working.
+  //
+  // **NO `refusals` CHANNEL, on purpose** (checked against E2, 2026-09-20).
+  // This mechanism has plenty of named skips — `no-previous-day`,
+  // `already-claimed`, `asks-spent`, `no-memories`, `off`, and the two durable
+  // deferrals `no-room` and `scope-question` — and almost none of them is a
+  // GATE by the test `RefusalSource.only` sets. They are the ordinary condition
+  // of most of every day: after the first ask, `already-claimed` is what a
+  // healthy store says at every session start until midnight. Declaring them
+  // would reproduce the `dwell-too-short ×240` false alarm one namespace over.
+  // The one that is arguably a real gate — `no-room`, the host's ceiling
+  // turning away a block that qualified — already has a louder and better-aimed
+  // surface: doctor's Page writer line goes amber after two owed days and names
+  // `injectionBudgetBytes` in its fix. A second surface saying `blocked` for
+  // ever on a store with a tight ceiling would be the duplication E2's own
+  // review warned about.
+  {
+    id: "page-writer",
+    label: "the day just lived was read back and my page was offered a revision",
+    module: "self/writer.ts",
+    evidence: { kind: "event", names: ["self.page.writer.ran"] },
+    since: "2026-09-20",
   },
   {
     id: "wake-injected",
@@ -508,10 +664,26 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // STILL BLIND, and the rows are built and waiting (2026-09-20, E2).
+    //
+    // `prospective.fire` and `prospective.fire.refused` exist now and are
+    // written by `Prospective.fire()`. What does NOT exist is a caller: the
+    // only one in the tree is `tools/demo/seed.ts` (mechanism inventory §3 S4).
+    // So pointing this row's evidence at the new name would make it read `new`
+    // for two days and then `never` for ever — durable evidence asserted for a
+    // mechanism nothing can make fire, which is the blind case wearing a never
+    // label, and exactly the confusion this view exists to break.
+    //
+    // It goes back to event evidence the day the surfacing path spends a fire.
     id: "prospective-fired",
     label: "that future date arrived and the reminder came back",
     module: "prospective/",
-    evidence: { kind: "probe", probe: "prospective.fired" },
+    evidence: {
+      kind: "none",
+      reason:
+        "the two rows that would record it now exist (`prospective.fire`, `prospective.fire.refused`) and nothing calls `fire()` outside the demo seeder, so no row can land: `arrivals()` is read every turn but the fire budget is never spent. Wiring the surfacing path to spend it is what closes this, not another row.",
+    },
+    covers: ["prospective.fire", "prospective.fire.refused"],
   },
 
   // ── the machinery underneath ─────────────────────────────────────────────
@@ -528,15 +700,18 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["adapter.semantic.lag"] },
   },
   {
+    // The row the note below asked for, written since 2026-09-20 (E2) — one per
+    // calendar date, latched, because a boundary is a hot path. Its refusals
+    // come from the three rows of `worker-trouble`, which is what turns a week
+    // of silence from `never` into `blocked, by NO_CREDENTIAL`.
     id: "worker-start",
     label: "the background worker started when a session reached a boundary",
     module: "claude-code/hooks.ts, bin/runner.ts",
-    evidence: {
-      kind: "none",
-      reason:
-        "only a REFUSAL or a failure leaves a row; a healthy start leaves nothing, so a worker that has been dead all week and a week with nothing to do read exactly alike. One `adapter.spawn.started` row per boundary would fix it.",
+    evidence: { kind: "event", names: ["adapter.spawn.started"] },
+    refusals: {
+      names: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
     },
-    covers: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
+    since: "2026-09-20",
   },
   {
     id: "worker-trouble",
@@ -644,7 +819,42 @@ export interface FiredReport {
    * by label. The one list on this page that says something CHANGED.
    */
   readonly wentQuiet: readonly string[];
+  /**
+   * Mechanisms that fired in the PREVIOUS seven days, not once in this one, and
+   * were REFUSED instead — `wentQuiet`'s sibling, and the more alarming of the
+   * two.
+   *
+   * It exists because `blocked` outranks `quiet` in the state machine, so a
+   * mechanism that fired last week and was turned away every day this week
+   * leaves `wentQuiet` and would have left no list at all. Doctor's Fired line
+   * grades on both, or adding a state that says MORE would have made the
+   * finding read greener.
+   */
+  readonly wentBlocked: readonly string[];
+  /** The store's own clock — the number of days it has actually LIVED. */
+  readonly livedDay: number;
+  /** Calendar days between the oldest row this pass read and today, or null
+   *  when the store holds no durable row at all. */
+  readonly calendarDays: number | null;
+  /**
+   * TOO NEW TO GRADE (2026-09-20, finding 2).
+   *
+   * A store minutes old opened this view with twenty-eight `never` lines, which
+   * is what a broken install looks like. Nothing had fired because nothing had
+   * happened yet, and no surface said so. `young` is that sentence as a fact the
+   * three renderers share rather than each deciding for itself.
+   *
+   * BOTH clocks have to agree. A lived day is advanced by the worker, so a store
+   * whose worker has been dead for a fortnight also reads lived day 0 — and that
+   * store must get the full list, because the full list is the diagnosis. So:
+   * fewer than `YOUNG_LIVED_DAYS` lived days AND no durable row older than
+   * `YOUNG_LIVED_DAYS` calendar days.
+   */
+  readonly young: boolean;
 }
+
+/** Under this many lived days — and calendar days — a store is too new to grade. */
+export const YOUNG_LIVED_DAYS = 2;
 
 export interface FiredOptions {
   /**
@@ -662,6 +872,31 @@ export function daysBefore(today: string, back: number): string {
   const at = Date.parse(`${today}T00:00:00Z`);
   if (Number.isNaN(at)) return today;
   return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** True when this mechanism's refusal channel is younger than the window the
+ *  `wentBlocked` comparison measures against, so the two weeks are not
+ *  comparable and the claim is withheld rather than made wrongly. */
+function comparisonIsTooYoung(id: string, w: Window): boolean {
+  const since = MECHANISMS.find((m) => m.id === id)?.refusals?.since;
+  return since !== undefined && since > w.previousFrom;
+}
+
+/** Whole UTC days from `from` to `to`, 0 when either date does not parse. */
+export function daysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** The lived clock, or 0. A diagnostic may not become the thing that throws. */
+function safeLivedDay(store: Store): number {
+  try {
+    return store.livedDay();
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -691,6 +926,10 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
   const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
   for (const row of rows) counts[row.state] += 1;
 
+  const livedDay = safeLivedDay(store);
+  const calendarDays =
+    log.oldestDate === null ? null : Math.max(0, daysBetween(log.oldestDate, today));
+
   return {
     today,
     from: window.from,
@@ -702,6 +941,22 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
     probesRead: probed !== null,
     probesTruncated: probed?.truncated ?? false,
     counts,
+    livedDay,
+    calendarDays,
+    young: livedDay < YOUNG_LIVED_DAYS && (calendarDays === null || calendarDays < YOUNG_LIVED_DAYS),
+    // WEEK OVER WEEK, and only where BOTH weeks could answer. A refusal channel
+    // younger than the older window makes a schema change read as a regression
+    // — "your prune phase stopped working on deploy day" when all that happened
+    // is that the rows started carrying a field. The row still says `blocked`,
+    // which is true of this week; the comparison is what is withheld.
+    wentBlocked: rows
+      .filter(
+        (r) =>
+          r.state === "blocked" &&
+          r.firedInPreviousWindow > 0 &&
+          !comparisonIsTooYoung(r.id, window),
+      )
+      .map((r) => `${r.label} (${r.topRefusal ?? UNNAMED_REFUSAL})`),
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,
@@ -747,7 +1002,13 @@ interface Reading {
   readonly inPreviousWindow: number;
   readonly refused: number;
   readonly topRefusal: string | null;
+  /** Every refusal reason and its count, so a source read from another row can
+   *  be merged in without re-reading the log. */
+  readonly refusals: ReadonlyMap<string, number>;
   readonly evidence: string;
+  /** The rows the refusal column came from — the same as `evidence` unless the
+   *  refusals live somewhere else (`Mechanism.refusals`). */
+  readonly refusalEvidence: string;
   /** Set when this evidence cannot answer the question at all. */
   readonly blind: string | null;
 }
@@ -760,7 +1021,9 @@ const EMPTY_READING: Reading = {
   inPreviousWindow: 0,
   refused: 0,
   topRefusal: null,
+  refusals: new Map(),
   evidence: "",
+  refusalEvidence: "",
   blind: null,
 };
 
@@ -795,6 +1058,10 @@ function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
   if (m.retired !== undefined) return "retired";
   if (read.blind !== null) return "blind";
   if (read.inWindow > 0) return "firing";
+  // DID NOT FIRE, AND SOMETHING SAID WHY (E2). This outranks both `quiet` and
+  // `never` because it answers the question they leave open: a mechanism that
+  // was turned away every time it was reached is not one that had nothing to do.
+  if (read.refused > 0) return "blocked";
   if (read.total > 0) return "quiet";
   // Never fired. A mechanism whose EVIDENCE is younger than the window has not
   // had time to be a worry yet, and grading it as one is how a view teaches its
@@ -808,17 +1075,61 @@ function noteFor(m: Mechanism, read: Reading, state: FiredState): string | null 
   if (state === "retired") return m.retired ?? null;
   if (state === "blind") return read.blind;
   if (state === "new" && m.since !== undefined) return `its evidence was added ${m.since}`;
+  if (state === "blocked") {
+    // The whole point of the state, in one sentence: not "quiet", not "never" —
+    // reached, and stopped, this many times, by this.
+    const by = read.topRefusal === null ? "" : `, most often ${read.topRefusal}`;
+    return `it did not fire this week; ${String(read.refused)} refusal${
+      read.refused === 1 ? "" : "s"
+    } landed instead${by} (${read.refusalEvidence})`;
+  }
   return null;
 }
 
 function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null): Reading {
-  if (m.evidence.kind === "none") {
-    return { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason };
+  const base =
+    m.evidence.kind === "none"
+      ? { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason }
+      : m.evidence.kind === "probe"
+        ? probeReading(m.evidence.probe, m.evidence.undated ?? null, probed)
+        : eventReading(m.evidence.names, log);
+  if (m.refusals === undefined) return base;
+  // Refusals from ANOTHER row, folded in without touching the counts that say
+  // whether this mechanism fired.
+  const extra = refusalReading(m.refusals, log);
+  if (extra.refused === 0) return { ...base, refusalEvidence: base.evidence };
+  const merged = new Map<string, number>(extra.refusals);
+  for (const [reason, n] of base.refusals) merged.set(reason, (merged.get(reason) ?? 0) + n);
+  return {
+    ...base,
+    refused: base.refused + extra.refused,
+    refusals: merged,
+    topRefusal: topOf(merged),
+    refusalEvidence: m.refusals.names.join(", "),
+  };
+}
+
+/** The refusal half of a reading, from rows that are NOT this mechanism's
+ *  evidence. It contributes no `total`, no `lastFired` and no `inWindow`: a
+ *  refusal is the opposite of a firing, and counting it as one is the bug. */
+function refusalReading(src: RefusalSource, log: LogRead): { refused: number; refusals: Map<string, number> } {
+  const refusals = new Map<string, number>();
+  let refused = 0;
+  for (const name of src.names) {
+    const t = log.byName.get(name);
+    if (t === undefined) continue;
+    for (const [reason, n] of t.refusals) {
+      if (src.under !== undefined && !reason.startsWith(src.under)) continue;
+      const key = src.under === undefined ? reason : reason.slice(src.under.length);
+      // THE ALLOW-LIST. Everything a phase counted that is not named here is a
+      // candidate filter, not a refusal, and counting it is how this view
+      // teaches its reader to ignore it.
+      if (src.only !== undefined && !src.only.includes(key)) continue;
+      refusals.set(key, (refusals.get(key) ?? 0) + n);
+      refused += n;
+    }
   }
-  if (m.evidence.kind === "probe") {
-    return probeReading(m.evidence.probe, m.evidence.undated ?? null, probed);
-  }
-  return eventReading(m.evidence.names, log);
+  return { refused, refusals };
 }
 
 function eventReading(names: readonly DurableEventName[], log: LogRead): Reading {
@@ -848,7 +1159,9 @@ function eventReading(names: readonly DurableEventName[], log: LogRead): Reading
     inPreviousWindow,
     refused,
     topRefusal: topOf(refusals),
+    refusals,
     evidence: names.join(", "),
+    refusalEvidence: names.join(", "),
     blind: null,
   };
 }
@@ -877,6 +1190,9 @@ interface NameTally {
 interface LogRead {
   readonly byName: ReadonlyMap<string, NameTally>;
   readonly truncated: boolean;
+  /** The calendar date of the OLDEST row this pass saw, for the store's age.
+   *  A truncated read is the oldest rows, so this stays right when it happens. */
+  readonly oldestDate: string | null;
 }
 
 function emptyTally(): NameTally {
@@ -902,9 +1218,12 @@ function emptyTally(): NameTally {
  */
 function readLog(store: Store, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
+  const age = { oldest: null as string | null };
   const first = store.eventLog({ limit: EVENT_CEILING });
-  for (const row of first) tallyRow(byName, row, w);
-  if (first.length < EVENT_CEILING) return { byName, truncated: false };
+  for (const row of first) tallyRow(byName, row, w, age);
+  if (first.length < EVENT_CEILING) {
+    return { byName, truncated: false, oldestDate: age.oldest };
+  }
   const lastSeq = first[first.length - 1]?.seq ?? 0;
   // A lived day is never longer than a calendar day, so `livedDay - 14` cannot
   // cut a row inside the fourteen calendar days the two windows cover.
@@ -914,12 +1233,17 @@ function readLog(store: Store, w: Window): LogRead {
   });
   for (const row of recent) {
     if (row.seq <= lastSeq) continue;
-    tallyRow(byName, row, w);
+    tallyRow(byName, row, w, age);
   }
-  return { byName, truncated: true };
+  return { byName, truncated: true, oldestDate: age.oldest };
 }
 
-function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window): void {
+function tallyRow(
+  byName: Map<string, NameTally>,
+  row: EventRow,
+  w: Window,
+  age: { oldest: string | null },
+): void {
   let t = byName.get(row.name);
   if (t === undefined) {
     t = emptyTally();
@@ -928,6 +1252,7 @@ function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window): voi
   t.total += 1;
   const payload = payloadOf(row);
   const date = rowDate(row, payload);
+  if (age.oldest === null || date < age.oldest) age.oldest = date;
   if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
   const inWindow = date >= w.from && date <= w.to;
   if (inWindow) t.inWindow += 1;
@@ -991,6 +1316,63 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
     const reason = str(p, "reason");
     return reason === null ? [] : [[reason, 1]];
   },
+  // THE SPAWN SEAM'S THREE (E2). Each row IS a refusal; the reason it carries is
+  // the whole column, exactly like `snapshot.failed` above.
+  //
+  // **Counted as ONE per row on purpose.** These three are the one durable
+  // family that carries a `dedupKey` — one row per reason per calendar date
+  // (I32) — so the honest unit here is DAYS the worker was stopped, not
+  // attempts. The row's own `count` field is a running counter that a single
+  // successful start resets, so summing it across days would invent a number
+  // nothing measured.
+  "adapter.spawn.refused": (p) => reasonOnce(p),
+  "adapter.spawn.failed": (p) => reasonOnce(p),
+  "adapter.runner.failed": (p) => reasonOnce(p),
+  // THE NIGHT'S REFUSALS (E2). Every phase counts what it turned away by reason
+  // and the cycle row has carried them since 2026-09-20, so "why did this not
+  // promote" is answerable from the store. Keyed `<phase>/<reason>` because one
+  // row answers for four mechanisms and none of them may claim another's — the
+  // `under` prefix on `Mechanism.refusals` is how each takes only its own.
+  "sleep.cycle": (p) => {
+    const out: [string, number][] = [];
+    const phases = p["phases"];
+    if (!Array.isArray(phases)) return out;
+    for (const entry of phases) {
+      if (entry === null || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      const phase = typeof e["phase"] === "string" ? e["phase"] : null;
+      if (phase === null) continue;
+      for (const [reason, n] of countsIn(e, "skipped")) out.push([`${phase}/${reason}`, n]);
+    }
+    return out;
+  },
+  // Every refused write to the page IS a refusal, and the reason is the column.
+  "self.page.refused": (p) => reasonOnce(p),
+  // Same shape: the row IS the brake that held, named.
+  "prospective.fire.refused": (p) => reasonOnce(p),
+  /**
+   * THE DELIBERATE LOOK'S CAPS, AND ONLY ITS CAPS.
+   *
+   * The row's `blockedBy` holds every verdict that kept something out, which is
+   * what makes it a diagnostic. Most of those verdicts are not refusals:
+   * `dark-uncued`, `below-floor` and `cue-fraction` mean "this memory was not
+   * relevant", and `inhibited` means "a stronger twin already came back". One
+   * ordinary question on a seventeen-memory store produced
+   * `{"below-floor": 12}` — twelve memories that simply had nothing to do with
+   * what was asked.
+   *
+   * `dim-cap:*` IS a refusal: those memories were reachable by effort and the
+   * cap is what stopped them.
+   *
+   * `confidential-withheld` is deliberately NOT read, though the row keeps it.
+   * It is the one verdict this package holds silent to the asker (§9.1 G5), and
+   * every reader of this table renders to a screen — a console, a dashboard
+   * panel — which is a third audience that gets screenshotted and screen-shared.
+   * The row is for the owner reading their own store; a rendered line is not the
+   * same thing, and the difference is the whole of the confidentiality rule.
+   */
+  "mcp.recall": (p) =>
+    countsIn(p, "blockedBy").filter(([reason]) => reason.startsWith("dim-cap:")),
   // `rendered` is the turn that surfaced something; every other reason is a turn
   // that decided to stay quiet, which is what a refusal is here.
   "recall.decision": (p) => {
@@ -998,6 +1380,22 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
     return reason === null || reason === "rendered" ? [] : [[reason, 1]];
   },
 };
+
+/**
+ * A row that IS a refusal: its `reason`, counted once.
+ *
+ * A row with no readable `reason` still counts (2026-09-20). It used to return
+ * nothing at all, so a store holding an `adapter.spawn.refused` row with a
+ * malformed payload reported the worker as never refused — the store knew and
+ * the view said otherwise, which is the exact failure this whole page is about.
+ * `UNNAMED` is what a reader sees instead, and it is the truth: something was
+ * turned away and the row does not say what by.
+ */
+export const UNNAMED_REFUSAL = "(no reason recorded)";
+
+function reasonOnce(p: Record<string, unknown>): [string, number][] {
+  return [[str(p, "reason") ?? UNNAMED_REFUSAL, 1]];
+}
 
 function countsIn(p: Record<string, unknown>, key: string): [string, number][] {
   const raw = p[key];
@@ -1094,7 +1492,11 @@ function readProbes(store: Store, w: Window): Probed {
 }
 
 function probeReading(probe: ProbeId, undated: string | null, probed: Probed | null): Reading {
-  const base: Reading = { ...EMPTY_READING, evidence: probeLabel(probe) };
+  const base: Reading = {
+    ...EMPTY_READING,
+    evidence: probeLabel(probe),
+    refusalEvidence: probeLabel(probe),
+  };
   if (probed === null) return { ...base, blind: "the tables were not read on this pass" };
   const t = probed.byId.get(probe);
   if (t === undefined || t.total === 0) return base;

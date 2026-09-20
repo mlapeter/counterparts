@@ -47,6 +47,7 @@ import {
   RECALL_DELIVERED_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -71,7 +72,13 @@ import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
-import { capabilities, interpretSeat } from "./config.js";
+import {
+  SELF_PAGE_WRITER_EVENT,
+  SELF_TUNABLES,
+  writerInstruction,
+  writerInstructionOverhead,
+} from "../../core/self/index.js";
+import { capabilities, interpretSeat, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
@@ -165,11 +172,21 @@ export interface HookResult {
    * blocked moment grew back into two asks (§13 G3).
    *
    * SessionStart uses the same field for the first-launch scope question
-   * (`SCOPE_ASK`, G41), and it is the same field for the same reason: it is the
-   * one channel that reaches the model WITHOUT being inside the wake bundle,
-   * whose byte count and tail line are stated by its own sentinel. The two can
-   * never collide — one fires only at `session-start`, the other only at
-   * `stop`, and the Stop pacer is untouched by this.
+   * (`SCOPE_ASK`, G41) and, since S2, for the nightly page writer's block. It
+   * is the same field for the same reason: it is the one channel that reaches
+   * the model WITHOUT being inside the wake bundle, whose byte count and tail
+   * line are stated by its own sentinel.
+   *
+   * **Three claimants, and the rule is not "they cannot collide" any more** —
+   * that sentence was true when there were two, one at `session-start` and one
+   * at `stop`. The Stop ask still cannot meet either of the others, and the
+   * Stop pacer is untouched by both. The two SessionStart ones CAN want the
+   * field on the same morning, and there the first-launch question wins: it is
+   * asked once in the life of a directory and ends when anybody answers, while
+   * the writer's comes back tomorrow at no cost. The loser is deferred with an
+   * event, never concatenated — two unrelated requests in front of a session
+   * that has just woken is the shape §13 G3 is about, even though the pacer is
+   * not involved.
    */
   readonly ask: string | null;
   readonly spansAppended: number;
@@ -269,6 +286,55 @@ export const SCOPE_ASK = [
 export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
 
 /**
+ * THE NIGHTLY PAGE WRITER'S ASK, in `session` mode (S2, 2026-09-20).
+ *
+ * The plan's fallback for "who runs the nightly writer", and the one that needs
+ * no background process: when nothing has revised the page for the day just
+ * gone, the first session of the next day is handed that day and asked to do
+ * the night's work. It rides in `HookResult.ask` — beside the wake, never
+ * inside it — for the reason the scope question does: the wake's byte count and
+ * its tail sentinel are load-bearing, and text appended inside the bundle would
+ * make `bytes`, the sentinel's number and the tail disagree.
+ *
+ * **It is not a second pacer.** The scar this package carries about pacers
+ * (`self/CONTRACT.md` §3, "one ask, one pacer, a conjunction") is about the
+ * BLOCKED MOMENT at Stop, where two asks on two substance pacers once drew
+ * about a dozen asks from a 13-turn evening. Nothing here touches that: this
+ * fires at SessionStart, it consults no substance, and its cadence is the day
+ * boundary itself — at most `PAGE_WRITER_ASKS_PER_DAY` sessions are handed one
+ * day, and the first durable row claims it for everyone.
+ *
+ * The TEXT is the core's (`self/writer.ts#writerInstruction`), because it
+ * carries the page and the day and those are memory, not host trivia. What is
+ * mechanized here is that the moment exists, that it fits inside the reported
+ * ceiling or is deferred rather than truncated, that one session is asked once,
+ * and that the ask leaves a durable row (CONTRACT §5 G9).
+ */
+export const PAGE_WRITER_TOOL = "counterparts self_page";
+
+/** The separator `bin/hook.ts#hostDelivery` joins the ask on after the wake. */
+export const ASK_SEPARATOR_BYTES = 2;
+
+/**
+ * How many recorded deferrals the first-launch question gets before the writer
+ * takes the ask field instead.
+ *
+ * ONE, because the two asks are not symmetrical. The scope question is
+ * per-SESSION and comes back at the next one at no cost; the writer's night
+ * happens once, and a night that passes is a day missing from the page for
+ * good. On a blank store the scope question is exactly what is pending on
+ * nights 1–3, so an unanswered one starved the writer for as long as nobody
+ * answered — which on a store where nobody ever does is for ever (S2 review,
+ * MINOR-5).
+ *
+ * It counts DEFERRAL ROWS, which are deduped one per night per reason, so the
+ * flip is "this night has already lost the field once" — the first session of a
+ * day raises the scope question, the second gives the writer its night, and the
+ * third raises the scope question again because the night is claimed by then.
+ */
+export const SCOPE_PATIENCE_DEFERRALS = 1;
+
+/**
  * THE ONE STOP ASK — v2's front door and its journal, in one text.
  *
  * The wording is advisory (remember G11 [A], CONTRACT §5 G9); that an ask exists
@@ -335,6 +401,15 @@ const EVENT_RING = 500;
  * Meta keys, not a schema change — the same shape `sleep.pruned.<id>` uses.
  */
 export const SPAWN_REFUSAL_PREFIX = "adapter.spawn.refusals.";
+
+/**
+ * The other side's counter (2026-09-20, E2): how many times the worker HAS
+ * started today. Two fixed keys rather than one per date, because nothing mows
+ * meta and the only question the `adapter.spawn.started` row asks of it is "how
+ * many today" — the row itself carries the date.
+ */
+export const SPAWN_START_DATE_KEY = "adapter.spawn.started.date";
+export const SPAWN_START_COUNT_KEY = "adapter.spawn.started.count";
 
 export class ClaudeCodeAdapter {
   readonly counterpart: Counterpart;
@@ -526,7 +601,21 @@ export class ClaudeCodeAdapter {
       // smuggled past the limit — the session record is left unmarked, so the
       // next session in this directory asks instead, and the deferral is an
       // event rather than a silence.
-      const ask = wantsAsk ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
+      //
+      // TWO ASKS CAN NOW WANT THIS FIELD, and the first-launch question wins.
+      // It is asked once in the life of a directory and ends when anybody
+      // answers; the page writer's comes back tomorrow at no cost. Concatenating
+      // them would put two unrelated requests in front of a session that has
+      // just woken, which is the shape §13 G3 is about even though the pacer is
+      // not. The loser is DEFERRED with a row, never dropped silently.
+      // ...and after two mornings of losing, the writer goes first. The scope
+      // question is advisory and returns at the next session; a night that
+      // passes is a day missing from the page for good (S2 review, MINOR-5).
+      const scopeFirst = wantsAsk && !this.writerStarvedByScope();
+      const ask = scopeFirst ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
+      const chosen =
+        ask.length > 0 ? ask : this.deliverPageWriterAsk(input, woke.bytes, budget, false);
+      if (ask.length > 0) this.deliverPageWriterAsk(input, woke.bytes, budget, true);
       return {
         ...out,
         ok: woke.ok,
@@ -534,7 +623,7 @@ export class ClaudeCodeAdapter {
         injection: woke.text,
         bytes: woke.bytes,
         sentinel: woke.sentinel,
-        ask: ask.length === 0 ? null : ask,
+        ask: chosen.length === 0 ? null : chosen,
       };
     });
   }
@@ -593,6 +682,229 @@ export class ClaudeCodeAdapter {
     });
     this.emit("adapter.scope.ask", { bytes: SCOPE_ASK_BYTES, recorded: marked !== null });
     return SCOPE_ASK;
+  }
+
+  /**
+   * A NIGHT THAT WAS NOT OFFERED, written down where tomorrow can read it.
+   *
+   * A deferral claims nothing — that is what makes it a deferral — so before
+   * this it left only a ring event, which dies with the hook process. That is
+   * I32's shape on the newest mechanism in the tree: refused every morning,
+   * with nothing durable behind it (S2 review, MINOR-5). The row is `skipped`,
+   * which `pageWriterDue` is explicit about never treating as a claim, and it
+   * is deduped to ONE per date per reason so a ceiling that is too small every
+   * session leaves one line rather than forty.
+   */
+  private noteWriterDeferred(about: string, reason: string): void {
+    try {
+      this.counterpart.recordPageWriterRun({
+        about,
+        mode: "session",
+        outcome: "skipped",
+        detail: reason,
+        dedupKey: `${SELF_PAGE_WRITER_EVENT}:deferred:${about}:${reason}`,
+      });
+    } catch {
+      /* a deferral that cannot be recorded is still a deferral (§5 G7) */
+    }
+  }
+
+  /**
+   * HOW MANY MORNINGS THE FIRST-LAUNCH QUESTION HAS TAKEN THE FIELD.
+   *
+   * The scope question wins the ask field, and on a blank store it is exactly
+   * what is pending on nights 1–3 — so the writer was starved for as long as
+   * nobody answered it, which on a store where nobody ever answers is forever
+   * (S2 review, MINOR-5). After `SCOPE_PATIENCE_DEFERRALS` deferrals the writer
+   * goes first instead: the scope question is advisory and comes back next
+   * session, while a night that passes is a day missing from the page for good.
+   */
+  private writerStarvedByScope(): boolean {
+    try {
+      const runs = this.counterpart.pageWriterRuns({ limit: 64 });
+      // ONCE THE WRITER HAS BEEN ASKED, IT IS NOT STARVED, and the field goes
+      // back to the first-launch question. Without this the priority flipped
+      // permanently: the writer took both of the night's two asks and the scope
+      // question — which is the thing a person actually has to answer — stopped
+      // being raised at all.
+      if (runs.some((r) => r.outcome === "asked")) return false;
+      const deferred = runs.filter(
+        (r) => r.outcome === "skipped" && r.detail === "scope-question",
+      );
+      return deferred.length >= SCOPE_PATIENCE_DEFERRALS;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * THE NIGHTLY PAGE WRITER'S ASK, in `session` mode — build it, check it fits,
+   * claim the day, and hand it back. Returns the block, or the empty string.
+   *
+   * `standDownOnly` is for the pass where the first-launch question took the
+   * field: the verdict is still computed and the deferral still leaves a ring
+   * event, so "why was I not asked" is answerable, but nothing is claimed and
+   * nothing is recorded — a day that was never offered must stay owed.
+   *
+   * **The whole body is fail-open.** A writer that cannot be composed costs the
+   * ASK and never the wake (§1 G7): every throw below lands in the catch, the
+   * session gets its bundle, and the ring says which step gave up.
+   */
+  private deliverPageWriterAsk(
+    input: HookInput,
+    wakeBytes: number,
+    budget: number | undefined,
+    standDownOnly: boolean,
+  ): string {
+    try {
+      const mode = pageWriterMode(this.config);
+      // SESSION MODE ONLY. In `host` mode the night is run by a windowless
+      // child the worker starts — and that child's own SessionStart hook runs
+      // this same code, so without this line the writer would be asked to
+      // write inside the session that was started to do the writing.
+      if (mode !== "session") return "";
+      const due = this.counterpart.pageWriterDue({ mode });
+      if (!due.due) {
+        // `already-claimed` and `no-previous-day` are the ordinary answers on
+        // most mornings; emitting a line for each of them at every session
+        // start is how a ring becomes unreadable. Only the two that mean
+        // something stood the mechanism down get one.
+        if (due.reason === "off" || due.reason === "asks-spent") {
+          this.emit("adapter.page.writer.skipped", { reason: due.reason, about: due.about });
+        }
+        return "";
+      }
+      if (input.sessionId.length === 0) return "";
+      // ALREADY ASKED, IN THIS SESSION. `noteSession("start")` has already run
+      // by the time this is called and it rewrites the record whole — but it
+      // CARRIES `pageWriterFor` forward, the way it carries `config`, so the
+      // mark a previous SessionStart in this same session left is still here.
+      // A compaction re-firing SessionStart must not re-ask.
+      const record = readSession(this.counterpart.store.dir, input.sessionId);
+      if (record?.pageWriterFor === due.about) return "";
+      if (standDownOnly) {
+        this.emit("adapter.page.writer.deferred", { reason: "scope-question", about: due.about });
+        this.noteWriterDeferred(due.about, "scope-question");
+        return "";
+      }
+      const framing = { tool: PAGE_WRITER_TOOL, session: input.sessionId };
+      // SIZE THE DAY TO THE ROOM THE WAKE LEFT, rather than composing what the
+      // tunable allows and then discovering it does not fit.
+      //
+      // The wake already carries the page — which is why the block does not
+      // repeat it (`self/writer.ts`) — and what is left over varies with the
+      // day: on a busy one the memories alone are 8 KB against a ceiling a real
+      // wake has already spent most of. Composing the whole tunable and
+      // deferring on the total would defer EVERY morning once a store is a few
+      // days old, and the only trace would be a ring event that dies with this
+      // process, which is I32's shape exactly.
+      //
+      // So the empty block is measured first — it is the same function with no
+      // memories in it, so the two cannot drift — and the day gets whatever is
+      // left. A day that could not all fit is delivered SHORT, with `dropped`
+      // counted on the run's row; only a block whose own furniture will not fit
+      // is deferred.
+      //
+      // **MEASURED AFTER COMPOSING, not predicted before it** (S2 review,
+      // MINOR-1). The estimate was the empty block, which takes the "nothing was
+      // written down" branch; the delivered one takes a longer header, a framing
+      // line and `3 + len` per bullet against a budget charged at 16 + len. The
+      // difference put the composition up to 20 bytes over the host's reported
+      // ceiling. So the estimate only SIZES the day, and the real bytes are
+      // checked afterwards — one extra composition on a path that already
+      // composes twice, and the ceiling becomes a fact instead of an argument.
+      const empty = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: 0 });
+      const overhead = writerInstructionOverhead(empty, framing) + ASK_SEPARATOR_BYTES;
+      const roomFor = (spent: number): number =>
+        budget === undefined
+          ? SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES
+          : Math.min(SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES, budget - wakeBytes - spent);
+      const defer = (need: number): string => {
+        // DEFERRED, never truncated and never smuggled past the ceiling — the
+        // same rule the scope question follows. The day is left unclaimed, so
+        // the next session in any directory is offered it instead.
+        this.emit("adapter.page.writer.deferred", {
+          reason: "no-room",
+          about: due.about,
+          wakeBytes,
+          budget: budget ?? 0,
+          need,
+        });
+        this.noteWriterDeferred(due.about, "no-room");
+        return "";
+      };
+      if (roomFor(overhead) < 0) return defer(overhead);
+      let built = this.counterpart.pageWriterInput({
+        about: due.about,
+        budgetBytes: roomFor(overhead),
+      });
+      let text = writerInstruction(built, framing);
+      let bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+      if (budget !== undefined && wakeBytes + bytes > budget) {
+        // One re-composition, against the room the FIRST attempt proved was
+        // really left. It cannot loop: the second budget is smaller than what
+        // the first composition actually spent on memories, so the second block
+        // is strictly shorter.
+        const over = wakeBytes + bytes - budget;
+        const second = roomFor(overhead + over);
+        if (second < 0) return defer(bytes);
+        built = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: second });
+        text = writerInstruction(built, framing);
+        bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+        // Still over after the retry — only reachable when the block's own
+        // furniture is the thing that does not fit — and then it is deferred
+        // rather than delivered over the ceiling.
+        if (wakeBytes + bytes > budget) return defer(bytes);
+      }
+      // A BLOCK THAT CAN CARRY NONE OF THE DAY IS NOT WORTH A NIGHT'S CLAIM
+      // (S2 review, MAJOR-1, the other half). The text is honest about it now —
+      // it says "I could not see the day" rather than "the day was empty" — but
+      // spending one of two asks on a block whose only content is that sentence
+      // is worse than leaving the night owed for a session with more room.
+      if (built.memories.length === 0 && built.dropped > 0) return defer(bytes);
+      // THE CLAIM, and it is durable rather than a flag on this session: two
+      // boundaries, or two machines' worth of hooks against one store, must not
+      // both set a night going. It is written BEFORE the text is handed over,
+      // so a crash between the two costs one day's revision rather than an
+      // unbounded re-ask (the same order `openChapter` commits in).
+      const claimed = this.counterpart.recordPageWriterRun({
+        about: due.about,
+        mode: "session",
+        outcome: "asked",
+        detail:
+          `attempt ${String(due.attempt)}` +
+          (built.dropped > 0 ? `; ${String(built.dropped)} of the day did not fit the wake's ceiling` : ""),
+        bytesBefore: built.page?.bytes ?? 0,
+        considered: built.memories.length,
+        omitted: built.omitted,
+      });
+      const marked = recordSession(this.counterpart.store.dir, {
+        sessionId: input.sessionId,
+        scope: input.scope,
+        phase: "start",
+        at: this.nowFn(),
+        pageWriterFor: due.about,
+        ...(this.configPath === undefined || this.configPath.length === 0
+          ? {}
+          : { config: this.configPath }),
+      });
+      this.emit("adapter.page.writer.ask", {
+        about: due.about,
+        attempt: due.attempt,
+        bytes,
+        considered: built.memories.length,
+        dropped: built.dropped,
+        omitted: built.omitted,
+        claimed,
+        recorded: marked !== null,
+      });
+      return text;
+    } catch (err) {
+      this.emit("adapter.page.writer.failed", {
+        code: err instanceof Error ? err.name : "UNKNOWN",
+      });
+      return "";
+    }
   }
 
   // ── the turn ───────────────────────────────────────────────────────────────
@@ -1452,11 +1764,82 @@ export class ClaudeCodeAdapter {
       // wrong now, and a counter that only ever climbed would escalate forever
       // off one bad afternoon.
       this.clearRefusals();
+      this.noteSpawnStart(input);
       return outcome;
     }
     const count = this.bumpRefusal(String(outcome.reason));
     this.noteSpawnRefusal(outcome, count, input);
     return outcome;
+  }
+
+  /**
+   * THE DURABLE ROW for a worker that DID start (2026-09-20, E2).
+   *
+   * I32 made every refusal durable and left the other half open: a healthy
+   * start wrote nothing, so a worker dead all week and a week with nothing to
+   * do read exactly alike, and the fired view could only call the mechanism
+   * blind (inventory §2 row 23). Scar §2.4 is symmetrical — a door that opened
+   * and a door nobody opened must not be the same absence either.
+   *
+   * ONE ROW PER CALENDAR DATE, latched at the store exactly like the refusals
+   * beside it. This runs at every boundary, which is a hot path, and three
+   * hundred identical rows a day would drown the log the view reads.
+   *
+   * **THE ROW CARRIES NO COUNT, on purpose.** The latch means only the FIRST
+   * start of a day ever writes, so any tally put here would read `1` forever —
+   * a number that looks like a measurement and is an artefact of the latch. The
+   * day's real tally lives in box 2's meta beside the refusal counters, where
+   * `spawnStarts()` reads it and doctor's Spawn line prints it.
+   *
+   * Never throws, writes nothing under observer, and is not on the critical
+   * path: the worker has already been started by the time this runs.
+   */
+  private noteSpawnStart(input?: HookInput): void {
+    if (this.observer) return;
+    const date = input?.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
+    try {
+      this.bumpStart(date);
+      this.counterpart.noteAdapterEvent(
+        SPAWN_STARTED_EVENT,
+        { date, session: input?.sessionId ?? null },
+        { dedupKey: `${SPAWN_STARTED_EVENT}:${date}` },
+      );
+    } catch (err) {
+      this.emit("adapter.spawn.record.failed", { code: codeOf(err) });
+    }
+  }
+
+  /** How many times the worker has started TODAY, and the date that tally is
+   *  for. The row says it happened; this says how often. A read, never a write. */
+  spawnStarts(): { date: string | null; count: number } {
+    try {
+      const store = this.counterpart.store;
+      const date = store.getMeta(SPAWN_START_DATE_KEY) ?? null;
+      return { date, count: Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0") };
+    } catch {
+      return { date: null, count: 0 };
+    }
+  }
+
+  /**
+   * The day's start tally, beside the refusal counters in box 2's meta. TWO
+   * KEYS, not one per date: a key per day would grow without a sweep to mow it,
+   * and the only question this answers is "how many today". The tally resets
+   * the moment the date it was stamped with is no longer today.
+   */
+  private bumpStart(date: string): number {
+    try {
+      const store = this.counterpart.store;
+      const on = store.getMeta(SPAWN_START_DATE_KEY);
+      const next = on === date ? Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0") + 1 : 1;
+      if (on !== date) store.setMeta(SPAWN_START_DATE_KEY, date);
+      store.setMeta(SPAWN_START_COUNT_KEY, String(next));
+      return next;
+    } catch {
+      // A lost count is never a lost hook (§5 G2). The row still lands, and it
+      // still says the worker started today, which is what it is for.
+      return 1;
+    }
   }
 
   /**
@@ -1617,6 +2000,7 @@ export class ClaudeCodeAdapter {
         store: this.counterpart.store,
         today,
         refusals: this.spawnRefusals(),
+        starts: this.spawnStarts(),
         budgetMs: opts.budgetMs ?? SESSION_NOTICE_BUDGET_MS,
         ...(opts.now === undefined ? {} : { now: opts.now }),
       });

@@ -266,6 +266,20 @@ export interface DeliberateResult {
    *  asked. A multi-id lookup is still a DIRECT lookup, so each id's refusal is
    *  stated by name rather than folded into one total (§9.1 G5). */
   readonly perId?: readonly { id: string; reason: DeliberateReason }[];
+  /**
+   * WHAT KEPT SOMETHING OUT, by verdict, counted (2026-09-20, E2).
+   *
+   * Every candidate the deeper look considered and did not admit. It is the
+   * answer to "nothing came back — was there nothing, or was it all gated",
+   * which nothing could answer before: the verdicts lived for the length of one
+   * `build()` call and were then discarded.
+   *
+   * **It does not go on the wire.** §9.1 G5 is unchanged: a list that announces
+   * its gaps leaks their existence, and `confidential-withheld` in particular is
+   * silent to the caller. This field exists for the DURABLE ROW in the owner's
+   * own store, which `server.ts` writes and `recallPayload` does not read.
+   */
+  readonly blockedBy?: Readonly<Record<string, number>>;
 }
 
 export interface DeliberateInput {
@@ -524,6 +538,11 @@ export function answerQuestion(
 
   const admitted: { verdict: CandidateVerdict; tier: Tier }[] = [];
   const dim: CandidateVerdict[] = [];
+  // The refusal column, for the durable row only — never for the wire.
+  const blockedBy: Record<string, number> = {};
+  const blocked = (reason: string): void => {
+    blockedBy[reason] = (blockedBy[reason] ?? 0) + 1;
+  };
   for (const v of decision.verdicts) {
     if (surfaced.has(v.id)) {
       admitted.push({ verdict: v, tier: "vivid" });
@@ -535,12 +554,25 @@ export function answerQuestion(
     }
     // Silent for the list (§9.1 G5): confidential material is not mentioned,
     // not counted back to the caller, and not hinted at by a gap in a total.
-    if (v.verdict === "confidential-withheld") continue;
-    if (HARD_GATES.includes(v.verdict)) continue;
+    if (v.verdict === "confidential-withheld") {
+      blocked(v.verdict);
+      continue;
+    }
+    if (HARD_GATES.includes(v.verdict)) {
+      blocked(v.verdict);
+      continue;
+    }
     if (DELIBERATE_TIERS.includes(v.verdict)) dim.push(v);
+    // A verdict in neither table reached the caller as nothing and was counted
+    // as nothing. `inhibited` is the one that lands here today; naming it beats
+    // an unexplained gap between `considered` and what came back.
+    else blocked(v.verdict);
   }
   dim.sort((a, b) => b.activation - a.activation);
   for (const v of dim.slice(0, DELIBERATE_DIM_CAP)) admitted.push({ verdict: v, tier: "dim" });
+  // The dim tier's own cap is a refusal like any other: these were reachable by
+  // effort and the cap is what stopped them.
+  for (const v of dim.slice(DELIBERATE_DIM_CAP)) blocked(`dim-cap:${v.verdict}`);
 
   const memories: Recalled[] = [];
   for (const { verdict, tier } of admitted) {
@@ -573,6 +605,7 @@ export function answerQuestion(
     considered: decision.candidates,
     storeSize: decision.storeSize,
     ambiguous: [],
+    blockedBy,
   };
 }
 

@@ -50,17 +50,30 @@ import {
   SNAPSHOT_FAILED_EVENT,
   SNAPSHOT_ROTATED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
+  MCP_RECALL_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
   SWEEP_WAKE_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
+// Prospective memory's two (2026-09-20, E2). The module had no durable row at
+// all: `fires` is a column, so the store could say a window had ever fired and
+// never when, or why one did not.
+import {
+  PROSPECTIVE_FIRE_EVENT,
+  PROSPECTIVE_REFUSED_EVENT,
+} from "../../core/prospective/index.js";
 // The self page's two, from `self/` itself (2026-09-18, S1): a written page is
 // not a briefing render, and a refused write is not an accepted one.
-import { SELF_PAGE_REFUSED_EVENT, SELF_PAGE_REVISED_EVENT } from "../../core/self/index.js";
+import {
+  SELF_PAGE_REFUSED_EVENT,
+  SELF_PAGE_REVISED_EVENT,
+  SELF_PAGE_WRITER_EVENT,
+} from "../../core/self/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -116,6 +129,7 @@ export type DurableEventName =
   | typeof SELF_BRIEFING_EVENT
   | typeof SELF_PAGE_REVISED_EVENT
   | typeof SELF_PAGE_REFUSED_EVENT
+  | typeof SELF_PAGE_WRITER_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -132,11 +146,15 @@ export type DurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
+  | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof MCP_RECALL_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
-  | typeof SNAPSHOT_ROTATED_EVENT;
+  | typeof SNAPSHOT_ROTATED_EVENT
+  | typeof PROSPECTIVE_FIRE_EVENT
+  | typeof PROSPECTIVE_REFUSED_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -154,6 +172,13 @@ export const DURABLE_EVENTS = {
   "adapter.runner.failed": "the detached worker failed after opening the store (which step, and the code)",
   "adapter.spawn.failed": "the detached worker could not be started at all (the OS said why)",
   "adapter.spawn.refused": "the detached worker was not started, by name (and how many times running)",
+  // The other half of those three (2026-09-20, E2): until it existed, a worker
+  // dead all week and a week with nothing to do left the same nothing.
+  "adapter.spawn.started": "the detached worker DID start, at least once today (one row per date, with the day's count)",
+  // The deliberate look's first durable row (2026-09-20, E2). The whole MCP tool
+  // surface wrote nothing, so a session that asked and got nothing and a session
+  // that never asked were the same silence.
+  "mcp.recall": "the session went looking for a memory on purpose (what kind of ask, how much came back, and every verdict that kept something out)",
   // Which CODE was live at a session start (2026-09-14): the hooks run whatever
   // the install tree has checked out, so a peer session's unmerged branch in
   // that tree is the memory layer the owner is using.
@@ -186,6 +211,12 @@ export const DURABLE_EVENTS = {
   // corollary): the 196 refused asks sat in the events table unseen.
   "self.page.revised": "the written self page was amended (who wrote it, why, how big, and which version it produced)",
   "self.page.refused": "a write to the self page was turned away (empty, past the hard limit, stopped by the gate battery, carrying the wake's own markers, or naming a version the page has moved past)",
+  // The nightly writer's own row (2026-09-20, S2). It is a row per ATTEMPT, not
+  // per revision: the page's row says what changed, and this one says whether
+  // the night ran at all, in which mode, and what it came to — including the
+  // day it read and had nothing to say about, which is an answer and not a
+  // silence.
+  "self.page.writer.ran": "the nightly page writer ran (which day it read, in which mode, how many memories it was handed, and whether it revised the page, had nothing to say, was refused or failed)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with
@@ -196,6 +227,10 @@ export const DURABLE_EVENTS = {
   "snapshot.taken": "a copy of the whole store was made and kept (which one, how many files, how many are kept, the oldest)",
   "snapshot.failed": "a copy could not be made (which step, and why) — the store is unharmed, and the worker carried on",
   "snapshot.rotated": "old copies were let go so the newest 14 remain (which ones went, and how many are left)",
+  // Remembering to act (2026-09-20, E2), in two names so a refusal can never be
+  // counted as a firing.
+  "prospective.fire": "a future date arrived and the reminder was offered into the turn (which window, and how much of its budget is left)",
+  "prospective.fire.refused": "a reminder was NOT offered (which brake held — one row per window per reason per lived day)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(
