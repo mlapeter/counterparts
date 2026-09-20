@@ -579,10 +579,11 @@ function confidentialNote(omitted: number, omittedVersions: number, opts: Export
     omittedVersions === 0
       ? ""
       : ` and ${String(omittedVersions)} confidential earlier wording${omittedVersions === 1 ? "" : "s"}`;
+  const one = omitted === 1 && versions === "";
   return (
     ` ${String(omitted)} confidential row${omitted === 1 ? "" : "s"}${versions}` +
-    `${omitted === 1 && versions === "" ? " was" : " were"} left out;` +
-    " pass --include-confidential to take them too."
+    `${one ? " was" : " were"} left out;` +
+    ` pass --include-confidential to take ${one ? "it" : "them"} too.`
   );
 }
 
