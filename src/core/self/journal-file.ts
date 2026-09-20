@@ -538,6 +538,14 @@ export const JOURNAL_FAILURE_WINDOW_DAYS = 2;
  * store that was broken last week starts trying again.
  *
  * One bounded read of the event log, not a query per id. Ids only.
+ *
+ * THE WINDOW IS IN LIVED DAYS while the dedup key is in calendar dates, and the
+ * mismatch is deliberate rather than an oversight: the lived clock only moves
+ * inside the worker's own cycle, so on a store whose worker has been dead for a
+ * week this window covers EVERY row since the last cycle. That is the safe
+ * direction — more ids excluded from a pass, never fewer — and the alternative
+ * (a calendar window) would start retrying a broken episode on a store where
+ * nothing has run to fix it.
  */
 export function standingJournalFailures(store: Store): Set<string> {
   const sinceDay = Math.max(0, store.livedDay() - JOURNAL_FAILURE_WINDOW_DAYS);

@@ -2621,6 +2621,24 @@ describe("the journal's markdown copy", () => {
     }
   });
 
+  test("MAJOR-1 — a DANGLING link under journal/ is refused too, not treated as absent", () => {
+    // `lstat` stats the LINK, so a link pointing nowhere is still a link and
+    // still refused. The interesting half is that it must not read as "this
+    // episode has no copy": that is what would make the backfill write through
+    // it the moment somebody created the destination.
+    const s = store();
+    const { self } = chaptered(s, "An episode with a copy.");
+    rmSync(join(dir, "journal", "2026"), { recursive: true, force: true });
+    symlinkSync(join(dir, "journal", "nowhere-at-all"), join(dir, "journal", "2026"));
+    self.openChapter("s1", { turns: 30, bytes: 40_000 });
+    expect(self.appendChapter("s1", "ZQDANGLING — not through a link to nowhere.").copy).toBe(
+      "failed",
+    );
+    expect(journalFiles(dir)).toEqual([]);
+    expect(existsSync(join(dir, "journal", "nowhere-at-all"))).toBe(false);
+    rmSync(join(dir, "journal", "2026"), { force: true });
+  });
+
   test("MAJOR-1 — `journal` ITSELF being a symlink is refused, not followed", () => {
     const away = outside();
     try {
