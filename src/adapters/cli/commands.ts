@@ -2716,9 +2716,53 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: b
       return EXIT.failed;
     }
     io.out("Every canonical row is accounted for.");
+    reclaimFreedPages(dir, io);
     return EXIT.ok;
   } finally {
     store.close();
+  }
+}
+
+/**
+ * VACUUM both databases, then checkpoint — the named command a removal points at
+ * when it could not do this itself.
+ *
+ * `cli/removal.ts#reclaim` runs the same two statements at the end of every
+ * chase, because blanking a long body leaves whole OVERFLOW pages on the
+ * freelist still holding the words (the third review's NEW-MAJOR-1). When that
+ * is contended the removal says so and names this command — so this command has
+ * to actually do it. It did not: measured, `verify --rebuild` left the residue
+ * exactly where it was, because rebuilding box 3 says nothing about box 2's free
+ * list.
+ *
+ * Runs after the rebuild has finished with the store, and never throws: a
+ * failure here is a line, not a lost rebuild.
+ */
+function reclaimFreedPages(dir: string, io: Io): void {
+  for (const [path, name] of [
+    [paths.operational(dir), "the database"],
+    [paths.cache(dir), "the cache"],
+  ] as const) {
+    if (!existsSync(path)) continue;
+    let db;
+    try {
+      db = openDb(path);
+      db.exec("VACUUM");
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+      io.out(`Reclaimed free pages in ${name}.`);
+    } catch (err) {
+      io.err(
+        `Could not reclaim free pages in ${name} (${String((err as Error).message ?? err)}). ` +
+          "Words from a removed memory may remain in pages no row points at; run this again " +
+          "when nothing else is holding the store.",
+      );
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        /* a handle that will not close has already said what it could */
+      }
+    }
   }
 }
 

@@ -300,14 +300,21 @@ by reference only.
     `test/store-portable.test.ts` builds a real v5 store by hand and proves the
     directory is byte-identical after a refused writer open, a refused observer
     open and a refused session.
-17. **[M] A removal chases the write-ahead log.** Blanking a body is an `UPDATE`,
-    and in WAL mode the page holding the old text stays in `counterparts.sqlite-wal`
-    until a checkpoint. Measured 2026-09-20: right after a chase the doomed text
-    is not in the database and IS in the log. So the console's removal ends with
-    one `PRAGMA wal_checkpoint(TRUNCATE)` on its own connection, reported as
-    chased or unchased and never thrown (§16 G14 — every copy is chased; scar
-    §2.20). Nothing that leaves the machine ever carried it: `backup` and
-    `export` are `VACUUM INTO`, measured clean either way.
+17. **[M] A removal reclaims the pages that held the words — the log AND the
+    free list — on both databases.** Blanking a body is an `UPDATE`: in WAL mode
+    the old page stays in the `-wal` until a checkpoint, and a body long enough
+    to take OVERFLOW pages leaves whole pages on the FREELIST still holding the
+    words (`secure_delete` is FAST by default and zeroes only the slack of a page
+    being rewritten). Measured 2026-09-20, deterministic with marks at the start,
+    middle and end of a ~40 KB body. So the console's removal ends with `VACUUM`
+    then `PRAGMA wal_checkpoint(TRUNCATE)` on each database, on its own
+    connection, reported as its own surface and never thrown (§16 G14 — every
+    copy is chased; scar §2.20). A contended reclaim is REPORTED in words, with
+    what is still true and the command that finishes it — never `nothing`.
+    Nothing that leaves the machine ever carried it: `backup`, `export` and the
+    rotating snapshot all go through `VACUUM INTO`, which copies live pages only,
+    measured clean even from a store in the residue state. Snapshots taken
+    BEFORE a removal hold the memory properly and are not reached.
 
 ## 6. Scars honored
 

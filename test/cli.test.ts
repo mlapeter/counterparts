@@ -1168,40 +1168,87 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(grepStore(dir, WORD)).toEqual([]);
   }, 30_000);
 
-  test("a BIG body on overflow pages leaves nothing behind either — and no freed page holds it", async () => {
-    // THE CASE WHERE THE CHECKPOINT IS PROVABLY LOAD-BEARING, and the one that
-    // answers "can a removed body survive in a freed page until a VACUUM".
-    // Measured on this branch: with a ~40 KB body the words are in
-    // `counterparts.sqlite` ITSELF after the chase and before any checkpoint,
-    // and gone after it. `secure_delete` is 2 (FAST) here, `page_size` 4096,
-    // `auto_vacuum` 0 — and with 18 pages on the freelist a subsequent VACUUM
-    // found nothing more to remove. So the answer is no: on this build the
-    // checkpoint is sufficient and no VACUUM is needed.
-    const WORD = "ZQOVERFLOWPROBE";
+  test("NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it", async () => {
+    // THE FINDING THE PREVIOUS VERSION OF THIS TEST MISSED, and it missed it for
+    // a reason worth writing down: its marker sat at the START of the body, and
+    // the page holding the start of an overflow chain gets reused. The middle
+    // and the end do not. So the assertion passed as a property of where the
+    // word sat, not of the store.
+    //
+    // Blanking a long body frees whole OVERFLOW pages, and `secure_delete` is 2
+    // (FAST) by default — it zeroes the slack of a page being rewritten, never a
+    // whole freed page. A second checkpoint does not help: the checkpoint is
+    // what MATERIALISES those stale pages into the main file. Only VACUUM (then
+    // a checkpoint, since in WAL mode the VACUUM itself writes to the log)
+    // rebuilds the file from live pages alone. Measured deterministic 5/5.
+    const MARKS = ["ZQOVERFLOWSTART", "ZQOVERFLOWMIDDLE", "ZQOVERFLOWEND"];
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const bodyOf = (tag: string): string =>
+      `${MARKS[0] as string} ${tag} ${pad} ${MARKS[1] as string} ${pad} ${MARKS[2] as string}`;
+
     const s = store();
-    const big = `${WORD} ${"the quick brown fox jumps over the lazy dog. ".repeat(900)}`;
-    const id = s.put({ type: "memory", kind: "fact", body: big });
-    s.revise(id, { body: `${big} and revised` });
     for (let i = 0; i < 200; i += 1) {
       s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
     }
+    const id = s.put({ type: "memory", kind: "fact", body: bodyOf("one") });
+    // The revision matters: it frees the first body's pages, so this covers
+    // residue left by an EARLIER write as well as by the removal itself.
+    s.revise(id, { body: bodyOf("two") });
     s.close();
 
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
-    expect(grepStore(dir, WORD)).toEqual([]);
-    // Freed pages exist and hold nothing: the point of the measurement.
+    // The surface is named for what it now does, on both databases.
+    const printed = text(c.out);
+    expect(printed).toContain("write-ahead log and freed pages");
+    expect(printed).toContain("cache write-ahead log and freed pages");
+
+    // NOT ONE MARK, ANYWHERE UNDER THE STORE — every file read as bytes, both
+    // databases and both logs. Each mark asserted by name so a failure says
+    // WHICH part of the body survived.
+    for (const mark of MARKS) {
+      expect({ mark, residue: grepStore(dir, mark) }).toEqual({ mark, residue: [] });
+    }
+    // Freed pages really were reclaimed, not merely absent from this shape.
     const db = openDb(paths.operational(dir));
     try {
-      expect(
-        (db.get<{ freelist_count: number }>("PRAGMA freelist_count")?.freelist_count ?? 0) >= 0,
-      ).toBe(true);
-      db.exec("VACUUM");
+      expect(db.get<{ freelist_count: number }>("PRAGMA freelist_count")?.freelist_count).toBe(0);
     } finally {
       db.close();
     }
-    expect(grepStore(dir, WORD)).toEqual([]);
-  }, 30_000);
+  }, 60_000);
+
+  test("NEW-MAJOR-1: `verify --rebuild` really does reclaim, since the removal names it", async () => {
+    // When the reclaim is contended the removal says the words may remain and
+    // names this command. Measured before this fix: `verify --rebuild` left the
+    // residue exactly where it was, because rebuilding box 3 says nothing about
+    // box 2's free list. A remedy that does not remedy is worse than none.
+    const MARK = "ZQREMEDYPROBE";
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const s = store();
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `head ${pad} ${MARK}` });
+    s.revise(id, { body: `head two ${pad} ${MARK}` });
+    // Manufacture the residue state: take the rows dark and chase them WITHOUT
+    // the reclaim, which is what a contended removal leaves behind.
+    s.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner" });
+    chaseRemoved(s, id);
+    s.rebuildCache();
+    s.close();
+    const ck = openDb(paths.operational(dir));
+    ck.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    ck.close();
+    expect(grepStore(dir, MARK)).not.toEqual([]);
+
+    const c = consoleWith();
+    expect(
+      await run(["verify", "--dir", dir, "--rebuild", "--drop-vectors"], { io: c.io }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Reclaimed free pages in the database");
+    expect(grepStore(dir, MARK)).toEqual([]);
+  }, 60_000);
 
   test("review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed", async () => {
     // The same rule box 2 already had: a reader holding an older snapshot means
@@ -1225,8 +1272,23 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
       const printed = text(c.out);
       // Named as unchased, with the reason and what clears it — not silence,
       // and not a claim that it was done.
-      expect(printed).toContain("cache write-ahead log (a reader held it");
-      expect(printed).toContain("the next checkpoint folds it in");
+      expect(printed).toContain("cache write-ahead log and freed pages (");
+      // It says WHY, what is still true, and the command that finishes it —
+      // never silence and never a claim that it was done.
+      expect(printed).toContain("the memory's rows are gone, but its words may remain");
+      expect(printed).toContain("counterparts verify --dir <store> --rebuild");
+      expect(printed).not.toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+      // AND THE DURABLE RECORD SAYS SO TOO. The console's sentence is
+      // ephemeral; the record is what a reader has months later, and
+      // `complete` on its own would read as "everything was reached".
+      const after = Store.open({ dir, observer: true });
+      try {
+        const done = after.removalRecord(id).filter((r) => r.stage === "complete");
+        expect(done.length).toBe(1);
+        expect(done[0]?.reason).toContain("surface unchased");
+      } finally {
+        after.close();
+      }
     } finally {
       try {
         holder.exec("ROLLBACK");

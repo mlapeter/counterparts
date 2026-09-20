@@ -1081,14 +1081,45 @@ because its only change was a spelling every v5 reader resolved both ways. v6
 cannot: a v6 instrument on a v5 store would report an EMPTY store rather than an
 unreadable one, which is worse than refusing because it looks like an answer.
 
-**The removal leaves its words in the `-wal` until a checkpoint, and now chases
-it.** Measured 2026-09-20 on a store with 200 filler rows: right after a chase
-the doomed text is NOT in `counterparts.sqlite` (the `UPDATE` rewrote the page)
-and IS in `counterparts.sqlite-wal`; one `wal_checkpoint(TRUNCATE)` clears it
-from both; a `VACUUM INTO` copy never held it either way. So `backup` and
-`export` were always clean and the STORE DIRECTORY was not — a surface that did
-not exist while `rmSync` took the words away. The console's removal now ends with
-that checkpoint, on its own connection, reported and never thrown.
+**The removal leaves its words in the store in TWO ways, and chases both.**
+
+*The write-ahead log.* Measured 2026-09-20 on a store with 200 filler rows:
+right after a chase the doomed text is in `counterparts.sqlite-wal`, and one
+`wal_checkpoint(TRUNCATE)` clears it. Box 3 is in WAL too and holds the same
+words as `doc_tokens` rows, so both databases are checkpointed.
+
+*Freed pages, which is the harder one and which I got wrong first.* An earlier
+version of this note said the checkpoint was sufficient and no VACUUM was
+needed. **That was wrong**, and the third adversarial review caught it
+(NEW-MAJOR-1). Blanking a body long enough to take OVERFLOW pages leaves whole
+pages on the freelist still holding the words; `secure_delete` is 2 (FAST) by
+default, which zeroes only the slack of a page being REWRITTEN, never a whole
+freed page. My test passed because its marker sat at the START of the body —
+the page holding the start of an overflow chain gets reused, the middle and the
+end do not. With marks at the start, middle and end of a ~40 KB body the residue
+is deterministic 5/5, in `counterparts.sqlite` itself, in a page no row points
+at, while the report said `unchased: nothing`.
+
+A second checkpoint does not help: the checkpoint is what MATERIALISES those
+stale pages into the main file. `VACUUM` rebuilds the file from live pages
+alone — and in WAL mode a VACUUM writes to the log, so it must be VACUUM **then**
+checkpoint, which is why a VACUUM alone also reads as a no-op.
+
+*Why VACUUM and not `secure_delete = ON` for the chase's connection*, which is
+cheaper and was the obvious candidate: it measured clean on some shapes and left
+the middle and end marks on others, because it only zeroes what THAT transaction
+frees — a page freed by a revision months ago is not its business. VACUUM is the
+one remedy that clears residue whatever freed the page and whenever, which is
+what "removed means gone" has to mean. Cost, measured on a 17,000-memory store:
+**VACUUM 23 ms** on a 9.3 MB box 2 and **58 ms** on a 16.6 MB box 3, checkpoint
+under a millisecond. Removal is a rare, deliberate owner operation.
+
+*What never carried it:* `backup` and `export` are `VACUUM INTO`, which copies
+live pages only — measured clean even with the source in the residue state, and
+the rotating snapshot takes the same route (`method: vacuum-into`), so no
+snapshot ever inherited a removed memory's words. **Snapshots taken BEFORE a
+removal are a different matter and contain the memory properly**; nothing here
+reaches into them, and the removal report does not pretend to.
 
 **`content_hash`'s preimage got weaker, and where it travels is: nowhere.**
 Scar §2.20 says content-by-reference is only private if the reference cannot be

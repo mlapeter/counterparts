@@ -662,12 +662,15 @@ export function ownerRemoval(
 ): OwnerRemovalOutcome {
   const emit = opts.onEvent ?? ((): void => {});
   const notes: RemovalNote[] = [];
-  const append = (stage: RemovalNote["stage"]): void => {
+  const append = (stage: RemovalNote["stage"], addendum?: string): void => {
     const note: RemovalNote = {
       memoryId: request.targetId,
       stage,
       actor: request.actor,
-      reason: request.reason,
+      // The OWNER's reason stays first and whole; an addendum is appended
+      // rather than substituted, because why he removed it is the part of this
+      // record that matters longest.
+      reason: addendum === undefined ? request.reason : `${request.reason} [${addendum}]`,
     };
     store.appendRemovalRecord(note);
     notes.push(note);
@@ -814,7 +817,18 @@ export function ownerRemoval(
   // have already gone.
   chaseWriteAheadLog(store.dir, chased, unchased);
 
-  append("complete");
+  // THE DURABLE RECORD MUST NOT CLAIM MORE THAN THE CONSOLE (third review's
+  // open question). The record's stages carry no surface list, so `complete`
+  // has always meant "the ceremony finished", not "everything was reached" —
+  // but a reader coming back to it months later has only that word. So when
+  // anything went unchased the count rides on the stage's own `reason`, beside
+  // the owner's: the console's sentence is ephemeral and this is not.
+  append(
+    "complete",
+    unchased.length === 0
+      ? undefined
+      : `${unchased.length} surface${unchased.length === 1 ? "" : "s"} unchased — see the console report`,
+  );
   emit("cli.removal.complete", {
     target: request.targetId,
     chased: chased.length,
@@ -850,37 +864,64 @@ function chaseWriteAheadLog(dir: string, chased: string[], unchased: string[]): 
   // 0 in those runs): these are exactly box 2's pages, in the database this
   // function did not visit. Reported as its OWN surface, so "cache" keeps
   // meaning the index and this keeps meaning the file.
-  checkpoint(paths.operational(dir), "write-ahead log", chased, unchased);
-  checkpoint(paths.cache(dir), "cache write-ahead log", chased, unchased);
+  reclaim(paths.operational(dir), "write-ahead log and freed pages", chased, unchased);
+  reclaim(paths.cache(dir), "cache write-ahead log and freed pages", chased, unchased);
 }
 
 /**
- * One database folded back into itself and its log truncated, reported by name.
+ * One database made to stop holding the removed words: **VACUUM, then a TRUNCATE
+ * checkpoint**, reported by name.
  *
- * TRUNCATE rather than PASSIVE, which leaves the file at its length with the
- * old bytes still in it. On its own connection, and it never throws: a
- * contended checkpoint is a line in the report — true and actionable — rather
- * than an exception out of a removal whose rows have already gone.
+ * **Why VACUUM and not just the checkpoint** (the third review's NEW-MAJOR-1).
+ * Blanking a body frees the pages it sat on, and a body long enough to take
+ * OVERFLOW pages leaves whole pages on the freelist. `secure_delete` is 2 (FAST)
+ * by default, which zeroes only the slack of a page being rewritten, never a
+ * whole freed page — so the words stayed legible in `counterparts.sqlite`
+ * itself, in a page no row points at, while the report said `unchased: nothing`.
+ * Measured on this branch, deterministic 5/5 with marks at the start, middle and
+ * end of a ~40 KB body: only the START mark was cleared (its page gets reused),
+ * the middle and the end survived. A SECOND checkpoint does not help. VACUUM
+ * rebuilds the file from the live pages only, and it is the one remedy that
+ * clears residue whatever freed the page and whenever — a revision months ago,
+ * a prune, this removal — which is what "removed means gone" has to mean.
+ *
+ * **Order matters:** in WAL mode a VACUUM writes into the log, so the main file
+ * is unchanged until a checkpoint. VACUUM alone reads as a no-op.
+ *
+ * `secure_delete = ON` for the chase's own connection was the cheaper candidate
+ * and is NOT used: it measured clean on some shapes and left the middle and end
+ * marks on others, because it only zeroes what THAT transaction frees — a page
+ * freed by an earlier revision is not its business. A guarantee that depends on
+ * page-allocation luck is not a guarantee.
+ *
+ * **Cost, measured, on a 17,000-memory store** (9.3 MB box 2, 16.6 MB box 3):
+ * VACUUM 23 ms and 58 ms, checkpoint under a millisecond. Removal is a rare,
+ * deliberate owner operation; this is not a price anyone will feel.
+ *
+ * It never throws (CLI CONTRACT §5 G8): by the time this runs the rows are gone
+ * and the record is written. A contended VACUUM is a line in the report saying
+ * what is still there and what clears it — never silence, and never `nothing`.
  */
-function checkpoint(path: string, surface: string, chased: string[], unchased: string[]): void {
-  // A database that is not there has no log to fold. Box 3 is rebuildable and
-  // a store may never have built one.
+function reclaim(path: string, surface: string, chased: string[], unchased: string[]): void {
+  // A database that is not there has nothing to reclaim. Box 3 is rebuildable
+  // and a store may never have built one.
   if (!existsSync(path)) return;
   let db;
   try {
     db = openDb(path);
+    db.exec("VACUUM");
     const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
     // The first column is 1 when SQLite could not finish — a reader was holding
     // an older snapshot. Say so; the next checkpoint clears it.
     const busy = row === undefined ? 1 : Object.values(row)[0];
     if (busy === 0) chased.push(surface);
-    else unchased.push(`${surface} (a reader held it; the next checkpoint folds it in)`);
+    else unchased.push(`${surface} (${STILL_THERE})`);
   } catch (err) {
-    unchased.push(
-      isLocked(err)
-        ? `${surface} (the database was busy; the next checkpoint folds it in)`
-        : surface,
-    );
+    // The REASON rides along — a SQLite message is a code and a path, never
+    // memory text (§5 G10) — because "could not" with no why is the silence
+    // this whole report exists to remove.
+    const why = isLocked(err) ? "the database was busy" : String((err as Error).message ?? err);
+    unchased.push(`${surface} (${why}; ${STILL_THERE})`);
   } finally {
     try {
       db?.close();
@@ -889,6 +930,16 @@ function checkpoint(path: string, surface: string, chased: string[], unchased: s
     }
   }
 }
+
+/**
+ * What is true when the reclaim could not finish, and what clears it. Said in
+ * the report rather than left as a silence: the ROWS are gone either way — this
+ * is about pages no row points at, which a later removal or a named command
+ * folds over.
+ */
+const STILL_THERE =
+  "the memory's rows are gone, but its words may remain in pages no row points at until " +
+  "the next successful removal or 'counterparts verify --dir <store> --rebuild'";
 
 /**
  * The read-back a removal is only trustworthy with: is the id dark, is its prose
