@@ -2671,6 +2671,16 @@ async function startFreshCommand(
     io.out("there is a store ready to take its place. This is 'counterparts install':");
   }
   io.out("");
+  // WAS THERE A STORE HERE BEFORE THIS RUN? Asked HERE, of the path `install`
+  // is about to land on, and it is the whole of B1's last clause.
+  //
+  // On the parking arm `installTarget` is a temp sibling, so this is false by
+  // construction. On the RESUME and cold arms it is the live path — and a hook
+  // can mint a store there between the plan and this line (M4's exact
+  // reproduction). `install` would then print "Store already present" and the
+  // record below would stamp "began today" into a store this run did not make,
+  // on a surface the owner reads and cannot unset from the console.
+  const existedBefore = storeExists(installTarget);
   const installFlags: Record<string, string | boolean | undefined> = { dir: installTarget };
   if (name !== undefined && name.length > 0) installFlags["name"] = name;
   if (ceilingOk) installFlags["budget"] = String(ceiling);
@@ -2743,7 +2753,10 @@ async function startFreshCommand(
         "Close everything, look at the middle one, and move it aside by hand; then either move " +
           "the blank store into place or put your memory back with the lines below.",
       );
-      printWayBack(io, final, ["store"], installTarget);
+      // EVERY step that moved, not just the store: `outcome.done` carries the
+      // snapshots too by this point, and a way back missing its line is the
+      // stale-block problem M2 is about, one branch over.
+      printWayBack(io, final, outcome.done.map((st) => st.label), installTarget);
       return EXIT.failed;
     }
   }
@@ -2765,7 +2778,7 @@ async function startFreshCommand(
   // memory sat in the directory before it. More than one candidate now means
   // the record says nothing and the output lists them all.
   const previous = parkedStore ?? soleParked(final);
-  if (parking || final.shape === "resume" || !sight(created).symlink) {
+  if (!existedBefore) {
     try {
       const store = Store.open({ dir: created });
       try {
@@ -2916,6 +2929,22 @@ async function startFreshUndo(
     io.out("Dry run. Nothing has been moved.");
     return EXIT.ok;
   }
+  // THE SAME RULE AS THE FORWARD DIRECTION, and for the same reason: the store
+  // being displaced here is a real one too — a week of new memories, held open
+  // by the same idle dashboard that leaves no record. An undo is not a smaller
+  // act than a start.
+  const displaced = sight(storeDir);
+  if (parsed.flags["yes"] === true && displaced.entries > 0 && parsed.flags["nothing-is-open"] !== true) {
+    io.err("");
+    io.err(
+      `refused: --yes on an undo that displaces a store with ${String(displaced.entries)} things ` +
+        "in it. The typed confirmation is the only check that catches a dashboard or an MCP " +
+        "server holding it open. Type the name when asked, or say the other sentence too: " +
+        "--yes --nothing-is-open.",
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
   if (parsed.flags["yes"] !== true) {
     if (io.prompt === undefined) {
       io.err("");
@@ -2926,8 +2955,12 @@ async function startFreshUndo(
     io.out("");
     io.out("Close every Claude Code session and every dashboard first — the same reason as");
     io.out("before: a rename does not break a file handle.");
-    const answer = (await io.prompt(`Type the store's name to go ahead [${basename(storeDir)}]: `)).trim();
-    if (answer !== basename(storeDir)) {
+    // THE PARKED NAME, not the store's. `store` is what every store is called,
+    // so typing it back proves nothing; the dated parked name is the thing on
+    // the screen that has to have been read.
+    const word = basename(plan.parked ?? storeDir);
+    const answer = (await io.prompt(`Type the parked name to go ahead [${word}]: `)).trim();
+    if (answer !== word) {
       io.err("refused: the confirmation did not match. Nothing has changed.");
       return EXIT.refused;
     }

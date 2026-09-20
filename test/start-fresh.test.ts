@@ -107,12 +107,20 @@ function text(lines: readonly string[]): string {
   return lines.join("\n");
 }
 
-/** The guarded `mv` lines out of real output. A successful run prints the block
- *  twice — once before the confirmation, once from the plan that RAN — and the
- *  second is the one that is true (review M2). */
+/**
+ * The guarded `mv` lines out of real output — from the block that reflects what
+ * ACTUALLY RAN.
+ *
+ * A successful run prints two blocks: the one read before the confirmation, and
+ * the one printed afterwards from the plan that ran (review M2). They are split
+ * on that second heading rather than by counting lines, because the number of
+ * lines varies (two when there is no snapshots folder, three when there is) and
+ * a count would silently return one stale line from the first block.
+ */
 function guardedLines(out: readonly string[]): string[] {
-  const all = out.filter((l) => l.trimStart().startsWith("[ -e ")).map((l) => l.trim());
-  return all.length > 3 ? all.slice(-3) : all;
+  const after = out.findIndex((l) => l.includes("as it actually stands now"));
+  const from = after === -1 ? out : out.slice(after);
+  return from.filter((l) => l.trimStart().startsWith("[ -e ")).map((l) => l.trim());
 }
 
 /** The whole tree, every byte, including the sidecars and the directory shape. */
@@ -1073,21 +1081,44 @@ describe("M1 — install can no longer refuse after the parks", () => {
     expect(readFileSync(configPath())).toEqual(configBytes);
   });
 
-  test("an install that refuses leaves the store exactly where it was", async () => {
+  test("the record is NOT written into a store this run found already there", async () => {
+    // B1's last clause, on the arm where it is reachable: the resume arm lands
+    // on the live path, and a hook can mint a store there between the plan and
+    // the install (M4's reproduction). `install` then says "Store already
+    // present" — and stamping "began today" into it would be a falsehood on a
+    // surface the owner cannot unset from the console.
     await install();
     await note();
-    const before = fingerprint(base());
-    // `--name` is validated here, so this refuses inside `start-fresh`; the
-    // point being proved is the ORDER — the install arm is reached only after
-    // the blank store exists, so nothing parked can be stranded by it.
-    const c = consoleWith();
+    renameSync(storePath(), `${storePath()}.${PARKED_INFIX}-${today()}`);
+
+    // The mint happens at the one moment it can: after the plan has read the
+    // ground and before `install` looks. The output line that precedes the look
+    // is the seam — a real hook needs no seam, it just has to be quick.
+    const out: string[] = [];
+    const err: string[] = [];
+    const io: Io = {
+      out: (line) => {
+        out.push(line);
+        if (line.startsWith("Creating the blank store") && !existsSync(storePath())) {
+          const minted = Store.open({ dir: storePath() });
+          minted.close();
+        }
+      },
+      err: (line) => err.push(line),
+    };
     expect(
-      await run(
-        ["start-fresh", "--config", configPath(), "--name", "bad\nname", "--yes", "--nothing-is-open"],
-        { io: c.io, env: env(), home },
-      ),
-    ).toBe(EXIT.refused);
-    expect(fingerprint(base())).toBe(before);
+      await run(["start-fresh", "--config", configPath(), "--yes"], { io, env: env(), home }),
+    ).toBe(EXIT.ok);
+
+    // `install` found a store already there and said so; the record is NOT
+    // written into it, because this run did not make it.
+    expect(text(out)).toContain("Store already present");
+    const store = Store.open({ dir: storePath(), observer: true });
+    try {
+      expect(store.getMeta("store.started")).toBeUndefined();
+    } finally {
+      store.close();
+    }
   });
 });
 
@@ -1277,7 +1308,7 @@ describe("the way back, as a command", () => {
 
     const u = consoleWith();
     expect(
-      await run(["start-fresh", "--config", configPath(), "--undo", "--yes"], {
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
         io: u.io,
         env: env(),
         home,
@@ -1290,6 +1321,41 @@ describe("the way back, as a command", () => {
     expect(existsSync(`${storePath()}.${PARKED_INFIX}-${today()}`)).toBe(false);
   });
 
+  test("--undo asks for the PARKED name, and --yes alone is refused the same way", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    // `--yes` alone displaces a store with something in it — the same hazard,
+    // the same rule.
+    const bare = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes"], {
+        io: bare.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(bare.err)).toContain("--nothing-is-open");
+
+    // And the word typed back is the DATED parked name, never the bare `store`
+    // every store is called.
+    const word = `${basename(storePath())}.${PARKED_INFIX}-${today()}`;
+    const typed = consoleWith([word]);
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo"], {
+        io: typed.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(typed.asked)).toContain(word);
+  });
+
   test("--undo refuses when it cannot tell which parked store is the memory", async () => {
     await install();
     renameSync(storePath(), `${storePath()}.${PARKED_INFIX}-${today()}`);
@@ -1297,7 +1363,7 @@ describe("the way back, as a command", () => {
     mkdirSync(storePath(), { recursive: true });
     const c = consoleWith();
     expect(
-      await run(["start-fresh", "--config", configPath(), "--undo", "--yes"], {
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
         io: c.io,
         env: env(),
         home,
@@ -1324,7 +1390,7 @@ describe("the way back, as a command", () => {
 
     const u = consoleWith();
     expect(
-      await run(["start-fresh", "--config", configPath(), "--undo", "--yes"], {
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
         io: u.io,
         env: env(),
         home,
