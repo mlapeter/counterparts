@@ -72,7 +72,20 @@ owner owns the data.
 ## 5. Contract
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
-`remove <id>`, `export`, `backup`, `restore`; interactive confirmation; the data directory.
+`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18); interactive
+confirmation; the data directory.
+*`self-page` is deliberately NOT on `OWNER_OPS`, and it is the second command with a
+reason of its own for that (`scope` is the first). It both READS and writes: reading the
+page must work from an instrument, because "what does my page actually say" is the first
+question anyone asks when the wake looks wrong, and a stood-down console is what is running
+while they ask it. The refusal therefore lives at the WRITE, inside `self/#revisePage`, in
+the same sentence every other write refuses in.*
+*It is also the ONLY door that unwrites a page (`--clear`) or puts an earlier one back
+(`--restore <seq>`); no MCP tool reaches either. `remove` refuses the page row by name and
+points here — removal tombstones a row, and the schema index reads every schema row's
+prose at open, so removing the page (or the identity core, which has had the same exposure
+since it shipped) leaves a store that will not open, with the wake hook swallowing the
+error so the symptom is silence.*
 **Outputs** — human-readable output; durable state changes for owner operations only;
 snapshots and exports; the removal record; telemetry by reference.
 

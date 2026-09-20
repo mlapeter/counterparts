@@ -99,6 +99,21 @@ interface HookRun {
   readonly stderr: string;
 }
 
+/**
+ * The curated environment every hook process here runs under. The transpiler
+ * cache is off because bun keeps it under HOME, and a process still writing it
+ * when `afterEach` removes `work` puts the directory back — one leftover per run
+ * of this file (measured), which is a test not removing what it created.
+ */
+function hookEnv(): Record<string, string> {
+  return {
+    PATH: emptyBin,
+    HOME: home,
+    USERPROFILE: home,
+    BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+  };
+}
+
 /** One real hook process, with a curated environment and no keys at all. */
 function runHook(
   event: string,
@@ -121,7 +136,7 @@ function runHook(
   const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, ...args], {
     input: payload,
     encoding: "utf8",
-    env: { PATH: emptyBin, HOME: home, USERPROFILE: home, ...(opts.env ?? {}) },
+    env: { ...hookEnv(), ...(opts.env ?? {}) },
     timeout: 60_000,
   });
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -428,7 +443,7 @@ describe("a deliberate stand-down says nothing in the terminal", () => {
         stop_hook_active: true,
       }),
       encoding: "utf8",
-      env: { PATH: emptyBin, HOME: home, USERPROFILE: home },
+      env: hookEnv(),
       timeout: 60_000,
     });
     quiet({ code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" });
@@ -512,7 +527,7 @@ describe("a fault never changes an exit code", () => {
           ...(active ? { stop_hook_active: true } : {}),
         }),
         encoding: "utf8",
-        env: { PATH: emptyBin, HOME: home, USERPROFILE: home },
+        env: hookEnv(),
         timeout: 60_000,
       });
       // Master's behaviour exactly: a throw out of the run exits 0, whatever the

@@ -67,11 +67,13 @@ import type {
 // destruction path. It is reachable by importing the seam on purpose, never by
 // holding a `Store` (INTERFACE-GAPS §1, closed 2026-08-25).
 import { chaseRemoved } from "../../core/store/owner-op-seam.js";
+// The page has its own door out (`self-page --clear`), and removal is not it.
+import { isSelfPageRow } from "../../core/self/page.js";
 
 export interface RemovalPlan {
   readonly targetId: string;
   readonly valid: boolean;
-  readonly reason: "ok" | "unknown-id" | "not-memory-bearing" | "already-removed";
+  readonly reason: "ok" | "unknown-id" | "not-memory-bearing" | "already-removed" | "is-the-self-page";
   /** IDS ONLY. Other memories whose text overlaps the doomed content (§16 G15). */
   readonly contamination: readonly string[];
   /** What the chase will visit, by surface name. Counts, never contents. */
@@ -545,6 +547,17 @@ export function planRemoval(
   if (row === undefined) return none("unknown-id");
   if (!MEMORY_BEARING.has(row.type)) return none("not-memory-bearing");
   if (store.deniedIds().includes(targetId)) return none("already-removed");
+  // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1, and the
+  // adversarial review that found the dead end). Removal tombstones a row —
+  // blank `prose_path`, id on the deny-list, row still listed — and `schemas/`
+  // reads every `type: "schema"` row's prose at open, so removing the page (or
+  // the identity core, which has had the same exposure since it shipped) left a
+  // store that would not open at all, with the wake hook swallowing the error
+  // so the symptom was silence. The page is also the most conspicuous schema
+  // row an owner has: `enumerate()` lists it and `status` prints its id. So the
+  // console sends him one door along, to the one that keeps the page as a
+  // version and lets him put it back.
+  if (isSelfPageRow(store, targetId)) return none("is-the-self-page");
 
   // EVERYTHING THAT READS THE DOOMED CONTENT HAPPENS HERE (§16 G13).
   let body = "";

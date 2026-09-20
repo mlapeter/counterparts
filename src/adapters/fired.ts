@@ -442,6 +442,18 @@ export const MECHANISMS: readonly Mechanism[] = [
     module: "self/briefing.ts",
     evidence: { kind: "event", names: ["self.briefing"] },
   },
+  // The self page (2026-09-18, S1). ONE row: the accepted writes are the
+  // evidence, and the refusals are accounted for here rather than as a
+  // mechanism of their own — a cap turning a page away is this mechanism
+  // working, not a second one.
+  {
+    id: "self-page",
+    label: "the written page of who I am was amended — by me, by the owner, or by the nightly writer",
+    module: "self/page.ts",
+    evidence: { kind: "event", names: ["self.page.revised"] },
+    covers: ["self.page.refused"],
+    since: "2026-09-18",
+  },
   {
     id: "wake-injected",
     label: "that briefing was handed to the host at the start of a session",

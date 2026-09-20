@@ -50,6 +50,71 @@ export interface SelfTunables {
    *  "identity is re-inhabited, not retrieved"). CAL. */
   WARM_FLOOR: number;
 
+  // ── the self page (plan 2026-09-18, S1) ───────────────────────────────────
+  /**
+   * Bytes of the WAKE the page may take. A page longer than this renders cut, at
+   * a paragraph or line boundary, with a marker naming both numbers
+   * (`page.ts#renderPage`).
+   *
+   * Starting value: about 6 KB of the owner's 9,000-byte ceiling, which is the
+   * plan's own number and a number to tune rather than a rule. It is clamped to
+   * the caller's budget at the render so a page can never on its own be larger
+   * than the whole wake; when page plus furniture still will not fit, the floor
+   * publishes with `overBudget: true`, which is the tripwire that already exists
+   * for an under-floor ceiling.
+   */
+  PAGE_WAKE_BYTES: number;
+  /**
+   * The HARD write limit. A revision larger than this is refused with a durable
+   * row rather than silently cut, because the thing that gets cut at write time
+   * is the only copy. Between this and `PAGE_WAKE_BYTES` a write is accepted and
+   * WARNED: the page is kept whole and the wake shows a cut of it.
+   */
+  PAGE_MAX_BYTES: number;
+  /** Calendar days after which the wake says the page has not been revised.
+   *  CALENDAR, not lived: the lived clock has run seven days across fifteen
+   *  calendar ones on the owner's own store, so a lived window would report a
+   *  fortnight of silence as three days (`adapters/fired.ts`, same reasoning). */
+  PAGE_STALE_DAYS: number;
+  /**
+   * WHAT "WHO I AM" SHOWS WHILE NO PAGE HAS BEEN WRITTEN — the owner's choice,
+   * and he has not made it yet, so it is one switch with two values.
+   *
+   * `true` (the default): the rotating identity list still renders, exactly as
+   * it does today, until a page exists. Deploying the page therefore changes
+   * nothing in the owner's wake until he or a session writes one, and on a
+   * brand-new store the list is empty anyway, so a new user meets the day-0 line
+   * either way.
+   *
+   * `false`: the list is gone the moment this ships, and "Who I am" says the
+   * page is still forming until one is written.
+   *
+   * A page that EXISTS replaces the list under both values (spec §15 item 4).
+   */
+  PAGE_EMPTY_SHOWS_LIST: boolean;
+  /**
+   * DOES THE PAGE LEAVE THE MACHINE with a composition that filters?
+   *
+   * `true` (the default): the crash-fallback interpreter is woken WITH the page.
+   * That is the owner's own decision of 2026-09-17 (spec §15 item 3) — the
+   * background writer gets as much of the self as is reasonable before it reads
+   * a transcript, so what it writes is not a stranger's paraphrase — and the
+   * transcript it is being handed already goes to the same provider on the same
+   * call. What goes out is exactly the page: the owner's and the session's own
+   * standing account of the self, cut to the same cap the wake uses.
+   *
+   * `false`: a filtering composition gets NO page, and its "Who I am" falls back
+   * to the identity list the `omit` predicate left standing — which is what that
+   * composition carried before the page existed.
+   *
+   * It is a switch and not an inference because the page is born `protected`,
+   * and `sweepFallback`'s own predicate holds protected rows back. The flag is
+   * the PRUNE's vocabulary (see `page.ts`), so it does not decide this by
+   * itself — but it is close enough to the question that the answer has to be
+   * written down rather than read off a flag that means something else.
+   */
+  PAGE_ON_EGRESS: boolean;
+
   // ── budget telemetry ──────────────────────────────────────────────────────
   /** Fraction of the budget at which the render reports pressure. A budget gets
    *  an event when APPROACHED and one when crossed (scar §2.4). [v1: 0.9] */
@@ -124,6 +189,12 @@ export const SELF_TUNABLES: SelfTunables = {
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   WARM_FLOOR: 0.35,
+
+  PAGE_WAKE_BYTES: 6_144,
+  PAGE_MAX_BYTES: 16_384,
+  PAGE_STALE_DAYS: 14,
+  PAGE_EMPTY_SHOWS_LIST: true,
+  PAGE_ON_EGRESS: true,
 
   BUDGET_PRESSURE: 0.9,
 

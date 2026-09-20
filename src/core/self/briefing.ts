@@ -147,6 +147,65 @@ export function identityCoreLine(name: string): string {
   return `This memory is for ${flatten(name)}. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.`;
 }
 
+/**
+ * THE PAGE, IN "WHO I AM" — furniture, like the day-0 line, and for the same
+ * reason: it is not a ranked element, it carries no `- ` bullet, and `counts`
+ * and the sentinel's `elements=` stay true of a bundle that holds it.
+ *
+ * The page prints FIRST and AS IS. Not re-wrapped, not re-ordered, not
+ * summarised: a page reassembled here would be a page this module wrote, and
+ * what the owner and the session are promised is the thing they wrote.
+ * `FRAMING.context`'s "each line opens with the date it was learned" is a claim
+ * about the element lines — the day-0 line has carried no date since it shipped
+ * — and the page carries its own date on its own line instead.
+ */
+export interface PageBlock {
+  /** The page as it will be injected: already cut to the cap, marker included. */
+  readonly text: string;
+  /** The page's own "last revised" line, or null when the page carries no date. */
+  readonly dateline: string | null;
+  /** True when the cap cut it — `text` already carries the marker that says so. */
+  readonly truncated: boolean;
+  /** The page's own bytes, whole, whatever was rendered. */
+  readonly wholeBytes: number;
+}
+
+/**
+ * What "Who I am" prints BESIDE the ranked elements. Both fields are decided by
+ * `render` from the tunables and handed down, so `compose` stays a renderer with
+ * no policy of its own.
+ */
+export interface IdentityBlock {
+  /** The written page, when one exists. It replaces the list (spec §15 item 4). */
+  readonly page: PageBlock | null;
+  /** Printed when there is NO page and the list has been switched off. */
+  readonly forming: string | null;
+}
+
+/** What "Who I am" says when no page has been written and the list is off. */
+export const PAGE_FORMING_LINE =
+  "Still forming — no page has been written here yet. It is written at a boundary, from what recurs, and can be amended by hand.";
+
+/**
+ * The page's own date, under the page. It states the DATE and — when the page
+ * has gone stale — how long the silence was allowed to be, rather than "N days
+ * ago": the bundle is composed at a boundary and then served unchanged until
+ * the next one, so a delta computed here goes wrong while a date does not.
+ */
+export function pageDateline(revisedOn: string, stale: boolean, staleDays: number): string | null {
+  const on = revisedOn.trim();
+  // A page with no readable date SAYS SO. Returning null printed the page with
+  // no date and no staleness signal at all while every other surface called it
+  // stale — the one state where the wake said less than it knew (adversarial
+  // review m6). Only reachable on a hand-minted or hand-edited row.
+  if (on === "" || !/^\d{4}-\d{2}-\d{2}$/.test(on) || !Number.isFinite(Date.parse(`${on}T00:00:00Z`))) {
+    return "(Last revised — the page carries no readable date.)";
+  }
+  return stale
+    ? `(Last revised ${on} — more than ${staleDays} days before this wake was composed.)`
+    : `(Last revised ${on}.)`;
+}
+
 /** Id → the verbatim statement AND its dates, at render time only. */
 export interface Resolved {
   readonly statement: string;
@@ -182,6 +241,25 @@ export interface BriefingRequest {
    * is the caller's because it reads prose, and `self/` invents no name.
    */
   readonly coreName?: string;
+  /**
+   * THE WRITTEN SELF PAGE, already cut to its cap and dated by the caller
+   * (`Self.build` → `page.ts#renderPage`). Present means "Who I am" prints this
+   * and NOT the rotating list; absent means the list renders as it always has,
+   * or — when `PAGE_EMPTY_SHOWS_LIST` is off — the still-forming line does.
+   *
+   * It arrives ready because the cap is a byte decision that needs the caller's
+   * budget and the page's own prose, and this module composes rather than reads.
+   */
+  readonly page?: PageBlock;
+  /**
+   * TRUE when the store HAS a page, whatever this render could fit of it. A
+   * ceiling with no room for the wake's own furniture carries no page block at
+   * all, and without this the renderer could not tell that from a store that has
+   * never been written to — so with `PAGE_EMPTY_SHOWS_LIST` off it printed "no
+   * page has been written here yet" over a store holding one (adversarial review
+   * MINOR-D). Absent means the caller did not say, which reads as "no page".
+   */
+  readonly pageExists?: boolean;
 }
 
 export interface TrimEvent {
@@ -212,6 +290,10 @@ export interface BriefingResult extends Composed {
    *  fit the caller's budget. The floor still publishes: an under-floor budget is
    *  a host misconfiguration, and the wake never fails the session (§1 G7). */
   readonly overBudget: boolean;
+  /** The page as it RENDERED — null when no page was handed to this render. The
+   *  bytes are the injected ones (the marker included), so a cut page's cost and
+   *  its true size are both readable. */
+  readonly page: { readonly bytes: number; readonly truncated: boolean; readonly wholeBytes: number } | null;
 }
 
 
@@ -349,26 +431,46 @@ export function compose(
   day: number,
   resolve: Resolve,
   coreName?: string,
+  identity?: IdentityBlock,
 ): Composed {
   const counts = emptyCounts();
   for (const lane of LANE_ORDER) counts[lane] = kept[lane].length;
   const elements = LANE_ORDER.reduce((n, lane) => n + counts[lane], 0);
   // The day-0 lane: a heading and one line of furniture, never an element. The
   // counts and `elements` above are untouched, so `elements=0` in the header and
-  // `identity=0` in the sentinel stay true of a bundle that carries it.
+  // `identity=0` in the sentinel stay true of a bundle that carries it. The same
+  // is true of the page and the still-forming line below.
+  const page = identity?.page ?? null;
+  const forming = identity?.forming ?? null;
   const dayZero =
-    kept.identity.length === 0 && coreName !== undefined && coreName.length > 0 ? coreName : null;
+    page === null && kept.identity.length === 0 && coreName !== undefined && coreName.length > 0
+      ? coreName
+      : null;
 
   const build = (bytes: string): string => {
     const lines: string[] = [headerLine(day, elements, bytes), FRAMING.context];
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
-      if (items.length === 0) {
-        if (lane === "identity" && dayZero !== null) {
-          lines.push("", laneHeading(lane), identityCoreLine(dayZero));
+      if (lane === "identity") {
+        const furniture = page !== null || forming !== null || dayZero !== null;
+        if (items.length === 0 && !furniture) continue;
+        lines.push("", laneHeading(lane));
+        // THE PAGE FIRST, and then nothing else that speaks for the same thing:
+        // `render` empties the lane when a page exists, so the loop below is a
+        // no-op there. A direct caller that hands both is rendered both rather
+        // than silently cut, because `counts.identity` would otherwise state a
+        // number the bundle does not carry.
+        if (page !== null) {
+          lines.push(page.text);
+          if (page.dateline !== null) lines.push(page.dateline);
+        } else {
+          if (forming !== null) lines.push(forming);
+          if (dayZero !== null) lines.push(identityCoreLine(dayZero));
         }
+        for (const item of items) lines.push(elementLine(item, resolve));
         continue;
       }
+      if (items.length === 0) continue;
       lines.push("", laneHeading(lane));
       for (const item of items) lines.push(elementLine(item, resolve));
     }
@@ -448,13 +550,14 @@ function offerLeftover(
   req: BriefingRequest,
   resolve: Resolve,
   coreName: string | undefined,
+  identity: IdentityBlock,
 ): Composed {
   let current = composed;
   while (held.length > 0) {
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve, coreName);
+    const candidate = compose(kept, req.day, resolve, coreName, identity);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -507,6 +610,39 @@ export function render(
   // that looks the name up. A store that HAS identity says nothing about not
   // having it, whatever the budget did to the lane.
   const coreName = lanes.identity.length === 0 ? req.coreName : undefined;
+  // THE PAGE REPLACES THE LIST (spec §15 item 4), and it replaces it HERE — by
+  // emptying the lane before the share, the trim order or the counts see it —
+  // so `counts.identity` and the sentinel's `elements=` state what the bundle
+  // actually carries. The lane's elements are not "trimmed": nothing was
+  // dropped for want of room, so no `TrimEvent` is written for them, and the
+  // rotation memory (`RENDERED_PREFIX`) simply stops advancing while a page is
+  // what renders.
+  //
+  // THE STILL-FORMING LINE, which is about the PAGE and never about identity,
+  // and which prints on ONE value of the switch: the list has been turned off
+  // and no page has been written, so the line stands in the list's place.
+  //
+  // **It deliberately does NOT print under the default, on a lane that happens
+  // to be empty**, and the reason is measured rather than tidy. It is FURNITURE
+  // — untrimmable, like the day-0 line — so printing it whenever the lane is
+  // empty adds ~127 bytes to the floor of every such wake. A host reporting a
+  // 400-byte ceiling then composes 539 and publishes `overBudget`, which is the
+  // host-budget guarantee (§1, scar §2.18) paying for a sentence. On a
+  // brand-new store the day-0 line already says the same thing in the words
+  // this module chose for it — "No identity has formed here yet — identity is
+  // earned at the boundary…" — so the honesty the plan asks for on a first wake
+  // is already there, and the switch's other value is one word away for an
+  // owner who wants the sentence verbatim. See NOTES §12.
+  const page = req.page ?? null;
+  const exists = page !== null || req.pageExists === true;
+  const suppressList = page !== null || !t.PAGE_EMPTY_SHOWS_LIST;
+  if (suppressList) kept.identity.length = 0;
+  const identity: IdentityBlock = {
+    page,
+    // A page this ceiling could not carry is still a page, so the line that says
+    // none has been written stays off it (MINOR-D).
+    forming: !exists && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
+  };
   // THE SHARE, applied BEFORE the trim order rather than inside it: identity
   // trims last by policy, so by the time the trim loop could bound identity
   // every other lane is already gone. Held-back elements are not trimmed —
@@ -514,7 +650,7 @@ export function render(
   const held = withheldForShare(kept, req.budgetBytes, resolve, t);
 
   for (;;) {
-    const c = compose(kept, req.day, resolve, coreName);
+    const c = compose(kept, req.day, resolve, coreName, identity);
     const fits = c.bytes <= req.budgetBytes;
     let cut: TrimEvent | null = null;
     if (!fits) {
@@ -533,7 +669,8 @@ export function render(
       // would make the share decide the opposite of what it was set for. When
       // the other lanes are all present and the budget is still not spent, the
       // held-back identity elements take it back, in rank order, whole.
-      const composed = trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName) : c;
+      const composed =
+        trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName, identity) : c;
       return {
         ...composed,
         budgetBytes: req.budgetBytes,
@@ -548,6 +685,14 @@ export function render(
         trimmed,
         pressure: composed.bytes >= req.budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
+        page:
+          identity.page === null
+            ? null
+            : {
+                bytes: byteLength(identity.page.text),
+                truncated: identity.page.truncated,
+                wholeBytes: identity.page.wholeBytes,
+              },
       };
     }
     trimmed.push(cut);
@@ -638,6 +783,41 @@ export const WAKE_SYSTEM = "Counterparts";
  * gains a word.
  */
 export const PREFACE_RESERVE_BYTES = 160;
+
+/**
+ * THE ROOM THE WAKE'S OWN FURNITURE TAKES AROUND THE PAGE, in bytes — the
+ * number `Self.build` subtracts from the caller's ceiling before it caps the
+ * page. Structural, not tunable, and measured rather than guessed: a test
+ * composes the widest plausible furniture (a six-digit day and six-digit lane
+ * counts in both comment lines, the stale dateline at a six-digit threshold)
+ * and asserts it fits under this.
+ *
+ * It exists because of the adversarial review of PR #138. The page's cap was
+ * clamped to the WHOLE budget, so a long page filled the budget exactly and the
+ * header, `FRAMING.context`, the heading, the dateline and the sentinel pushed
+ * the composition past it — and nothing could trim it back, because the identity
+ * lane is empty by then and the page is furniture the trim loop cannot pop. An
+ * 8,657-byte page published `overBudget: true` at host budgets of 400, 900,
+ * 2,000 and 6,000. That is scar §2.18's guarantee paying for a block of prose,
+ * and it is the same measurement that kept the still-forming line out of the
+ * default switch (NOTES §12a) — applied to the page this time.
+ *
+ * Widest measured furniture: 444 bytes. 512 is that plus room for a line to
+ * gain a word.
+ */
+export const PAGE_FLOOR_RESERVE_BYTES = 512;
+
+/**
+ * The smallest room worth rendering a PAGE into. Below it the wake says the
+ * page exists and does not fit, in one short line, rather than handing the
+ * reader a sentence and a marker — a fragment of a self is not a smaller self.
+ */
+export const PAGE_MIN_RENDER_BYTES = 240;
+
+/** The one short line a wake with no room for the page prints instead of it. */
+export function pageTooLargeLine(bytes: number): string {
+  return `(My page is ${bytes} bytes — no room for it in this wake. Read it with 'counterparts self-page'.)`;
+}
 
 export interface PrefaceFacts {
   /** Which memory system composed and is delivering this. */

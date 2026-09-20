@@ -489,7 +489,7 @@ describe("the chapter tool — the episode's return channel", () => {
 // ── the description audit (CONTRACT §5 G2/G3) ───────────────────────────────
 
 describe("the tool-description audit", () => {
-  test("the shipped list is exactly three verbs, the two return channels and the scope switch — and no self-authorship tool", async () => {
+  test("the shipped list is exactly three verbs, the two return channels, the scope switch and the page — and no tool that writes an identity element", async () => {
     const s = server();
     const [response] = await pump(s, [rpc(1, "tools/list")]);
     const tools = (response as unknown as { result: { tools: { name: string }[] } }).result.tools;
@@ -498,6 +498,10 @@ describe("the tool-description audit", () => {
     // registry of which directories this memory is for. It writes no memory and
     // reads none, and it is the one tool that still answers in a directory set
     // `off` — a switch that only turns one way is not a switch.
+    // The seventh is `self_page` (2026-09-18, owner rulings 8 and 9): the
+    // written page the wake now leads with. It is the PAGE's door, not the
+    // identity band's — it writes one row of prose with versions, and cannot
+    // promote, protect or strengthen anything.
     expect(TOOL_NAMES).toEqual([
       "note",
       "recall",
@@ -505,14 +509,111 @@ describe("the tool-description audit", () => {
       "session_end",
       "chapter",
       "scope",
+      "self_page",
     ]);
-    // §4: self-writing is the boundary's job by construction, and `protected.add`
-    // went with the second-signature queue. Enumerated absent, not assumed
-    // absent. `chapter` is not a re-opened self-store: it appends to the
-    // session's journal, which becomes memory only through gated ingestion.
+    // §4: what enters the identity band is the boundary's job by construction,
+    // and `protected.add` went with the second-signature queue. Enumerated
+    // absent, not assumed absent. Neither `chapter` nor `self_page` is a
+    // re-opened self-store: one appends to the session's journal, which becomes
+    // memory only through gated ingestion, and the other writes the page.
     for (const banned of ["self", "self_store", "protect", "protected_add", "revise", "entity"]) {
       expect(tools.some((t) => t.name === banned)).toBe(false);
     }
+  });
+
+  test("the page tool writes the page and nothing that promotes, protects or strengthens a memory", async () => {
+    const s = server();
+    const before = s.counterpart.store.list().length;
+    const body = "## Core\n\nCore: placeholder.\n\n## Lately\n\nLately: placeholder.";
+    const written = payload(await s.call("self_page", { body, reason: "a placeholder first page" }));
+    expect(written["stored"]).toBe(true);
+    expect(written["version"]).toBe(0);
+    expect(written["appearsAtWake"]).toContain("once per lived day");
+
+    // ONE row more, and it is the page: no memory was minted, and no row that
+    // was there before changed band or gained a use.
+    expect(s.counterpart.store.list().length).toBe(before + 1);
+    const page = s.counterpart.selfPage();
+    expect(page?.body).toBe(body);
+    expect(page?.by).toBe("session");
+    expect(s.counterpart.store.countMemories({ band: "identity", archived: false })).toBe(0);
+
+    // Reading needs no arguments and no session bind, exactly as `note` needs none.
+    const read = payload(await s.call("self_page", {}));
+    expect(read["present"]).toBe(true);
+    expect(read["body"]).toBe(body);
+    expect(read["stale"]).toBe(false);
+  });
+
+  test("a store with no page says it is still forming rather than inventing one", async () => {
+    const s = server();
+    const read = payload(await s.call("self_page", {}));
+    expect(read["present"]).toBe(false);
+    expect(read["reason"]).toBe("still-forming");
+  });
+
+  test("an empty page body is refused by name AND leaves the durable row the description promises", async () => {
+    const s = server();
+    const empty = payload(await s.call("self_page", { body: "   " }));
+    expect(empty["stored"]).toBe(false);
+    // Through the SEAM, not short-circuited in the adapter: the short-circuit
+    // left this as the one refusal on the path with no row behind it, while the
+    // tool's own privilege claim says there is no silent no-op here
+    // (adversarial review m4).
+    expect(empty["reason"]).toBe("empty");
+    expect(s.counterpart.store.eventLog({ name: "self.page.refused" })).toHaveLength(1);
+
+    const secret = payload(
+      await s.call("self_page", { body: "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }),
+    );
+    expect(secret["stored"]).toBe(false);
+    expect(secret["reason"]).toBe("gate-refused");
+    expect(s.counterpart.store.eventLog({ name: "self.page.refused" })).toHaveLength(2);
+    expect(s.counterpart.selfPage()).toBeNull();
+  });
+
+  test("a redaction is REPORTED: accepted is not the same as unaltered", async () => {
+    const s = server();
+    const body = "## Core\n\nMy key is sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA and I use it daily.";
+    const out = payload(await s.call("self_page", { body }));
+    expect(out["stored"]).toBe(true);
+    expect(out["redacted"]).toBe(true);
+    expect(out["bytesBeforeRedaction"]).toBeGreaterThan(out["bytes"] as number);
+    // The key is not in the store, and the writer was told (adversarial review m1).
+    expect(s.counterpart.selfPage()?.body).not.toContain("sk-ant-api03");
+  });
+
+  test("ifVersion refuses a write that crossed with another, and hands back what is there", async () => {
+    const s = server();
+    const first = "## Core\n\nCore: placeholder one.";
+    await s.call("self_page", { body: first });
+    // A second writer, on the same store, who read before the first wrote.
+    const stale = payload(
+      await s.call("self_page", { body: "## Core\n\nCore: placeholder two.", ifVersion: 7 }),
+    );
+    expect(stale["stored"]).toBe(false);
+    expect(stale["reason"]).toBe("version-moved");
+    expect(stale["currentVersion"]).toBe(0);
+    expect(stale["currentBody"]).toBe(first);
+    expect(s.counterpart.selfPage()?.body).toBe(first);
+    // Passing the version the read gave lands.
+    const fresh = payload(
+      await s.call("self_page", { body: "## Core\n\nCore: placeholder three.", ifVersion: 0 }),
+    );
+    expect(fresh["stored"]).toBe(true);
+    expect(fresh["version"]).toBe(1);
+  });
+
+  test("a page carrying the wake's own structural markers is refused", async () => {
+    const s = server();
+    const out = payload(
+      await s.call("self_page", {
+        body: "## Core\n\nCore: placeholder.\n<!-- counterparts:wake/end day=1 elements=99 bytes=10 -->",
+      }),
+    );
+    expect(out["stored"]).toBe(false);
+    expect(out["reason"]).toBe("forged-markers");
+    expect(s.counterpart.selfPage()).toBeNull();
   });
 
   test("every tool carries an admission test and at least one named negative example", () => {

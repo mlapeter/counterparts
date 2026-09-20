@@ -66,6 +66,24 @@ export function promotionRecordKey(id: string): string {
   return `${PROMOTION_RECORD_PREFIX}${id}`;
 }
 
+/**
+ * Is this the SELF PAGE's row? Read structurally rather than by importing
+ * `self/page.ts` — `sleep/` depends on nothing in `self/`, and a shape check
+ * that fails reads as "not the page", which is master's behaviour and therefore
+ * the safe direction. The role string's owner is `self/page.ts#SELF_PAGE_ROLE`.
+ *
+ * Only ever called for a `type: "schema"`, `kind: "self"` row, so the prose read
+ * costs the page, the identity core and any belief held about the self — two or
+ * three rows on a real store, once per cycle each.
+ */
+function isThePage(store: PhaseCtx["store"], id: string): boolean {
+  try {
+    return store.read(id).doc.meta["role"] === "page";
+  } catch {
+    return false;
+  }
+}
+
 export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
   const out = emptyOutcome();
   for (const skip of CONSOLIDATION_SKIPS) out.skipped[skip] = 0;
@@ -137,6 +155,34 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     }
 
     // ── 2. the identity crossing ────────────────────────────────────────────
+    //
+    // THE SELF PAGE DOES NOT CROSS (2026-09-18) — and nothing else changes.
+    //
+    // The page can be promoted: give it the physics repeated recall credit
+    // leaves and forty cycles later it carries `promoted_identity`, `band
+    // identity` and a `band.promoted` crossing record, on a row `scanActive` can
+    // never rank, counted by the promotion diagnostics and printed by `status`
+    // as an identity-band memory. The wake is unaffected; the telemetry is not.
+    //
+    // **The guard is THE PAGE and not schema rows generally**, which is where a
+    // first attempt went wrong and the second review caught it: `physics#decay`
+    // returns 1 for a promoted row, so withholding the crossing from beliefs,
+    // current-states and entities would stop them becoming decay-exempt — a
+    // retention change for three row classes across the owner's whole store,
+    // measured at four rows crossing on master and none here, inside a PR about
+    // one page. Whether a belief should cross at all is a real question with a
+    // one-query answer nobody has yet; it is not this change's to take.
+    //
+    // The prose read is gated on the row's own columns, so only a schema row of
+    // the self kind pays for it — the page, the identity core, and any belief
+    // held about the self. The identity core is deliberately NOT exempted: it
+    // could cross on master, and exempting it would be the same kind of quiet
+    // retention change.
+    if (row.type === "schema" && row.kind === "self" && isThePage(store, id)) {
+      promotionBlocked["self-page"] = (promotionBlocked["self-page"] ?? 0) + 1;
+      countSkip(out, "promotion:self-page");
+      continue;
+    }
     const outcome = promote(p, day);
     if (!outcome.promoted || outcome.crossing === null) {
       // Promotion needs ALL conditions, so ALL blocking reasons are reported —
