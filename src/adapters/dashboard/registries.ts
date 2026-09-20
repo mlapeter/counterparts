@@ -60,6 +60,13 @@ import {
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
+// Prospective memory's two (2026-09-20, E2). The module had no durable row at
+// all: `fires` is a column, so the store could say a window had ever fired and
+// never when, or why one did not.
+import {
+  PROSPECTIVE_FIRE_EVENT,
+  PROSPECTIVE_REFUSED_EVENT,
+} from "../../core/prospective/index.js";
 // The self page's two, from `self/` itself (2026-09-18, S1): a written page is
 // not a briefing render, and a refused write is not an accepted one.
 import { SELF_PAGE_REFUSED_EVENT, SELF_PAGE_REVISED_EVENT } from "../../core/self/index.js";
@@ -140,7 +147,9 @@ export type DurableEventName =
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
-  | typeof SNAPSHOT_ROTATED_EVENT;
+  | typeof SNAPSHOT_ROTATED_EVENT
+  | typeof PROSPECTIVE_FIRE_EVENT
+  | typeof PROSPECTIVE_REFUSED_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -207,6 +216,10 @@ export const DURABLE_EVENTS = {
   "snapshot.taken": "a copy of the whole store was made and kept (which one, how many files, how many are kept, the oldest)",
   "snapshot.failed": "a copy could not be made (which step, and why) — the store is unharmed, and the worker carried on",
   "snapshot.rotated": "old copies were let go so the newest 14 remain (which ones went, and how many are left)",
+  // Remembering to act (2026-09-20, E2), in two names so a refusal can never be
+  // counted as a firing.
+  "prospective.fire": "a future date arrived and the reminder was offered into the turn (which window, and how much of its budget is left)",
+  "prospective.fire.refused": "a reminder was NOT offered (which brake held — one row per window per reason per lived day)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

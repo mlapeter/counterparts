@@ -1788,6 +1788,7 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     reconciled?: number;
     budgetExhausted?: boolean;
     skippedForBudget?: number;
+    skipped?: Record<string, number>;
   }
   const phasesOf = (payload: Record<string, unknown>): PhaseLine[] =>
     payload["phases"] as PhaseLine[];
@@ -1831,6 +1832,25 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
       expect(p.budgetExhausted).toBe(false);
       expect(p.skippedForBudget).toBeUndefined();
     }
+
+    // WHAT EACH PHASE TURNED AWAY, BY REASON (2026-09-20, E2). The phase
+    // reports have carried `skipped` since the phases had budgets — consolidate
+    // mirrors physics' whole `blockedBy` vocabulary into it — and this row
+    // dropped it, so "why did this memory not promote" was unanswerable once
+    // the worker exited. Consolidate is the one that always has something to
+    // say on a seeded store: nothing here is old enough to cross.
+    const consolidate = phasesOf(row).find((p) => p.phase === "consolidate");
+    expect(consolidate?.skipped).toBeDefined();
+    const reasons = Object.keys(consolidate?.skipped ?? {});
+    expect(reasons.some((r) => r.startsWith("promotion:"))).toBe(true);
+    // ONLY THE NONZERO ENTRIES: every phase pre-seeds its whole vocabulary with
+    // zeroes so a category cannot go missing from the report, and eight zeroes
+    // per phase per boundary is how a log gets too big to read.
+    for (const n of Object.values(consolidate?.skipped ?? {})) expect(n).toBeGreaterThan(0);
+    // A phase that turned nothing away carries no field at all — absent, not an
+    // empty object a reader has to interpret.
+    const clock = phasesOf(row).find((p) => p.phase === "clock");
+    expect("skipped" in (clock ?? {})).toBe(false);
   });
 
   /**

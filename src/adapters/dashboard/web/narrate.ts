@@ -666,6 +666,20 @@ export const NARRATORS = {
     );
   },
 
+  // ── remembering to act ─────────────────────────────────────────────────────
+  "prospective.fire": (t) => {
+    const fires = n(t, "fires") ?? 0;
+    const cap = n(t, "cap") ?? 0;
+    return notable(
+      `The time came for ${subject(t)} and I let it come to mind` +
+        (cap === 0 ? "." : ` — ${String(Math.max(0, cap - fires))} more mention${cap - fires === 1 ? "" : "s"} allowed before I leave it alone.`),
+    );
+  },
+  "prospective.fire.refused": (t) =>
+    calm(
+      `I held back a reminder about ${subject(t)} (${s(t, "reason") ?? "no reason recorded"}). Holding debts and losing deadlines is the whole of the tact rule; this is it working.`,
+    ),
+
   // ── the worker that did start ──────────────────────────────────────────────
   "adapter.spawn.started": (t) => {
     const starts = n(t, "count") ?? 0;
@@ -758,6 +772,10 @@ export const REF_KIND = {
   // The deliberate look carries counts and verdicts and deliberately no ids —
   // a durable pairing of memories with the moment somebody asked for them.
   "mcp.recall": "none",
+  // Both prospective rows point at the MEMORY whose window it is: the window
+  // key is a derived address on that row, not an entity of its own.
+  "prospective.fire": "memory",
+  "prospective.fire.refused": "memory",
   "adapter.checkout": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",

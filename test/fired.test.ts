@@ -102,6 +102,11 @@ describe("the registry cannot go stale", () => {
     for (const m of MECHANISMS) {
       if (m.evidence.kind === "event") for (const n of m.evidence.names) accounted.add(n);
       for (const n of m.covers ?? []) accounted.add(n);
+      // A row this mechanism reads its REFUSALS from accounts for that name as
+      // surely as its evidence does (E2): the owner sees it, under the
+      // mechanism it is about. Requiring it in `covers` as well would be the
+      // same list twice, which is the staleness this file exists to prevent.
+      for (const n of m.refusals?.names ?? []) accounted.add(n);
     }
     const orphans = DURABLE_EVENT_NAMES.filter((n) => !accounted.has(n));
     expect(
@@ -120,6 +125,7 @@ describe("the registry cannot go stale", () => {
         for (const n of m.evidence.names) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
       }
       for (const n of m.covers ?? []) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
+      for (const n of m.refusals?.names ?? []) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
     }
     expect(invented).toEqual([]);
   });
@@ -239,6 +245,48 @@ describe("every state is reachable from a fixture", () => {
     const started = pick(report(s), "worker-start");
     expect(started.state).toBe("firing");
     expect(started.refusedInWindow).toBe(3);
+  });
+
+  test("the night's refusals come off the cycle row, and no phase claims another's (E2)", () => {
+    // `docs/promotion-diagnosis-2026-09-17.md`: one consolidate pass examined a
+    // third of the store, promoted nothing, and the store could not say why —
+    // the reasons lived in a ring that died with the worker. The phase reports
+    // have carried them all along; the durable row threw them away.
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "consolidate",
+          status: "ran",
+          reason: "ok",
+          skipped: { "promotion:below-theta": 41, "promotion:too-few-days": 7 },
+        },
+        { phase: "prune", status: "ran-nothing-found", reason: "ok", skipped: { journal: 3 } },
+        { phase: "decay", status: "ran", reason: "ok", skipped: { protected: 2 } },
+      ],
+    });
+    const r = report(s);
+
+    const promotion = pick(r, "promotion");
+    expect(promotion.state).toBe("blocked");
+    expect(promotion.refusedInWindow).toBe(48);
+    // The PREFIX IS STRIPPED: the reader wants the reason, not the routing.
+    expect(promotion.topRefusal).toBe("promotion:below-theta ×41");
+    expect(promotion.evidence).toBe("band.promoted");
+    expect(promotion.note).toContain("sleep.cycle");
+
+    // No phase claims another's. Prune saw three journal rows and nothing of
+    // consolidate's forty-eight.
+    expect(pick(r, "prune").refusedInWindow).toBe(3);
+    expect(pick(r, "prune").topRefusal).toBe("journal ×3");
+    expect(pick(r, "decay").refusedInWindow).toBe(2);
+    // A phase that left no skip map contributes nothing rather than a zero.
+    expect(pick(r, "dedup").refusedInWindow).toBe(0);
+    expect(pick(r, "dedup").state).toBe("never");
+
+    // And the cycle itself FIRED — a night that ran and refused things is a
+    // night that ran. The refusal column is on the mechanisms, not on it.
+    expect(pick(r, "sleep-cycle").state).toBe("firing");
   });
 
   test("a brand-new store says it is too new to grade rather than listing 29 failures", () => {
@@ -503,7 +551,9 @@ describe("the tables that stand in for a mechanism with no event", () => {
     const s = store();
     expect(pick(report(s), "removal").state).toBe("never");
     expect(pick(report(s), "removal").total).toBe(0);
-    expect(pick(report(s), "prospective-fired").state).toBe("never");
+    // `prospective-fired` LEFT this describe block on 2026-09-20: it reads two
+    // durable rows now, not `last_fired_day`. Its empty-store state is `new`,
+    // and the reason is the point — the evidence is younger than the window.
   });
 
   test("with the probes off, the probe-backed mechanisms are NAMED as unread rather than guessed at", () => {

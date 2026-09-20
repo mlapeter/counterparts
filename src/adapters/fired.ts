@@ -429,24 +429,32 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "memories weaken with time and drop to a lower band",
     module: "physics/, sleep/decay.ts",
     evidence: { kind: "event", names: ["band.transition"] },
+    refusals: { names: ["sleep.cycle"], under: "decay/" },
   },
+  // The three phases whose SUCCESS has always been durable and whose REFUSALS
+  // were an in-process ring until 2026-09-20 (E2). Each takes its own slice of
+  // the cycle row's per-phase skip map, so a night that examined ten thousand
+  // rows and promoted none says which gate held rather than nothing at all.
   {
     id: "promotion",
     label: "a memory reinforced over several days is promoted into identity",
     module: "sleep/consolidate.ts",
     evidence: { kind: "event", names: ["band.promoted"] },
+    refusals: { names: ["sleep.cycle"], under: "consolidate/" },
   },
   {
     id: "dedup",
     label: "a duplicate is merged into the memory it duplicates",
     module: "sleep/dedup.ts",
     evidence: { kind: "event", names: ["memory.merged"] },
+    refusals: { names: ["sleep.cycle"], under: "dedup/" },
   },
   {
     id: "prune",
     label: "a memory that has sat at the floor long enough is let go",
     module: "sleep/prune.ts",
     evidence: { kind: "event", names: ["memory.pruned"] },
+    refusals: { names: ["sleep.cycle"], under: "prune/" },
   },
   {
     id: "revision",
@@ -455,13 +463,18 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["revision.pressure"] },
   },
   {
+    // NARROWED 2026-09-20 (E2). This used to name all four. The night's three —
+    // promotion, prune, dedup — now carry their refusals on the rows above,
+    // read out of the cycle row's per-phase skip map. Revision is the one left:
+    // its refusals never reach the cycle, because the pressure arm runs in
+    // `schemas/` off a credited challenge and not in a sleep phase.
     id: "night-refusals",
-    label: "why a memory was NOT promoted, pruned, merged or revised",
-    module: "sleep/, physics/, schemas/",
+    label: "why a belief was NOT revised under a challenge it took",
+    module: "schemas/index.ts",
     evidence: {
       kind: "none",
       reason:
-        "each of those four writes a durable row when it succeeds and only an in-process note when it refuses, so 'why did this not promote' is unanswerable once the worker exits. A `blockedBy` roll-up on the cycle row that already exists would fix all four at once.",
+        "the credit is durable and the refusal is an in-process ring (`schemas/index.ts:682`), so a belief that refused a challenge and one that was never challenged read alike. A `refused` map on the `revision.pressure` row that already exists would fix it.",
     },
   },
   {
@@ -544,10 +557,20 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // MOVED OFF THE TABLE PROBE, 2026-09-20 (E2). The probe read
+    // `last_fired_day`, which is ONE day per window — it could say a window had
+    // ever fired and never how often, when the others were, or why one did not.
+    // The module now writes a row per fire and a latched row per refusal, so
+    // "the reminder was held back four times this week, by the refractory" is a
+    // sentence the store can make. The v1 counters the probe used to read stay
+    // on their rows and are no longer reported as firings, because nothing knows
+    // what day they were from.
     id: "prospective-fired",
     label: "that future date arrived and the reminder came back",
     module: "prospective/",
-    evidence: { kind: "probe", probe: "prospective.fired" },
+    evidence: { kind: "event", names: ["prospective.fire"] },
+    refusals: { names: ["prospective.fire.refused"] },
+    since: "2026-09-20",
   },
 
   // ── the machinery underneath ─────────────────────────────────────────────
@@ -1155,6 +1178,30 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
   "adapter.spawn.refused": (p) => reasonOnce(p),
   "adapter.spawn.failed": (p) => reasonOnce(p),
   "adapter.runner.failed": (p) => reasonOnce(p),
+  // THE NIGHT'S REFUSALS (E2). Every phase counts what it turned away by reason
+  // and the cycle row has carried them since 2026-09-20, so "why did this not
+  // promote" is answerable from the store. Keyed `<phase>/<reason>` because one
+  // row answers for four mechanisms and none of them may claim another's — the
+  // `under` prefix on `Mechanism.refusals` is how each takes only its own.
+  "sleep.cycle": (p) => {
+    const out: [string, number][] = [];
+    const phases = p["phases"];
+    if (!Array.isArray(phases)) return out;
+    for (const entry of phases) {
+      if (entry === null || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      const phase = typeof e["phase"] === "string" ? e["phase"] : null;
+      if (phase === null) continue;
+      for (const [reason, n] of countsIn(e, "skipped")) out.push([`${phase}/${reason}`, n]);
+    }
+    return out;
+  },
+  // Every refused write to the page IS a refusal, and the reason is the column.
+  "self.page.refused": (p) => reasonOnce(p),
+  // Same shape: the row IS the brake that held, named.
+  "prospective.fire.refused": (p) => reasonOnce(p),
+  // One row per deliberate recall carries every verdict that kept something out.
+  "mcp.recall": (p) => countsIn(p, "blockedBy"),
   // `rendered` is the turn that surfaced something; every other reason is a turn
   // that decided to stay quiet, which is what a refusal is here.
   "recall.decision": (p) => {

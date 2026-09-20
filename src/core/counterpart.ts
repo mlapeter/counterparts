@@ -854,6 +854,27 @@ function stringField(event: CounterpartEvent, key: string): string | null {
 }
 
 /**
+ * A counter map with its zeroes dropped, or null when nothing was counted.
+ *
+ * Every sleep phase pre-seeds its whole skip vocabulary with zeroes so that a
+ * category can never go missing from the report; a durable row does not want
+ * eight zeroes per phase per boundary. Null, not `{}`, so the field is absent
+ * rather than empty — "nothing was turned away" reads better as no field than
+ * as an empty object a reader has to interpret.
+ */
+function nonzero(counts: Readonly<Record<string, number>>): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const [reason, n] of Object.entries(counts)) {
+    if (typeof n === "number" && n > 0) {
+      out[reason] = n;
+      any = true;
+    }
+  }
+  return any ? out : null;
+}
+
+/**
  * The chunk gate's own record, as it is PERSISTED (store `events`, SEAMS K).
  *
  * `encodeChunk` returns a full `EncodeResult`; before this existed the
@@ -2568,6 +2589,22 @@ export class Counterpart {
         ? { budgetExhausted: p.budgetExhausted }
         : {}),
       ...(p.skippedForBudget === 0 ? {} : { skippedForBudget: p.skippedForBudget }),
+      // WHAT THE PHASE TURNED AWAY, BY REASON (2026-09-20, E2).
+      //
+      // `PhaseReport.skipped` has carried this since the phases had budgets —
+      // consolidate mirrors physics' whole `blockedBy` vocabulary into it as
+      // `promotion:<reason>` — and this row threw it away, so "why did this not
+      // promote" stayed unanswerable once the worker exited (mechanism
+      // inventory §1: the system records what happened and almost never records
+      // what was prevented). It is the value the phase already computed; no new
+      // read, nothing new on any path.
+      //
+      // ONLY THE NONZERO ENTRIES. Every phase pre-seeds its whole vocabulary
+      // with zeroes so a category can never go missing, and writing eight zeroes
+      // per phase every boundary is how a log gets too big to read. A category
+      // absent here was not counted; the phase's `status` and `examined` are
+      // what say whether it was reached at all.
+      ...(nonzero(p.skipped) === null ? {} : { skipped: nonzero(p.skipped) }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";
