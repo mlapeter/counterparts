@@ -78,6 +78,15 @@ archive a pointer written that morning. So every write does
 `updatePhysics(id, { lastUsedDay: day })`. That is the whole of the interaction, and it is
 tested by name.
 
+**And it really can be let go, which was worth checking rather than assuming.**
+`pruneVerdict`'s fifth blocker is `inLiveRevisionChain`, and a row that is revised on every
+handoff accumulates version rows forever. That clause reads `superseded_by` on the ROW and
+`successor_id` on the version rows — and `store.revise` writes version rows with
+`successor_id = NULL` (only `store.supersede` sets one). So versions on one row do not block
+the prune; supersession between two rows does, and nothing here supersedes. The row's own
+`pressureAt` is zero for the same reason nothing else about it moves: no challenge ever
+lands on it.
+
 The numbers it leans on: `D_FLOOR_DAYS = 90` and `PHI_PRUNE = 0.02`. A pointer expires from
 view at 14 lived days and the row survives roughly 90 more before the prune can take it. The
 gap is deliberate — the row is the only copy, and an owner reading the dashboard three weeks
