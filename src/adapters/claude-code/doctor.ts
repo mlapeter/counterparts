@@ -45,11 +45,15 @@ import {
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
+  SNAPSHOT_FAILED_EVENT,
+  SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
-import { Store, dateOf } from "../../core/store/index.js";
+import { Counterpart } from "../../core/counterpart.js";
+import { Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
+import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
@@ -61,10 +65,20 @@ import type { AskReason } from "../../core/self/episodes.js";
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
 import { STATE_MEANING, firedReport } from "../fired.js";
+import {
+  DEFAULT_KEEP,
+  futureNamesIn,
+  keepOf,
+  readSnapshotsDir,
+  resolveSnapshotsDir,
+} from "../snapshots.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
+// The same vocabulary the hook's stand-down uses, so the terminal and the
+// console cannot end up with two answers to "why did it not open".
+import { describeFault, faultPath } from "./standdown.js";
 
 /** Worst first. The order of this array IS the report's order. */
 export const SEVERITIES = ["red", "amber", "green"] as const;
@@ -168,6 +182,12 @@ export interface DoctorInput {
    * finding is produced at all.
    */
   readonly checkout?: CheckoutReading;
+  /**
+   * WHETHER THE STORE OPENS THE WAY A SESSION OPENS IT (see `readCounterpartOpen`).
+   * Absent: not read, and no finding is produced at all — which is the hook's
+   * case, whose counterpart is already open by the time it asks for a notice.
+   */
+  readonly open?: OpenReading;
   /** Bound the whole reading. Absent: no bound (the console's case). */
   readonly budgetMs?: number;
   readonly now?: () => number;
@@ -427,6 +447,95 @@ export function readCheckout(
  *  states of the checkout and leave nothing behind. */
 export function checkoutIsGraded(reading: CheckoutReading): boolean {
   return reading.reason !== "not-a-repo" && reading.reason !== "unreadable";
+}
+
+// ── will it open the way a session opens it ─────────────────────────────────
+
+/**
+ * WHETHER `Counterpart.open` SUCCEEDS — which is a different question from the
+ * one the `Store` finding above answers, and the difference is the whole of H1.
+ *
+ * The `Store` finding reads the DIRECTORY: is there a store here, and is it the
+ * one the config names. A store can pass that and still throw at every session
+ * start, because opening a counterpart does more than open a database —
+ * `Schemas.open` scans every `type: "schema"` row and reads each one's prose
+ * file. One missing file, or one row a removal left behind, and every hook in
+ * every session stands down: no wake, no recall, no capture, and until now
+ * nothing said so while `doctor` printed GREEN Store on the line above.
+ *
+ * READ BY THE CALLER, like `readCheckout` — and for the same reason it is not
+ * taken inside `doctorFindings`, which is pure over its input and never opens
+ * anything. The session-start reading does not take it at all: a hook that got
+ * as far as composing a notice has ALREADY opened its counterpart, so paying for
+ * a second open there would buy a fact it has in hand.
+ */
+export interface OpenReading {
+  readonly dir: string;
+  readonly ok: boolean;
+  /** The `StoreErrorCode` (or `HOOK_FAILED`) that came back. Null when it opened. */
+  readonly code: string | null;
+  /** Plain words for `code` (`standdown.ts`). Empty when it opened. */
+  readonly reason: string;
+  /**
+   * TRUE for the one refusal that is not a fault: `STORE_UNINITIALIZED`, which
+   * an OBSERVER gets on a store that does not exist yet or is a schema behind.
+   * The hooks run as OWNER and initialize or migrate it, so grading this red
+   * would make the console lie for the window between a deploy and the first
+   * hook that follows it.
+   */
+  readonly migratable: boolean;
+  /**
+   * TRUE for the other refusal that is not a fault of the store: it was BUSY.
+   * Another process held it for the moment this reading wanted it, which says
+   * nothing about whether a session could open it a second later. Amber, and the
+   * fix is to ask again — the same judgement the hook's transient stand-down
+   * makes with the same predicate (`db.ts#isLocked`).
+   */
+  readonly busy: boolean;
+  /** The path the error named, when it named one. Never memory text (§5 G10). */
+  readonly path: string | null;
+}
+
+/**
+ * "Writes nothing" here means NO STORE CONTENT. It is an observer open, so no
+ * row, no prose file and no meta key changes — but any reader of a WAL database
+ * touches the `-shm`, and one that finds no `-shm` or `-wal` beside the file
+ * CREATES them, exactly as every other reader does (`store/paths.ts#isDatabaseSidecar`
+ * is the same exception master's own suites take when they hash a store and mean
+ * "nothing wrote"). Anyone comparing store directories should expect that.
+ */
+export function readCounterpartOpen(
+  dir: string,
+  /** Injectable so the failure branches are provable without a broken fixture;
+   *  the fixture test is still the one that proves the real path. */
+  open: (d: string) => { close: () => void } = (d) => Counterpart.open({ dir: d, observer: true }),
+): OpenReading {
+  let opened: { close: () => void } | null = null;
+  try {
+    // OBSERVER, because `doctor` is an instrument: it reads and never writes,
+    // and an owner open of a store that is not there would MINT one.
+    opened = open(dir);
+    return { dir, ok: true, code: null, reason: "", migratable: false, busy: false, path: null };
+  } catch (err) {
+    const fault = describeFault(err);
+    return {
+      dir,
+      ok: false,
+      code: fault.code,
+      reason: fault.reason,
+      migratable: isStoreError(err, "STORE_UNINITIALIZED"),
+      busy: fault.kind === "transient",
+      path: faultPath(err),
+    };
+  } finally {
+    // Closed immediately, so this reading and the store the console opens next
+    // never hold the same database at once.
+    try {
+      opened?.close();
+    } catch {
+      /* a close that failed is not a state of the store */
+    }
+  }
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
@@ -1279,7 +1388,99 @@ function checkoutFindings(reading: CheckoutReading): Finding[] {
   ];
 }
 
+/**
+ * THE OPEN ITSELF — red when a session's own read path would throw here.
+ *
+ * The wording is the hook's: one code and one clause of plain words, so the red
+ * line in the terminal and this line say the same thing about the same morning.
+ */
+function openFindings(reading: OpenReading): Finding[] {
+  const data: Record<string, string | number | boolean | null> = {
+    dir: reading.dir,
+    ok: reading.ok,
+    code: reading.code,
+    busy: reading.busy,
+    path: reading.path,
+  };
+  if (reading.ok) {
+    return [
+      finding("store-open", "green", "Store open", `${reading.dir} opens as a session opens it`, "", data),
+    ];
+  }
+  const said = `${reading.dir}: will not open — ${reading.code ?? "?"}: ${reading.reason}`;
+  if (reading.busy) {
+    // NOT A STATE OF THE STORE. Another process held it for the moment this
+    // reading wanted it; a second later it may open perfectly. Grading that red
+    // would put an alarm on a race, which is how a diagnostic teaches its reader
+    // to skip a line.
+    return [
+      finding(
+        "store-open",
+        "amber",
+        "Store open",
+        `${reading.dir}: the database was busy right now, so the open was not graded`,
+        "Run: counterparts doctor again. If it stays busy, something is holding the store — read the Journal line.",
+        data,
+      ),
+    ];
+  }
+  if (reading.migratable) {
+    return [
+      finding(
+        "store-open",
+        "amber",
+        "Store open",
+        `${said} — read as an instrument, which may not write at open`,
+        "The next hook to run as owner initializes or migrates it; run: counterparts install if none does.",
+        data,
+      ),
+    ];
+  }
+  return [
+    finding(
+      "store-open",
+      "red",
+      "Store open",
+      said,
+      reading.path === null
+        ? "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met."
+        : `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`,
+      data,
+    ),
+  ];
+}
+
 /** Coverage of the semantic channel — `verify`'s two census numbers, reused. */
+/**
+ * Which journal mode box 2 is actually in — the one surface on which a
+ * conversion that did not take becomes visible.
+ *
+ * `openDb` asks for WAL on a writer open and swallows a refusal, because a hook
+ * must not die because the worker happened to be committing (`store/db.ts`).
+ * That is right, and it is silent, so the MODE is the report. Reading it takes
+ * no lock and converts nothing: this is an observer's question, and the console
+ * that asks it is standing down.
+ */
+function journalFindings(store: Store): Finding[] {
+  const mode = journalModeOf(paths.operational(store.dir));
+  const data = { mode };
+  if (mode === "wal") {
+    return [
+      finding("journal", "green", "Journal mode", `wal (busy timeout ${BUSY_TIMEOUT_MS} ms)`, "", data),
+    ];
+  }
+  return [
+    finding(
+      "journal",
+      "amber",
+      "Journal mode",
+      `${mode}, not wal — several processes hold this store open at once, and only in wal does a reader never wait for the writer`,
+      "Open one session, or run any command that writes: the next writer open converts it. If it keeps reading this, something on an older build is opening the store and setting it back.",
+      data,
+    ),
+  ];
+}
+
 function vectorFindings(store: Store): Finding[] {
   const unembedded = store.unembeddedCount();
   const skipped = store.skippedVectorIds().length;
@@ -1394,6 +1595,177 @@ function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
   return Math.round((b - a) / 86_400_000) > limit;
 }
 
+/**
+ * How to get a memory back. Short enough to survive being read in a panic, and
+ * printed as the remedy on every Snapshot finding that is not green, because the
+ * moment somebody needs it is the moment they will not go looking for it.
+ */
+export const RESTORE_STEPS =
+  "To restore: stop every session, copy a snapshot directory to the store's path, " +
+  "then counterparts verify --dir <store> --rebuild (with the embed key exported, or " +
+  "the vectors are dropped and refilled over the following days). The memories and " +
+  "the journal come back with the copy; the search index and the vectors are rebuilt.";
+
+/** How stale the newest snapshot may be before this line goes amber. A daily
+ *  mechanism that has not fired for two calendar days has missed one. */
+export const SNAPSHOT_STALE_DAYS = 2;
+
+/**
+ * IS THERE A RECENT COPY OF THE STORE, AND HOW MANY ARE ACTUALLY THERE.
+ *
+ * The one line that answers "if this database were wiped this afternoon, what
+ * would come back" — so it **counts the directory**, not the row. The first
+ * version of this finding read `kept` and `oldest` straight out of the newest
+ * `snapshot.taken` row, and the F2 review proved what that is worth: delete every
+ * copy from disk and the line still read green, "1 kept", for a full day, then
+ * went amber for the wrong reason. A row says what a run once wrote. The
+ * directory says what you have.
+ *
+ * Reading a directory listing writes nothing, so this is observer-safe.
+ *
+ * Amber, never red: a missing backup is not a broken memory, and a diagnostic
+ * that shouts the same colour for both teaches its reader to read past the one
+ * that matters.
+ */
+function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
+  const livedDay = store.livedDay();
+  const resolved = resolveSnapshotsDir(input.dir, input.config.snapshots?.dir);
+  const keep = keepOf(input.config.snapshots?.keep);
+  // What the configuration could not read, said out loud rather than left as a
+  // default nobody asked for (F2 review, MAJOR-2). It rides on every arm below.
+  const ignored = input.config.snapshots?.ignored ?? [];
+  const misread = ignored.length === 0 ? "" : ` — ${ignored.join("; ")}`;
+  const data: Record<string, string | number | boolean | null> = {
+    keep,
+    where: resolved.reason,
+    ignored: ignored.length === 0 ? null : ignored.join("; "),
+  };
+  if (resolved.dir === null) {
+    // Not a fault and not a silence: this store is not the `store/` subdirectory
+    // of a base directory, so there is nowhere by convention to put copies.
+    return [
+      finding(
+        "snapshot",
+        "amber",
+        "Snapshot",
+        `no daily snapshot is being taken: this store is not inside a base directory, so there is no default place to keep copies${misread}`,
+        'Add "snapshots": { "dir": "<an absolute path outside the store>" } to the configuration.',
+        data,
+      ),
+    ];
+  }
+
+  // THE DISK, FIRST. Everything printed below about how many copies there are
+  // comes from here.
+  const disk = readSnapshotsDir(resolved.dir);
+  const onDisk = disk.names.length;
+  const newest = disk.names[onDisk - 1] ?? null;
+  const oldest = disk.names[0] ?? null;
+  const future = futureNamesIn(disk.names, Date.parse(`${input.today}T00:00:00Z`)).length;
+  // A correctly-named directory the layout rule does not recognise as a copy is
+  // KEPT — this package never deletes what it cannot prove it made — but it is
+  // never counted and never rotated either, so without this clause it would be
+  // permanent, invisible residue in the one directory the owner relies on
+  // (second F2 review, MAJOR-A).
+  const strange =
+    disk.unrecognised.length === 0
+      ? ""
+      : `; ${String(disk.unrecognised.length)} director${disk.unrecognised.length === 1 ? "y is" : "ies are"} named like snapshots but do not look like copies of a store, so they are not counted and will never be rotated: ${disk.unrecognised.slice(0, 3).join(", ")}${disk.unrecognised.length > 3 ? ` and ${String(disk.unrecognised.length - 3)} more` : ""}`;
+  const held = {
+    ...data,
+    onDisk,
+    newest,
+    oldest,
+    readable: disk.readable,
+    future,
+    unrecognised: disk.unrecognised.length,
+  };
+
+  const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
+  const row = read.unknown ? undefined : read.rows[0];
+  const rowDated = rowDate(row);
+
+  // A ROW SAYS A COPY WAS MADE AND THE DIRECTORY HOLDS NONE. The loudest thing
+  // this line can say, and the case the review proved read green.
+  if (onDisk === 0 && (rowDated !== null || read.unknown)) {
+    return [
+      finding(
+        "snapshot",
+        "amber",
+        "Snapshot",
+        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}`,
+        RESTORE_STEPS,
+        { ...held, rows: 1 },
+      ),
+    ];
+  }
+
+  if (onDisk === 0) {
+    // The same rule the row findings use: an absent copy is only evidence once a
+    // boundary has been reached. On a fresh install there has been no worker run
+    // to take a first one, and an amber there is decoration.
+    const boundaries = newestRows(store, BOUNDARY_EVENT, 1, livedDay);
+    const lived = boundaries.unknown || boundaries.rows.length > 0;
+    const failed = newestRows(store, SNAPSHOT_FAILED_EVENT, 1, livedDay);
+    const failedRow = failed.rows[0];
+    const why =
+      failedRow === undefined
+        ? ""
+        : ` — newest ${SNAPSHOT_FAILED_EVENT} ${rowDate(failedRow) ?? "?"} (${str(payloadOf(failedRow), "step") ?? "?"}: ${str(payloadOf(failedRow), "reason") ?? "?"})`;
+    return [
+      lived
+        ? finding(
+            "snapshot",
+            "amber",
+            "Snapshot",
+            `no snapshot has ever been taken here${why}${strange}${misread}`,
+            "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
+            { ...held, rows: 0 },
+          )
+        : finding(
+            "snapshot",
+            "green",
+            "Snapshot",
+            `no snapshot yet — and no boundary has been reached here yet${strange}${misread}`,
+            "",
+            { ...held, rows: 0 },
+          ),
+    ];
+  }
+
+  // Copies exist. Their own names carry the date, so the line does not depend on
+  // a row at all — and when a row disagrees with the directory, it says so.
+  const newestDate = (newest ?? "").slice(0, 10);
+  const detail =
+    `last snapshot ${newestDate}, ${onDisk} kept` +
+    (oldest === null ? "" : `, oldest ${oldest.slice(0, 10)}`) +
+    (keep === DEFAULT_KEEP ? "" : ` (keeping ${keep})`) +
+    (future === 0 ? "" : `; ${future} dated in the future, holding a slot each`) +
+    (rowDated !== null && rowDated > newestDate
+      ? `; the newest snapshot.taken row says ${rowDated}, which is not on disk`
+      : "") +
+    strange +
+    misread;
+  // Two or more calendar days back is a daily mechanism that has missed one, so
+  // the boundary day itself is already amber.
+  const stale = newestDate === "" || newestDate <= daysBefore(input.today, SNAPSHOT_STALE_DAYS);
+  const disagrees = rowDated !== null && rowDated > newestDate;
+  return [
+    stale || disagrees || future > 0 || disk.unrecognised.length > 0 || ignored.length > 0
+      ? finding(
+          "snapshot",
+          "amber",
+          "Snapshot",
+          stale ? `${detail} — ${SNAPSHOT_STALE_DAYS} days ago or more` : detail,
+          stale
+            ? "The copy is taken by the worker after a boundary; read the Spawn line below."
+            : RESTORE_STEPS,
+          held,
+        )
+      : finding("snapshot", "green", "Snapshot", detail, "", held),
+  ];
+}
+
 // ── the reading ─────────────────────────────────────────────────────────────
 
 const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
@@ -1424,6 +1796,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
+    // Read by the caller for the same reason, and answered beside the `Store`
+    // line it qualifies: "there is a store here" and "it opens" are two facts.
+    ...(input.open === undefined ? [] : openFindings(input.open)),
   ];
   const store = input.store;
   if (store === null) return worstFirst(out);
@@ -1433,7 +1808,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["clock", () => clockFindings(input, store)],
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
+    ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
+    ["snapshot", () => snapshotFindings(input, store)],
     ["self-page", () => selfPageFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's

@@ -381,6 +381,106 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     byte-for-byte — with `scopeRegistry: "unreadable" | "partial" | null` on the
     session-start row for the day after. Both writers refuse rather than dropping
     an entry they could not read: the console unless `--force`, the MCP tool always.
+24. **[M] A stand-down that is a FAULT reaches the owner's terminal; one that is
+    DELIBERATE stays as quiet as it was.** G2 is why every failure is swallowed;
+    it is not a reason for the owner never to learn of one. Until now a hook that
+    could not open its store wrote one line to stderr — which on this host goes
+    nowhere anybody looks — so a store with one missing prose file meant no wake,
+    no recall and no capture in every session, silently, while every visible
+    surface read green. So `bin/hook.ts` classifies its stand-downs
+    (`standdown.ts`): a directory scoped `off`, an observer with no store to read
+    (`STORE_UNINITIALIZED`), and the explicit-dir guard's two refusals are
+    DELIBERATE and unchanged; anything else is a FAULT and prints one
+    `systemMessage` — the channel I32's close measured and `bin/hook.ts#hostDelivery`
+    already uses for the red notice — on **SessionStart and
+    UserPromptSubmit**, the two events this host displays one on. Exit 0 as
+    always, nothing else in the object, no wake and no `additionalContext`, and
+    the stderr line is kept. What is said, and whether, is marked in a file under
+    `<dataDir>/sessions/` — because the thing that failed is the store, the mark
+    cannot live in it — and a mark that cannot be written means it is said again
+    rather than not at all.
+
+    **A FAULT IS PERSISTENT OR TRANSIENT, and they are not said the same way.**
+    A store that will not open is exactly as broken next turn: "memory is OFF for
+    this session", once, with a code and one clause of plain words capped at
+    `STANDDOWN_REASON_MAX_CHARS` — SessionStart always, UserPromptSubmit while the
+    session has not been told. A database that was merely BUSY (`db.ts#isLocked`,
+    one predicate for this and for F1's WAL conversion) is not that, and saying
+    it were would be both untrue and, at the rate a rollback-mode store produced,
+    a line people learn to scroll past. So: at a prompt it is recorded and stays
+    on stderr the FIRST time and is said from the second, at most once a session
+    ("skipped this turn"); at SessionStart it is said the first time, in its own
+    words, because a lock there means no wake was injected at all and that event
+    does not come round again; and at `TRANSIENT_ESCALATE_AFTER` skipped turns it
+    is said ONCE more, in the only transient wording allowed to use the word OFF,
+    because no test on an error can tell a contended database from a wedged one
+    and the soft line's promise that it will clear has by then become a lie. The
+    two counters are kept apart, so a session that met a busy database still
+    hears about a store that will not open.
+
+    **AND A FAILURE AFTER THE TURN'S WORK IS NOT A FAILURE OF THE TURN.** Once
+    `adapter.hook` has returned, this event's job is done — recall composed, the
+    turn captured, the session record written — and anything that throws after
+    that is the tidying-up, not the work. It stays on stderr, exactly as on
+    master. Without that gate a throw from the `close()` in the `finally` (I38's
+    own shape) told the owner "skipped this turn" about a turn that had just
+    succeeded, and a warning that is sometimes false is the one outcome this
+    guarantee cannot afford. The mark is never written into a directory the store
+    layer refuses to open, and never through a symlink: `writeMark` asks
+    `assertSafeDataDir` and writes tmp-then-rename, `sessions.ts`'s own rule for
+    the same directory.
+    `counterparts doctor` reads the same open with the same predicates
+    (`doctor.ts#readCounterpartOpen`) — RED for a store that will not open, AMBER
+    for one that was busy or that only an owner may initialize — so the terminal
+    and the console cannot disagree about what happened.
+
+25. **[M] THE WORKER TAKES ONE COPY OF THE STORE A DAY, AND THE COPY IS THE ONLY
+    THING HERE THAT DELETES.** A fourth step in `bin/runner.ts`, after the sleep
+    cycle and inside the `finally` so a failed boundary still gets its copy —
+    deliberately NOT a `core/sleep/` phase, because sleep must not learn that the
+    floor is changing. What it copies is `cli/snapshot.ts#snapshot` unchanged
+    (`Store.backupSet()`, so it is right on both floors); WHERE is a `snapshots/`
+    directory beside the store, never inside it; HOW MANY is `keep`, default 14,
+    one copy per calendar day UTC. It never throws, so a snapshot problem cannot
+    cost a consolidation cycle, and it writes `snapshot.taken` / `snapshot.failed`
+    / `snapshot.rotated` where tomorrow can read them.
+
+    The two consequential rules live in `adapters/snapshots.ts` and are tested one
+    by one: **rotation deletes only what it can prove is a snapshot** (a directory
+    directly inside the resolved directory, matching the one name pattern this
+    package writes, never through a symlink, never the copy just taken, never
+    after a copy that FAILED, and a broken `keep` reads as the default rather than
+    as "delete them all"); and **a half-copy is never a snapshot** — the copy is
+    written under a `.partial-…` name and renamed into place, so a worker killed
+    mid-copy leaves something that is not counted toward `keep`, does not satisfy
+    "today's exists", and is swept once it is too old to be a live run's.
+
+    *For now:* the default directory applies only inside the layout this package
+    creates (the store is the `store/` subdirectory of a base directory). A store
+    somebody pointed elsewhere takes no copy until `snapshots.dir` names one, and
+    doctor's Snapshot line says so in words rather than leaving a row per boundary.
+
+    **HOW TO RESTORE ONE, because a backup nobody knows how to open is not a
+    backup.** A snapshot is a whole store directory, so restoring is a copy:
+
+    1. Stop every session using the memory (the MCP server and any hooks).
+    2. Move the damaged store aside — never delete it — and copy the snapshot
+       directory into its place: `cp -R ~/.counterparts/snapshots/<iso>
+       ~/.counterparts/store`.
+    3. `counterparts verify --dir ~/.counterparts/store --rebuild`, with the
+       embed key exported if the embedder is on.
+
+    What comes back with the copy: every memory, its prose, the journal, the
+    spans, the event log — the canonical halves. What does NOT, and why step 3
+    exists: `cache/` is classified out of the backup set on purpose (it is
+    rebuildable and unbounded), and it holds the lexical search index and every
+    vector. **Until the rebuild, `search()` returns nothing** — the memories are
+    all there and none of them can be found, which is exactly the shape that makes
+    somebody conclude the backup is empty. A rebuild without an embedder drops
+    every vector rather than keeping them, so semantic recall is thin until the
+    worker's backfill refills it over the following days; the lexical channel is
+    back immediately. Doctor prints these steps as the remedy on any Snapshot
+    finding that is not green.
 
 ## 6. Scars honored
 

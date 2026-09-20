@@ -187,7 +187,11 @@ export function backfillLengths(db: Db): number {
 }
 
 export function openCache(path: string): Db {
-  const db = openDb(path);
+  // WAL here whatever the stance, unlike box 2: the dashboard and the worker read
+  // and write this file at the same time, its sidecars live inside `cache/` where
+  // nothing classifies them, and box 3 is DECLARED rebuildable — the same reason
+  // the constructor lets an instrument materialize this directory at all.
+  const db = openDb(path, { wal: true });
   // Idempotent open: write the version row only when it differs. An observer
   // constructing a Store over an up-to-date cache must not churn a byte — the
   // dashboard build measured exactly that churn and filed it (its gap §1).

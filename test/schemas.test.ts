@@ -13,13 +13,20 @@
  * gate recorded zero births AND zero refusals and nobody could say which.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Store } from "../src/core/store/index.js";
-import type { PutInput } from "../src/core/store/index.js";
+import type { PutInput, StoreEvent } from "../src/core/store/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
+import { makeStore } from "./store-fixture.js";
+// The real removal command, not the raw seam: the crash this file pins was
+// reachable only through the whole ceremony (dark → files → chase → complete),
+// and a test that appends the stages by hand would not have caught it.
+import { ownerRemoval } from "../src/adapters/cli/removal.js";
 import { TUNABLES as PHYSICS, pruneVerdict, sal } from "../src/core/physics/index.js";
 import { occursAsWholeWord } from "../src/core/encode/words.js";
 import { preselectSchemas, renderSchemaContext } from "../src/core/encode/preselect.js";
@@ -1361,6 +1368,10 @@ const PRIVATE_HELPERS = new Set([
   // `replaceCurrentState` cannot quietly grow a second, thinner version of it.
   "supersedeElement",
   "liveElementIds",
+  // The chased-row predicate `load` and `entity` share, so "the owner removed
+  // this" cannot drift into two readings. `element` gates on the same blanked
+  // pointer inline and borrows the deny-list refusal from `physicsOf`.
+  "removed",
 ]);
 
 describe("statement bodies cross the secrets gate at the source (PR-6 review SF1)", () => {
@@ -1386,5 +1397,322 @@ describe("statement bodies cross the secrets gate at the source (PR-6 review SF1
     expect(body).not.toContain("AIzaSyD-1234567890abcdefghijklmnopqrstuv");
     // And the slice the sweep would show carries the redacted form too.
     expect(s.slices()[0]?.beliefs[0]?.statement).toContain("[REDACTED:");
+  });
+});
+
+describe("the index build is a look at the ADDRESS, not at the memory", () => {
+  test("opening Schemas over an archived element spends no archived-read telemetry", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Counterparts",
+      kind: "entity",
+      source: "Counterparts is the successor",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = s.addBelief({
+      entityId,
+      statement: "it embeds into any host",
+      day: 0,
+    }).id as string;
+    s.store.archive(beliefId, "owner-retired-it");
+    s.store.close();
+    open.length = 0;
+
+    const seen: StoreEvent[] = [];
+    const store = Store.open({ dir, onEvent: (e) => seen.push(e) });
+    open.push(store);
+    // The whole scan, archived row included — and `element` on top of it, which
+    // is the other read that goes round `Store.read` for the same reason.
+    const reopened = Schemas.open({ store });
+    expect(reopened.element(beliefId)?.statement).toBe("it embeds into any host");
+    expect(seen.filter((e) => e.name === "store.archived.read")).toEqual([]);
+
+    // NOT vacuous: the row really is archived, and the read that DOES count as a
+    // look at archived content still says so.
+    expect(store.row(beliefId)?.archived).toBe(1);
+    expect(store.read(beliefId).archived).toBe(true);
+    expect(seen.filter((e) => e.name === "store.archived.read").map((e) => e.ref)).toEqual([
+      beliefId,
+    ]);
+  });
+
+  test("a DARK-stage removal does not take the next open down", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Ada",
+      kind: "entity",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = s.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: 0,
+    }).id as string;
+    // `dark` marks the id and leaves the row and the file until the chase. The
+    // scan walks every schema row at every open, so a refusal here would be the
+    // next session failing to start, not one memory hidden — the deny-list is
+    // answered where the OWNER asks (`read`), and that is still true below.
+    s.store.appendRemovalRecord({
+      memoryId: beliefId,
+      stage: "dark",
+      actor: "owner",
+      reason: "test",
+    });
+    // Hidden from every render IN THIS SESSION too, without a reopen: a live
+    // `Schemas` is older than the removal and must not keep serving it. Before
+    // 2026-09-18 `slices()` threw `REMOVED` here — a model path, from the
+    // deny-list check inside `physicsOf`.
+    expect(s.element(beliefId)).toBeUndefined();
+    expect(s.beliefs(entityId)).toEqual([]);
+    expect(s.slices()[0]?.beliefs).toEqual([]);
+    expect(s.store.deniedIds()).toContain(beliefId);
+    s.store.close();
+    open.length = 0;
+
+    const store = Store.open({ dir });
+    open.push(store);
+    let reopened: Schemas | undefined;
+    expect(() => {
+      reopened = Schemas.open({ store });
+    }).not.toThrow();
+    expect(reopened?.element(beliefId)).toBeUndefined();
+    expect(reopened?.beliefs(entityId)).toEqual([]);
+    // The entity itself is untouched — one belief was removed, not the person.
+    expect(reopened?.entity(entityId)?.name).toBe("Ada");
+    // And "removed" still reads as removed, by name, to anyone asking by id.
+    expect(() => store.read(beliefId)).toThrow();
+  });
+});
+
+/**
+ * THE CRASH THIS CLOSES (2026-09-18, found by the F3 adversarial review).
+ *
+ * `MEMORY_BEARING` permits `schema` targets, so an entity or a belief is a legal
+ * `counterparts remove`. The chase KEEPS the row and blanks `prose_path`
+ * (`store/owner-op-seam.ts`), `store.list({type:"schema"})` still returns it,
+ * and `Schemas.load` had no guard — so `readProseFile("")` threw
+ * `PROSE_FILE_MISSING` out of `Schemas.open`, out of `Counterpart.open`. The
+ * hook entry point catches that, writes one stderr line and EXITS 0: every
+ * session afterwards had no wake, no recall and no capture, silently. That is
+ * the failure mode a memory system may not have.
+ *
+ * These run the REAL command end to end. A hand-appended stage would not have
+ * reproduced it — the blanked pointer is the chase's doing, not the mark's.
+ */
+describe("removing a schema element is survivable (2026-09-18)", () => {
+  /** Ada, and two things believed about her. */
+  function person(s: Schemas): { entityId: string; first: string; second: string } {
+    const entityId = s.mention({
+      name: "Ada",
+      kind: "entity",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const first = s.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: 0,
+    }).id as string;
+    const second = s.addBelief({
+      entityId,
+      statement: "Ada reads faster when someone talks her through it",
+      day: 0,
+    }).id as string;
+    return { entityId, first, second };
+  }
+
+  function removeIt(targetId: string): void {
+    const s = Store.open({ dir });
+    ownerRemoval(s, { targetId, actor: "owner", reason: "the owner asked", requestedAt: 0 });
+    s.close();
+  }
+
+  /** The whole brain, opened and closed around one assertion block — the thing
+   *  that used to throw. Closed in a `finally` so a failure leaks no handle. */
+  function woken(fn: (c: Counterpart) => void): void {
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      fn(c);
+    } finally {
+      c.close();
+    }
+  }
+
+  test("a removed BELIEF: the next session still opens, and the belief is gone from it", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+
+    removeIt(ids.first);
+
+    // The row survives the chase with a blanked pointer — the shape that used
+    // to throw. Asserted so this test cannot pass because removal changed.
+    const store = Store.open({ dir });
+    open.push(store);
+    expect(store.row(ids.first)).toBeDefined();
+    expect(store.row(ids.first)?.prose_path).toBe("");
+
+    // THE REGRESSION: the whole brain opens.
+    woken((c) => {
+      expect(c.schemas.entity(ids.entityId)?.name).toBe("Ada");
+      // Absent from every rendering, by id and in the round.
+      expect(c.schemas.element(ids.first)).toBeUndefined();
+      expect(c.schemas.beliefs(ids.entityId).map((b) => b.id)).toEqual([ids.second]);
+      expect(c.schemas.slices()[0]?.beliefs.map((b) => b.id)).toEqual([ids.second]);
+      const said = JSON.stringify(c.schemas.slices());
+      expect(said).not.toContain("prefers async review");
+      expect(said).toContain("talks her through it");
+      // The surviving belief is untouched; this is a removal, not a purge.
+      expect(c.schemas.element(ids.second)?.statement).toBe(
+        "Ada reads faster when someone talks her through it",
+      );
+    });
+  });
+
+  test("a removed ENTITY: its beliefs go out of every rendering with it, and say so", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+
+    removeIt(ids.entityId);
+
+    woken((c) => {
+      // The person is gone from the index, so nothing hangs off her any more:
+      // every rendering path starts at an entity, and hers is not there.
+      expect(c.schemas.entity(ids.entityId)).toBeUndefined();
+      expect(c.schemas.entities()).toEqual([]);
+      expect(c.schemas.slices()).toEqual([]);
+      expect(c.schemas.aliasIndex().lookup("ada")).toEqual([]);
+
+      // DECIDED, and worth being plain about: the two BELIEF rows are NOT
+      // removed — removal does not cascade to what hangs off its target (the
+      // plan's contamination scan REPORTS similar rows, it does not chase
+      // them). They are orphaned: gone from every path that starts at an
+      // entity, and ordinary rows to every path that does not. That is the
+      // honest state, not a claim that they were destroyed. Whether the
+      // ceremony should chase them is `cli/removal.ts`'s question and the
+      // owner's call. The assertion carries the word, because this assertion is
+      // now the only thing between "decided" and "regression".
+      const decided = "DECIDED: an orphan survives its entity's removal";
+      expect(`${decided} — ${c.store.read(ids.first).doc.body.includes("prefers async review")}`)
+        .toBe(`${decided} — true`);
+      expect(c.schemas.element(ids.first)?.statement).toContain("prefers async review");
+      expect(c.schemas.element(ids.first)?.entityId).toBe(ids.entityId);
+      // The owner can still find them: they are exactly the elements whose
+      // entity no longer resolves.
+      expect(c.schemas.entity(c.schemas.element(ids.first)?.entityId ?? "")).toBeUndefined();
+    });
+  });
+
+  test("a removal that names an ordinary memory changes nothing about the index", () => {
+    const s = schemas();
+    const ids = person(s);
+    const plain = s.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The garage door opener needs a new battery soon.",
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    const before = JSON.stringify(s.slices());
+    s.store.close();
+    open.length = 0;
+
+    removeIt(plain);
+
+    woken((c) => {
+      expect(JSON.stringify(c.schemas.slices())).toBe(before);
+      expect(c.schemas.beliefs(ids.entityId).map((b) => b.id)).toEqual(
+        [ids.first, ids.second].sort(),
+      );
+      expect(c.schemas.aliasIndex().lookup("ada")).toEqual([ids.entityId]);
+    });
+  });
+
+  test("`loadSkips` tells a removal from a corruption, because only one is explained", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+    removeIt(ids.first);
+
+    const store = Store.open({ dir });
+    open.push(store);
+    const after = Schemas.open({ store });
+    // One skip, and the store can account for it: the owner removed it.
+    expect(after.loadSkips()).toEqual({ removed: 1, unaccounted: [] });
+    expect(store.deniedIds()).toContain(ids.first);
+    // Non-vacuous: an untouched store skips nothing at all.
+    const clean = makeStore({ prefix: "counterparts-schemas-clean-" });
+    try {
+      expect(Schemas.open({ store: clean.store }).loadSkips()).toEqual({ removed: 0, unaccounted: [] });
+    } finally {
+      clean.cleanup();
+    }
+  });
+
+  test("a blank pointer with NO removal record is skipped too, and counted as unexplained", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+    // The shape a half-written migration or a disk event leaves: the pointer is
+    // gone and NOTHING says who took it. There is no store API for this, and
+    // there should not be — the chase is the only thing that blanks a pointer
+    // on purpose — so the test writes it the way the damage would.
+    const db = new Database(join(dir, "operational.sqlite"));
+    db.run("UPDATE memories SET prose_path = '' WHERE id = ?", [ids.second]);
+    db.close();
+
+    const store = Store.open({ dir });
+    open.push(store);
+    const after = Schemas.open({ store });
+    expect(after.loadSkips()).toEqual({ removed: 0, unaccounted: [ids.second] });
+    expect(store.deniedIds()).toEqual([]);
+    // Skipped, not fatal, and not pretending it was a removal.
+    expect(after.element(ids.second)).toBeUndefined();
+    expect(after.beliefs(ids.entityId).map((b) => b.id)).toEqual([ids.first]);
+  });
+
+  test("a walk asks the deny-list ONCE, however many entities and however long the list", () => {
+    const s = schemas();
+    // SEVERAL entities, because one would make this pass either way: the old
+    // `entities()` asked per entity, so the count is the whole assertion.
+    const names = ["Ada", "Bea", "Cleo", "Dara", "Esme"];
+    for (const [i, name] of names.entries()) {
+      s.mention({ name, kind: "entity", source: `${name} is here`, chunkRef: `c${i}`, day: 0 });
+    }
+    // 200 removals of ordinary memories: none of them is a schema row, so the
+    // answer must not change — and the walk must not get slower per removal.
+    // Asking per entity measured, at 300 entities, 10.0 ms against an empty
+    // deny-list and 172.9 ms against 1,000; one query for the walk is 6.1 and
+    // 6.7 ms. A deny-list only ever grows.
+    for (let i = 0; i < 200; i++) {
+      const id = s.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `an ordinary memory number ${i}`,
+        physics: { birthDay: 0, lastUsedDay: 0 },
+      });
+      s.store.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "t" });
+    }
+    expect(s.store.deniedIds()).toHaveLength(200);
+
+    // Counted rather than timed: a wall-clock assertion on a walk is a flaky
+    // test, and "how many times it asks" is the thing that actually changed.
+    let queries = 0;
+    const real = s.store.deniedIds.bind(s.store);
+    (s.store as unknown as { deniedIds: () => string[] }).deniedIds = () => {
+      queries += 1;
+      return real();
+    };
+    const seen = s.entities();
+    expect(queries).toBe(1);
+    expect(seen.map((e) => e.name).sort()).toEqual([...names].sort());
   });
 });

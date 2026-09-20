@@ -400,6 +400,11 @@ export const EVENT_NODE = {
   // it is a fact about the process the host started, recorded on the way in,
   // before anything was read or written.
   "adapter.checkout": "session",
+  // The daily rotating snapshot is upkeep on the store itself — the same node
+  // the backfill lands on, because what it is about is the boxes, not a memory.
+  "snapshot.taken": "store",
+  "snapshot.failed": "store",
+  "snapshot.rotated": "store",
   // A credited challenge, from either arm (belief or identity element).
   "revision.pressure": "schemas",
 } as const satisfies Record<DurableEventName, NodeKey>;

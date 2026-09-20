@@ -30,6 +30,7 @@ import {
   detectAffect,
   freshGateState,
   gate,
+  isConfidential,
   SCALAR_REF,
   activate,
   informativeness,
@@ -571,6 +572,70 @@ describe("the hard gates salience cannot override", () => {
     const b = owner.recall({ sessionId: "s2", text: "the compensation renegotiation with Marisol" });
     expect(verdictOf(b.decision.verdicts, id)).not.toBe("confidential-withheld");
     expect(delivered(b.decision)).toContain(id);
+  });
+
+  /**
+   * The gate's truth table, value by value, asserted against LITERALS.
+   *
+   * The class now has two doors — `isConfidential(doc)` for a caller holding a
+   * bare document, `StoredMemory.confidential` for one that already read the
+   * memory — and they must never disagree: a disagreement here shows a
+   * confidential memory where it must not appear. Comparing the two doors to
+   * each other would prove nothing (they are one function), so every row below
+   * states the answer the pre-split code gave, including the odd ones: the
+   * comparison is case-sensitive and untrimmed, so `"OPEN"` and `" open"` are
+   * confidential, and `confidential` is checked with `=== true`, so `1` and
+   * `"true"` are not.
+   */
+  const CONFIDENTIALITY_TABLE: readonly [Record<string, unknown>, boolean][] = [
+    [{}, false],
+    [{ confidential: true }, true],
+    [{ confidential: false }, false],
+    [{ confidential: "true" }, false],
+    [{ confidential: 1 }, false],
+    [{ confidential: null }, false],
+    [{ confidentiality: "sensitive" }, true],
+    [{ confidentiality: "secret" }, true],
+    [{ confidentiality: "open" }, false],
+    [{ confidentiality: "normal" }, false],
+    [{ confidentiality: "" }, false],
+    [{ confidentiality: "OPEN" }, true],
+    [{ confidentiality: " open" }, true],
+    [{ confidentiality: null }, false],
+    [{ confidentiality: 42 }, false],
+    // Either key alone can say yes; neither can veto the other.
+    [{ confidential: false, confidentiality: "sensitive" }, true],
+    [{ confidential: true, confidentiality: "open" }, true],
+    [{ confidential: true, confidentiality: "normal" }, true],
+  ];
+
+  test("the confidentiality class is one truth table, whichever door asks it", () => {
+    const s = store();
+    for (const [meta, expected] of CONFIDENTIALITY_TABLE) {
+      const id = put(s, { body: `a memory carrying ${JSON.stringify(meta)}`, meta });
+      const label = JSON.stringify(meta);
+      // The meta survives the round trip — otherwise the row below is vacuous.
+      expect(s.readProse(id).meta, label).toEqual(meta);
+      expect(isConfidential(s.readProse(id)), label).toBe(expected);
+      expect(s.read(id).confidential, label).toBe(expected);
+    }
+  });
+
+  test("an odd spelling of the class still reaches the boundary gate", () => {
+    const s = store();
+    seed(s);
+    // `"OPEN"` is not `"open"`, and the gate has always read it as confidential.
+    const id = put(s, {
+      kind: "person",
+      body: "The compensation renegotiation with Marisol is unresolved.",
+      meta: { confidentiality: "OPEN" },
+    });
+    const nonOwner = new Recall({ store: s, owner: false });
+    const a = nonOwner.recall({
+      sessionId: "s1",
+      text: "the compensation renegotiation with Marisol",
+    });
+    expect(verdictOf(a.decision.verdicts, id)).toBe("confidential-withheld");
   });
 
   test("tiers are disjoint and capped, and the overflow says so", () => {

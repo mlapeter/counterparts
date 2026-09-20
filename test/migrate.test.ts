@@ -32,6 +32,7 @@ import { sal } from "../src/core/physics/index.js";
 import { isConfidential } from "../src/core/recall/index.js";
 import { migrate, planMigration, precisionOf, readV1, renderReport } from "../tools/migrate/index.js";
 import type { MigrationReport } from "../tools/migrate/index.js";
+import { bodyOf } from "./store-fixture.js";
 
 // ---------------------------------------------------------------------------
 // The fixture serializer — v1's dialects, written from the donor's own rules
@@ -381,10 +382,6 @@ function open(dir: string): Counterpart {
   return Counterpart.open({ dir });
 }
 
-function bodyOf(cp: Counterpart, id: string): string {
-  return cp.store.readProse(id).body;
-}
-
 function findByBody(cp: Counterpart, needle: string): string | null {
   for (const id of cp.store.list({})) {
     try {
@@ -506,7 +503,7 @@ describe("tools/migrate", () => {
       try {
         const id = findByBody(cp, "deploy script");
         expect(id).not.toBeNull();
-        const body = bodyOf(cp, id as string);
+        const body = bodyOf(cp.store, id as string);
         expect(body).toContain("[REDACTED:google-api-key]");
         expect(body).not.toContain(FAKE_KEY);
       } finally {

@@ -46,7 +46,7 @@ import { TUNABLES as SLEEP_TUNABLES, isJournal } from "../../core/sleep/index.js
 // The deep import into box 3's own driver — the same one `snapshot.ts` and
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
-import { openDb } from "../../core/store/db.js";
+import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../../core/store/db.js";
 import type { Db, SqlValue } from "../../core/store/db.js";
 // Box 3's own door for the vector migration: `openCache` stamps the schema
 // version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
@@ -71,7 +71,6 @@ import {
   explicitDirSetting,
   isWithin,
   paths,
-  readProseFile,
   storeExists,
 } from "../../core/store/index.js";
 import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/store/index.js";
@@ -79,6 +78,10 @@ import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
 import { MERGED_ARCHIVE_REASON, unarchiveMerged } from "../../core/store/owner-op-seam.js";
+// The WALKING read, imported for the same reason and pinned by the same test:
+// it skips the archived-read telemetry AND the deny-list, so it is not a `Store`
+// method (`store/walk-seam.ts`). The repair plan is a look at the address.
+import { readProseWalking } from "../../core/store/walk-seam.js";
 import type { Band, Kind } from "../../core/types.js";
 // The MCP adapter's deliberate-recall dispatcher, imported rather than
 // re-implemented: a console with its own question path would be a second set of
@@ -123,7 +126,14 @@ import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js
 import { SPAWN_REFUSAL_PREFIX } from "../claude-code/hooks.js";
 import { loadConfig } from "../claude-code/config.js";
 import type { AdapterConfig } from "../claude-code/config.js";
-import { anyRed, doctorFindings, readCheckout, reportJson, reportLines } from "../claude-code/doctor.js";
+import {
+  anyRed,
+  doctorFindings,
+  readCheckout,
+  readCounterpartOpen,
+  reportJson,
+  reportLines,
+} from "../claude-code/doctor.js";
 import type { CheckoutReading } from "../claude-code/doctor.js";
 import { exportStore } from "./export.js";
 import {
@@ -2466,6 +2476,14 @@ function verifyCensus(dir: string, io: Io): number {
 
   const cache = censusCache(dir);
   io.out(`Store: ${dir}`);
+  // How the boxes are being held open, on the day WAL landed: the mode is in the
+  // file header, so this says what the NEXT process will find, not what this one
+  // asked for. A store still reading `delete` means no writer on THIS build has
+  // opened it since the deploy — or that one on the build before it has, since
+  // that one set the mode unconditionally and would have set it back.
+  io.out(
+    `Journal mode: ${journalModeOf(paths.operational(dir))} (busy timeout ${BUSY_TIMEOUT_MS} ms)`,
+  );
   io.out(
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
@@ -2658,6 +2676,27 @@ function humanBytes(n: number): string {
 }
 
 /**
+ * How big the database IS: `page_count * page_size`, off the open handle, which
+ * is true wherever the pages happen to be sitting.
+ *
+ * Since WAL landed (2026-09-18) the file on disk is not the database — committed
+ * pages live in the `-wal` until a checkpoint moves them in — so `statSync` alone
+ * under-reports a busy cache (measured: 1.8 MiB of file with 3.7 MB in the
+ * sidecar). Adding the `-wal` to the file is not the fix either, and was the
+ * first cut of this: the `-wal` holds COPIES of pages the main file already
+ * counts, so a fat one read as space a `VACUUM` would give back — 4,144,752
+ * bytes of "reclaimable" on a cache with nothing to reclaim (review MAJOR-1).
+ * What gives those bytes back is a CHECKPOINT, and a checkpoint happens on its
+ * own. Two pragmas cost nothing, take no lock, and say what a VACUUM is being
+ * compared against.
+ */
+function databaseBytes(db: Db): number {
+  const pages = db.get<{ page_count: number }>("PRAGMA page_count")?.page_count ?? 0;
+  const pageSize = db.get<{ page_size: number }>("PRAGMA page_size")?.page_size ?? 0;
+  return pages * pageSize;
+}
+
+/**
  * How many bytes a `VACUUM` would give back, MEASURED — `VACUUM INTO` a
  * throwaway copy outside the data dir, stat it, delete it.
  *
@@ -2674,12 +2713,12 @@ function humanBytes(n: number): string {
  * (§5 G11). Returns null when the probe cannot run, which is not an error: it
  * means this run has no number, and it says so rather than guessing one.
  */
-function reclaimableBytes(db: Db, path: string): number | null {
+function reclaimableBytes(db: Db): number | null {
   const probeDir = mkdtempSync(join(tmpdir(), "counterparts-vacuum-probe-"));
   const probe = join(probeDir, "compacted.sqlite");
   try {
     db.run("VACUUM INTO ?", probe);
-    return Math.max(0, statSync(path).size - statSync(probe).size);
+    return Math.max(0, databaseBytes(db) - statSync(probe).size);
   } catch {
     return null;
   } finally {
@@ -2782,11 +2821,11 @@ async function migrateCacheCommand(
     return Number.isFinite(n) && n > 0 ? n : 500;
   })();
 
-  const sizeBefore = statSync(path).size;
   // READ-ONLY for the report: `openDb` opens what is there and stamps nothing.
   // `openCache` — which brings an out-of-date box 3 up to the current schema —
   // is reserved for `--apply`, below, where a write is the point.
   const db = openDb(path);
+  const sizeBefore = databaseBytes(db);
   let census: VectorFormatCensus;
   let stamped: string | null;
   try {
@@ -2813,7 +2852,7 @@ async function migrateCacheCommand(
       // Converted. The remaining question is whether the file was ever
       // compacted — the step most likely to have failed, and the one the
       // "already converted" refusal used to hide.
-      const reclaimable = reclaimableBytes(db, path);
+      const reclaimable = reclaimableBytes(db);
       const worth = worthCompacting(reclaimable, sizeBefore);
       io.out("");
       if (reclaimable === null) {
@@ -2837,13 +2876,15 @@ async function migrateCacheCommand(
       }
       const ok = await confirmMigrate(io, flags, dir, `compact box 3 (${humanBytes(reclaimable ?? 0)} reclaimable)`);
       if (!ok) return EXIT.refused;
-      const writable = openCache(path);
-      try {
-        writable.exec("VACUUM");
-      } finally {
-        writable.close();
-      }
-      const sizeAfter = statSync(path).size;
+      const sizeAfter = (() => {
+        const writable = openCache(path);
+        try {
+          writable.exec("VACUUM");
+          return databaseBytes(writable);
+        } finally {
+          writable.close();
+        }
+      })();
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
@@ -2907,7 +2948,10 @@ async function migrateCacheCommand(
       `First, copy box 3 aside — 'counterparts backup' skips the cache on purpose (it is rebuildable), so it does not cover this:`,
     );
     io.out(`  cp ${path} ${path}.bak-<date>`);
-    io.out(`  (with every session closed — a copy of a database being written is not a copy of it)`);
+    io.out(`  cp ${path}-wal ${path}-wal.bak-<date>   (when it is there)`);
+    io.out(`  (with every session closed — a copy of a database being written is not a copy of it —`);
+    io.out(`   and BOTH files: since WAL the database file alone is not the database, its '-wal' holds`);
+    io.out(`   every page committed since the last checkpoint, so a copy without it is silently short)`);
     io.out(`Then re-run with --apply to convert (batches of ${batch}).`);
     return EXIT.ok;
   }
@@ -2954,7 +2998,7 @@ async function migrateCacheCommand(
           `Re-run 'counterparts migrate-cache --dir ${dir} --apply' with no session open to compact it.`,
       );
     }
-    const sizeAfter = statSync(path).size;
+    const sizeAfter = databaseBytes(writable);
     if (vacuumed) {
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
@@ -3601,12 +3645,12 @@ function mergedBeliefs(store: Store): MergedBelief[] {
   for (const id of [...ids].sort()) {
     const row = store.row(id);
     if (row === undefined) continue;
-    // Prose read DIRECTLY, the way `schemas/index.ts#load` reads it: the
-    // store's archived-read telemetry answers "did anyone look at archived
-    // CONTENT", and a repair plan is a look at the address, not at the memory.
+    // A WALKING read, the way `schemas/index.ts#load` reads it: the store's
+    // archived-read telemetry answers "did anyone look at archived CONTENT",
+    // and a repair plan is a look at the address, not at the memory.
     let doc: { body: string; meta: Record<string, unknown> } | null = null;
     try {
-      doc = readProseFile(store.absolutePath(row.prose_path), id);
+      doc = readProseWalking(store, id, row);
     } catch {
       doc = null;
     }
@@ -3644,21 +3688,20 @@ function mergeRecordOf(store: Store, id: string): { originalId: string | null; d
 }
 
 function entityNameOf(store: Store, entityId: string): string | null {
-  const row = store.row(entityId);
-  if (row === undefined) return null;
   try {
-    const name = readProseFile(store.absolutePath(row.prose_path), entityId).meta["name"];
+    const name = readProseWalking(store, entityId).meta["name"];
     return typeof name === "string" && name.length > 0 ? name : null;
   } catch {
+    // An id with no row, and prose that will not read, are the same answer here
+    // — the name is unavailable. `readProseWalking` refuses the first by name,
+    // so the row lookup this used to do first has nothing left to add.
     return null;
   }
 }
 
 function previewOf(store: Store, id: string, max: number): string | null {
-  const row = store.row(id);
-  if (row === undefined) return null;
   try {
-    return oneLine(readProseFile(store.absolutePath(row.prose_path), id).body, max);
+    return oneLine(readProseWalking(store, id).body, max);
   } catch {
     return null;
   }
@@ -4273,6 +4316,14 @@ function doctorCommand(
   const today = new Date().toISOString().slice(0, 10);
   let store: Store | null = null;
   try {
+    // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
+    // call, so this reading and the console's own handle never hold the same
+    // database at once. It is the check the `Store` finding cannot make: that
+    // finding reads the directory, and a store can pass it while
+    // `Counterpart.open` throws at every session start (H1). Inside this `try`
+    // rather than above it, because `doctor` is the command people run BECAUSE
+    // something is wrong, and its own reading must not be the thing that throws.
+    const open = storeExists(dir) ? readCounterpartOpen(dir) : undefined;
     if (storeExists(dir)) store = Store.open({ dir, observer: true });
     const findings = doctorFindings({
       configPath,
@@ -4290,6 +4341,7 @@ function doctorCommand(
       // hook grades the tree the host invokes by absolute path, which is the
       // one that is live on the owner's memory.
       checkout: checkout ?? readCheckout(),
+      ...(open === undefined ? {} : { open }),
     });
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(reportJson(findings, today), null, 2));

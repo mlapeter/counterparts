@@ -564,13 +564,37 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    id: "snapshot",
+    label: "a whole copy of the store was set aside, and old copies were let go",
+    module: "adapters/snapshots.ts",
+    evidence: { kind: "event", names: ["snapshot.taken"] },
+    // The rotation row is the same mechanism saying what it discarded, and the
+    // failure row is the same mechanism saying it could not. Neither is evidence
+    // that a copy EXISTS, which is what this row's state is about — so they are
+    // accounted for here rather than given states of their own.
+    covers: ["snapshot.rotated"],
+    since: "2026-09-18",
+  },
+  {
+    // Split from the row above for the reason `worker-start` and
+    // `worker-trouble` are split: "a copy exists" and "a copy was attempted and
+    // could not be made" are different questions, and a failure counted as a
+    // firing would make a store with no backup at all read as covered. Its
+    // refusal column names the step and the reason (`REFUSAL_READERS`).
+    id: "snapshot-trouble",
+    label: "a copy of the store could not be made (the store itself is unharmed)",
+    module: "adapters/snapshots.ts",
+    evidence: { kind: "event", names: ["snapshot.failed"] },
+    since: "2026-09-18",
+  },
+  {
     id: "backup",
-    label: "the store was backed up",
+    label: "the store was backed up BY HAND, from the console",
     module: "cli/commands.ts",
     evidence: {
       kind: "none",
       reason:
-        "there is no channel at all — no row, no ring, no directory — so a backup that ran and one that never has are the same silence. One `store.backup` event would fix it.",
+        "the `backup` command leaves no row at all, so one that ran and one that never has are the same silence. The AUTOMATIC daily copy has had its own rows since 2026-09-18 (the `snapshot` row above); the console command is the other half. One `store.backup` event would fix it.",
     },
   },
 ];
@@ -961,6 +985,12 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
   "gate.chunk": (p) => countsIn(p, "refusalsByReason"),
   "gate.deposit": (p) => countsIn(p, "refusalsByReason"),
   "recall.credit": (p) => countsIn(p, "refused"),
+  // Every `snapshot.failed` row IS a refusal — a copy that should have happened
+  // and did not — so the reason it carries is the whole column.
+  "snapshot.failed": (p) => {
+    const reason = str(p, "reason");
+    return reason === null ? [] : [[reason, 1]];
+  },
   // `rendered` is the turn that surfaced something; every other reason is a turn
   // that decided to stay quiet, which is what a refusal is here.
   "recall.decision": (p) => {

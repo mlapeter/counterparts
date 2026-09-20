@@ -1423,8 +1423,8 @@ async function openMemory(id) {
     "<h3>" + (d.title ? esc(d.title) : d.confidential ? said(d.text, true) : esc(headline(d.text))) + "</h3>" +
     "<div class='sub'><span>" + esc(d.id) + "</span>" +
       (d.askedFor ? "<span>you asked for " + esc(d.askedFor) + ", which forwards here</span>" : "") +
-      "<span class='path' title='" + esc(d.prosePath) + "'>" + esc(d.prosePathShort) + "</span>" +
-      "<button class='copy' data-path=\"" + esc(d.prosePath) + "\" onclick=\"copyPath(this)\">copy full path</button>" +
+      "<span class='path'>rev " + esc(String(d.revision)) + " · " + esc(d.contentHash || "—") + "</span>" +
+      "<button class='copy' data-id=\"" + esc(d.id) + "\" onclick=\"copyId(this)\">copy id</button>" +
       "</div>" +
     "<div class='body'>" + (d.confidential ? '<span class="withheld">' + esc(d.text) + "</span>" : esc(d.text)) + "</div>" +
     (d.journal
@@ -1483,21 +1483,22 @@ function section(title, body, emptyMsg) {
 }
 window.openMemory = openMemory;
 
-/** The absolute path, on demand — it is what an editor wants and what a modal
- *  subtitle should never have to display. Failure is silent and local: a
- *  clipboard a browser refuses is not worth a console error. */
-function copyPath(btn) {
-  const path = btn.dataset.path || "";
-  const done = () => { btn.textContent = "copied"; setTimeout(() => { btn.textContent = "copy full path"; }, 1400); };
+/** The id, on demand — it is how the owner addresses this memory anywhere else
+ *  (`counterparts recall`, the MCP tools, a note to themselves). Failure is
+ *  silent and local: a clipboard a browser refuses is not worth a console
+ *  error. */
+function copyId(btn) {
+  const id = btn.dataset.id || "";
+  const done = () => { btn.textContent = "copied"; setTimeout(() => { btn.textContent = "copy id"; }, 1400); };
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(path).then(done, () => { btn.textContent = "select it below"; });
+      navigator.clipboard.writeText(id).then(done, () => { btn.textContent = "select it above"; });
       return;
     }
   } catch (e) { /* fall through */ }
-  btn.textContent = path;
+  btn.textContent = id;
 }
-window.copyPath = copyPath;
+window.copyId = copyId;
 
 async function openEvent(seq) {
   let d;

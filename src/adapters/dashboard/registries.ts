@@ -47,6 +47,9 @@ import {
   SELF_BRIEFING_EVENT,
   SEMANTIC_LAG_EVENT,
   SLEEP_CYCLE_EVENT,
+  SNAPSHOT_FAILED_EVENT,
+  SNAPSHOT_ROTATED_EVENT,
+  SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
@@ -130,7 +133,10 @@ export type DurableEventName =
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
   | typeof RUNNER_FAILED_EVENT
-  | typeof CHECKOUT_EVENT;
+  | typeof CHECKOUT_EVENT
+  | typeof SNAPSHOT_TAKEN_EVENT
+  | typeof SNAPSHOT_FAILED_EVENT
+  | typeof SNAPSHOT_ROTATED_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -185,6 +191,11 @@ export const DURABLE_EVENTS = {
   // record, so a flush that never happened read exactly like a credit pass with
   // nothing to wire (2026-09-17, mechanism inventory §3 S3).
   "associate.flush": "the boundary's worker wired together the memories its sessions credited together (passes carried, pairs, edge rows written, evictions)",
+  // The daily rotating snapshot (2026-09-18). Until it existed, a backup that
+  // had run and one that never had were the same silence.
+  "snapshot.taken": "a copy of the whole store was made and kept (which one, how many files, how many are kept, the oldest)",
+  "snapshot.failed": "a copy could not be made (which step, and why) — the store is unharmed, and the worker carried on",
+  "snapshot.rotated": "old copies were let go so the newest 14 remain (which ones went, and how many are left)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

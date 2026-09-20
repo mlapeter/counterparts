@@ -158,3 +158,100 @@ The refusal itself — `status-on-identity-refused` — is the ~72 KB lesson
 mechanized. It refuses on the *identity schema*, not on "status-shaped text",
 because a text classifier here would be a second, softer gate with no admission
 test (scar §2.16).
+
+## 13. A removed schema row is skipped, not read (2026-09-18)
+
+Found by the adversarial review of the F3 refactor, pre-existing since removal
+shipped, and proved end to end through the real command rather than the seam.
+
+`MEMORY_BEARING` permits a `schema` target, so an entity or a belief is a legal
+`counterparts remove`. The chase KEEPS the row and blanks `prose_path`
+(`store/owner-op-seam.ts`); `store.list({type: "schema"})` still returns it; and
+`load` had no guard, so `readProseFile("")` threw `PROSE_FILE_MISSING` out of
+`Schemas.open` and therefore out of `Counterpart.open`.
+
+**What that looked like is the reason this could not wait for the floor work.**
+Not a crash. The hook entry point catches everything out of `main()`, writes one
+line to stderr and exits 0, so every session after the removal had no wake, no
+recall and no capture — silently. The CLI and the MCP server fail loudly; the
+hook is the path the owner actually lives in. One `remove` on a person would have
+switched his memory off until someone read the stderr.
+
+The second face of the same root cause: in the dark-only state (marked, chase not
+yet run) `slices()` threw `REMOVED`, through `element` → `physicsOf` →
+`requireRow`. `slices()` is a model path.
+
+**The fix is to skip, and the CHASED half is one predicate — `removed()` — that
+`load` and `entity` share.** It is free: `prose_path === ""`, and the row is
+already in hand. The DARK half needs the deny-list, and who asks it differs by
+what each caller is already paying for. `load` fetches `deniedIds()` ONCE for the
+whole walk, because it runs at every open over every schema row and a removal
+must cost the index one query, not one per row. `entity` asks per call — it has
+no other store read to borrow from, which costs `entities()` about 2 ms at 120
+entities, measured and accepted rather than paid for with a private view-builder.
+`element` borrows the refusal from the `physicsOf` call it has to make anyway,
+which is why `slices()` did not get slower (66.7 ms → 64.5 ms over 120 entities ×
+6 beliefs; an earlier draft that asked `deniedIds()` per element measured 76.5 ms
+and was rewritten). Either way the question is asked LIVE, not trusted from
+`load`: an in-process `Schemas` can be older than a removal the owner has since
+run in another process.
+
+Skipping — rather than rendering a placeholder — is the honest answer:
+`Store.read` still refuses the id BY NAME, so "removed" and "never existed" stay
+distinguishable to anyone who asks for it directly.
+
+It also turns a piece of luck into a check. `element` refused a denied id before
+this only because `physicsOf` happened to be evaluated *after* `statement` in the
+same object literal: reordering two lines would have lost the gate, and the
+removed prose was read off disk into memory before the throw discarded it. It is
+now a statement above the read, with its `catch` narrowed to `REMOVED` /
+`ID_UNKNOWN` (`isAbsence`) so a broken database cannot present as a quietly empty
+index.
+
+**The two skips are counted apart.** A row the deny-list names was removed by the
+owner, and its absence is the point. A row with a blanked `prose_path` and NO
+removal record is something else — a half-written migration, a disk event — and
+skipping that one buys uptime with data disappearing without a word. Both are
+still skipped, because a session that cannot start helps nobody, but `load` keeps
+the counts apart and `loadSkips()` returns them (a count for the removed, the ids
+for the unaccounted, which is what a `doctor` or `verify` line would want to
+print). Nothing prints them yet; that is the hook for the follow-up, and it was
+left out of this change because those files are being edited elsewhere.
+
+**Removal does not cascade, and the consequence is VISIBLE — the first draft of
+this section was wrong about that.** Beliefs hanging off a removed entity keep
+their rows: orphaned, not destroyed. They vanish from every path that starts at
+an entity — slices, the alias index, preselection, the rendered schema context,
+and so recall — and they remain ordinary rows to every path that does not.
+
+The proved counter-example is the owner's own dashboard. `counterparts dashboard
+identity` enumerates `store.list({ band: "identity", archived: false })` and
+`store.list({ archived: false })` (`self/identity.ts#enumerate`) and reads the
+prose itself (`adapters/dashboard/identity.ts`). It never asks an entity anything.
+So after removing a person, a promoted belief ABOUT her still prints there in
+full, under "Identity band", while `browse --id <her entity>` correctly says
+`[removed by the owner]`. The protected list is the same loop and the same story.
+`Schemas.element(id)` and `Store.read(id)` answer for the orphans too, by design —
+they were not removed.
+
+This is not a regression: before the fix the store could not be opened at all
+after such a removal, so nothing rendered because nothing ran. It is what a
+working session then shows, and "I removed her and her salary is still on the
+screen" is the worst possible way for the owner to find out that removal does not
+cascade. **So the cascade question goes to him, in words, rather than being
+discovered.** Implementing it — chasing an entity's elements, or teaching
+`enumerate` to skip elements whose entity is denied — is a behaviour change and
+`cli/removal.ts`'s to make; naming the orphaned state is this file's.
+
+**What this does NOT reach, because `Schemas` builds its index at open and no
+process tells another one anything.** In a long-lived process — the MCP server —
+a removal run from the CLI is invisible to `this.meta` and `this.index` until the
+next start. So in that window `liveElementIds`'s `attached` count still counts a
+dark-marked belief (a number, off by one; it renders nothing), and a dark-marked
+ENTITY is still in the alias index, so `aliasIndex().lookup("ada")` returns it.
+The stale alias cannot leak text: its only consumer is `retrieval.ts` →
+`Turn.aliases` → recall, and `recall/activate.ts` filters denied ids before
+candidates are formed, so such an entity can be MATCHED and never SURFACED.
+Neither is new and neither is removal's fault: it is the same staleness the
+server already has for every write another process makes. Worth closing when
+something needs cross-process invalidation, not before.

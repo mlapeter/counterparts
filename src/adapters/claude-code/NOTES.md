@@ -718,3 +718,307 @@ boundary that finds none is how the retroactive-capture guard recognises the
 `off → on` flip (#92 review, F1), and a record written from the prompt path would
 take that evidence away. And it writes the durable row BEFORE the flag, so a
 failure duplicates a row rather than closing the question with nothing recorded.
+
+## The daily copy is beside the store, and it is the only thing that deletes (2026-09-18, F2)
+
+The owner's memory had no automatic protection at all against a corrupt or wiped
+database: `counterparts backup` existed, nothing ran it, and — the part that
+matters for a project whose whole absence discipline is about telling "never
+happened" from "gone" — **nothing said so**. A store copied every night and a
+store never copied once were the same silence.
+
+Four choices this took, and why:
+
+**The step is in the worker, not in the cycle.** `bin/runner.ts` runs it fourth,
+after `sessionEnd` returns and inside the `finally`, so the copy happens on the
+failed path too — the day the worker breaks is the day a backup is worth most —
+and so the store is still open when it is taken. It is not a `core/sleep/` phase
+on purpose: sleep must not learn that the floor is changing.
+
+**Rotation lives in an adapter because rotation deletes.** The store exports no
+delete of any kind (store §5 G2), and every rule about what may go is in one file
+a person can read start to finish. The refusals are the design: a directory
+inside the store, a directory containing the store, a filesystem root, the home
+directory, v1's live stores, a symlink whose TARGET is any of those. Both sides
+are `realpath`ed before they are compared — `resolve` does not follow links, and
+on macOS `$TMPDIR` is itself one, so a check comparing a realpathed side against a
+merely resolved one says "no" to the same directory. A path that does not exist
+yet is normal on a fresh install, so the deepest existing ancestor is realpathed
+and the rest put back on.
+
+**The partial name is the real protection against the watchdog.**
+`cli/snapshot.ts#snapshot` is fully synchronous — `copyFileSync` per file — so the
+`AbortController` this process arms cannot interrupt it — and, corrected by the F2
+review (N-1), **nothing kills the worker either**: `spawn.ts` spawns it
+`detached: true` and never calls `.kill()`, and the worker's own watchdog only
+`abort()`s a signal on an unref'd timer. An overrunning copy runs to completion.
+The partial name is still the right protection, but for the reasons that actually
+apply — machine sleep, a shutdown, a `kill -9` by hand (the reviewer proved that
+last one on a 12,000-file store: signal 9 mid-copy left exactly one entry,
+`.partial-…`, which a later run swept while taking a real copy in the same pass).
+So the copy goes to `.partial-<instant>-<pid>` and is RENAMED
+into place: a process killed at any instant leaves either a complete snapshot or
+something that is not a snapshot by name, and there is no state in between. A
+partial is swept by a later run only once it is older than `PARTIAL_STALE_MS`,
+comfortably past the watchdog, because deleting a fresh one would be this module
+destroying a concurrent run's copy.
+
+Measured on a synthetic store larger than the owner's — 18,800 files, 78 MB —
+**one copy takes about 2.3 seconds** against a 300,000 ms watchdog
+(`TUNABLES.WATCHDOG_MS`). It collapses to a handful of files on the rows-only
+floor. The cost is not a concern; the retry cost was, which is why a failing copy
+is tried at most three times a calendar day rather than at every boundary.
+
+**Which skips leave a row.** `already-today` and `attempts-exhausted` write
+nothing — today's `snapshot.taken` row and the failures they counted already are
+the record, and a row per boundary is a flood rather than a fact. `no-default-dir`
+writes nothing either: it is a configuration fact that will not change on its own,
+so doctor's Snapshot line says it in words. Everything that stopped a copy that
+should have happened is a `snapshot.failed` row with its `reason` and `step`, and
+the directory refusals are deduped per calendar date.
+
+**No lock between two workers, on purpose.** Two runs that overlap on the same
+UTC day both see no snapshot for today, both copy into their own pid-stamped
+partial, and both rename — so a day can end with two copies and two
+`snapshot.taken` rows. Both rotations may also report deleting the same
+directory, because `rmSync(..., { force: true })` swallows the second. Every part
+of that is the safe direction (an extra copy, a duplicated record), and a lock
+file would be a new thing that can go stale and refuse a backup on the day it
+matters. If the duplicates ever become noise, the gate is the place to tighten,
+not the copy.
+
+**What the adversarial review changed (2026-09-18).** Four things, and the first
+is the one worth remembering.
+
+*The live-store refusal ran on the name, not on the path.* `assertRotatableDir`
+called `assertSafeDataDir` and *then* realpathed — and `assertSafeDataDir` is pure
+string math that follows no links. So a `snapshots.dir` that was a symlink into
+`~/.bansai` cleared the one guard this repository's first safety rule is about,
+and the directory came back as rotatable. The copy was refused further down, but
+`cleanPartials` runs before that. It is checked on both spellings now, and the
+check is injectable for one reason: `os.homedir()` cannot be moved under bun, so
+the forbidden roots cannot be relocated into a temp tree, and a stand-in is the
+only honest way to prove the ORDER without pointing a test at the owner's real
+v1 memory.
+
+*A typo in an optional backup setting stopped memory.* `"keep": 0` — or `"14"`
+with quotes — made `loadConfig` return the observer config with `dataDir` gone, so
+from the next hook on nothing was captured and nothing recalled, with one stderr
+line that goes nowhere. This one block is read leniently now: each bad field falls
+back to its default, the parse records which and why, and doctor says it. It is
+the only lenient block in the file, and it should stay that way — the strict rule
+is right for a knob whose wrong answer makes the adapter ACT (an egress switch, a
+path this package opens). A backup preference is not worth memory.
+
+*Doctor counted the row, not the directory.* Deleting every copy from disk left
+the line reading green, "1 kept", for a full day. It counts the directory now and
+says so when a row claims a copy that is not there.
+
+*Nobody was told how to restore.* A snapshot opens and reads perfectly and
+`search()` returns nothing until `verify --rebuild`, because `cache/` is
+classified out of the backup set on purpose. The steps are in CONTRACT §5 G25 and
+are printed as doctor's remedy on every Snapshot finding that is not green.
+
+Smaller, same pass: a watchdog abort no longer spends one of the day's three copy
+attempts (`step: "aborted"`, not `"copy"`); a failure window too full to read now
+leaves one row rather than stopping backups in silence; the finished copy is
+opened and `PRAGMA quick_check`ed before the rename makes it a snapshot; a
+rotation candidate must hold something the store's LAYOUT classifies, so the
+delete rule is "a directory this package wrote" rather than "a directory whose
+name looks like one"; the sweep matches the whole partial shape rather than the
+prefix; `snapshots.dir` and `mirror` must be absolute and non-blank; and the
+snapshot's name now takes its DATE from the run's date, so a boundary straddling
+UTC midnight cannot file today's copy under tomorrow.
+
+**One thing deliberately not fixed:** a future-dated directory (a laptop waking
+with a bad RTC) sorts newest and holds a `keep` slot forever, so the owner keeps
+thirteen days of history instead of fourteen. Deleting it would mean destroying
+bytes on the strength of a guess that a name is wrong. It is counted instead — on
+the `snapshot.rotated` row and on the doctor line — so the "silently" is gone.
+
+**Land F1 (WAL + busy timeout) before or with this.** `vacuumInto` opens a second
+connection on the canonical database at every boundary, which under today's
+`journal_mode=DELETE` is a new `SQLITE_BUSY` surface at exactly the moment I38
+("database is locked after a Stop") is about — and three busy boundaries would
+spend the day's whole copy budget. The existing `cli.test.ts` case holds an open
+write transaction across the copy and passes, so the common case is fine; this is
+an ordering preference, not a defect. Re-measure after F1 lands.
+
+**What the SECOND adversarial read changed (2026-09-18).** One finding, and it is
+the same shape as the first review's: new code in the one decision that deletes
+had gained a way to stop deleting without saying so. The LAYOUT rule added for
+MINOR-7 — a rotation candidate must hold something the store's layout classifies
+— dropped a rejected candidate from the directory read entirely, so it was
+invisible to rotation, to "today's exists", to `kept`, to `oldest`, to doctor and
+to every row. `LAYOUT` is read at runtime, so the rule can change underneath
+copies that already exist. The rule is unchanged; rejections are now counted and
+named, on the rows and on the doctor line.
+
+Also from that read: the mirrored copy is verified before its rename, exactly as
+the primary is (a `cpSync` that returns having written a truncated tree would
+otherwise be renamed into place and rotate a good copy out of the mirror); a
+mirror equal to, inside, or containing the primary directory is refused in words
+rather than dying on a raw `ENOTEMPTY` — a second location inside the first dies
+with the same disk and doubles local storage while nothing says there are two
+trees; `verifyCopy`'s `finally` swallows a close failure, so "it never throws" is
+structural rather than true only because the runner catches; a run `date` that is
+not a calendar date falls back to the clock and says so, because it would
+otherwise build a name matching neither pattern — a full copy at every boundary,
+never rotated, never swept; the `ignored` phrases are stripped of control
+characters and bounded before they reach a terminal; "future" is compared as
+calendar dates so doctor and rotation cannot disagree by a day; and a partial
+whose mtime is in the future is swept rather than kept forever by a negative age.
+
+**Two facts about the copy are now pinned by a test, and they are a cross-PR
+coupling.** `VACUUM INTO` writes a ROLLBACK-mode database even from a WAL source,
+and `verifyCopy` does not convert it — F1 makes WAL conversion opt-in and
+`verifyCopy` calls `openDb` with no options. Both were measured by the reviewer
+rather than asserted anywhere, and a WAL-mode database cannot be opened on
+read-only media, which is exactly where archived backups end up. Adding
+`{ wal: true }` to that one call would convert every snapshot at verification
+time. The test reads the header bytes and checks for sidecars, and it holds on
+either floor.
+## The quiet hook now says when it is a fault (H1, 2026-09-18)
+
+"A failed hook is a quiet hook, never a failed session" (§5 G2) has been right
+since day 0, and the quiet was the part that hurt. The stand-down line goes to
+stderr, and on this host a hook's stderr goes nowhere the owner looks. Three
+reviews in one day hit the same wall from three directions: fully removing a
+belief left a row that made `Counterpart.open` throw at every session start; a
+missing prose file on ANY schema row does the same thing today; and a `--config`
+typo stood the adapter down just as invisibly. Each of them costs no wake, no
+recall and no capture in EVERY session, for as long as it lasts, with every
+visible surface green — which is I32's shape again, and the constitution's own
+sentence about silence not masquerading as health.
+
+**What is new is a classification, not a channel.** The channel is the one I32's
+close already measured and the red notice already rides: a top-level `systemMessage`, which
+this host DISPLAYS, non-blocking, on SessionStart and UserPromptSubmit. What
+`bin/hook.ts` could not do before was tell its two kinds of stand-down apart, so
+`standdown.ts` is where that judgement lives and where its vocabulary is kept:
+
+- **Deliberate, and unchanged.** A directory scoped `off` (G19, silent on both
+  channels, and the `off` return still comes first so its silence stays
+  byte-for-byte); an observer with no store to read (`STORE_UNINITIALIZED`); the
+  explicit-dir guard's two refusals. The guard is the interesting one: in a real
+  session it is a fault from the owner's point of view, and it is also the normal
+  state of every agent and test shell in this project, all of which export
+  `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`. `describeGuardRefusal` already gives it
+  a sentence with the entry point's own remedy; a red line in every hermetic
+  shell is how a warning becomes wallpaper, so its treatment is kept.
+- **A fault, and said once.** Everything else, including the two refusals of a
+  configuration somebody NAMED. One `systemMessage`, exit 0, and nothing else in
+  the object: no wake, no `additionalContext`. The stderr line stays.
+
+**Once per session, and the marker cannot live in the store.** The store is what
+failed, and UserPromptSubmit fires every turn, so the mark is a file beside the
+session records — `<dataDir>/sessions/<id>.standdown.json`, the directory
+`sessions.ts` and `expansions.ts` already use, which needs no database. Host
+state, never memory: an id, a time, an event name and a code. SessionStart always
+says it (a compaction re-fires it, and the owner has just had his terminal
+rewritten); UserPromptSubmit says it only while the session has not been told.
+Two stand-downs leave NO mark and therefore say it every turn: a named
+configuration that could not be read (nothing has named a store yet, so there is
+nowhere to keep one) and one that did not typecheck (`hostConfig` has by then
+resolved `dataDir` to the DEFAULT store, and not touching that store's host state
+is the whole reason that stand-down exists). A mark that cannot be written is
+swallowed and the message is shown anyway: repeating is noise, and silence is the
+incident.
+
+**One ordering rule that is not obvious.** Nothing may be printed after the wake.
+The host reads stdout as JSON only when the WHOLE of it parses, so an object
+printed after a plain-text wake would turn the wake into ordinary text and inject
+the warning into the model's context instead of showing it to the owner. The
+`Said` record carries `wroteStdout` for exactly that, and a fault thrown after
+the wake went out stays on stderr alone.
+
+**And `doctor` reads the open.** Its `Store` finding reads the DIRECTORY, so it
+could print GREEN Store while `Counterpart.open` threw at every session start —
+which is what happened. `readCounterpartOpen` does an OBSERVER open of the
+counterpart the way a hook's read path does it, including the `Schemas` index
+scan that reads every schema row's prose, closes immediately, and reports in the
+hook's own words. `STORE_UNINITIALIZED` there is AMBER rather than red: an
+instrument may not write at open, and the next hook running as owner initializes
+or migrates the same store — red would make the console lie for the window
+between a deploy and the first hook after it.
+
+**A fault is PERSISTENT or TRANSIENT, and the difference is what keeps this from
+becoming wallpaper.** The first draft said "memory is OFF for this session" about
+everything, and then measured what that would mean. I38 — `database is locked`
+when a hook meets a store another process holds — is a stand-down like any other
+and it reaches UserPromptSubmit: over 15 scripted sessions on a fresh store,
+2026-09-18, **5 of 45 prompt events on `origin/master` (039cd5d) and 3 of 45 on
+the first draft of this branch** wrote the stderr line. Roughly one prompt in ten
+on a HEALTHY store. Saying "OFF for this session" about it is untrue — the turn
+was skipped, the next one is fine — and at that rate it is a line people learn to
+scroll past, which is the failure mode this whole entry is about arriving by the
+other door.
+
+So `describeFault` asks `db.ts#isLocked` — the same predicate F1's WAL conversion
+swallows its own contention with, imported rather than mirrored — and a busy
+database gets its own wording and its own rule:
+
+- **At a prompt**, the first one is counted in the mark and stays on stderr; from
+  the second it says `Counterparts skipped this turn: the memory database was
+  busy (database is locked). If this keeps happening, run: counterparts doctor`,
+  once per session. One blip is noise; a repeat inside one session is a signal.
+- **At SessionStart** it says it the first time, in its own words —
+  `Counterparts could not load memory at session start: the memory database was
+  busy. This session has no wake; recall will work once the database is free.` —
+  because a lock there costs the whole session's wake and that event does not
+  come round again.
+- **The two counters are apart**, so a session that met a busy database still
+  hears about a store that will not open.
+
+**And after F1 the noise is gone.** Re-measured on the merged branch with the same
+harness, 2026-09-18: **0 of 90 prompt events over 30 sessions**, and 0 on
+`origin/master` (03297c6) over 15 — down from 5 of 45. WAL is what did it; the
+second-occurrence rule costs nothing now and is the floor under the next time a
+store is contended for some other reason.
+
+**What could not be tested with a process.** The transient DISPLAY path. A
+contended database is a race, and under WAL a reader is not blocked by a writer
+at all, so there is no way to schedule one from a test. The rule is proved
+exhaustively over `decideSay`, which is pure; the wiring either side of it — the
+hook reading this session's mark and writing back what the rule decided, whole,
+transient counters included — is proved by a real process.
+
+## Three things the adversarial review found, and what they taught (2026-09-18)
+
+**A flag doing two jobs came apart on the event that fires every turn.**
+`wroteStdout` was an ORDERING guard — nothing may follow the wake — and the first
+draft also leaned on it as a DID-THE-WORK-HAPPEN guard. On SessionStart the two
+coincide, because SessionStart always writes stdout. On UserPromptSubmit they do
+not: an ordinary prompt with nothing to inject writes nothing. So a throw from
+the `close()` in the `finally` — which is I38's own shape, the one close-time
+failure this project has on record — told the owner *Counterparts skipped this
+turn* about a turn where recall, capture and the session record had all just
+succeeded. The fix is a second flag, `didWork`, set the moment `adapter.hook`
+returns; the general lesson is that two guards that agree on one code path are
+still two guards. A close-time throw cannot be induced hermetically, so the rule
+is pinned as an exported predicate (`reachesTheOwner`) rather than left to a
+process test that cannot reach it.
+
+**A new writer met an old wall from the wrong side.** `said.dataDir` is whatever
+the configuration named, and it is set BEFORE `Store.open` has had the chance to
+refuse it — so a config naming `~/.bansai/anything` got a `mkdir -p` and a marker
+file through the guard that exists so nothing here can touch v1's live memory.
+It never fires on the owner's deployment; it fires for agents, reviewers and
+replay tooling, which is exactly the population the guard was built for. Both
+doors of the mark now ask `assertSafeDataDir` inside their own `try`, so a
+forbidden root reads as "no mark" like any other unwritable one — and the message
+is still shown, because the message never depended on the mark landing.
+
+**A new escape hatch has to keep the old file's promises.** `sessions.ts` states
+its writes are atomic and do not follow symlinks; the marker, a new file in the
+same directory, was a bare `writeFileSync` and a planted symlink sent it through
+to a file outside the store. It is now `lstat`-then-tmp-then-rename: anything but
+a regular file at the path is refused, and a rename replaces a symlink rather
+than writing through it.
+
+**And one deliberate non-change.** Catching the fault inside `main` let a Stop's
+`exitCode = 2` survive a later throw, where master's top-level handler always
+exited 0 — so the ask would have been delivered instead of dropped. That is
+plausibly an improvement and it is not this change's to make: the one thing that
+moves on this branch is that two displayed events gain a `systemMessage`. The
+catch sets `process.exitCode = 0` and a test pins it.

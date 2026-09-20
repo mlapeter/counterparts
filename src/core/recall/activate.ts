@@ -40,7 +40,7 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { sal, strength } from "../physics/index.js";
 import type { Hit, ProseDoc, Store } from "../store/index.js";
-import { rowToPhysics, tokenize } from "../store/index.js";
+import { confidentialByMeta, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables } from "./tunables.js";
@@ -160,12 +160,17 @@ function isPageRow(store: Store, id: string): boolean {
   }
 }
 
-/** A memory's confidentiality class, read from the prose payload's `meta`. */
+/**
+ * A memory's confidentiality class, as the surfacing gate asks it.
+ *
+ * The truth table itself is `store/index.ts#confidentialByMeta`, which is also
+ * what `StoredMemory.confidential` carries — one answer, so a caller holding a
+ * `StoredMemory` and a caller holding a bare `ProseDoc` can never disagree. This
+ * wrapper is the door for the second kind (`dashboard/web/reveal.ts`,
+ * `mcp/deliberate.ts`); prefer the flag where a read already produced one.
+ */
 export function isConfidential(doc: ProseDoc): boolean {
-  const m = doc.meta as Record<string, unknown>;
-  if (m["confidential"] === true) return true;
-  const klass = m["confidentiality"];
-  return typeof klass === "string" && klass !== "" && klass !== "open" && klass !== "normal";
+  return confidentialByMeta(doc.meta);
 }
 
 /** Salience with the emotional dimension gated on the turn (§9 G10). */
@@ -436,7 +441,10 @@ export function activate(
   const candidates: Candidate[] = [];
   for (const c of scored.slice(0, input.maxCandidates)) {
     const { id, physics, cue, temporal, semantic, arrival, hops, activation } = c;
-    const doc = store.readProse(id);
+    // `readProse` is `read().doc`, so taking the whole read costs nothing and
+    // brings the confidentiality flag with it instead of re-deriving it.
+    const stored = store.read(id);
+    const doc = stored.doc;
     candidates.push({
       id,
       kind: physics.kind,
@@ -461,7 +469,7 @@ export function activate(
       trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0,
       // §12 G5: temporal ALONE reaches the footnote tier at most.
       maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
-      confidential: isConfidential(doc),
+      confidential: stored.confidential,
     });
   }
 

@@ -33,7 +33,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Store } from "../src/core/store/index.js";
+import { Store, isDatabaseSidecar } from "../src/core/store/index.js";
 import { DATA_DIR_ENV, FORBIDDEN_ROOT_NAMES, explicitDirMalformedRefusal } from "../src/core/store/index.js";
 import { v2DataDirGate, v2DataDirNotice, v2DataDirRefusal } from "../tools/parallel/live-stores.js";
 import { AB_DIR_ENV } from "../src/adapters/claude-code/index.js";
@@ -226,6 +226,10 @@ function manifest(base: string): Record<string, string> {
         continue;
       }
       if (!st.isFile()) continue;
+      // A database's `-shm` is the substrate's bookkeeping, not input: under WAL
+      // every connection writes read-marks into it, a read-only one included. The
+      // `-wal` stays in the manifest — a commit lives there until a checkpoint.
+      if (isDatabaseSidecar(name)) continue;
       out[relative(base, full).split(sep).join("/")] =
         `${st.size}:${createHash("sha256").update(readFileSync(full)).digest("hex")}`;
     }
