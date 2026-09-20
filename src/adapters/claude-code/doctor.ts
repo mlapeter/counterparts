@@ -189,6 +189,18 @@ export interface DoctorInput {
    */
   readonly refusals: Record<string, number>;
   /**
+   * HOW MANY TIMES THE WORKER STARTED TODAY, and the date that tally is for.
+   *
+   * An INPUT for the same reason `refusals` is: the counter lives in the
+   * adapter's own meta keys, `hooks.ts` already imports this file, and a read
+   * taken here would make that a cycle. `adapter.spawn.started` is latched one
+   * row per calendar date, so the ROW proves the door opened and this is the
+   * only thing that says how often -- which is why the row carries no tally of
+   * its own. A date that is not today is ignored rather than printed: a counter
+   * stamped with yesterday answers nothing about today.
+   */
+  readonly starts?: { date: string | null; count: number };
+  /**
    * WHICH CHECKOUT IS RUNNING (see `readCheckout`). Absent: not graded, and no
    * finding is produced at all.
    */
@@ -805,6 +817,14 @@ function configFindings(input: DoctorInput): Finding[] {
  *
  * Both are ONE bounded read each, over the whole log, and both answer "ever",
  * so neither can be undone by retention sweeping the window.
+ *
+ * **THE FALSE NEGATIVE, stated.** A key that was present and never EXERCISED —
+ * no session ever crashed, so the sweep never ran — leaves no `gate.chunk`, and
+ * removing it reads amber where the owner might want red. That is the direction
+ * this errs on purpose: the amber still names the key and still says what it
+ * would add, so nothing is hidden; the alternative errs towards telling every
+ * new user their install is broken. Revisit if a second signal appears that
+ * proves the key worked without the sweep having run.
  */
 interface KeyHistory {
   readonly interpreted: boolean;
@@ -1297,12 +1317,18 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     fallback,
     truncated: asks.truncated || deposits.truncated,
   };
-  // TOO NEW TO GRADE (2026-09-20, finding 2), the same rule the Fired line
-  // keeps. Both ambers here are RATIOS — "the cap refused more often than it
-  // offered", "the sweep wrote more than the session did" — and a ratio over a
-  // handful of rows is not a reading. On a store that has not lived a day or
-  // two, the sentence stands and the colour does not: there is nothing here to
-  // fix that waiting will not answer.
+  // TOO NEW TO GRADE (2026-09-20, finding 2). Both ambers here are RATIOS —
+  // "the cap refused more often than it offered", "the sweep wrote more than
+  // the session did" — and a ratio over a handful of rows is not a reading. On
+  // a store that has not lived a day or two, the sentence stands and the colour
+  // does not: there is nothing here to fix that waiting will not answer.
+  //
+  // ONE CLOCK, NOT THE FIRED LINE'S TWO, and deliberately. `FiredReport.young`
+  // also requires that no durable row be older than a couple of calendar days,
+  // because a store whose WORKER died a fortnight ago reads lived day 0 and
+  // must still get its roll-call — the roll-call is the diagnosis. These two
+  // ambers are about how a session behaved, which cannot have happened at all
+  // before the clock moved, so the lived clock alone is the right bound here.
   const young = livedDay < YOUNG_LIVED_DAYS;
   return [
     finding(
@@ -1465,6 +1491,16 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
     .filter((s): s is string => s !== null)
     .join("; ");
   const counts = entries.map(([reason, n]) => `${reason} ×${n}`).join(", ");
+  // HOW MANY TIMES IT DID START TODAY. `adapter.spawn.started` is latched one
+  // row per calendar date, so the row proves the door opened and this counter
+  // is the only thing that says how often — which is why the row deliberately
+  // carries no tally of its own (it would read `1` forever).
+  const starts =
+    input.starts !== undefined && input.starts.date === input.today && input.starts.count > 0
+      ? input.starts.count
+      : null;
+  const startClause =
+    starts === null ? "" : `; started ${String(starts)} ${starts === 1 ? "time" : "times"} today`;
   const data: Record<string, string | number | boolean | null> = {
     counters: counts,
     escalateAfter: TUNABLES.ESCALATE_AFTER,
@@ -1490,7 +1526,16 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
       finding("spawn", "amber", "Spawn", `spawn refusals standing: ${counts}${rowClause === "" ? "" : ` — ${rowClause}`}`, "A spawn that starts clears every counter.", data),
     ];
   }
-  return [finding("spawn", "green", "Spawn", `no spawn refusals standing${rowClause === "" ? "" : ` (${rowClause})`}`, "", data)];
+  return [
+    finding(
+      "spawn",
+      "green",
+      "Spawn",
+      `no spawn refusals standing${startClause}${rowClause === "" ? "" : ` (${rowClause})`}`,
+      "",
+      { ...data, startsToday: starts },
+    ),
+  ];
 }
 
 /**

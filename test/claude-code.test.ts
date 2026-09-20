@@ -1427,11 +1427,14 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     // ONE ROW for three boundaries on one date — a boundary is a hot path and
     // three hundred identical rows a day would drown the log this feeds.
     expect(rows().length).toBe(1);
-    // The COUNT still says how busy the machine was; the latch means the row
-    // was written on the FIRST start, so it carries that moment's tally.
+    // THE ROW CARRIES NO COUNT. The latch means only the day's FIRST start ever
+    // writes, so any tally on the row would read `1` forever — a number that
+    // looks like a measurement and is an artefact of the latch. The day's real
+    // tally is in the meta counters, where doctor's Spawn line reads it.
     expect(rows()[0]?.["date"]).toBe("2026-01-02");
-    expect(rows()[0]?.["count"]).toBe(1);
+    expect("count" in (rows()[0] ?? {})).toBe(false);
     expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("3");
+    expect(a.spawnStarts()).toEqual({ date: "2026-01-02", count: 3 });
     expect(store.getMeta(SPAWN_START_DATE_KEY)).toBe("2026-01-02");
 
     // A new date is a new row, and the day's tally starts over rather than

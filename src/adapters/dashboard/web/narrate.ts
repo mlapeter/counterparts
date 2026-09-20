@@ -681,14 +681,13 @@ export const NARRATORS = {
     ),
 
   // ── the worker that did start ──────────────────────────────────────────────
-  "adapter.spawn.started": (t) => {
-    const starts = n(t, "count") ?? 0;
-    return calm(
-      starts <= 1
-        ? "The background worker started when a session reached a boundary."
-        : `The background worker started ${String(starts)} times today.`,
-    );
-  },
+  //
+  // NO COUNT IN THIS SENTENCE. The row is latched one per calendar date, so it
+  // is written by the day's FIRST start and any tally on it would read `1`
+  // forever. The day's real tally is in the adapter's meta counters, which
+  // doctor's Spawn line prints; this row says the door opened.
+  "adapter.spawn.started": () =>
+    calm("The background worker started when a session reached a boundary today."),
 
   // ── the copy that is kept beside me ────────────────────────────────────────
   "snapshot.taken": (t) => {

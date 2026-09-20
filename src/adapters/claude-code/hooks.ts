@@ -1481,9 +1481,13 @@ export class ClaudeCodeAdapter {
    *
    * ONE ROW PER CALENDAR DATE, latched at the store exactly like the refusals
    * beside it. This runs at every boundary, which is a hot path, and three
-   * hundred identical rows a day would drown the log the view reads. The count
-   * beside it is the day's running tally, kept in box 2's meta with the refusal
-   * counters, so the one row still says how busy the machine was.
+   * hundred identical rows a day would drown the log the view reads.
+   *
+   * **THE ROW CARRIES NO COUNT, on purpose.** The latch means only the FIRST
+   * start of a day ever writes, so any tally put here would read `1` forever —
+   * a number that looks like a measurement and is an artefact of the latch. The
+   * day's real tally lives in box 2's meta beside the refusal counters, where
+   * `spawnStarts()` reads it and doctor's Spawn line prints it.
    *
    * Never throws, writes nothing under observer, and is not on the critical
    * path: the worker has already been started by the time this runs.
@@ -1492,13 +1496,26 @@ export class ClaudeCodeAdapter {
     if (this.observer) return;
     const date = input?.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
     try {
+      this.bumpStart(date);
       this.counterpart.noteAdapterEvent(
         SPAWN_STARTED_EVENT,
-        { date, count: this.bumpStart(date), session: input?.sessionId ?? null },
+        { date, session: input?.sessionId ?? null },
         { dedupKey: `${SPAWN_STARTED_EVENT}:${date}` },
       );
     } catch (err) {
       this.emit("adapter.spawn.record.failed", { code: codeOf(err) });
+    }
+  }
+
+  /** How many times the worker has started TODAY, and the date that tally is
+   *  for. The row says it happened; this says how often. A read, never a write. */
+  spawnStarts(): { date: string | null; count: number } {
+    try {
+      const store = this.counterpart.store;
+      const date = store.getMeta(SPAWN_START_DATE_KEY) ?? null;
+      return { date, count: Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0") };
+    } catch {
+      return { date: null, count: 0 };
     }
   }
 
@@ -1681,6 +1698,7 @@ export class ClaudeCodeAdapter {
         store: this.counterpart.store,
         today,
         refusals: this.spawnRefusals(),
+        starts: this.spawnStarts(),
         budgetMs: opts.budgetMs ?? SESSION_NOTICE_BUDGET_MS,
         ...(opts.now === undefined ? {} : { now: opts.now }),
       });

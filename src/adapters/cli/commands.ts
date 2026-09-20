@@ -132,7 +132,11 @@ import { readSnapshotsDir, resolveSnapshotsDir } from "../snapshots.js";
 // or "what counts as red" is exactly the drift I32 ran inside of.
 import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js";
 import type { CredentialLoad } from "../claude-code/credentials.js";
-import { SPAWN_REFUSAL_PREFIX } from "../claude-code/hooks.js";
+import {
+  SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
+} from "../claude-code/hooks.js";
 import { loadConfig } from "../claude-code/config.js";
 import type { AdapterConfig } from "../claude-code/config.js";
 import {
@@ -1473,9 +1477,16 @@ async function selfPageCommand(
  * store younger than a lived day or two the list narrows to what HAS happened
  * and what was stopped; `never`, `blind` and `new` are all the same fact there
  * — nothing has happened yet — and saying it once is more use than saying it
- * twenty-eight times. The full list comes back on its own.
+ * twenty-eight times. The full list comes back on its own, and `--all` prints
+ * it today.
+ *
+ * `disabled` and `retired` are out too, and for a different reason: they are
+ * this project's own history — an emotion classifier held back until it clears
+ * its precision bar, two mechanisms retired with a parallel run against a
+ * system the reader has never heard of. True, worth keeping, and not the first
+ * three lines a stranger should meet on day 1.
  */
-const YOUNG_STATES: readonly FiredState[] = ["firing", "blocked", "quiet", "disabled", "retired"];
+const YOUNG_STATES: readonly FiredState[] = ["firing", "blocked", "quiet"];
 
 /** The report as plain text: one mechanism per line, grouped by state. */
 export function firedLines(report: FiredReport, all = false): string[] {
@@ -4391,6 +4402,21 @@ function credentialsPathFor(configPath: string, config: AdapterConfig): string {
 }
 
 /** The persisted per-reason spawn refusal counters, as `doctor` wants them. */
+/** The adapter's own start tally, read the way `spawnRefusalCounters` reads the
+ *  refusal ones -- from the meta keys `hooks.ts` owns, because `doctor.ts`
+ *  cannot import that file back. */
+function spawnStartCounter(store: Store | null): { date: string | null; count: number } {
+  if (store === null) return { date: null, count: 0 };
+  try {
+    return {
+      date: store.getMeta(SPAWN_START_DATE_KEY) ?? null,
+      count: Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0"),
+    };
+  } catch {
+    return { date: null, count: 0 };
+  }
+}
+
 function spawnRefusalCounters(store: Store | null): Record<string, number> {
   if (store === null) return {};
   const out: Record<string, number> = {};
@@ -4524,6 +4550,7 @@ function doctorCommand(
       store,
       today,
       refusals: spawnRefusalCounters(store),
+      starts: spawnStartCounter(store),
       // WHICH CHECKOUT THIS CONSOLE IS RUNNING. From a worktree it grades the
       // worktree, which is the right answer for a command somebody typed; the
       // hook grades the tree the host invokes by absolute path, which is the
