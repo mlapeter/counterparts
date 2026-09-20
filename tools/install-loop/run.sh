@@ -620,7 +620,14 @@ BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
 OUT=$(payload SessionStart "install-loop-missing-$$" | counterparts-hook --config "$WORK/nowhere/claude-code.json" 2>"$WORK/hook-missing.err")
 CODE=$?
 AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+# STDOUT CARRIES A NOTICE AND NO CONTEXT, since H1 (`30a9b91`, 2026-09-18): a
+# stand-down that is a FAULT says so where the owner will see it. This step used
+# to demand an empty stdout and has been failing ever since; the property it
+# guards is unchanged and one clause stronger — nothing is injected, and the
+# terminal is told why. `additionalContext` is what must not be there.
+if [ "$CODE" = "0" ] &&
+   ! printf '%s' "$OUT" | grep -q "additionalContext" &&
+   printf '%s' "$OUT" | grep -q "memory is OFF for this session" &&
    grep -q "stood down" "$WORK/hook-missing.err" &&
    grep -q "could not be read" "$WORK/hook-missing.err" &&
    [ ! -e "$WORK/nowhere" ] &&
@@ -635,12 +642,15 @@ step "a relative --config STANDS THE HOOK DOWN rather than using the default sto
 # The failure direction that matters: an entry point told to use a config it
 # cannot honour must not quietly fall back, because on a real machine the
 # default is somebody's live memory. Exit 0 all the same — a hook never fails
-# the host — with nothing on stdout.
+# the host — and nothing INJECTED, which since H1 is the honest test rather
+# than an empty stdout (see the step above).
 BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
 OUT=$(payload SessionStart "install-loop-relative-$$" | counterparts-hook --config claude-code.json 2>"$WORK/hook-relative.err")
 CODE=$?
 AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+if [ "$CODE" = "0" ] &&
+   ! printf '%s' "$OUT" | grep -q "additionalContext" &&
+   printf '%s' "$OUT" | grep -q "memory is OFF for this session" &&
    grep -q "stood down" "$WORK/hook-relative.err" &&
    [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
   ok

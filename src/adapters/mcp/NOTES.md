@@ -171,12 +171,28 @@ hold it (scar §2.20). And no memory ids: the counts answer this row's question,
 durable pairing of ids with the moment somebody asked for them is a link the store has no
 need of. `recall.credit` carries ids because crediting is *about* those ids; this is not.
 
-**`blockedBy` carries `confidential-withheld`, and the wire still does not.** §9.1 G5 is
-unchanged — a list that announces its gaps leaks their existence, and the caller may be
-any session. The durable row has a different audience: the owner, in the owner's own
-store, where the memory itself is already sitting. Without it, the confidentiality gate
-stays exactly as unreadable as the inventory found it. This is the judgement call in the
-change; it is written down here so that reversing it is a decision rather than a discovery.
+**`blockedBy` carries `confidential-withheld`. THREE audiences, not two.** An adversarial
+review corrected the first version of this note, which said "the durable row" versus "the
+wire" and missed the third.
+
+1. **The wire** — whoever called the tool, who may be any session. Silent, unchanged:
+   §9.1 G5's rule is that a list announcing its gaps leaks their existence, and
+   `answerQuestion` still `continue`s past the verdict before building `memories`.
+2. **The durable row** — the owner, reading their own store, where the memory itself is
+   already sitting. It carries the count, keyed by verdict name and nothing else. Without
+   it the confidentiality gate stays exactly as unreadable as the 2026-09-17 inventory
+   found it: "a withholding that happened and one that never had to are the same absence."
+3. **A SCREEN** — the dashboard's narration and the `fired` view. Silent, and this was the
+   correction: the first version printed "1 more was kept out (confidential-withheld)" in
+   plain English on a page. No id, no title, no body — but a page gets screenshotted,
+   screen-shared and demoed, and that sentence is the gap announced. `narrate.ts`'s
+   `UNNAMEABLE_VERDICTS` folds it into an unnamed total ("kept out by a gate"), and
+   `fired.ts`'s reader for this row counts only `dim-cap:*`.
+
+The rule that came out of it, worth keeping: **the row records it; no renderer names it.**
+
+**The row is inside `operational.sqlite`**, so it travels in any `backup` or snapshot like
+every other event row. No `export` surface serialises the event log.
 
 **No `dedupKey`.** A tool call is a deliberate act by a session, bounded by the host's own
 tool budget — not a boundary that repeats on a timer. The spawn seam's rows are latched

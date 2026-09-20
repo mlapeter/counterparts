@@ -26,7 +26,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   ADAPTER_ASK_EVENT,
@@ -224,10 +224,19 @@ function consoleWith(): { io: Io; out: string[]; err: string[] } {
  * 2026-09-20: a user-scope hooks block lives in `<home>/.claude/settings.json`
  * and a `-s user` MCP registration in `<home>/.claude.json` under `mcpServers`.
  */
-function installHostSteps(over: { events?: readonly string[]; mcp?: boolean } = {}): void {
+function installHostSteps(
+  over: { events?: readonly string[]; mcp?: boolean; stale?: boolean } = {},
+): void {
+  // A REAL FILE at the path the block names — because since 2026-09-20 a block
+  // pointing at a checkout that is not there is graded as a fault, not as an
+  // install. `stale: true` is how a test asks for the opposite.
+  const installed = join(root, "install", "counterparts-hook");
+  mkdirSync(dirname(installed), { recursive: true });
+  writeFileSync(installed, "#!/usr/bin/env bun\n");
+  const target = over.stale === true ? join(root, "deleted-checkout", "counterparts-hook") : installed;
   const hooks: Record<string, unknown> = {};
   for (const event of over.events ?? HOST_EVENTS) {
-    hooks[event] = [{ hooks: [{ type: "command", command: "/x/.bun/bin/bun /y/counterparts-hook" }] }];
+    hooks[event] = [{ hooks: [{ type: "command", command: `/bin/bun ${target}` }] }];
   }
   mkdirSync(join(root, ".claude"), { recursive: true });
   writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks }));
@@ -858,6 +867,35 @@ describe("doctor — the reading", () => {
       expect(f.data["young"]).toBe(true);
     });
 
+    test("a store whose WORKER died still gets graded — the young rule uses two clocks (MINOR 8)", () => {
+      /**
+       * The lived clock is advanced ONLY by the sleep cycle
+       * (`store.advanceClock()` has one caller). Sessions ask and deposit at
+       * every boundary whether or not the worker ever runs. So a store whose
+       * worker has been dead since day 1 — spawn refused, no credential, a
+       * broken checkout — piles up a fortnight of asks and deposits with a
+       * perfectly meaningful cap/sweep ratio, and read GREEN "too new to grade"
+       * for ever on the one-clock rule. That is the exact store
+       * `FiredReport.young`'s two-clock rule was written to protect.
+       */
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      // livedDay stays 0: nothing here advances the clock.
+      expect(s.livedDay()).toBe(0);
+      ask(s, "2026-09-09", "asked");
+      memory(s, "2026-09-09", "authored", 2);
+      memory(s, "2026-09-09", "fallback", 20);
+
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.data["livedDay"]).toBe(0);
+      expect(f.data["young"]).toBe(false);
+      expect(f.severity).toBe("amber");
+      expect(f.detail).not.toContain("too new to grade");
+      expect(f.fix).toContain("session-end boundary");
+    });
+
     test("AMBER when the fallback sweep out-writes the author", () => {
       mintStore();
       writeConfig();
@@ -1278,6 +1316,90 @@ describe("the Host line reads the host's own files", () => {
       }),
     );
     expect(readHost(root, root, {}).events).toEqual([]);
+  });
+
+  test("a block pointing at a checkout that is GONE is a fault, not an install (review MINOR 1)", () => {
+    // "GREEN while nothing fires" is the one outcome this line was added to
+    // prevent. A settings block left behind by a deleted checkout matches the
+    // command mark perfectly and fails at every session start, silently.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps({ stale: true });
+    const host = readHost(root, root, {});
+    // It IS installed — the block is there — and it cannot work.
+    expect(host.events).toEqual([...HOST_EVENTS].sort());
+    expect(host.stale.map((s) => s.event)).toEqual([...HOST_EVENTS].sort());
+    expect(host.mcp).toBe(true);
+
+    const f = by(doctorFindings(input({ host })), "host");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("which is not there");
+    expect(f.detail).toContain("deleted-checkout");
+    expect(f.fix).toContain("the path this install actually has");
+
+    // A LIVE entry on the same event wins: one event may carry several, and a
+    // working one is a working one.
+    const settings = join(root, ".claude", "settings.json");
+    writeFileSync(
+      settings,
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: `/bin/bun ${join(root, "gone", "hook.ts")}` }] },
+            { hooks: [{ type: "command", command: `/bin/bun ${join(root, "install", "counterparts-hook")}` }] },
+          ],
+        },
+      }),
+    );
+    expect(readHost(root, root, {}).stale).toEqual([]);
+  });
+
+  test("a settings file that EXISTS and will not open is named, not dropped (review MINOR 2)", () => {
+    // A mode-000 file and a DIRECTORY with that name both used to vanish from
+    // the report, so the reader was told to paste a block they had pasted.
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    const bad = join(root, ".claude", "settings.json");
+    writeFileSync(bad, "{ not json");
+    // A directory where a file is expected — the reviewer's fixture (g).
+    mkdirSync(join(root, ".claude", "settings.local.json"), { recursive: true });
+
+    const host = readHost(root, root, {});
+    expect(host.settingsRead).toEqual([]);
+    expect(host.settingsUnreadable).toContain(bad);
+    expect(host.settingsUnreadable).toContain(join(root, ".claude", "settings.local.json"));
+
+    const f = by(doctorFindings(input({ host })), "host");
+    expect(f.detail).toContain("could not read");
+    expect(f.detail).toContain(bad);
+    // And absent is still a different sentence from unreadable.
+    rmSync(join(root, ".claude"), { recursive: true, force: true });
+    const empty = readHost(root, root, {});
+    expect(empty.settingsUnreadable).toEqual([]);
+    expect(by(doctorFindings(input({ host: empty })), "host").detail).toContain(
+      "no host settings file was readable",
+    );
+  });
+
+  test("the command mark matches a COMMAND, not prose that mentions one (review NIT 3)", () => {
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    const settings = join(root, ".claude", "settings.json");
+    const withCommand = (command: string): string[] => {
+      writeFileSync(
+        settings,
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } }),
+      );
+      return [...readHost(root, root, {}).events];
+    };
+    // Ours, in the shapes `install` prints and a clone produces.
+    expect(withCommand("counterparts-hook")).toEqual(["Stop"]);
+    expect(withCommand("/x/.bun/bin/counterparts-hook")).toEqual(["Stop"]);
+    expect(withCommand("/b/bun /x/src/adapters/claude-code/bin/hook.ts stop")).toEqual(["Stop"]);
+    // Not ours: a command that merely says the word.
+    expect(withCommand("echo installing-counterparts-hooks-later")).toEqual([]);
+    expect(withCommand("echo 'see counterparts-hookup docs'")).toEqual([]);
   });
 
   test("with no host reading handed in, there is no Host finding at all", () => {

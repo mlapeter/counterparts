@@ -247,6 +247,110 @@ describe("every state is reachable from a fixture", () => {
     expect(started.refusedInWindow).toBe(3);
   });
 
+  test("physics' 'not yet' reasons NEVER read as blocked, on a store where nothing is wrong (E2)", () => {
+    /**
+     * THE FALSE ALARM AN ADVERSARIAL REVIEW CAUGHT BY RUNNING IT.
+     *
+     * Forty ordinary memories, seven clean nights, nothing misconfigured — and
+     * the first version of this reported, in the first section printed:
+     *
+     *   BLOCKED promotion  … most often base-below-identity-threshold ×80
+     *   BLOCKED prune      … most often dwell-too-short ×240
+     *
+     * Those are physics' `blockedBy` vocabularies, and they are mostly "not
+     * yet": the ordinary condition of nearly every memory on nearly every
+     * healthy night, scaling with store size × nights. This fixture is those
+     * exact reasons at those exact shapes, and it asserts silence.
+     */
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "decay",
+          status: "ran",
+          reason: "ok",
+          skipped: { "at-floor": 40, unchanged: 40 },
+        },
+        {
+          phase: "consolidate",
+          status: "ran",
+          reason: "ok",
+          skipped: {
+            "below-semantic-floor": 40,
+            "promotion:base-below-identity-threshold": 40,
+            "promotion:insufficient-distinct-days": 40,
+          },
+        },
+        { phase: "prune", status: "ran", reason: "ok", skipped: { "blocked:dwell-too-short": 40 } },
+        { phase: "dedup", status: "ran", reason: "ok", skipped: { "left-alone:below-tau": 12 } },
+      ],
+    });
+    const r = report(s);
+
+    for (const id of ["promotion", "prune", "dedup", "decay"]) {
+      const m = pick(r, id);
+      expect(m.refusedInWindow, id).toBe(0);
+      expect(m.state, id).not.toBe("blocked");
+    }
+    expect(r.counts.blocked).toBe(0);
+    // And doctor's week-over-week list stays empty, so the Fired line cannot go
+    // amber because of a phase that is working.
+    expect(r.wentBlocked).toEqual([]);
+
+    // Promotion has NO gate in its whole vocabulary, so it carries no refusal
+    // column at all rather than an empty one — `already-identity` is "nothing
+    // to do" and the other two are thresholds.
+    expect(MECHANISMS.find((m) => m.id === "promotion")?.refusals).toBeUndefined();
+  });
+
+  test("a REAL gate does read as blocked — the allow-list is not just 'off' (E2)", () => {
+    // The other half: `protected` is the owner saying this may never be
+    // forgotten, and `declared-revision-never-merged` is a rule refusing a
+    // merge the similarity would have made. Both are a named rule turning away
+    // a candidate that qualified, which is what `blocked` means.
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "prune",
+          status: "ran",
+          reason: "ok",
+          // The gates AND the filters in one map, so the split is asserted.
+          skipped: {
+            "blocked:protected": 3,
+            "blocked:in-live-revision-chain": 1,
+            "blocked:dwell-too-short": 240,
+            "blocked:above-floor": 99,
+            journal: 14,
+          },
+        },
+        {
+          phase: "dedup",
+          status: "ran",
+          reason: "ok",
+          skipped: {
+            "left-alone:declared-revision-never-merged": 2,
+            "left-alone:no-similarity-supplied": 500,
+          },
+        },
+      ],
+    });
+    const r = report(s);
+
+    const prune = pick(r, "prune");
+    expect(prune.state).toBe("blocked");
+    // FOUR, not 343: the two gates only.
+    expect(prune.refusedInWindow).toBe(4);
+    expect(prune.topRefusal).toBe("protected ×3");
+
+    const dedup = pick(r, "dedup");
+    expect(dedup.state).toBe("blocked");
+    // TWO, not 502. `no-similarity-supplied` is the embedder being off, which
+    // fires for every pair on the default configuration and has its own amber.
+    expect(dedup.refusedInWindow).toBe(2);
+    expect(dedup.topRefusal).toBe("declared-revision-never-merged ×2");
+  });
+
   test("the night's refusals come off the cycle row, and no phase claims another's (E2)", () => {
     // `docs/promotion-diagnosis-2026-09-17.md`: one consolidate pass examined a
     // third of the store, promoted nothing, and the store could not say why —
@@ -256,59 +360,75 @@ describe("every state is reachable from a fixture", () => {
     row(s, "sleep.cycle", TODAY, {
       phases: [
         {
-          phase: "consolidate",
+          phase: "prune",
           status: "ran",
           reason: "ok",
-          // A CANDIDATE FILTER beside two real refusals. `journal` says "this
-          // row was never a candidate"; `promotion:*` says "it was, and a gate
-          // said no". Only the second is a refusal, and this fixture holds both
-          // so the difference is asserted rather than assumed.
-          skipped: { "promotion:below-theta": 41, "promotion:too-few-days": 7, journal: 14 },
+          skipped: { "blocked:protected": 5, journal: 14 },
         },
         {
-          phase: "prune",
-          status: "ran-nothing-found",
+          phase: "dedup",
+          status: "ran",
           reason: "ok",
-          skipped: { journal: 14, archived: 3, "blocked:above-floor": 2 },
+          skipped: { "left-alone:revision-successor-never-merged": 1 },
         },
-        { phase: "decay", status: "ran", reason: "ok", skipped: { "identity-band": 2, "at-floor": 9 } },
-        { phase: "dedup", status: "ran-nothing-found", reason: "ok", skipped: { schema: 6 } },
       ],
     });
     const r = report(s);
 
-    const promotion = pick(r, "promotion");
-    expect(promotion.state).toBe("blocked");
-    // 48, NOT 62: the fourteen journal rows were never candidates.
-    expect(promotion.refusedInWindow).toBe(48);
-    // The PREFIX IS STRIPPED: the reader wants the reason, not the routing.
-    expect(promotion.topRefusal).toBe("below-theta ×41");
-    expect(promotion.evidence).toBe("band.promoted");
-    expect(promotion.note).toContain("sleep.cycle");
-
     // No phase claims another's, and none of them claims a candidate filter.
-    const prune = pick(r, "prune");
-    expect(prune.refusedInWindow).toBe(2);
-    expect(prune.topRefusal).toBe("above-floor ×2");
-
-    /**
-     * THE FALSE ALARM THIS PREFIX EXISTS TO PREVENT.
-     *
-     * On the owner's own store, prune runs every night, finds nothing at the
-     * floor, and skips fourteen journal chapters because a chapter is a source
-     * and not a memory. Reading the whole skip map would make it report
-     * `blocked, most often journal ×14` every single week — for a phase that is
-     * working perfectly. dedup's `schema` and decay's `at-floor` are the same
-     * shape, and decay has no refusal vocabulary at all.
-     */
-    expect(pick(r, "dedup").refusedInWindow).toBe(0);
-    expect(pick(r, "dedup").state).toBe("never");
+    expect(pick(r, "prune").refusedInWindow).toBe(5);
+    expect(pick(r, "prune").topRefusal).toBe("protected ×5");
+    expect(pick(r, "prune").evidence).toBe("memory.pruned");
+    expect(pick(r, "prune").note).toContain("sleep.cycle");
+    expect(pick(r, "dedup").refusedInWindow).toBe(1);
+    // Decay has no refusal source at all, so a phase report of its own cannot
+    // give it one.
     expect(pick(r, "decay").refusedInWindow).toBe(0);
-    expect(pick(r, "decay").state).toBe("never");
 
     // And the cycle itself FIRED — a night that ran and refused things is a
     // night that ran. The refusal column is on the mechanisms, not on it.
     expect(pick(r, "sleep-cycle").state).toBe("firing");
+  });
+
+  test("a refusal channel younger than the older window makes no week-over-week claim (E2)", () => {
+    // MINOR 5: rows written before this PR carry no `skipped` at all, so a
+    // phase that pruned last week and is `blocked:protected` this week would
+    // land in `wentBlocked` and turn doctor amber — "your prune phase regressed
+    // on deploy day" when all that changed is the schema. The STATE is still
+    // true of this week; the comparison is what is withheld.
+    const s = store();
+    row(s, "memory.pruned", daysBefore(TODAY, 9));
+    row(s, "sleep.cycle", TODAY, {
+      phases: [{ phase: "prune", status: "ran", reason: "ok", skipped: { "blocked:protected": 2 } }],
+    });
+
+    const fresh = report(s, TODAY);
+    expect(pick(fresh, "prune").state).toBe("blocked");
+    expect(pick(fresh, "prune").firedInPreviousWindow).toBe(1);
+    expect(fresh.wentBlocked).toEqual([]);
+
+    // Once BOTH windows are old enough to have carried the field, the claim is
+    // made — the suppression is about the schema, not about the phase.
+    const later = report(s, "2026-10-05");
+    expect(later.wentBlocked).toEqual([]);
+    const ready = firedReport(s, "2026-09-30");
+    expect(ready.rows.find((x) => x.id === "prune")?.state).not.toBe("blocked");
+  });
+
+  test("a refusal row with no reason still COUNTS — the store knew and the view said no (MINOR 4)", () => {
+    // `reasonOnce` used to return nothing for a row whose payload carries no
+    // readable `reason`, so a store holding an `adapter.spawn.refused` row with
+    // a malformed payload reported the worker as never refused. The store knew;
+    // the view said otherwise. That is the exact failure this page is about.
+    const s = store();
+    row(s, "adapter.spawn.refused", TODAY, {});
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 1), { reason: "" });
+
+    const start = pick(report(s), "worker-start");
+    expect(start.state).toBe("blocked");
+    expect(start.refusedInWindow).toBe(2);
+    expect(start.topRefusal).toBe("(no reason recorded) ×2");
+    expect(start.note).toContain("(no reason recorded)");
   });
 
   test("a brand-new store says it is too new to grade rather than listing 29 failures", () => {

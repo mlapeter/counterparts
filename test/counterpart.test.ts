@@ -34,6 +34,10 @@ import {
   SWEEP_GATE_EVENT,
   surfaceSetFields,
 } from "../src/core/counterpart.js";
+// The what-fired view, read against a REAL store here: the acceptance test for
+// review MAJOR 1 has to see whatever the sleep phases actually emit, not a
+// fixture somebody remembered to keep in step.
+import { firedReport } from "../src/adapters/fired.js";
 import {
   PENDING_MAX_BYTES,
   TUNABLES as ASSOCIATE,
@@ -1859,6 +1863,60 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
    * Absence is the honest record; doctor reads `=== true`, so it stays quiet
    * either way.
    */
+  test("SEVEN CLEAN NIGHTS over forty memories report NOTHING blocked (E2, review MAJOR 1)", async () => {
+    /**
+     * THE REVIEWER'S OWN SCENARIO, as an acceptance test.
+     *
+     * A real `Counterpart`, forty ordinary memories, seven real `sessionEnd`
+     * boundaries. Nothing is misconfigured, no worker died, no gate was
+     * tripped. Against the first version of E2 this printed, in the first
+     * section `counterparts fired` shows:
+     *
+     *   BLOCKED promotion  … most often base-below-identity-threshold ×80
+     *   BLOCKED prune      … most often dwell-too-short ×240
+     *
+     * because physics' `blockedBy` vocabularies are mostly "not yet" rather
+     * than "a gate said no", and they scale with store size × nights. The
+     * synthetic fixtures in `fired.test.ts` pin the same rule; this one proves
+     * it against whatever those phases actually emit, so a change to physics'
+     * vocabulary that reintroduces the false alarm fails HERE even if nobody
+     * remembers to update a fixture.
+     */
+    const c = brain();
+    for (let i = 0; i < 40; i += 1) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `An ordinary thing that was true on day ${String(i)}: the kettle in the north kitchen is slower than the one downstairs.`,
+      });
+    }
+    const dates = ["13", "14", "15", "16", "17", "18", "19"].map((d) => `2026-09-${d}`);
+    for (const date of dates) {
+      c.wake(BUDGET_BYTES);
+      await c.sessionEnd({ date, at: date, budgetBytes: BUDGET_BYTES });
+    }
+
+    // The rows really do carry the "not yet" reasons — if they did not, this
+    // test would pass for the wrong reason.
+    const skips = rowsOf(c, SLEEP_CYCLE_EVENT)
+      .flatMap((row) => phasesOf(row))
+      .flatMap((p) => Object.keys(p.skipped ?? {}));
+    expect(skips.length).toBeGreaterThan(0);
+
+    const report = firedReport(c.store, "2026-09-20");
+    const blocked = report.rows.filter((r) => r.state === "blocked");
+    expect(
+      blocked.map((r) => `${r.id}: ${String(r.refusedInWindow)} × ${r.topRefusal ?? "?"}`),
+    ).toEqual([]);
+    expect(report.counts.blocked).toBe(0);
+    expect(report.wentBlocked).toEqual([]);
+
+    // And doctor does not go amber on account of it.
+    for (const id of ["promotion", "prune", "dedup", "decay"]) {
+      expect(report.rows.find((r) => r.id === id)?.refusedInWindow, id).toBe(0);
+    }
+  });
+
   test("a phase that did not run, and one that failed, carry NO budgetExhausted at all", async () => {
     const c = brain();
     seed(c);

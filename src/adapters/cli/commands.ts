@@ -1496,10 +1496,16 @@ export function firedLines(report: FiredReport, all = false): string[] {
   ];
   const young = report.young && !all;
   if (young) {
+    // "0 calendar days of records" beside a FIRING section that shows three
+    // deposits is a strange thing to print (2026-09-20). The reading a person
+    // wants on day 1 is how long this has been going, so a store whose oldest
+    // row is today says "today" rather than counting zero days.
     const age =
       report.calendarDays === null
         ? "nothing has been recorded here yet"
-        : `${String(report.calendarDays)} calendar day${report.calendarDays === 1 ? "" : "s"} of records`;
+        : report.calendarDays === 0
+          ? "everything it holds was recorded today"
+          : `${String(report.calendarDays)} calendar day${report.calendarDays === 1 ? "" : "s"} of records`;
     lines.push(
       `This store is on lived day ${String(report.livedDay)} — ${age}. Most mechanisms have had ` +
         `nothing to do yet, so below is only what HAS fired and anything that was stopped. The ` +

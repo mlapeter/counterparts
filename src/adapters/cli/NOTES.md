@@ -591,3 +591,11 @@ never really about the store: it was about the DEFAULT CONFIGURATION beside it, 
 store is graded on its own, and one amber says which questions therefore went unasked. On
 cut-over day this is the difference between pointing `doctor` at the parked store and a
 refusal with nothing to do.
+
+**Precisely, because the first version of this note overstated it** (adversarial review,
+2026-09-20): what is not read is OUR configuration — `claude-code.json`, the credentials
+file it names, the embedder setting, the snapshot policy, the stance. `readHost` still
+runs, so `doctor --dir <anything>` opens the four host settings files and `~/.claude.json`
+on the real home. Those are the HOST's, they are read-only, and the Host line names every
+one of them — but "reads no configuration at all" was not true of them and should not have
+been written.

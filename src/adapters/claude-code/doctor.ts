@@ -65,7 +65,7 @@ import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
-import { STATE_MEANING, YOUNG_LIVED_DAYS, firedReport } from "../fired.js";
+import { STATE_MEANING, YOUNG_LIVED_DAYS, daysBetween, firedReport } from "../fired.js";
 // The one name the "no configuration was read" line needs, from the module that
 // owns it — so the sentence here and the refusal it replaced name the same var.
 import { CONFIG_ENV } from "../config-path.js";
@@ -1227,6 +1227,20 @@ function rowsInWindow(
   };
 }
 
+/** The oldest calendar date among the rows this line actually read — the second
+ *  clock for "too new to grade". Null when it read none at all. */
+function oldestAuthorshipDate(
+  asks: readonly EventRow[],
+  deposits: readonly EventRow[],
+): string | null {
+  let oldest: string | null = null;
+  for (const row of [...asks, ...deposits]) {
+    const date = rowDate(row);
+    if (date !== null && (oldest === null || date < oldest)) oldest = date;
+  }
+  return oldest;
+}
+
 function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const livedDay = store.livedDay();
   // Inclusive of today: seven calendar days means today and the six before it.
@@ -1323,13 +1337,20 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   // a store that has not lived a day or two, the sentence stands and the colour
   // does not: there is nothing here to fix that waiting will not answer.
   //
-  // ONE CLOCK, NOT THE FIRED LINE'S TWO, and deliberately. `FiredReport.young`
-  // also requires that no durable row be older than a couple of calendar days,
-  // because a store whose WORKER died a fortnight ago reads lived day 0 and
-  // must still get its roll-call — the roll-call is the diagnosis. These two
-  // ambers are about how a session behaved, which cannot have happened at all
-  // before the clock moved, so the lived clock alone is the right bound here.
-  const young = livedDay < YOUNG_LIVED_DAYS;
+  // **TWO CLOCKS, the same rule `FiredReport.young` keeps.** An earlier version
+  // used the lived clock alone, arguing that these ambers are about how a
+  // session behaved and so cannot predate the clock moving. That premise is
+  // false: `store.advanceClock()` has exactly one caller, the sleep cycle, and
+  // sessions ask and deposit at every boundary whether or not the worker ever
+  // runs. So a store whose worker has been dead since day 1 — spawn refused, no
+  // credential, a broken checkout — piles up a fortnight of asks and deposits
+  // with a perfectly meaningful cap/sweep ratio and read GREEN, "too new to
+  // grade", for ever. That is the exact store the two-clock rule exists to
+  // protect, one finding over.
+  const young =
+    livedDay < YOUNG_LIVED_DAYS &&
+    daysBetween(oldestAuthorshipDate(asks.rows, deposits.rows) ?? input.today, input.today) <
+      YOUNG_LIVED_DAYS;
   return [
     finding(
       "authorship",
@@ -2017,8 +2038,14 @@ export interface HostReading {
   readonly expected: readonly string[];
   /** Which of `expected` carry a command that looks like ours. */
   readonly events: readonly string[];
+  /** Events whose command names a path that is not on disk — installed, and
+   *  failing silently at every session start. */
+  readonly stale: readonly { event: string; path: string }[];
   /** Every settings file this read actually opened and parsed. */
   readonly settingsRead: readonly string[];
+  /** Files that exist and could not be opened or parsed — not the same fact as
+   *  "there is no such file", and not something to stay quiet about. */
+  readonly settingsUnreadable: readonly string[];
   /** True when the MCP server is registered at user scope. */
   readonly mcp: boolean;
   readonly mcpName: string;
@@ -2030,14 +2057,26 @@ export interface HostReading {
 function hostFindings(reading: HostReading): Finding[] {
   const total = reading.expected.length;
   const missing = reading.expected.filter((e) => !reading.events.includes(e));
-  const where =
+  const stale = reading.stale;
+  const where = [
     reading.settingsRead.length === 0
       ? "no host settings file was readable"
-      : `read ${reading.settingsRead.join(", ")}`;
+      : `read ${reading.settingsRead.join(", ")}`,
+    // AN UNREADABLE FILE IS SAID OUT LOUD. Dropping it silently is how a
+    // mode-000 settings file reads as an absent one, and the reader is then
+    // told to paste a block they have already pasted.
+    reading.settingsUnreadable.length === 0
+      ? ""
+      : `could not read ${reading.settingsUnreadable.join(", ")}`,
+  ]
+    .filter((s) => s.length > 0)
+    .join("; ");
   const data: Record<string, string | number | boolean | null> = {
     events: reading.events.join(","),
     missing: missing.join(","),
+    stale: stale.map((s) => `${s.event}→${s.path}`).join(","),
     settingsRead: reading.settingsRead.join(","),
+    settingsUnreadable: reading.settingsUnreadable.join(","),
     mcp: reading.mcp,
     mcpFile: reading.mcpFile,
   };
@@ -2047,7 +2086,7 @@ function hostFindings(reading: HostReading): Finding[] {
       ? `${reading.mcpFile} could not be read, so the MCP registration could not be checked`
       : `no MCP server named "${reading.mcpName}" in ${reading.mcpFile}`;
 
-  if (missing.length === 0 && reading.mcp) {
+  if (missing.length === 0 && stale.length === 0 && reading.mcp) {
     return [
       finding(
         "host",
@@ -2065,17 +2104,37 @@ function hostFindings(reading: HostReading): Finding[] {
       "Run: counterparts install — it prints the hooks block; paste that into ~/.claude/settings.json and restart the host.",
     );
   }
+  if (stale.length > 0) {
+    fixes.push(
+      `Run: counterparts install — it prints the block with the path this install actually has; replace the ${
+        stale.length === 1 ? "stale entry" : "stale entries"
+      } and restart the host.`,
+    );
+  }
   if (!reading.mcp && !reading.mcpUnreadable) {
     fixes.push(
       "Run: counterparts install — it prints the claude mcp add line; run that, then restart the host.",
     );
   }
-  const detail =
+  // STALE FIRST. "GREEN while nothing fires" is the one outcome this line was
+  // added to prevent, and a block pointing at a deleted checkout is exactly
+  // that: it matches, it is installed, and every session start fails silently.
+  const staleClause =
+    stale.length === 0
+      ? ""
+      : `${stale.map((s) => s.event).join(", ")} point${stale.length === 1 ? "s" : ""} at ${stale
+          .map((s) => s.path)
+          .join(", ")}, which is not there`;
+  const installed =
     missing.length === total
-      ? `no hook of ours is installed on any of the ${String(total)} events (${where}); ${mcpClause}`
+      ? `no hook of ours is installed on any of the ${String(total)} events`
       : missing.length > 0
-        ? `installed on ${reading.events.join(", ")} but NOT on ${missing.join(", ")} (${where}); ${mcpClause}`
-        : `all ${String(total)} hook events are installed; ${mcpClause}`;
+        ? `installed on ${reading.events.join(", ")} but NOT on ${missing.join(", ")}`
+        : `all ${String(total)} hook events are installed`;
+  const detail = [staleClause, installed, `(${where})`, mcpClause]
+    .filter((s) => s.length > 0)
+    .join("; ")
+    .replace("; (", " (");
   return [finding("host", "amber", "Host", detail, fixes.join(" "), data)];
 }
 

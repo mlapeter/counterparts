@@ -77,14 +77,34 @@ function refusalsOf(t: Told): Record<string, number> | null {
   return out;
 }
 
-/** `blockedBy` (E2), worst first, ties broken by name so a line is stable. */
-function topBlocked(t: Told): Record<string, number> {
+/**
+ * Verdicts that are NEVER NAMED ON A SCREEN, however true the row is.
+ *
+ * `confidential-withheld` is the one verdict this package holds silent to
+ * whoever asked (§9.1 G5), because announcing a gap leaks that something is
+ * behind it. The durable row keeps the count — it is the owner's own store, and
+ * without it the confidentiality gate is as unreadable as the 2026-09-17
+ * inventory found it — but a narrated page is a third audience the row is not:
+ * it gets screenshotted, screen-shared and demoed. "1 more was kept out
+ * (confidential-withheld)" is that gap announced in plain English on a page.
+ *
+ * The count still reaches the sentence; only the WORD is withheld.
+ */
+const UNNAMEABLE_VERDICTS: readonly string[] = ["confidential-withheld"];
+
+/** `blockedBy` (E2), worst first, ties broken by name so a line is stable, and
+ *  the silent verdicts folded into an unnamed total. */
+function topBlocked(t: Told): { total: number; named: [string, number][] } {
   const v = t.p["blockedBy"];
-  if (v === null || typeof v !== "object" || Array.isArray(v)) return {};
-  const pairs = Object.entries(v as Record<string, unknown>)
-    .filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > 0)
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return { total: 0, named: [] };
+  const pairs = Object.entries(v as Record<string, unknown>).filter(
+    (e): e is [string, number] => typeof e[1] === "number" && e[1] > 0,
+  );
+  const total = pairs.reduce((sum, [, n]) => sum + n, 0);
+  const named = pairs
+    .filter(([reason]) => !UNNAMEABLE_VERDICTS.includes(reason))
     .sort((a, b) => (b[1] === a[1] ? (a[0] < b[0] ? -1 : 1) : b[1] - a[1]));
-  return Object.fromEntries(pairs);
+  return { total, named };
 }
 
 function n(t: Told, key: string): number | null {
@@ -639,10 +659,17 @@ export const NARRATORS = {
 
   // ── going looking on purpose ───────────────────────────────────────────────
   "mcp.recall": (t) => {
-    const blocked = Object.entries(topBlocked(t));
-    const worst = blocked[0];
+    const { total, named } = topBlocked(t);
+    const worst = named[0];
+    // The NUMBER is always said; the REASON only when it is one this package
+    // will name on a screen. A gap with no word beside it is still a gap
+    // announced, so the sentence says "a gate" rather than trailing off.
     const stopped =
-      worst === undefined ? "" : ` ${String(worst[1])} more were kept out (${worst[0]}).`;
+      total === 0
+        ? ""
+        : worst === undefined
+          ? ` ${String(total)} more ${total === 1 ? "was" : "were"} kept out by a gate.`
+          : ` ${String(total)} more ${total === 1 ? "was" : "were"} kept out (most often ${worst[0]}).`;
     if (s(t, "path") === "handle") {
       const opened = n(t, "expanded") ?? 0;
       return calm(

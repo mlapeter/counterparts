@@ -983,13 +983,17 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     // alone (the anchored regexes exclude `\n` themselves, so the match is
     // identical). Measured through `readWakeArrival`, prefixes → best of 5:
     //
-    //                          1000     2000     4000     8000    16000   2k→8k
-    //   the newline cut       1.44ms   3.37ms   8.88ms  30.61ms  109.3ms   9.1×
-    //   the bounded cut       0.93ms   1.75ms   3.13ms   6.07ms   11.9ms   3.5×
-    //   the `[^>]*` regex this replaced in 2026-09:            587ms@8k   15.3×
+    //                          1000     2000     4000     8000    16000   2k→16k
+    //   the newline cut       1.44ms   3.14ms   8.88ms  30.61ms  114.2ms   36.3×
+    //   the bounded cut       0.93ms   1.75ms   3.13ms   6.07ms   11.9ms    6.8×
     //
-    // Linear lands near 4 for a 4× input, quadratic near 16. The bound below
-    // sits between them and FAILS both quadratic implementations above.
+    // EIGHT TIMES THE INPUT, not four: an adversarial review measured the old
+    // implementation at 11.3 against a bound of 8, which is a 14 % margin and
+    // too thin for the regression it guards. At 8× the two shapes separate
+    // properly — linear lands near 8 (6.8 measured, the difference being fixed
+    // per-call cost), quadratic near 64 (36.3 measured). The bound sits at 15,
+    // with better than 2× headroom on BOTH sides, and it fails the quadratic
+    // implementation by a factor of two and a half.
     const { injection } = await woken();
     const expected = injection.split("\n").slice(-1)[0] as string;
     const poisoned = (prefixes: number): string => {
@@ -1017,20 +1021,20 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
       return min;
     };
     const smallPath = poisoned(2000);
-    const bigPath = poisoned(8000);
+    const bigPath = poisoned(16000);
     read(smallPath); // warm up: first-touch page faults are not the algorithm
     const small = best(smallPath);
     const big = best(bigPath);
     const ratio = big / Math.max(small, 0.001);
     // The ratio rides on the failure message, so a break says what it measured
     // rather than only that a boolean was wrong.
-    expect({ quadratic: ratio >= 8, ratio: Number(ratio.toFixed(1)) }).toMatchObject({
+    expect({ quadratic: ratio >= 15, ratio: Number(ratio.toFixed(1)) }).toMatchObject({
       quadratic: false,
     });
     // A second, deliberately generous guard, so a search that went linear-but-
     // catastrophic (an accidental whole-file read per prefix) still fails. The
-    // quadratic implementations measured 31 ms and 587 ms at this size.
-    expect(big).toBeLessThan(2000);
+    // quadratic implementation measured 114 ms at this size.
+    expect(big).toBeLessThan(4000);
   });
 
   test("no string from the wake body can reach a payload, a session record or an error", async () => {
