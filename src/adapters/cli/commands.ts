@@ -154,6 +154,18 @@ import { ownerRemoval, planRemoval } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
+// N1's own module: the plan, the refusals and the one mutating call this
+// command makes. It opens no store and imports nothing from here.
+import {
+  OPEN_WINDOW_MS,
+  configLines,
+  confirmationWord,
+  park,
+  planLines,
+  planStartFresh,
+  rollbackLines,
+} from "./start-fresh.js";
+import type { StartFreshPlan } from "./start-fresh.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
@@ -161,6 +173,9 @@ export const COMMANDS = [
   "status",
   "install",
   "init",
+  // Starting over as a stranger, in one command: park the store beside itself,
+  // blank one in its place, nothing deleted and nothing opened (2026-09-20, N1).
+  "start-fresh",
   "note",
   "recall",
   "export",
@@ -191,6 +206,8 @@ export type Command = (typeof COMMANDS)[number];
 export const OWNER_OPS: readonly Command[] = [
   "install",
   "init",
+  // It creates a store and moves one. An instrument does neither.
+  "start-fresh",
   // `note` deposits. `recall` is a pure read and stays off this list, exactly
   // like `status`: an instrument may look at a memory and may not add to one.
   "note",
@@ -300,6 +317,16 @@ export function usage(): string {
     "                      No host config, no credentials file, nothing under",
     "                      ~/.counterparts/. For a second store or a scratch one.",
     '                      --name "<owner>" seeds the identity core, as install does.',
+    "  start-fresh         Begin again as a stranger: park the store your configuration",
+    "                      names beside itself under a dated name (one atomic rename —",
+    "                      never a copy, never a delete, and the old store is never",
+    "                      opened), park its snapshots the same way, then create a blank",
+    "                      store at the same path with 'install'. The configuration and",
+    "                      the credentials are kept byte for byte. --dry-run prints every",
+    "                      rename and changes nothing; --yes skips the typed confirmation;",
+    '                      --name "<owner>" seeds the new store. It refuses --dir: the',
+    "                      store is the one your configuration names, because that is the",
+    "                      one the hooks and the MCP server open.",
     "  note <text>         Remember this, deliberately. The same two doors the MCP",
     "                      tool uses. --kind --title --salience.",
     "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
@@ -438,6 +465,11 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // and scratch stores here, and a store with no identity core is a store the
   // wake has nothing to say about.
   init: ["name"],
+  // `--config` because the store it parks is the one a CONFIGURATION names, and
+  // `--dir` is deliberately absent from this list — it is a COMMON flag, so it
+  // parses either way, and the command refuses it in words rather than ignoring
+  // it (the `--dirr` scar, pointed at the most dangerous verb here).
+  "start-fresh": ["config", "dry-run", "yes", "name"],
   note: ["kind", "title", "salience"],
   recall: ["id", "json"],
   export: ["out", "passphrase", "plaintext"],
@@ -498,6 +530,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   install:
     "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another), and PRINT the host's hooks block and MCP line. It never edits the host.",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
+  "start-fresh":
+    "Begin again as a stranger: park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   recall: "Ask memory a question. Read-only.",
   export: "A portable copy of the store, encrypted unless you say otherwise.",
@@ -626,6 +660,23 @@ const SCOPE_FLAG_HELP: Record<string, string> = {
 };
 
 /**
+ * THE SAME, FOR `start-fresh`, and for the same reason: two flags would print a
+ * sentence that is false of this command.
+ *
+ * `--dry-run` says "say the default out loud" everywhere else, because the
+ * commands that take it are dry by default. This one is not — it does the thing
+ * — so the shared sentence would tell a reader that running it plain changes
+ * nothing, which is the opposite of true. And `--dir` is REFUSED here rather
+ * than merely unread: the store is the one the configuration names.
+ */
+const START_FRESH_FLAG_HELP: Record<string, string> = {
+  "dry-run": "print every rename and every file this would write, and change nothing (this command is NOT dry by default)",
+  dir: "REFUSED on this command: the store parked is the one your configuration names, because that is the one the hooks and the MCP server open. Name the configuration instead, with --config",
+  yes: "skip the typed confirmation, and nothing else — it never stands in for closing your sessions first",
+  name: "the owner's name; it seeds the NEW store's identity core, exactly as 'install --name' does",
+};
+
+/**
  * One command's own help page: what it is, how it is invoked, and every flag it
  * takes with a sentence each.
  *
@@ -638,10 +689,13 @@ const SCOPE_FLAG_HELP: Record<string, string> = {
 export function commandHelp(command: Command): string {
   const own = COMMAND_FLAGS[command] ?? [];
   // A command may say something else about a flag it means something else by.
-  // Today that is `scope` alone, and it is two flags: `--observer` (the mode,
-  // not the stance) and `--dir` (not consulted at all). A page that printed the
-  // shared sentence for those would be printing something false.
-  const override = command === "scope" ? SCOPE_FLAG_HELP : {};
+  // `scope` is two flags — `--observer` (the mode, not the stance) and `--dir`
+  // (not consulted at all) — and `start-fresh` is three, of which `--dry-run` is
+  // the one that matters: everywhere else it names the DEFAULT, and here it does
+  // not. A page that printed the shared sentence would be printing something
+  // false.
+  const override =
+    command === "scope" ? SCOPE_FLAG_HELP : command === "start-fresh" ? START_FRESH_FLAG_HELP : {};
   const flagLine = (name: string): string => {
     const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
     return `  ${shown.padEnd(20)} ${override[name] ?? FLAG_HELP[name] ?? "(undocumented)"}`;
@@ -964,6 +1018,10 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // one people learn to unset rather than to read.
   const readsConfig =
     command === "install" ||
+    // `start-fresh` READS one to learn which store the hooks open, and then
+    // hands the same choice to `install` so the blank store lands where the
+    // file already points.
+    command === "start-fresh" ||
     command === "rebrief" ||
     // `doctor` REPORTS on a host configuration and `credentials` writes the file
     // one names, so both resolve it by the same rule as the other two.
@@ -1005,6 +1063,28 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
+  }
+
+  // `start-fresh` resolves its store from the CONFIGURATION, exactly as `doctor`
+  // does and for the same reason: the store that matters is the one the hooks
+  // and the MCP server open. So it is decided here, beside `install`, rather
+  // than through the generic `--dir` block — which it refuses outright.
+  //
+  // The explicit-dir guard applies by hand for the same reason it does to
+  // `install`: the default configuration NAMES the live store, and a command
+  // that parks a store must never reach one nobody named.
+  if (command === "start-fresh") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
+    try {
+      return await startFreshCommand(parsed, io, env, opts.home, named, now);
+    } catch (err) {
+      io.err(`start-fresh failed: ${String((err as Error).message ?? err)}`);
       return EXIT.failed;
     }
   }
@@ -1596,6 +1676,20 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
 
     io.out(`Store: ${store.dir}`);
     io.out(`Lived day ${store.livedDay()}, last active ${store.getMeta("lastActiveDate") || "never"}`);
+    // WHERE THIS STORE CAME FROM, when it came from a fresh start (N1). Host
+    // state out of box 2's meta table: a date and a path, written once by
+    // `start-fresh` and by nothing else, so a store that was simply installed
+    // says nothing here rather than saying something vague.
+    const began = store.getMeta(STORE_STARTED_KEY);
+    if (began !== undefined && began.length > 0) {
+      const previous = store.getMeta(STORE_PREVIOUS_PARKED_KEY);
+      io.out(
+        `This store began on ${began}` +
+          (previous === undefined || previous.length === 0
+            ? "."
+            : `; the previous one is parked at ${previous}, untouched.`),
+      );
+    }
     io.out("");
     // One line, four labelled populations, and the first number is the one the
     // wake preface says. Anything that adds them into a single "live" total is
@@ -1650,6 +1744,18 @@ function installCommand(
   env: Record<string, string | undefined>,
   home?: string,
   named?: ConfigChoice,
+  /**
+   * THE HOST'S TWO STEPS, printed by default and skipped by exactly one caller.
+   *
+   * `start-fresh` re-uses this whole command to create its blank store — that is
+   * the "invent no second install path" rule — but step 2, "register the MCP
+   * server", is FALSE on that path: the store lands at the path the
+   * registration already names, so there is nothing to re-register. Printing it
+   * anyway would teach the owner to run a command he does not need on the one
+   * day he is most likely to follow instructions literally. So the tail is
+   * separable, and that caller prints its own three lines instead.
+   */
+  opts: { hostSteps?: boolean } = {},
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
   // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
@@ -1800,6 +1906,16 @@ function installCommand(
     io.out(`  or add the key to ${config.path}.`);
   }
 
+  if (opts.hostSteps !== false) printHostSteps(io, resolved, custom, home_);
+  return EXIT.ok;
+}
+
+/**
+ * The two steps that belong to the HOST, printed and never applied — split out
+ * of `installCommand` so the one caller they are false for can skip them
+ * (2026-09-20, N1). Nothing here writes anything.
+ */
+function printHostSteps(io: Io, resolved: string, custom: string | undefined, home_: string): void {
   io.out("");
   io.out("Two steps left, and they are the HOST'S files, so they are printed, not applied.");
   io.out("Nothing below has been written and no host configuration was read.");
@@ -1832,7 +1948,6 @@ function installCommand(
   io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
-  return EXIT.ok;
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -1917,6 +2032,341 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   io.out("~/.counterparts/, writes step 3 there plus a 0600 credentials file, and prints");
   io.out("1 and 2 filled in and ready to paste.");
   return EXIT.ok;
+}
+
+// ── start-fresh ─────────────────────────────────────────────────────────────
+
+/** Box 2's meta keys this command writes into the NEW store. Host state: a
+ *  date and a path, no content, no identity, never a memory. `status` reads
+ *  them; nothing else in the package does. */
+export const STORE_STARTED_KEY = "store.started";
+export const STORE_STARTED_BY_KEY = "store.started.by";
+export const STORE_PREVIOUS_PARKED_KEY = "store.previous.parked";
+
+/**
+ * `start-fresh` — park this store and begin on a blank one (2026-09-20, N1).
+ *
+ * The rules and the reasons are in `start-fresh.ts`; this function is the
+ * console's half: read the configuration, print the plan, refuse or ask, do the
+ * renames, hand the blank store to `install`, and say what to do next.
+ *
+ * **The plan is MADE TWICE.** Once to print, and again after the human has
+ * answered — `commands.ts` rule 2, and it matters more here than anywhere else
+ * in this file: between the prompt and the rename a session can start, a hook
+ * can write, and a parked name can be taken. A plan held across a person is a
+ * plan about a store that may have changed.
+ */
+async function startFreshCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  home: string | undefined,
+  named: ConfigChoice | undefined,
+  now: () => number,
+): Promise<number> {
+  // `--dir` is a COMMON flag, so it parses on every command. Here it would be a
+  // second answer to "which store", on the one command where a wrong answer
+  // moves seventeen thousand memories. Refused in words.
+  if (typeof parsed.flags["dir"] === "string") {
+    io.err(
+      "refused: 'start-fresh' takes no --dir. The store it parks is the one your CONFIGURATION " +
+        "names, because that is the one your hooks and your MCP server open — a second answer on " +
+        "this command line is exactly how the wrong store would get moved. Name the configuration " +
+        `instead: ${CONFIG_FLAG} <absolute path>, or ${CONFIG_ENV}.`,
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+
+  const home_ = home ?? homedir();
+  const configPath = named === undefined ? defaultConfigPath(home_) : resolve(named.path);
+  // The same test `install` uses: a configuration is "custom" by its PATH, not
+  // by how it was named.
+  const custom =
+    named !== undefined && named.source !== "default" && resolve(named.path) !== defaultConfigPath(home_)
+      ? named.path
+      : undefined;
+
+  const present = existsSync(configPath);
+  const host = hostConfigFor(configPath);
+  if (present && host.reason === "unreadable") {
+    io.err(
+      `refused: ${configPath} is there and will not be understood. This command has to read ` +
+        '"dataDir" out of it to know which store to park, and a file it cannot read is a question ' +
+        "it will not answer by guessing. Fix the file, then run this again.",
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  if (present && host.reason === "absent") {
+    io.err(
+      `refused: ${configPath} exists but could not be read (a permission, most likely). ` +
+        "This command has to read it to know which store to park.",
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+
+  const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
+  const dryRun = parsed.flags["dry-run"] === true;
+
+  const plan = planStartFresh({
+    configPath,
+    configPresent: present,
+    dataDir: host.config.dataDir,
+    snapshotsConfigured: host.config.snapshots?.dir,
+    now: now(),
+    home: home_,
+  });
+
+  io.out("counterparts start-fresh — park this memory and begin on a blank one.");
+  io.out("Nothing is ever deleted, and the parked store is never opened.");
+  io.out("");
+  for (const line of planLines(plan)) io.out(line);
+  if (plan.refusal !== null) {
+    io.out("");
+    io.err(plan.refusal);
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  io.out("");
+  io.out("The configuration:");
+  for (const line of configLines(plan)) io.out(line);
+
+  const rollback = rollbackLines(plan);
+  if (rollback.length > 0) {
+    io.out("");
+    io.out("The way back, if you want it — these are printed BEFORE anything moves, so");
+    io.out("they are on your screen even if this is interrupted halfway:");
+    for (const line of rollback) io.out(line);
+    io.out("  (the blank store is PARKED by that first line, not removed. Nothing here");
+    io.out("   deletes anything, including an undo.)");
+  }
+
+  if (dryRun) {
+    io.out("");
+    io.out("Dry run. Nothing has been moved and nothing has been written.");
+    return EXIT.ok;
+  }
+
+  // Only the parking arm needs a human. Creating a store where there is none —
+  // the first-install and the resume arms — writes nothing anybody can lose.
+  if (plan.shape === "park") {
+    const word = confirmationWord(plan);
+    io.out("");
+    io.out("CLOSE EVERY CLAUDE CODE SESSION AND THE DASHBOARD FIRST.");
+    io.out("  A running session's hooks and its MCP server hold this store open by its");
+    io.out("  file handle. A rename does not break a handle: they would go on writing");
+    io.out("  into the PARKED directory, which is the one thing that could stop it being");
+    io.out("  byte-identical to this moment. The checks above only see recent activity —");
+    io.out("  an idle open session writes nothing and is invisible to them. That is what");
+    io.out("  this question is for.");
+    const stop = livenessRefusal(io, plan);
+    if (stop !== null) return stop;
+    if (parsed.flags["yes"] !== true) {
+      if (io.prompt === undefined) {
+        io.err("");
+        io.err(
+          "refused: this is not an interactive console and nothing was confirmed. Pass --yes if " +
+            "that is what you mean — and close your sessions first, because nothing here can check " +
+            "that for you.",
+        );
+        io.err("Nothing has changed.");
+        return EXIT.refused;
+      }
+      const answer = (await io.prompt(`Type the parked name to go ahead [${word}]: `)).trim();
+      if (answer !== word) {
+        io.err("refused: the confirmation did not match. Nothing has changed.");
+        return EXIT.refused;
+      }
+    }
+  }
+
+  // RE-READ THE GROUND. The human took time; a session may have started, a hook
+  // may have written, and the parked name this plan chose may have been taken by
+  // something else since it was printed. The plan that gets EXECUTED is this one.
+  const final = planStartFresh({
+    configPath,
+    configPresent: present,
+    dataDir: host.config.dataDir,
+    snapshotsConfigured: host.config.snapshots?.dir,
+    now: now(),
+    home: home_,
+  });
+  if (final.refusal !== null) {
+    io.err(`refused after re-reading the directory: ${final.refusal}`);
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  if (final.shape === "park") {
+    // The warning half was printed above the question; repeating it under the
+    // answer would read as a second finding.
+    const stop = livenessRefusal(io, final, "after re-reading the directory", false);
+    if (stop !== null) return stop;
+  }
+
+  // ── the renames ───────────────────────────────────────────────────────────
+  let parkedStore: string | null = null;
+  if (final.parks.length > 0) {
+    io.out("");
+    const outcome = park(final.parks);
+    for (const step of outcome.done) io.out(`  parked ${step.label}: ${step.from} -> ${step.to}`);
+    const store = outcome.done.find((s) => s.label === "store");
+    parkedStore = store === undefined ? null : store.to;
+    if (outcome.failed !== null) {
+      io.err(`failed to park ${outcome.failed.label}: ${outcome.error ?? "no detail"}`);
+      io.err(
+        outcome.done.length === 0
+          ? "Nothing has changed."
+          : "What is listed above HAS moved; nothing else has, and nothing was deleted. The " +
+              "rollback lines printed earlier still name the way back.",
+      );
+      return EXIT.failed;
+    }
+  }
+
+  // ── the blank store, through `install` and nothing else ───────────────────
+  io.out("");
+  io.out("Creating the blank store. This is 'counterparts install', run for you:");
+  io.out("");
+  const installFlags: Record<string, string | boolean | undefined> = {};
+  // THE PATH IS PINNED, ALWAYS. `installLayout` reads COUNTERPARTS_DATA_DIR when
+  // no `--dir` is given, and QUICKSTART §3 teaches people to export it — so a
+  // shell with a decoy in it would have created the blank store somewhere else
+  // and left the configuration pointing at a directory that is not there.
+  if (final.storeDir.length > 0) installFlags["dir"] = final.storeDir;
+  if (name !== undefined && name.length > 0) installFlags["name"] = name;
+  // THE CEILING THE CONFIGURATION ALREADY CARRIES, handed back to `install`.
+  // The file is KEPT (no `--force`), so this writes nothing — it exists so the
+  // install does not end on its "NO injectionBudgetBytes was written" paragraph,
+  // which is true of a cold start and false here: the number is in the file that
+  // was just kept, and telling the owner to go and add it would send him to edit
+  // a key he already has.
+  const ceiling = host.config.injectionBudgetBytes;
+  if (present && ceiling !== undefined) installFlags["budget"] = String(ceiling);
+  const code = installCommand(
+    { command: "install", positional: [], flags: installFlags },
+    io,
+    env,
+    home_,
+    named,
+    { hostSteps: false },
+  );
+  if (code !== EXIT.ok) {
+    io.err("");
+    io.err(
+      parkedStore === null
+        ? "The install did not complete. Nothing was parked."
+        : `The install did not complete. Your memory is parked at ${parkedStore} and is untouched; ` +
+            "the rollback lines printed earlier are the way back.",
+    );
+    return code;
+  }
+
+  const created = installLayout(
+    final.storeDir.length > 0 ? final.storeDir : undefined,
+    env,
+    home_,
+    custom,
+  ).store;
+
+  // ── the record the new store keeps of its own beginning ───────────────────
+  //
+  // Box 2's meta table, which is this store's general-purpose key space and
+  // already holds per-id counters of exactly this character. NOT a memory, not
+  // an identity element, not a durable event: it is one fact about the host's
+  // arrangement, and `status` is where the owner reads it back.
+  const previous =
+    parkedStore ?? (final.alreadyParked.length > 0 ? (final.alreadyParked.at(-1) ?? null) : null);
+  try {
+    const store = Store.open({ dir: created });
+    try {
+      const entries: [string, string][] = [
+        [STORE_STARTED_KEY, final.date],
+        [STORE_STARTED_BY_KEY, "start-fresh"],
+      ];
+      if (previous !== null) entries.push([STORE_PREVIOUS_PARKED_KEY, previous]);
+      store.setMetaMany(entries);
+    } finally {
+      store.close();
+    }
+  } catch (err) {
+    // A record that would not write must not undo a cut-over that worked.
+    io.err(
+      `  (could not record this store's beginning: ${String((err as Error).message ?? err)} — the ` +
+        "store itself is fine, and `status` will simply not mention the date.)",
+    );
+  }
+
+  // ── what to do next ───────────────────────────────────────────────────────
+  io.out("");
+  io.out("Done. What is left is yours to do:");
+  io.out("");
+  io.out(`  1. Nothing to re-register. The MCP server is registered with`);
+  io.out(`     COUNTERPARTS_DATA_DIR=${created}, and that path has not moved —`);
+  io.out("     the blank store is at it. The hooks read the same configuration they read");
+  io.out("     this morning, and it says the same thing it said this morning.");
+  io.out("  2. RESTART CLAUDE CODE. Every session that was open holds the old store by a");
+  io.out("     file handle, and a handle does not follow a rename. Until they restart,");
+  io.out("     they are still writing into the parked directory.");
+  if (previous !== null) {
+    io.out(`  3. Your previous memory is at:`);
+    io.out(`       ${previous}`);
+    io.out("     It was never opened, never copied and never deleted. To go back, run the");
+    io.out("     rollback lines printed above and restart Claude Code again.");
+  }
+  io.out("");
+  io.out(`Then: ${BIN.cli} status --dir ${created}`);
+  return EXIT.ok;
+}
+
+/**
+ * The open-store reading, printed and coded once for both passes over the
+ * ground. Null when nothing the registry knows about says the store is in use.
+ *
+ * TWO GRADES, because the evidence comes in two grades (`start-fresh.ts`
+ * §`readLiveness`). A live SESSION RECORD refuses. A fresh `-shm` is only
+ * printed: measured on this build, the WAL sidecars survive a clean close, so
+ * that file is recent after any console command at all — including the `doctor`
+ * somebody ran a minute before typing this one. A guard that fired on the
+ * innocent case is one people learn to work around.
+ */
+function livenessRefusal(io: Io, plan: StartFreshPlan, when = "", showRecent = true): number | null {
+  const minutes = String(Math.round(OPEN_WINDOW_MS / 60_000));
+  if (plan.liveness.signs.length === 0) {
+    if (showRecent && plan.liveness.recent.length > 0) {
+      io.out("");
+      io.out(`  Something WROTE to this store in the last ${minutes} minutes:`);
+      for (const sign of plan.liveness.recent) {
+        io.out(`    ${sign.what} — ${String(Math.round(sign.agoMs / 1000))}s ago`);
+      }
+      io.out("  That is not proof anything has it open — these files outlive a clean close —");
+      io.out("  and it is not proof they do not. It is one more reason to be sure.");
+    }
+    if (showRecent && plan.liveness.unreadable) {
+      io.out("");
+      io.out("  (the live-session registry would not list, so nothing here can say whether a");
+      io.out("   session is attached. Close everything before you answer.)");
+    }
+    return null;
+  }
+  io.out("");
+  io.err(
+    `refused${when === "" ? "" : ` ${when}`}: a Claude Code session's hooks ran against this ` +
+      `store in the last ${minutes} minutes and the host never ended it, so it is very likely ` +
+      "still open:",
+  );
+  for (const sign of plan.liveness.signs) {
+    io.err(`  ${sign.what} — ${sign.where} (${String(Math.round(sign.agoMs / 1000))}s ago)`);
+  }
+  io.err(
+    "A rename does not break an open file handle: that session's hooks and its MCP server " +
+      "would go on writing into the PARKED directory, and it would stop being the " +
+      "byte-identical copy this command promises. Close every Claude Code session and the " +
+      `dashboard, wait ${minutes} minutes, and run this again.`,
+  );
+  io.err("Nothing has changed.");
+  return EXIT.refused;
 }
 
 // ── note / recall ───────────────────────────────────────────────────────────

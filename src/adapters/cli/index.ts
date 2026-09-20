@@ -59,3 +59,32 @@ export type { ConfigInput, FileResult, InstallLayout, WroteWhat } from "./instal
 
 export { assertSafeTarget, snapshot, snapshotName, vacuumInto } from "./snapshot.js";
 export type { CopiedEntry, CopyMethod, SnapshotReport } from "./snapshot.js";
+
+export {
+  BLANK_INFIX,
+  OPEN_WINDOW_MS,
+  PARKED_INFIX,
+  REAL_OPS,
+  configLines,
+  confirmationWord,
+  park,
+  parkRefusal,
+  parkedPath,
+  planLines,
+  planStartFresh,
+  readLiveness,
+  rollbackLines,
+  sameFilesystemRefusal,
+  sight,
+} from "./start-fresh.js";
+export type {
+  DirSighting,
+  Liveness,
+  OpenSign,
+  ParkOutcome,
+  ParkStep,
+  PlanInput,
+  StartFreshOps,
+  StartFreshPlan,
+  StartFreshShape,
+} from "./start-fresh.js";
