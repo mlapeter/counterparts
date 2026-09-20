@@ -76,7 +76,9 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `render.ts#renderMarkdown`, the export renderer, which keeps the format's one testable
      property — a section never used renders byte-identically to a document that predates
      the section ([v1] §4.2 G8, `test/store.test.ts`). The journal ALSO keeps a file copy,
-     as a copy, because plain files outlive the system that wrote them (§15 item 9).
+     as a copy, because plain files outlive the system that wrote them (§15 item 9): one
+     `journal/<YYYY>/<YYYY-MM-DD>-<id>.md` per episode, written by the worker as each
+     chapter lands, never read back, derived and regenerated if deleted.
   2. **One small canonical transactional SQLite** — the memories themselves (`title`,
      `body`, `meta`, `confidential`, `content_hash`), their archived versions, and the
      structured state around them: ids, kinds, salience, `uses`, day stamps, lineage rows,
@@ -204,7 +206,12 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
 7. **[M] Everything that must read doomed content happens before any copy is chased**
    (§16 G13), and every surface is chased including the derived index and the association
    graph (§16 G14, scar §2.2's erase variant). The span buffer is chased FIRST, because the
-   chase blanks the row's body, hash and `origin_ref` — which are what address a span.
+   chase blanks the row's body, hash and `origin_ref` — which are what address a span. The
+   journal's markdown copy is a named surface too, and it stands down rather than following
+   a symlink at or under `journal/` (`journal-symlink`), which is the one place this
+   guarantee answers "could not" instead of "did" — said in the report, never passed over.
+   Copies taken BEFORE a removal still hold the memory, and the report says so rather than
+   implying the machine is clean (G19's `VACUUM INTO` is why no copy taken AFTER one does).
 8. **[M] Box 3 is behaviorally rebuildable**: a test deletes it, rebuilds from canonical,
    and asserts *the same recall for the same cues* — not merely that rebuild returned.
    Anything rebuild cannot recompute is declared, with a named owner and a repair path,
@@ -227,9 +234,18 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     is classified (scar §2.11 — v1 silently omitted the canonical episode journal from
     snapshots for three weeks). Five entries, and the reason each one is where it is:
     `counterparts.sqlite` (prefix, backed up — box 2), `cache` (excluded, rebuildable),
-    `spans` (backed up, not reconstructible), `journal` (backed up), `sessions` (excluded,
-    host state). **`journal/` is classified BEFORE anything writes it**, which is scar
-    §2.11 said forwards rather than repeated.
+    `spans` (backed up, not reconstructible), `journal` (**classified and EXCLUDED**),
+    `sessions` (excluded, host state).
+    **Classified is not the same question as backed up**, and `journal/` is what makes
+    that worth saying. It is a derived, write-only markdown COPY of episode rows the
+    database already holds, and it is excluded on purpose: a copy of it put removed
+    episodes' words into every rotating snapshot as plain greppable markdown, where a
+    database inside an old snapshot is a file somebody must know to open and a `.md`
+    inside one is a search result. Excluding it costs nothing, because a restored store
+    writes every file again at its next boundary. Scar §2.11 is not weakened by that —
+    the scar is about losing the CANONICAL journal from every backup, and the canonical
+    journal is rows. What the scar's other half still demands is met: the directory was
+    **classified BEFORE anything wrote it**, which is v1's incident said forwards.
     *Note (2026-09-18, when the boxes went to WAL): the database entry classifies by
     PREFIX, so `counterparts.sqlite-wal` and `-shm` are covered — but* **the database file
     alone is no longer the database.** *Pages committed since the last checkpoint live in
@@ -340,7 +356,9 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     things a WAL store cannot do that a DELETE store could.*
 19. **[M] A canonical database never leaves by file copy.** `backup`, `export` and the
     rotating snapshot all go through `VACUUM INTO`, which copies live pages only and whose
-    output is a plain DELETE-mode database readable on any medium by any build — so a copy
+    output is a plain DELETE-mode database readable on any medium by any SQLite reader
+    (this build still refuses a database a NEWER one wrote — `SCHEMA_AHEAD` — which is a
+    different question from whether the file opens) — so a copy
     is consistent even taken from a store another process is mid-write on, and even from a
     store in G17's residue state. This is scar §2.11(b) said as a guarantee rather than left
     in two notes; it is what makes the snapshot the real protection against a corrupt or
@@ -359,11 +377,13 @@ Each line: the scar, what carries it on this floor, and where it is pinned.
 | **§2.4** every discard says what and how much | G8's declaration; the two prunes; rotation | `test/store.test.ts` "version rows past H lived days are pruned; resolution is NOT"; "the event sweep is capped per call, takes the OLDEST rows first, and reports what it left"; `test/snapshots.test.ts` "keeps the newest N and reports every deletion, oldest first" |
 | **§2.6 / §2.7** one seam; no model-reachable removal | G1, G2 | `test/store.test.ts` "no export name in the module is a deletion verb"; "no method on Store (public OR private) is a deletion verb"; "the owner-removal seam exports EXACTLY the destruction path, and nothing else does"; "the chase is not reachable from the store's own surface"; `test/cli.test.ts` "no core module, no other adapter, and no test but this one imports removal.ts" |
 | **§2.11(a)** backup scope asserted against the layout | G11 — and `journal/` was classified before the code that writes it | `test/store.test.ts` "every top-level path is classified as backed-up or explicitly excluded (§5 G11)"; "an unclassified new directory fails loudly" |
+| **§2.11(a)**, the other half — the canonical journal is never missing from a backup | G11: the canonical journal is ROWS, inside the database every copy carries. The markdown copy is derived and deliberately EXCLUDED, and its absence costs nothing | `test/cli.test.ts` "MAJOR-5: a snapshot does NOT carry the journal's copies, and a restore REGENERATES them"; `test/self.test.ts` "DELETING journal/ LOSES NOTHING: the next boundary writes it again" |
 | **§2.11(b)** a canonical database is never file-copied | G19 | `test/store.test.ts` "the sidecars are classified, and `VACUUM INTO` still copies a consistent database"; `test/cli.test.ts` "`backup` survives a store another process is WRITING"; `test/snapshots.test.ts` "copies the WHOLE backup set, not just the database — and the words come with it" |
 | **§2.12** the cache-rebuild contract is a test | G8 | `test/store.test.ts` "rebuild from canonical answers the same cues identically"; "what rebuild cannot recompute is declared, counted, and logged (§5 G8)" |
-| **§2.13** path guards resolve before they compare | G9 | `test/store.test.ts` "refuses a pointer at a live v1 store — resolved before compared (scar §2.13)"; `test/snapshots.test.ts` "a SYMLINK is judged by its target, not by its name"; "refuses a directory inside the store"; "refuses a directory that CONTAINS the store" |
+| **§2.13** path guards resolve before they compare | G9 | `test/store.test.ts` "refuses a pointer at a live v1 store — resolved before compared (scar §2.13)"; `test/snapshots.test.ts` "a SYMLINK is judged by its target, not by its name"; "refuses a directory inside the store"; "refuses a directory that CONTAINS the store"; and since `assertSafeTarget` began resolving both sides, `test/cli.test.ts` "MAJOR-4 — a destination reached THROUGH A SYMLINK into the store is refused too"; "MAJOR-4 — a DANGLING symlink target is refused by name, not by an mkdir errno"; "MAJOR-4 — a target symlinked into ~/.bansai or ~/.claude-engram refuses under a FAKE HOME" |
 | **§2.19** permanence and the write bar: a removed protected element still shows as `[removed]` | G2 — the tombstone captures the row's band at chase time | `test/self.test.ts` "a removed element is a NAMED absence in BOTH halves, never a silent drop" |
-| **§2.20** content-by-reference is only private if the reference cannot be inverted | G10, G17 | `test/cli.test.ts` "NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it"; "review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed"; "the words a note rode in on are struck out of the buffer, and a later backup has none of them". **Open:** the journal's markdown copy is body text on disk, so no telemetry may name it — that criterion arrives with its writer (F6) and has no test on this page's floor yet. |
+| **§2.20** content-by-reference is only private if the reference cannot be inverted | G10, G17 | `test/cli.test.ts` "NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it"; "review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed"; "the words a note rode in on are struck out of the buffer, and a later backup has none of them" |
+| **§2.20**, the journal half — the markdown copy is body text on disk, so removal must reach it and nothing may carry it off | G7, G11 | `test/cli.test.ts` "F6: removing an episode takes its markdown copy, and the whole directory is clean"; "MAJOR-3: the journal echo is EXACT, not a ranked top-20 that goes silent on a big store"; "MAJOR-5: a snapshot does NOT carry the journal's copies…"; "--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree"; and the four stand-downs that keep the copy and the chase inside the store — `test/self.test.ts` "MAJOR-1 — a symlinked YEAR directory does not carry a chapter out of the store"; "the removal arm never unlinks THROUGH a symlink"; "a DANGLING link under journal/ is refused too, not treated as absent"; "`journal` ITSELF being a symlink is refused, not followed" |
 | **I22** the copied-store bug | G15 — criterion kept, mechanism deleted | `test/store-portable.test.ts` "(a) `cp -R` the store, DESTROY the source outright, and the copy still reads its own words"; "(b) an owner removal run in the COPY leaves the SOURCE byte-identical"; "(d) a `backup` snapshot opens standalone and HOLDS THE WORDS after the source is gone" |
 | **I38 / I39** "database is locked" | G18 | `test/store.test.ts` "busy_timeout is set FIRST, before every other pragma (I39)"; "a second handle WAITS for a held write lock instead of failing instantly"; "a WRITER converts the file to WAL; an INSTRUMENT opening a DELETE store leaves it alone" |
 | **the stage→commit→rename crash window** (`NOTES.md` §5, deleted): a crash never leaves a row whose words are missing | G5, G6 — structurally true: the words commit with the row | `test/store.test.ts` "SIGKILL mid-write leaves the store readable, every row's words intact" |
@@ -395,6 +415,28 @@ be classified" (the database entry matched by prefix all along).
    database.** The layout test enumerates every top-level path; nothing asserts that
    `spans/` and `sessions/` have one writer each. A test in the shape of G1's entrance
    enumeration would close it.
+
+*Two asks stand against this module from outside it. This module keeps no
+`INTERFACE-GAPS.md` of its own (CLAUDE.md), so they are recorded here rather than
+nowhere; neither is built, and both are waiting for a named problem (constitution 15).*
+
+5. **A store-owned seam that hands a module its own CLASSIFIED subdirectory** —
+   `store.ownedDir("journal")` — refusing at the seam what `assertLayout()` refuses at the
+   next open. Two core modules now hold a piece of layout knowledge beside their own work:
+   `remember/spans.ts` and, since F6, `self/journal-file.ts`, which reaches `Store.dir` by
+   the owner's decision 2 and says so in its header. Nothing enforces the pairing from
+   their side; a module writing to a directory `LAYOUT` does not know breaks the store's
+   next open, loudly, which is the safe direction but is a runtime answer to a
+   compile-time question. `self/INTERFACE-GAPS.md` asks it, and so does that file's #4 for
+   the briefing's render file — the two want one answer, not two.
+6. **A streaming read seam** — `store.forEachDoc(fn)` — so `export --markdown` need not
+   hold the whole rendered tree in memory before writing a byte. Buffering is what makes
+   `--markdown --passphrase` safe (nothing plaintext reaches the disk on that path) and it
+   is also a peak the size of every body plus its frontmatter, briefly doubled while
+   `encryptBundle` builds its base64 manifest. Nothing at the measured store shapes; the
+   first thing that would hurt an order of magnitude up. `cli/INTERFACE-GAPS.md` §12 asks
+   it, and notes that the DATABASE export is unaffected — it streams through `VACUUM INTO`
+   and holds one file.
 
 *Closed since the last revision of this page: **is the embedding cache one box or two?**
 Answered one file, two tables (`NOTES.md` §7) — the split that matters is rebuild cost, and

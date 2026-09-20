@@ -16,10 +16,11 @@ never got to write.
 ## The core, the brain: knows nothing about any particular app
 
 - **store** — the filing cabinet. One small database holds the memories themselves — their
-  words, their earlier drafts, and everything the system knows about each one — and a
-  throwaway cache beside it holds search indexes that can always be rebuilt. You can read
-  any memory in the console or the dashboard, and `counterparts export` writes them all out
-  as markdown files whenever you want them as files.
+  words, their earlier drafts, and everything the system knows about each one — with a
+  throwaway cache beside it for search indexes that can always be rebuilt, a plain-markdown
+  copy of the diary written as each chapter lands, and a snapshot taken once a day. You can
+  read any memory in the console or the dashboard, and `counterparts export --markdown`
+  writes them all out as files whenever you want them as files.
 - **physics** — the one page of arithmetic. How strong a memory is, how fast it fades,
   how much a use reinforces it, how much pressure it takes to revise a belief. No
   opinions, no model calls.

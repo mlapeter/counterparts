@@ -658,10 +658,12 @@ overbuild that part, to the detriment of the actual software that users will use
      more restrictive of the session's start directory and the event's directory, plus a doctor section
      (asks raised / refused / paced, authored against fallback, last seven days);
    - the fallback woken as the self (`feat/fallback-woken-as-self`).
-3. ~~**The floor**~~ **— SHIPPED 2026-09-20, as F1–F8.** Memories, versions and the journal into database
-   rows; WAL and a busy timeout set FIRST; rotating snapshots with an optional `mirror`; export writes the
-   journal and, with `--markdown`, every memory; the journal also saved as markdown files.
-   **What shipped that this line did not plan**, all of it found while building:
+3. **The floor — BUILT, as F1–F8; F1–F7 merged to master 2026-09-20, F8 in review, NOTHING DEPLOYED.**
+   The live checkout is pinned at `floor/v5-last` on purpose until cut-over day, so the owner's store is
+   still pre-rows and doctor reads behind master deliberately. Memories, versions and the journal into
+   database rows; WAL and a busy timeout set FIRST; rotating snapshots with an optional `mirror`; export
+   writes the journal and, with `--markdown`, every memory; the journal also saved as markdown files.
+   **What was built that this line did not plan**, all of it found while building:
    - **The database is renamed** `operational.sqlite` → `counterparts.sqlite` (owner ruling 5,
      2026-09-18): the old name meant "the operational bits beside the real memories", which stopped
      being true.
@@ -675,6 +677,10 @@ overbuild that part, to the detriment of the actual software that users will use
      `wal_checkpoint(TRUNCATE)` (store CONTRACT §5 G17, found by F5's third adversarial review).
    - **Rotation never deletes a snapshot folder that holds pre-rows markers**, so the copies of the
      parked store survive cut-over.
+   - **The journal's markdown copy is classified but NOT backed up.** It is derived — a restored store
+     writes every file again at its next boundary — and copying it put removed episodes' words into
+     every rotating snapshot as plain greppable markdown. Classified and backed up turned out to be two
+     questions, which this item's "the journal also saved as markdown files" did not distinguish.
    - `versions` carries `learned_on` / `happened_on` as well as `title`/`body`/`meta`/`content_hash`,
      because a date correction travels the same door as a body change; and `content_hash` is now
      `hashText(body)`, one definition across both tables.

@@ -264,10 +264,12 @@ export const LAYOUT: readonly LayoutEntry[] = [
   {
     name: "journal",
     match: "exact",
-    // NOT BACKED UP, since 2026-09-20 (f6f7 review MAJOR-5). It was `true` for
-    // the two days between F6 landing and that review, on the reasoning that a
-    // directory the owner is invited to read should ride along with a copy of
-    // the store. What the review measured is the cost of that: every rotating
+    // NOT BACKED UP, since 2026-09-20 (f6f7 review MAJOR-5). It was PROPOSED
+    // `true` — a directory the owner is invited to read should ride along with
+    // a copy of the store — and changed to `false` in review, inside the same
+    // PR, the same day: F6 never landed on master with the flag set, and a
+    // reader of this comment should not go looking for a window where it was.
+    // What the review measured is the cost the proposal would have had: every
     // snapshot held every episode's words as plain greppable markdown, so a
     // removal that emptied the live store byte for byte left the removed
     // chapter readable in fourteen copies — and a database inside an old
@@ -285,9 +287,9 @@ export const LAYOUT: readonly LayoutEntry[] = [
     // Still CLASSIFIED, which is the half of §2.11 that does apply: an
     // unclassified top-level path refuses the store at open, and
     // `snapshots.ts#looksCopied` keys on classification rather than on this
-    // flag, so rotation of copies already on disk is unaffected.
-    // [F8: the store CONTRACT's §5 G11 line should carry "classified is not the
-    // same question as backed up", which this entry is now the example of.]
+    // flag, so rotation of copies already on disk is unaffected. CONTRACT §5
+    // G11 says that in its own words now — classified and backed up are two
+    // questions, and this entry is the example.
     backup: false,
     why: "The counterpart's diary, ALSO written as markdown files as each chapter lands (owner, 2026-09-17 §15 item 9) — a COPY, kept because plain files outlive the system that wrote them. The chapters themselves are rows like every other memory, so this directory is derived: it is not backed up, and a restored store regenerates every file from its rows at the next boundary. Deliberately excluded rather than merely absent: copying it put removed episodes' words into every rotating snapshot as plain greppable markdown (f6f7 review MAJOR-5).",
   },

@@ -1051,5 +1051,7 @@ a `journal.copy.failed` row rather than an exception.
 **What is NOT built, and what would earn it.** There is no repair path from file
 back to row and no reconciler: the file is downstream, and a parser here would
 re-create exactly the two-can-disagree problem the floor deleted `parseProse` to
-end. `[F8: the store CONTRACT's §4 "markdown is an export" line now has a second
-half — the journal also gets a file copy, as a copy.]`
+end. The store CONTRACT's §4 says that second half in its own words now: markdown
+is an export, AND the journal keeps a file copy — a copy, derived, write-only,
+classified in the layout but deliberately out of the backup set, regenerated from
+its rows if it is deleted.

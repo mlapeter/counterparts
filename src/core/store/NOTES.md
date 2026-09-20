@@ -147,8 +147,12 @@ with the exact version floor CLAUDE.md flags.
 ## 10. Deferred, with the reason
 
 - **The one-seam totality test over every ENTRANCE** (§5 G1) enumerates the Store's
-  own write methods today. The other entrances — hooks, import, replay harness —
-  do not exist yet; the test grows with them.
+  own write methods. It is a SOURCE scan of this module, so an entrance that reaches
+  a write method is covered by construction and an entrance that goes around one
+  would not be. The hooks and the replay harness both exist now and both go through
+  `Counterpart`; the import entrance the guarantee named was deleted with the tool
+  (F8). What would make it total is the same enumeration one level out — over every
+  caller that mints canonical text — and nothing does that today.
 - ~~**The caller-universality test on removal** (§5 G2) needs a caller.~~ **DONE.**
   `owner-op-seam.ts` stopped being types-only on 2026-08-25 (`chaseRemoved`,
   `grantOwnerOps`, `REMOVED_REASON`, later `unarchiveMerged`), its export list is

@@ -277,7 +277,8 @@ classified subdirectory (`store.ownedDir("journal")`), refusing at the seam what
 `assertLayout` today refuses at the next open. It is the same ask
 `INTERFACE-GAPS #4` makes for the briefing's render file, and the two should be
 answered together rather than twice.
-`[F8: the store CONTRACT's rewrite is where that seam would be declared.]`
+Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 question 5
+(that module keeps no `INTERFACE-GAPS.md` of its own, so its open asks live in its §7).
 
 **What does not need it:** correctness. `journal` was classified before anything
 wrote it (scar §2.11) and a test asserts a snapshot carries the copies.
