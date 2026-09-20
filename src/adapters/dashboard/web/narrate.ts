@@ -603,6 +603,29 @@ export const NARRATORS = {
     );
   },
 
+  // ── the copy that is kept beside me ────────────────────────────────────────
+  "snapshot.taken": (t) => {
+    const kept = n(t, "kept") ?? 0;
+    const oldest = s(t, "oldest");
+    return calm(
+      `A whole copy of me was set aside — ${String(n(t, "files") ?? 0)} files. ${String(kept)} copies are kept` +
+        (oldest === null ? "." : `, the oldest from ${oldest.slice(0, 10)}.`),
+    );
+  },
+  "snapshot.failed": (t) =>
+    amber(
+      `No copy of me could be made today (${s(t, "step") ?? "unknown step"}: ${s(t, "reason") ?? "no reason recorded"}). Nothing was lost, and nothing old was deleted either — the copies already kept are untouched. Run counterparts doctor; its Snapshot line says what is actually on disk and how to restore from it.`,
+    ),
+  "snapshot.rotated": (t) => {
+    const deleted = n(t, "deleted") ?? 0;
+    const oldest = s(t, "oldest");
+    return calm(
+      `${String(deleted)} old cop${deleted === 1 ? "y" : "ies"} of me ${deleted === 1 ? "was" : "were"} let go; ` +
+        `${String(n(t, "kept") ?? 0)} remain` +
+        (oldest === null ? "." : `, back to ${oldest.slice(0, 10)}.`),
+    );
+  },
+
   // ── being argued with ──────────────────────────────────────────────────────
   "revision.pressure": (t) => {
     const force = n(t, "force") ?? 0;
@@ -675,6 +698,11 @@ export const REF_KIND = {
   "recall.decision": "session",
   "revision.pressure": "memory",
   "sweep.gate": "none",
+  // A snapshot is about the WHOLE store, so there is no one memory to point at.
+  // The copy's own name is in the payload.
+  "snapshot.taken": "none",
+  "snapshot.failed": "none",
+  "snapshot.rotated": "none",
   // The sweep's wake row describes the RUN's prompt, and carries no id at all —
   // counts, a flag and a reason, and deliberately not one line of the self.
   "sweep.wake": "none",

@@ -45,6 +45,8 @@ import {
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
+  SNAPSHOT_FAILED_EVENT,
+  SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
@@ -61,6 +63,13 @@ import type { AskReason } from "../../core/self/episodes.js";
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
 import { STATE_MEANING, firedReport } from "../fired.js";
+import {
+  DEFAULT_KEEP,
+  futureNamesIn,
+  keepOf,
+  readSnapshotsDir,
+  resolveSnapshotsDir,
+} from "../snapshots.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
@@ -1484,6 +1493,177 @@ function vectorFindings(store: Store): Finding[] {
   return [finding("vectors", "green", "Vectors", detail, "", data)];
 }
 
+/**
+ * How to get a memory back. Short enough to survive being read in a panic, and
+ * printed as the remedy on every Snapshot finding that is not green, because the
+ * moment somebody needs it is the moment they will not go looking for it.
+ */
+export const RESTORE_STEPS =
+  "To restore: stop every session, copy a snapshot directory to the store's path, " +
+  "then counterparts verify --dir <store> --rebuild (with the embed key exported, or " +
+  "the vectors are dropped and refilled over the following days). The memories and " +
+  "the journal come back with the copy; the search index and the vectors are rebuilt.";
+
+/** How stale the newest snapshot may be before this line goes amber. A daily
+ *  mechanism that has not fired for two calendar days has missed one. */
+export const SNAPSHOT_STALE_DAYS = 2;
+
+/**
+ * IS THERE A RECENT COPY OF THE STORE, AND HOW MANY ARE ACTUALLY THERE.
+ *
+ * The one line that answers "if this database were wiped this afternoon, what
+ * would come back" — so it **counts the directory**, not the row. The first
+ * version of this finding read `kept` and `oldest` straight out of the newest
+ * `snapshot.taken` row, and the F2 review proved what that is worth: delete every
+ * copy from disk and the line still read green, "1 kept", for a full day, then
+ * went amber for the wrong reason. A row says what a run once wrote. The
+ * directory says what you have.
+ *
+ * Reading a directory listing writes nothing, so this is observer-safe.
+ *
+ * Amber, never red: a missing backup is not a broken memory, and a diagnostic
+ * that shouts the same colour for both teaches its reader to read past the one
+ * that matters.
+ */
+function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
+  const livedDay = store.livedDay();
+  const resolved = resolveSnapshotsDir(input.dir, input.config.snapshots?.dir);
+  const keep = keepOf(input.config.snapshots?.keep);
+  // What the configuration could not read, said out loud rather than left as a
+  // default nobody asked for (F2 review, MAJOR-2). It rides on every arm below.
+  const ignored = input.config.snapshots?.ignored ?? [];
+  const misread = ignored.length === 0 ? "" : ` — ${ignored.join("; ")}`;
+  const data: Record<string, string | number | boolean | null> = {
+    keep,
+    where: resolved.reason,
+    ignored: ignored.length === 0 ? null : ignored.join("; "),
+  };
+  if (resolved.dir === null) {
+    // Not a fault and not a silence: this store is not the `store/` subdirectory
+    // of a base directory, so there is nowhere by convention to put copies.
+    return [
+      finding(
+        "snapshot",
+        "amber",
+        "Snapshot",
+        `no daily snapshot is being taken: this store is not inside a base directory, so there is no default place to keep copies${misread}`,
+        'Add "snapshots": { "dir": "<an absolute path outside the store>" } to the configuration.',
+        data,
+      ),
+    ];
+  }
+
+  // THE DISK, FIRST. Everything printed below about how many copies there are
+  // comes from here.
+  const disk = readSnapshotsDir(resolved.dir);
+  const onDisk = disk.names.length;
+  const newest = disk.names[onDisk - 1] ?? null;
+  const oldest = disk.names[0] ?? null;
+  const future = futureNamesIn(disk.names, Date.parse(`${input.today}T00:00:00Z`)).length;
+  // A correctly-named directory the layout rule does not recognise as a copy is
+  // KEPT — this package never deletes what it cannot prove it made — but it is
+  // never counted and never rotated either, so without this clause it would be
+  // permanent, invisible residue in the one directory the owner relies on
+  // (second F2 review, MAJOR-A).
+  const strange =
+    disk.unrecognised.length === 0
+      ? ""
+      : `; ${String(disk.unrecognised.length)} director${disk.unrecognised.length === 1 ? "y is" : "ies are"} named like snapshots but do not look like copies of a store, so they are not counted and will never be rotated: ${disk.unrecognised.slice(0, 3).join(", ")}${disk.unrecognised.length > 3 ? ` and ${String(disk.unrecognised.length - 3)} more` : ""}`;
+  const held = {
+    ...data,
+    onDisk,
+    newest,
+    oldest,
+    readable: disk.readable,
+    future,
+    unrecognised: disk.unrecognised.length,
+  };
+
+  const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
+  const row = read.unknown ? undefined : read.rows[0];
+  const rowDated = rowDate(row);
+
+  // A ROW SAYS A COPY WAS MADE AND THE DIRECTORY HOLDS NONE. The loudest thing
+  // this line can say, and the case the review proved read green.
+  if (onDisk === 0 && (rowDated !== null || read.unknown)) {
+    return [
+      finding(
+        "snapshot",
+        "amber",
+        "Snapshot",
+        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}`,
+        RESTORE_STEPS,
+        { ...held, rows: 1 },
+      ),
+    ];
+  }
+
+  if (onDisk === 0) {
+    // The same rule the row findings use: an absent copy is only evidence once a
+    // boundary has been reached. On a fresh install there has been no worker run
+    // to take a first one, and an amber there is decoration.
+    const boundaries = newestRows(store, BOUNDARY_EVENT, 1, livedDay);
+    const lived = boundaries.unknown || boundaries.rows.length > 0;
+    const failed = newestRows(store, SNAPSHOT_FAILED_EVENT, 1, livedDay);
+    const failedRow = failed.rows[0];
+    const why =
+      failedRow === undefined
+        ? ""
+        : ` — newest ${SNAPSHOT_FAILED_EVENT} ${rowDate(failedRow) ?? "?"} (${str(payloadOf(failedRow), "step") ?? "?"}: ${str(payloadOf(failedRow), "reason") ?? "?"})`;
+    return [
+      lived
+        ? finding(
+            "snapshot",
+            "amber",
+            "Snapshot",
+            `no snapshot has ever been taken here${why}${strange}${misread}`,
+            "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
+            { ...held, rows: 0 },
+          )
+        : finding(
+            "snapshot",
+            "green",
+            "Snapshot",
+            `no snapshot yet — and no boundary has been reached here yet${strange}${misread}`,
+            "",
+            { ...held, rows: 0 },
+          ),
+    ];
+  }
+
+  // Copies exist. Their own names carry the date, so the line does not depend on
+  // a row at all — and when a row disagrees with the directory, it says so.
+  const newestDate = (newest ?? "").slice(0, 10);
+  const detail =
+    `last snapshot ${newestDate}, ${onDisk} kept` +
+    (oldest === null ? "" : `, oldest ${oldest.slice(0, 10)}`) +
+    (keep === DEFAULT_KEEP ? "" : ` (keeping ${keep})`) +
+    (future === 0 ? "" : `; ${future} dated in the future, holding a slot each`) +
+    (rowDated !== null && rowDated > newestDate
+      ? `; the newest snapshot.taken row says ${rowDated}, which is not on disk`
+      : "") +
+    strange +
+    misread;
+  // Two or more calendar days back is a daily mechanism that has missed one, so
+  // the boundary day itself is already amber.
+  const stale = newestDate === "" || newestDate <= daysBefore(input.today, SNAPSHOT_STALE_DAYS);
+  const disagrees = rowDated !== null && rowDated > newestDate;
+  return [
+    stale || disagrees || future > 0 || disk.unrecognised.length > 0 || ignored.length > 0
+      ? finding(
+          "snapshot",
+          "amber",
+          "Snapshot",
+          stale ? `${detail} — ${SNAPSHOT_STALE_DAYS} days ago or more` : detail,
+          stale
+            ? "The copy is taken by the worker after a boundary; read the Spawn line below."
+            : RESTORE_STEPS,
+          held,
+        )
+      : finding("snapshot", "green", "Snapshot", detail, "", held),
+  ];
+}
+
 // ── the reading ─────────────────────────────────────────────────────────────
 
 const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
@@ -1528,6 +1708,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["authorship", () => authorshipFindings(input, store)],
     ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
+    ["snapshot", () => snapshotFindings(input, store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

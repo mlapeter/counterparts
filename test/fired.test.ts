@@ -339,6 +339,46 @@ describe("refusals are read from each payload shape that carries one", () => {
     expect(d.topRefusal).toBe("all-gated ×2");
   });
 
+  /**
+   * THE BACKUP ROW, which until 2026-09-18 did not exist at all: a store that
+   * had been copied every night and one that had never been copied once were the
+   * same silence, on the one mechanism whose absence costs everything.
+   */
+  test("the snapshot row fires on a copy, and the failure row is a separate question", () => {
+    const s = store();
+    row(s, "snapshot.taken", TODAY, { name: "2026-09-17T03-00-00-000Z", kept: 14 });
+    const r = report(s);
+    const snap = pick(r, "snapshot");
+    expect(snap.state).toBe("firing");
+    expect(snap.lastFired).toBe(TODAY);
+    expect(snap.evidence).toBe("snapshot.taken");
+    // A copy that could not be made is NOT a copy: it is its own row, so a store
+    // with no backup at all cannot read as covered.
+    expect(pick(r, "snapshot-trouble").state).toBe("new");
+  });
+
+  test("a snapshot failure names its reason in the refusal column", () => {
+    const s = store();
+    row(s, "snapshot.failed", TODAY, { step: "copy", reason: "ENOSPC: no space left on device" });
+    row(s, "snapshot.failed", TODAY, { step: "copy", reason: "ENOSPC: no space left on device" });
+    row(s, "snapshot.failed", TODAY, { step: "resolve", reason: "refusing a filesystem root" });
+    const trouble = pick(report(s), "snapshot-trouble");
+    expect(trouble.state).toBe("firing");
+    expect(trouble.refusedInWindow).toBe(3);
+    expect(trouble.topRefusal).toBe("ENOSPC: no space left on device ×2");
+    // And the copy itself is still the thing that has never happened.
+    expect(pick(report(s), "snapshot").state).toBe("new");
+  });
+
+  test("the rotation row is accounted for by the snapshot row rather than given its own state", () => {
+    const s = store();
+    row(s, "snapshot.rotated", TODAY, { deleted: 1, kept: 14 });
+    // A discard is the same mechanism saying what it let go — not evidence that
+    // a copy exists, which is what the snapshot row's state is about.
+    expect(pick(report(s), "snapshot").state).toBe("new");
+    expect(MECHANISMS.find((m) => m.id === "snapshot")?.covers).toContain("snapshot.rotated");
+  });
+
   test("a refusal outside the window is not counted in it", () => {
     const s = store();
     row(s, "adapter.ask", daysBefore(TODAY, 9), { outcome: "capped", reason: "session-ask-cap" });
