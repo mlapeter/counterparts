@@ -1820,6 +1820,46 @@ describe("the confirmation review's MINORs and NITs", () => {
     expect(storeExists(storePath())).toBe(true);
   });
 
+  test("MINOR-2: --undo re-reads after the confirmation and REFUSES on drift", async () => {
+    // M2's lesson applied to this direction, driven through the `prompt` seam
+    // rather than a TTY: while the human answers, the rotation puts a snapshots
+    // folder back at the live name — so the plan that would run has one move
+    // fewer than the plan that was read.
+    await install();
+    await note();
+    seedSnapshots();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const parked = `${storePath()}.${PARKED_INFIX}-${today()}`;
+    const before = fingerprint(parked);
+    const entriesBefore = readdirSync(base()).sort().join(",");
+
+    const out: string[] = [];
+    const err: string[] = [];
+    const io: Io = {
+      out: (line) => out.push(line),
+      err: (line) => err.push(line),
+      prompt: async (): Promise<string> => {
+        mkdirSync(snapshotsPath(), { recursive: true });
+        return basename(parked);
+      },
+    };
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo"], { io, env: env(), home }),
+    ).toBe(EXIT.refused);
+    expect(text(err)).toContain("the ground moved while this was waiting for you");
+    // Nothing moved: the parked tree is untouched and the layout is as it was
+    // but for the snapshots folder the test itself made.
+    expect(fingerprint(parked)).toBe(before);
+    expect(readdirSync(base()).sort().join(",")).toBe(
+      [...entriesBefore.split(","), "snapshots"].sort().join(","),
+    );
+  });
+
   test("MINOR-4: --undo --dry-run says what it touched", async () => {
     await install();
     await note();
