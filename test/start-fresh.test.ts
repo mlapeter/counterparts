@@ -15,7 +15,7 @@
  * `$HOME` or `process.env`; and `test/preload.ts` has already redirected
  * `homedir()` into a temp tree besides. No test here spawns a process.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -47,7 +47,9 @@ import {
   sight,
 } from "../src/adapters/cli/start-fresh.js";
 import type { ParkStep } from "../src/adapters/cli/start-fresh.js";
-import { Store, dateOf, storeExists } from "../src/core/store/index.js";
+import { DATABASE_FILE, Store, dateOf, isStoreError, storeExists } from "../src/core/store/index.js";
+import { PINNED_TAG, forgetPinnedBuild, makeOldFloorStore } from "./old-floor-fixture.js";
+import type { OldFloorStore } from "./old-floor-fixture.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -395,8 +397,10 @@ describe("start-fresh, end to end", () => {
   test("it parks a store the running build REFUSES to open", async () => {
     await install();
     // An unclassified top-level entry: `assertLayout()` refuses this store at
-    // open (§5 G11). It stands in here for cut-over day's real case, where the
-    // refusal is `STORE_PRE_ROWS` and the reason is the floor.
+    // open (§5 G11). The REAL cut-over case — a pre-rows store refused by the
+    // floor — has its own block at the bottom of this file, built by the build
+    // that wrote that floor. This one stays because it is a DIFFERENT refusal,
+    // and the property is "any store this build will not open".
     writeFileSync(join(storePath(), "a-name-this-build-does-not-know"), "from another floor");
     expect(() => Store.open({ dir: storePath(), observer: true })).toThrow();
 
@@ -708,3 +712,229 @@ describe("killed between any two steps", () => {
   });
 });
 
+
+// ── cut-over day ────────────────────────────────────────────────────────────
+
+describe(`cut-over day: this build, and a store written by ${PINNED_TAG}`, () => {
+  let old: OldFloorStore | null = null;
+
+  afterEach(() => {
+    old?.cleanup();
+    old = null;
+  });
+  afterAll(forgetPinnedBuild);
+
+  /** An `install`ed base whose `dataDir` holds a REAL v5 store. */
+  async function withOldFloorStore(): Promise<void> {
+    await install();
+    old = makeOldFloorStore();
+    // The blank store `install` just made is in the way. Removing a store this
+    // test created two lines ago is not the thing `start-fresh` refuses to do.
+    rmSync(storePath(), { recursive: true, force: true });
+    // A RENAME, so the fixture's bytes — the `-wal` above all — arrive unchanged.
+    renameSync(old.dir, storePath());
+    old.dir = storePath();
+    // And the snapshots folder as cut-over day really has it: copies of the
+    // OLD floor, which F5's rotation recognises and never deletes or counts.
+    // Parking it is belt and braces, and this is the shape it is braced for.
+    const copy = join(snapshotsPath(), "2026-09-19T00-00-00-000Z");
+    mkdirSync(join(copy, "prose", "memories"), { recursive: true });
+    writeFileSync(join(copy, "prose", "memories", "mem_old.md"), "an old-floor copy");
+    writeFileSync(join(copy, "operational.sqlite"), "not really a database, and never opened");
+  }
+
+  test("the fixture really is a pre-rows store, with pages only in its -wal", async () => {
+    await withOldFloorStore();
+    expect(existsSync(join(storePath(), "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(storePath(), "prose"))).toBe(true);
+    expect(existsSync(join(storePath(), "versions"))).toBe(true);
+    // The sharp part: the database file is a stub and the sidecar holds the
+    // database. Anything that opens this store may checkpoint on close and move
+    // those bytes — which is what "never opens it" is protecting.
+    const wal = statSync(join(storePath(), "operational.sqlite-wal")).size;
+    expect(wal).toBeGreaterThan(statSync(join(storePath(), "operational.sqlite")).size);
+    // And this build refuses it BY NAME, which is the whole reason N1 exists.
+    let refused: unknown;
+    try {
+      Store.open({ dir: storePath(), observer: true });
+    } catch (err) {
+      refused = err;
+    }
+    expect(isStoreError(refused, "STORE_PRE_ROWS")).toBe(true);
+  });
+
+  test("start-fresh parks it BYTE-IDENTICAL and never reaches the pre-rows refusal", async () => {
+    await withOldFloorStore();
+    const before = fingerprint(storePath());
+
+    const c = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--yes"], { io: c.io, env: env(), home }),
+    ).toBe(EXIT.ok);
+
+    const parked = `${storePath()}.${PARKED_INFIX}-${today()}`;
+    expect(fingerprint(parked)).toBe(before);
+    expect(statSync(join(parked, "operational.sqlite-wal")).size).toBeGreaterThan(0);
+
+    // If any step of this command had opened the old store, F5's refusal would
+    // have surfaced. Nothing in the output mentions it, because nothing tried.
+    const all = `${text(c.out)}\n${text(c.err)}`;
+    expect(all).not.toContain("STORE_PRE_ROWS");
+    expect(all).not.toContain("was written before this build's floor");
+    // What it DOES say is that the store it is moving is on the old floor —
+    // read from FILENAMES, never from the database.
+    expect(text(c.out)).toContain("OLD FLOOR");
+    expect(text(c.out)).toContain(PINNED_TAG);
+
+    // F5's refusal is itself byte-safe, so asserting it here cannot be what
+    // moved anything — and this proves both claims at once.
+    expect(() => Store.open({ dir: parked, observer: true })).toThrow();
+    expect(fingerprint(parked)).toBe(before);
+
+    // The old-floor snapshot copies went with it, untouched.
+    const parkedSnaps = `${snapshotsPath()}.${PARKED_INFIX}-${today()}`;
+    expect(existsSync(join(parkedSnaps, "2026-09-19T00-00-00-000Z", "prose", "memories", "mem_old.md"))).toBe(
+      true,
+    );
+    expect(existsSync(snapshotsPath())).toBe(false);
+  });
+
+  test("the dry run against an old-floor store changes nothing", async () => {
+    await withOldFloorStore();
+    const before = fingerprint(base());
+    const c = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--dry-run"], {
+        io: c.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(fingerprint(base())).toBe(before);
+    expect(text(c.out)).toContain("OLD FLOOR");
+  });
+
+  test("the store it creates in its place is a NEW-floor store that opens", async () => {
+    await withOldFloorStore();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes"], { io: c.io, env: env(), home });
+
+    expect(existsSync(join(storePath(), DATABASE_FILE))).toBe(true);
+    expect(existsSync(join(storePath(), "prose"))).toBe(false);
+    expect(storeExists(storePath())).toBe(true);
+    const fresh = Store.open({ dir: storePath(), observer: true });
+    try {
+      expect(fresh.list().length).toBe(0);
+    } finally {
+      fresh.close();
+    }
+
+    const s = consoleWith();
+    expect(await run(["status", "--dir", storePath()], { io: s.io, env: env(), home })).toBe(EXIT.ok);
+    expect(text(s.out)).toContain(`This store began on ${today()}`);
+    expect(text(s.out)).toContain(`${PARKED_INFIX}-${today()}`);
+  });
+
+  test("the printed rollback lines put the old-floor store back, unchanged", async () => {
+    await withOldFloorStore();
+    const before = fingerprint(storePath());
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes"], { io: c.io, env: env(), home });
+
+    // The lines AS PRINTED, parsed back out of the output and executed — so
+    // what is proved is the text the owner reads, not a second copy of it.
+    const moves = c.out
+      .filter((line) => line.startsWith("  mv "))
+      .map((line) => line.slice(5).trim().split(/\s+/));
+    // Three: park the blank store, put the old one back, put the snapshots back.
+    expect(moves.length).toBe(3);
+    for (const move of moves) renameSync(move[0] as string, move[1] as string);
+
+    expect(fingerprint(storePath())).toBe(before);
+    expect(existsSync(join(snapshotsPath(), "2026-09-19T00-00-00-000Z", "operational.sqlite"))).toBe(
+      true,
+    );
+    // The blank store was PARKED by that first line, not removed.
+    expect(existsSync(`${storePath()}.${BLANK_INFIX}-${today()}`)).toBe(true);
+    // And the restored store is the pre-rows one again, refused by name.
+    let refused: unknown;
+    try {
+      Store.open({ dir: storePath(), observer: true });
+    } catch (err) {
+      refused = err;
+    }
+    expect(isStoreError(refused, "STORE_PRE_ROWS")).toBe(true);
+  });
+});
+
+describe("what counts as a store, on four kinds of directory", () => {
+  /**
+   * F5 changed `storeExists()` under this command: it now answers true for a
+   * PRE-ROWS store as well as a new-floor one, so ~20 console commands reach the
+   * named refusal instead of "there is no store here, run init". That is right
+   * for them and still not the question this command asks, which is "is there
+   * anything here I would be writing on top of".
+   *
+   * The four directories below are where the two readings are compared. They
+   * agree on three and differ on the fourth, and the difference is in the safe
+   * direction.
+   */
+  test("no store, old floor, new floor, and a directory wearing both names", async () => {
+    await install();
+    const newFloor = storePath();
+    const none = join(home, "nothing-here");
+    const empty = join(home, "empty");
+    mkdirSync(empty, { recursive: true });
+    const oldFloor = join(home, "old-floor");
+    mkdirSync(join(oldFloor, "prose"), { recursive: true });
+    writeFileSync(join(oldFloor, "operational.sqlite"), "old");
+    const both = join(home, "both");
+    mkdirSync(join(both, "prose"), { recursive: true });
+    writeFileSync(join(both, "operational.sqlite"), "old");
+    writeFileSync(join(both, DATABASE_FILE), "new");
+
+    // NOTHING THERE, and an EMPTY directory: nothing to park either way.
+    expect(sight(none).present).toBe(false);
+    expect(sight(empty).entries).toBe(0);
+    expect(storeExists(none)).toBe(false);
+    expect(storeExists(empty)).toBe(false);
+
+    // OLD FLOOR: both readings say there is something. `storeExists` says so
+    // only since F5; `sight` said so before and after, because it never asked
+    // the floor.
+    expect(sight(oldFloor).entries).toBeGreaterThan(0);
+    expect(storeExists(oldFloor)).toBe(true);
+
+    // NEW FLOOR, and a directory wearing BOTH names: something, both ways.
+    expect(sight(newFloor).entries).toBeGreaterThan(0);
+    expect(storeExists(newFloor)).toBe(true);
+    expect(sight(both).entries).toBeGreaterThan(0);
+    expect(storeExists(both)).toBe(true);
+  });
+
+  test("a half-made store — a `cache/` and nothing else — is PARKED, not written over", async () => {
+    // The one place the two readings disagree, and the reason this command keeps
+    // its own. `storeExists` says false (no database by either name, no pre-rows
+    // marker), which would send `install` in to mint a store beside a stale box
+    // 3 that belongs to a different store's rows. `sight` says "there is
+    // something here", so it is parked and the new store starts clean.
+    await install();
+    rmSync(storePath(), { recursive: true, force: true });
+    mkdirSync(join(storePath(), "cache"), { recursive: true });
+    writeFileSync(join(storePath(), "cache", "cache.sqlite"), "somebody else's index");
+    expect(storeExists(storePath())).toBe(false);
+    expect(sight(storePath()).entries).toBe(1);
+
+    const c = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--yes"], { io: c.io, env: env(), home }),
+    ).toBe(EXIT.ok);
+    const parked = `${storePath()}.${PARKED_INFIX}-${today()}`;
+    expect(existsSync(join(parked, "cache", "cache.sqlite"))).toBe(true);
+    expect(existsSync(join(storePath(), "cache", "cache.sqlite"))).toBe(true);
+    // The new store's cache is its own, not the one that was parked.
+    expect(readFileSync(join(storePath(), "cache", "cache.sqlite")).length).not.toBe(
+      readFileSync(join(parked, "cache", "cache.sqlite")).length,
+    );
+  });
+});

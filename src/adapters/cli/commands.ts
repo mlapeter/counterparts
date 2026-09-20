@@ -2230,13 +2230,20 @@ async function startFreshCommand(
   if (plan.shape === "park") {
     const word = confirmationWord(plan);
     io.out("");
-    io.out("CLOSE EVERY CLAUDE CODE SESSION AND THE DASHBOARD FIRST.");
+    io.out("CLOSE EVERY CLAUDE CODE SESSION AND EVERY DASHBOARD FIRST.");
     io.out("  A running session's hooks and its MCP server hold this store open by its");
     io.out("  file handle. A rename does not break a handle: they would go on writing");
     io.out("  into the PARKED directory, which is the one thing that could stop it being");
-    io.out("  byte-identical to this moment. The checks above only see recent activity —");
-    io.out("  an idle open session writes nothing and is invisible to them. That is what");
-    io.out("  this question is for.");
+    io.out("  byte-identical to this moment.");
+    io.out("");
+    io.out("  NOTHING HERE CAN CHECK THAT FOR YOU. A session sitting idle with its server");
+    io.out("  attached writes nothing, so it leaves no record and no timestamp — it is");
+    io.out("  invisible to every test this command can cheaply make. You are the only");
+    io.out("  instrument that can answer, which is what this question is.");
+    io.out("");
+    io.out("  What you CAN check, in another terminal:");
+    io.out("    pgrep -fl counterparts     # it should print nothing at all");
+    io.out("  A line there is a hook, a worker, an MCP server or a dashboard still running.");
     const stop = livenessRefusal(io, plan);
     if (stop !== null) return stop;
     if (parsed.flags["yes"] !== true) {

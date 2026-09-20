@@ -58,7 +58,16 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, parse as parsePath, resolve } from "node:path";
 
-import { assertSafeDataDir, dateOf, isWithin } from "../../core/store/index.js";
+// `preRowsMarkersIn` reads FILENAMES and opens nothing — which is the only
+// reason this module may call it. It is how the plan can say which floor the
+// store being parked is on without going anywhere near its database.
+import {
+  PRE_ROWS_READABLE_BY,
+  assertSafeDataDir,
+  dateOf,
+  isWithin,
+  preRowsMarkersIn,
+} from "../../core/store/index.js";
 import { SESSIONS_DIR } from "../sessions.js";
 
 /** The infix a parked directory wears: `store.parked-2026-09-20`. */
@@ -410,6 +419,18 @@ export interface StartFreshPlan {
   readonly snapshotsDir: string | null;
   /** Said when `snapshots.dir` points somewhere this command will not touch. */
   readonly snapshotsElsewhere: string | null;
+  /**
+   * The pre-rows marker filenames found in the store being parked, or empty.
+   *
+   * This is **cut-over day, named**: a store holding `prose/`, `versions/` or
+   * `operational.sqlite` was written by a build before F5, and the build
+   * running this command refuses to open it (`STORE_PRE_ROWS`). That refusal is
+   * the right one and this command never reaches it — but a reader who has just
+   * seen it from `status` or from a hook deserves to be told that this is the
+   * same fact, and that it is the reason parking rather than touching is the
+   * whole move. Filenames only; nothing is opened to learn it.
+   */
+  readonly preRowsMarkers: readonly string[];
   readonly liveness: Liveness;
   readonly refusal: string | null;
 }
@@ -447,6 +468,7 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     alreadyParked: [] as string[],
     snapshotsDir: null,
     snapshotsElsewhere: null,
+    preRowsMarkers: [] as string[],
     liveness: { signs: [], recent: [], unreadable: false } as Liveness,
   };
 
@@ -551,6 +573,9 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     alreadyParked: [],
     snapshotsDir,
     snapshotsElsewhere,
+    // Names only. Never an open — that is the whole point of the refusal this
+    // reading is about.
+    preRowsMarkers: preRowsMarkersIn(storeDir),
     liveness: readLiveness(storeDir, input.now),
     refusal: null,
   };
@@ -681,11 +706,22 @@ export function planLines(plan: StartFreshPlan): string[] {
   out.push("");
   out.push("Then it will create a blank store at:");
   out.push(`  ${plan.storeDir}`);
+  if (plan.preRowsMarkers.length > 0) {
+    out.push("");
+    out.push("  This store is on the OLD FLOOR — it keeps its memories in files");
+    out.push(`  (${plan.preRowsMarkers.join(", ")}).`);
+    out.push("  This build cannot open it and refuses to try, by name, which is exactly why");
+    out.push("  moving it is the right thing to do with it: a rename does not care what floor");
+    out.push(`  a directory is on. The build that still reads it is tagged ${PRE_ROWS_READABLE_BY}.`);
+  }
   if (plan.snapshotsElsewhere !== null) {
     out.push("");
     out.push(`  Snapshots are configured at ${plan.snapshotsElsewhere}, which is a directory`);
-    out.push("  you pointed at rather than one this layout owns, so it is LEFT ALONE. The");
-    out.push("  new store's rotation will see the old store's copies there and count them.");
+    out.push("  you pointed at rather than one this layout owns, so it is LEFT ALONE — and so");
+    out.push("  is any `mirror`. The new store's rotation will share that folder with what is");
+    out.push("  already in it: copies of an OLD-FLOOR store are recognised there and never");
+    out.push("  deleted or counted, but copies this floor wrote do count toward `keep`, so the");
+    out.push("  new store's oldest could rotate out sooner than you expect.");
   } else if (plan.snapshotsDir === null) {
     out.push("");
     out.push("  No snapshots directory belongs to this layout (the store is not named");
