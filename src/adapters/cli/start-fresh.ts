@@ -56,7 +56,7 @@ import {
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, parse as parsePath, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, parse as parsePath, resolve } from "node:path";
 
 // `preRowsMarkersIn` reads FILENAMES and opens nothing — which is the only
 // reason this module may call it. It is how the plan can say which floor the
@@ -420,6 +420,19 @@ export interface StartFreshPlan {
   /** Said when `snapshots.dir` points somewhere this command will not touch. */
   readonly snapshotsElsewhere: string | null;
   /**
+   * Why the snapshots folder beside the store is being LEFT rather than parked,
+   * or null when there is nothing to say. A symlinked `snapshots` used to refuse
+   * the whole command (review m2) — symlinking a backup folder onto an external
+   * disk is an ordinary thing to have done, and there is no way through except
+   * editing the configuration. It is now treated exactly as a configured
+   * `snapshots.dir` is: left alone, and said out loud. The store still moves.
+   */
+  readonly snapshotsLeft: string | null;
+  /** How many entries the store being parked holds. `--yes` is refused on a
+   *  non-empty one (review m1's corollary): the typed confirmation is the only
+   *  instrument that can catch an idle dashboard. */
+  readonly storeEntries: number;
+  /**
    * The pre-rows marker filenames found in the store being parked, or empty.
    *
    * This is **cut-over day, named**: a store holding `prose/`, `versions/` or
@@ -468,6 +481,8 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     alreadyParked: [] as string[],
     snapshotsDir: null,
     snapshotsElsewhere: null,
+    snapshotsLeft: null,
+    storeEntries: 0,
     preRowsMarkers: [] as string[],
     liveness: { signs: [], recent: [], unreadable: false } as Liveness,
   };
@@ -489,10 +504,30 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     };
   }
 
-  const storeDir =
-    input.dataDir !== undefined && input.dataDir.trim().length > 0
-      ? resolve(input.dataDir.trim())
-      : "";
+  // A `dataDir` THAT IS NOT ABSOLUTE IS REFUSED BY NAME (review M5).
+  //
+  // `resolve()` is relative to the PROCESS WORKING DIRECTORY and does not expand
+  // `~`, and `loadConfig` accepts any string — so `"relative-store"` renamed an
+  // unrelated directory that happened to sit in the shell's cwd and reported
+  // success, and `"~/.counterparts/store"` created a literal `~` directory and
+  // left the real store untouched and unmentioned. Both were measured. A path
+  // that means a different directory in every process that reads it is not a
+  // path this command will act on.
+  const written = input.dataDir === undefined ? "" : input.dataDir.trim();
+  if (input.configPresent && written.length > 0 && !isAbsolute(written)) {
+    return {
+      ...empty,
+      storeDir: "",
+      refusal:
+        `refused: ${configPath} names "dataDir": "${written}", which is not an absolute path. ` +
+        "`install` always writes an absolute one, and for a reason: the hook, the worker and the " +
+        "MCP server are launched by a host from a working directory nobody chose, so a relative " +
+        "path names a different directory in every one of them — and this command would rename " +
+        `whatever happened to sit at that name in ITS working directory (${resolve(written)}). ` +
+        "A leading `~` is a shell's idea, not a path. Put the absolute path in the configuration.",
+    };
+  }
+  const storeDir = written.length > 0 ? resolve(written) : "";
 
   // No configuration at all: a machine that has never had an install. Nothing
   // is parked, and the command is an ordinary first `install` that says so.
@@ -532,36 +567,66 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
       snapshotsElsewhere,
       shape: parked.length > 0 && !store.present ? "resume" : "nothing-to-park",
       alreadyParked: parked,
+      storeEntries: store.entries,
       refusal: null,
     };
   }
 
-  const snapshotsRefusal =
-    snapshotsDir === null ? null : parkRefusal("snapshots directory", snapshotsDir, configPath, home);
-  if (snapshotsRefusal !== null) {
-    return { ...empty, storeDir, snapshotsDir, snapshotsElsewhere, shape: "park", refusal: snapshotsRefusal };
+  // WHY THE SNAPSHOTS FOLDER IS NEVER A REASON TO REFUSE THE WHOLE COMMAND
+  // (review m2). It used to be: a symlinked `~/.counterparts/snapshots` — an
+  // external disk, an ordinary arrangement — refused everything, and the only
+  // way through was editing the configuration. A snapshots folder this command
+  // will not move is now treated exactly as a `snapshots.dir` pointed elsewhere
+  // is: LEFT, and said out loud. The memory still moves, which is what the
+  // owner came for; the copies stay where they are, which costs nothing but a
+  // sentence.
+  const snapshotsSeen = snapshotsDir === null ? null : sight(snapshotsDir);
+  let snapshotsLeft: string | null = null;
+  let parkSnapshots = false;
+  if (snapshotsDir !== null && snapshotsSeen !== null && snapshotsSeen.present) {
+    const why = parkRefusal("snapshots directory", snapshotsDir, configPath, home);
+    if (why !== null) {
+      snapshotsLeft = why;
+    } else {
+      // BOTH devices, before anything moves (review SHOULD 3). Only the store's
+      // was compared, so a snapshots folder on another filesystem would have
+      // failed its rename mid-run rather than refusing up front — and the store
+      // is parked first only in the order, not in the decision.
+      const cross = sameFilesystemRefusal(snapshotsDir);
+      if (cross !== null) snapshotsLeft = cross;
+      else parkSnapshots = true;
+    }
   }
 
   const crossDevice = sameFilesystemRefusal(storeDir);
   if (crossDevice !== null) {
-    return { ...empty, storeDir, snapshotsDir, snapshotsElsewhere, shape: "park", refusal: crossDevice };
+    return {
+      ...empty,
+      storeDir,
+      snapshotsDir,
+      snapshotsElsewhere,
+      snapshotsLeft,
+      shape: "park",
+      refusal: crossDevice,
+    };
   }
 
+  // ONE SUFFIX FOR BOTH (review n3). The two used to pick `-N` independently,
+  // so a second run the same day could leave `store.parked-D-2` beside
+  // `snapshots.parked-D` — a pair that does not read as a pair. The suffix is
+  // chosen once, against BOTH names, so they always match.
+  const suffix = pairedSuffix(
+    [storeDir, ...(parkSnapshots && snapshotsDir !== null ? [snapshotsDir] : [])],
+    date,
+    taken,
+  );
   const parks: ParkStep[] = [];
   // SNAPSHOTS FIRST. A kill between the two renames then leaves the
   // configuration pointing at a store that is still there — the harmless order.
-  if (snapshotsDir !== null && sight(snapshotsDir).present && !sight(snapshotsDir).symlink) {
-    parks.push({
-      label: "snapshots",
-      from: snapshotsDir,
-      to: parkedPath(snapshotsDir, PARKED_INFIX, date, taken),
-    });
+  if (parkSnapshots && snapshotsDir !== null) {
+    parks.push({ label: "snapshots", from: snapshotsDir, to: `${snapshotsDir}${suffix}` });
   }
-  parks.push({
-    label: "store",
-    from: storeDir,
-    to: parkedPath(storeDir, PARKED_INFIX, date, taken),
-  });
+  parks.push({ label: "store", from: storeDir, to: `${storeDir}${suffix}` });
 
   return {
     shape: "park",
@@ -573,6 +638,8 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     alreadyParked: [],
     snapshotsDir,
     snapshotsElsewhere,
+    snapshotsLeft,
+    storeEntries: store.entries,
     // Names only. Never an open — that is the whole point of the refusal this
     // reading is about.
     preRowsMarkers: preRowsMarkersIn(storeDir),
@@ -607,6 +674,27 @@ export function sameFilesystemRefusal(storeDir: string): string | null {
     "command does not delete, ever. Move the store by hand with a tool you trust, verify the copy, " +
     `and point "dataDir" at whatever you want the new store to be.`
   );
+}
+
+/**
+ * The ONE suffix both parked directories wear — `.parked-<date>`, with `-2`,
+ * `-3` … when any of the names it would produce is taken.
+ *
+ * Asked of every path at once rather than of each in turn, so the store and its
+ * snapshots always land on matching names (review n3).
+ */
+export function pairedSuffix(
+  paths: readonly string[],
+  date: string,
+  taken: (candidate: string) => boolean = existsSync,
+): string {
+  const free = (suffix: string): boolean => paths.every((p) => !taken(`${resolve(p)}${suffix}`));
+  const base = `.${PARKED_INFIX}-${date}`;
+  if (free(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    if (free(`${base}-${String(n)}`)) return `${base}-${String(n)}`;
+  }
+  throw new Error(`no free parked suffix for ${date}`);
 }
 
 /** Parked siblings of a store path, newest name last. Used only to REPORT. */
@@ -677,15 +765,28 @@ export function park(steps: readonly ParkStep[], ops: StartFreshOps = REAL_OPS):
 // ── what the owner reads ────────────────────────────────────────────────────
 
 /** The plan, in the order it will happen. One line per rename, paths in full. */
-export function planLines(plan: StartFreshPlan): string[] {
+export function planLines(plan: StartFreshPlan, landing?: string): string[] {
   const out: string[] = [];
   out.push(`Configuration: ${plan.configPath}${plan.configPresent ? "" : " (not there yet)"}`);
-  out.push(`Store:         ${plan.storeDir}`);
+  // THE STORE LINE IS NEVER BLANK (review B1). It used to be, on the arm where
+  // there was no configuration — and directly below it the install printed
+  // "Store already present at …/store", naming the live store. Two sentences on
+  // one screen contradicting each other, with the second one the true one.
+  out.push(`Store:         ${plan.storeDir.length > 0 ? plan.storeDir : (landing ?? "(unknown)")}`);
   out.push("");
   if (plan.shape === "nothing-to-park") {
-    out.push("Nothing to park: there is no store at that path (or it is empty).");
-    out.push("So this is an ordinary first install, and it says so rather than pretending");
-    out.push("it moved something.");
+    out.push(
+      plan.configPresent
+        ? "Nothing to park: the store your configuration names is not there, or is empty."
+        : "There is no configuration at that path, so there is nothing to park and nothing",
+    );
+    if (!plan.configPresent) {
+      out.push("this command can call your memory. It will do an ordinary first install at the");
+      out.push("store path above — and refuse if anything at all is already there.");
+    } else {
+      out.push("So this is an ordinary first install, and it says so rather than pretending");
+      out.push("it moved something.");
+    }
     return out;
   }
   if (plan.shape === "resume") {
@@ -722,6 +823,13 @@ export function planLines(plan: StartFreshPlan): string[] {
     out.push("  already in it: copies of an OLD-FLOOR store are recognised there and never");
     out.push("  deleted or counted, but copies this floor wrote do count toward `keep`, so the");
     out.push("  new store's oldest could rotate out sooner than you expect.");
+  } else if (plan.snapshotsLeft !== null) {
+    out.push("");
+    out.push(`  The snapshots folder at ${plan.snapshotsDir ?? ""} is LEFT WHERE IT IS.`);
+    out.push(`    ${plan.snapshotsLeft}`);
+    out.push("  That is a reason not to MOVE it, not a reason to stop: your memory still");
+    out.push("  moves, and the copies stay exactly where they are. The new store's rotation");
+    out.push("  will share that folder with what is already in it.");
   } else if (plan.snapshotsDir === null) {
     out.push("");
     out.push("  No snapshots directory belongs to this layout (the store is not named");
@@ -745,24 +853,188 @@ export function configLines(plan: StartFreshPlan): string[] {
   ];
 }
 
-/** The line that undoes everything, and the sentence that says what it costs. */
+/**
+ * THE WAY BACK, AS SHELL LINES — and every one of them GUARDED, because plain
+ * `mv` does the worst possible thing here.
+ *
+ * Measured on macOS (review M3): `mv src dst` where `dst` is an existing
+ * DIRECTORY does not refuse and does not overwrite — it moves `src` INSIDE
+ * `dst`, exit 0. `mv -n` behaves identically. On the real layout that put the
+ * owner's parked memory at `store/store.parked-<date>`, and the live store then
+ * stopped opening at all (`LAYOUT_UNCLASSIFIED`). Nothing was lost, and nothing
+ * about that is obvious at 11pm.
+ *
+ * So each line tests its destination first and says what it is refusing.
+ * Everything is double-quoted, so a path with a space in it survives the
+ * copy-paste this text exists to be.
+ *
+ * `counterparts start-fresh --undo` does the same thing with the same
+ * discipline and without the shell; these lines are the by-hand fallback, and
+ * they are printed because a way back that depends on the program that just
+ * moved your memory is not much of a way back.
+ */
 export function rollbackLines(
   plan: StartFreshPlan,
   taken: (candidate: string) => boolean = existsSync,
 ): string[] {
   if (plan.parks.length === 0) return [];
   const blank = parkedPath(plan.storeDir, BLANK_INFIX, plan.date, taken);
-  const out: string[] = [
-    "  mv " + shell(plan.storeDir) + " " + shell(blank),
-  ];
-  for (const step of [...plan.parks].reverse()) {
-    out.push("  mv " + shell(step.to) + " " + shell(step.from));
-  }
+  const out: string[] = [guardedMove(plan.storeDir, blank)];
+  for (const step of [...plan.parks].reverse()) out.push(guardedMove(step.to, step.from));
   return out;
 }
 
+/** One `mv` that refuses instead of nesting. Exported so the test can parse the
+ *  printed line back out of real output and run it against a destination that
+ *  exists — which is the only way to prove the guard rather than the intent. */
+export function guardedMove(from: string, to: string): string {
+  // The destination appears twice — once as an argument, once INSIDE the
+  // message — so it is escaped twice over in different ways: `shell()` wraps it
+  // in its own quotes, and `inner()` only escapes, because a second pair of
+  // quotes inside an already-quoted string is how a path with a space in it
+  // comes out mangled in the one sentence that has to be readable.
+  return (
+    `  [ -e ${shell(to)} ] && echo "REFUSING: ${inner(to)} already exists — ` +
+    `mv would put the source INSIDE it" || mv ${shell(from)} ${shell(to)}`
+  );
+}
+
+/** Escaped for use INSIDE an already-quoted shell string; adds no quotes. */
+function inner(path: string): string {
+  return path.replace(/(["\\$`])/g, "\\$1");
+}
+
+/** Always double-quoted: these lines are printed to be pasted, and a path with
+ *  a space in it is not a reason for the way back to break. */
 function shell(path: string): string {
-  return /^[A-Za-z0-9._\-/]+$/.test(path) ? path : `"${path.replace(/(["\\$`])/g, "\\$1")}"`;
+  return `"${path.replace(/(["\\$`])/g, "\\$1")}"`;
+}
+
+// ── the way back, as a command ──────────────────────────────────────────────
+
+export interface UndoStep {
+  readonly label: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface UndoPlan {
+  readonly storeDir: string;
+  /** The parked store this would put back. */
+  readonly parked: string | null;
+  /** Every parked sibling found, for the report when there is more than one. */
+  readonly candidates: readonly string[];
+  readonly steps: readonly UndoStep[];
+  /** True when the store being restored was written before this build's floor —
+   *  on cut-over day, undoing also means re-detaching the checkout. */
+  readonly preRows: boolean;
+  readonly refusal: string | null;
+}
+
+/**
+ * The reverse of a run: park the blank store, put the parked one back, put the
+ * snapshots back. Same discipline as the forward direction — one `rename` each,
+ * nothing deleted, nothing opened, and a destination that already exists is a
+ * REFUSAL rather than a merge.
+ *
+ * `parked` is normally read from the new store's own `store.previous.parked`
+ * record, which names the directory THIS run parked. When that cannot be had —
+ * an unopenable store, a record a kill never wrote — the caller passes null and
+ * this falls back to the siblings on disk, refusing when there is more than one
+ * rather than guessing (review M4: guessing picked an empty shell).
+ */
+export function planUndo(input: {
+  readonly storeDir: string;
+  readonly parked: string | null;
+  readonly now: number;
+  readonly taken?: (candidate: string) => boolean;
+}): UndoPlan {
+  const taken = input.taken ?? existsSync;
+  const storeDir = resolve(input.storeDir);
+  const date = dateOf(input.now);
+  const candidates = siblingsParked(storeDir, taken);
+  const empty = { storeDir, parked: null, candidates, steps: [], preRows: false };
+
+  let parked = input.parked === null ? null : resolve(input.parked);
+  if (parked === null) {
+    if (candidates.length === 0) {
+      return {
+        ...empty,
+        refusal:
+          `refused: nothing beside ${storeDir} is a parked store, and the store that is there ` +
+          "carries no record of one. There is nothing to undo.",
+      };
+    }
+    if (candidates.length > 1) {
+      return {
+        ...empty,
+        refusal:
+          `refused: ${String(candidates.length)} parked stores sit beside ${storeDir} and the ` +
+          "store that is there does not say which one it replaced, so this will not guess — " +
+          "guessing is how an empty shell gets named as somebody's memory. They are:\n" +
+          candidates.map((c) => `    ${c}`).join("\n") +
+          "\n  Move the one you want back by hand; the printed lines from the run that made " +
+          "it are the exact way, and each is guarded.",
+      };
+    }
+    parked = candidates[0] ?? null;
+  }
+  if (parked === null || !taken(parked)) {
+    return { ...empty, refusal: `refused: ${String(parked)} is not there.` };
+  }
+
+  const steps: UndoStep[] = [];
+  const store = sight(storeDir);
+  if (store.present) {
+    // THE BLANK STORE IS PARKED, NEVER REMOVED — the same rule as everything
+    // else here. An undo that deleted would be the one delete in the command.
+    steps.push({
+      label: "the store that is there now",
+      from: storeDir,
+      to: parkedPath(storeDir, BLANK_INFIX, date, taken),
+    });
+  }
+  steps.push({ label: "your parked memory", from: parked, to: storeDir });
+
+  // The snapshots that went with it, by the suffix the store wears.
+  const suffix = basename(parked).slice(basename(storeDir).length);
+  const snapshots = join(dirname(storeDir), "snapshots");
+  const parkedSnapshots = `${snapshots}${suffix}`;
+  if (taken(parkedSnapshots) && !taken(snapshots)) {
+    steps.push({ label: "its snapshots", from: parkedSnapshots, to: snapshots });
+  }
+
+  return {
+    storeDir,
+    parked,
+    candidates,
+    steps,
+    // Filenames only. Nothing is opened, here least of all.
+    preRows: preRowsMarkersIn(parked).length > 0,
+    refusal: null,
+  };
+}
+
+/** What `--undo` prints before it moves anything. */
+export function undoLines(plan: UndoPlan): string[] {
+  const out = [`Store:  ${plan.storeDir}`, `Parked: ${plan.parked ?? "(none found)"}`, ""];
+  if (plan.steps.length === 0) return out;
+  out.push("It will rename, in this order — one atomic rename each, nothing copied,");
+  out.push("nothing deleted, and nothing opened:");
+  for (const step of plan.steps) {
+    out.push(`  ${step.label}`);
+    out.push(`    ${step.from}`);
+    out.push(`      -> ${step.to}`);
+  }
+  if (plan.preRows) {
+    out.push("");
+    out.push("  THE STORE COMING BACK IS ON THE OLD FLOOR. This build cannot open it, so");
+    out.push("  putting it back is only half the undo: the checkout has to go back too —");
+    out.push(`    tools/deploy-checkout.sh --repo <your checkout> --ref ${PRE_ROWS_READABLE_BY}`);
+    out.push("  and then restart Claude Code. Until that happens every session will stand");
+    out.push("  down against this store, loudly and harmlessly.");
+  }
+  return out;
 }
 
 /** What the confirmation asks to be typed back: the parked store's own name. */

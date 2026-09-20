@@ -28,7 +28,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import {
@@ -64,6 +64,7 @@ import {
   EMBED_FAILED_PREFIX,
   ID_PREFIX,
   LAYOUT,
+  PRE_ROWS_READABLE_BY,
   REQUIRE_EXPLICIT_DIR_ENV,
   SCHEMA_VERSION,
   Store,
@@ -156,8 +157,10 @@ import type { CheckoutReading } from "../claude-code/doctor.js";
 import { exportStore } from "./export.js";
 import {
   BIN,
+  CONFIG_FILE,
   CREDENTIALS_FILE,
   MCP_SERVER_NAME,
+  budgetRefusal,
   configObject,
   credentialsHeld,
   credentialsTemplate,
@@ -177,15 +180,21 @@ import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
+  BLANK_INFIX,
   OPEN_WINDOW_MS,
   configLines,
   confirmationWord,
+  guardedMove,
   park,
+  parkedPath,
   planLines,
   planStartFresh,
+  planUndo,
   rollbackLines,
+  sight,
+  undoLines,
 } from "./start-fresh.js";
-import type { StartFreshPlan } from "./start-fresh.js";
+import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
@@ -346,7 +355,10 @@ export function usage(): string {
     "                      rename and changes nothing; --yes skips the typed confirmation;",
     '                      --name "<owner>" seeds the new store. It refuses --dir: the',
     "                      store is the one your configuration names, because that is the",
-    "                      one the hooks and the MCP server open.",
+    "                      one the hooks and the MCP server open. --yes on a store that has",
+    "                      anything in it also needs --nothing-is-open, because the typed",
+    "                      confirmation is the only check that catches an idle dashboard.",
+    "                      --undo puts the parked store back and parks the blank one.",
     "  note <text>         Remember this, deliberately. The same two doors the MCP",
     "                      tool uses. --kind --title --salience.",
     "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
@@ -489,7 +501,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `--dir` is deliberately absent from this list — it is a COMMON flag, so it
   // parses either way, and the command refuses it in words rather than ignoring
   // it (the `--dirr` scar, pointed at the most dangerous verb here).
-  "start-fresh": ["config", "dry-run", "yes", "name"],
+  "start-fresh": ["config", "dry-run", "yes", "nothing-is-open", "name", "undo"],
   note: ["kind", "title", "salience"],
   recall: ["id", "json"],
   export: ["out", "passphrase", "plaintext"],
@@ -551,7 +563,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another), and PRINT the host's hooks block and MCP line. It never edits the host.",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   "start-fresh":
-    "Begin again as a stranger: park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
+    "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   recall: "Ask memory a question. Read-only.",
   export: "A portable copy of the store, encrypted unless you say otherwise.",
@@ -694,6 +706,9 @@ const SCOPE_FLAG_HELP: Record<string, string> = {
  * than merely unread: the store is the one the configuration names.
  */
 const START_FRESH_FLAG_HELP: Record<string, string> = {
+  undo: "put the parked store back: park the blank one, restore the parked one and its snapshots. One rename each, nothing deleted, nothing opened, and a destination that exists is a refusal",
+  "nothing-is-open":
+    "with --yes on a store that has something in it: you are asserting you have closed every session, dashboard and MCP server, because nothing here can check that",
   "dry-run": "print every rename and every file this would write, and change nothing (this command is NOT dry by default)",
   dir: "REFUSED on this command: the store parked is the one your configuration names, because that is the one the hooks and the MCP server open. Name the configuration instead, with --config",
   yes: "skip the typed confirmation, and nothing else — it never stands in for closing your sessions first",
@@ -931,6 +946,10 @@ export function parse(argv: readonly string[]): Parsed {
       // trailing `--from` would otherwise arrive as the boolean `true` and be
       // read as "no file named".
       write: { type: "boolean" },
+      // `start-fresh`'s two. Declared as booleans for the same reason `rebuild`
+      // is: `strict: false` does not make an undeclared boolean reliable.
+      undo: { type: "boolean" },
+      "nothing-is-open": { type: "boolean" },
       file: { type: "string" },
       versions: { type: "boolean" },
       version: { type: "string" },
@@ -2056,12 +2075,14 @@ function installCommand(
   let budgetBytes: number | undefined;
   const budgetFlag = parsed.flags["budget"];
   if (typeof budgetFlag === "string" && budgetFlag.length > 0) {
-    const n = Number(budgetFlag);
-    if (!Number.isInteger(n) || n <= 0) {
-      io.err(`refused: --budget takes a positive whole number of bytes, not '${budgetFlag}'.`);
+    // The rule lives in `install.ts` so a caller can ask it BEFORE it acts
+    // (N1 review M1 — this refusal used to land after two renames).
+    const why = budgetRefusal(budgetFlag);
+    if (why !== null) {
+      io.err(why);
       return EXIT.refused;
     }
-    budgetBytes = n;
+    budgetBytes = Number(budgetFlag);
   }
   const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
   const force = parsed.flags["force"] === true;
@@ -2369,40 +2390,149 @@ async function startFreshCommand(
     return EXIT.refused;
   }
 
+  // ── THE WAY BACK, AS A COMMAND (review M3) ───────────────────────────────
+  //
+  // The printed `mv` lines are guarded and correct, and they are still a shell
+  // one-liner somebody pastes at the worst moment of their week. This does the
+  // same three moves with the same discipline — one `rename` each, nothing
+  // deleted, nothing opened, a destination that exists is a refusal — and it
+  // knows which store was parked, because the store that replaced it says so.
+  if (parsed.flags["undo"] === true) {
+    return await startFreshUndo(parsed, io, configPath, present, host.config.dataDir, now);
+  }
+
   const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
+  // `--name` reaches `install`'s identity seed and nothing else — it is a NAME,
+  // never a path — but an unvalidated string printed back as "identity core
+  // seeded for ../../escape" reads like something happened to a path (review
+  // n2). One line, and it refuses rather than mangling what the owner typed.
+  if (name !== undefined && (name.trim().length === 0 || /[\n\r\u0000]/.test(name))) {
+    io.err(
+      "refused: --name is the owner's name, seeded into the new store's identity core. " +
+        "Blank, or carrying a newline or a null, it is not one.",
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
   const dryRun = parsed.flags["dry-run"] === true;
 
-  const plan = planStartFresh({
+  // ── THE DATE IS FROZEN FOR THE WHOLE RUN (review M2) ──────────────────────
+  //
+  // Every parked name, the record, and the rollback lines are built from it.
+  // The command deliberately sends the owner to another terminal to run
+  // `pgrep`, so the UTC day CAN turn over while it waits — and it did, in the
+  // review: the block on his screen named `…parked-2026-09-20` and the renames
+  // went to `…parked-2026-09-21`, so all three printed lines named paths that
+  // did not exist. One `now()`, read once, settles it.
+  const at = now();
+
+  // ── WHERE `install` WOULD LAND WHEN THERE IS NO CONFIGURATION (review B1) ──
+  //
+  // THE BLOCKER, and it is worth the paragraph. An absent configuration used to
+  // mean "a machine with nothing on it", so `storeDir` was `""`, the pin below
+  // was skipped, and `installLayout` fell back to `$COUNTERPARTS_DATA_DIR` —
+  // else `~/.counterparts/store`, the LIVE store. One mistyped character
+  // (`claude-code.jsonn`) was enough: the reviewer watched `status` go from
+  // `Memories: 2` to "This store began on 2026-09-20" on a store that did not,
+  // and with the variable exported it minted a blank store in a decoy directory.
+  // Nothing was deleted, and it is still the I29 class — a store nobody named,
+  // written to — aimed at his real memory.
+  //
+  // So the cold arm computes its landing place UP FRONT, from the CONFIGURATION'S
+  // OWN DIRECTORY and an EMPTY environment, so `$COUNTERPARTS_DATA_DIR` cannot
+  // redirect it; prints it; pins it; and refuses if anything is there at all.
+  const coldStore = installLayout(undefined, {}, home_, custom).store;
+
+  const planInput = {
     configPath,
     configPresent: present,
     dataDir: host.config.dataDir,
     snapshotsConfigured: host.config.snapshots?.dir,
-    now: now(),
     home: home_,
-  });
+  };
+  const plan = planStartFresh({ ...planInput, now: at });
+  const landing = plan.storeDir.length > 0 ? plan.storeDir : coldStore;
 
   io.out("counterparts start-fresh — park this memory and begin on a blank one.");
   io.out("Nothing is ever deleted, and the parked store is never opened.");
   io.out("");
-  for (const line of planLines(plan)) io.out(line);
+  for (const line of planLines(plan, landing)) io.out(line);
   if (plan.refusal !== null) {
     io.out("");
     io.err(plan.refusal);
     io.err("Nothing has changed.");
     return EXIT.refused;
   }
+
+  // The cold arm's own refusal: `install` is about to create a store at
+  // `landing`, and on this arm nobody named it — so anything there at all is a
+  // store this command was not asked to touch.
+  if (!present) {
+    const there = sight(landing);
+    if (there.present && there.entries > 0) {
+      io.out("");
+      io.err(
+        `refused: there is no configuration at ${configPath}, so this would have been an ` +
+          `ordinary first install — but ${landing} already holds something ` +
+          `(${String(there.entries)} entries). This command will not create a store on top of ` +
+          "one nobody named, and it will not park one the configuration does not point at. " +
+          (custom === undefined
+            ? "Name the configuration that belongs to that store: "
+            : "Check the path you typed — a configuration one character off names a directory " +
+              "that is not yours to start fresh in: ") +
+          `${CONFIG_FLAG} <absolute path>.`,
+      );
+      io.err("Nothing has changed.");
+      return EXIT.refused;
+    }
+    if (existsSync(join(dirname(configPath), CONFIG_FILE)) && custom !== undefined) {
+      io.out("");
+      io.err(
+        `refused: ${configPath} is not there, but ${join(dirname(configPath), CONFIG_FILE)} is — ` +
+          "so the path you named is one character away from a configuration that exists. This " +
+          "command will not treat a typo as a request to install a second memory beside the " +
+          "first one.",
+      );
+      io.err("Nothing has changed.");
+      return EXIT.refused;
+    }
+  }
+
   io.out("");
   io.out("The configuration:");
   for (const line of configLines(plan)) io.out(line);
 
+  // ── EVERYTHING `install` WILL BE HANDED, VALIDATED NOW (review M1) ────────
+  //
+  // `loadConfig`'s `num()` accepts any finite positive number, and
+  // `installCommand` requires a whole one — so a fractional
+  // `injectionBudgetBytes` loaded fine everywhere else and refused HERE, after
+  // both renames, leaving the configuration pointing at nothing. The ceiling
+  // passthrough only exists to suppress a paragraph (the file is kept either
+  // way), so a value `install` would refuse is simply not passed, and the
+  // paragraph is a cheaper thing to lose than the window is to widen.
+  //
+  // The order below closes that window for good regardless: the blank store is
+  // built BEFORE anything is parked.
+  const ceiling = host.config.injectionBudgetBytes;
+  const ceilingOk = present && ceiling !== undefined && budgetRefusal(String(ceiling)) === null;
+  if (present && ceiling !== undefined && !ceilingOk) {
+    io.out("");
+    io.out(`  Note: "injectionBudgetBytes": ${String(ceiling)} is not a whole number of bytes, so`);
+    io.out("  it is not handed to the install. Your configuration is kept exactly as it is —");
+    io.out("  this only means the install ends on its 'no ceiling was written' paragraph.");
+  }
+
   const rollback = rollbackLines(plan);
   if (rollback.length > 0) {
     io.out("");
-    io.out("The way back, if you want it — these are printed BEFORE anything moves, so");
-    io.out("they are on your screen even if this is interrupted halfway:");
+    io.out("The way back, if you want it — printed BEFORE anything moves, so they are on");
+    io.out("your screen even if this is interrupted halfway. Each line REFUSES rather than");
+    io.out("moving one directory inside another, which is what a bare `mv` does:");
     for (const line of rollback) io.out(line);
     io.out("  (the blank store is PARKED by that first line, not removed. Nothing here");
-    io.out("   deletes anything, including an undo.)");
+    io.out(`   deletes anything, including an undo. '${BIN.cli} start-fresh --undo' does`);
+    io.out("   the same three moves without the shell.)");
   }
 
   if (dryRun) {
@@ -2422,18 +2552,43 @@ async function startFreshCommand(
     io.out("  into the PARKED directory, which is the one thing that could stop it being");
     io.out("  byte-identical to this moment.");
     io.out("");
-    io.out("  NOTHING HERE CAN CHECK THAT FOR YOU. A session sitting idle with its server");
-    io.out("  attached writes nothing, so it leaves no record and no timestamp — it is");
-    io.out("  invisible to every test this command can cheaply make. You are the only");
-    io.out("  instrument that can answer, which is what this question is.");
+    io.out("  NOTHING HERE CAN CHECK THAT FOR YOU. A dashboard and an MCP server leave no");
+    io.out("  live-session record at all, and a session sitting idle writes nothing — so");
+    io.out("  they are invisible to every test this command can cheaply make. You are the");
+    io.out("  only instrument that can answer, which is what this question is.");
     io.out("");
     io.out("  What you CAN check, in another terminal:");
     io.out("    pgrep -fl counterparts");
-    io.out("  THE ONLY LINE SHOULD BE THIS COMMAND ITSELF, sitting here waiting for you.");
-    io.out("  Anything else is a hook, a worker, an MCP server or a dashboard still");
-    io.out("  running, and it is holding this store open.");
+    io.out("  Look for lines running one of OURS — serve.ts (an MCP server), dashboard.ts,");
+    io.out("  hook.ts, runner.ts (the worker). Every one of those is holding the store open.");
+    io.out("  IGNORE anything that merely has the word in a path: `pgrep -f` matches the");
+    io.out("  whole command line, so an editor, a `tail`, a dev server in a directory with");
+    io.out("  this name in it will all show up and none of them matters. This command will");
+    io.out("  be in the list too.");
     const stop = livenessRefusal(io, plan);
     if (stop !== null) return stop;
+
+    // ── `--yes` IS NOT ENOUGH ON A STORE WITH SOMETHING IN IT ───────────────
+    //
+    // `--yes` exists for a script and for the install loop, where the store is
+    // a throwaway. On a machine with a real memory the typed confirmation is
+    // the ONLY instrument that catches the idle dashboard — the review found
+    // two of them holding the live store open while it was writing that
+    // sentence. So `--yes` alone, on a non-empty store, is exactly the
+    // combination that defeats the one guard that works. The second flag is
+    // not ceremony: it is the sentence `--yes` does not say.
+    if (parsed.flags["yes"] === true && plan.storeEntries > 0 && parsed.flags["nothing-is-open"] !== true) {
+      io.err("");
+      io.err(
+        `refused: --yes on a store with ${String(plan.storeEntries)} things in it. --yes skips the ` +
+          "typed confirmation, and on a real store that confirmation is the only check that can " +
+          "catch a dashboard or an MCP server holding it open — neither leaves a record this can " +
+          "read. Type the name when asked, or, if you have genuinely closed everything and mean " +
+          "to run this unattended, say so: --yes --nothing-is-open.",
+      );
+      io.err("Nothing has changed.");
+      return EXIT.refused;
+    }
     if (parsed.flags["yes"] !== true) {
       if (io.prompt === undefined) {
         io.err("");
@@ -2453,20 +2608,29 @@ async function startFreshCommand(
     }
   }
 
-  // RE-READ THE GROUND. The human took time; a session may have started, a hook
-  // may have written, and the parked name this plan chose may have been taken by
-  // something else since it was printed. The plan that gets EXECUTED is this one.
-  const final = planStartFresh({
-    configPath,
-    configPresent: present,
-    dataDir: host.config.dataDir,
-    snapshotsConfigured: host.config.snapshots?.dir,
-    now: now(),
-    home: home_,
-  });
+  // ── RE-READ THE GROUND, AND REFUSE IF IT MOVED (review M2) ────────────────
+  //
+  // The human took time. A session may have started; something may have taken
+  // the parked name this plan chose. Re-reading is right — but the old shape
+  // then EXECUTED the second plan while the rollback block on his screen came
+  // from the first, and the review reproduced exactly that: a decoy took the
+  // name, the rename went to `-2`, and the printed "way back" restored the
+  // decoy. Rather than silently running a different plan, this refuses and says
+  // what changed. Nothing has moved at that point, so running it again is free.
+  const final = planStartFresh({ ...planInput, now: at });
   if (final.refusal !== null) {
     io.err(`refused after re-reading the directory: ${final.refusal}`);
     io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  const drifted = parksDiffer(plan.parks, final.parks);
+  if (drifted !== null) {
+    io.err("");
+    io.err(
+      `refused: the ground moved while this was waiting for you — ${drifted}. The plan printed ` +
+        "above is not the plan that would run now, and running a plan you did not read is how a " +
+        "rollback block ends up naming the wrong directory. Nothing has changed; run it again.",
+    );
     return EXIT.refused;
   }
   if (final.shape === "park") {
@@ -2476,49 +2640,42 @@ async function startFreshCommand(
     if (stop !== null) return stop;
   }
 
-  // ── the renames ───────────────────────────────────────────────────────────
-  let parkedStore: string | null = null;
-  if (final.parks.length > 0) {
-    io.out("");
-    const outcome = park(final.parks);
-    for (const step of outcome.done) io.out(`  parked ${step.label}: ${step.from} -> ${step.to}`);
-    const store = outcome.done.find((s) => s.label === "store");
-    parkedStore = store === undefined ? null : store.to;
-    if (outcome.failed !== null) {
-      io.err(`failed to park ${outcome.failed.label}: ${outcome.error ?? "no detail"}`);
-      io.err(
-        outcome.done.length === 0
-          ? "Nothing has changed."
-          : "What is listed above HAS moved; nothing else has, and nothing was deleted. The " +
-              "rollback lines printed earlier still name the way back.",
-      );
-      return EXIT.failed;
-    }
-  }
+  // ── THE BLANK STORE IS BUILT BEFORE ANYTHING IS PARKED (review M1, M4) ────
+  //
+  // Two findings close here, and the order is the whole fix.
+  //
+  // M1: `install` could refuse AFTER both renames, leaving the configuration
+  // pointing at nothing. Built first, an install that refuses costs a temporary
+  // directory and nothing else — the store has not moved.
+  //
+  // M4: the window between the park and the install was wide enough for a real
+  // SessionStart hook to MINT a store at `dataDir` (the reviewer fired one and
+  // watched `store/` reappear with a database, a cache and a sessions
+  // directory). That is the collision the rollback's `mv` then nests into. The
+  // blank store is built in a sibling — same filesystem, so the move into place
+  // is one atomic rename — and the window is now two renames wide instead of a
+  // whole `install`.
+  //
+  // The cold and resume arms park nothing, so they install straight at the
+  // landing place and skip all of this.
+  const parking = final.parks.length > 0;
+  const installTarget = parking ? freeTempStore(final.storeDir) : landing;
 
-  // ── the blank store, through `install` and nothing else ───────────────────
   io.out("");
-  io.out("Creating the blank store. This is 'counterparts install', run for you:");
+  io.out(
+    parking
+      ? "Building the blank store beside your memory first, so that nothing is moved until"
+      : "Creating the blank store. This is 'counterparts install', run for you:",
+  );
+  if (parking) {
+    io.out("there is a store ready to take its place. This is 'counterparts install':");
+  }
   io.out("");
-  const installFlags: Record<string, string | boolean | undefined> = {};
-  // THE PATH IS PINNED, ALWAYS. `installLayout` reads COUNTERPARTS_DATA_DIR when
-  // no `--dir` is given, and QUICKSTART §3 teaches people to export it — so a
-  // shell with a decoy in it would have created the blank store somewhere else
-  // and left the configuration pointing at a directory that is not there.
-  if (final.storeDir.length > 0) installFlags["dir"] = final.storeDir;
+  const installFlags: Record<string, string | boolean | undefined> = { dir: installTarget };
   if (name !== undefined && name.length > 0) installFlags["name"] = name;
-  // THE CEILING THE CONFIGURATION ALREADY CARRIES, handed back to `install`.
-  // The file is KEPT (no `--force`), so this writes nothing — it exists so the
-  // install does not end on its "NO injectionBudgetBytes was written" paragraph,
-  // which is true of a cold start and false here: the number is in the file that
-  // was just kept, and telling the owner to go and add it would send him to edit
-  // a key he already has.
-  const ceiling = host.config.injectionBudgetBytes;
-  if (present && ceiling !== undefined) installFlags["budget"] = String(ceiling);
+  if (ceilingOk) installFlags["budget"] = String(ceiling);
   // WRAPPED, because a THROW here would reach `run()`'s outer catch and print
-  // `start-fresh failed: …` — true, and missing the one sentence that matters
-  // at that moment, which is where the memory went. The rollback lines are
-  // already on the screen; the path has to be beside them.
+  // `start-fresh failed: …` — true, and missing the one sentence that matters.
   let code: number;
   try {
     code = installCommand(
@@ -2536,47 +2693,98 @@ async function startFreshCommand(
   if (code !== EXIT.ok) {
     io.err("");
     io.err(
-      parkedStore === null
-        ? "The install did not complete. Nothing was parked."
-        : `The install did not complete. Your memory is parked at ${parkedStore} and is untouched; ` +
-            "the rollback lines printed earlier are the way back.",
+      "The install did not complete, so NOTHING WAS MOVED — your memory is exactly where it " +
+        `was, at ${final.storeDir.length > 0 ? final.storeDir : landing}.` +
+        (parking ? ` A part-built store may be left at ${installTarget}; it is not yours and nothing reads it.` : ""),
     );
     return code;
   }
 
-  const created = installLayout(
-    final.storeDir.length > 0 ? final.storeDir : undefined,
-    env,
-    home_,
-    custom,
-  ).store;
+  // ── the renames ───────────────────────────────────────────────────────────
+  let parkedStore: string | null = null;
+  if (parking) {
+    io.out("");
+    const outcome = park(final.parks);
+    for (const step of outcome.done) io.out(`  parked ${step.label}: ${step.from} -> ${step.to}`);
+    const store = outcome.done.find((s) => s.label === "store");
+    parkedStore = store === undefined ? null : store.to;
+    if (outcome.failed !== null) {
+      io.err(`failed to park ${outcome.failed.label}: ${outcome.error ?? "no detail"}`);
+      io.err(
+        outcome.done.length === 0
+          ? `Nothing has changed. The blank store built for this run is at ${installTarget}.`
+          : "What is listed above HAS moved; nothing else has, and nothing was deleted.",
+      );
+      printWayBack(io, final, outcome.done.map((s) => s.label), installTarget);
+      return EXIT.failed;
+    }
+
+    // THE ONE REMAINING WINDOW, and what happens if something got into it.
+    // `rename` onto a non-empty directory fails rather than merging, which is
+    // exactly the behaviour wanted: if a hook minted a store here in the last
+    // two syscalls, this REFUSES and names all three directories rather than
+    // burying one inside another.
+    try {
+      renameSync(installTarget, final.storeDir);
+    } catch (err) {
+      io.err("");
+      io.err(
+        `the blank store could not be moved into place: ${String((err as Error).message ?? err)}`,
+      );
+      io.err(
+        `Something appeared at ${final.storeDir} between the rename and this step — a hook or a ` +
+          "worker that was still running is the likely one. NOTHING WAS DELETED and nothing was " +
+          "merged. Exactly three directories exist right now:",
+      );
+      io.err(`  your memory, parked and untouched:  ${parkedStore ?? "(not parked)"}`);
+      io.err(`  whatever appeared at the store path: ${final.storeDir}`);
+      io.err(`  the blank store this run built:      ${installTarget}`);
+      io.err(
+        "Close everything, look at the middle one, and move it aside by hand; then either move " +
+          "the blank store into place or put your memory back with the lines below.",
+      );
+      printWayBack(io, final, ["store"], installTarget);
+      return EXIT.failed;
+    }
+  }
+
+  const created = parking ? final.storeDir : installTarget;
 
   // ── the record the new store keeps of its own beginning ───────────────────
   //
-  // Box 2's meta table, which is this store's general-purpose key space and
-  // already holds per-id counters of exactly this character. NOT a memory, not
-  // an identity element, not a durable event: it is one fact about the host's
-  // arrangement, and `status` is where the owner reads it back.
-  const previous =
-    parkedStore ?? (final.alreadyParked.length > 0 ? (final.alreadyParked.at(-1) ?? null) : null);
-  try {
-    const store = Store.open({ dir: created });
+  // Box 2's meta table, which is this store's general-purpose key space. NOT a
+  // memory, not an identity element, not a durable event.
+  //
+  // WRITTEN ONLY WHEN THIS RUN MADE THE STORE (review B1). Stamping "began on"
+  // into a store that was already there is a falsehood on a surface the owner
+  // reads and cannot unset from the console.
+  //
+  // AND THE PREVIOUS STORE IS NAMED ONLY WHEN IT IS KNOWN (review M4). The
+  // resume arm used to take the newest parked NAME, which on a machine where a
+  // hook had minted a half store was `…-2` — an empty shell — while the real
+  // memory sat in the directory before it. More than one candidate now means
+  // the record says nothing and the output lists them all.
+  const previous = parkedStore ?? soleParked(final);
+  if (parking || final.shape === "resume" || !sight(created).symlink) {
     try {
-      const entries: [string, string][] = [
-        [STORE_STARTED_KEY, final.date],
-        [STORE_STARTED_BY_KEY, "start-fresh"],
-      ];
-      if (previous !== null) entries.push([STORE_PREVIOUS_PARKED_KEY, previous]);
-      store.setMetaMany(entries);
-    } finally {
-      store.close();
+      const store = Store.open({ dir: created });
+      try {
+        const entries: [string, string][] = [
+          [STORE_STARTED_KEY, final.date],
+          [STORE_STARTED_BY_KEY, "start-fresh"],
+        ];
+        if (previous !== null) entries.push([STORE_PREVIOUS_PARKED_KEY, previous]);
+        store.setMetaMany(entries);
+      } finally {
+        store.close();
+      }
+    } catch (err) {
+      // A record that would not write must not undo a cut-over that worked.
+      io.err(
+        `  (could not record this store's beginning: ${String((err as Error).message ?? err)} — the ` +
+          "store itself is fine, and `status` will simply not mention the date.)",
+      );
     }
-  } catch (err) {
-    // A record that would not write must not undo a cut-over that worked.
-    io.err(
-      `  (could not record this store's beginning: ${String((err as Error).message ?? err)} — the ` +
-        "store itself is fine, and `status` will simply not mention the date.)",
-    );
   }
 
   // ── what to do next ───────────────────────────────────────────────────────
@@ -2585,9 +2793,7 @@ async function startFreshCommand(
   io.out("");
   // WHAT THIS COMMAND KNOWS, AND WHAT IT DOES NOT. It never reads
   // `~/.claude/…` — `install` prints the host's two steps and refuses to touch
-  // them, and this inherits that. So it cannot say what the MCP server was
-  // actually registered with; what it CAN say is that the path did not move,
-  // and name the one command that answers the other half.
+  // them, and this inherits that.
   io.out(`  1. Probably nothing to re-register. Your store is still at`);
   io.out(`       ${created}`);
   io.out("     — the blank one is at the same path the old one was, and this command");
@@ -2602,14 +2808,14 @@ async function startFreshCommand(
   if (previous !== null) {
     io.out(`  3. Your previous memory is at:`);
     io.out(`       ${previous}`);
-    io.out("     It was never opened, never copied and never deleted. To go back, run the");
-    io.out("     rollback lines printed above and restart Claude Code again.");
+    io.out("     It was never opened, never copied and never deleted.");
+    io.out(`     To go back:  ${BIN.cli} start-fresh --undo${custom === undefined ? "" : ` ${CONFIG_FLAG} ${configPath}`}`);
+  } else if (final.alreadyParked.length > 1) {
+    io.out(`  3. There is more than one parked store beside this one, and nothing here can`);
+    io.out("     tell which of them holds your memory, so the record says nothing rather");
+    io.out("     than guessing. They are:");
+    for (const p of final.alreadyParked) io.out(`       ${p}`);
   }
-  // `install` prints the seeded line only when it SEEDED. So a plain
-  // `start-fresh` leaves a store with no identity core and nothing on screen
-  // about it — and the wake, in `init`'s own words, has nothing to be about
-  // without one. Said here, in `init`'s sentence, rather than left to be
-  // discovered at the first session.
   if (name === undefined || name.length === 0) {
     io.out("");
     io.out("  The new store has NO identity core: nothing else gives a store one, and the");
@@ -2618,9 +2824,199 @@ async function startFreshCommand(
     io.out(`    ${BIN.cli} init --dir ${created} --name "<your name>"`);
     io.out("  Or pass --name to this command next time.");
   }
+  // THE WAY BACK, AS IT ACTUALLY STANDS (review M2). The block above the
+  // confirmation was printed from the plan that was READ; this one is printed
+  // from the plan that RAN, after it ran, so the two can never disagree.
+  printWayBack(io, final, ["store", "snapshots"], null);
   io.out("");
   io.out(`Then: ${BIN.cli} status --dir ${created}`);
   return EXIT.ok;
+}
+
+/**
+ * `start-fresh --undo` — put the parked store back.
+ *
+ * The same discipline as the forward direction, and for the same reason: one
+ * `rename` per directory, nothing copied, nothing deleted, nothing opened that
+ * belongs to the parked store. The blank store is PARKED rather than removed,
+ * so an undo of an undo is a rename too.
+ *
+ * WHICH parked store it puts back is read from the record the forward run left
+ * in the store that is there now (`store.previous.parked`) — the one directory
+ * that run actually moved. When that cannot be had, `planUndo` falls back to
+ * the siblings on disk and refuses when there is more than one, because
+ * guessing the newest NAME is exactly how the review found an empty shell being
+ * named as somebody's memory.
+ */
+async function startFreshUndo(
+  parsed: Parsed,
+  io: Io,
+  configPath: string,
+  configPresent: boolean,
+  dataDir: string | undefined,
+  now: () => number,
+): Promise<number> {
+  if (!configPresent || dataDir === undefined || dataDir.trim().length === 0) {
+    io.err(
+      `refused: ${configPath} ${configPresent ? 'names no "dataDir"' : "is not there"}, so there is ` +
+        "no way to know which store to put one back at.",
+    );
+    return EXIT.refused;
+  }
+  const storeDir = resolve(dataDir.trim());
+
+  // The record, from the store that is there NOW. This store is the one this
+  // build made, so opening it is ordinary — and a failure to open it is not a
+  // reason to refuse, only a reason to fall back to the siblings on disk.
+  let recorded: string | null = null;
+  try {
+    const store = Store.open({ dir: storeDir, observer: true });
+    try {
+      recorded = store.getMeta(STORE_PREVIOUS_PARKED_KEY) ?? null;
+    } finally {
+      store.close();
+    }
+  } catch {
+    recorded = null;
+  }
+
+  const plan = planUndo({ storeDir, parked: recorded, now: now() });
+  io.out(`${BIN.cli} start-fresh --undo — put the parked store back.`);
+  io.out("Nothing is deleted, and the parked store is never opened.");
+  io.out("");
+  for (const line of undoLines(plan)) io.out(line);
+  if (plan.refusal !== null) {
+    io.out("");
+    for (const line of plan.refusal.split("\n")) io.err(line);
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+
+  // EVERY DESTINATION, CHECKED BEFORE THE FIRST MOVE — against the ground AS IT
+  // WILL BE when that step runs, not as it is now. Step 1 parks the blank store,
+  // which is precisely what frees the path step 2 needs; a check that read the
+  // directory as it stands would refuse its own plan. So a destination is only a
+  // problem when nothing earlier in the plan is about to vacate it.
+  const vacated = new Set<string>();
+  for (const step of plan.steps) {
+    if (existsSync(step.to) && !vacated.has(step.to)) {
+      io.out("");
+      io.err(
+        `refused: ${step.to} already exists, so putting ${step.from} back there would either ` +
+          "fail or, with a bare `mv`, nest one directory inside the other. Move it aside by hand " +
+          "and run this again. Nothing has changed.",
+      );
+      return EXIT.refused;
+    }
+    vacated.add(step.from);
+  }
+
+  if (parsed.flags["dry-run"] === true) {
+    io.out("");
+    io.out("Dry run. Nothing has been moved.");
+    return EXIT.ok;
+  }
+  if (parsed.flags["yes"] !== true) {
+    if (io.prompt === undefined) {
+      io.err("");
+      io.err("refused: this is not an interactive console and nothing was confirmed. Pass --yes.");
+      io.err("Nothing has changed.");
+      return EXIT.refused;
+    }
+    io.out("");
+    io.out("Close every Claude Code session and every dashboard first — the same reason as");
+    io.out("before: a rename does not break a file handle.");
+    const answer = (await io.prompt(`Type the store's name to go ahead [${basename(storeDir)}]: `)).trim();
+    if (answer !== basename(storeDir)) {
+      io.err("refused: the confirmation did not match. Nothing has changed.");
+      return EXIT.refused;
+    }
+  }
+
+  io.out("");
+  const outcome = park(plan.steps.map((st) => ({ label: st.label, from: st.from, to: st.to })));
+  for (const step of outcome.done) io.out(`  moved ${step.label}: ${step.from} -> ${step.to}`);
+  if (outcome.failed !== null) {
+    io.err(`failed to move ${outcome.failed.label}: ${outcome.error ?? "no detail"}`);
+    io.err("What is listed above HAS moved; nothing else has, and nothing was deleted.");
+    return EXIT.failed;
+  }
+  io.out("");
+  io.out("Done. Your memory is back at:");
+  io.out(`  ${storeDir}`);
+  if (plan.preRows) {
+    io.out("");
+    io.out("  IT IS AN OLD-FLOOR STORE, so this build cannot open it. The checkout has to");
+    io.out("  go back too, or every session will stand down against it:");
+    io.out(`    tools/deploy-checkout.sh --repo <your checkout> --ref ${PRE_ROWS_READABLE_BY}`);
+  }
+  io.out("");
+  io.out("Restart Claude Code: the sessions that are open still hold the other store.");
+  return EXIT.ok;
+}
+
+/**
+ * A free `store.new-<pid>` beside the store — the sibling the blank store is
+ * built in before it is moved into place. A sibling, so the move is one atomic
+ * rename on one filesystem.
+ */
+function freeTempStore(storeDir: string): string {
+  const base = `${storeDir}.new-${String(process.pid)}`;
+  if (!existsSync(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    if (!existsSync(`${base}-${String(n)}`)) return `${base}-${String(n)}`;
+  }
+  throw new Error(`no free temporary name beside ${storeDir}`);
+}
+
+/** What changed between the plan that was read and the plan that would run, or
+ *  null when they are the same set of renames. */
+function parksDiffer(before: readonly ParkStep[], after: readonly ParkStep[]): string | null {
+  if (before.length !== after.length) {
+    return `there ${after.length === 1 ? "is" : "are"} now ${String(after.length)} thing(s) to move, not ${String(before.length)}`;
+  }
+  for (let i = 0; i < before.length; i += 1) {
+    const a = before[i];
+    const b = after[i];
+    if (a === undefined || b === undefined) continue;
+    if (a.from !== b.from) return `${a.label} would now be moved from ${b.from}, not ${a.from}`;
+    if (a.to !== b.to) return `${a.label} would now be parked at ${b.to}, not ${a.to}`;
+  }
+  return null;
+}
+
+/** The one parked sibling, or null when there is none or more than one. */
+function soleParked(plan: StartFreshPlan): string | null {
+  return plan.alreadyParked.length === 1 ? (plan.alreadyParked[0] ?? null) : null;
+}
+
+/**
+ * The way back, printed from the plan that RAN — after the renames, and in
+ * every branch that stops partway (review M2, n1).
+ *
+ * `done` is the labels that actually moved, so a run that parked snapshots and
+ * failed on the store does not print a line whose source does not exist.
+ */
+function printWayBack(
+  io: Io,
+  plan: StartFreshPlan,
+  done: readonly string[],
+  tempStore: string | null,
+): void {
+  const moved = plan.parks.filter((p) => done.includes(p.label));
+  if (moved.length === 0 && tempStore === null) return;
+  io.out("");
+  io.out("The way back, as it actually stands now — each line refuses rather than moving");
+  io.out("one directory inside another:");
+  const storeBack = moved.some((m) => m.label === "store");
+  if (storeBack && sight(plan.storeDir).present) {
+    io.out(guardedMove(plan.storeDir, parkedPath(plan.storeDir, BLANK_INFIX, plan.date)));
+  }
+  for (const step of [...moved].reverse()) io.out(guardedMove(step.to, step.from));
+  if (tempStore !== null && existsSync(tempStore)) {
+    io.out(`  # the part-built store from this run, yours to remove: ${tempStore}`);
+  }
+  io.out(`  (or: ${BIN.cli} start-fresh --undo)`);
 }
 
 /**
