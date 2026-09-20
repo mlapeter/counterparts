@@ -861,3 +861,34 @@ available from the `Store` API. So the word is gone, from the code, the block an
 contract, and what is asserted instead is the property that is real: the cut is
 deterministic, which is what §1 G3 asks for. A tie-break on insertion order would need
 `store/` to expose one, and that is a real ask rather than a fix to make here.
+
+## 18. What the floor (F5) changed underneath the writer, measured rather than assumed (2026-09-20)
+
+Merged `origin/master` at `3f6a6eb` — bodies, versions and the journal are rows in
+`counterparts.sqlite` now. The merge was clean; one test needed rewriting, because it was
+the one place in this file that still knew a body was a file. Three interactions were
+checked by running them, and all three came out needing no change to the mechanism:
+
+**A body the new floor refuses never reaches it.** `put`/`revise` now refuse whitespace-only
+and NUL-only bodies (`store/prose.ts#bodyForStorage`) and a throw out of `revisePage` would
+break the one guarantee this path makes — every call returns a reason and leaves a row.
+Measured: `""` is refused `empty` by `self/`'s own check, and `"   "` and `"\0\0\0"` are
+both refused `gate-refused (content-empty)` by the battery, which sits in front of the
+store. The store never sees any of them.
+
+**A FAULTED page row does not reach the writer, because it does not reach anything.** F5's
+fault state — `body = ''` with the content hash still naming the words that were there — is
+raised by `Schemas.load`, which reads every schema row at open. Measured: `Counterpart.open`
+throws, so the session stands down and doctor reads RED naming the id. There is no wake for
+the writer to fail and no boundary for it to break. That is the S1 review's MAJOR-1 carried
+onto the new floor, and it is still `schemas/`'s to answer rather than this mechanism's.
+
+**A TOMBSTONED page row cannot be made.** `planRemoval` refuses the page row by name
+(`is-the-self-page`, S1) and the destruction seam under it refuses an id with no dark
+removal record first — measured, `chaseRemoved` throws `REMOVAL_NOT_DARK`. So the state
+`Schemas.load` skips is unreachable for this row, which is why the writer carries no special
+case for it. **If either of those doors ever opens**, the hazard to look at first is that
+`findPageRow` skips a row whose body will not read, so `revisePage` would mint a SECOND page
+row beside the damaged one and break S1's one-row invariant. It is filed rather than guarded
+because today nothing can get there, and a guard against an unreachable state is a guard
+nobody can test.

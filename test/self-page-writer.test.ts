@@ -38,6 +38,7 @@ import {
   SELF_TUNABLES,
   dayBefore,
   dayMemories,
+  findPageRow,
   hasDayBefore,
   lastPageWriterRun,
   pageWriterAbout,
@@ -69,6 +70,8 @@ import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { readSession, recordSession } from "../src/adapters/sessions.js";
+import { makeBodyUnreadable } from "./store-fixture.js";
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 import { dateOf } from "../src/core/store/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -499,9 +502,11 @@ describe("what the writer reads", () => {
     const c = counterpart();
     const about = pageWriterAbout(c.store.today());
     const ids = seedYesterday(c, ["Readable placeholder.", "About to become unreadable."]);
-    const gone = ids[1] as string;
-    const path = c.store.absolutePath(c.store.row(gone)?.prose_path ?? "");
-    rmSync(path, { force: true });
+    // On the floor F5 laid there is no file to remove: a body is a column, and
+    // `body = ''` with the hash still naming the words that were there is the
+    // FAULT the store answers `MEMORY_BODY_MISSING` for. The fixture owns that
+    // one piece of layout knowledge so this file does not have to.
+    makeBodyUnreadable(c.store, ids[1] as string);
     const built = c.pageWriterInput({ about });
     expect(built.memories.map((m) => m.statement)).toEqual(["Readable placeholder."]);
   });
@@ -1154,6 +1159,54 @@ describe("the surfaces that report it", () => {
     // between the claim and the record is how.
     expect(status.outcome).toBe("failed");
     expect(status.derived).toBe(true);
+  });
+});
+
+// ── the floor underneath it (F5) ─────────────────────────────────────────────
+
+describe("on the floor F5 laid", () => {
+  test("a body the new floor would REFUSE is a named refusal here, never a throw", () => {
+    const c = counterpart();
+    // `store.put`/`revise` refuse whitespace-only and NUL-only bodies now
+    // (`store/prose.ts#bodyForStorage`), and a throw out of `revisePage` would
+    // break the one guarantee this path makes: every call returns a reason and
+    // leaves a row. Measured: all three are stopped before the store sees them.
+    for (const body of ["", "   \n\t  ", "\0\0\0"]) {
+      const r = c.revisePage(body, { reason: "probe", by: "writer" });
+      expect(r.written, JSON.stringify(body)).toBe(false);
+      expect(["empty", "gate-refused"], JSON.stringify(body)).toContain(r.reason);
+    }
+    expect(c.selfPage()).toBeNull();
+    expect(pageWriterRuns(c.store)).toEqual([]);
+  });
+
+  test("a FAULTED page row never reaches the writer: the store does not open at all", () => {
+    const c = counterpart();
+    c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
+    const id = findPageRow(c.store) as string;
+    expect(id).not.toBeNull();
+    // `body = ''` with the hash still naming the words that were there is F5's
+    // named fault, `MEMORY_BODY_MISSING`. `Schemas.load` reads every schema row
+    // at open and raises on it, so the session stands down and doctor reads RED
+    // naming the id — the S1 review's MAJOR-1, carried onto the new floor and
+    // still `schemas/`'s to answer rather than this mechanism's.
+    makeBodyUnreadable(c.store, id);
+    c.close();
+    expect(() => Counterpart.open({ dir, owner: true, budgetBytes: BUDGET_BYTES })).toThrow();
+    // The consequence that matters here: there is no wake for the writer to
+    // fail and no boundary for it to break, because nothing gets that far.
+  });
+
+  test("a TOMBSTONED page row cannot be made: the seam refuses it", () => {
+    const c = counterpart();
+    c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
+    const id = findPageRow(c.store) as string;
+    // `planRemoval` refuses the page row by name (`is-the-self-page`, S1), and
+    // the destruction seam under it refuses an id with no dark removal record.
+    // So the state `Schemas.load` skips is unreachable for THIS row, which is
+    // why the writer needs no special case for it.
+    expect(() => chaseRemoved(c.store, id)).toThrow();
+    expect(findPageRow(c.store)).toBe(id);
   });
 });
 
