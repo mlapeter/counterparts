@@ -920,3 +920,61 @@ export function applyPreface(text: string, preface: string): PrefacedBundle {
     applied: true,
   };
 }
+
+/**
+ * Splice a block in at the FOOT of the wake block, above the tail sentinel, and
+ * re-solve the byte fixed point so both comment lines state the delivered total
+ * — `applyPreface`'s mechanism, pointed at the other end of the bundle.
+ *
+ * It exists for the per-directory handoff pointer (E1), which is a delivery-time
+ * fact for exactly the reason the preface is: ONE bundle is published per store
+ * at a boundary and read by sessions in every directory, so which directory this
+ * session opened in cannot be known when the body is composed. The pointer is
+ * FURNITURE — no `- ` bullet, no lane — so `counts` and the sentinel's
+ * `elements=` stay true of a bundle that carries it, exactly as they stay true
+ * of one carrying the page or the day-0 line.
+ *
+ * At the foot rather than the head because a handoff is the last thing that
+ * happened here and the first thing to pick up, and because the preface's own
+ * place above the body is a claim about the WHOLE bundle that a second line
+ * there would blunt.
+ *
+ * A bundle that is not a well-formed render is returned UNTOUCHED, for
+ * `applyPreface`'s reason: rewriting the byte count of a damaged bundle erases
+ * the damage the sentinel exists to show.
+ */
+export function spliceBeforeSentinel(text: string, block: string): PrefacedBundle {
+  const lines = text.split("\n");
+  const open = lines[0] ?? "";
+  const tail = lines[lines.length - 1] ?? "";
+  if (lines.length < 2 || !OPEN_RE.test(open) || !SENTINEL_RE.test(tail) || block.length === 0) {
+    return {
+      text,
+      bytes: byteLength(text),
+      sentinel: SENTINEL_RE.test(tail) ? tail : null,
+      applied: false,
+    };
+  }
+  const body = lines.slice(1, -1);
+  // `compose` already pushes a blank line before the sentinel, so the separator
+  // is added only when this bundle does not have one — a doubled blank line is
+  // not wrong, but it costs bytes the reserve measured for one.
+  const gap = body[body.length - 1] === "" ? [] : [""];
+  const build = (stated: string): string[] => [
+    open.replace(BYTES_FIELD, `bytes=${stated}`),
+    ...body,
+    ...gap,
+    block,
+    "",
+    tail.replace(BYTES_FIELD, `bytes=${stated}`),
+  ];
+  const skeleton = byteLength(build("").join("\n"));
+  const composed = build(String(fixedPointTotal(skeleton, 2)));
+  const out = composed.join("\n");
+  return {
+    text: out,
+    bytes: byteLength(out),
+    sentinel: composed[composed.length - 1] ?? null,
+    applied: true,
+  };
+}

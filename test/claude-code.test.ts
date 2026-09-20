@@ -3875,7 +3875,30 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     expect(text.split("\n").length).toBeLessThanOrEqual(6);
     // Shorter than the PAIR it replaces (~1,080 bytes across two texts), and
     // asked far less often — the point of the budget is the blocked moment.
-    expect(text.length).toBeLessThan(1_050);
+    //
+    // RAISED 1,050 → 1,300 on 2026-09-20 (E1), and the raise is the honest half
+    // of the change: the handoff is a FIELD on the `session_end` call item 1
+    // already names, so it is still ONE ask and one pacer, but it is a third
+    // thing to say and it cost 187 characters. The owner's general rule is that
+    // a cap found cutting something off is reconsidered rather than worked
+    // around (spec §15 item 2); this one had 46 characters of headroom, so it
+    // was going to be the next line's problem whatever that line was. The
+    // properties the number defends — one screen, four numbered items at most,
+    // read at every blocked Stop — are the assertions above it, not this bound.
+    expect(text.length).toBeLessThan(1_300);
+  });
+
+  test("the handoff is a FIELD on the call item 1 already names — not a third tool", () => {
+    // §13 G3's scar is that the blocked moment carries a SINGLE ask. A field is
+    // not an ask: there is one pacer (`askAtStop` → `episodeAsk`), one text, and
+    // the handoff names no tool of its own.
+    const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
+    expect(text).toContain("`handoff`");
+    expect(text).toContain("that same session_end call");
+    expect(text).toContain("Not a memory");
+    // Exactly three numbered items, and no fourth tool named.
+    expect(text.match(/^\d\. /gm)?.length).toBe(3);
+    expect(text).not.toContain("handoff tool");
   });
 
   test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {

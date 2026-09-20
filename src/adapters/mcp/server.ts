@@ -1072,9 +1072,18 @@ export class McpServer {
     const bound = this.requireBoundSession(args["session"], "session_end");
     if (bound !== null) return bound;
 
+    // THE HANDOFF FIRST, and before the memories check on purpose (E1). It is a
+    // FIELD on this call and not one of the entries, so a dump whose `memories`
+    // array is malformed must not also throw away the one line telling the next
+    // session in this directory where the work stands. The outcome rides out on
+    // the refusal too, so nothing is lost silently either way.
+    const handoff = this.writeHandoffField(args["handoff"]);
+
     const raw = args["memories"];
     if (!Array.isArray(raw) || raw.length === 0) {
-      return this.refuse("session_end", "memories-required", {});
+      return this.refuse("session_end", "memories-required", {
+        ...(handoff === null ? {} : { handoff }),
+      });
     }
     const session = this.session as string;
     const entries: Record<string, unknown>[] = [];
@@ -1130,6 +1139,7 @@ export class McpServer {
       entries: entries.length,
       deposited,
       refused: entries.length - deposited,
+      handoff: handoff === null ? false : handoff["written"] === true,
     });
     return this.result(
       {
@@ -1138,9 +1148,73 @@ export class McpServer {
         deposited,
         refused: entries.length - deposited,
         outcomes,
+        ...(handoff === null ? {} : { handoff }),
       },
       deposited === 0,
     );
+  }
+
+  /**
+   * The optional `handoff` field, written or refused, as the shape the tool
+   * result carries back. Null when the caller passed none — which is the
+   * ordinary case, and says nothing about this directory either way.
+   *
+   * **Three answers, and only the first is silence.**
+   *
+   *   - **Absent** — the ordinary case. Nothing is written and nothing is said:
+   *     leaving the field out means "leave what stands", which is right.
+   *   - **Present and blank** — `handoff: ""` or `"   "`. This is a CLEAR. It is
+   *     the shape a model reaches for when it means "the work here is finished",
+   *     and until 2026-09-20 it was total silence while the stale pointer stood
+   *     (adversarial review MAJOR-2b). It retires the directory's pointer and
+   *     leaves a durable row.
+   *   - **Present and not a string** — a named, durable refusal, because a
+   *     caller that sent the wrong type wants to know rather than to be ignored.
+   *
+   * The NO-SCOPE REFUSAL IS NOW DURABLE, which is what MAJOR-2a was: the
+   * short-circuit that used to live here emitted a ring-only event and wrote no
+   * row, so guarantee 3 was false on the only live door. The rule is asked in
+   * two places on purpose and they are not duplicates — `handoff/` refuses an
+   * empty scope and a scope that IS the store's directory, as a belt no caller
+   * can get past; this file asks `sameScope`, which canonicalises (`/var` →
+   * `/private/var` on this host), because it is the side that has the
+   * canonicaliser and knows what `scopeSource` said. Either way the durable row
+   * is written by `handoff/`, which owns guarantee 3.
+   */
+  private writeHandoffField(raw: unknown): Record<string, unknown> | null {
+    if (raw === undefined || raw === null) return null;
+    let out: ReturnType<Counterpart["writeHandoff"]>;
+    try {
+      if (typeof raw !== "string") {
+        out = this.counterpart.refuseHandoff("not-text", { session: this.session });
+      } else if (
+        this.scopeSource === "store" ||
+        sameScope(this.scope, this.counterpart.store.dir)
+      ) {
+        out = this.counterpart.refuseHandoff("no-scope", { session: this.session });
+      } else if (raw.trim().length === 0) {
+        out = this.counterpart.clearHandoff({ scope: this.scope, session: this.session });
+      } else {
+        out = this.counterpart.writeHandoff(raw, { scope: this.scope, session: this.session });
+      }
+    } catch (err) {
+      return { written: false, reason: "threw", detail: String((err as Error).message ?? err) };
+    }
+    this.emit("mcp.handoff", out.id ?? undefined, {
+      written: out.written,
+      reason: out.reason,
+      bytes: out.bytes,
+    });
+    return {
+      written: out.written,
+      reason: out.reason,
+      ...(out.id === null ? {} : { id: out.id }),
+      bytes: out.bytes,
+      ...(out.version === null ? {} : { version: out.version }),
+      ...(out.gate === null ? {} : { gate: out.gate }),
+      ...(out.redacted === null ? {} : { redacted: true }),
+      ...(out.showsForDays === null ? {} : { showsForDays: out.showsForDays }),
+    };
   }
 
   /**

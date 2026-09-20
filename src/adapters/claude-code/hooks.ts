@@ -378,14 +378,33 @@ export const SCOPE_PATIENCE_DEFERRALS = 1;
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    "Before this session closes, two things, both yours to write:",
+    "Before this session closes, two things, both yours to write — and a third only if you are leaving work unfinished here:",
     `1. What did you LEARN here that is worth keeping? Your own words, one idea per memory, the way you would want to find it again. Hand them back with the counterparts session_end tool, session: ${sessionId}. \`updates\` is a FIELD on an entry (and on note), never prose: the id of the memory that entry revises. Set \`salience\` (0-1) on anything that should last: unset entries take a modest default, and your claim is the only way what you lived outranks what a sweep noticed.`,
     chapter === 1
       ? `2. Write this session's episode with the counterparts chapter tool, session: ${sessionId} — first person, your voice, any length: what happened and what mattered, how it felt, what you learned about them and about yourself, what is still open. For the next you, not a report; append in the moment when something happens later.`
       : `2. Add chapter ${String(chapter)} to this session's episode with the counterparts chapter tool, session: ${sessionId} — this stretch, in the moment, in your own voice. Not a recap of the earlier chapters.`,
+    HANDOFF_LINE,
     "Nothing worth keeping is a real answer, and a short true episode beats a manufactured deep one.",
   ].join("\n");
 }
+
+/**
+ * THE THIRD LINE, AND STILL ONE ASK (E1). The handoff is a FIELD on the
+ * `session_end` call the line above already names — not a third tool, not a
+ * second moment, and not a second pacer: the whole of §13 G3's scar is that the
+ * blocked moment carries a single ask, and a field is not an ask.
+ *
+ * It is numbered `3.` rather than folded into item 1 because item 1 is about
+ * MEMORIES — what will still be true next week — and a handoff is the opposite
+ * claim: what is true only for the next fortnight, in this directory. Reading
+ * them as one sentence is what would produce handoffs filed as memories.
+ *
+ * Short on purpose, and deliberately conditional in its own words ("if you are
+ * leaving anything unfinished"): a session that finished what it started should
+ * leave no pointer, and the ask should not push one out of politeness.
+ */
+export const HANDOFF_LINE =
+  "3. Set `handoff` on that same session_end call: where this directory stands and what to pick up next. Not a memory — the next session HERE sees a line of it, and it expires.";
 
 const EVENT_RING = 500;
 
@@ -554,9 +573,16 @@ export class ClaudeCodeAdapter {
       // date is the HOST's — this hook is the only place that has it — and
       // nothing in the line varies between two sessions of the same day, so the
       // delivery expectation below stays a stable string (§2.3).
-      const woke = this.counterpart.wake(budget, {
-        ...(input.at === undefined ? {} : { date: input.at }),
-      });
+      // WHERE this session woke rides beside WHEN (E1). The published bundle is
+      // one per store and is read by sessions in every directory, so which
+      // directory this one opened in is a delivery-time fact exactly as the date
+      // is — and it is the only thing that can decide whose handoff pointer,
+      // if any, belongs at the foot of this wake.
+      const woke = this.counterpart.wake(
+        budget,
+        { ...(input.at === undefined ? {} : { date: input.at }) },
+        { scope: input.scope, session: input.sessionId.length === 0 ? null : input.sessionId },
+      );
       // THE EXPECTATION, WRITTEN WHERE THE NEXT PROCESS CAN READ IT. This used
       // to be a `Map` on this instance, which is a line that only looks like it
       // works: every hook is its own process, so the hook that tests it always

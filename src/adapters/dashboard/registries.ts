@@ -74,6 +74,14 @@ import {
   SELF_PAGE_REVISED_EVENT,
   SELF_PAGE_WRITER_EVENT,
 } from "../../core/self/index.js";
+// The per-directory handoff's four, from `handoff/` itself (2026-09-20, E1):
+// working context for a place is not a memory, so its rows are its own.
+import {
+  HANDOFF_CLEARED_EVENT,
+  HANDOFF_REFUSED_EVENT,
+  HANDOFF_SHOWN_EVENT,
+  HANDOFF_WRITTEN_EVENT,
+} from "../../core/handoff/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -130,6 +138,10 @@ export type DurableEventName =
   | typeof SELF_PAGE_REVISED_EVENT
   | typeof SELF_PAGE_REFUSED_EVENT
   | typeof SELF_PAGE_WRITER_EVENT
+  | typeof HANDOFF_WRITTEN_EVENT
+  | typeof HANDOFF_SHOWN_EVENT
+  | typeof HANDOFF_REFUSED_EVENT
+  | typeof HANDOFF_CLEARED_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -217,6 +229,14 @@ export const DURABLE_EVENTS = {
   // day it read and had nothing to say about, which is an answer and not a
   // silence.
   "self.page.writer.ran": "the nightly page writer ran (which day it read, in which mode, how many memories it was handed, and whether it revised the page, had nothing to say, was refused or failed)",
+  // The handoff's four (2026-09-20, E1). Written and shown are separate rows
+  // for scar §2.3's reason, one lane along: "we wrote one" is not "a session
+  // was handed one", and a pointer that stops being delivered is exactly the
+  // failure a single row would hide.
+  "handoff.written": "a session left a handoff for the next one in that directory (how big, which version, and how long it will show)",
+  "handoff.shown": "a session opening in that directory was handed the pointer to its handoff (how old it was, and what it cost the wake)",
+  "handoff.cleared": "a session finished the work in a directory and retired its handoff, so the next one there is handed nothing (how big the retired one was, and which version)",
+  "handoff.refused": "a handoff was turned away (past the hard limit, stopped by the gate battery, carrying the wake's own markers, written where no directory was named, sent as something other than text, or — with `no-room` — composed before the wake had room reserved for its pointer)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with

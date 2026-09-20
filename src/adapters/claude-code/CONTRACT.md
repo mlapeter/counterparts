@@ -283,6 +283,19 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     number in the store rather than a guess. The host's re-fire (`stop_hook_active`)
     reaches the adapter as `reFired` and is refused there as well as at delivery: it
     spends no pacing slot, no ask slot, and leaves no row.
+    **THE ASK GAINED A THIRD LINE on 2026-09-20 (E1) and is still ONE ask.** `handoff` is a
+    FIELD on the `session_end` call item 1 already names — no third tool, no second moment,
+    no second pacer — and it is numbered apart from item 1 because item 1 asks for what will
+    still be true next week and a handoff is the opposite claim: what is true only for the
+    next fortnight, in this directory. Reading them as one sentence is what would produce
+    handoffs filed as memories. The text's length bound moved 1,050 -> 1,300 with it; the
+    properties the bound defends — one screen, at most four numbered items, the session id
+    exactly twice — are asserted on their own.
+
+    **AND THE WAKE GAINED A THIRD DELIVERY-TIME FACT.** `sessionStart` passes the session's
+    directory and id to `counterpart.wake(budget, delivery, here)`, beside the date it
+    already passed, because the published bundle is one per store and read in every
+    directory. With no live handoff nothing is passed through and nothing is spliced.
 
 19. **[M] A directory set `off` gets NO OUTPUT AND NO WRITE — because nothing is
     constructed.** The scope registry (`adapters/scopes.ts`,

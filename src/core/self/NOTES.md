@@ -207,6 +207,29 @@ count, and "composed at the last boundary" — and three decisions in it are del
   both the reserve and the preface itself, with a test at the widest plausible day, date and
   store size — two numbers would be v1's lane-cap smell, drifting apart in the dark.
 
+**A second splice joined it on 2026-09-20 (E1), at the other end of the bundle.**
+`spliceBeforeSentinel` is `applyPreface`'s mechanism pointed at the foot: it inserts above
+the tail sentinel, re-solves the same fixed point, and returns a bundle that is not a whole
+render untouched, for the same reason. It exists because the per-directory handoff pointer
+is a delivery-time fact for exactly the reason the preface is — one bundle is published per
+store and read by sessions in every directory, so WHICH directory this session opened in
+cannot be known when the body is composed.
+
+Two things about it belong here rather than in `handoff/`:
+
+- **`self/` does not learn what a directory is.** The block arrives composed, from
+  `core/handoff/`, and is joined to the bundle at `core/counterpart.ts#addHandoffPointer`,
+  which is the one place holding the published bundle, the host's ceiling and the scope.
+  This module's half is the splice and nothing else.
+- **The comment at `briefing.ts:768` was true and is now narrower.** It said the preface is
+  "deliberately not per-session… nothing in it varies between two sessions on the same day,
+  so the delivery expectation stays a stable string". The preface still does not vary. The
+  DELIVERED SENTINEL now can, between two sessions of the same day in different
+  directories, because the pointer changes the byte count. That is safe because the
+  expectation is recorded per session (`hooks.ts#noteWakeExpectation` writes `woke.sentinel`,
+  the delivered one, into that session's own registry record), and it is worth saying out
+  loud because the older sentence reads as a promise it was never making.
+
 ## 11. The day-0 wake names the core, because a wake with no name is not a smaller wake
 
 *2026-09-04/05, overnight. The finding: `docs/LAUNCH-STATUS.md`, round 2 — "Day-0 wake is
@@ -929,3 +952,39 @@ that qualified. It is left out anyway, because it already has a louder and bette
 surface: doctor's Page writer line goes amber after two owed days and names
 `injectionBudgetBytes` in the fix. Two surfaces for one fact, one of them permanent on any
 store with a tight ceiling, is the shape the review was about.
+
+## 20. The page is not embedded — a working default, not a ruling (2026-09-20, landed with E1)
+
+E1's adversarial review asked whether the self page was in the same position as the
+per-directory handoff, which E1 had just excluded from embedding. It was: `missingVectors()`
+held it, and with a sync embedder wired — which the live adapter does — `indexOne` embedded
+it at every `revise`. E1 flagged it rather than fixing it, correctly: a one-line predicate in
+`store/` is not the place to set this module's policy.
+
+**Who decided, said exactly.** The COORDINATING SESSION asked for the exclusion the same
+day, and it landed with E1's PR. **The owner has not ruled on it.** A coordinator's ask is
+never his word, and nothing here is recorded as a ruling that was not one — this is a
+working default in the ordinary sense (CLAUDE.md: decisions are defaults, revisable without
+ceremony), and one line in `store/#noVector` reverses it. It is worth putting to him if the
+page is ever wanted searchable by meaning, because all three reasons below stop being true
+at once in that case.
+
+The three reasons it was asked for, recorded here because they are about the PAGE and not
+about the seam:
+
+1. **A vector buys the page nothing.** `recall/activate.ts#isSelfPage` skips it — the page
+   is delivered whole at every wake and never surfaces in a turn — so nothing the semantic
+   channel ranks could ever deliver it.
+2. **It is the most identity-bearing prose in the store**, up to `PAGE_MAX_BYTES` of it, and
+   embedding sends it to an API for that nothing. Constitution 6: data leaves the machine by
+   the owner's explicit choice, and an indexer that indexes everything is not one.
+3. **It floors the embed backlog.** `unembeddedCount()` is the number `doctor` and the
+   parallel run watch, and its job is to say what is actionable; on a keyless store a page
+   in it never falls out.
+
+The rule is `store/#noVector`, which names `role: "page"` and `role: "handoff"`. The page's
+row keeps its LEXICAL index, so the dashboard's search and the console's `remove` flow still
+find it — neither is a recall path. Nothing retracts a vector a page already has; the one
+door is `counterparts verify --rebuild`, and the measurement is in
+`core/handoff/INTERFACE-GAPS.md` §7. The owner's live store has never had a page written, so
+nothing has been embedded there.
