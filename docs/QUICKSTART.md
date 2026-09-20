@@ -841,8 +841,15 @@ What it does, in order:
    done this already today). **One atomic rename each. It never copies, never
    deletes, and never opens the old store — not even read-only.**
 2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
-3. Leaves `claude-code.json` and `credentials.env` exactly as they were, byte for
-   byte. Your keys, your ceiling, your scopes: untouched.
+3. Leaves `claude-code.json`, `credentials.env` and `scopes.json` exactly as they
+   were, byte for byte. Your keys, your ceiling and your per-directory settings are
+   host wiring, not memory — and leaving `scopes.json` alone is the point: a
+   directory you turned **off** stays off on the new store, rather than quietly
+   starting to record again.
+
+The date in the parked name is **UTC**, like every other date this system writes,
+so an evening run west of Greenwich parks under tomorrow's date. It is a label,
+not a claim about your clock.
 
 Then **restart Claude Code**. There is nothing to re-register: the MCP server is
 registered with `COUNTERPARTS_DATA_DIR=~/.counterparts/store`, and the blank store
@@ -870,6 +877,11 @@ Two more things it will not do:
   the command line is how the wrong store would get moved. Use `--config` to name
   a different configuration.
 - It refuses by name to touch anything under `~/.bansai` or `~/.claude-engram`.
+- It parks the snapshots folder only when that folder is the one this layout owns
+  (`~/.counterparts/snapshots`). A `snapshots.dir` or `snapshots.mirror` you pointed
+  somewhere of your own is **left alone** — it is your directory — and the command
+  says so. The new store's rotation will then see the old store's copies there and
+  count them.
 
 `counterparts status` on the new store will say what day it began on and where the
 previous one is parked.

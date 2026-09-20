@@ -2250,14 +2250,24 @@ async function startFreshCommand(
   // a key he already has.
   const ceiling = host.config.injectionBudgetBytes;
   if (present && ceiling !== undefined) installFlags["budget"] = String(ceiling);
-  const code = installCommand(
-    { command: "install", positional: [], flags: installFlags },
-    io,
-    env,
-    home_,
-    named,
-    { hostSteps: false },
-  );
+  // WRAPPED, because a THROW here would reach `run()`'s outer catch and print
+  // `start-fresh failed: …` — true, and missing the one sentence that matters
+  // at that moment, which is where the memory went. The rollback lines are
+  // already on the screen; the path has to be beside them.
+  let code: number;
+  try {
+    code = installCommand(
+      { command: "install", positional: [], flags: installFlags },
+      io,
+      env,
+      home_,
+      named,
+      { hostSteps: false },
+    );
+  } catch (err) {
+    io.err(`the install failed: ${String((err as Error).message ?? err)}`);
+    code = EXIT.failed;
+  }
   if (code !== EXIT.ok) {
     io.err("");
     io.err(
@@ -2320,6 +2330,19 @@ async function startFreshCommand(
     io.out(`       ${previous}`);
     io.out("     It was never opened, never copied and never deleted. To go back, run the");
     io.out("     rollback lines printed above and restart Claude Code again.");
+  }
+  // `install` prints the seeded line only when it SEEDED. So a plain
+  // `start-fresh` leaves a store with no identity core and nothing on screen
+  // about it — and the wake, in `init`'s own words, has nothing to be about
+  // without one. Said here, in `init`'s sentence, rather than left to be
+  // discovered at the first session.
+  if (name === undefined || name.length === 0) {
+    io.out("");
+    io.out("  The new store has NO identity core: nothing else gives a store one, and the");
+    io.out("  wake has nothing to be about without it. To seed one (it is an ensure, so");
+    io.out("  it only adds the core):");
+    io.out(`    ${BIN.cli} init --dir ${created} --name "<your name>"`);
+    io.out("  Or pass --name to this command next time.");
   }
   io.out("");
   io.out(`Then: ${BIN.cli} status --dir ${created}`);

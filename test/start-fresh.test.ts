@@ -47,7 +47,7 @@ import {
   sight,
 } from "../src/adapters/cli/start-fresh.js";
 import type { ParkStep } from "../src/adapters/cli/start-fresh.js";
-import { Store, dateOf } from "../src/core/store/index.js";
+import { Store, dateOf, storeExists } from "../src/core/store/index.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -351,7 +351,10 @@ describe("start-fresh, end to end", () => {
       }),
     ).toBe(EXIT.ok);
     expect(existsSync(decoy)).toBe(false);
-    expect(existsSync(join(storePath(), "operational.sqlite"))).toBe(true);
+    // `storeExists` is right for the NEW store and wrong for the parked one, which
+    // is the whole distinction this command draws: the new store is on the
+    // running build's floor, so asking for its database BY NAME is honest.
+    expect(storeExists(storePath())).toBe(true);
   });
 
   test("records its own beginning in the new store, and `status` says so", async () => {
@@ -588,7 +591,10 @@ describe("a machine with nothing on it", () => {
     ).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Nothing to park");
     expect(existsSync(configPath())).toBe(true);
-    expect(existsSync(join(storePath(), "operational.sqlite"))).toBe(true);
+    // `storeExists` is right for the NEW store and wrong for the parked one, which
+    // is the whole distinction this command draws: the new store is on the
+    // running build's floor, so asking for its database BY NAME is honest.
+    expect(storeExists(storePath())).toBe(true);
     // Nothing was parked, so nothing claims to have been.
     expect(readdirSync(base()).some((n) => n.includes(PARKED_INFIX))).toBe(false);
   });
@@ -601,7 +607,10 @@ describe("a machine with nothing on it", () => {
       await run(["start-fresh", "--config", configPath(), "--yes"], { io: c.io, env: env(), home }),
     ).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Nothing to park");
-    expect(existsSync(join(storePath(), "operational.sqlite"))).toBe(true);
+    // `storeExists` is right for the NEW store and wrong for the parked one, which
+    // is the whole distinction this command draws: the new store is on the
+    // running build's floor, so asking for its database BY NAME is honest.
+    expect(storeExists(storePath())).toBe(true);
   });
 });
 
@@ -668,7 +677,10 @@ describe("killed between any two steps", () => {
     ).toBe(EXIT.ok);
     expect(text(c.out)).toContain("A previous run was interrupted");
     expect(text(c.out)).toContain(parked);
-    expect(existsSync(join(storePath(), "operational.sqlite"))).toBe(true);
+    // `storeExists` is right for the NEW store and wrong for the parked one, which
+    // is the whole distinction this command draws: the new store is on the
+    // running build's floor, so asking for its database BY NAME is honest.
+    expect(storeExists(storePath())).toBe(true);
     // It finished the job; it did not park anything a second time.
     expect(fingerprint(parked)).toBe(parkedBefore);
     expect(existsSync(`${parked}-2`)).toBe(false);
