@@ -28,7 +28,16 @@ owner owns the data.
   §16 G13 — v1 named this bug: chasing copies first made every span unidentifiable.
 - **Chase every surface, including the derived association graph.** [v1] §16 G14 — an
   erased id left in the learned graph keeps *conducting* activation between its former
-  neighbors.
+  neighbors. **The surfaces on the rows floor are: the row and its versions (blanked in one
+  transaction), the edges, the prospective windows, the gate rows, box 3, both databases'
+  write-ahead logs and freed pages, `remember/`'s span buffer, and — since 2026-09-20 —
+  `journal/`, the episode journal's derived markdown copy.** Each is named in the report at
+  its count, **including at zero**: a surface that is silent when it is empty is the silent
+  partial success below. A copy the chase cannot reach is named under `unchased` with a
+  sentence saying what is still where; a chapter of the counterpart's own journal that
+  merely QUOTES the removed words is named under `leftAlone`, by episode id, the way a spans
+  echo is — nothing failed to be reached, and removing an account of a day is its own
+  decision with its own id.
 - **No silent partial success**, and a contamination scan returns **ids only** — printing
   the matches would re-leak exactly what is being erased. [v1] §16 G15.
 - **Removal targets are restricted to memory-bearing roots.** [v1] §16 G16 — the archive,

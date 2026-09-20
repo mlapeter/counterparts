@@ -316,6 +316,20 @@ proposals and their archive; render and delivery telemetry.
     pruned). It is the OWNER's door: no MCP tool reaches it, because a session that could
     unwrite the page could erase the self between two turns. The owner's `remove` refuses
     the page row by name and points at it.
+19. **[M]** **THE JOURNAL HAS A MARKDOWN COPY, AND IT IS DERIVED, WRITE-ONLY AND
+    DISPOSABLE** (F6, 2026-09-20; owner decision 2 of 2026-09-17 §15 item 9, ruling 2 of
+    2026-09-18). One `.md` per episode under `<store>/journal/<YYYY>/`, rendered by
+    `store/render.ts#renderMarkdown` and by nothing else — as is, no summary, front matter
+    limited to what identifies the episode. Four properties, each asserted: **nothing in
+    `src/` reads a copy back** (the row is the truth); **deleting `journal/` loses nothing**
+    — the next chapter, or the next boundary's bounded backfill, writes it again; **a copy
+    never fails a session** — it cannot throw, and a failure is a durable
+    `journal.copy.failed` row with a reason code while the chapter itself is already
+    committed; **an observer writes neither the file nor the row**. Written atomically
+    (temp beside it, then rename) because `journal/` is backed up and a torn file would
+    ride into every snapshot. *This is the one module in `self/` that treats `Store.dir` as
+    a filesystem root; `remember/spans.ts` is the precedent.* The owner's `remove` chases it
+    as a named surface — see `adapters/cli/CONTRACT.md`.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.

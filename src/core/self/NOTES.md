@@ -694,3 +694,55 @@ has, and it is not this change's to take.
 
 The identity core is deliberately NOT exempted: it could cross on master, and
 exempting it would be the same quiet retention change one row smaller.
+
+## 15. The journal's markdown copy: what the build chose, and what the plan got wrong (2026-09-20, F6)
+
+`docs/plan-step3-the-floor-2026-09-17.md` §1.5 designed this module before the
+floor existed. Four of its choices survived contact with the code and three did
+not; all seven are here so the next reader does not have to diff them.
+
+**Kept from the plan.** A new module called from the chapter door immediately
+after the store write; `journal/<YYYY>/<YYYY-MM-DD>-<episodeId>.md`; whole-file
+rewrite per append; the observer writes nothing; a failure is caught and becomes
+a `journal.copy.failed` row rather than an exception.
+
+**Changed, with the reason.**
+
+1. **One function, not a writer and a deleter.** The plan had a writer; removal
+   needed a deleter; two functions would have expressed one invariant twice.
+   `syncJournalCopy(store, id)` asks the invariant instead — *a file exists
+   exactly when a live episode row does, and holds exactly what that row holds* —
+   so the chapter door's rewrite and the destruction console's removal are the
+   same call, and the thing the tests assert is the sentence rather than two
+   implementations of it.
+2. **Per append, not per session end.** The plan's §7.6 recorded this as
+   undetermined. The code answers it: the episode row is revised on every append
+   (`episodes.ts#appendChapter`), so the file is a whole-file rewrite either way
+   and per-append costs nothing extra while per-session-end loses a crashed
+   session's last chapter.
+3. **No doctor count over seven days.** The plan wanted one; the brief wanted a
+   line only while a failure stands, and the brief is right for the reason
+   `snapshotFindings` states about permanently amber lines. A derived copy that
+   refills itself has no interesting count. `journalCopyFindings` returns **no
+   finding at all** in the ordinary case.
+
+**Two things the plan did not think about, and the reviews did.**
+
+4. **The temp file is a residue surface.** A crashed rename leaves
+   `<final>.md.tmp-<rand>` holding a chapter's words, `journal/` is in the backup
+   set, and so a leak would ride into every snapshot. Hence one filename matcher
+   that finds the final name, an older date's name and a crashed temp
+   (`journalFileEpisodeId`), and a sweep bounded by mtime — bounded for exactly
+   the reason `cli/export.ts`'s temp sweep is: an unbounded one would take a
+   concurrent writer's file between its write and its rename.
+5. **The backfill is bounded twice.** It runs inside a session's Stop hook, so a
+   count (25) *and* a wall clock (250 ms) stop it; what is left is the next
+   boundary's. It fills what is MISSING and does not re-derive what is present —
+   re-rendering every episode to prove nothing had changed would read every body
+   in the store at every boundary.
+
+**What is NOT built, and what would earn it.** There is no repair path from file
+back to row and no reconciler: the file is downstream, and a parser here would
+re-create exactly the two-can-disagree problem the floor deleted `parseProse` to
+end. `[F8: the store CONTRACT's §4 "markdown is an export" line now has a second
+half — the journal also gets a file copy, as a copy.]`
