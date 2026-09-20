@@ -1090,6 +1090,28 @@ from both; a `VACUUM INTO` copy never held it either way. So `backup` and
 not exist while `rmSync` took the words away. The console's removal now ends with
 that checkpoint, on its own connection, reported and never thrown.
 
+**`content_hash`'s preimage got weaker, and where it travels is: nowhere.**
+Scar §2.20 says content-by-reference is only private if the reference cannot be
+inverted, and a 16-hex SHA-256 prefix of a SHORT, LOW-ENTROPY body is guessable
+— so the column is now a weaker reference than the whole-document hash it
+replaced (review B, MINOR-2). It is acceptable because of where it goes, which
+I traced rather than assumed:
+
+- the removal record and the tombstone carry **no hash at all** (§16 G9), which
+  is the one place a hash of a removed memory would matter;
+- `dashboard/web/views.ts` blanks it for confidential rows, and `browse.ts`
+  prints it beside the body the owner is already reading;
+- `store.put`'s emitted `hash` field rides the store's in-memory ring, is
+  relayed into `Counterpart`'s in-memory ring, and stops there: both are capped
+  arrays, neither is persisted, and **`runOnce` is called with no `onEvent` in
+  production** (`bin/runner.ts#main`) — the only caller that passes one is a
+  test. It reaches no durable row and never leaves the machine.
+
+Nothing joins on it either: `sleep/dedup.ts` hashes the body itself rather than
+reading the column, and `remember/`'s content-idempotency ledger hashes
+normalized content and never reads it. If it ever starts riding telemetry that
+lands on disk, this is the note that says to look again.
+
 **`content_hash` is `hashText(body)` now**, one definition across both tables,
 where it used to address the whole serialized document. Two consequences worth
 knowing: two memories differing only in title hash the SAME (which sharpened

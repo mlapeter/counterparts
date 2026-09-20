@@ -697,6 +697,68 @@ describe("the read shape, and markdown as an export", () => {
     expect(s.row(id)?.kind).toBe("fact");
   });
 
+  test("review B, MINOR-5: whitespace-only is EMPTY, at both doors", () => {
+    // `put("")` was refused and `put(" ")` was not, so a memory whose body is
+    // one space could land and render as an empty memory everywhere — the exact
+    // thing closing `revise("")` was for. The MCP `note` door already refused
+    // whitespace-only at its own door; the rule is now the same at every door.
+    const s = store();
+    for (const body of [" ", "   ", "\t\n ", "\u0000", " \u0000 "]) {
+      expect({ body, code: code(() => s.put(mem(body))) }).toEqual({
+        body,
+        code: "PROSE_BODY_INVALID",
+      });
+    }
+    expect(s.list()).toEqual([]);
+    // …and at `revise`, on a memory that really exists.
+    const id = s.put(mem("real words"));
+    for (const body of [" ", "\u0000"]) {
+      expect({ body, code: code(() => s.revise(id, { body })) }).toEqual({
+        body,
+        code: "PROSE_BODY_INVALID",
+      });
+    }
+    expect(s.readProse(id).body).toBe("real words");
+    expect(s.versions(id)).toEqual([]);
+    // Non-vacuous: a body with real words AND surrounding whitespace is fine,
+    // and is stored exactly as given — this is a rule about emptiness, not a
+    // trim.
+    const kept = s.put(mem("  words with space around them  "));
+    expect(s.readProse(kept).body).toBe("  words with space around them  ");
+  });
+
+  test("review B, MINOR-4: a lone surrogate is NORMALISED, so the hash still addresses the body", () => {
+    // The one input that broke the invariant the whole floor leans on. A lone
+    // surrogate round-trips through SQLite as U+FFFD, so a `content_hash`
+    // computed from the original string no longer addressed the row's own body
+    // — and `verify` said nothing about it.
+    //
+    // NORMALISED rather than refused, on purpose: the crash-fallback sweep
+    // truncates transcript text to a budget and can cut a surrogate pair in
+    // half, so refusing would silently drop that memory rather than store it
+    // slightly changed.
+    const s = store();
+    const id = s.put(mem("lead \uD800 alone"));
+    const row = s.row(id);
+    expect(row?.body).toBe("lead \uFFFD alone");
+    // THE INVARIANT, total: the stored hash addresses the stored body.
+    expect(row?.content_hash).toBe(hashText(row?.body ?? ""));
+    expect(hashText(s.readProse(id).body)).toBe(row?.content_hash as string);
+    // …across a revision too.
+    s.revise(id, { body: "trail \uDC00 alone" });
+    const after = s.row(id);
+    expect(after?.body).toBe("trail \uFFFD alone");
+    expect(after?.content_hash).toBe(hashText(after?.body ?? ""));
+    // …and the archived version's own hash addresses its own body.
+    const v = s.versions(id)[0];
+    expect(v?.content_hash).toBe(hashText(v?.body ?? ""));
+    // A WELL-FORMED pair is untouched — normalisation is not a rewrite of
+    // everything, and emoji are the common case.
+    const emoji = s.put(mem("a family: \u{1F468}\u200D\u{1F469}\u200D\u{1F467} and a flag \u{1F1EC}\u{1F1E7}"));
+    expect(s.readProse(emoji).body).toContain("\u{1F468}\u200D\u{1F469}\u200D\u{1F467}");
+    expect(s.row(emoji)?.content_hash).toBe(hashText(s.readProse(emoji).body));
+  });
+
   test("an empty body is refused at `revise` as it is at `put`", () => {
     // `patch.body ?? prior.body` accepts `""` happily, and on this floor that
     // would write the one state no write path may produce.

@@ -127,3 +127,39 @@ export function assertJsonSafe(value: unknown, id: string, path: string): void {
   }
   throw new StoreError("PROSE_META_UNSERIALIZABLE", { id, path, reason: `type-${t}` });
 }
+
+/**
+ * The body as it will be STORED, and the rule for whether it may be stored at
+ * all. One function, both write doors (`put` and `revise`), so the two cannot
+ * come to disagree about what an empty memory is.
+ *
+ * **It NORMALISES rather than refusing** (review B, MINOR-4). A lone surrogate —
+ * `"lead \uD800 alone"` — round-trips through SQLite as U+FFFD, so the
+ * `content_hash` computed in memory from the original string stopped addressing
+ * the row's own body: the one input that broke the invariant the whole floor
+ * leans on, and the one the kill test asserts. Refusing was the other option and
+ * is the wrong one here: the crash-fallback sweep TRUNCATES transcript text to a
+ * budget and can cut a surrogate pair in half, so a refusal would silently drop
+ * that memory rather than store it slightly changed. Normalising keeps the
+ * memory and keeps `hashText(stored) === row.content_hash` total.
+ *
+ * **Whitespace-only is empty** (review B, MINOR-5). `put("")` was refused and
+ * `put(" ")` was not, so a memory whose body is one space could land and render
+ * as an empty memory everywhere — the exact thing closing `revise("")` was for.
+ * The MCP `note` door already refused whitespace-only at its own door; this
+ * makes the rule the same at every door. A NUL-only body goes the same way.
+ */
+export function bodyForStorage(body: unknown, id: string): string {
+  if (typeof body !== "string") {
+    throw new StoreError("PROSE_BODY_INVALID", { id, reason: "not-a-string" });
+  }
+  // The round trip SQLite will perform, performed here first, so the hash is
+  // taken over the bytes that actually land.
+  const stored = Buffer.from(body, "utf8").toString("utf8");
+  // `\0` is whitespace to nobody, so it is named rather than trimmed: a body
+  // that is only NUL bytes reads as empty everywhere it is shown.
+  if (stored.replace(/\0/g, "").trim().length === 0) {
+    throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
+  }
+  return stored;
+}

@@ -76,7 +76,14 @@ import {
   preRowsLeftoversAreEmpty,
   preRowsMarkersIn,
 } from "./paths.js";
-import { ID_PREFIX, assertIdWellFormed, hashText, parseMeta, serializeMeta } from "./prose.js";
+import {
+  ID_PREFIX,
+  assertIdWellFormed,
+  bodyForStorage,
+  hashText,
+  parseMeta,
+  serializeMeta,
+} from "./prose.js";
 import type { ProseDoc, ProseType } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
@@ -873,14 +880,13 @@ export class Store {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
       if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
-      // An EMPTY body is refused here as it is at `put`. `patch.body ?? ...`
+      // THE SAME RULE AS `put`, through the same function. `patch.body ?? ...`
       // accepts `""` happily, and on this floor that would write the one state
       // no write path may produce — a row whose hash names words its body no
       // longer holds, which every read answers as `MEMORY_BODY_MISSING` and
       // which takes the next session's `Schemas.open` down on a schema row.
-      if (typeof next.body !== "string" || next.body.length === 0) {
-        throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
-      }
+      // Whitespace-only and a lone surrogate go through it too.
+      next.body = bodyForStorage(next.body, id);
       const nextHash = hashText(next.body);
       this.ops.run(
         `UPDATE memories
@@ -2087,9 +2093,11 @@ export class Store {
     // reuse that would matter is the one that quietly resurrects what the owner
     // removed — so the deny-list is consulted at birth as well as at read.
     if (this.has(id) || this.isDenied(id)) throw new StoreError("ID_TAKEN", { id });
-    if (typeof input.body !== "string" || input.body.length === 0) {
-      throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
-    }
+    // NORMALISED AND CHECKED BEFORE THE ROW. `bodyForStorage` is the one rule
+    // both write doors share: whitespace-only is empty, and a lone surrogate is
+    // folded to what SQLite will actually store so the hash below addresses the
+    // bytes that land (review B, MINOR-4/-5).
+    const body = bodyForStorage(input.body, id);
     const day = this.livedDay();
     // Source and origin mirror into the prose meta: the document is canonical
     // and self-describing; the columns are the query surface for the same fact.
@@ -2109,7 +2117,7 @@ export class Store {
       learnedOn: input.learnedOn ?? this.today(),
       bornDay: input.physics?.birthDay ?? day,
       meta,
-      body: input.body,
+      body,
     };
     if (input.title !== undefined) doc.title = input.title;
     if (input.happenedOn !== undefined) doc.happenedOn = input.happenedOn;

@@ -195,9 +195,12 @@ by reference only.
     on an explicit documented exclusion list. Adding a directory breaks the build until it
     is classified (scar §2.11 — v1 silently omitted the canonical episode journal from
     snapshots for three weeks).
-    *Note (2026-09-18, when the boxes went to WAL): the database entry classifies by PREFIX,
-    so `operational.sqlite-wal` and `-shm` are covered, and `backupSet()` is unchanged —
-    but* **`operational.sqlite` is no longer the database on its own.** *Pages committed
+    *Note (2026-09-18, when the boxes went to WAL; the FILENAME updated 2026-09-20 at
+    the floor, where `operational.sqlite` became the name `STORE_PRE_ROWS` refuses on —
+    it is not this store's database any more, and leaving it here named the one file
+    this build will not open): the database entry classifies by PREFIX, so
+    `counterparts.sqlite-wal` and `-shm` are covered, and `backupSet()` is unchanged —
+    but* **`counterparts.sqlite` is no longer the database on its own.** *Pages committed
     since the last checkpoint live in the `-wal`, so a copy of the file alone opens and is
     silently short, and deleting a `-wal` deletes what is inside it. The copies that are
     whole are `counterparts backup` and `export` — both `VACUUM INTO`, whose output is a

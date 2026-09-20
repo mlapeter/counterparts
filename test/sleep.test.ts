@@ -969,6 +969,37 @@ describe("dedup", () => {
     expect(report.events.some((e) => e.name === "sleep.dedup.degraded")).toBe(true);
   });
 
+  test("review B, MINOR-3: a TITLE is not part of the duplicate question — a decision, not an accident", () => {
+    // Two memories with identical bodies and DIFFERENT titles naming different
+    // people are proposed as a dedup pair. This is unchanged from master —
+    // `contentHashCandidates` has always hashed the body — but F5 makes
+    // `memories.content_hash` agree with that choice, which removes the one
+    // column a future reviewer could have used to tell the two apart. So the
+    // behaviour is pinned as a DECISION here rather than left as an accident of
+    // which hash was handy.
+    //
+    // Why the body and not the title: the title is a handle the writer chose
+    // and the body is the interpretation, and `store/prose.ts` says which one
+    // IS the memory. Two notes that say the same thing under different headings
+    // are the same thing said twice.
+    const s = store();
+    const body = "The north gate is padlocked and the key hangs in the tack room.";
+    const a = put(s, { body, title: "Alice's rule", physics: { birthDay: 0 } });
+    const b = put(s, { body, title: "Bob's rule", physics: { birthDay: 1 } });
+    expect(s.row(a)?.title).not.toBe(s.row(b)?.title as string);
+    expect(s.row(a)?.content_hash).toBe(s.row(b)?.content_hash as string);
+
+    const pairs = contentHashCandidates({ store: wrap(s), day: 1, liveIds: [a, b] });
+    expect(pairs).toEqual([{ candidateId: b, originalId: a, sameContentHash: true }]);
+
+    // AND THE OTHER HALF OF THE DECISION: different bodies under the SAME title
+    // are NOT a pair. The title is not consulted in either direction.
+    const c = put(s, { body: "One thing that is true.", title: "same heading", physics: { birthDay: 2 } });
+    const d = put(s, { body: "A different thing, also true.", title: "same heading", physics: { birthDay: 3 } });
+    expect(s.row(c)?.title).toBe(s.row(d)?.title as string);
+    expect(contentHashCandidates({ store: wrap(s), day: 1, liveIds: [c, d] })).toEqual([]);
+  });
+
   test("the default candidate source pairs by the INTERPRETATION, not by the prose document", () => {
     const s = store();
     const a = put(s, { body: BODY, title: "Starter", physics: { birthDay: 0 } });
