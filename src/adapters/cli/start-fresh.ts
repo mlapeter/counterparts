@@ -922,6 +922,9 @@ export interface UndoPlan {
   readonly storeDir: string;
   /** The parked store this would put back. */
   readonly parked: string | null;
+  /** A parked snapshots folder this will NOT move, because one is already back
+   *  at the live name. Left, and said — never merged. */
+  readonly snapshotsLeft?: string | null;
   /** Every parked sibling found, for the report when there is more than one. */
   readonly candidates: readonly string[];
   readonly steps: readonly UndoStep[];
@@ -953,7 +956,14 @@ export function planUndo(input: {
   const storeDir = resolve(input.storeDir);
   const date = dateOf(input.now);
   const candidates = siblingsParked(storeDir, taken);
-  const empty = { storeDir, parked: null, candidates, steps: [], preRows: false };
+  const empty = {
+    storeDir,
+    parked: null,
+    candidates,
+    steps: [],
+    snapshotsLeft: null,
+    preRows: false,
+  };
 
   let parked = input.parked === null ? null : resolve(input.parked);
   if (parked === null) {
@@ -1000,8 +1010,18 @@ export function planUndo(input: {
   const suffix = basename(parked).slice(basename(storeDir).length);
   const snapshots = join(dirname(storeDir), "snapshots");
   const parkedSnapshots = `${snapshots}${suffix}`;
-  if (taken(parkedSnapshots) && !taken(snapshots)) {
-    steps.push({ label: "its snapshots", from: parkedSnapshots, to: snapshots });
+  let snapshotsLeft: string | null = null;
+  if (taken(parkedSnapshots)) {
+    if (taken(snapshots)) {
+      // Something put a snapshots folder back while the blank store was live —
+      // the rotation does, at the first boundary. Moving the parked one onto it
+      // would be the merge this command refuses everywhere else, and refusing
+      // the WHOLE undo over a folder of copies would be m2's mistake again. It
+      // is left, and said.
+      snapshotsLeft = parkedSnapshots;
+    } else {
+      steps.push({ label: "its snapshots", from: parkedSnapshots, to: snapshots });
+    }
   }
 
   return {
@@ -1009,6 +1029,7 @@ export function planUndo(input: {
     parked,
     candidates,
     steps,
+    snapshotsLeft,
     // Filenames only. Nothing is opened, here least of all.
     preRows: preRowsMarkersIn(parked).length > 0,
     refusal: null,
@@ -1025,6 +1046,12 @@ export function undoLines(plan: UndoPlan): string[] {
     out.push(`  ${step.label}`);
     out.push(`    ${step.from}`);
     out.push(`      -> ${step.to}`);
+  }
+  if (plan.snapshotsLeft !== undefined && plan.snapshotsLeft !== null) {
+    out.push("");
+    out.push(`  ${plan.snapshotsLeft} is LEFT WHERE IT IS: a snapshots`);
+    out.push("  folder is already back at the live name, and moving one onto the other is");
+    out.push("  the merge this refuses everywhere else. Your copies are in both.");
   }
   if (plan.preRows) {
     out.push("");
