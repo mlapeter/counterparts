@@ -40,6 +40,13 @@
  *      durable evidence is `blind` and says which row would fix it; a stood-down
  *      one is `disabled` and names the decision; one retired with a phase of the
  *      run is `retired`. None of the three is silence, and none is a fault.
+ *   4. **What was PREVENTED is read, not only what happened** (2026-09-20, E2).
+ *      Until now a mechanism that was stopped at every attempt read exactly like
+ *      one that had nothing to do: both said `never`. A mechanism whose refusals
+ *      are durable — in its own row, or in another row that names them — and
+ *      which did not fire inside the window is `blocked`, and the line says by
+ *      what. `REFUSAL_READERS` is still the only place a refusal column comes
+ *      from, and it still reads only fields a writer already fills.
  */
 import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
 import { dateOf } from "../core/store/index.js";
@@ -74,6 +81,9 @@ export const PROBE_CEILING = 50_000;
  *   - `firing` — a row landed inside the last seven days.
  *   - `quiet` — it has fired before, and not in the last seven days. The state
  *     worth reading first, because it is the one that says something changed.
+ *   - `blocked` — it did not fire inside the window, and something durably said
+ *     why: a refusal landed instead. The difference between "never needed" and
+ *     "stopped every time", which nothing could tell before 2026-09-20.
  *   - `never` — durable evidence exists and has never carried a single row.
  *   - `new` — never fired, but its evidence is younger than the window, so there
  *     has not yet been time for it to be a worry.
@@ -84,6 +94,7 @@ export const PROBE_CEILING = 50_000;
  */
 export const FIRED_STATES = [
   "quiet",
+  "blocked",
   "never",
   "blind",
   "firing",
@@ -97,6 +108,7 @@ export type FiredState = (typeof FIRED_STATES)[number];
  *  A view whose first screen is everything that worked is one nobody scrolls. */
 export const STATE_ORDER: readonly FiredState[] = [
   "quiet",
+  "blocked",
   "never",
   "blind",
   "firing",
@@ -109,6 +121,7 @@ export const STATE_ORDER: readonly FiredState[] = [
 export const STATE_MEANING: Record<FiredState, string> = {
   firing: "a row landed in the last 7 days",
   quiet: "it has fired before, but not in the last 7 days",
+  blocked: "it did not fire this week, and a durable row says what stopped it",
   never: "the evidence exists and has never carried a row",
   new: "never fired, and its evidence is younger than the window — not yet a worry",
   blind: "nothing durable records it, so firing and silence read alike",
@@ -136,6 +149,27 @@ export type Evidence =
   | { readonly kind: "probe"; readonly probe: ProbeId; readonly undated?: string }
   | { readonly kind: "none"; readonly reason: string };
 
+/**
+ * WHERE A MECHANISM'S REFUSALS LIVE, when they are not in its own row (E2).
+ *
+ * Four of the night's mechanisms succeed under one name and are prevented under
+ * another: promotion's successes are `band.promoted` and its refusals ride the
+ * cycle row, the spawn seam's start and its refusals are three separate names.
+ * Naming the refusal rows here lets a row read "blocked, by X" without the
+ * refusal rows being mistaken for firings — `total` and `inWindow` still count
+ * only the EVIDENCE names.
+ */
+export interface RefusalSource {
+  readonly names: readonly DurableEventName[];
+  /**
+   * Take only the reasons under this prefix, and strip it for display. The
+   * cycle row carries four phases' refusals in one map, keyed `<phase>/<reason>`
+   * (`sleep/cycle.ts`), so one row answers for four mechanisms without any of
+   * them claiming another's.
+   */
+  readonly under?: string;
+}
+
 export interface Mechanism {
   /** Stable machine name — the `--json` key, and what a test pins. */
   readonly id: string;
@@ -148,6 +182,8 @@ export interface Mechanism {
   /** Where the code lives, for the reader who wants to go and look. */
   readonly module: string;
   readonly evidence: Evidence;
+  /** Rows that say this mechanism was PREVENTED, when they are not its own. */
+  readonly refusals?: RefusalSource;
   /**
    * The calendar date the EVIDENCE was added, when it is recent. A mechanism
    * that has never fired but whose row is three days old is `new`, not `never`:
@@ -644,7 +680,30 @@ export interface FiredReport {
    * by label. The one list on this page that says something CHANGED.
    */
   readonly wentQuiet: readonly string[];
+  /** The store's own clock — the number of days it has actually LIVED. */
+  readonly livedDay: number;
+  /** Calendar days between the oldest row this pass read and today, or null
+   *  when the store holds no durable row at all. */
+  readonly calendarDays: number | null;
+  /**
+   * TOO NEW TO GRADE (2026-09-20, finding 2).
+   *
+   * A store minutes old opened this view with twenty-eight `never` lines, which
+   * is what a broken install looks like. Nothing had fired because nothing had
+   * happened yet, and no surface said so. `young` is that sentence as a fact the
+   * three renderers share rather than each deciding for itself.
+   *
+   * BOTH clocks have to agree. A lived day is advanced by the worker, so a store
+   * whose worker has been dead for a fortnight also reads lived day 0 — and that
+   * store must get the full list, because the full list is the diagnosis. So:
+   * fewer than `YOUNG_LIVED_DAYS` lived days AND no durable row older than
+   * `YOUNG_LIVED_DAYS` calendar days.
+   */
+  readonly young: boolean;
 }
+
+/** Under this many lived days — and calendar days — a store is too new to grade. */
+export const YOUNG_LIVED_DAYS = 2;
 
 export interface FiredOptions {
   /**
@@ -662,6 +721,23 @@ export function daysBefore(today: string, back: number): string {
   const at = Date.parse(`${today}T00:00:00Z`);
   if (Number.isNaN(at)) return today;
   return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Whole UTC days from `from` to `to`, 0 when either date does not parse. */
+export function daysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** The lived clock, or 0. A diagnostic may not become the thing that throws. */
+function safeLivedDay(store: Store): number {
+  try {
+    return store.livedDay();
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -691,6 +767,10 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
   const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
   for (const row of rows) counts[row.state] += 1;
 
+  const livedDay = safeLivedDay(store);
+  const calendarDays =
+    log.oldestDate === null ? null : Math.max(0, daysBetween(log.oldestDate, today));
+
   return {
     today,
     from: window.from,
@@ -702,6 +782,9 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
     probesRead: probed !== null,
     probesTruncated: probed?.truncated ?? false,
     counts,
+    livedDay,
+    calendarDays,
+    young: livedDay < YOUNG_LIVED_DAYS && (calendarDays === null || calendarDays < YOUNG_LIVED_DAYS),
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,
@@ -747,7 +830,13 @@ interface Reading {
   readonly inPreviousWindow: number;
   readonly refused: number;
   readonly topRefusal: string | null;
+  /** Every refusal reason and its count, so a source read from another row can
+   *  be merged in without re-reading the log. */
+  readonly refusals: ReadonlyMap<string, number>;
   readonly evidence: string;
+  /** The rows the refusal column came from — the same as `evidence` unless the
+   *  refusals live somewhere else (`Mechanism.refusals`). */
+  readonly refusalEvidence: string;
   /** Set when this evidence cannot answer the question at all. */
   readonly blind: string | null;
 }
@@ -760,7 +849,9 @@ const EMPTY_READING: Reading = {
   inPreviousWindow: 0,
   refused: 0,
   topRefusal: null,
+  refusals: new Map(),
   evidence: "",
+  refusalEvidence: "",
   blind: null,
 };
 
@@ -795,6 +886,10 @@ function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
   if (m.retired !== undefined) return "retired";
   if (read.blind !== null) return "blind";
   if (read.inWindow > 0) return "firing";
+  // DID NOT FIRE, AND SOMETHING SAID WHY (E2). This outranks both `quiet` and
+  // `never` because it answers the question they leave open: a mechanism that
+  // was turned away every time it was reached is not one that had nothing to do.
+  if (read.refused > 0) return "blocked";
   if (read.total > 0) return "quiet";
   // Never fired. A mechanism whose EVIDENCE is younger than the window has not
   // had time to be a worry yet, and grading it as one is how a view teaches its
@@ -808,17 +903,57 @@ function noteFor(m: Mechanism, read: Reading, state: FiredState): string | null 
   if (state === "retired") return m.retired ?? null;
   if (state === "blind") return read.blind;
   if (state === "new" && m.since !== undefined) return `its evidence was added ${m.since}`;
+  if (state === "blocked") {
+    // The whole point of the state, in one sentence: not "quiet", not "never" —
+    // reached, and stopped, this many times, by this.
+    const by = read.topRefusal === null ? "" : `, most often ${read.topRefusal}`;
+    return `it did not fire this week; ${String(read.refused)} refusal${
+      read.refused === 1 ? "" : "s"
+    } landed instead${by} (${read.refusalEvidence})`;
+  }
   return null;
 }
 
 function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null): Reading {
-  if (m.evidence.kind === "none") {
-    return { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason };
+  const base =
+    m.evidence.kind === "none"
+      ? { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason }
+      : m.evidence.kind === "probe"
+        ? probeReading(m.evidence.probe, m.evidence.undated ?? null, probed)
+        : eventReading(m.evidence.names, log);
+  if (m.refusals === undefined) return base;
+  // Refusals from ANOTHER row, folded in without touching the counts that say
+  // whether this mechanism fired.
+  const extra = refusalReading(m.refusals, log);
+  if (extra.refused === 0) return { ...base, refusalEvidence: base.evidence };
+  const merged = new Map<string, number>(extra.refusals);
+  for (const [reason, n] of base.refusals) merged.set(reason, (merged.get(reason) ?? 0) + n);
+  return {
+    ...base,
+    refused: base.refused + extra.refused,
+    refusals: merged,
+    topRefusal: topOf(merged),
+    refusalEvidence: m.refusals.names.join(", "),
+  };
+}
+
+/** The refusal half of a reading, from rows that are NOT this mechanism's
+ *  evidence. It contributes no `total`, no `lastFired` and no `inWindow`: a
+ *  refusal is the opposite of a firing, and counting it as one is the bug. */
+function refusalReading(src: RefusalSource, log: LogRead): { refused: number; refusals: Map<string, number> } {
+  const refusals = new Map<string, number>();
+  let refused = 0;
+  for (const name of src.names) {
+    const t = log.byName.get(name);
+    if (t === undefined) continue;
+    for (const [reason, n] of t.refusals) {
+      if (src.under !== undefined && !reason.startsWith(src.under)) continue;
+      const key = src.under === undefined ? reason : reason.slice(src.under.length);
+      refusals.set(key, (refusals.get(key) ?? 0) + n);
+      refused += n;
+    }
   }
-  if (m.evidence.kind === "probe") {
-    return probeReading(m.evidence.probe, m.evidence.undated ?? null, probed);
-  }
-  return eventReading(m.evidence.names, log);
+  return { refused, refusals };
 }
 
 function eventReading(names: readonly DurableEventName[], log: LogRead): Reading {
@@ -848,7 +983,9 @@ function eventReading(names: readonly DurableEventName[], log: LogRead): Reading
     inPreviousWindow,
     refused,
     topRefusal: topOf(refusals),
+    refusals,
     evidence: names.join(", "),
+    refusalEvidence: names.join(", "),
     blind: null,
   };
 }
@@ -877,6 +1014,9 @@ interface NameTally {
 interface LogRead {
   readonly byName: ReadonlyMap<string, NameTally>;
   readonly truncated: boolean;
+  /** The calendar date of the OLDEST row this pass saw, for the store's age.
+   *  A truncated read is the oldest rows, so this stays right when it happens. */
+  readonly oldestDate: string | null;
 }
 
 function emptyTally(): NameTally {
@@ -902,9 +1042,12 @@ function emptyTally(): NameTally {
  */
 function readLog(store: Store, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
+  const age = { oldest: null as string | null };
   const first = store.eventLog({ limit: EVENT_CEILING });
-  for (const row of first) tallyRow(byName, row, w);
-  if (first.length < EVENT_CEILING) return { byName, truncated: false };
+  for (const row of first) tallyRow(byName, row, w, age);
+  if (first.length < EVENT_CEILING) {
+    return { byName, truncated: false, oldestDate: age.oldest };
+  }
   const lastSeq = first[first.length - 1]?.seq ?? 0;
   // A lived day is never longer than a calendar day, so `livedDay - 14` cannot
   // cut a row inside the fourteen calendar days the two windows cover.
@@ -914,12 +1057,17 @@ function readLog(store: Store, w: Window): LogRead {
   });
   for (const row of recent) {
     if (row.seq <= lastSeq) continue;
-    tallyRow(byName, row, w);
+    tallyRow(byName, row, w, age);
   }
-  return { byName, truncated: true };
+  return { byName, truncated: true, oldestDate: age.oldest };
 }
 
-function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window): void {
+function tallyRow(
+  byName: Map<string, NameTally>,
+  row: EventRow,
+  w: Window,
+  age: { oldest: string | null },
+): void {
   let t = byName.get(row.name);
   if (t === undefined) {
     t = emptyTally();
@@ -928,6 +1076,7 @@ function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window): voi
   t.total += 1;
   const payload = payloadOf(row);
   const date = rowDate(row, payload);
+  if (age.oldest === null || date < age.oldest) age.oldest = date;
   if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
   const inWindow = date >= w.from && date <= w.to;
   if (inWindow) t.inWindow += 1;
@@ -991,6 +1140,18 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
     const reason = str(p, "reason");
     return reason === null ? [] : [[reason, 1]];
   },
+  // THE SPAWN SEAM'S THREE (E2). Each row IS a refusal; the reason it carries is
+  // the whole column, exactly like `snapshot.failed` above.
+  //
+  // **Counted as ONE per row on purpose.** These three are the one durable
+  // family that carries a `dedupKey` — one row per reason per calendar date
+  // (I32) — so the honest unit here is DAYS the worker was stopped, not
+  // attempts. The row's own `count` field is a running counter that a single
+  // successful start resets, so summing it across days would invent a number
+  // nothing measured.
+  "adapter.spawn.refused": (p) => reasonOnce(p),
+  "adapter.spawn.failed": (p) => reasonOnce(p),
+  "adapter.runner.failed": (p) => reasonOnce(p),
   // `rendered` is the turn that surfaced something; every other reason is a turn
   // that decided to stay quiet, which is what a refusal is here.
   "recall.decision": (p) => {
@@ -998,6 +1159,12 @@ const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, n
     return reason === null || reason === "rendered" ? [] : [[reason, 1]];
   },
 };
+
+/** A row that IS a refusal: its `reason`, counted once. */
+function reasonOnce(p: Record<string, unknown>): [string, number][] {
+  const reason = str(p, "reason");
+  return reason === null ? [] : [[reason, 1]];
+}
 
 function countsIn(p: Record<string, unknown>, key: string): [string, number][] {
   const raw = p[key];
@@ -1094,7 +1261,11 @@ function readProbes(store: Store, w: Window): Probed {
 }
 
 function probeReading(probe: ProbeId, undated: string | null, probed: Probed | null): Reading {
-  const base: Reading = { ...EMPTY_READING, evidence: probeLabel(probe) };
+  const base: Reading = {
+    ...EMPTY_READING,
+    evidence: probeLabel(probe),
+    refusalEvidence: probeLabel(probe),
+  };
   if (probed === null) return { ...base, blind: "the tables were not read on this pass" };
   const t = probed.byId.get(probe);
   if (t === undefined || t.total === 0) return base;
