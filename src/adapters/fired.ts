@@ -454,6 +454,28 @@ export const MECHANISMS: readonly Mechanism[] = [
     covers: ["self.page.refused"],
     since: "2026-09-18",
   },
+  // The per-directory handoff (2026-09-20, E1). TWO rows, for the reason the
+  // snapshot pair has two: "a session left one" and "a session was handed one"
+  // answer different questions, and the second is the one that goes quiet first
+  // — a pointer that stops being delivered (an expiry nobody meant, a budget
+  // with no room) leaves the writing row firing and the owner none the wiser.
+  // The refusals ride with the writing, because a cap turning a handoff away is
+  // that mechanism working rather than a third one.
+  {
+    id: "handoff-written",
+    label: "a session left a handoff for the next one in that directory",
+    module: "handoff/index.ts",
+    evidence: { kind: "event", names: ["handoff.written"] },
+    covers: ["handoff.refused"],
+    since: "2026-09-20",
+  },
+  {
+    id: "handoff-shown",
+    label: "a session waking in that directory was handed the pointer to its handoff",
+    module: "handoff/index.ts",
+    evidence: { kind: "event", names: ["handoff.shown"] },
+    since: "2026-09-20",
+  },
   {
     id: "wake-injected",
     label: "that briefing was handed to the host at the start of a session",

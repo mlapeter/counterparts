@@ -975,9 +975,18 @@ export class McpServer {
     const bound = this.requireBoundSession(args["session"], "session_end");
     if (bound !== null) return bound;
 
+    // THE HANDOFF FIRST, and before the memories check on purpose (E1). It is a
+    // FIELD on this call and not one of the entries, so a dump whose `memories`
+    // array is malformed must not also throw away the one line telling the next
+    // session in this directory where the work stands. The outcome rides out on
+    // the refusal too, so nothing is lost silently either way.
+    const handoff = this.writeHandoffField(args["handoff"]);
+
     const raw = args["memories"];
     if (!Array.isArray(raw) || raw.length === 0) {
-      return this.refuse("session_end", "memories-required", {});
+      return this.refuse("session_end", "memories-required", {
+        ...(handoff === null ? {} : { handoff }),
+      });
     }
     const session = this.session as string;
     const entries: Record<string, unknown>[] = [];
@@ -1033,6 +1042,7 @@ export class McpServer {
       entries: entries.length,
       deposited,
       refused: entries.length - deposited,
+      handoff: handoff === null ? false : handoff["written"] === true,
     });
     return this.result(
       {
@@ -1041,9 +1051,51 @@ export class McpServer {
         deposited,
         refused: entries.length - deposited,
         outcomes,
+        ...(handoff === null ? {} : { handoff }),
       },
       deposited === 0,
     );
+  }
+
+  /**
+   * The optional `handoff` field, written or refused, as the shape the tool
+   * result carries back. Null when the caller passed none — which is the
+   * ordinary case, and says nothing about this directory either way.
+   *
+   * A directory the host never named gets no handoff: `scopeSource === "store"`
+   * means nobody told this server where it is, and the fallback is the store's
+   * own directory, which every session everywhere would then be handed.
+   */
+  private writeHandoffField(raw: unknown): Record<string, unknown> | null {
+    if (typeof raw !== "string" || raw.trim().length === 0) return null;
+    if (this.scopeSource === "store") {
+      this.emit("mcp.handoff.refused", undefined, { reason: "no-scope" });
+      return { written: false, reason: "no-scope" };
+    }
+    let out: ReturnType<Counterpart["writeHandoff"]>;
+    try {
+      out = this.counterpart.writeHandoff(raw, {
+        scope: this.scope,
+        session: this.session,
+      });
+    } catch (err) {
+      return { written: false, reason: "threw", detail: String((err as Error).message ?? err) };
+    }
+    this.emit("mcp.handoff", out.id ?? undefined, {
+      written: out.written,
+      reason: out.reason,
+      bytes: out.bytes,
+    });
+    return {
+      written: out.written,
+      reason: out.reason,
+      ...(out.id === null ? {} : { id: out.id }),
+      bytes: out.bytes,
+      ...(out.version === null ? {} : { version: out.version }),
+      ...(out.gate === null ? {} : { gate: out.gate }),
+      ...(out.redacted === null ? {} : { redacted: true }),
+      ...(out.showsForDays === null ? {} : { showsForDays: out.showsForDays }),
+    };
   }
 
   /**

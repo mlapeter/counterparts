@@ -406,6 +406,16 @@ const SESSION_END: ToolSpec = {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/core/store/index.ts#mutate (observer stand-down)",
     },
+    {
+      claim:
+        "`handoff` is a FIELD on this call and NEVER a memory: it is filed against this directory alone, is never recalled, never consolidated, never becomes identity, and stops being shown after about a fortnight of use. A newer one replaces the older, which is kept as a version.",
+      mechanizedBy: "src/core/handoff/index.ts#Handoffs.write",
+    },
+    {
+      claim:
+        "The handoff is refused past its size limit rather than cut, and passes the same gate battery, because what is cut at write time is the only copy.",
+      mechanizedBy: "src/core/handoff/index.ts#Handoffs.write (HANDOFF_MAX_BYTES, gate-refused)",
+    },
   ],
   inputSchema: {
     type: "object",
@@ -414,6 +424,11 @@ const SESSION_END: ToolSpec = {
         type: "string",
         description:
           "The session this dump belongs to — the id the end-of-session ask named. Required unless this server was launched already bound to one; it must match the bound session either way.",
+      },
+      handoff: {
+        type: "string",
+        description:
+          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two. The next session in this directory sees a one-line pointer to it at its wake and can expand it by id; it replaces whatever handoff this directory had, and stops showing after about two weeks of use. Leave it out when nothing here is unfinished.",
       },
       memories: {
         type: "array",

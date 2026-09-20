@@ -366,6 +366,13 @@ export const EVENT_NODE = {
   // wake node: written at one boundary, read at every one after it.
   "self.page.revised": "wake",
   "self.page.refused": "wake",
+  // The handoff is working context for a directory, written at a boundary and
+  // spliced into the wake of the next session that opens there. It is not a
+  // memory and never becomes one, so it lights the wake node — where the owner
+  // reads it — and not `store` or `remember`.
+  "handoff.written": "wake",
+  "handoff.shown": "wake",
+  "handoff.refused": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got

@@ -510,6 +510,31 @@ export const NARRATORS = {
     return calm(`A write to my page was turned away (${why}), from ${by}. The page is unchanged.`);
   },
 
+  /**
+   * THE HANDOFF'S THREE (2026-09-20, E1). Calm on all three: leaving one is the
+   * mechanism working, being handed one is the mechanism paying off, and a
+   * refusal is a cap doing its job out loud.
+   */
+  "handoff.written": (t) => {
+    const bytes = n(t, "bytes") ?? 0;
+    const created = t.p["created"] === true;
+    const days = n(t, "lifeDays") ?? 0;
+    return calm(
+      `I left a handoff for the next session in this directory: ${num(bytes)} bytes, ` +
+        `${created ? "the first one here" : "replacing the one that stood"}, showing for ${num(days)} days of use.`,
+    );
+  },
+  "handoff.shown": (t) => {
+    const age = n(t, "ageDays");
+    const bytes = n(t, "bytes") ?? 0;
+    const when = age === null ? "" : age === 0 ? ", written today" : `, written ${num(age)} days of use ago`;
+    return calm(`I woke here and was handed the pointer to this directory's handoff${when} (${num(bytes)} bytes of the wake).`);
+  },
+  "handoff.refused": (t) => {
+    const why = s(t, "reason") ?? "refused";
+    return calm(`A handoff was turned away (${why}). Nothing was left for the next session here.`);
+  },
+
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
     const surfaced = idsIn(t, "surfaced");
@@ -739,6 +764,11 @@ export const REF_KIND = {
   // nothing rather than at the page it did not change.
   "self.page.revised": "memory",
   "self.page.refused": "none",
+  // A written or shown handoff points at its own row, which resolves like any
+  // other; a refusal wrote nothing and points at nothing.
+  "handoff.written": "memory",
+  "handoff.shown": "memory",
+  "handoff.refused": "none",
   "recall.credit": "none",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.

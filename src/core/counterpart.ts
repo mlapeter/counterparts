@@ -111,11 +111,21 @@ import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
 import {
+  HANDOFF_RESERVE_BYTES,
+  HANDOFF_SHOWN_EVENT,
+  HANDOFF_WRITTEN_EVENT,
+  HANDOFF_REFUSED_EVENT,
+  Handoffs,
+  isHandoffRow,
+} from "./handoff/index.js";
+import type { Handoff, HandoffWrite } from "./handoff/index.js";
+import {
   BRIEFING_TRIM_LOG_CAP,
   LANE_ORDER,
   PREFACE_RESERVE_BYTES,
   Self,
   byteLength,
+  spliceBeforeSentinel,
 } from "./self/index.js";
 import type {
   ChapterAppend,
@@ -636,6 +646,19 @@ export interface WakeOutcome extends WakeResult {
   readonly budgetBytes: number | null;
 }
 
+/**
+ * WHERE this session woke — the delivery-time facts the published bundle could
+ * not know, beyond the date. Only the per-directory handoff pointer reads it
+ * today (E1); absent means no pointer is looked for, which is what every
+ * non-host caller (the dashboard, replay, the CLI) wants.
+ */
+export interface WakeHere {
+  /** The canonical directory this session opened in. */
+  readonly scope?: string;
+  /** The session id, for the `handoff.shown` row. Never guessed. */
+  readonly session?: string | null;
+}
+
 export interface DepositContext {
   session: string;
   scope: string;
@@ -1139,6 +1162,8 @@ export class Counterpart {
   readonly self: Self;
   readonly recall: Recall;
   readonly prospective: Prospective;
+  /** Working context per directory (E1) — never memory. See `handoff/`. */
+  readonly handoffs: Handoffs;
   /** One predicate, one definition: the store's. Never re-derived here. */
   readonly observer: boolean;
 
@@ -1263,6 +1288,16 @@ export class Counterpart {
       onEvent: (e) => this.relay("prospective", e),
       now: this.nowFn,
     });
+    // The same battery the journal and the self page pass (SEAMS H): a handoff
+    // is prose written in a hurry at the end of a session, which is exactly the
+    // kind of text a credential gets pasted into.
+    this.handoffs = new Handoffs({
+      store: this.store,
+      gate: episodeGate(),
+      observer: this.observer,
+      onEvent: (e) => this.relay("handoff", e),
+      now: this.nowFn,
+    });
     this.spans = new SpanBuffer({
       dir: this.store.dir,
       observer: this.observer,
@@ -1302,8 +1337,16 @@ export class Counterpart {
    * reports none gets a tripwire event and a brain that will refuse to render a
    * briefing at the next boundary — loudly, rather than composing to a number
    * nobody chose.
+   *
+   * **`here` is the handoff pointer's whole reason to be a parameter** (E1). One
+   * bundle is published per store and read by sessions in every directory, so
+   * WHICH directory this session opened in is a delivery-time fact, like the
+   * date and the store's size. `self/` knows nothing about scopes and gains
+   * nothing here: the pointer is composed by `handoff/`, spliced by
+   * `self/briefing.ts#spliceBeforeSentinel`, and joined to the two at this root,
+   * which is the one place that holds both.
    */
-  wake(budgetBytes?: number, delivery?: WakeDelivery): WakeOutcome {
+  wake(budgetBytes?: number, delivery?: WakeDelivery, here?: WakeHere): WakeOutcome {
     if (budgetBytes === undefined) {
       this.emit("counterpart.budget.unreported", undefined, { had: this.reportedBudget });
     } else {
@@ -1315,14 +1358,114 @@ export class Counterpart {
     // the facts the body was composed too early to know. A read that is not a
     // delivery (the dashboard, replay) gets the published bundle untouched.
     const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery);
+    const withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
     this.emit("counterpart.wake", undefined, {
-      ok: result.ok,
-      reason: result.reason,
-      bytes: result.bytes,
-      preface: result.preface !== null,
+      ok: withPointer.ok,
+      reason: withPointer.reason,
+      bytes: withPointer.bytes,
+      preface: withPointer.preface !== null,
       budgetBytes: this.reportedBudget,
     });
-    return { ...result, budgetBytes: this.reportedBudget };
+    return { ...withPointer, budgetBytes: this.reportedBudget };
+  }
+
+  /**
+   * THE PER-DIRECTORY POINTER, spliced into the delivered bundle above its tail
+   * sentinel — or not, in which case the bundle is returned exactly as `self/`
+   * produced it, byte for byte.
+   *
+   * Five ways to get nothing, all of them silent by design because four of them
+   * are the ordinary case: no directory was named, the bundle is not a clean
+   * render (a damaged bundle is delivered as found, so the damage stays
+   * readable), this directory has no handoff, the one it has has run out, or the
+   * ceiling the host reported has no room left for it. Only the LAST one is
+   * worth an event: the boundary reserves `HANDOFF_RESERVE_BYTES` whenever the
+   * store holds a live pointer, so no-room means the bundle was composed before
+   * that reserve existed — one boundary's lag, which is how every wake fact
+   * behaves, and a tripwire if it ever stops being temporary.
+   *
+   * `handoff.shown` is written here and only here: after the splice, so the row
+   * says a pointer was DELIVERED rather than that one existed.
+   */
+  private addHandoffPointer(result: WakeResult, here?: WakeHere): WakeResult {
+    const scope = here?.scope?.trim() ?? "";
+    if (scope.length === 0 || !result.ok) return result;
+    let pointer: { block: string; handoff: Handoff } | null = null;
+    try {
+      pointer = this.handoffs.pointer(scope);
+    } catch {
+      // A store that will not answer is not a reason to fail a wake (§1 G7).
+      return result;
+    }
+    if (pointer === null) return result;
+    const spliced = spliceBeforeSentinel(result.text, pointer.block);
+    if (!spliced.applied) return result;
+    const budget = this.reportedBudget;
+    if (budget !== null && spliced.bytes > budget) {
+      this.emit("counterpart.handoff.noroom", pointer.handoff.id, {
+        bytes: spliced.bytes,
+        budget,
+        was: result.bytes,
+      });
+      return result;
+    }
+    this.handoffs.noteShown(pointer.handoff, {
+      bytes: spliced.bytes - result.bytes,
+      session: here?.session ?? null,
+    });
+    return {
+      ...result,
+      text: spliced.text,
+      bytes: spliced.bytes,
+      sentinel: spliced.sentinel,
+    };
+  }
+
+  /**
+   * WRITE THIS DIRECTORY'S HANDOFF — the one seam, reached today by the optional
+   * `handoff` field on the `session_end` tool. No second ask and no second
+   * pacer: the field rides the ask that already exists (self/CONTRACT's scar).
+   */
+  writeHandoff(body: string, ctx: { scope: string; session?: string | null; day?: number }): HandoffWrite {
+    return this.handoffs.write({
+      body,
+      scope: ctx.scope,
+      ...(ctx.session === undefined ? {} : { session: ctx.session }),
+      ...(ctx.day === undefined ? {} : { day: ctx.day }),
+    });
+  }
+
+  /** This directory's live handoff, or null. A read: writes nothing. */
+  readHandoff(scope: string): Handoff | null {
+    return this.handoffs.read(scope);
+  }
+
+  /**
+   * WHAT THE COMPOSITION MUST LEAVE FOR DELIVERY — the preface always, and the
+   * handoff pointer only while some directory holds a live one.
+   *
+   * Conditional, and that is the whole point: a store that has never had a
+   * handoff composes its wake to exactly the number it composed before this
+   * module existed, so "with no handoff written the wake is byte-identical to
+   * master" is a property of the code rather than of a careful reading.
+   *
+   * Unconditional would be the simpler line and the wrong one in the other
+   * direction too: a full store trimmed to `budget - PREFACE_RESERVE` already
+   * fills the ceiling, so a pointer spliced at delivery would be dropped at
+   * every wake and the only symptom would be `handoff.shown` going quiet.
+   *
+   * The scan is bounded by the number of SCHEMA rows of the place kind — a
+   * handful — and it never throws: a store that will not answer reserves
+   * nothing, which composes the wake that master composes.
+   */
+  private wakeReserveBytes(): number {
+    let live = false;
+    try {
+      live = this.handoffs.anyLive();
+    } catch {
+      live = false;
+    }
+    return PREFACE_RESERVE_BYTES + (live ? HANDOFF_RESERVE_BYTES : 0);
   }
 
   /** The DELIVERY-side record, distinct from the render-side one (scar §2.3). */
@@ -1564,6 +1707,17 @@ export class Counterpart {
       // stale footnote expanded after its memory left must not revive it.
       if (row.archived === 1) {
         refuse("archived");
+        return false;
+      }
+      // A HANDOFF TAKES NO CREDIT (E1). It is the one row a session is invited
+      // to expand by id from its own wake, and crediting that would be the
+      // system reinforcing itself for handing something over: `uses` and
+      // `reinforced_days` would climb on working context, and
+      // `physics#promotionEligibility` — reinforcement on N distinct lived days
+      // — is exactly the door that turns a row into identity. Refused by name so
+      // the boundary's row says it happened rather than swallowing it.
+      if (isHandoffRow(this.store, u.memoryId)) {
+        refuse("handoff");
         return false;
       }
       return true;
@@ -2091,7 +2245,7 @@ export class Counterpart {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
     const composeBudget =
-      budgetBytes === null ? null : Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
+      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(), 0);
 
     // Three states, not two (I32): swept, skipped-and-said-so, or not asked for.
     // The middle one still writes the gate row — `ran: 0, scopes: 0`, with the
@@ -2226,7 +2380,7 @@ export class Counterpart {
         counts: {},
       };
     }
-    const composeBudget = Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
+    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(), 0);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
