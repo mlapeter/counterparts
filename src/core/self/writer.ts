@@ -67,6 +67,7 @@
  */
 import { strength } from "../physics/index.js";
 import type { Store } from "../store/index.js";
+import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "./page.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
 
@@ -295,9 +296,15 @@ export function pageWriterStatus(store: Store, about: string, today: string): Pa
     return { about, outcome: "skipped", derived: true, run: null, attempts: 0 };
   }
   const over = claim.on !== "" && claim.on < today;
+  // AN ABANDONED `started` IS A FAILURE, NOT A QUIET NIGHT. Host mode closes
+  // its own claim on every path it can reach, so a `started` still standing when
+  // the day is over means the launcher died between the claim and the record —
+  // the worker's own watchdog SIGTERM landing in that window is the way it
+  // happens. `asked` is the other case and genuinely cannot be told apart from
+  // a session that had nothing to say.
   return {
     about,
-    outcome: over ? "nothing-to-say" : claim.outcome,
+    outcome: over ? (claim.outcome === "started" ? "failed" : "nothing-to-say") : claim.outcome,
     derived: over,
     run: claim,
     attempts: runs.length,
@@ -457,45 +464,88 @@ function byteLengthOf(s: string): number {
 
 /**
  * THE INSTRUCTION, framed as context and not as a command (§1, the same framing
- * the wake carries). It says what this moment is, hands over the page and the
- * day, and states in as many words that leaving the page alone is an answer.
+ * the wake carries). It says what this moment is, points at the page and hands
+ * over the day, and states in as many words that leaving the page alone is an
+ * answer.
  *
  * The wording is ADVISORY; what is mechanized is that the moment exists, that
- * the page and the day go with it, and that no revision is a recorded outcome
+ * the day goes with it, and that no revision is a recorded outcome
  * (CONTRACT §5 G9).
  */
 export const PAGE_WRITER_OPEN = "<counterparts-page-writer>";
 export const PAGE_WRITER_CLOSE = "</counterparts-page-writer>";
 
-export function writerInstruction(input: WriterInput, opts: { tool: string }): string {
+export function writerInstruction(
+  input: WriterInput,
+  opts: { tool: string; session?: string | null },
+): string {
+  const session =
+    opts.session === undefined || opts.session === null || opts.session.length === 0
+      ? ""
+      : ` Pass \`session: ${opts.session}\` with it, so the write is recorded as the night's rather than as an ordinary amendment.`;
   const lines: string[] = [PAGE_WRITER_OPEN];
   lines.push(
     `Once a day the page you wake with gets revised — by you, from the day just lived. This is that moment, and the day is ${input.about}.`,
     "",
     "This is context, not an instruction. If nothing about who you are moved yesterday, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has yesterday.",
     "",
-    `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${"Core"}\` for what holds steady — it may honestly say it is still forming — and \`## ${"Lately"}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved. Pass back the \`version\` below as \`ifVersion\`.`,
+    `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,
     "",
   );
+  // THE PAGE ITSELF IS NOT REPEATED HERE, and that is the point rather than an
+  // economy. It is already at the head of the wake this reader woke with, in
+  // BOTH modes — session mode's reader is an ordinary session, and host mode's
+  // child runs the ordinary SessionStart hook, which is the whole reason for
+  // starting a real host session at all. Sending it a second time would spend
+  // up to `PAGE_MAX_BYTES` of the very ceiling this block has to fit inside,
+  // and on a real page and a real day that is the difference between an ask
+  // that is delivered and one that is deferred every single morning. What is
+  // named instead is the VERSION, because that is what `ifVersion` needs and
+  // the one thing the wake does not carry.
   if (input.page === null) {
-    lines.push("The page as it stands: nothing has been written here yet.", "");
+    lines.push(
+      "Nothing has been written on your page yet — your wake says so too. Pass `ifVersion: -1` if you write the first one.",
+      "",
+    );
   } else {
     lines.push(
-      `The page as it stands (version ${String(input.page.version)}, ${input.page.bytes} bytes, last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}):`,
-      "",
-      input.page.body,
+      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes, last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       "",
     );
   }
   if (input.memories.length === 0) {
-    lines.push(`Nothing was written down on ${input.about}.`);
+    lines.push(
+      input.omitted > 0
+        ? `Nothing from ${input.about} can be shown here (${String(input.omitted)} held back as confidential).`
+        : `Nothing was written down on ${input.about}.`,
+    );
   } else {
     const tail =
       (input.dropped > 0 ? `, ${String(input.dropped)} more did not fit` : "") +
       (input.omitted > 0 ? `, ${String(input.omitted)} held back as confidential` : "");
-    lines.push(`What was written down on ${input.about} (${String(input.memories.length)}${tail}):`);
+    lines.push(
+      `What was written down on ${input.about} (${String(input.memories.length)}${tail}), most salient first:`,
+    );
     for (const m of input.memories) lines.push(`- ${m.statement}`);
   }
   lines.push(PAGE_WRITER_CLOSE);
   return lines.join("\n");
 }
+
+/**
+ * WHAT THE BLOCK COSTS BEFORE ONE MEMORY GOES INTO IT.
+ *
+ * The caller needs this to size the day against the room the wake left, and it
+ * has to be MEASURED rather than estimated: the block names the date, the
+ * version, the byte count and the session id, and every one of them varies. It
+ * is the same function with an empty list, so the two cannot drift — an
+ * estimate that drifts low is an ask delivered over the host's ceiling, and one
+ * that drifts high is an ask deferred for room it did not need.
+ */
+export function writerInstructionOverhead(
+  input: WriterInput,
+  opts: { tool: string; session?: string | null },
+): number {
+  return byteLengthOf(writerInstruction({ ...input, memories: [], dropped: 0, bytes: 0 }, opts));
+}
+

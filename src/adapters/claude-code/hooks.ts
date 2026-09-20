@@ -71,7 +71,7 @@ import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
-import { writerInstruction } from "../../core/self/index.js";
+import { SELF_TUNABLES, writerInstruction, writerInstructionOverhead } from "../../core/self/index.js";
 import { capabilities, interpretSeat, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
@@ -166,11 +166,21 @@ export interface HookResult {
    * blocked moment grew back into two asks (§13 G3).
    *
    * SessionStart uses the same field for the first-launch scope question
-   * (`SCOPE_ASK`, G41), and it is the same field for the same reason: it is the
-   * one channel that reaches the model WITHOUT being inside the wake bundle,
-   * whose byte count and tail line are stated by its own sentinel. The two can
-   * never collide — one fires only at `session-start`, the other only at
-   * `stop`, and the Stop pacer is untouched by this.
+   * (`SCOPE_ASK`, G41) and, since S2, for the nightly page writer's block. It
+   * is the same field for the same reason: it is the one channel that reaches
+   * the model WITHOUT being inside the wake bundle, whose byte count and tail
+   * line are stated by its own sentinel.
+   *
+   * **Three claimants, and the rule is not "they cannot collide" any more** —
+   * that sentence was true when there were two, one at `session-start` and one
+   * at `stop`. The Stop ask still cannot meet either of the others, and the
+   * Stop pacer is untouched by both. The two SessionStart ones CAN want the
+   * field on the same morning, and there the first-launch question wins: it is
+   * asked once in the life of a directory and ends when anybody answers, while
+   * the writer's comes back tomorrow at no cost. The loser is deferred with an
+   * event, never concatenated — two unrelated requests in front of a session
+   * that has just woken is the shape §13 G3 is about, even though the pacer is
+   * not involved.
    */
   readonly ask: string | null;
   readonly spansAppended: number;
@@ -682,10 +692,30 @@ export class ClaudeCodeAdapter {
         this.emit("adapter.page.writer.deferred", { reason: "scope-question", about: due.about });
         return "";
       }
-      const built = this.counterpart.pageWriterInput({ about: due.about });
-      const text = writerInstruction(built, { tool: PAGE_WRITER_TOOL });
-      const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
-      if (budget !== undefined && wakeBytes + bytes > budget) {
+      const framing = { tool: PAGE_WRITER_TOOL, session: input.sessionId };
+      // SIZE THE DAY TO THE ROOM THE WAKE LEFT, rather than composing what the
+      // tunable allows and then discovering it does not fit.
+      //
+      // The wake already carries the page — which is why the block does not
+      // repeat it (`self/writer.ts`) — and what is left over varies with the
+      // day: on a busy one the memories alone are 8 KB against a ceiling a real
+      // wake has already spent most of. Composing the whole tunable and
+      // deferring on the total would defer EVERY morning once a store is a few
+      // days old, and the only trace would be a ring event that dies with this
+      // process, which is I32's shape exactly.
+      //
+      // So the empty block is measured first — it is the same function with no
+      // memories in it, so the two cannot drift — and the day gets whatever is
+      // left. A day that could not all fit is delivered SHORT, with `dropped`
+      // counted on the run's row; only a block whose own furniture will not fit
+      // is deferred.
+      const empty = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: 0 });
+      const overhead = writerInstructionOverhead(empty, framing) + 2;
+      const room =
+        budget === undefined
+          ? SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES
+          : Math.min(SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES, budget - wakeBytes - overhead);
+      if (room < 0) {
         // DEFERRED, never truncated and never smuggled past the ceiling — the
         // same rule the scope question follows. The day is left unclaimed, so
         // the next session in any directory is offered it instead.
@@ -693,11 +723,14 @@ export class ClaudeCodeAdapter {
           reason: "no-room",
           about: due.about,
           wakeBytes,
-          budget,
-          need: bytes,
+          budget: budget ?? 0,
+          need: overhead,
         });
         return "";
       }
+      const built = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: room });
+      const text = writerInstruction(built, framing);
+      const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
       // THE CLAIM, and it is durable rather than a flag on this session: two
       // boundaries, or two machines' worth of hooks against one store, must not
       // both set a night going. It is written BEFORE the text is handed over,
@@ -707,7 +740,9 @@ export class ClaudeCodeAdapter {
         about: due.about,
         mode: "session",
         outcome: "asked",
-        detail: `attempt ${String(due.attempt)}`,
+        detail:
+          `attempt ${String(due.attempt)}` +
+          (built.dropped > 0 ? `; ${String(built.dropped)} of the day did not fit the wake's ceiling` : ""),
         bytesBefore: built.page?.bytes ?? 0,
         considered: built.memories.length,
         omitted: built.omitted,
@@ -726,7 +761,9 @@ export class ClaudeCodeAdapter {
         about: due.about,
         attempt: due.attempt,
         bytes,
+        room,
         considered: built.memories.length,
+        dropped: built.dropped,
         omitted: built.omitted,
         claimed,
         recorded: marked !== null,

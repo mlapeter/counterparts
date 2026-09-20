@@ -64,6 +64,7 @@ import {
   hasDayBefore,
   lastPageWriterRun,
   pageWriterAbout,
+  pageWriterDue,
   pageWriterStatus,
 } from "../../core/self/writer.js";
 import type { AskReason } from "../../core/self/episodes.js";
@@ -1600,17 +1601,19 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
     ran: last !== null,
   };
   if (mode === "off") {
+    // GREEN, always. Off is a setting somebody chose, and a diagnostic that
+    // grades a deliberate choice as a fault is the shape of line people learn to
+    // read past — the same rule `fired.ts` states for a `disabled` mechanism.
+    // The line still says what off MEANS, so nobody has to remember.
     return [
       finding(
         "page-writer",
-        page === null ? "green" : "amber",
+        "green",
         "Page writer",
         page === null
-          ? "off — nothing writes the self page on its own, and no page has been written by hand either"
-          : "off — the page stands, and from here it only changes when somebody writes it",
-        page === null
-          ? ""
-          : 'Turn it back on with "pageWriter": { "mode": "session" } in claude-code.json, or leave it off deliberately.',
+          ? "off — nothing writes the self page on its own, and nothing has been written by hand either"
+          : "off — the page stands, and from here it changes only when somebody writes it",
+        "",
         data,
       ),
     ];
@@ -1635,21 +1638,60 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
   }
   const status = pageWriterStatus(store, last.about, today);
   const when = `last ran for ${last.about}${last.on === "" ? "" : ` on ${last.on}`}`;
-  const detail = `${mode} mode; ${when} — ${status.outcome}${status.derived ? " (derived: it was handed the day and wrote nothing)" : ""}${status.run !== null && status.run.detail.length > 0 && !status.derived ? `, ${status.run.detail}` : ""}`;
+  // IS TONIGHT'S ALREADY OWED, AND HAS IT BEEN OWED FOR A WHILE? The failure
+  // this catches is the one with no row at all behind it: an ask that will not
+  // fit the host's ceiling is DEFERRED, and a deferral leaves only a ring event
+  // that dies with the hook process. Without this line, a writer that stopped
+  // being delivered on day 4 reads exactly like one that ran last night —
+  // which is I32's shape, and the reason this line exists at all.
+  const owed = pageWriterDue(store, {
+    mode,
+    today,
+    observer: store.observer,
+    asksPerDay: SELF_TUNABLES.PAGE_WRITER_ASKS_PER_DAY,
+  });
+  const staleFor = last.on === "" ? 0 : daysBetween(last.on, today);
+  const overdue = owed.due && staleFor > PAGE_WRITER_STALE_DAYS;
   const bad = status.outcome === "failed" || status.outcome === "refused";
+  const detail =
+    `${mode} mode; ${when} — ${status.outcome}` +
+    (status.derived ? " (derived: it was handed the day and wrote nothing)" : "") +
+    (status.run !== null && status.run.detail.length > 0 && !status.derived
+      ? `, ${status.run.detail}`
+      : "") +
+    (owed.due ? `; ${owed.about} is owed` : "") +
+    (overdue ? ` and nothing has been delivered for ${String(staleFor)} days` : "");
   return [
     finding(
       "page-writer",
-      bad ? "amber" : "green",
+      bad || overdue ? "amber" : "green",
       "Page writer",
       detail,
-      bad
-        ? "counterparts fired --dir <store> --observer shows the run's own row; counterparts self-page --write amends the page by hand meanwhile."
+      bad || overdue
+        ? "counterparts fired --dir <store> --observer shows the run's own row. A night that is owed but never delivered is usually the host's injection ceiling: the block is deferred rather than truncated, so raise injectionBudgetBytes or run the writer in host mode. counterparts self-page --write amends the page by hand meanwhile."
         : "",
-      { ...data, outcome: status.outcome, derived: status.derived },
+      {
+        ...data,
+        outcome: status.outcome,
+        derived: status.derived,
+        owedFor: owed.due ? owed.about : "",
+        staleFor,
+      },
     ),
   ];
 }
+
+/** Calendar days apart, both `YYYY-MM-DD`. 0 when either will not read. */
+function daysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86_400_000));
+}
+
+/** Calendar days a night may be owed before the line says so. A writer that
+ *  missed last night has not failed; one that has missed three has. */
+export const PAGE_WRITER_STALE_DAYS = 2;
 
 /** A page that was written and then cleared: when, why, and what is restorable.
  *  Null when no page row exists at all. */

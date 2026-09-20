@@ -757,3 +757,49 @@ claim are all exercised against a stub executable; what a real machine has to an
 whether a background process can reach the keychain for the subscription login
 (`claude setup-token` is the documented route — spec §16). Until somebody runs it, `session`
 is the mode that is actually known to work, which is why it is the default.
+
+## 16. Two things the first build of the writer got wrong, both invisible to its own tests (2026-09-20, review of S2)
+
+Both were found by asking what the mechanism does on a REAL store rather than on a
+fixture, and both would have made session mode — the default — quietly not work.
+
+**The block repeated the page, so on any store a few days old the ask was deferred every
+morning and nothing durable said so.** The first version handed the writer the page body
+followed by up to 8 KB of the day's memories, and then checked whether the total fitted
+beside the wake under the host's ceiling. On the fixture — a 60-byte page and one memory —
+it always fitted. On a store with a 4 KB page and a productive day behind it, against the
+9 KB ceiling this host reports, it never does: the wake has already spent most of the
+ceiling, and the page is in the wake, so the block was re-sending the single biggest thing
+the reader already had. The deferral was correct behaviour (never truncate, never smuggle
+past the ceiling) and its only trace was a ring event that dies with the hook process,
+which is I32's shape exactly: a mechanism refused every time with no row anyone can read.
+
+Two fixes, and the second is the one that generalises. The block now POINTS at the page
+(version, bytes, last revised, "it is at the head of your wake, call the tool with no
+arguments to read it whole") instead of repeating it — which is also just true, in both
+modes, since host mode's whole reason for existing is that the child runs the ordinary
+SessionStart hook. And the day is sized to the room that is actually left: the empty block
+is measured first, with the same function that composes the full one so the two cannot
+drift, and the memories get the remainder. A day that does not all fit is delivered SHORT
+with the count on the run's row, rather than the whole ask being dropped.
+
+The third fix is the diagnostic, because the first two do not make deferral impossible:
+doctor's line now reads `pageWriterDue` itself and goes amber when a night has been owed
+for more than two days with nothing delivered. A deferral still leaves no durable row —
+nothing claimed is the correct behaviour — so the only honest way to see it is to notice
+that the night is still owed.
+
+**`by: "writer"` could never fire in session mode, because the real MCP server is
+unbound.** The server is launched from a static host configuration and never learns which
+session it serves; it binds lazily, on the first tool call that carries an id
+(`requireBoundSession`). A session answering the page-writer ask right after its wake has
+called nothing else, so `this.session` was null, so the registry mark was never read, so
+every night's revision was filed as an ordinary amendment and the night then read as
+`nothing-to-say`. The inverse of the honesty the outcome exists for, and the test passed
+because `openServer({ session })` sets the id at launch, which production does not do.
+
+The ask now names the session id and the tool takes an optional `session`, the way the Stop
+ask and `chapter` already do. It is honoured NON-FATALLY: `requireBoundSession` is reused
+so there is one definition of corroboration, and its refusal value is discarded. A page
+amendment has never needed a session and must not start being refused for lack of one; what
+a bad claim costs is the `writer` label, and the ring says why.

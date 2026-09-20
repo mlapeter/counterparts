@@ -44,6 +44,7 @@ import {
   pageWriterRuns,
   pageWriterStatus,
   writerInstruction,
+  writerInstructionOverhead,
 } from "../src/core/self/index.js";
 import {
   ClaudeCodeAdapter,
@@ -387,18 +388,51 @@ describe("the instruction the writer reads", () => {
     expect(text).toContain("leaving the page exactly as it stands is the right answer");
     expect(text).toContain(about);
     expect(text).toContain("A placeholder thing noticed yesterday.");
-    expect(text).toContain("nothing has been written here yet");
+    expect(text).toContain("Nothing has been written on your page yet");
     expect(text).toContain("Amend it; do not start over");
   });
 
-  test("with a page standing, it carries the page whole and names its version", () => {
+  test("IT DOES NOT REPEAT THE PAGE — the wake already carries it — and names the version instead", () => {
     const c = counterpart();
-    c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
+    // A page big enough that repeating it would eat a realistic ceiling whole.
+    const big = `## ${PAGE_CORE_HEADING}\n\n${"Placeholder core sentence that is long enough to matter. ".repeat(60)}\n\n## ${PAGE_LATELY_HEADING}\n\n${"Placeholder lately sentence. ".repeat(60)}`;
+    c.revisePage(big, { reason: "a placeholder first page", by: "owner" });
     const about = pageWriterAbout(c.store.today());
     const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
-    expect(text).toContain(PAGE);
+    expect(text).not.toContain("Placeholder core sentence");
+    expect(text).toContain("at the head of your wake");
     expect(text).toContain("version 0");
-    expect(text).toContain("`ifVersion`");
+    expect(text).toContain("`ifVersion: 0`");
+    expect(text).toContain("with no arguments to read it whole");
+    // The whole block stays small enough to ride beside a real wake.
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(1500);
+  });
+
+  test("it names the session id, so the write can be recorded as the night's", () => {
+    const c = counterpart();
+    const about = pageWriterAbout(c.store.today());
+    const built = c.pageWriterInput({ about });
+    expect(writerInstruction(built, { tool: "self_page", session: "sess_x" })).toContain(
+      "`session: sess_x`",
+    );
+    // ...and says nothing about a session when the door has no id for one.
+    expect(writerInstruction(built, { tool: "self_page" })).not.toContain("session:");
+  });
+
+  test("the overhead is MEASURED with the same function, so the two cannot drift", () => {
+    const c = counterpart();
+    seedYesterday(c, ["One.", "Two.", "Three."]);
+    const about = pageWriterAbout(c.store.today());
+    const framing = { tool: "self_page", session: "sess_x" };
+    const built = c.pageWriterInput({ about });
+    const empty = c.pageWriterInput({ about, budgetBytes: 0 });
+    expect(empty.memories).toHaveLength(0);
+    expect(writerInstructionOverhead(empty, framing)).toBe(
+      Buffer.byteLength(writerInstruction(empty, framing), "utf8"),
+    );
+    expect(writerInstructionOverhead(built, framing)).toBeLessThan(
+      Buffer.byteLength(writerInstruction(built, framing), "utf8"),
+    );
   });
 
   test("a day with nothing in it says so rather than pretending", () => {
@@ -482,6 +516,41 @@ describe("session mode: the ask at SessionStart", () => {
     expect(pageWriterRuns(a.counterpart.store)).toHaveLength(2);
   });
 
+  test("A REAL PAGE AND A REAL DAY STILL FIT — the day is sized to the room the wake left, not to the tunable", () => {
+    const seeder = counterpart();
+    // Day 3 of an ordinary store: a 4 KB page in the wake and a productive day
+    // behind it. Composing the whole 8 KB tunable and deferring on the total
+    // would defer this morning, and every morning after it, with nothing
+    // durable to say so.
+    const page = `## ${PAGE_CORE_HEADING}\n\n${"A placeholder core sentence that is long enough to be realistic. ".repeat(32)}\n\n## ${PAGE_LATELY_HEADING}\n\n${"A placeholder lately sentence. ".repeat(32)}`;
+    expect(Buffer.byteLength(page, "utf8")).toBeGreaterThan(3000);
+    seeder.revisePage(page, { reason: "a placeholder page", by: "owner" });
+    seedYesterday(
+      seeder,
+      Array.from(
+        { length: 20 },
+        (_, i) => `Placeholder memory ${String(i)}: ${"something learned at a realistic length. ".repeat(6)}`,
+      ),
+    );
+    seeder.rebrief({ budgetBytes: BUDGET_BYTES });
+    const about = pageWriterAbout(seeder.store.today());
+    seeder.close();
+
+    const a = adapter({ pageWriter: { mode: "session" } });
+    const out = a.sessionStart(hook("sess_real"));
+    expect(out.ask).not.toBeNull();
+    expect(out.ask ?? "").toContain(PAGE_WRITER_OPEN);
+    // The whole block fits under the host's reported ceiling beside the wake.
+    const askBytes = Buffer.byteLength(`\n\n${out.ask ?? ""}`, "utf8");
+    expect(out.bytes + askBytes).toBeLessThanOrEqual(BUDGET_BYTES);
+    // ...and the day it could not all carry is counted, not silently lost.
+    const run = pageWriterRuns(a.counterpart.store, { about })[0];
+    expect(run?.outcome).toBe("asked");
+    expect(run?.considered).toBeGreaterThan(0);
+    expect(run?.considered).toBeLessThan(20);
+    expect(run?.detail).toContain("did not fit");
+  });
+
   test("no room under the reported ceiling: DEFERRED, never truncated, and the night stays owed", () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
@@ -530,6 +599,48 @@ describe("the writer's own door on the page", () => {
     const status = s.counterpart.pageWriterStatus(about);
     expect(status.outcome).toBe("revised");
     expect(status.derived).toBe(false);
+  });
+
+  test("AN UNBOUND SERVER — which is every real one — binds from the ask's own session id", async () => {
+    const seeder = counterpart();
+    seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
+    const about = pageWriterAbout(seeder.store.today());
+    seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
+    seeder.close();
+    recordSession(dir, { sessionId: "sess_u", scope: SCOPE, phase: "start", pageWriterFor: about });
+
+    // NO `session` AT LAUNCH. This is the production shape: the host launches
+    // the MCP server from a static configuration and it never learns which
+    // session it serves — it binds lazily, on the first tool call carrying an
+    // id. A session answering the page-writer ask right after its wake has
+    // called nothing else, so without the id in the call the mark could never
+    // be read and every night's revision was filed as an ordinary amendment.
+    const s = openServer({ dir, scope: SCOPE, owner: true });
+    open.push(s.counterpart);
+    expect(s.session).toBeNull();
+    const res = await s.call("self_page", {
+      body: PAGE,
+      reason: "the night's revision",
+      session: "sess_u",
+    });
+    expect(res.isError ?? false).toBe(false);
+    expect(s.counterpart.selfPage()?.by).toBe("writer");
+    expect(s.counterpart.pageWriterStatus(about).outcome).toBe("revised");
+  });
+
+  test("a session claim that does not corroborate costs the LABEL and never the page", async () => {
+    const seeder = counterpart();
+    seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
+    seeder.close();
+    // No registry record for this id at all: the claim cannot be corroborated.
+    const s = openServer({ dir, scope: SCOPE, owner: true });
+    open.push(s.counterpart);
+    const res = await s.call("self_page", { body: PAGE, session: "sess_nobody" });
+    // The page is NOT refused — this door has always worked unbound, and it
+    // does not start refusing over a session it did not need.
+    expect(res.isError ?? false).toBe(false);
+    expect(s.counterpart.selfPage()?.by).toBe("session");
+    expect(s.events("mcp.session.unbound").length).toBeGreaterThan(0);
   });
 
   test("an UNMARKED session is an ordinary session, and leaves the writer's log alone", async () => {
@@ -674,14 +785,75 @@ describe("the surfaces that report it", () => {
     expect(f?.detail).toContain("watchdog");
   });
 
-  test("doctor is GREEN when it is off and nothing has been written; AMBER once a page stands", () => {
+  test("doctor is GREEN when it is off — a deliberate choice is not a fault — but says what off means", () => {
     const c = counterpart();
     const off = config({ pageWriter: { mode: "off" } });
     expect(pageWriterFindings(c.store, off)[0]?.severity).toBe("green");
     c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
     const f = pageWriterFindings(c.store, off)[0];
+    expect(f?.severity).toBe("green");
+    expect(f?.fix).toBe("");
+    expect(f?.detail).toContain("only when somebody writes it");
+  });
+
+  test("doctor goes AMBER when a night has been OWED for days with nothing delivered — the failure with no row behind it", () => {
+    const c = counterpart();
+    seedYesterday(c, ["A placeholder thing noticed yesterday."]);
+    const today = c.store.today();
+    // It ran, four days ago, and has been silently deferred ever since — which
+    // is what an ask that will not fit the host's ceiling looks like from here.
+    c.store.appendEvent({
+      name: SELF_PAGE_WRITER_EVENT,
+      day: c.store.livedDay(),
+      payload: {
+        about: dayBefore(today, 5),
+        on: dayBefore(today, 4),
+        mode: "session",
+        outcome: "revised",
+      },
+    });
+    const f = pageWriterFindings(c.store, config())[0];
     expect(f?.severity).toBe("amber");
-    expect(f?.fix).toContain("pageWriter");
+    expect(f?.detail).toContain("is owed");
+    expect(f?.detail).toContain("nothing has been delivered for 4 days");
+    expect(f?.fix).toContain("injectionBudgetBytes");
+    expect(f?.data["owedFor"]).toBe(pageWriterAbout(today));
+  });
+
+  test("...and stays GREEN when last night is simply owed and today has not been given its turn", () => {
+    const c = counterpart();
+    seedYesterday(c, ["A placeholder thing noticed yesterday."]);
+    const today = c.store.today();
+    c.store.appendEvent({
+      name: SELF_PAGE_WRITER_EVENT,
+      day: c.store.livedDay(),
+      payload: {
+        about: dayBefore(today, 2),
+        on: dayBefore(today, 1),
+        mode: "session",
+        outcome: "revised",
+      },
+    });
+    const f = pageWriterFindings(c.store, config())[0];
+    expect(f?.severity).toBe("green");
+    expect(f?.detail).toContain("is owed");
+  });
+
+  test("an abandoned `started` claim reads as FAILED, not as a quiet night", () => {
+    const c = counterpart();
+    const today = c.store.today();
+    const about = pageWriterAbout(today);
+    c.store.appendEvent({
+      name: SELF_PAGE_WRITER_EVENT,
+      day: c.store.livedDay(),
+      payload: { about, on: dayBefore(today), mode: "host", outcome: "started" },
+    });
+    const status = pageWriterStatus(c.store, about, today);
+    // Host mode closes its own claim on every path it can reach, so a `started`
+    // still standing is a launcher that died — the worker's own SIGTERM landing
+    // between the claim and the record is how.
+    expect(status.outcome).toBe("failed");
+    expect(status.derived).toBe(true);
   });
 });
 

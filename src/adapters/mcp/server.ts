@@ -1157,6 +1157,20 @@ export class McpServer {
           "`ifVersion` is the whole number the read gave you as `version` (-1 when there was no page), or leave it out.",
       });
     }
+    // BIND FIRST, AND NON-FATALLY. This server is launched from a static host
+    // configuration and never learns which session it serves; it binds lazily,
+    // on the first tool call that carries an id (`requireBoundSession`). Every
+    // other tool that needs one REFUSES without it — but this one has always
+    // worked unbound, so a session claim here is honoured when it corroborates
+    // and simply not honoured when it does not. The page is never refused over
+    // it: what a bad claim costs is the `writer` label, and the ring says why.
+    //
+    // Without this, the page-writer ask could not work at all in session mode.
+    // A session answering it right after its wake has called nothing else, so
+    // `this.session` is null, so the registry mark is never read, so every
+    // night's revision was filed as an ordinary amendment and the night read
+    // as "nothing to say" — the exact inverse of the honesty this is for.
+    this.bindForPageWriter(args["session"]);
     // WHICH DOOR THIS IS. `by` is the door's and is not claimable from outside
     // (`self/page.ts`), so the model's word for "I am the nightly writer" is
     // worth nothing here. What the server reads instead is the mark the
@@ -1305,6 +1319,23 @@ export class McpServer {
    * ordinary session again. Null on every other path, including an unbound
    * server, which is the direction that never over-claims.
    */
+  /**
+   * A session claim on the PAGE's door: corroborated if it can be, ignored if
+   * it cannot, and never a refusal.
+   *
+   * `requireBoundSession` is reused rather than reimplemented — it is the only
+   * place that knows what corroboration means (known to the hooks' registry,
+   * live, and in this server's scope) and it already emits the reason on every
+   * arm. Its refusal VALUE is discarded here, which is the whole difference
+   * between this door and `chapter`'s: a page amendment has never needed a
+   * session and must not start being refused for lack of one.
+   */
+  private bindForPageWriter(claimed: unknown): void {
+    if (typeof claimed !== "string" || claimed.length === 0) return;
+    if (this.session !== null) return;
+    this.requireBoundSession(claimed, "self_page");
+  }
+
   private pageWriterMark(): { about: string; mode: "session" | "host" } | null {
     try {
       const claim = this.pageWriterClaim();

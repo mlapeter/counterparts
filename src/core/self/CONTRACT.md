@@ -333,10 +333,21 @@ proposals and their archive; render and delivery telemetry.
     outcome**: host mode reports it (a windowless session handed one tool that did not use
     it has answered), session mode cannot tell it from "never got to it" and so does not
     claim to — it stores the claim, and the READING of a claim whose day has ended is
-    `nothing-to-say`, marked `derived` wherever it is shown. `by: "writer"` is the DOOR's
-    and is not claimable from a tool call: the evidence is a date the SessionStart hook
-    wrote on the session's registry record, or one the launcher pinned onto a windowless
-    child's environment, honoured only while that night's claim is open.
+    `nothing-to-say`, marked `derived` wherever it is shown — except an abandoned
+    `started`, which reads `failed`, because host mode closes its own claim on every path
+    it can reach. `by: "writer"` is the DOOR's and is not claimable from a tool call: the
+    evidence is a date the SessionStart hook wrote on the session's registry record, or
+    one the launcher pinned onto a windowless child's environment, honoured only while
+    that night's claim is open.
+    **The block does not repeat the page**: the reader woke with it at the head of its own
+    wake in both modes, and sending it twice would spend up to `PAGE_MAX_BYTES` of the
+    very ceiling the block has to fit inside — which on a real page and a real day is the
+    difference between an ask that is delivered and one deferred every morning. What it
+    names instead is the version, which is what `ifVersion` needs and the one thing the
+    wake does not carry. The day is sized to the room the wake left, measured with the
+    same function that composes the block; a day that did not all fit is delivered SHORT
+    with the count on the row, and only a block whose own furniture will not fit is
+    deferred.
 20. **[M]** **THE WRITER CAN WRITE THE PAGE AND ONE ROW, AND NOTHING ELSE.** The page goes
     through `revisePage` — the one seam, with its caps, its gate battery and its version
     chain — and `writer.ts` never touches it; what this module writes is the run's own
