@@ -398,7 +398,9 @@ export function preRowsMarkersIn(dir: string): string[] {
  * or is this a store with words in it?
  *
  * This is the question that decides whether a remedy may say "delete these".
- * Master's `Store` constructor mkdirs `prose/`, `versions/` and `tmp/` before
+ * The PRE-FLOOR build's `Store` constructor — the one tagged `floor/v5-last`,
+ * and what a stale worktree or an un-deployed checkout still runs — mkdirs
+ * `prose/`, `versions/` and `tmp/` before
  * it reaches `assertLayout()`, so ONE old-build hook on a v6 store leaves all
  * three behind EMPTY — and from then on this build refuses its own store (A,
  * MAJOR-1). Removing them is exactly right there, and a catastrophe beside a

@@ -15,9 +15,11 @@ never got to write.
 
 ## The core, the brain: knows nothing about any particular app
 
-- **store** — the filing cabinet. Memories are markdown files you can read in any editor,
-  a small database tracks their state, and a throwaway cache holds search indexes that
-  can always be rebuilt.
+- **store** — the filing cabinet. One small database holds the memories themselves — their
+  words, their earlier drafts, and everything the system knows about each one — and a
+  throwaway cache beside it holds search indexes that can always be rebuilt. You can read
+  any memory in the console or the dashboard, and `counterparts export` writes them all out
+  as markdown files whenever you want them as files.
 - **physics** — the one page of arithmetic. How strong a memory is, how fast it fades,
   how much a use reinforces it, how much pressure it takes to revise a belief. No
   opinions, no model calls.

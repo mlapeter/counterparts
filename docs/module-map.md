@@ -14,7 +14,7 @@ code and the `NOTES.md` / `INTERFACE-GAPS.md` next to it.*
 | `physics/` | synaptic plasticity | ALL the arithmetic on one page: strength, decay, reinforcement, strength-weighted revision. No opinions, no model calls. |
 | `encode/` | attention + amygdala tagging | What gets in: gates (secrets, precision), salience tagged at write time, novelty as prediction error. |
 | `remember/` | hippocampal encoding | The authorship contract: the experiencer's end-of-session dump (content, salience tags, `updates:` marks), in-the-moment jots, crash-fallback ingestion. |
-| `store/` | the substrate | Three boxes: prose markdown (canonical), one small SQLite (canonical operational, transactional), one rebuildable cache (embeddings/FTS, never backed up). |
+| `store/` | the substrate | Two boxes since the floor (schema v6, 2026-09-20): one small canonical transactional SQLite (`counterparts.sqlite` — the memories' words, their archived versions, and every structured field), one rebuildable cache (embeddings/FTS, never backed up). The third box — one markdown file per memory — is gone; markdown is an export (`render.ts`), plus a file copy of the journal. |
 | `recall/` | retrieval + priming | Cues → activation → surfacing gate → bounded injection; footnote tier; reinforcement on real use. |
 | `associate/` | Hebbian linking | Co-activation strengthens links; spreading activation at recall. **RESOLVED (owner, 2026-08-25): stays a module** — edge-level arithmetic keeps `physics/` one page; Hebbian plasticity/contiguity is its own mechanism in the field guide. |
 | `schemas/` | semantic memory | Entities and beliefs; birth by mention, death by decay; strength-weighted revision with row history. |
@@ -73,3 +73,9 @@ crash fallback; librarian-as-physics with zero standing model calls; strength-we
 revision (no ledger subsystem); only physics forgets; the three storage boxes;
 birth-by-mention entities; Amendment 15. Anything a CONTRACT drops beyond that list is
 marked **PROPOSED** and waits for the owner's check-in.
+
+*The three storage boxes became two on 2026-09-20 (the floor, schema v6): the canonical
+prose box is gone and the memory IS the row. That is the same owner, revising his own
+default — "going forward by 'readable' we mean if someone can view them" (2026-09-16),
+and `docs/storage-spec-2026-09-16.md` §15 item 9, "everything lives in the database for
+now; markdown is an export". The other seven entries above are untouched.*
