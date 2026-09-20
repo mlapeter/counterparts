@@ -56,6 +56,18 @@ const PAGE_TWO = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder two.\n\n## ${PAGE
 let dir: string;
 let priorEnv: string | undefined;
 const open: { close(): void }[] = [];
+/** Temp dirs a test made BESIDE `dir` — a second, empty store is the only
+ *  honest way to ask what a store with no page says. Removed with `dir` in
+ *  `afterEach`, not inline, so a failing expectation still leaves nothing
+ *  behind (CLAUDE.md: every test removes the dir it creates). */
+const extraDirs: string[] = [];
+
+/** A fresh data dir outside `dir`, registered for removal. */
+function otherDir(prefix: string): string {
+  const made = mkdtempSync(join(tmpdir(), prefix));
+  extraDirs.push(made);
+  return made;
+}
 
 beforeEach(() => {
   priorEnv = process.env["COUNTERPARTS_DATA_DIR"];
@@ -72,6 +84,7 @@ afterEach(() => {
     }
   }
   rmSync(dir, { recursive: true, force: true });
+  for (const other of extraDirs.splice(0)) rmSync(other, { recursive: true, force: true });
   if (priorEnv === undefined) delete process.env["COUNTERPARTS_DATA_DIR"];
   else process.env["COUNTERPARTS_DATA_DIR"] = priorEnv;
 });
@@ -471,7 +484,7 @@ describe("the page in the wake", () => {
     expect(small.text).not.toContain(PAGE_FORMING_LINE);
     expect(small.text).toContain("no room for it in this wake");
     // A store that really has none still says so, at both sizes.
-    const blank = store({ dir: mkdtempSync(join(tmpdir(), "counterparts-page-c-")) });
+    const blank = store({ dir: otherDir("counterparts-page-c-") });
     expect(self(blank, { PAGE_EMPTY_SHOWS_LIST: false }).build({ budgetBytes: 400, day: 5 }).text).toContain(
       PAGE_FORMING_LINE,
     );
