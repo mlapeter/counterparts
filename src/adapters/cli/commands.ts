@@ -465,7 +465,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // the one the CONFIGURATION names, because that is the one the hooks open.
   wire: ["config", "yes", "dry-run"],
   unwire: ["config", "yes", "dry-run"],
-  uninstall: ["config", "yes", "park", "delete-memories"],
+  uninstall: ["config", "yes", "park", "delete-memories", "nothing-is-open"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
   // wake has nothing to say about.
@@ -731,6 +731,8 @@ const INSTALL_FLAG_HELP: Record<string, string> = {
  */
 const HOST_FLAG_HELP: Record<string, string> = {
   yes: "do not ask: take the ordinary answer to every question this command would put",
+  "nothing-is-open":
+    "you are asserting you have closed every session, dashboard and worker. It is the way past a check that could NOT LOOK — no usable `ps` — and never past one that found something",
   "dry-run": "print what would change and change nothing (this command is NOT dry by default)",
   dir: "REFUSED on this command: what it acts on is decided by the configuration, not by a path on this line. Name the configuration instead, with --config",
 };
@@ -1260,6 +1262,11 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return await hostWiringCommand(command, parsed, io, env, opts, named, now);
     } catch (err) {
+      if (isPromptAborted(err)) {
+        io.err("");
+        io.err("stopped; nothing else was changed.");
+        return EXIT.refused;
+      }
       io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
       // NOT "nothing was changed": a throw can land after the settings file has
       // been written, and a sentence that is false in the one case somebody is
@@ -2507,6 +2514,43 @@ async function installInteractive(
   named: ConfigChoice | undefined,
   now: () => number,
 ): Promise<number> {
+  // CTRL-C IS NOT AN ANSWER, at ANY of this conversation's questions (review
+  // m4). It used to end the process silently with exit 0 — at the name prompt
+  // nothing existed yet, at the wire question the store, the config and the
+  // 0600 credentials file all did, and a `&&` chain read that zero as
+  // "installed". The keys step already had this handling; now every prompt
+  // does, and it reports from the FILESYSTEM rather than from a flow that was
+  // abandoned halfway.
+  try {
+    return await installConversation(parsed, io, env, opts, named, now);
+  } catch (err) {
+    if (!isPromptAborted(err)) throw err;
+    const home = opts.home ?? homedir();
+    const custom = customConfigPath(named, home);
+    const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
+    const layout = installLayout(dirFlag, env, home, custom);
+    const u = ui(io, env);
+    u.blank();
+    u.fail("stopped; nothing else was changed.");
+    u.hint(
+      storeExists(layout.store)
+        ? `Your store is at ${layout.store}.`
+        : "No store was created.",
+    );
+    if (existsSync(layout.config)) u.hint(`Its configuration is ${layout.config}.`);
+    u.hint(`Run \`${BIN.cli} install\` again whenever you like; it picks up where this left off.`);
+    return EXIT.refused;
+  }
+}
+
+async function installConversation(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  opts: RunOptions,
+  named: ConfigChoice | undefined,
+  now: () => number,
+): Promise<number> {
   const home_ = opts.home ?? homedir();
   const u = ui(io, env);
   const custom = customConfigPath(named, home_);
@@ -2759,11 +2803,16 @@ async function hostWiringCommand(
         home: home_,
         configPath,
         custom,
-        dataDir: host.config.dataDir,
+        // THE WHOLE CONFIGURATION, not just `dataDir`: the plan has to find the
+        // credentials file, the snapshots directory and the store wherever the
+        // file put them, because "the directory the config sits in" is exactly
+        // the reasoning the 2026-09-21 review broke.
+        config: host.config,
         now: now(),
         yes: parsed.flags["yes"] === true,
         park: parsed.flags["park"] === true,
         deleteMemories: parsed.flags["delete-memories"] === true,
+        nothingIsOpen: parsed.flags["nothing-is-open"] === true,
         exe: process.execPath,
         spawner,
         lister,

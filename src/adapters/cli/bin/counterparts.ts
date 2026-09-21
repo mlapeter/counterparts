@@ -25,7 +25,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { run } from "../commands.js";
-import { hiddenPrompt } from "../ui.js";
+import { PromptAborted, hiddenPrompt } from "../ui.js";
 
 /** Everything piped in, as one string. Never logged, never echoed: the one
  *  caller is `credentials set`, and what comes through here is a secret. */
@@ -35,10 +35,42 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * One line of text, and **Ctrl-C is not an answer** (review m4).
+ *
+ * `readline` closes on SIGINT and on EOF, and the first version of this simply
+ * never resolved: the process ended silently with **exit 0**. At the name
+ * prompt nothing had been created yet; at the wire question the store, the
+ * config and the 0600 credentials file all existed and nothing said so — and a
+ * `&&` chain or a wrapper script reads exit 0 as "installed".
+ *
+ * So both endings reject with the same `PromptAborted` the hidden reader
+ * already throws, and every caller's existing handling — "stopped; nothing else
+ * was changed", a non-zero code — applies to them without a line of new
+ * branching. `close` fires after `line` too, so the resolve latches.
+ */
 function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolveAnswer) => {
+  return new Promise((resolveAnswer, rejectAnswer) => {
+    let settled = false;
+    rl.on("SIGINT", () => {
+      if (settled) return;
+      settled = true;
+      // The newline the echo would have written, so the refusal does not land
+      // on the same line as the question.
+      process.stdout.write("\n");
+      rl.close();
+      rejectAnswer(new PromptAborted("interrupt", "cancelled."));
+    });
+    rl.on("close", () => {
+      if (settled) return;
+      settled = true;
+      // EOF with no line: stdin closed under us. Not an answer either.
+      rejectAnswer(new PromptAborted("interrupt", "the input ended before the question was answered."));
+    });
     rl.question(question, (answer) => {
+      if (settled) return;
+      settled = true;
       rl.close();
       resolveAnswer(answer);
     });

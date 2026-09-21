@@ -1164,6 +1164,31 @@ else
   fi
 fi
 
+step "counterparts uninstall will not touch a directory that holds anything else (B1)"
+# THE BLOCKER, as a step. A configuration somewhere of the person's own —
+# `install --config <path>` is the supported way to do that — and the directory
+# around it must come through untouched whatever happens to ours.
+MINE="$HOME/Documents"
+mkdir -p "$MINE/taxes"
+echo "not yours" > "$MINE/taxes/2025.pdf"
+counterparts install --config "$MINE/claude-code.json" --budget 9000 --name "Someone" >/dev/null 2>&1
+PLAN=$(printf 'no\n' | counterparts uninstall --config "$MINE/claude-code.json" --park 2>&1)
+# WHAT MUST HOLD EITHER WAY: nothing that is not ours moved. Whether the plan
+# is reached at all depends on the machine — the process check runs first and
+# refuses on a box with a live Counterparts server of its own, which is step
+# 58's situation too.
+if [ ! -f "$MINE/taxes/2025.pdf" ] || [ "$(cat "$MINE/taxes/2025.pdf")" != "not yours" ]; then
+  no "a file that is not ours was touched" "$PLAN"
+elif printf '%s' "$PLAN" | grep -q "still running\|could not check"; then
+  ok   # refused before the plan: the guard, doing its job
+elif ! printf '%s' "$PLAN" | grep -q "itself STAYS"; then
+  no "the plan did not say the directory stays" "$PLAN"
+elif ! printf '%s' "$PLAN" | grep -q "taxes"; then
+  no "the plan did not name the foreign entry it is leaving" "$PLAN"
+else
+  ok
+fi
+
 step "counterparts uninstall --park moves the whole directory aside, or refuses because something of ours runs"
 # BOTH OUTCOMES ARE CORRECT, and which one happens is a fact about the machine
 # the loop is running on rather than about the package: the refusal is scoped to

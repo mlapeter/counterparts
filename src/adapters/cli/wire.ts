@@ -60,16 +60,17 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
-import { CONFIG_ENV } from "../config-path.js";
+import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
 import type { Io } from "./commands.js";
 import {
   BIN,
@@ -181,6 +182,29 @@ export function sightSettings(named: string, home: string): SettingsSight {
     value: {},
     refusal: null,
   };
+  const realHome = realpathDeep(home);
+
+  // ── THE DIRECTORY ABOVE IT IS A PATH TOO (review m3) ──────────────────────
+  //
+  // The symlink guard used to look only at the `settings.json` entry, so a
+  // symlinked `~/.claude` pointing anywhere at all was written through in
+  // silence — the output named the tilde path and the bytes landed outside the
+  // home. It is where the host reads, so the intent is harmless; being unable
+  // to say where somebody's hooks went is not.
+  const parent = dirname(named);
+  if (existsSync(parent)) {
+    const realParent = realpathDeep(parent);
+    if (!isWithin(realHome, realParent)) {
+      return {
+        ...absent,
+        refusal:
+          `refused: ${parent} resolves to ${realParent}, which is outside your home directory ` +
+          `(${realHome}). This command will not write a settings file into a directory nobody ` +
+          "named. Edit it by hand there, or point that link back inside your home.",
+      };
+    }
+  }
+
   let stat;
   try {
     stat = lstatSync(named);
@@ -193,8 +217,20 @@ export function sightSettings(named: string, home: string): SettingsSight {
   let symlink = false;
   if (stat.isSymbolicLink()) {
     symlink = true;
-    target = realpathDeep(named);
-    const realHome = realpathDeep(home);
+    // `readlinkSync` FIRST, and `realpathDeep` only as the resolved spelling.
+    // A DANGLING link cannot be resolved, so `realpathDeep` hands back the
+    // link's own path — which made `exists: false` true, the out-of-home test
+    // compare the link against itself, and the write `rename` a regular file
+    // OVER the link (review m2). The link's own text is the only thing that
+    // says where its author meant it to go.
+    const written = readlinkSync(named);
+    const pointsAt = isAbsolute(written) ? resolve(written) : resolve(dirname(named), written);
+    // `realpathDeep` on the TARGET, not on the link: it resolves the deepest
+    // ancestor that exists and re-appends the rest, so a dangling link still
+    // gets the spelling the inside-home test needs (macOS says `/var/folders`
+    // and `/private/var/folders` for one directory, and a comparison that
+    // knows only one of the two silently answers "outside your home").
+    target = realpathDeep(pointsAt);
     if (!isWithin(realHome, target) || target === realHome) {
       return {
         ...absent,
@@ -209,9 +245,21 @@ export function sightSettings(named: string, home: string): SettingsSight {
       };
     }
     if (!existsSync(target)) {
-      // A dangling link: the target is where the file WOULD live, and creating
-      // it there is what the person who made the link asked for.
-      return { ...absent, target, symlink: true };
+      // A DANGLING LINK IS A REFUSAL, not a licence to create the target
+      // (review m2). This file used to say the opposite. A link into a
+      // directory that is not there is a dotfiles arrangement mid-restore —
+      // the stow has not run, the external disk is not mounted — and writing
+      // the file the link was waiting for is how a restore silently loses.
+      return {
+        ...absent,
+        target,
+        symlink: true,
+        refusal:
+          `refused: ${named} is a symbolic link to ${target}, and nothing is there. That is a ` +
+          "dotfiles arrangement part-way through being set up, not a place to create a file: " +
+          "writing it would replace the link, and whatever manages it would never see this. " +
+          "Put the target in place first, or merge the block below by hand.",
+      };
     }
   }
 
@@ -345,13 +393,111 @@ export interface MergeResult {
    *  untouched. Reported, because "your other hooks are still there" is the
    *  sentence a reader most wants evidence for. */
   readonly foreignKept: number;
+  /** Entries that MENTION our hook inside a longer command — somebody's own
+   *  wrapper. Left exactly as they are, by event, so the one line that says so
+   *  can name them (review m1). */
+  readonly wrapped: readonly { readonly event: string; readonly command: string }[];
 }
 
-/** Is this inner entry one of ours? The SAME test `doctor`'s `readHost` makes. */
+/**
+ * IS THIS COMMAND OURS TO REWRITE — which is a stricter question than "does it
+ * mention us" (review m1).
+ *
+ * `HOOK_COMMAND_MARK` answers the reporting question `doctor` asks: is a hook
+ * of ours installed on this event? It matches a COMPOSITE command, and it
+ * should — a wrapper that ends in `counterparts-hook` really does run our hook,
+ * and a doctor that said otherwise would be wrong.
+ *
+ * It is the wrong question for a WRITE. The review wrapped our hook two ways —
+ * `~/bin/log-start.sh && counterparts-hook`, and `/opt/mytool/bin/wrap --then
+ * counterparts-hook` — and `wire` overwrote the first with ours alone while
+ * `unwire` deleted the second outright. Both are somebody's own line, and this
+ * file's own promise is that nothing belonging to another tool is a candidate.
+ *
+ * So a command is ours to rewrite only when it IS our invocation and nothing
+ * else: our runtime and our hook script, or the installed shim, optionally
+ * followed by `--config <path>`. Anything with a shell operator in it is
+ * refused outright, whatever else it looks like — a command this cannot parse
+ * is a command this does not edit.
+ *
+ * `test/wire.test.ts` holds the two to each other in the direction that
+ * matters: everything `wire` WRITES is matched by both, so a hook we installed
+ * can never read as missing on the surface a person checks.
+ */
+export function isOurHookCommand(command: string): boolean {
+  // A shell operator means the line does something besides run our hook.
+  if (/&&|\|\||;|\||>|<|`|\$\(/.test(command)) return false;
+  const tokens = shellTokens(command);
+  if (tokens.length === 0) return false;
+  const tail = (from: number): boolean => {
+    const rest = tokens.slice(from);
+    if (rest.length === 0) return true;
+    return rest.length === 2 && rest[0] === CONFIG_FLAG && (rest[1] ?? "").length > 0;
+  };
+  const first = tokens[0] ?? "";
+  // The installed shim, by itself.
+  if (/(^|[/\\])counterparts-hook$/.test(first)) return tail(1);
+  // `<runtime> run <our hook script>`.
+  const script = tokens[2] ?? "";
+  if (
+    tokens.length >= 3 &&
+    tokens[1] === "run" &&
+    /claude-code[/\\]bin[/\\]hook\.ts$/.test(script)
+  ) {
+    return tail(3);
+  }
+  return false;
+}
+
+/** Split on whitespace, honouring double quotes — the only quoting
+ *  `install.ts#shellQuote` produces, and therefore the only quoting a command
+ *  we wrote can carry. A single quote is left in the token, which makes the
+ *  match fail, which is the safe direction. */
+function shellTokens(command: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quoted = false;
+  let started = false;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i] ?? "";
+    if (ch === "\\" && quoted && i + 1 < command.length) {
+      current += command[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = !quoted;
+      started = true;
+      continue;
+    }
+    if (!quoted && /\s/.test(ch)) {
+      if (started || current.length > 0) out.push(current);
+      current = "";
+      started = false;
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (started || current.length > 0) out.push(current);
+  return out;
+}
+
+/** Is this inner entry one this command may rewrite or remove? */
 function isOurs(entry: unknown): entry is Record<string, unknown> {
   if (!isRecord(entry)) return false;
   const command = entry["command"];
-  return typeof command === "string" && HOOK_COMMAND_MARK.test(command);
+  return typeof command === "string" && isOurHookCommand(command);
+}
+
+/** Does this entry MENTION us without being ours — a wrapper somebody wrote?
+ *  Left exactly where it is, and reported, so the difference is visible. */
+function isWrapped(entry: unknown): boolean {
+  if (!isRecord(entry)) return false;
+  const command = entry["command"];
+  return (
+    typeof command === "string" && HOOK_COMMAND_MARK.test(command) && !isOurHookCommand(command)
+  );
 }
 
 /**
@@ -373,6 +519,7 @@ export function mergeHooks(
   const existing = next["hooks"];
   const hooks: Record<string, unknown> = isRecord(existing) ? existing : {};
   const events: EventChange[] = [];
+  const wrapped: { event: string; command: string }[] = [];
   let foreignKept = 0;
   let changed = false;
 
@@ -399,6 +546,12 @@ export function mergeHooks(
         if (!isOurs(entry)) {
           kept.push(entry);
           if (isRecord(entry) && typeof entry["command"] === "string") foreignKept += 1;
+          // A WRAPPER IS NOT A CANDIDATE, in either direction. It stays where
+          // it is and gets named once, so a person can see that this command
+          // saw it and chose not to touch it.
+          if (isWrapped(entry)) {
+            wrapped.push({ event, command: String((entry as Record<string, unknown>)["command"]) });
+          }
           continue;
         }
         seen += 1;
@@ -491,7 +644,7 @@ export function mergeHooks(
   } else {
     next["hooks"] = hooks;
   }
-  return { value: next, events, changed, foreignKept };
+  return { value: next, events, changed, foreignKept, wrapped };
 }
 
 // ── writing it ──────────────────────────────────────────────────────────────
@@ -690,7 +843,20 @@ export interface RunningProcess {
   readonly command: string;
 }
 
-export type ProcessLister = () => readonly RunningProcess[];
+/**
+ * WHAT A LOOK FOUND, AND WHETHER IT WAS A LOOK AT ALL.
+ *
+ * `looked: false` is "I could not check" — no `ps`, a timeout, a sandbox that
+ * refuses process listing — and it is NOT the same fact as an empty list
+ * (review M3). The two were indistinguishable, so the destructive verb parked a
+ * store on a box with no `ps` and said nothing about it.
+ */
+export interface ProcessSighting {
+  readonly looked: boolean;
+  readonly processes: readonly RunningProcess[];
+}
+
+export type ProcessLister = () => ProcessSighting;
 
 /**
  * The command lines that mean one of OURS is running, and NOTHING that merely
@@ -735,7 +901,11 @@ export function realProcessLister(env: Record<string, string | undefined>): Proc
         windowsHide: true,
         env: env as NodeJS.ProcessEnv,
       });
-      if (res.error !== undefined && res.error !== null) return [];
+      // A `ps` that is missing, that timed out, or that exited non-zero is a
+      // look that did not happen. The caller decides what to do about that;
+      // this only refuses to pretend it was an empty answer.
+      if (res.error !== undefined && res.error !== null) return NO_LOOK;
+      if (res.status !== 0) return NO_LOOK;
       const out: RunningProcess[] = [];
       for (const line of String(res.stdout ?? "").split("\n")) {
         const m = /^\s*(\d+)\s+(.*)$/.exec(line);
@@ -747,20 +917,30 @@ export function realProcessLister(env: Record<string, string | undefined>): Proc
         if (what === null) continue;
         out.push({ pid, what, command });
       }
-      return out;
+      return { looked: true, processes: out };
     } catch {
-      return [];
+      return NO_LOOK;
     }
   };
 }
 
-/** Only the MCP servers, which is what "restart your sessions" is about. */
-export function runningServers(lister: ProcessLister): readonly RunningProcess[] {
+/** The answer a look that did not happen gives. */
+export const NO_LOOK: ProcessSighting = { looked: false, processes: [] };
+
+/** Ask, and never throw at the caller. A lister that blew up is a look that did
+ *  not happen, which is a different fact from "nothing is running". */
+export function look(lister: ProcessLister): ProcessSighting {
   try {
-    return lister().filter((p) => p.what === "an MCP server");
+    return lister();
   } catch {
-    return [];
+    return NO_LOOK;
   }
+}
+
+/** Only the MCP servers, which is what "restart your sessions" is about. This
+ *  one FAILS OPEN on purpose: it is a courtesy line, not a guard. */
+export function runningServers(lister: ProcessLister): readonly RunningProcess[] {
+  return look(lister).processes.filter((p) => p.what === "an MCP server");
 }
 
 // ── the command ─────────────────────────────────────────────────────────────
@@ -795,6 +975,17 @@ export interface WireResult {
   readonly hooks: "wired" | "repaired" | "already" | "declined" | "refused" | "removed" | "none";
   readonly mcp: "added" | "re-added" | "already" | "printed" | "removed" | "absent" | "skipped";
   readonly backup: string | null;
+  /**
+   * FOR `unwire` ONLY: is the registration provably gone?
+   *
+   * True when `claude mcp remove` exited 0, or when a read of the host's own
+   * file shows no registration. False when `claude` is missing, hung or angry
+   * and a registration is still there — which `uninstall`'s two irreversible
+   * arms treat as a refusal (review M2): the file's own argument for blocking
+   * is that a pointer at a directory that is not there fails silently at every
+   * session start, and that is as true of the server as of the hooks.
+   */
+  readonly mcpConfirmed: boolean;
 }
 
 /**
@@ -851,12 +1042,19 @@ export async function wire(input: WireInput): Promise<WireResult> {
     io.err("");
     io.err("Nothing was changed. The block to merge by hand, under a top-level \"hooks\" key:");
     for (const line of settingsBlock(command).split("\n")) io.err(`  ${line}`);
-    return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null };
+    return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
   }
 
   const merged = mergeHooks(sight.value, command, "wire");
   const mcp = readMcp(home, env, input.store, input.custom, input.exe);
-  const mcpNeeded = !mcp.matches;
+  // WHEN OUR READ OF THE HOST'S FILE FAILS, ASK THE HOST (review m8).
+  //
+  // The "already wired, nothing to ask" short-circuit hung on one file that the
+  // host owns and may move. When it cannot be read, `claude mcp get` is the
+  // question's real owner; when that cannot be reached either, the answer is
+  // "not wired", which asks rather than assumes.
+  const registered = mcp.unreadable ? askClaudeForRegistration(input) : mcp.matches;
+  const mcpNeeded = !registered;
 
   // ── nothing to do ─────────────────────────────────────────────────────────
   if (!merged.changed && !mcpNeeded) {
@@ -864,7 +1062,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
     u.hint(`hooks: ${sight.target}`);
     u.hint(`MCP:   ${mcp.file} (registered as "${MCP_SERVER_NAME}")`);
     u.hint("Nothing was changed and no backup was taken.");
-    return { outcome: "ok", hooks: "already", mcp: "already", backup: null };
+    return { outcome: "ok", hooks: "already", mcp: "already", backup: null, mcpConfirmed: false };
   }
 
   // ── say what would change ─────────────────────────────────────────────────
@@ -898,10 +1096,11 @@ export async function wire(input: WireInput): Promise<WireResult> {
         : `${String(merged.foreignKept)} hooks belonging to something else stay exactly where they are.`,
     );
   }
+  wrappedNote(u, merged.wrapped, "left exactly as it is");
 
   if (input.dryRun) {
     u.hint("Dry run: nothing was written and nothing was registered.");
-    return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null };
+    return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
   }
 
   // ── ask ───────────────────────────────────────────────────────────────────
@@ -916,13 +1115,13 @@ export async function wire(input: WireInput): Promise<WireResult> {
           "wired. Pass --yes to wire without being asked, or run `counterparts install` at a " +
           "terminal, where it asks first.",
       );
-      return { outcome: "refused", hooks: "declined", mcp: "skipped", backup: null };
+      return { outcome: "refused", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const go = await confirm(io, "Wire Claude Code now?", { default: true });
     if (!go) {
       u.hint("Not wired. Nothing was changed.");
       u.hint(`You can do it later with: ${BIN.cli} wire`);
-      return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null };
+      return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
   }
 
@@ -937,7 +1136,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
     const fresh = sightSettings(named, home);
     if (fresh.refusal !== null) {
       io.err(`refused after re-reading the file: ${fresh.refusal}`);
-      return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null };
+      return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const again = mergeHooks(fresh.value, command, "wire");
     const wrote = writeSettings(fresh, again.value, now);
@@ -949,7 +1148,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
           ? "Nothing was changed."
           : `Nothing was changed; the backup taken first is at ${wrote.backup}.`,
       );
-      return { outcome: "failed", hooks: "refused", mcp: "skipped", backup };
+      return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
     }
     hooksWord = again.events.some((e) => e.change === "replaced") ? "repaired" : "wired";
     if (backup !== null) u.hint(`backed up: ${backup}`);
@@ -965,7 +1164,17 @@ export async function wire(input: WireInput): Promise<WireResult> {
 
   // ── the sentence about sessions that are open right now ───────────────────
   sessionsNote(u, input.lister);
-  return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup };
+  return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup, mcpConfirmed: false };
+}
+
+/**
+ * Does the HOST think our server is registered? Asked only when its own file
+ * could not be read. A `claude` that is missing or angry answers "no", which
+ * makes the caller ask rather than assume.
+ */
+function askClaudeForRegistration(input: WireInput): boolean {
+  const res = input.spawner(["mcp", "get", MCP_SERVER_NAME]);
+  return !res.missing && res.code === 0;
 }
 
 /**
@@ -1021,6 +1230,28 @@ function registerMcp(input: WireInput, u: Ui, mcp: McpReading): WireResult["mcp"
 }
 
 /**
+ * SOMEBODY'S OWN WRAPPER, NAMED ONCE (review m1).
+ *
+ * A command that ends in `counterparts-hook` runs our hook and is still their
+ * line. `wire` will not overwrite it and `unwire` will not delete it, so the
+ * one thing left to do is say so — otherwise a person whose wrapper survives an
+ * `unwire` has a hook they cannot account for.
+ */
+export function wrappedNote(
+  u: Ui,
+  wrapped: readonly { readonly event: string; readonly command: string }[],
+  verb: string,
+): void {
+  if (wrapped.length === 0) return;
+  u.warn(
+    `${String(wrapped.length)} hook${wrapped.length === 1 ? "" : "s"} run ours inside a longer ` +
+      `command, so ${wrapped.length === 1 ? "it is" : "they are"} ${verb}:`,
+  );
+  for (const w of wrapped) u.hint(`  ${w.event}: ${w.command}`);
+  u.hint("Edit those by hand if you want them changed.");
+}
+
+/**
  * WHAT AN OPEN SESSION DOES NOW — the owner asked for this by name.
  *
  * Measured on 2026-09-21: after `settings.json` changes, an ALREADY OPEN
@@ -1060,7 +1291,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   if (sight.refusal !== null) {
     io.err(sight.refusal);
     io.err("Nothing was changed. Remove the Counterparts hook entries by hand.");
-    return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null };
+    return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
   }
 
   const merged = mergeHooks(sight.value, "", "unwire");
@@ -1071,10 +1302,16 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // removal below takes.
   if (!merged.changed && !mcp.present && !mcp.unreadable) {
     u.ok("nothing to unwire: no Counterparts hooks and no MCP registration were found.");
+    // SAID EVEN HERE: a wrapper is exactly the case where "nothing of ours"
+    // needs a sentence, because the person can see a hook that mentions us and
+    // would otherwise have no account of why it survived.
+    wrappedNote(u, merged.wrapped, "left exactly as it is");
     u.hint(`looked in: ${sight.target}`);
     u.hint(`and in:    ${mcp.file}`);
-    return { outcome: "ok", hooks: "none", mcp: "absent", backup: null };
+    return { outcome: "ok", hooks: "none", mcp: "absent", backup: null, mcpConfirmed: true };
   }
+
+  wrappedNote(u, merged.wrapped, "left exactly as it is");
 
   if (input.dryRun) {
     u.hint("dry run — nothing below has been written.");
@@ -1087,7 +1324,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
           : `${String(merged.foreignKept)} hooks belonging to something else would stay.`,
       );
     }
-    return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null };
+    return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false };
   }
 
   if (!input.yes) {
@@ -1096,7 +1333,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
         "refused: this is not an interactive console and nothing was confirmed. Pass --yes if " +
           "that is what you mean.",
       );
-      return { outcome: "refused", hooks: "none", mcp: "skipped", backup: null };
+      return { outcome: "refused", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     preview(
       u,
@@ -1110,7 +1347,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     });
     if (!go) {
       u.hint("Nothing was changed.");
-      return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null };
+      return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
   }
 
@@ -1120,7 +1357,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     const fresh = sightSettings(named, home);
     if (fresh.refusal !== null) {
       io.err(`refused after re-reading the file: ${fresh.refusal}`);
-      return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null };
+      return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const again = mergeHooks(fresh.value, "", "unwire");
     const wrote = writeSettings(fresh, again.value, now);
@@ -1128,7 +1365,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     if (wrote.error !== null) {
       io.err(`failed to write ${fresh.target}: ${wrote.error}`);
       io.err(backup === null ? "Nothing was changed." : `The backup taken first is at ${backup}.`);
-      return { outcome: "failed", hooks: "refused", mcp: "skipped", backup };
+      return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
     }
     hooksWord = "removed";
     if (backup !== null) u.hint(`backed up: ${backup}`);
@@ -1156,26 +1393,48 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // Removing what is not there costs one exit code, which is why the brief says
   // "tolerate not found".
   let mcpWord: WireResult["mcp"] = "absent";
+  // WAS IT ACTUALLY DEREGISTERED — asked, not assumed (review M2).
+  //
+  // `mcpConfirmed` is true only when `claude mcp remove` exited 0, or when a
+  // FRESH read of the host's own file shows no registration. A missing, hung or
+  // angry `claude` with a registration still on disk is false, and
+  // `uninstall`'s two irreversible arms refuse on it: a server pointed at a
+  // store that is no longer there fails at every session start with nothing on
+  // screen, which is the same argument this file already makes for the hooks.
+  let mcpConfirmed = false;
   const res = input.spawner(mcpRemoveArgs());
   const notThere = /not found|no .*server|does not exist|not configured/i.test(`${res.out}\n${res.err}`);
+  const stillThere = (): boolean =>
+    readMcp(home, env, input.store, input.custom, input.exe).present;
   if (res.missing) {
-    u.warn("`claude` is not on this PATH, so the MCP server was not deregistered.");
-    u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
-    mcpWord = "printed";
+    mcpConfirmed = !stillThere();
+    if (mcpConfirmed) {
+      u.hint(`no MCP registration named "${MCP_SERVER_NAME}" was there to remove.`);
+      mcpWord = "absent";
+    } else {
+      u.warn("`claude` is not on this PATH, so the MCP server was not deregistered.");
+      u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+      mcpWord = "printed";
+    }
   } else if (res.code === 0) {
     u.ok(`the MCP server "${MCP_SERVER_NAME}" is no longer registered.`);
     mcpWord = "removed";
+    mcpConfirmed = true;
   } else if (notThere || !mcp.present) {
+    // `claude` says there was nothing there. Believe it, and check the file
+    // too — this is the one place where two sources agreeing is cheap.
+    mcpConfirmed = !stillThere();
     u.hint(`no MCP registration named "${MCP_SERVER_NAME}" was there to remove.`);
     mcpWord = "absent";
   } else {
+    mcpConfirmed = !stillThere();
     u.warn(`\`claude mcp remove\` exited ${String(res.code ?? -1)}.`);
-    u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
-    mcpWord = "printed";
+    if (!mcpConfirmed) u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    mcpWord = mcpConfirmed ? "absent" : "printed";
   }
 
   u.hint("An open Claude Code session keeps its hooks until its next turn, and keeps");
   u.hint("its memory server until you close it.");
-  return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup };
+  return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup, mcpConfirmed };
 }
 

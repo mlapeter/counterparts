@@ -11,7 +11,7 @@ lists what that leaves unverified.
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall, the MCP round trip, the removal plan, the session write, the
 scope switch, the wiring and leaving again — is
-57 checks and runs end to end in two to three seconds; the part that takes you time is
+58 checks and runs end to end in two to three seconds; the part that takes you time is
 §4, and `counterparts wire` now does that for you.
 
 ---

@@ -40,10 +40,18 @@ import { dirname, join } from "node:path";
 
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
-import { HOST_EVENTS, MCP_SCRIPT, MCP_SERVER_NAME, hookCommand, readHost } from "../src/adapters/cli/install.js";
+import {
+  HOOK_COMMAND_MARK,
+  HOST_EVENTS,
+  MCP_SCRIPT,
+  MCP_SERVER_NAME,
+  hookCommand,
+  readHost,
+} from "../src/adapters/cli/install.js";
 import {
   BACKUP_INFIX,
   backupPath,
+  isOurHookCommand,
   mcpAddArgs,
   mergeHooks,
   processMark,
@@ -57,6 +65,7 @@ import {
   writeSettings,
 } from "../src/adapters/cli/wire.js";
 import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adapters/cli/wire.js";
+import { PromptAborted } from "../src/adapters/cli/ui.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -135,7 +144,7 @@ function spawnerThat(answer: (args: readonly string[]) => SpawnResult): FakeSpaw
 const OK: SpawnResult = { missing: false, code: 0, out: "", err: "" };
 const MISSING: SpawnResult = { missing: true, code: null, out: "", err: "" };
 
-const noProcesses: ProcessLister = () => [];
+const noProcesses: ProcessLister = () => ({ looked: true, processes: [] });
 
 function input(over: Partial<WireInput> = {}): WireInput {
   const c = over.io === undefined ? consoleWith() : null;
@@ -743,10 +752,13 @@ describe("wire", () => {
 
     rmSync(join(home, ".claude"), { recursive: true, force: true });
     const busy = consoleWith();
-    const lister: ProcessLister = () => [
-      { pid: 11, what: "an MCP server", command: "bun run serve.ts" },
-      { pid: 12, what: "an MCP server", command: "bun run serve.ts" },
-    ];
+    const lister: ProcessLister = () => ({
+      looked: true,
+      processes: [
+        { pid: 11, what: "an MCP server", command: "bun run serve.ts" },
+        { pid: 12, what: "an MCP server", command: "bun run serve.ts" },
+      ],
+    });
     await wire(input({ io: busy.io, lister }));
     expect(text(busy.out)).toContain("2 sessions are running the previous version's memory server");
   });
@@ -1113,5 +1125,285 @@ describe("the small helpers", () => {
     expect(userSettingsPath(home, { CLAUDE_CONFIG_DIR: "/moved" })).toBe(
       join("/moved", ".claude", "settings.json"),
     );
+  });
+});
+
+// ── the 2026-09-21 adversarial review ───────────────────────────────────────
+
+/**
+ * m1 — a command that MENTIONS our hook is not a command we may rewrite.
+ *
+ * The review wrapped our hook two ways and lost both halves: `wire` replaced
+ * `~/bin/log-start.sh && counterparts-hook` with ours alone, and `unwire`
+ * deleted `/opt/mytool/bin/wrap --then counterparts-hook` outright. This file's
+ * own promise is that nothing belonging to another tool is a candidate.
+ */
+describe("m1 — ours to rewrite, versus ours to report", () => {
+  test("every command `wire` writes is matched by BOTH the strict test and doctor's mark", () => {
+    // The direction that matters: a hook we installed can never read as
+    // missing on the surface a person checks.
+    for (const custom of [undefined, "/somewhere/else/claude-code.json"]) {
+      const command = hookCommand(custom, EXE);
+      expect(isOurHookCommand(command)).toBe(true);
+      expect(HOOK_COMMAND_MARK.test(command)).toBe(true);
+    }
+    // And the installed shim, with and without the flag.
+    for (const command of [
+      "counterparts-hook",
+      '/home/me/.bun/bin/counterparts-hook --config "/x/claude-code.json"',
+    ]) {
+      expect(isOurHookCommand(command)).toBe(true);
+      expect(HOOK_COMMAND_MARK.test(command)).toBe(true);
+    }
+  });
+
+  test("a wrapper is doctor's hook and NOT ours", () => {
+    for (const command of [
+      "$HOME/bin/log-start.sh && counterparts-hook",
+      "/opt/mytool/bin/wrap --then counterparts-hook",
+      "counterparts-hook ; echo done",
+      "counterparts-hook | tee /tmp/log",
+      '"/x/bun" run "/pkg/src/adapters/claude-code/bin/hook.ts" && notify',
+      "counterparts-hook --config /x.json --and-then something",
+    ]) {
+      expect({ command, mark: HOOK_COMMAND_MARK.test(command) }).toEqual({ command, mark: true });
+      expect({ command, ours: isOurHookCommand(command) }).toEqual({ command, ours: false });
+    }
+  });
+
+  test("something else entirely is neither", () => {
+    for (const command of ["/usr/local/bin/other-tool --hook", "echo hello"]) {
+      expect(isOurHookCommand(command)).toBe(false);
+    }
+  });
+
+  test("wire LEAVES a wrapper alone, names it, and adds ours beside it", async () => {
+    const wrapper = { hooks: [{ type: "command", command: "/opt/wrap --then counterparts-hook", timeout: 20 }] };
+    writeSettingsFile({ hooks: { SessionStart: [wrapper] } });
+    const c = consoleWith();
+    const result = await wire(input({ io: c.io }));
+    expect(result.outcome).toBe("ok");
+    const start = (readSettingsFile()["hooks"] as Record<string, unknown>)["SessionStart"] as unknown[];
+    // Theirs, untouched — `timeout` and all — with ours appended after it.
+    expect(start[0]).toEqual(wrapper);
+    expect(start[1]).toEqual({ hooks: [{ type: "command", command: COMMAND() }] });
+    const said = text(c.out);
+    expect(said).toContain("run ours inside a longer command");
+    expect(said).toContain("/opt/wrap --then counterparts-hook");
+  });
+
+  test("unwire LEAVES a wrapper alone rather than deleting the entry", async () => {
+    const wrapper = { hooks: [{ type: "command", command: "/opt/wrap --then counterparts-hook" }] };
+    writeSettingsFile({ hooks: { SessionStart: [wrapper] }, model: "opus" });
+    const before = readSettingsFile();
+    const c = consoleWith();
+    expect((await unwire(input({ io: c.io }))).outcome).toBe("ok");
+    // The whole document, deep-equal: `unwire` found nothing of ITS OWN here.
+    expect(readSettingsFile()).toEqual(before);
+    expect(text(c.out)).toContain("run ours inside a longer command");
+  });
+
+  test("a stale entry of OURS is still repaired — the strictness is about shape, not path", async () => {
+    writeSettingsFile({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: "command", command: '"/old/bun" run "/gone/src/adapters/claude-code/bin/hook.ts"' }] },
+        ],
+      },
+    });
+    const result = await wire(input({ io: consoleWith().io }));
+    expect(result.hooks).toBe("repaired");
+    const start = (readSettingsFile()["hooks"] as Record<string, unknown>)["SessionStart"] as unknown[];
+    expect(start).toHaveLength(1);
+  });
+});
+
+/** m2 and m3 — the two symlink holes. */
+describe("m2, m3 — symlinks the guard did not see", () => {
+  test("a DANGLING settings.json symlink refuses instead of replacing the link", () => {
+    // `realpathDeep` cannot resolve a dangling link, so it used to hand back
+    // the link's own path: `exists: false`, the out-of-home test compared the
+    // link against itself, and the write renamed a regular file OVER the link.
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const target = join(home, "dotfiles", "settings.json"); // its directory does not exist
+    symlinkSync(target, settingsFile());
+    const sight = sightSettings(settingsFile(), home);
+    expect(sight.refusal).toContain("nothing is there");
+    expect(sight.refusal).toContain(target);
+    expect(lstatSync(settingsFile()).isSymbolicLink()).toBe(true);
+  });
+
+  test("a dangling symlink OUT of the home is refused on where it points", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    symlinkSync("/nowhere/at/all/settings.json", settingsFile());
+    expect(sightSettings(settingsFile(), home).refusal).toContain("outside your home directory");
+  });
+
+  test("a symlinked ~/.claude DIRECTORY pointing out of the home is refused", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "counterparts-outside-claude-"));
+    made.push(outside);
+    symlinkSync(outside, join(home, ".claude"));
+    const sight = sightSettings(settingsFile(), home);
+    expect(sight.refusal).toContain("outside your home directory");
+    const c = consoleWith();
+    expect((await wire(input({ io: c.io }))).outcome).toBe("refused");
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  test("a symlinked ~/.claude INSIDE the home still works", async () => {
+    const real = join(home, "dotfiles", "claude");
+    mkdirSync(real, { recursive: true });
+    symlinkSync(real, join(home, ".claude"));
+    expect((await wire(input({ io: consoleWith().io }))).outcome).toBe("ok");
+    expect(existsSync(join(real, "settings.json"))).toBe(true);
+  });
+});
+
+/** m8 — the short-circuit no longer hangs on one file the host owns. */
+describe("m8 — an unreadable ~/.claude.json asks the host", () => {
+  test("`claude mcp get` answering 0 means already registered", async () => {
+    await wire(input({ io: consoleWith().io }));
+    writeFileSync(mcpFile(), "{ not json");
+    const fake = spawnerThat(() => OK); // `mcp get` exits 0 → registered
+    const c = consoleWith();
+    const result = await wire(input({ io: c.io, spawner: fake.spawner }));
+    expect(result.mcp).toBe("already");
+    expect(text(c.out)).toContain("already wired");
+    expect(fake.calls.map((a) => a.slice(0, 2))).toEqual([["mcp", "get"]]);
+  });
+
+  test("`claude mcp get` answering non-zero means not wired, so it asks and adds", async () => {
+    await wire(input({ io: consoleWith().io }));
+    writeFileSync(mcpFile(), "{ not json");
+    const fake = spawnerThat((args) =>
+      args[1] === "get" ? { missing: false, code: 1, out: "", err: "not found" } : OK,
+    );
+    const result = await wire(input({ io: consoleWith().io, spawner: fake.spawner }));
+    expect(result.outcome).toBe("ok");
+    expect(fake.calls.map((a) => a[1])).toEqual(["get", "add"]);
+  });
+});
+
+/** M2 — `unwire` says whether the deregistration is provable. */
+describe("M2 — mcpConfirmed", () => {
+  function registration(): void {
+    writeFileSync(
+      mcpFile(),
+      JSON.stringify({
+        mcpServers: { [MCP_SERVER_NAME]: { command: EXE, args: ["run", MCP_SCRIPT] } },
+      }),
+    );
+  }
+
+  test("a remove that exits 0 is confirmed", async () => {
+    await wire(input({ io: consoleWith().io }));
+    registration();
+    const result = await unwire(input({ io: consoleWith().io }));
+    expect(result.mcpConfirmed).toBe(true);
+  });
+
+  test("`claude` missing with a registration still on disk is NOT confirmed", async () => {
+    await wire(input({ io: consoleWith().io }));
+    registration();
+    const result = await unwire(input({ io: consoleWith().io, spawner: spawnerThat(() => MISSING).spawner }));
+    expect(result.mcpConfirmed).toBe(false);
+    expect(result.mcp).toBe("printed");
+  });
+
+  test("`claude` missing with NOTHING registered is confirmed — there was nothing to do", async () => {
+    await wire(input({ io: consoleWith().io }));
+    expect(existsSync(mcpFile())).toBe(false);
+    const result = await unwire(input({ io: consoleWith().io, spawner: spawnerThat(() => MISSING).spawner }));
+    expect(result.mcpConfirmed).toBe(true);
+  });
+
+  test("a remove that exits non-zero with the registration still there is not confirmed", async () => {
+    await wire(input({ io: consoleWith().io }));
+    registration();
+    const result = await unwire(
+      input({
+        io: consoleWith().io,
+        spawner: spawnerThat(() => ({ missing: false, code: 7, out: "", err: "boom" })).spawner,
+      }),
+    );
+    expect(result.mcpConfirmed).toBe(false);
+  });
+});
+
+/** m4 — Ctrl-C is not an answer, at any of the conversation's questions. */
+describe("m4 — a cancelled prompt exits non-zero and says what exists", () => {
+  /** A terminal whose prompt aborts the way the real readline now does. */
+  function aborting(after: number): Console_ {
+    const c = consoleWith([]);
+    let asked = 0;
+    return {
+      ...c,
+      io: {
+        ...c.io,
+        tty: { stdin: true, stdout: true },
+        promptHidden: async (): Promise<string> => "",
+        prompt: async (question: string): Promise<string> => {
+          c.asked.push(question);
+          asked += 1;
+          if (asked > after) throw new PromptAborted("interrupt", "cancelled.");
+          return "Ada";
+        },
+      },
+    };
+  }
+
+  test("at the NAME prompt: nothing was created, and it says so", async () => {
+    const c = aborting(0);
+    const code = await run(["install", "--config", configPath()], {
+      io: c.io,
+      env: ENV,
+      home,
+      spawner: spawnerThat(() => OK).spawner,
+      processes: noProcesses,
+    });
+    expect(code).not.toBe(EXIT.ok);
+    const said = text(c.out);
+    expect(said).toContain("stopped; nothing else was changed");
+    expect(said).toContain("No store was created");
+    expect(existsSync(settingsFile())).toBe(false);
+  });
+
+  test("at the WIRE question: the store exists and the summary names it", async () => {
+    const c = aborting(1);
+    const code = await run(["install", "--config", configPath()], {
+      io: c.io,
+      env: ENV,
+      home,
+      spawner: spawnerThat(() => OK).spawner,
+      processes: noProcesses,
+    });
+    expect(code).not.toBe(EXIT.ok);
+    const said = text(c.out);
+    expect(said).toContain("stopped; nothing else was changed");
+    expect(said).toContain("Your store is at");
+    // The host was never touched.
+    expect(existsSync(settingsFile())).toBe(false);
+  });
+
+  test("at `wire`'s own question: exit is non-zero and nothing is written", async () => {
+    const before = consoleWith();
+    expect(
+      await run(["install", "--config", configPath(), "--budget", "9000", "--no-wire"], {
+        io: before.io,
+        env: ENV,
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    const c = aborting(0);
+    const code = await run(["wire", "--config", configPath()], {
+      io: c.io,
+      env: ENV,
+      home,
+      spawner: spawnerThat(() => OK).spawner,
+      processes: noProcesses,
+    });
+    expect(code).not.toBe(EXIT.ok);
+    expect(text(c.err)).toContain("stopped; nothing else was changed");
+    expect(existsSync(settingsFile())).toBe(false);
   });
 });
