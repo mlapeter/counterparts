@@ -2280,7 +2280,7 @@ function installCommand(
    * day he is most likely to follow instructions literally. So the tail is
    * separable, and that caller prints its own three lines instead.
    */
-  opts: { hostSteps?: boolean } = {},
+  opts: { hostSteps?: boolean; nameAlreadySaid?: boolean } = {},
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
   // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
@@ -2400,7 +2400,11 @@ function installCommand(
   // The SAME sentence `init` prints, because the two commands did the same
   // thing: a page that calls them interchangeable and then has them say it
   // differently has made the reader do the comparison.
-  if (seeded) io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
+  // The conversation (`installInteractive`) has already said this, one step up, in
+  // the person's own answer; saying it twice is the wall of text the owner named.
+  if (seeded && opts.nameAlreadySaid !== true) {
+    io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
+  }
   if (!isWithin(layout.base, resolved)) {
     // --dir moved the STORE. It does not move the configuration: the hooks read
     // the default path unless something NAMES another one (--config, else
@@ -2608,12 +2612,13 @@ async function installConversation(
   u.blank();
   const code = installCommand({ command: "install", positional: [], flags }, io, env, home_, named, {
     hostSteps: false,
+    nameAlreadySaid: true,
   });
   if (code !== EXIT.ok) return code;
   if (suppliedBudget === undefined && (!configExisted || parsed.flags["force"] === true)) {
     u.hint(
-      `The injection ceiling was set to ${String(DEFAULT_BUDGET_BYTES)} bytes. Change it in ` +
-        `${layout.config} whenever you know your host's real one.`,
+      `Each session starts with a short briefing from memory, capped at ${String(DEFAULT_BUDGET_BYTES)} bytes. ` +
+        `To change the cap, edit "injectionBudgetBytes" in ${layout.config}.`,
     );
   }
   u.blank();
