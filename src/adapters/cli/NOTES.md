@@ -1022,3 +1022,50 @@ doctor line cannot drift apart silently.
 point binds it when the first command needs it. `ui.ts` is likewise not re-exported from
 `index.ts`: commands import `./ui.js` directly, and there is no reason yet to make it part
 of this package's public surface.
+
+## 2026-09-21 — `keys.ts`: the terminal is where a key comes from (findings 2 and 3)
+
+**What changed.** `credentials set <NAME>` reads the key from the person standing at the
+terminal, without echo; `keys.ts#promptForKeys` is the install step that asks for both
+keys; `bin/counterparts.ts` binds the two `Io` members `ui.ts` shipped and nobody had
+wired yet (`promptHidden` and `tty`).
+
+**Why the refusal was there, and why it goes.** `credentials set` refused a terminal
+because a terminal with nothing piped into it BLOCKS, and a console that hangs waiting for
+a secret is one people Ctrl-C before typing the key on the command line instead. That
+reasoning was right and the fix was the wrong half of it: the answer to "it would block"
+is to ASK, not to refuse. The refusal is still there, word for word, for every console
+that is not a terminal — `isInteractive` wants `io.prompt`, both streams to be terminals
+and `CI` unset, so a pipe, a CI job, `tools/install-loop/run.sh` and every test console
+fall through to it. `--stdin` and `--from-env` fall through too: both name a source, and a
+caller who named one gets it.
+
+**The one place the two arms answer differently: an empty value.** A pipe that carried
+nothing is a script that went wrong (`refused`, exit 2). A person who pressed Enter has
+SKIPPED — "skipping is always offered and always fine" (the owner, 2026-09-21) — and that
+exits 0 having written nothing. Same for both keys in `promptForKeys`.
+
+**`writeCredential` moved here from `commands.ts`**, unchanged. Two doors now write a key
+(the command and the install prompts) and there should be exactly one function in this
+package that puts a secret on disk. It also keeps the import one-way: `keys.ts` imports
+only a TYPE from `commands.ts`, the way `ui.ts` does, so `commands.ts` can import back
+without minting an ESM cycle.
+
+**A key is not consent to embed.** A Voyage key sets nothing but the key. The knob moves
+only after `Turn on recall by meaning now?` is answered yes, and then into the exact shape
+`loadConfig` reads and `doctor`'s fix line names — `"embedder": { "enabled": true }`.
+The edit parses the existing config, sets that one field and renames a sibling over the
+target: `writeOnce` writes straight over the file, and a crash mid-write leaves the config
+every hook reads EMPTY, which is I32's shape aimed at a different file. It never CREATES a
+config; a config invented there would name no store.
+
+**Two judgement calls worth knowing.** A pasted value with a space in it is NOT written —
+a credential that is present and broken fails at every boundary while reading as
+configured, which is worse than absent, and the console says so without echoing what was
+typed. A value whose prefix is not `sk-ant-` / `pa-` is WARNED about and saved anyway: a
+prefix is a convention, nothing here calls the network, and a key this console rejected
+for looking wrong is a key the person has to work around.
+
+**Ctrl-C propagates out of `promptForKeys`** rather than coming back as "skipped", for the
+reason `ui.ts` gives. A key written before the abort stays written — it is on disk, and
+saying otherwise would be the lie.

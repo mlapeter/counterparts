@@ -88,7 +88,10 @@ call and never one of the entries: it is this directory's working context, filed
 `core/handoff/`, never a memory, and it is written before the `memories` check so a dump
 with a malformed array does not also lose it. Three answers, and only the first is silence:
 ABSENT leaves what stands; PRESENT AND BLANK retires this directory's pointer; anything
-that is not text is a named, durable refusal. The no-scope rule (an empty scope, or one
+that is not text is a named, durable refusal. A handoff that LANDED with an empty
+`memories` array is a success and not `memories-required` (2026-09-21, new-user finding
+12): nothing worth keeping is a real answer, and only a call that lands neither is
+refused. The no-scope rule (an empty scope, or one
 that is the store's own directory) is asked here because this side has the canonicaliser,
 and the durable row is written by `core/handoff/`, which owns that guarantee —
 `chapter(session, text[, title])`; the session's observer
