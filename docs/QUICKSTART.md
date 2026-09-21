@@ -4,9 +4,9 @@ This is the one canonical install path. `tools/install-loop/run.sh` runs this
 page's CONSOLE commands verbatim — each one is grepped out of this file before it
 is executed, so a doc edit that changes one fails the loop — in a throwaway home
 directory with no copy of this repository on its PATH. It packs the tarball
-itself and feeds the hook its own payload. It cannot run `git clone`,
-`claude mcp add`, `export PATH` or Claude Code; §10 lists what that leaves
-unverified.
+itself and feeds the hook its own payload. It cannot reach the npm registry, and
+it cannot run `git clone`, `claude mcp add`, `export PATH` or Claude Code; §10
+lists what that leaves unverified.
 
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall, the MCP round trip, the removal plan, the session write and the
@@ -20,10 +20,11 @@ scope switch — is
 
 - **[bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript
   sources and runs them directly; bun is the runtime. `curl -fsSL https://bun.sh/install | bash`
-- **npm**, for one command: `npm pack`, in §2, is how you build the tarball while
-  the package is unpublished. It comes with Node; a machine set up by the bun
-  line above may not have it. (`bun pm pack` exists but is not what §2 was tested
-  with, so this page does not tell you to use it.)
+- **npm, only if you install from source** (§2, second half): `npm pack` is how
+  you build the tarball from a clone. It comes with Node; a machine set up by the
+  bun line above may not have it. (`bun pm pack` exists but is not what §2 was
+  tested with, so this page does not tell you to use it.) The ordinary install
+  needs bun and nothing else.
 - **[Claude Code](https://claude.com/claude-code)**, if you want the hooks and
   the MCP tools. The store, the console and the dashboard work without it.
 - **No API keys.** Counterparts runs with none; §6 says exactly what you give up.
@@ -38,13 +39,39 @@ target is ever added, it will need one.
 
 ## 2. Install
 
-**Counterparts is not on npm yet, and the repository is not public yet.** When it
-is published, this section becomes `bun add -g counterparts` and nothing else.
-Neither is true today: nothing is published under the npm name yet, and the clone
-below will refuse anyone who is not the author until the repository is flipped
-public at launch. **If you are reading this from a tarball somebody sent
-you, skip the clone and start at `npm pack` — or at `bun add -g`, if the tarball
-is the thing you were sent.** Otherwise:
+```
+bun add -g counterparts
+```
+
+That is the whole install. It copies the package into bun's own global folder;
+nothing else on your machine is read or changed, and §3 is where a store gets
+made. It puts four executables into bun's global bin directory:
+
+| | |
+|---|---|
+| `counterparts` | the owner's console — status, install, backup, export, removal |
+| `counterparts-hook` | the Claude Code hook entry point; one executable, five events |
+| `counterparts-mcp` | the MCP server — `note`, `recall`, `status`, `session_end`, `chapter` |
+| `counterparts-dashboard` | read-only views of what is in the store |
+
+**Check that directory is on your PATH before going on:**
+
+```
+counterparts --help
+```
+
+If that says `command not found`, bun told you so during the install
+(`warn: To run "counterparts", add the global bin folder to $PATH`) and the fix is
+`export PATH="$HOME/.bun/bin:$PATH"` in your shell profile. A fresh bun install
+does not always do this for you.
+
+### Installing from source instead
+
+For contributors, for a version that is not published yet, or for a tarball
+somebody sent you. **Already have the repository? Skip the clone and run
+`npm pack` there. Were you sent a tarball? Skip to `bun add -g`.** Run the clone
+somewhere that does not already hold a directory named `counterparts` — `git
+clone` refuses, harmlessly, if one is there.
 
 ```
 git clone https://github.com/mlapeter/counterparts.git
@@ -66,25 +93,8 @@ Two things about that line, both learned the hard way:
 - **The same error means "no file by that name."** If you typed a filename that
   does not exist, you get the identical message. Check `ls *.tgz` first.
 
-That installs four executables into bun's global bin directory:
-
-| | |
-|---|---|
-| `counterparts` | the owner's console — status, install, backup, export, removal |
-| `counterparts-hook` | the Claude Code hook entry point; one executable, five events |
-| `counterparts-mcp` | the MCP server — `note`, `recall`, `status`, `session_end`, `chapter` |
-| `counterparts-dashboard` | read-only views of what is in the store |
-
-**Check that directory is on your PATH before going on:**
-
-```
-counterparts --help
-```
-
-If that says `command not found`, bun told you so during the install
-(`warn: To run "counterparts", add the global bin folder to $PATH`) and the fix is
-`export PATH="$HOME/.bun/bin:$PATH"` in your shell profile. A fresh bun install
-does not always do this for you.
+What lands is the same package the registry serves, in the same place. The clone
+is only where the tarball was made: nothing reads it again, and you can delete it.
 
 **Running from the clone instead of installing.** `bun install` in the clone, then
 every `counterparts …` below becomes `bun run src/adapters/cli/bin/counterparts.ts …`,
@@ -837,13 +847,13 @@ six months.
 
 ## 9. Upgrading
 
-`git pull && npm pack` in the clone, then:
-
 ```
-bun add -g "$PWD"/counterparts-*.tgz
+bun add -g counterparts@latest
 ```
 
-then restart every open Claude Code session (§5). Your store is untouched:
+(From source: `git pull && npm pack` in the clone, then the tarball line from §2.)
+
+Then restart every open Claude Code session (§5). Your store is untouched:
 `counterparts install` never rewrites an existing config or credentials file.
 
 ---
@@ -1021,6 +1031,11 @@ repo on its PATH and checks, every time:
   path it tried — when nothing supplies one;
 - `rebrief` renders a bundle and the next `SessionStart` injects it;
 - the dashboard opens the same store.
+
+**The loop cannot reach the npm registry.** It installs the tarball it packed,
+from disk. `bun add -g counterparts` (§2) and `bun add -g counterparts@latest`
+(§9) deliver that same package by another road, and that road is *unverified by
+the loop*: only a real machine with a network can settle it.
 
 **The loop cannot launch Claude Code.** So these are *unverified by it* and only a
 real session can settle them: that Claude Code reads the hooks block from

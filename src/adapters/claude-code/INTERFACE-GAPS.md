@@ -528,8 +528,8 @@ That is a different mechanism, not a wider parameter, and it is not built.
    fix, if the mid-evening reset is ever felt, is one per-owner zone read
    wherever a day is decided — `self/INTERFACE-GAPS` carries the decision.
 4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
-   them and the backfill no longer stalls behind them, but `mem_2cb8f1055650590a`
-   and `mem_8303716a18ab0654` still hold a lone surrogate in their payload JSON,
+   them and the backfill no longer stalls behind them, but the two memories on the
+   owner's store still hold a lone surrogate in their payload JSON,
    and what gets embedded for them is the U+FFFD form. A versioned title repair
    is a live-store write and the owner's wording (G46 item 5).
 5. **The refusal counter never decays on its own.** It is cleared by a spawn that

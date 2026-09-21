@@ -131,8 +131,8 @@ export interface LengthNorm {
    *
    * The clamp ships anyway, for the two reasons that survived: at `b = 0.5` it
    * is the only configuration in the grid that recovers an AMBIENT labeled
-   * positive (`mem_e64f1a8b2d77`, the owner's correction about anchoring on the
-   * first-stated goal, as a turn-4 footnote), and it is the conservative
+   * positive (a correction the owner once gave, as a turn-4 footnote — see
+   * `recall/tunables.ts`), and it is the conservative
    * arithmetic — no score exceeds what it was before normalization, so an
    * inherited absolute floor still means what it meant.
    */

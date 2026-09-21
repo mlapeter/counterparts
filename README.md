@@ -14,8 +14,8 @@ back up or export to Markdown whenever you want, and no data leaves it unless yo
 something on that sends it.
 
 *Built 2026-08-25, and the author's own daily memory under Claude Code since 2026-09-03.
-Not on npm yet, and Node is untested — the [Status](#status-honestly) section is specific
-about what has been verified and what has not.*
+Node is untested — the [Status](#status-honestly) section is specific about what has been
+verified and what has not.*
 
 <!-- Images are produced by the dashboard workstream and land under docs/images/.
      The URLs are absolute so this file reads correctly from the npm tarball as
@@ -39,19 +39,16 @@ is the summary of it. That page is kept honest mechanically: `tools/install-loop
 runs the page's console commands verbatim — each one is grepped out of the page before it
 is executed, so a doc edit that changes one fails the loop — in a throwaway home directory
 with no copy of this repository on the PATH. It packs the tarball itself and feeds the
-hook its own payload. It cannot run `git clone`, `claude mcp add` or Claude Code;
-QUICKSTART §10 lists what that leaves unverified.
+hook its own payload. It cannot reach the npm registry, and it cannot run `git clone`,
+`claude mcp add` or Claude Code; QUICKSTART §10 lists what that leaves unverified.
 
 **You need [bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript sources
 and runs them directly — there is no build step and no `dist/`. **Node is untested.** The
 store uses Node's built-in `node:sqlite`, which needs Node 22.5+ behind a flag and 23.4+
 by default; nobody has run this package under any Node, so it claims nothing there.
 
-**You also need `npm`, for one command.** `npm pack`, below, is how you build the tarball
-while the package is unpublished. It comes with Node, and a machine that has only bun may
-not have it — without Node on the PATH, `npm pack` fails with
-`env: node: No such file or directory`, which says nothing about the cause. QUICKSTART §1
-lists the prerequisites in full.
+That is the only prerequisite. (Installing from source also needs `npm`, for `npm pack`;
+QUICKSTART §1 and §2 cover that road.)
 
 **No API keys are required.** With none, two things are off. Recall runs on its text
 channel alone rather than also matching by meaning; an embedding key buys the other half —
@@ -64,19 +61,11 @@ here leaves your machine, and both are yours to turn on. `counterparts doctor` g
 store that has never had a key **amber**, not red, and says on the line what works without
 one — so a fresh keyless install is a clean bill of health and not an alarm.
 
-**Counterparts is not on npm yet, and this repository is not public yet.** Nothing is
-published under the npm name, and the clone below will refuse anyone who is not the author
-until the repository is flipped public at launch. If you were sent a tarball, skip to
-`bun add -g`. Otherwise you build the package yourself:
-
 ```
-git clone https://github.com/mlapeter/counterparts.git
-cd counterparts
-npm pack
-bun add -g "$PWD"/counterparts-*.tgz
+bun add -g counterparts
 ```
 
-That last path has to be absolute — a relative one fails with a confusing error.
+(Contributors, and anyone sent a tarball: QUICKSTART §2 has the from-source road.)
 
 That installs four executables — `counterparts` (your console), `counterparts-hook`,
 `counterparts-mcp` and `counterparts-dashboard` — into bun's global bin directory. Check
