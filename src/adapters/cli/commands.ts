@@ -144,7 +144,7 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { loadConfig } from "../claude-code/config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, loadConfig } from "../claude-code/config.js";
 import type { AdapterConfig } from "../claude-code/config.js";
 import {
   anyRed,
@@ -160,6 +160,8 @@ import {
   BIN,
   CONFIG_FILE,
   CREDENTIALS_FILE,
+  DEFAULT_STORE_DIR,
+  HOST_EVENTS,
   MCP_SERVER_NAME,
   budgetRefusal,
   configObject,
@@ -198,12 +200,28 @@ import {
   undoLines,
 } from "./start-fresh.js";
 import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
+// The console's shared manners (0.2's U0). Only the install conversation and
+// the three host-editing verbs use them; every other command in this file keeps
+// its own `io.out` lines, and `ui` degrades to exactly those for a pipe.
+import { ask, isInteractive, ui } from "./ui.js";
+// A's two modules: the host's files, and leaving. They import nothing from here
+// but the `Io` type, so this direction is one-way.
+import { realProcessLister, realSpawner, unwire, wire } from "./wire.js";
+import type { Outcome as WireOutcome, WireInput } from "./wire.js";
+import { uninstall } from "./uninstall.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
   "status",
   "install",
+  // The host's own two files, edited rather than printed (2026-09-21, A). They
+  // sit beside `install` because `install` now calls the first of them.
+  "wire",
+  "unwire",
+  // Leaving: the wiring comes out, and the memory stays unless you say
+  // otherwise. The owner's ruling is quoted at the top of `uninstall.ts`.
+  "uninstall",
   "init",
   // Starting over as a stranger, in one command: park the store beside itself,
   // blank one in its place, nothing deleted and nothing opened (2026-09-20, N1).
@@ -237,6 +255,13 @@ export type Command = (typeof COMMANDS)[number];
 /** Commands that change durable state. Under observer, every one of them refuses. */
 export const OWNER_OPS: readonly Command[] = [
   "install",
+  // ALL THREE OF THE HOST-EDITING VERBS. An instrument reads; it does not put
+  // hooks on somebody's editor, take them off again, or rename the directory
+  // holding the memory it was pointed at. `uninstall` can delete a store, which
+  // would make it the most consequential thing on this list by itself.
+  "wire",
+  "unwire",
+  "uninstall",
   "init",
   // It creates a store and moves one. An instrument does neither.
   "start-fresh",
@@ -364,12 +389,27 @@ export function usage(): string {
     "  status              What is held, what left, what was removed. Read-only.",
     "  install             Cold start: create the store, write claude-code.json and a",
     "                      0600 credentials.env under ~/.counterparts/ (the path every",
-    "                      entry point reads by default), and PRINT the host's hooks",
-    "                      block and MCP line. Never edits the host. --dir moves the",
+    "                      entry point reads by default). At a terminal it then ASKS",
+    "                      whether to wire Claude Code and does it; through a pipe, in a",
+    "                      script, or with --no-wire it PRINTS the host's hooks block and",
+    "                      MCP line and changes nothing of theirs. --dir moves the",
     "                      STORE only; --config <abs path> moves the CONFIG, the",
     "                      credentials beside it and the default store beneath it, and",
     "                      the printed lines then carry it.",
-    "                      --budget <bytes> --name <owner> --embedder --force.",
+    "                      --budget <bytes> --name <owner> --embedder --force --no-wire --yes.",
+    "  wire                Put the five hooks in ~/.claude/settings.json and register the",
+    "                      MCP server. It backs the settings file up first and says where,",
+    "                      leaves every other tool's hooks exactly where they are, repairs",
+    "                      an entry of ours that names a path that is gone, and refuses a",
+    "                      file it cannot parse. --dry-run --yes --config.",
+    "  unwire              Take those hooks back out and deregister the server. It removes",
+    "                      only what it recognises as ours. --dry-run --yes --config.",
+    "  uninstall           Leave: unwire, then say where your memory still is and the one",
+    "                      command that removes the package. Your memory is NOT touched",
+    "                      unless you ask: --park renames the whole directory aside under a",
+    "                      dated name (one rename, nothing copied, nothing deleted), and",
+    "                      --delete-memories destroys it after counting what is about to go",
+    "                      and taking a typed phrase. --yes --config.",
     "  init                Just a store: create a data dir and PRINT the install steps.",
     "                      No host config, no credentials file, nothing under",
     "                      ~/.counterparts/. For a second store or a scratch one.",
@@ -523,7 +563,14 @@ export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
 
 export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   status: ["layout"],
-  install: ["budget", "name", "embedder", "force", "config"],
+  install: ["budget", "name", "embedder", "force", "config", "no-wire", "yes"],
+  // `--dir` is deliberately absent from all three, exactly as it is from
+  // `start-fresh`: it is a COMMON flag, so it parses either way, and these
+  // commands refuse it in words rather than ignoring it. The store they name is
+  // the one the CONFIGURATION names, because that is the one the hooks open.
+  wire: ["config", "yes", "dry-run"],
+  unwire: ["config", "yes", "dry-run"],
+  uninstall: ["config", "yes", "park", "delete-memories"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
   // wake has nothing to say about.
@@ -600,7 +647,12 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another), and PRINT the host's hooks block and MCP line. It never edits the host.",
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it then asks whether to wire Claude Code and does it; anywhere else — a pipe, a script, a CI job — and with --no-wire it prints the host's hooks block and MCP line and changes nothing of the host's.",
+  wire: "Put the five hooks in the host's settings file and register the MCP server. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse.",
+  unwire:
+    "Take the Counterparts hooks back out of the host's settings file and deregister the MCP server. It removes only what it recognises as ours; another tool's hooks are never candidates.",
+  uninstall:
+    "Leave: unwire Claude Code, then say where your memory still is and how to remove the package. It never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   "start-fresh":
     "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
@@ -727,7 +779,44 @@ const FLAG_HELP: Record<string, string> = {
   resume: "undo a pause (or an off): back to what it was, or on",
   list: "print the whole registry, and the file it came from",
   note: "free text recorded beside the entry, for why",
+  "no-wire": "do not offer to edit the host at all: print the hooks block and the registration line, and change nothing of theirs",
+  park: "move the whole directory aside under a dated name — one rename, nothing copied, nothing deleted, and the store is never opened",
+  "delete-memories":
+    "destroy it. It counts what is about to go, says the number, and takes a typed phrase; there is no way to answer it from a script",
 };
+
+/**
+ * THE SENTENCE `install` PRINTS FOR `--yes` INSTEAD OF THE SHARED ONE.
+ *
+ * The shared sentence is about a bulk write that requires the store to be
+ * named, and `install` does no bulk write: here the flag means "do not put the
+ * wiring question, take yes for an answer".
+ */
+const INSTALL_FLAG_HELP: Record<string, string> = {
+  yes: "do not put the wiring question at a terminal: take yes for an answer",
+};
+
+/**
+ * THE SENTENCES THE THREE HOST-EDITING COMMANDS PRINT INSTEAD OF THE SHARED ONES.
+ *
+ * Three flags would print something false on these pages. `--yes`'s shared
+ * sentence is about a bulk write that requires the store to be named, which is
+ * not what any of these do; `--dry-run`'s says "say the default out loud", and
+ * these commands are not dry by default; and `--dir` is REFUSED here rather
+ * than merely unread, for `start-fresh`'s reason — what they act on is decided
+ * by the configuration, and a second answer on the command line is how the
+ * wrong host file or the wrong directory gets edited.
+ */
+const HOST_FLAG_HELP: Record<string, string> = {
+  yes: "do not ask: take the ordinary answer to every question this command would put",
+  "dry-run": "print what would change and change nothing (this command is NOT dry by default)",
+  dir: "REFUSED on this command: what it acts on is decided by the configuration, not by a path on this line. Name the configuration instead, with --config",
+};
+
+/** The commands whose usage line does not offer `--dir`, because they turn it
+ *  away in words. A line that showed it would teach what the refusal exists to
+ *  prevent. */
+const REFUSES_DIR: readonly string[] = ["start-fresh", "wire", "unwire", "uninstall"];
 
 /**
  * THE SENTENCES `scope` PRINTS INSTEAD OF THE SHARED ONES.
@@ -785,7 +874,15 @@ export function commandHelp(command: Command): string {
   // not. A page that printed the shared sentence would be printing something
   // false.
   const override =
-    command === "scope" ? SCOPE_FLAG_HELP : command === "start-fresh" ? START_FRESH_FLAG_HELP : {};
+    command === "scope"
+      ? SCOPE_FLAG_HELP
+      : command === "start-fresh"
+        ? START_FRESH_FLAG_HELP
+        : command === "install"
+          ? INSTALL_FLAG_HELP
+          : command === "wire" || command === "unwire" || command === "uninstall"
+            ? HOST_FLAG_HELP
+            : {};
   const flagLine = (name: string): string => {
     const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
     return `  ${shown.padEnd(20)} ${override[name] ?? FLAG_HELP[name] ?? "(undocumented)"}`;
@@ -798,7 +895,7 @@ export function commandHelp(command: Command): string {
     // store is the one the configuration names), and a usage line that showed
     // it would be teaching the thing the refusal exists to prevent.
     `  counterparts ${command}${COMMAND_ARGS[command] ?? ""}${own.length === 0 ? "" : " [flags]"}${
-      command === "start-fresh" ? "" : " [--dir <path>]"
+      REFUSES_DIR.includes(command) ? "" : " [--dir <path>]"
     }`,
     "",
     ...(own.length === 0
@@ -1007,6 +1104,13 @@ export function parse(argv: readonly string[]): Parsed {
       // is: `strict: false` does not make an undeclared boolean reliable.
       undo: { type: "boolean" },
       "nothing-is-open": { type: "boolean" },
+      // The wiring three. Declared as booleans for the same reason `rebuild`
+      // is: `strict: false` does not make an undeclared boolean reliable, and
+      // `--delete-memories` arriving as anything but `true` would be a flag the
+      // most dangerous command in the package could not see.
+      "no-wire": { type: "boolean" },
+      park: { type: "boolean" },
+      "delete-memories": { type: "boolean" },
       file: { type: "string" },
       versions: { type: "boolean" },
       version: { type: "string" },
@@ -1124,6 +1228,12 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // one people learn to unset rather than to read.
   const readsConfig =
     command === "install" ||
+    // The three host-editing verbs read one to learn which store to name in the
+    // registration, whether the hooks have to carry `--config`, and — for
+    // `uninstall` — which directory is this install's at all.
+    command === "wire" ||
+    command === "unwire" ||
+    command === "uninstall" ||
     // `start-fresh` READS one to learn which store the hooks open, and then
     // hands the same choice to `install` so the blank store lands where the
     // file already points.
@@ -1166,9 +1276,41 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return EXIT.refused;
     }
     try {
-      return installCommand(parsed, io, env, opts.home, named);
+      // A PERSON AT A TERMINAL GETS A CONVERSATION; EVERYTHING ELSE GETS
+      // TODAY'S BYTES. `isInteractive` is false for a pipe, a CI job, the
+      // install loop and every test console, so the scripted path — which is
+      // every path this package has ever been measured on — is untouched.
+      // `--no-wire` opts a terminal out of it too and prints the blocks.
+      const interactive = isInteractive(io, env, {
+        nonInteractive: parsed.flags["no-wire"] === true,
+      });
+      return interactive
+        ? await installInteractive(parsed, io, env, opts.home, named, now)
+        : installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${describeDirRefusal(err)}`);
+      return EXIT.failed;
+    }
+  }
+
+  // THE HOST'S OWN FILES, decided here beside `install` for the same reason
+  // `start-fresh` is: what they act on comes from the CONFIGURATION, never from
+  // a `--dir`, so they must not go through the generic data-dir block below.
+  //
+  // The explicit-dir guard applies by hand, exactly as it does to `install`:
+  // the default configuration names the live store and the live base, and
+  // `uninstall --park` renames the directory that file sits in.
+  if (command === "wire" || command === "unwire" || command === "uninstall") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
+    try {
+      return await hostWiringCommand(command, parsed, io, env, opts.home, named, now);
+    } catch (err) {
+      io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
+      io.err("Nothing of the host's was changed by this failure.");
       return EXIT.failed;
     }
   }
@@ -2288,6 +2430,281 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
+  io.out("");
+  io.out(`  Or have it done for you, after it asks: ${BIN.cli} wire`);
+}
+
+// ── install, as a short conversation ────────────────────────────────────────
+
+/** How many questions the interactive install has. Named, because `step`
+ *  prints it and the keys step is counted before it exists. */
+const INSTALL_STEPS = 4;
+
+/**
+ * The same install, with a person in the room.
+ *
+ * **Everything about the files is `installCommand`'s, unchanged.** This wraps
+ * it: it asks for a name, hands the same flags to the same function, offers to
+ * wire the host, and ends on a short summary. There is deliberately no second
+ * code path that creates a store — that is the rule `start-fresh` already
+ * follows ("invent no second install path"), and it is what keeps the refusals
+ * (`layoutRefusal`, `throwawayDefaultRefusal`, the credentials guard) true on
+ * this arm without being restated.
+ *
+ * Reached only when `ui.ts#isInteractive` says there is a person who can
+ * answer: stdin AND stdout are terminals, `CI` is unset, this console has a
+ * prompt, and `--no-wire` was not passed. Everything else — a pipe, a script,
+ * `tools/install-loop/run.sh`, every test in the suite — goes to
+ * `installCommand` and gets today's bytes.
+ *
+ * THE RE-RUN IS THE SECOND MOST COMMON PATH and reads as one: a store that is
+ * already there is not asked about again, and an install that is already wired
+ * says so instead of asking.
+ */
+async function installInteractive(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  home: string | undefined,
+  named: ConfigChoice | undefined,
+  now: () => number,
+): Promise<number> {
+  const home_ = home ?? homedir();
+  const u = ui(io, env);
+  const custom = customConfigPath(named, home_);
+  const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
+  const layout = installLayout(dirFlag, env, home_, custom);
+  const already = storeExists(layout.store);
+
+  u.heading(`${BIN.cli} install`);
+  u.blank();
+
+  // ── 1. the name ───────────────────────────────────────────────────────────
+  //
+  // A store that is already there is NOT asked about again: its identity core
+  // was seeded once, `--name` on a second run would not replace it, and asking
+  // a question whose answer is ignored is worse than not asking.
+  const flags: Record<string, string | boolean | undefined> = { ...parsed.flags };
+  let name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
+  u.step(1, INSTALL_STEPS, "Your name");
+  if (already) {
+    u.ok(`store already here, kept — ${layout.store}`);
+    u.hint("Its identity core is whatever the first install seeded; this does not change it.");
+  } else if (name !== undefined && name.trim().length > 0) {
+    u.ok(`${name} — from --name.`);
+  } else {
+    const answer = (await ask(io, "What should this memory call you?")).trim();
+    if (answer.length === 0) {
+      name = undefined;
+      delete flags["name"];
+      u.hint("No name, so no identity core — the wake will have nothing to be about.");
+      u.hint(`Add one later with: ${BIN.cli} init --dir ${layout.store} --name "<your name>"`);
+    } else {
+      name = answer;
+      flags["name"] = answer;
+      u.ok(`${answer} — the thing this memory is about.`);
+    }
+  }
+  u.blank();
+
+  // ── 2. the store, the configuration and the credentials ───────────────────
+  //
+  // THE CEILING GETS A NUMBER ON THIS ARM ONLY. Scar §2.18 says this package
+  // invents no host ceiling, and nothing about that changes for a script: the
+  // non-interactive arm still ends on its "NO injectionBudgetBytes was written"
+  // paragraph. What changes here is that there is a person to tell, so a value
+  // is written and SAID rather than a paragraph of homework being left behind.
+  // (`docs/new-user-findings.md`, the owner's plan: "--budget gets a default of
+  // 9000".) A `--budget` on the line still wins.
+  const suppliedBudget = typeof parsed.flags["budget"] === "string" ? parsed.flags["budget"] : undefined;
+  if (suppliedBudget === undefined) flags["budget"] = String(DEFAULT_BUDGET_BYTES);
+  u.step(2, INSTALL_STEPS, already ? "Your store, as it already is" : "Your store");
+  u.blank();
+  const code = installCommand({ command: "install", positional: [], flags }, io, env, home_, named, {
+    hostSteps: false,
+  });
+  if (code !== EXIT.ok) return code;
+  if (suppliedBudget === undefined) {
+    u.hint(
+      `The injection ceiling was set to ${String(DEFAULT_BUDGET_BYTES)} bytes. Change it in ` +
+        `${layout.config} whenever you know your host's real one.`,
+    );
+  }
+  u.blank();
+
+  // ── 3. the host ───────────────────────────────────────────────────────────
+  //
+  // The store the server is told about is read back OUT OF THE FILE that was
+  // just written, never re-derived: `install` resolves the path through
+  // `Store.open`, so the configuration is the one thing that knows where the
+  // store actually landed.
+  const config = hostConfigFor(layout.config).config;
+  const store = config.dataDir ?? layout.store;
+  u.step(3, INSTALL_STEPS, "Claude Code");
+  const wired = await wire({
+    io,
+    env,
+    home: home_,
+    configPath: layout.config,
+    custom,
+    store,
+    now: now(),
+    yes: parsed.flags["yes"] === true,
+    dryRun: false,
+    exe: process.execPath,
+    spawner: realSpawner(env),
+    lister: realProcessLister(env),
+    heading: false,
+  });
+  if (wired.hooks === "declined" || wired.outcome !== "ok") {
+    u.blank();
+    u.hint("Your store is made either way; the wiring is the only part not done.");
+  }
+  u.blank();
+
+  // ── 4. the keys ───────────────────────────────────────────────────────────
+  u.step(4, INSTALL_STEPS, "Keys");
+  // KEYS: the coordinator wires keys.ts#promptForKeys here (builder C)
+  u.hint("Not asked for yet. Without them the day still runs, the crash-recovery sweep is");
+  u.hint("skipped and recall stays lexical-only:");
+  u.hint(`  ${BIN.cli} credentials set ${API_KEY_ENV}`);
+  u.hint(`  ${BIN.cli} credentials set ${EMBED_KEY_ENV}`);
+  u.blank();
+
+  // ── the summary ───────────────────────────────────────────────────────────
+  u.heading("Done");
+  u.hint(`store    ${store}`);
+  u.hint(`config   ${layout.config}`);
+  u.hint(
+    `wired    ${
+      wired.hooks === "wired" || wired.hooks === "repaired" || wired.hooks === "already"
+        ? `yes — ${String(HOST_EVENTS.length)} hooks, and the MCP server ${wired.mcp === "printed" ? "line is printed above" : "is registered"}`
+        : `no — run \`${BIN.cli} wire\` when you are ready`
+    }`,
+  );
+  u.hint(`next     restart Claude Code, then: ${BIN.cli} doctor`);
+  return EXIT.ok;
+}
+
+/**
+ * The interactive install's ceiling, and the ONLY default this package has for
+ * one (scar §2.18 holds everywhere else, the scripted arm included).
+ */
+const DEFAULT_BUDGET_BYTES = 9000;
+
+/** A configuration is "custom" by its PATH, not by how it was named — the same
+ *  test `installCommand` and `startFreshCommand` each make. Hoisted here so
+ *  the four callers cannot drift. */
+function customConfigPath(named: ConfigChoice | undefined, home: string): string | undefined {
+  return named !== undefined && named.source !== "default" && resolve(named.path) !== defaultConfigPath(home)
+    ? named.path
+    : undefined;
+}
+
+// ── wire / unwire / uninstall ───────────────────────────────────────────────
+
+/**
+ * The console's half of the three host-editing verbs: refuse `--dir`, resolve
+ * which configuration this invocation means, read the store out of it, and hand
+ * the rest to `wire.ts` / `uninstall.ts`.
+ *
+ * Everything that touches a host file is in those modules. This function owns
+ * exactly three decisions — which configuration, which store, and how an
+ * outcome maps onto an exit code — so that the exit codes stay in the one file
+ * that defines them.
+ */
+async function hostWiringCommand(
+  command: "wire" | "unwire" | "uninstall",
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  home: string | undefined,
+  named: ConfigChoice | undefined,
+  now: () => number,
+): Promise<number> {
+  // `--dir` is a COMMON flag, so it parses on every command. Here it would be a
+  // second answer to "which install" on commands that edit a stranger's editor
+  // configuration and, in one case, rename the directory holding the memory.
+  if (typeof parsed.flags["dir"] === "string") {
+    io.err(
+      `refused: '${command}' takes no --dir. What it acts on is decided by your ` +
+        "CONFIGURATION — that is the file the hooks, the worker and the MCP server read, and a " +
+        `second answer on this command line is how the wrong one gets edited. Name the ` +
+        `configuration instead: ${CONFIG_FLAG} <absolute path>, or ${CONFIG_ENV}.`,
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+
+  const home_ = home ?? homedir();
+  const configPath = named === undefined ? defaultConfigPath(home_) : resolve(named.path);
+  const custom = customConfigPath(named, home_);
+  const present = existsSync(configPath);
+  const host = hostConfigFor(configPath);
+  if (present && host.reason === "unreadable") {
+    io.err(
+      `refused: ${configPath} is there and will not be understood. These commands read ` +
+        '"dataDir" out of it to know which store to name, and a file they cannot read is a ' +
+        "question they will not answer by guessing.",
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  if (!present) {
+    io.err(
+      `refused: there is no configuration at ${configPath}, so there is no install here to ` +
+        `${command === "uninstall" ? "remove" : command}. Run '${BIN.cli} install' first, or name ` +
+        `the configuration you mean with ${CONFIG_FLAG} <absolute path>.`,
+    );
+    return EXIT.refused;
+  }
+
+  const store = host.config.dataDir ?? join(dirname(configPath), DEFAULT_STORE_DIR);
+  const spawner = realSpawner(env);
+  const lister = realProcessLister(env);
+
+  if (command === "uninstall") {
+    return exitFor(
+      await uninstall({
+        io,
+        env,
+        home: home_,
+        configPath,
+        custom,
+        dataDir: host.config.dataDir,
+        now: now(),
+        yes: parsed.flags["yes"] === true,
+        park: parsed.flags["park"] === true,
+        deleteMemories: parsed.flags["delete-memories"] === true,
+        exe: process.execPath,
+        spawner,
+        lister,
+      }),
+    );
+  }
+
+  const input: WireInput = {
+    io,
+    env,
+    home: home_,
+    configPath,
+    custom,
+    store,
+    now: now(),
+    yes: parsed.flags["yes"] === true,
+    dryRun: parsed.flags["dry-run"] === true,
+    exe: process.execPath,
+    spawner,
+    lister,
+  };
+  const result = command === "wire" ? await wire(input) : await unwire(input);
+  return exitFor(result.outcome);
+}
+
+/** `wire.ts` returns words, not numbers, so that it never has to import this
+ *  file's `EXIT` back and make the two modules circular. */
+function exitFor(outcome: WireOutcome): number {
+  return outcome === "ok" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
