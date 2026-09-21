@@ -82,7 +82,13 @@ owner owns the data.
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
 `remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
-(2026-09-20); interactive confirmation; the data directory.
+(2026-09-20), `wire` / `unwire` / `uninstall` (2026-09-21); interactive confirmation; the
+data directory.
+*`wire`, `unwire` and `uninstall` are the first commands here that write a file belonging
+to another program, and `install` at a terminal now calls the first of them. Guarantees
+21–35 are what that costs. Like `start-fresh` they refuse `--dir` in words: what they act
+on is decided by the CONFIGURATION, because that is the file the hooks, the worker and the
+MCP server read.*
 *`start-fresh` is the second command in this module that asks a human before it acts, and
 the first whose danger is not deletion but MOVEMENT. It resolves its store from the host
 CONFIGURATION rather than from `--dir`, which it refuses in words: the store that matters
@@ -229,6 +235,106 @@ snapshots and exports; the removal record; telemetry by reference.
     `start-fresh` parks it byte-identical, its output never mentions `STORE_PRE_ROWS`
     because nothing opened it, and the rollback lines *as printed* restore it — still
     refused by name, still readable by the build that wrote it.
+
+### `wire` / `unwire` / `uninstall` — the host's own files (2026-09-21, A)
+
+*Until this change, guarantee 1 of `install.ts` was "the host's files are only PRINTED".
+That sentence is retired, and the thing replacing it is narrower: the host's files are
+edited **after being asked**, and only ever in the two ways below. `install` at a
+terminal now asks and then wires; through a pipe, in CI, in every test and in
+`tools/install-loop/run.sh`'s scripted steps it prints exactly what it printed before,
+byte for byte, and `--no-wire` gets a terminal the same thing.*
+
+21. **[M] Nothing is written to `~/.claude/settings.json` without a BACKUP first, and its
+    path is printed.** `settings.json.counterparts-backup-<UTC stamp>` beside the file, at
+    the file's own mode. No change, no backup: a second `wire` is not an event.
+22. **[M] Every other key and every other tool's hooks survive, and the merge works on
+    the INNER hook entry.** Another tool's entry keeps its position, its `matcher`, its
+    `timeout` and every key this package has never heard of; an event we do not use is not
+    read; a group shaped in a way this does not understand is carried through whole. A
+    wire followed by an unwire returns the document deep-equal to what it was.
+23. **[M] A settings file this cannot read is a REFUSAL that changes nothing.** Bytes that
+    are not JSON, a top level that is not an object, a `hooks` key that is not an object,
+    an event whose value is not an array, something that is not a regular file, or a
+    symlink pointing outside the home directory. Each prints the block for hand-merging
+    and leaves the file hashed-identical.
+24. **[M] The write is atomic and keeps the file's mode**: a temp file in the same
+    directory and one `rename(2)`. A symlinked settings file is written THROUGH to its
+    target (only when the target is inside the home), so the link survives.
+25. **[M] An entry that is recognisably OURS but names another path is REPAIRED, not
+    duplicated**, and the old command is printed. The recogniser is
+    `install.ts#HOOK_COMMAND_MARK` — the same one `doctor`'s `readHost` uses, so a wired
+    install can never read as unwired on the surface a person checks. `unwire` removes by
+    the same recogniser and by nothing else.
+26. **[M] `~/.claude.json` is never written by this package.** The registration goes
+    through `claude mcp add` / `claude mcp remove` as an argument vector, never a shell
+    string. That file is READ to decide whether to call them, and a read that sees nothing
+    does not stop the removal being attempted — the host owns that file and may move it,
+    so our read is evidence, not authority. `claude` missing is a printed line and exit 0,
+    never a failed install. *`unwire` is also the one of the three that runs with NO
+    configuration at all: it needs nothing out of the file, and the person most likely to
+    be running it is somebody who deleted `~/.counterparts` by hand and now has five hooks
+    firing at a store that is gone.*
+27. **[M] `uninstall` acts on an EXPLICIT LIST of what this package writes, never on
+    "the directory the configuration sits in".** The list is the configuration file and our
+    own temp and backup siblings of it, `credentials.env` (or whatever the configuration
+    NAMES, when that sits beside it), `scopes.json` and its siblings, the `snapshots/` this
+    layout owns, and the STORE at `dataDir` **wherever that is**. The configuration
+    directory itself moves or goes only when it holds nothing else — which keeps the
+    ordinary `~/.counterparts` a single atomic rename; when it holds anything foreign the
+    directory is never touched, our entries go one by one, and the foreign ones are NAMED.
+    `~/.claude`, the home directory, any parent of it and any directory holding a `.git`
+    are refused outright. *This is the 2026-09-21 blocker: `install --config` puts a
+    configuration anywhere, and the first version renamed Claude Code's own settings,
+    project transcripts and todos away under a heading that said "Your memory, parked",
+    then destroyed a `~/Documents` holding `taxes/` and `photos/` after warning about ONE
+    memory.*
+28. **[M] The whole plan — every path that will move or go, with its size — is PRINTED
+    before the confirm and before the typed phrase.** `--park` is `rename(2)` once per
+    thing and prints the guarded `mv` that undoes each; `--delete-memories` has no `--yes`,
+    counts first, and takes `DELETE MEMORIES` typed exactly. The closing sentence names
+    what actually went, path by path, and never says the memory is gone unless the store
+    itself went.
+29. **[M] The store is in that plan under its own ring** — absolute, not a forbidden root
+    by either spelling, not a filesystem root, not the home, inside the home, not a
+    symlink, and recognisable as a store by its own files — and a store that fails it is a
+    REFUSAL rather than something left behind. *The first version counted the store at
+    `dataDir`, deleted the configuration directory without it, and said the memory was
+    gone.*
+30. **[M] Both destructive arms refuse unless the MCP deregistration is CONFIRMED** —
+    `claude mcp remove` exited 0, or a read of the host's own file shows nothing registered.
+    A registration on disk plus a `claude` that is missing refuses BEFORE anything is
+    touched. *A server pointed at a store that is gone fails at every session start with
+    nothing on screen, which is the argument this module already made for the hooks.*
+31. **[M] The process check FAILS CLOSED on those two arms, and the lister says whether it
+    LOOKED.** No `ps`, a timeout, a sandbox that refuses process listing — each is "I could
+    not check" and refuses, naming `--nothing-is-open` as the explicit override
+    (`start-fresh`'s own flag and meaning). The override never excuses a check that FOUND
+    something. The plain uninstall and `wire` keep failing open: they move nothing.
+32. **[M] A hook entry is ours to rewrite only when the command IS our invocation** — our
+    runtime and our hook script, or the installed shim, optionally with `--config <path>`,
+    and never anything carrying a shell operator. Somebody's WRAPPER (`… && counterparts-hook`)
+    is left exactly where it is by both directions and named in one line. `doctor`'s
+    `readHost` keeps the looser mark for REPORTING, and a test holds the two to each other
+    in the direction that matters: everything `wire` writes is matched by both.
+33. **[M] The count in the warning is the number `status` calls Memories** — not archived,
+    not superseded, not a journal episode, not a schema row — with the journal reported
+    beside it. Taking it opens the store **under observer**, read-only, and `--park` never
+    opens it at all.
+
+### What the merge with C and D added (2026-09-21)
+
+34. **[M] The install conversation's fourth step is `keys.ts#promptForKeys`**, called
+    AFTER the configuration and the 0600 credentials file exist — `enableEmbedder` edits a
+    configuration and never creates one. `PromptAborted` propagates out of it by that
+    module's own argument and is caught HERE: the install says nothing else was changed,
+    summarises what is on disk from the FILE rather than from the result it just lost, and
+    exits non-zero.
+35. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
+    Until the three verbs above existed, the only thing this package could do about a
+    missing or stale hook was print a block for the reader to paste; the fix line now names
+    the command that does the paste — including for the STALE case, which `wire` repairs in
+    place.
 
 ## 6. Scars honored
 

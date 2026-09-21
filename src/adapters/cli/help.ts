@@ -55,15 +55,14 @@ const NAME_COLUMN = 17;
 /**
  * COMMANDS THIS CONSOLE DOES NOT DISPATCH YET, listed anyway.
  *
- * `wire`, `unwire` and `uninstall` are being built in parallel (new-user
- * findings #1 and #6; the 0.2 install flow's piece A+B). They are listed here so
- * the map a person reads is the map of the console they are about to have, and
- * the coordinator reconciles the wording with the builder who owns them at
- * merge. `test/help.test.ts` holds this list to `COMMANDS` in both directions:
- * a name listed and not dispatched must be HERE, and a name here that HAS
- * arrived must be taken out.
+ * Empty as of 2026-09-21: `wire`, `unwire` and `uninstall` were the three names
+ * on it, they landed with piece A+B, and the tripwire in `test/help.test.ts`
+ * is what made taking them off a step nobody could forget. The mechanism stays
+ * for the next time a map is written ahead of a command — it holds this list to
+ * `COMMANDS` in both directions, so a name listed and not dispatched must be
+ * HERE, and a name here that has arrived must be taken out.
  */
-export const PENDING_COMMANDS: readonly string[] = ["wire", "unwire", "uninstall"];
+export const PENDING_COMMANDS: readonly string[] = [];
 
 /** One heading and the commands under it, in the order they are printed. */
 export interface HelpGroup {
@@ -253,21 +252,41 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "`counterparts help doctor` and `counterparts doctor --help` are the same",
     "page. It opens no store and reads no configuration.",
   ],
-  // WIRING, UNINSTALL: placeholders. The builder who owns those commands
-  // replaces these two entries with the real text, and the coordinator
-  // reconciles at merge (see `PENDING_COMMANDS`).
   wire: [
-    "It edits the host's own settings: it shows what it will add, backs the file",
-    "up first, and merges beside any hooks already there.",
+    "It shows what it will add, then backs ~/.claude/settings.json up beside",
+    "itself and says the path. The five hooks go BESIDE anything already on",
+    "those events — another tool's hook keeps its place and every one of its",
+    "own settings — and an entry of ours that names a path that has moved is",
+    "repaired rather than duplicated. A settings file it cannot parse is a",
+    "refusal: it changes nothing and prints the block for you to merge by hand.",
+    "",
+    "The MCP server is registered by running `claude mcp add`; it never writes",
+    "~/.claude.json itself, because Claude Code owns that file. If `claude` is",
+    "not on your PATH the hooks still go in and the line is printed for you.",
+    "",
+    "Hooks start with your next turn in any open session; the memory tools",
+    "appear after you restart Claude Code.",
   ],
   unwire: [
-    "It takes out what `wire` put in and leaves everything else in the file",
-    "alone. Your memory is not touched.",
+    "It removes only the entries it recognises as its own — another tool's hooks",
+    "are never candidates — and runs `claude mcp remove`. It backs the settings",
+    "file up first, exactly as `wire` does. Your memory is not touched, and this",
+    "one works even if the configuration is already gone.",
   ],
   uninstall: [
-    "It unwires the host, then says how to remove the package — a program cannot",
-    "cleanly delete itself. ~/.counterparts is left exactly where it is unless",
-    "you say otherwise.",
+    "It unwires the host, then says where your memory still is, how many",
+    "memories are in it, and the one command that removes the package:",
+    "`bun remove -g counterparts` (a program does not delete itself).",
+    "",
+    "~/.counterparts is left exactly where it is unless you say otherwise.",
+    "--park renames the whole directory to <dir>.parked-<date> — one rename,",
+    "nothing copied, nothing deleted, the store never opened — and prints the",
+    "single `mv` that undoes it. --delete-memories destroys it, after counting",
+    "what is about to go and asking you to type DELETE MEMORIES exactly; there",
+    "is no --yes for that one.",
+    "",
+    "Both of those refuse while a Counterparts MCP server, worker or dashboard",
+    "is running, and name what they found.",
   ],
 };
 

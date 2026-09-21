@@ -2452,22 +2452,30 @@ function hostFindings(reading: HostReading): Finding[] {
       ),
     ];
   }
+  // THE FIX IS `wire` NOW, NOT `install` (2026-09-21, A). Until this change the
+  // only thing the package could do about a missing hook was PRINT a block, so
+  // the fix line sent a reader to the command that prints it and then asked
+  // them to paste. `counterparts wire` does the paste: it backs the file up,
+  // merges beside whatever else is on those events, and repairs an entry of
+  // ours that names a path that has moved — which is precisely the `stale`
+  // case below. A fix line that names the longer way round is a fix line
+  // somebody follows.
   const fixes: string[] = [];
   if (missing.length > 0) {
     fixes.push(
-      "Run: counterparts install — it prints the hooks block; paste that into ~/.claude/settings.json and restart the host.",
+      "Run: counterparts wire — it backs up ~/.claude/settings.json, adds the hooks beside anything already there, and registers the MCP server. Then restart the host.",
     );
   }
   if (stale.length > 0) {
     fixes.push(
-      `Run: counterparts install — it prints the block with the path this install actually has; replace the ${
+      `Run: counterparts wire — it replaces the ${
         stale.length === 1 ? "stale entry" : "stale entries"
-      } and restart the host.`,
+      } in place with the path this install actually has, backing the file up first. Then restart the host.`,
     );
   }
   if (!reading.mcp && !reading.mcpUnreadable) {
     fixes.push(
-      "Run: counterparts install — it prints the claude mcp add line; run that, then restart the host.",
+      "Run: counterparts wire — it runs the claude mcp add line for you. Then restart the host.",
     );
   }
   // STALE FIRST. "GREEN while nothing fires" is the one outcome this line was

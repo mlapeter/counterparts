@@ -1315,7 +1315,9 @@ describe("the Host line reads the host's own files", () => {
     // ours to depend on: a wrong answer must cost a second look, not a panic.
     expect(finding.severity).toBe("amber");
     expect(finding.detail).toContain("no hook of ours is installed");
-    expect(finding.fix).toContain("counterparts install");
+    // `wire`, not `install` (2026-09-21): the fix is the command that DOES the
+    // paste, not the one that prints a block for the reader to paste.
+    expect(finding.fix).toContain("counterparts wire");
     expect(finding.fix).toContain("restart");
     // And it NAMES what it looked at, so a path that has moved is visible to
     // the reader rather than reported as "you did not install it".

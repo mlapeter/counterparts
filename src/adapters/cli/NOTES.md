@@ -1154,3 +1154,208 @@ now → GREEN, saying which two facts it is looking at, and no fix, because ther
 to do. A standing amber nobody can clear is how a person learns to read amber as
 decoration. Every other stand-down reason is untouched, and the credential comes from the
 FILE and never from the environment, which is the rule `credentialFindings` already keeps.
+
+## 2026-09-21 — `wire`, `unwire`, `uninstall`, and an `install` that asks (A)
+
+The owner installed 0.1.0 from npm as a stranger and stopped at the first screen:
+`install` printed a sixty-line JSON block and said "merge this yourself"
+(`docs/new-user-findings.md` #1, "the biggest barrier"). His answer was one line —
+**wire by default, after asking first** — plus a ruling on leaving, quoted at the top of
+`uninstall.ts`. This is those two sentences.
+
+**`install.ts`'s first rule is now narrower, not gone.** It said the host's files are only
+ever PRINTED, "an installer that edits somebody's editor configuration without being asked
+is the same class of surprise as a memory layer that writes without being asked". The
+operative clause turned out to be *without being asked*. So: a terminal is asked and then
+wired; a pipe, CI, every test and the scripted half of `tools/install-loop/run.sh` get the
+printed blocks byte for byte; `--no-wire` gets a terminal the same thing. Nothing that has
+ever been measured changed behaviour.
+
+**The merge is on the INNER hook entry, and that is the whole design.** Not on the `hooks`
+object, not on the event's array — on `hooks[event][i].hooks[j]`. Another tool's entry
+therefore keeps its index, its `matcher`, its `timeout` and every key we have never heard
+of, because it is never rewritten at all; ours is appended beside it (hooks on one event
+run in parallel) or, when it is already there under a path that has moved, has its
+`command` replaced in place by an object spread. A second entry of ours on one event is a
+block somebody pasted twice: it is DROPPED and counted, because rewriting both to the same
+string would leave the duplicate forever.
+
+**The recogniser is `HOOK_COMMAND_MARK`, taken from `install.ts` rather than written
+again.** `doctor`'s `readHost` uses it to answer "is this wired?", so a hook `wire` writes
+and a hook `doctor` counts are the same hook by construction. `test/wire.test.ts` wires a
+temp home and then asserts `readHost` sees all five events with `stale: []` — if those two
+ever disagreed, a correctly wired install would read as broken on the one surface a person
+checks.
+
+**Four refusals that are not caution, they are the file's own shapes.** Bytes that are not
+JSON; a top level that is not an object; a `hooks` key that is not an object; an event
+whose value is not an array. Each one is a settings file whose meaning we would be
+guessing at, and a guess there rewrites somebody's configuration into a shape they did not
+choose. The refusal prints the block for hand-merging — which is exactly what `install`
+printed before this change, so the worst case is the old behaviour.
+
+**A symlinked `settings.json` is written THROUGH.** A dotfiles repository is an ordinary
+arrangement, and `rename(2)` onto the link path would replace the link with a regular file
+and quietly detach whatever manages it. So the target is resolved, required to be inside
+the home, and written; the backup lands beside the TARGET. A link pointing outside the home
+is refused rather than followed — at that point this would be editing a file somewhere
+nobody named.
+
+**`~/.claude.json` is read and never written.** Claude Code owns its own state file; the
+registration goes out as `claude mcp add` with an ARGUMENT VECTOR (a store path comes off
+disk and can hold anything a shell would interpret). One consequence found by the install
+loop: `unwire` must attempt `claude mcp remove` **even when our read saw no
+registration**, because that file may move and our read is evidence rather than authority.
+"Tolerate not found" is cheaper than a server left pointed at a store nobody is wiring.
+
+**`--delete-memories` counts before it warns, and the fallback matters more than the
+count.** A store that will not open on this build — the old-floor `STORE_PRE_ROWS` case,
+which is precisely the state of somebody uninstalling after an upgrade went wrong — would
+otherwise produce "WARNING: this will delete 0 memories." That is the most dangerous
+sentence this command could print, so a store that refuses produces a SIZE and the name of
+the refusal instead. `storeExists` is checked first for a second reason: `Store.open`
+CREATES what it opens, and a count must never be the thing that mints a store.
+
+**Both moving verbs refuse while anything of ours is running, and the lister is not
+`pgrep -f counterparts`.** That pattern matches an editor with this repository open, a
+`tail` on a log, a dev server in a directory with the word in its path — the false
+positives `start-fresh` already warns about in prose. The marks here are the SCRIPTS
+(`mcp/bin/serve.ts`, `claude-code/bin/runner.ts`, `dashboard/bin/dashboard.ts`) plus the
+two installed shims anchored at a token boundary. It never throws, and a lister that fails
+is treated as no evidence rather than as evidence of absence.
+
+**Two things worth knowing about where this sits.**
+
+- `isInteractive` needs `io.tty`, and `bin/counterparts.ts` does not set it yet (builder C
+  owns that file this round). Until it does, the interactive install arm is unreachable in
+  a real terminal and `install` behaves exactly as it does today — which is the safe
+  direction for a change that edits a host. Every confirmation inside `wire`, `unwire` and
+  `uninstall` gates on `io.prompt` instead, the rule `start-fresh` already uses, so those
+  three work at a terminal now.
+- **The interactive arm writes `injectionBudgetBytes: 9000` when no `--budget` was given,
+  and says so.** Scar §2.18 says this package invents no host ceiling, and it still holds
+  everywhere else: the scripted arm ends on its "NO injectionBudgetBytes was written"
+  paragraph exactly as before. The difference is that there is a person to tell. This is
+  the owner's plan line ("`--budget` gets a default of 9000") and it is a working default,
+  not a new rule — if it fights §2.18 later, the interactive arm is the one place to take
+  it back out.
+
+### The merge with C and D, and what a real pty found (2026-09-21)
+
+**Step 4 is `keys.ts#promptForKeys` now**, called after the configuration and the 0600
+credentials file exist — `enableEmbedder` edits a config and never creates one, so the
+order is not arbitrary. `PromptAborted` propagates out of it, as that module argues it
+must, and is caught here: the install says nothing else was changed, summarises from the
+FILE rather than from the result it just lost, and exits non-zero. A summary built from a
+result that was thrown away would be a summary of what did not happen.
+
+**`doctor`'s Host fix lines name `wire` now.** They said "Run: counterparts install — it
+prints the hooks block; paste that into ~/.claude/settings.json". That was the only true
+answer while printing was all this package could do. It is not any more, and the stale
+case is the sharpest one: `wire` repairs an entry that names a path that has moved, in
+place, which is exactly what that finding is about.
+
+**Driven on a real pty** (`python3 pty.openpty`, a throwaway HOME, a stub `claude` on
+PATH, nothing near the real `~/.claude` or `~/.counterparts`): install → re-run → wire →
+doctor → uninstall → `--delete-memories` with the wrong phrase. It works. Three things
+that only showed up there:
+
+- **"1 memories are still at …".** A brand-new install holds exactly one memory — its
+  identity core — so that is the sentence somebody leaving after five minutes actually
+  read. `memories(n)` now says "1 memory".
+- **The preview promised a backup it did not take.** On a re-run where the hooks were
+  already right and only the registration was missing, it said "5 hooks ->
+  ~/.claude/settings.json (backup first)" and then correctly took none. The clause comes
+  from the plan now, not from the verb.
+- **A terminal that reports ZERO columns is laid out at 30.** `ui.ts#terminalWidth` floors
+  a finite number at `MIN_WIDTH`, and a fresh pty starts 0×0, so every line folded to
+  thirty characters. A real terminal reports its real width, so this is not a bug anyone
+  will meet — but `columns: 0` means "I do not know", which is what `FALLBACK_WIDTH` is
+  for, and it is a one-line change in a file this piece does not own. **Left for D**, and
+  written down here rather than fixed in passing.
+
+### The adversarial review, and what it cost (2026-09-21)
+
+One blocker, three majors, eight minors, against the branch at `5680022`. Every one of
+B1, M1, M2 and M3 was reproduced again in a throwaway HOME before a line was changed;
+`repro.sh` and `repro2.sh` in the session scratchpad are the two harnesses.
+
+**B1 is the one worth remembering, and the lesson is not about uninstall.** The owner's
+ruling says "`--park` moves `~/.counterparts` aside". The code read that as "the directory
+the configuration sits in" — and `install --config <path>` is the supported way to put a
+configuration anywhere at all. So the review pointed one at `~/.claude` and watched this
+command rename Claude Code's settings, its project transcripts and its todos away under a
+heading that said **"Your memory, parked"**; then pointed one at `~/Documents` and watched
+`--delete-memories` destroy `taxes/` and `photos/` after warning about **one memory**.
+
+The mistake was naming the subject by its LOCATION. A directory is whatever somebody put
+in it; a list of filenames is a thing this package can actually be said to own. So the
+subject is now `ownedNames` + `ownedKind`: the configuration and our own temp and backup
+siblings, the credentials file the configuration names, `scopes.json`, the `snapshots/`
+this layout owns, and the store at `dataDir`. The directory itself is acted on only when
+`readdirSync` of it turns up nothing else — which is the ordinary `~/.counterparts` and
+keeps it one atomic rename — and otherwise it is left, our entries go one by one, and the
+foreign names are printed. Four directories are refused whatever they hold: `~/.claude`,
+the home, any parent of it, and anything with a `.git` in it.
+
+**The generalisation, for whoever writes the next destructive verb here:** name what you
+own, then check that the ground holds nothing else. Do not name a place and assume it is
+yours.
+
+**M1 was the same error facing the other way.** `dataDir` can point anywhere, so the store
+is not reliably "in there" either: the command counted the memories at `dataDir`, deleted
+the configuration directory without them, and told the person their memory was gone while
+it sat intact on disk. Both halves of that are sentences somebody acts on — one is a
+privacy claim, the other is "nothing can bring it back" when everything can. The store is
+now its own entry in the plan, under its own ring, and the closing lines name what actually
+went rather than what the verb is called.
+
+**M2 and M3 are the same shape as each other: a guard that could not tell "no" from "I
+could not ask".** `unwire` reported `ok` when `claude` was missing, so the irreversible arm
+ran and left a registration pointing at a store that no longer existed — the exact failure
+this file already refuses to allow for the hooks. And `realProcessLister` answered `[]` for
+a missing `ps`, a timeout and a sandbox that refuses process listing, so a box with no `ps`
+parked a store and said nothing about not having looked. Both now carry the distinction in
+the type: `WireResult.mcpConfirmed`, and `ProcessSighting.looked`. `--nothing-is-open` is
+the way past the second — the same flag and the same meaning `start-fresh` gives it — and
+it never excuses a check that found something.
+
+**One correction the repro caught on the way.** The first cut of the MCP pre-flight asked
+for `claude` unconditionally, which refused every `--park` on a box that had never wired
+anything. It bites only when a registration is actually on disk now. A guard that fires on
+the innocent case is one people learn to work around, which is the same sentence
+`commands.ts` already makes about `COUNTERPARTS_CONFIG`.
+
+**m1 is the only minor with a design in it.** `HOOK_COMMAND_MARK` answers the question
+`doctor` asks — is a hook of ours installed on this event? — and it is right that it
+matches `~/bin/log-start.sh && counterparts-hook`, because that line really does run our
+hook. It is the wrong question for a WRITE: `wire` overwrote that wrapper with ours alone
+and `unwire` deleted the other one outright. `isOurHookCommand` is the write-side question,
+and it is exact: our runtime and our hook script, or the shim, optionally `--config <path>`,
+and nothing carrying a shell operator. A wrapper is left alone in both directions and named
+in one line. The two are held to each other by a test in the direction that matters —
+everything `wire` writes matches both — so a hook we installed can never read as missing.
+
+**Declined:** m7 (`terminalWidth` flooring a zero-column terminal at 30) stays with the
+docs builder, as the coordinator directed. The five NITs are not addressed here; n3 and n4
+are real and small, and n1's re-serialisation is the documented cost of editing JSON.
+
+**Three more the second look caught, all inside M2's own guarantee.** They are worth
+naming together, because they are one mistake in three costumes — *a check that answers
+"fine" when it could not actually tell*:
+
+- `unwire`'s re-read treated an UNREADABLE `~/.claude.json` as an absent registration
+  (`readMcp` reports `present: false` for a file that will not parse), so a corrupt host
+  file plus a missing `claude` confirmed a deregistration that never happened.
+- The pre-flight tested only `missing`, so a `claude` that HUNG (a `spawnSync` timeout
+  comes back `missing: false, code: null`) or exited non-zero passed it — the hooks came
+  out and the refusal landed thirty seconds later on the removal instead.
+- The cross-device check ran over `plan.entries` rather than `plan.targets`, so the
+  directory that actually gets renamed when it moves whole was never checked at all.
+
+**What is still open, and deliberately.** A store OUTSIDE the home refuses both moving
+arms with no way through, because `uninstall` refuses `--dir` the way `start-fresh` does.
+The coordinator's M1 wording allowed "an explicitly named `--dir`"; the shape that would
+close it without reopening the `--dirr` scar is to accept `--dir` on `uninstall` only when
+it is EQUAL to `resolve(config.dataDir)` — an assertion about the store the configuration
+already names, rather than a second answer to which store. Not built here.
