@@ -173,12 +173,19 @@ export async function promptForKeys(
   // THE KNOB IS A SEPARATE YES (rule 3). No key, no question: turning the
   // embedder on with nothing to embed with buys an `embed-failed` on every ask
   // and a `doctor` line about a key that was never offered.
+  //
+  // A KEY THAT WAS ALREADY THERE COUNTS. Re-running `install` is the ordinary
+  // case, not the odd one — the owner's own trial of 0.2 is a re-install — and a
+  // person whose Voyage key is saved while the knob is off would otherwise never
+  // be offered the thing the key is for. The question is asked for a key that
+  // was just typed and for one that was kept; only a knob that is already `true`
+  // is left alone, because there is nothing to offer.
   let embedder: EmbedderOutcome = "not-asked";
   let embedderFix: string | undefined;
   const haveEmbedKey = voyage === "set" || voyage === "kept";
   if (haveEmbedKey && ctx.embedderOn === true) {
     embedder = "already-on";
-  } else if (voyage === "set") {
+  } else if (haveEmbedKey) {
     u.blank();
     u.hint("Embedding sends memory text to Voyage. It stays off until you say otherwise.");
     const yes = await confirm(io, "Turn on recall by meaning now?", { default: true });

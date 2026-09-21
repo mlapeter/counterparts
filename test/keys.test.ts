@@ -364,6 +364,45 @@ describe("the embedder is a second yes", () => {
     expect(readFileSync(credsPath, "utf8")).toContain(EMBED_KEY_ENV);
   });
 
+  /**
+   * RE-RUNNING `install` IS THE ORDINARY CASE, not the odd one — the owner's own
+   * trial of 0.2 is a re-install. A saved Voyage key with the knob off is
+   * somebody who has the key and is not getting what it is for, so the question
+   * is asked for a key that was KEPT exactly as for one just typed.
+   */
+  test("a Voyage key that was already saved is offered the knob too", async () => {
+    writeConfig();
+    writeFileSync(credsPath, `${EMBED_KEY_ENV}=already-there\n`, { mode: 0o600 });
+    // Anthropic: not held, Enter skips. Voyage: held, keep it, then turn it on.
+    const f = terminal({ hidden: [""], answers: ["y", "y"] });
+    const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [EMBED_KEY_ENV] }));
+    expect(r.voyage).toBe("kept");
+    expect(r.embedder).toBe("enabled");
+    expect(f.asked.join("\n")).toContain("Turn on recall by meaning now?");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toEqual({ enabled: true });
+    // The key itself was not rewritten — keeping it means keeping it.
+    expect(readFileSync(credsPath, "utf8")).toBe(`${EMBED_KEY_ENV}=already-there\n`);
+  });
+
+  test("a saved Voyage key plus a NO still leaves the knob alone", async () => {
+    writeConfig();
+    writeFileSync(credsPath, `${EMBED_KEY_ENV}=already-there\n`, { mode: 0o600 });
+    const f = terminal({ hidden: [""], answers: ["y", "n"] });
+    const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [EMBED_KEY_ENV] }));
+    expect(r.voyage).toBe("kept");
+    expect(r.embedder).toBe("declined");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
+  });
+
+  test("a Voyage key SKIPPED at the prompt is offered nothing — there is no key", async () => {
+    writeConfig();
+    const f = terminal({ hidden: ["", ""] });
+    const r = await promptForKeys(f.io, NO_ENV, context(f));
+    expect(r.voyage).toBe("skipped");
+    expect(r.embedder).toBe("not-asked");
+    expect(f.asked.join("\n")).not.toContain("recall by meaning");
+  });
+
   test("no Voyage key, no question about the knob", async () => {
     writeConfig();
     const f = terminal({ hidden: ["", ""] });
