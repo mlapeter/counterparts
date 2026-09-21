@@ -212,6 +212,20 @@ describe("width and folding", () => {
     expect(terminalWidth(terminal({ columns: 4 }).io)).toBe(30);
   });
 
+  test("zero columns means UNKNOWN, and takes the fallback rather than the floor", () => {
+    // A fresh pty starts 0x0 and a terminal mid-resize can say the same. Read
+    // as a width it lays the whole console out at 30; read as "I do not know"
+    // it lays out at 80, which is what it is (measured on a pty, 2026-09-21).
+    expect(terminalWidth(terminal({ columns: 0 }).io)).toBe(FALLBACK_WIDTH);
+    expect(terminalWidth(terminal({ columns: -1 }).io)).toBe(FALLBACK_WIDTH);
+    expect(terminalWidth(terminal({ columns: -200 }).io)).toBe(FALLBACK_WIDTH);
+    expect(terminalWidth(terminal({ columns: 0.5 }).io)).toBe(FALLBACK_WIDTH);
+    expect(terminalWidth(terminal({ columns: Number.NaN }).io)).toBe(FALLBACK_WIDTH);
+    expect(terminalWidth(terminal({ columns: Number.POSITIVE_INFINITY }).io)).toBe(FALLBACK_WIDTH);
+    // And the floor is untouched for a width a terminal really reported.
+    expect(terminalWidth(terminal({ columns: 1 }).io)).toBe(30);
+  });
+
   test("wrapping keys off stdout being a terminal, not off colour", () => {
     expect(wraps(fake().io)).toBe(false);
     expect(wraps(terminal().io)).toBe(true);

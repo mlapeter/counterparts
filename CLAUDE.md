@@ -26,8 +26,8 @@ tests, module CONTRACTs, and `docs/harvest/`.
 ## Reference lineage (read-only donors — never import, never modify)
 
 - `~/bansai` — v1: the behavioral spec, scars, and test spine in `docs/harvest/` were
-  distilled from it. It keeps running as the live instance until Counterparts passes
-  replay + a parallel run.
+  distilled from it. Its hooks were switched off on 2026-09-21; the store stays where it
+  is and stays off-limits.
 - v0 (claude-engram jsx) and engram — earlier ancestors; their contributions are cited
   inside the module CONTRACTs.
 
@@ -42,10 +42,12 @@ tests, module CONTRACTs, and `docs/harvest/`.
 
 ## Status
 
-Built. Feature-complete 2026-08-25; in a parallel run against v1 since 2026-09-03;
-launch prep from 2026-09-04. The living records are `docs/PARALLEL-RUN-STATUS.md` (what
-the run is proving, day by day) and `docs/LAUNCH-STATUS.md` (what is verified, what is
-still open, and who owns it) — read those for current state, not this file. Module map:
+Launched. Feature-complete 2026-08-25; the author's live memory since 2026-09-03;
+`counterparts@0.1.0` published on npm 2026-09-21. He now runs it **from the npm install**,
+on a store he started fresh that day, and bansai's hooks are off — so `~/counterparts` is
+the development repo and nothing more. `docs/new-user-findings.md` is what that first
+install was like; `docs/LAUNCH-STATUS.md` and `docs/PARALLEL-RUN-STATUS.md` are the
+records of the weeks before it, useful as history rather than as current state. Module map:
 `docs/module-map.md`. Each `src/**/CONTRACT.md` states what the module keeps (with
 lineage), what it drops, and its guarantees; `NOTES.md` beside it records what the build
 learned, and `INTERFACE-GAPS.md` — in every module but `physics/` and `store/`, which have

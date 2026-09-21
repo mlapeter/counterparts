@@ -174,6 +174,7 @@ export function shortHelp(): string {
     "",
     `counterparts help <command>   ${SHORT["help"] ?? ""}`,
     "Docs: docs/QUICKSTART.md, shipped with the package.",
+    "     https://www.npmjs.com/package/counterparts",
   );
   return lines.join("\n");
 }

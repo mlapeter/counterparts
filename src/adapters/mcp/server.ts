@@ -98,7 +98,7 @@ export const SERVER_NAME = "counterparts";
  * host decides whether to trust what follows. Read from a constant rather than
  * from disk so the server opens no file to answer its first message.
  */
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.2.0";
 
 /** Telemetry: ids, counts, reasons, flags. NEVER body text (store §5 G10). */
 export interface McpEvent {

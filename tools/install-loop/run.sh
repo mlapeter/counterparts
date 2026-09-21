@@ -1051,7 +1051,7 @@ for p in "$STORE" "$BASE/claude-code.json" "$BASE/credentials.env" "$BUN_INSTALL
 done
 if [ -z "$STRAY" ] && [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "wrote outside the clean room:${STRAY:- (no session record)}"; fi
 
-# ── 7. the host's own files, and leaving (QUICKSTART §4, §9b) ───────────────
+# ── 7. the host's own files, and leaving (QUICKSTART §4a, §9b) ──────────────
 #
 # THESE RUN LAST, and they have to: the last of them RENAMES `$BASE`, which is
 # the directory every step above resolves its paths from. The clean-room check

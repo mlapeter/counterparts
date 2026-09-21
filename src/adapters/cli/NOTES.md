@@ -508,7 +508,7 @@ confirmation. A command that performs a BULK WRITE always requires the `--dir`
 FLAG; neither `--yes` nor `COUNTERPARTS_DATA_DIR` stands in for it. Ordinary
 per-memory commands — `note`, `recall`, `remove`, `init`, `install`, `status`,
 and `verify` without a writing flag — keep today's behaviour: the variable names
-their store, which is what QUICKSTART §3 teaches. The distinction is blast
+their store, which is what QUICKSTART §3a teaches. The distinction is blast
 radius, not "writes": an exported variable is a shell's memory of where a store
 lives, and a rewrite of the whole store asks for a sentence typed about THIS
 rewrite.
@@ -1359,3 +1359,8 @@ The coordinator's M1 wording allowed "an explicitly named `--dir`"; the shape th
 close it without reopening the `--dirr` scar is to accept `--dir` on `uninstall` only when
 it is EQUAL to `resolve(config.dataDir)` — an assertion about the store the configuration
 already names, rather than a second answer to which store. Not built here.
+
+  written down here rather than fixed in passing. **Fixed 2026-09-21** (the docs piece,
+  which was handed the one line): a floored `columns` at or below zero returns
+  `FALLBACK_WIDTH`, and the floor is kept for a width a terminal really reported — 4 is an
+  answer, 0 is the absence of one. `test/ui.test.ts` holds both halves.
