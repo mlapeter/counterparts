@@ -1,494 +1,75 @@
-# New-user findings
+# New-user findings, and the plan for one round of polish
 
-Every place a new user stalls, guesses, or needs something the page never gave them — the
-install, the first session, the first day. One list, so the trial loop (use → findings →
-fix → start fresh → repeat) has a single place to look.
+The owner installed `counterparts@0.1.0` from npm as a stranger on 2026-09-21. It works:
+wake on a blank store, doctor 0 red, MCP tools connected. This page is what was rough, and
+what we change before he uninstalls and installs again. Working notes, not a contract.
 
-**How to add to it.** Newest section on top, dated, with who or what produced it. One
-finding per entry, in this shape:
+## What was rough (in the order he met it)
 
-- **A one-line title.**
-  *Where:* the doc and section, or the command.
-  *What happened:* what you actually saw.
-  *Why a new user stalls:* the reader's side of it.
-  *Severity:* BLOCKS INSTALL · CONFUSING · ROUGH · NIT.
-  *Disposition:* "fixed in <PR>" or "a choice for the owner", with the options in a sentence.
+| # | What happened | Whose |
+|---|---|---|
+| 1 | `install` prints a 60-line JSON block and says "merge this yourself." He stopped here and asked for help. **The biggest barrier.** | owner |
+| 2 | `counterparts credentials set ANTHROPIC_API_KEY` refused: "stdin is a terminal." A person at a terminal is the normal case. | owner |
+| 3 | Nothing asks for the keys at all. Install should ask for the Anthropic key, then the optional Voyage key, and let him skip either. | owner |
+| 4 | `counterparts --help` is 129 lines of dense paragraphs. As the "did it install?" check it is a wall of text. | owner |
+| 5 | All terminal output is hard to read: long unbroken sentences, no spacing, no color. Doctor most of all. | owner |
+| 6 | There is no `counterparts uninstall`. Today's removal was done by hand (hooks block, MCP registration, package, data folder). | owner |
+| 7 | Doctor's "fix" for a missing key repeats the command that refuses (#2). | Claude |
+| 8 | Doctor's Authorship line shows a week range (09-15→09-21) on a store made today. | Claude |
+| 9 | Doctor's Sweep line stays amber "no-credential" after the key is added, until the next boundary. Reads like a fault. | Claude |
+| 10 | QUICKSTART is 1,200+ lines and unreachable on the web while the repo is private. README Status section is stale; its images and two links point into the private repo. | Claude |
+| 11 | New users do not have bun (Claude Code does not put it on PATH). One extra line, but the README should lead with it. | Claude |
 
-Plain words. A finding nobody can act on without reading the code is not finished.
+## What a similar project does (hippo-memory)
 
-Today this file is not in `package.json`'s `files` list, so it does not ship in the
-tarball — which also means a relative link to it from `README.md` or `docs/QUICKSTART.md`
-fails the install loop's step 3, since that step checks every relative doc link against
-what the package actually carries.
+`npm install -g hippo-memory && hippo init` — one line in the first screen of the README.
+`init` finds Claude Code and patches its settings itself; `--no-hooks` opts out;
+`hippo hook install|uninstall claude-code` repairs or removes the wiring. No keys needed.
+No full uninstall. Worth taking: one line, wiring by default, a flag to opt out, a small
+wiring sub-command. Not worth taking: scanning every repo, a machine-wide scheduler.
 
----
-
-## 2026-09-20 — what E2 closed, and what it left
-
-The E2 branch (`everyday/e2-prevented-and-day1`) took the coordinator's recommended
-default on each of the six it was handed. **Closed here: 1, 2, 3, 4, 5, 6, and the flaky
-LINEAR test.** The rest of the 2026-09-18 list below is untouched and still open.
-
-Each closure is stated as what a new user now sees, measured on a blank store under a
-throwaway `HOME` on the branch:
-
-- **1 — keyless doctor.** RED became AMBER **only on a store that has never had a key**.
-  The discriminator is the store's own evidence rather than a marker file: one `gate.chunk`
-  row ever proves the interpreter worked here, and a key that was here and has gone is
-  still the red it was written for. The amber says what works without a key and what a key
-  would add. The `SessionStart` notice goes quiet with it, because a notice needs a red —
-  which also closes finding 8 by removing the truncated sentence rather than by shortening
-  it. The Embedder line says the same for lexical recall. *This is the owner's option (a).*
-- **2 — `fired`'s 28 `never` lines.** One day-1 line, then only what has fired and anything
-  blocked. `young` is a fact on the report, so the console, doctor and the dashboard share
-  one definition — and **both clocks must agree**, so a store whose worker died a fortnight
-  ago still gets the full list, which is its diagnosis. `counterparts fired --all` is the
-  escape hatch. Doctor's Fired line says "too new to grade"; Authorship stands its two
-  ambers down on a young store for the same reason (both are ratios).
-- **3 — `status`.** The census leads, the prose follows, `Layout:` is behind `--layout`.
-  Two new lines carry the day's facts: new today, lived day, last active, last boundary,
-  self page, newest snapshot, journal mode, removed, permanent.
-- **4 — nothing checked the two host steps.** A `Host` line reads `~/.claude/settings.json`
-  and the three other places a hooks block can land (they merge), plus the user-scope MCP
-  registration in `~/.claude.json`, honouring `CLAUDE_CONFIG_DIR`. Amber, never red, and it
-  always names the files it read. **The owner's other option — a "your first session should
-  look like this" paragraph in QUICKSTART §4 — is not done and is still worth doing.**
-- **5 — `tools/install-loop/run.sh`.** `npm pack`'s stderr no longer shares the pipe the
-  tarball name is read from. The step count is unchanged, so `test/install-loop.test.ts`'s
-  52 is untouched.
-- **6 — `doctor --dir` under the guard.** `--dir` is a name, so the store is graded; the
-  default configuration beside it is not opened at all (its `credentialsFile` is what the
-  guard protects), and one amber says which questions therefore went unasked.
-- **the flaky LINEAR test** (`docs/adversarial-review-f5a-2026-09-20.md` NIT, and a failure
-  on master whenever the machine is busy). Rewritten as a growth ratio — and that
-  immediately failed, because **the sentinel search really was quadratic**: it cut its slice
-  at the next newline, and `indexOf` costs the distance it travels. Fixed, and measured.
-
-**Still open from the list below:** 7 (rebrief's two byte counts — already fixed in N2's own
-PR), 9 (Vectors counts the identity core, and its fix line is jargon — **untouched here on
-purpose, and now the most visible remaining day-1 wart**: it is the one amber on a blank
-store that neither explains itself nor can be acted on), 10 (README's stale suite numbers),
-11 (§3 says unbounded is supported, §7's command refuses), 12 (the hook path looks like a
-clone path), 13 (no uninstall — N1's), 14, 15, 16.
-
-**Two things an adversarial read caught before this merged, worth recording because both
-were the same mistake — a surface that says MORE reading SAFER than it did before:**
-
-- The first draft read the whole of each sleep phase's `skipped` map as refusals. That map
-  mixes candidate FILTERS (`journal`, `archived`, `schema`) with real refusals, so on the
-  owner's own store — fourteen journal chapters, nothing at the floor — prune would have
-  reported `blocked, most often journal ×14` **every single week**, for a phase working
-  perfectly. Each phase namespaces its real refusals (`promotion:`, `blocked:`,
-  `left-alone:`), and only that namespace is read. Decay has no refusal namespace at all
-  and so has no refusal column.
-- `blocked` outranks `quiet` in the state machine, so a mechanism that fired last week and
-  was refused every day this week left `wentQuiet` — and doctor's Fired line, which graded
-  on that list alone, would have gone **green** for it where it was amber before. There is
-  a `wentBlocked` list now and the finding grades on both.
-
-**Three new ones, found while closing these:**
-
-- **A. `counterparts fired` has no `--json`.** It has `--all` now, which is what the day-1
-  line points at, but every other read-only command that renders a structure offers `--json`
-  and this one does not. *Severity:* NIT. *Disposition:* a choice for the owner.
-- **B. `status`'s `Today` count had to be computed inside the census walk.**
-  `countMemories({ learnedOnFrom })` counts removed and superseded rows, so the first draft
-  printed `2 new` beside `Memories: 1`. Worth knowing that the filter and the census answer
-  different populations. *Severity:* NIT (fixed here), but the store's `MemoryFilter` has no
-  way to ask the census's question, which is a real gap.
-- **C. The `Host` line depends on paths that are not ours.** `~/.claude.json` is documented
-  as a file the host writes for itself. Everything here is written so a moved path reads "I
-  looked here and did not find it" — but it will eventually read that wrongly, and the fix
-  when it does is to re-verify the paths, not to delete the line. *Severity:* NIT.
-
----
-
-## 2026-09-20 — N1, building `start-fresh` (one finding, found while building it)
-
-### 1. `install` on a KEPT configuration tells you no injection ceiling was written, when the file it kept has one
-
-*Where:* `counterparts install` run a second time against an existing
-`~/.counterparts/claude-code.json`, without `--budget`.
-
-*What happened:* the run reports `kept …/claude-code.json`, and then prints
+## The flow we want
 
 ```
-  NO "injectionBudgetBytes" was written: nobody told us this host's ceiling
-  and this package invents none (scar §2.18). Re-run with --budget <bytes>,
-  or add the key to …/claude-code.json.
+curl -fsSL https://bun.sh/install | bash        # only if you have no bun
+bun add -g counterparts
+counterparts install
 ```
 
-The kept file already holds `"injectionBudgetBytes": 12000`.
-
-*Why a new user stalls:* it is true of a cold start and false here — the paragraph sends a
-reader to add a key he already has, to a file the same run has just told him was kept. It
-is the last thing on the screen, so it is the thing he acts on.
-
-*Severity:* CONFUSING.
-
-*Disposition:* worked around in `start-fresh`, not fixed at the source. `start-fresh` hands
-the ceiling it read out of the configuration back to `install` as `--budget`, so the
-paragraph is skipped; because the file is kept, nothing is written either way. The real fix
-is a choice for the owner: condition that paragraph on the configuration having been
-WRITTEN (`config.what !== "kept"`) rather than on `--budget` being absent, which is a
-one-line change to `installCommand` and a change to `install`'s output on a path other
-commands and the install loop exercise — so it was left for him rather than taken here.
-
----
-
----
-
-## 2026-09-18 — N2, the first stranger's dry run (hermetic, no live Claude Code)
-
-An agent followed `README.md` and then `docs/QUICKSTART.md` literally, top to bottom, in a
-throwaway `HOME` with no repository on its PATH and a stub `claude` that only logged its
-arguments. `tools/install-loop/run.sh` ran green first: **52 checks, 52 pass, 0 fail.**
-Then the walk by hand: pack → `bun add -g` → `counterparts --help` → `install` → the hooks
-block → the MCP line → the SessionStart hook → `note`/`recall` → the MCP round trip over
-stdio → `status` → `doctor` → `fired` → the dashboard → `rebrief` → the day-0 wake.
-
-**The install itself is in good shape: nothing blocks it.** Sixteen findings — 0 BLOCKS
-INSTALL, 4 CONFUSING, 9 ROUGH, 3 NIT. The trouble is all on the other side of the install —
-what the tools *say* to somebody on day 1.
-
-### 1. A new user with no API keys — which both pages call supported — gets a red doctor and a red line in the terminal every session
-
-*Where:* `counterparts doctor` and the `SessionStart` notice, after a plain
-`counterparts install --budget 9000 --name "Your Name"`.
-
-*What happened:* `doctor` on the brand-new store printed **1 red, 2 amber, 11 green** and
-exited 1. The red:
-
-```
-RED   Credentials …/credentials.env (mode 600) holds no key: ANTHROPIC_API_KEY is missing,
-      so the worker will run without an interpreter; nothing is encoded
-```
-
-The same sentence arrives in the terminal on the very first `SessionStart`, as
-QUICKSTART §12 says a red will. Meanwhile, in that same store with no key at all, `note`
-through the MCP server minted a memory, `recall` returned it, and the install loop's
-`session_end` deposited one. So memories *are* being encoded.
-
-*Why a new user stalls:* README says "**No API keys are required**"; QUICKSTART §6 says
-without `ANTHROPIC_API_KEY` the worker still runs the day and only skips the crash sweep —
-"Nothing else changes — this is *not* the ordinary write path." QUICKSTART §12 says the
-red notice fires only "for the things that mean part of the system is not running." All
-three cannot be true at once. A careful reader concludes their fresh install is broken;
-a trusting one goes and buys an API key the docs told them they did not need.
-
-*Severity:* CONFUSING (it is the first thing the product says to a new user).
-
-*Disposition:* **CLOSED 2026-09-20 by option (a)** — see the section above. Three ways out: (a) `doctor` grades the missing
-interpreter key **amber** on a store that has never had one, and keeps red for the case it
-was built for — a key that went away on a store that was using it; (b) keep it red and stop
-calling no-key a supported mode, saying plainly in §1 and §6 that day-1 `doctor` is red
-until you add a key; (c) keep it red but have `counterparts install` print one line warning
-that this is coming, so it is expected rather than alarming. (a) matches §6.
-
-### 2. `counterparts status` — the command the install tells you to check with — is mostly internal prose
-
-*Where:* `counterparts status --dir …`, QUICKSTART §7 "Look at the store"; and the last
-line `counterparts install` prints ("check it with: counterparts status --dir …").
-
-*What happened:* the census a new user wants is four lines. Under it comes a ten-line
-`Layout:` block written for whoever maintains the store:
-
-```
-    backed up  prose  — Box 1 — canonical prose. The memories themselves.
-    excluded   cache  — Box 3 — rebuildable embeddings/FTS. Never backed up; its loss is a re-index.
-  - excluded   sessions  — adapters/sessions.ts — the live-session registry a host's hooks
-    leave for its tools, plus the notes one process leaves another inside it:
-    adapters/expansions.ts' handle log and associate/pending.ts' co-activation deltas … 
-```
-
-plus `Permanent (enumerable on demand, §14.1 G9): 0`.
-
-*Why a new user stalls:* "Box 1", "Box 3", `assertLayout()`, `adapters/expansions.ts`,
-"§14.1 G9" and "archive-on-overwrite" are all things the reader has no way to look up. The
-four numbers they came for are buried above it. §7 describes the first line carefully and
-never mentions the Layout block at all, so the page and the command disagree about what
-this command is.
-
-*Severity:* CONFUSING. *Disposition:* **CLOSED 2026-09-20** — the layout block behind
-a `--layout` flag (or `--verbose`), or shortened to one line per directory with no file or
-section references, or left alone and described in §7 so it is not a surprise.
-
-### 3. `counterparts fired` and doctor's Fired line read like a catastrophe on a store that is simply new
-
-*Where:* `counterparts fired`, and `doctor`'s Fired line, on a store minutes old.
-
-*What happened:* `fired` opened with `NEVER (28) — the evidence exists and has never
-carried a row` and then 28 mechanisms each reading `last never · 7d 0 · total 0`.
-`doctor` said, in **green**: `0 of 47 mechanisms fired this week, 0 have gone quiet, 29
-have never fired, 2 are too new to grade, 13 record nothing durable at all`.
-
-*Why a new user stalls:* on day 1 nothing has fired because nothing has happened yet, but
-neither surface says so. Twenty-eight "never" lines is what a broken install would look
-like, and there is nothing on the page telling the reader that this is the expected day-1
-reading.
-
-*Severity:* CONFUSING. *Disposition:* **CLOSED 2026-09-20 (the first option, and more)** — `fired` opens with one
-line when the store has lived zero days ("this store is N days old; nothing has fired
-because nothing has happened yet"), or QUICKSTART gains a sentence saying so, or both.
-
-### 4. Nothing checks the two steps the user does by hand, and nothing tells them how to know it worked
-
-*Where:* QUICKSTART §4 (the hooks block and the `claude mcp add` line), §7, §12.
-
-*What happened:* `install` prints both host steps and applies neither — correctly. But
-`doctor` never reads `~/.claude/settings.json` or the MCP registration (confirmed: no such
-read in `src/adapters/claude-code/doctor.ts`), so a user who pasted the hooks into the
-wrong file, or into a project settings file instead of the user one, gets a fully green
-`doctor` and total silence. §7's "Prove the hook works without opening Claude Code" proves
-the *binary* runs; it cannot prove the *host* is calling it. Nothing anywhere says "after
-you restart, here is how you know": no `/mcp` check, no "ask the assistant to call
-`status`", no first-session expectation to match against.
-
-*Why a new user stalls:* the failure mode is silence. The product's own §4 says a hook that
-stands down "says so on stderr and exits 0 … and no hook will tell you."
-
-*Severity:* CONFUSING. *Disposition:* **HALF CLOSED 2026-09-20** — the
-`doctor` "Host" line that reads the settings file and the MCP registration and says which
-of the five events it found; or a short "your first session should look like this"
-paragraph in §4 (what the assistant sees, what `/mcp` should list); or both. The second is
-cheap and helps even when the first is not possible.
-
-### 5. README never mentions `counterparts doctor`
-
-*Where:* `README.md`, "What you get on the host".
-
-*What happened:* README enumerates the console — "Read-only: `status`, `recall`, and
-`probe-oq4` … The rest write: `install`, `init`, `note`, `export`, `backup`, `remove`,
-`backfill-claims`, `repair-merged-beliefs` … and `rebrief`" — which reads as a complete
-list. `doctor` appears **zero times** in README, and so do `fired` and `credentials set`.
-QUICKSTART §12 makes `doctor` the one troubleshooting command, and the red terminal notice
-ends with `run: counterparts doctor`.
-
-*Why a new user stalls:* someone who read only the README, saw the red line and went
-looking for `doctor` in the page they had, would not find it.
-
-*Severity:* ROUGH. *Disposition:* **fixed in this PR** — `doctor` and `fired` added to
-README's read-only list. The rest of the console (`scope`, `credentials`, `migrate-cache`,
-`repair-dates`) is still not enumerated there; leaving that, because completing the list is
-a rewrite, not a fix.
-
-### 6. README's prerequisites say bun; the first command needs Node and npm
-
-*Where:* `README.md` "Install"; QUICKSTART §1 (which does say it).
-
-*What happened:* README says "**You need bun 1.3 or newer**" and then the first command in
-its own install block is `npm pack`. Run on a PATH with bun but no Node — exactly what
-README's own `bun.sh` link produces — `npm pack` dies with `env: node: No such file or
-directory`, which says nothing about installing Node.
-
-*Why a new user stalls:* they followed the one prerequisite the page gave them and the
-first command failed with an error about a program nobody mentioned.
-
-*Severity:* ROUGH. *Disposition:* **fixed in this PR** — README now names `npm` as a
-prerequisite, as QUICKSTART §1 already did.
-
-### 7. `rebrief` and QUICKSTART §7 print two different byte counts for the same bundle
-
-*Where:* QUICKSTART §7 "Give the wake something to say before a first real session".
-
-*What happened:* on a store installed exactly as §3 says, `counterparts rebrief` printed
-`elements 0, bytes 470`. The bundle it published carries `bytes=572`, which is the number
-§7 quotes ("that bundle is 572 bytes").
-
-*Why a new user stalls:* they run the documented command, get 470, read 572 on the page,
-and have no way to tell which one is wrong. (Neither is: 470 is the composed body, and the
-delivery preface added at injection is 102 bytes — measured, 470 + 102 = 572.)
-
-*Severity:* ROUGH. *Disposition:* **fixed in this PR** — §7 now says both numbers and why
-they differ.
-
-### 8. The red terminal notice is cut off mid-word, before its instruction ends
-
-*Where:* the `SessionStart` hook's `systemMessage`, on a fresh install.
-
-*What happened:*
-
-```
-… Run: counterparts credentials set ANTHROPIC_API_KEY (the value on stdin; it is …
-run: counterparts doctor
-```
-
-Two runs truncated at slightly different points (`it is …` and `it is neve…`).
-
-*Why a new user stalls:* the one line the product gives them is the fix, and the fix is
-what gets cut. The trailing `run: counterparts doctor` survives, so it is recoverable —
-but the first impression is a truncated error.
-
-*Severity:* ROUGH. *Disposition:* **CLOSED 2026-09-20, sideways** — finding 1 removed the notice from a keyless store entirely, so the truncated sentence is no longer printed. It would still truncate on a store that HAS lost its key; shorten the fix sentence so
-it fits the budget, or put the shortest form (`counterparts credentials set
-ANTHROPIC_API_KEY`) first and the parenthetical last so the cut falls on the optional part.
-
-### 9. `doctor`'s Vectors line counts the identity core as a memory, and its fix line is jargon
-
-*Where:* `counterparts doctor` on a store with nothing in it but the identity core.
-
-*What happened:*
-
-```
-AMBER Vectors     1 live memories with no vector, 0 skipped after repeated embed failures
-                  fix: The backfill embeds up to 64 per boundary; this number must fall run over run.
-```
-
-*Why a new user stalls:* three things at once. "1 live memories" is ungrammatical. The one
-row is the identity core, which `status` is careful to count as a belief and not a memory,
-so the two commands disagree. And the "fix" is not an instruction — it is a note to
-whoever is debugging the backfill; with no embedder configured (which `doctor` says on the
-line above) this number will never fall.
-
-*Severity:* ROUGH. *Disposition:* **a choice for the owner** — pluralise; count the same
-population `status` counts; and when `embedder.enabled` is not true, either suppress the
-Vectors line or make its fix "turn the embedder on (see the Embedder line)". Not changed
-here: `doctor.ts` is owned by several tracks in the current rebuild and a one-word edit
-would be a merge conflict.
-
-### 10. README's test-suite numbers are two weeks stale
-
-*Where:* `README.md`, "Status, honestly".
-
-*What happened:* README reports `bun test` → "1,572 pass, 0 fail … over 20,800 assertions
-across 26 files, about 19 s", measured 2026-09-04 on commit `b29034c`. On master today
-(`039cd5d`) it is **2,223 pass, 0 fail, 28,392 assertions across 38 files, about 51 s**.
-
-*Why a new user stalls:* they do not, exactly — the claim is dated and pinned to a commit,
-which is honest. But a reader who runs the suite to check the page gets numbers 40% larger
-and has to work out whether the page is lying or just old.
-
-*Severity:* ROUGH. *Disposition:* **a choice for the owner** — re-measure on the commit
-that ships and restate, or drop the absolute numbers and say "the suite is green on every
-commit; run `bun test`". Not changed here: restating means re-measuring the assertion count
-and the timing on the shipping commit, which is not this branch.
-
-### 11. §3 says omitting `--budget` injects unbounded; §7's next documented command refuses
-
-*Where:* QUICKSTART §3 (`injectionBudgetBytes`) and §7 (`rebrief`).
-
-*What happened:* installed with no `--budget`, `install` warns clearly and writes no key.
-Then the §7 command `counterparts rebrief --dir "$HOME/.counterparts/store"` exits **2**:
-`refused: no injection ceiling. … Looked, in order: …`.
-
-*Why a new user stalls:* §3 tells them omitting the flag is a supported choice ("the wake
-is injected unbounded"), and four sections later the documented check step refuses because
-of it. Both messages are excellent on their own — `install`'s warning and `rebrief`'s
-refusal each name the remedy — but nothing joins them up.
-
-*Severity:* ROUGH. *Disposition:* **a choice for the owner** — one clause in §3 saying that
-`rebrief` (§7) needs a number even though the hook does not, or a pointer the other way
-in §7.
-
-### 12. The hook path the docs show looks like a clone path; the one `install` prints is inside bun's global node_modules
-
-*Where:* QUICKSTART §4 and README's install summary.
-
-*What happened:* the doc's shape is
-`"/abs/path/to/counterparts/src/adapters/claude-code/bin/hook.ts"`. What `install` actually
-printed was
-`…/.bun/install/global/node_modules/counterparts/src/adapters/claude-code/bin/hook.ts`.
-§2's "Running from the clone instead of installing" paragraph describes a third path.
-
-*Why a new user stalls:* someone with a clone on disk (which §2 told them to make) can
-easily decide the printed path is wrong and "correct" it to their clone — which then
-upgrades independently of `bun add -g`.
-
-*Severity:* ROUGH. *Disposition:* **a choice for the owner** — one sentence in §4 saying
-the printed path points inside bun's global install and that this is right, and that
-pointing it at a clone is the §2 "running from the clone" mode, not a fix.
-
-### 13. No uninstall (the start-over half is N1, already planned)
-
-*Where:* nowhere. Neither page contains "uninstall", "start over", "start fresh" or
-`bun remove -g`.
-
-*What happened:* a stranger who wants to undo the install has no instructions, and a
-stranger who wants a clean store has none either.
-
-*Severity:* ROUGH. *Disposition:* **known to be coming** — the one-command "start fresh"
-is N1 in the rebuild plan. The note here is where the docs will need a sentence when it
-lands: a short §13 covering both halves (remove the three host entries and
-`bun remove -g counterparts`; park the store and begin again with the new command), because
-the host steps are the part `install` deliberately never touched and so cannot undo.
-
-### 14. `counterparts-dashboard --help` tells you to run a source file you do not have
-
-*Where:* `counterparts-dashboard --help`, after a tarball install.
-
-*What happened:* the usage line reads
-`bun run src/adapters/dashboard/bin/dashboard.ts <view> [flags]`. The other three
-executables print their own name.
-
-*Severity:* NIT. *Disposition:* **a choice for the owner** — print `counterparts-dashboard
-<view> [flags]`. Not changed here (source file, not owned by this PR).
-
-### 15. `counterparts-mcp` run by hand says almost nothing
-
-*Where:* `counterparts-mcp`, which a curious user will try after registering it.
-
-*What happened:* it printed one line — `[counterparts] config: …/claude-code.json (the
-default)` — and exited 0 on empty stdin. Correct (it is a stdio server), but it tells a
-person nothing.
-
-*Severity:* NIT. *Disposition:* **a choice for the owner** — when stdin is a TTY, print one
-sentence: this is an MCP server, it is launched by the host, here is the store and config
-it would use, and `counterparts status` is the command for people.
-
-### 16. The install loop's quoted timing is stale
-
-*Where:* QUICKSTART preamble — "52 checks and runs end to end in two to three seconds".
-
-*What happened:* 52/52 pass in **4 s** on this machine.
-
-*Severity:* NIT. *Disposition:* **a choice for the owner** — widen to "a few seconds", or
-leave it. (The one-in-five `npm pack` flake behind the variance is fixed as of 2026-09-20.) Not changed here: `test/install-loop.test.ts` pins the number 52 in that same
-sentence, so it is worth touching once rather than twice.
-
-### What this dry run could not check
-
-No Claude Code session was ever launched, and no real host configuration was read or
-written. So all of these remain verified only by the owner's live parallel run, not by this
-walk:
-
-- that Claude Code reads the hooks block out of `~/.claude/settings.json` and runs the hook
-  on all five events;
-- that the wake text reaches the model's context;
-- that the `Stop` ask arrives (stderr, exit 2);
-- that `claude mcp add` registers a server the client then launches — the line was run
-  against a stub that only logged its arguments, which confirms the line is well-formed and
-  nothing more;
-- `git clone` of the repository, which is private and refuses a stranger today;
-- everything under Node.
-
-One artefact of running hermetically, so nobody reads the outputs above wrong: the hooks
-block printed `"/Users/mlapeter/.bun/bin/bun"` as the runtime because the walk borrowed the
-machine's one bun binary into a throwaway `HOME`. A real stranger gets their own
-`$HOME/.bun/bin/bun` there.
-
----
-
-## 2026-09-20 — N1's adversarial review (one finding for somebody else)
-
-### 1. `doctor` reads GREEN on a `Config` whose `dataDir` does not exist
-
-*Where:* `counterparts doctor --config <path>`, on a machine where the store the
-configuration names is not there — the state an interrupted `start-fresh` leaves, and
-the state a hand-edited `dataDir` leaves.
-
-*What happened:* `RED  Store  no store at …` and, two lines below it,
-`GREEN Config … — read; dataDir …/store`. The Store line covers the situation, so
-nothing is hidden; the Config line is asserting a path that is not there.
-
-*Why a new user stalls:* they are reading a list of graded findings, and one of them
-says green about the exact fact the red one is about. The green reads as "the
-configuration is fine, the problem is elsewhere", which sends them to look at the store
-rather than at the path in the file.
-
-*Severity:* NIT.
-
-*Disposition:* a choice for the owner, and not N1's to take — `doctor.ts` is shared by
-several tracks and this is one line in its Config finding. The options: leave it (the
-Store line is the one that matters and doctor is graded worst-first anyway), or have the
-Config finding read amber when the `dataDir` it reports does not exist. Found by the N1
-adversarial review, 2026-09-20 (m4).
+`install` then talks to the person, a few short questions, each skippable:
+
+1. **Your name?** (what the memory calls you) — replaces `--name`.
+2. **Wire Claude Code now?** Shows what it will add (5 hooks, 1 MCP server), backs up
+   `~/.claude/settings.json` first, merges beside any hooks already there. `[Y/n]`
+3. **Anthropic API key?** Hidden input. Enter to skip. One line on what it buys.
+4. **Voyage key?** Hidden input. Enter to skip. Yes turns the embedder on too.
+5. Ends with a short green summary and one instruction: "Restart Claude Code."
+
+Flags keep the scripted path: `--name`, `--budget` (gets a default of 9000), `--yes`,
+`--no-wire` (prints the blocks as today). Not a terminal → behaves as today, prints, asks
+nothing. The install loop keeps passing because it runs non-interactive.
+
+## The work, in five pieces
+
+| Piece | What | Risk |
+|---|---|---|
+| A. Wiring | `counterparts wire` / `unwire` (install calls `wire`). Edits `~/.claude/settings.json` (backup, merge, never touch other hooks, refuse on JSON it cannot parse) and runs the `claude mcp add/remove` line. Idempotent. | **Highest** — it edits a stranger's host config. Adversarial review. |
+| B. Uninstall | `counterparts uninstall`: `unwire`, then say how to remove the package (`bun remove -g counterparts` — a program cannot cleanly delete itself), and leave `~/.counterparts` alone unless `--park` (rename, dated) . Never deletes memory. | Medium. Review with A. |
+| C. Keys | `credentials set <NAME>` prompts with hidden input at a terminal; stdin / `--from-env` unchanged. Install asks for both keys. Doctor's fix lines say the command that works. | Low |
+| D. Words and color | One small formatter: color when it is a terminal and `NO_COLOR` is unset; doctor = a status word, a short line, the fix indented; blank lines between groups. `--help` becomes ~20 lines (one per command); `counterparts help <command>` holds today's detail. Install output rewritten short. | Low, but wide: many tests assert on output text. |
+| E. Docs | README top = the three lines above. QUICKSTART §2–§6 rewritten around the interactive install; the long reference material moves below a line. Status section brought up to date. Doctor #8/#9 fixed or reworded. | Low |
+
+How we build it: one builder per piece where files do not overlap (A+B together; C; D; E
+after A–D land), Opus agents in their own worktrees, one adversarial review on A+B, the
+coordinator runs the suite and the install loop on the combined branch. Then the owner
+tries it **from a local tarball first** (`bun add -g /abs/path.tgz`) — so a bad round costs
+no npm version — and only what he is happy with is published as **0.2.0**.
+
+## Questions for the owner
+
+1. **Wiring by default?** `install` asks and defaults to yes — this reverses today's
+   "never edits the host" stance. (Recommended: yes, with the backup and the preview.)
+2. **Uninstall and your memory:** leave `~/.counterparts` in place and say so, with
+   `--park` to move it aside? (Recommended.) Or ask every time?
+3. **Version:** publish the polished round as 0.2.0, after a local-tarball trial?
+4. **Anything else you noticed** that is not in the table.
