@@ -466,6 +466,29 @@ export interface RemovalNote {
 export const EMBED_FAILED_PREFIX = "embed.failed.";
 export const EMBED_SKIP_AFTER = 3;
 
+/**
+ * THE DAY THIS STORE CAME INTO EXISTENCE — one meta row, written once.
+ *
+ * The finding (new-user findings #8, 2026-09-21): `doctor`'s Authorship line
+ * reports a seven-day window and printed `2026-09-15→2026-09-21` on a store made
+ * that morning — a week the store did not exist for. A reading that names a
+ * window it could not have observed is the diagnostic telling its reader
+ * something that is not so, which is the one thing a diagnostic may not do.
+ *
+ * Nothing in the store knew its own age. `livedDay` is the PHYSICS clock (the
+ * worker advances it, and it is 0 on a store whose worker has never run),
+ * `lastActiveDate` is empty until a boundary, and the meta table carried no date
+ * at all. `store.started` exists but only `start-fresh` writes it.
+ *
+ * **Written only by the open that CREATED the file** (`fresh`, and never under
+ * observer), and `INSERT OR IGNORE` on top of that, so a store that was already
+ * there is never stamped with a day it did not begin on — the same rule
+ * `install` keeps for `store.started`. A store made before this key existed
+ * simply does not have it, and every reader must treat it as unknown rather than
+ * as "today".
+ */
+export const STORE_CREATED_KEY = "store.created";
+
 export const WRITE_METHODS = [
   "put",
   "putMany",
@@ -650,6 +673,20 @@ export class Store {
       retentionDays: this.retentionDays,
     });
     this.cache = openCache(paths.cache(this.dir));
+    // THE DAY THIS STORE BEGAN (`STORE_CREATED_KEY`, new-user finding 8). Only
+    // the open that CREATED the file writes it, and `OR IGNORE` on top of that:
+    // a store that was already here must never be stamped with a day it did not
+    // begin on. Under observer nothing is written at all — an instrument that
+    // minted this row would be writing at open, which is the rule two comments
+    // up. The provenance clock, so a seeded test dates it as it dates everything
+    // else.
+    if (fresh && !this.observer) {
+      this.ops.run(
+        "INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)",
+        STORE_CREATED_KEY,
+        dateOf(this.nowFn()),
+      );
+    }
     // The owner-op capability. Handed to the seam module, never to a caller:
     // holding a Store gives you no way to destroy anything, and `ownerMutate`
     // routes the chase through the same stance check every write crosses.

@@ -89,3 +89,18 @@ Added by the owner the same day:
 Also found on day 1: **#12** the `session_end` tool's schema does not list the `handoff` field
 the Stop ask tells the model to set; sending a handoff with no memories is answered as an error
 (`memories-required`) although the handoff was written.
+
+## For the next round (not part of 0.2.0)
+
+- **#13 — the Stop ask has no pacing for a session that ends turns often** (found 2026-09-21,
+  by the assistant living on the 0.1.0 install during a long coordinating session). The ask for
+  memories + a chapter + a handoff arrives every time a turn ends — several times an hour while
+  builders report in — and most of those stretches hold nothing new. The pull is to fill the form
+  anyway. Left alone, a model either manufactures memories or learns to ignore the ask. Ideas to
+  weigh, none chosen: ask only when enough has happened since the last answer (turns, tool calls,
+  minutes); a one-word "nothing new" reply that costs nothing and is recorded as such; ask for
+  the handoff only when work is actually left unfinished; let the per-day ask allowance (six today)
+  count these. Where it lives: the Stop ask in `src/adapters/claude-code/hooks.ts` and the
+  authorship pacer. Doctor's Authorship line already counts asks refused "for pacing" — check
+  what that pacer measures before adding a second one.
+

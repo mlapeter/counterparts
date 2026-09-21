@@ -152,7 +152,9 @@ import {
   readCheckout,
   readCounterpartOpen,
   reportJson,
-  reportLines,
+  // `reportLines` is NOT imported here any more: the plain arm reaches it from
+  // inside `report.ts#printDoctorReport`, which is the one place that decides
+  // between the two layouts. Two call sites would be two places to forget.
 } from "../claude-code/doctor.js";
 import type { CheckoutReading } from "../claude-code/doctor.js";
 import { exportStore } from "./export.js";
@@ -176,10 +178,18 @@ import {
   settingsBlock,
   writeOnce,
 } from "./install.js";
+// The keys module: the two install prompts, and `writeCredential` — the one
+// function in this package that puts a secret on disk. It imports only a TYPE
+// from here, the way `ui.ts` does, so this import is not half of a cycle.
+import { promptForKeys, writeCredential } from "./keys.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
+// The console's shared manners (2026-09-21). `credentials set` is the first
+// command to use them, and it uses exactly three: is there a person here, read
+// a value without echoing it, and say one marked line back.
+import { ask, askHidden, isInteractive, isPromptAborted, ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
@@ -200,10 +210,6 @@ import {
   undoLines,
 } from "./start-fresh.js";
 import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
-// The console's shared manners (0.2's U0). Only the install conversation and
-// the three host-editing verbs use them; every other command in this file keeps
-// its own `io.out` lines, and `ui` degrades to exactly those for a pipe.
-import { ask, isInteractive, ui } from "./ui.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, unwire, wire } from "./wire.js";
@@ -211,6 +217,13 @@ import type { Outcome as WireOutcome, ProcessLister, Spawner, WireInput } from "
 import { uninstall } from "./uninstall.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
+// The console's map and the paragraphs the old `usage()` carried. One
+// direction only: `help.ts` imports nothing but types back from this file.
+import { COMMAND_DETAIL, CONSOLE_FOOTER, shortHelp } from "./help.js";
+// The terminal layouts for the two readings a person checks an install with.
+// Both fall back to today's exact bytes for a console that is not a terminal.
+import { printDoctorReport, printStatusReport } from "./report.js";
+import type { StatusBlock, StatusView } from "./report.js";
 
 export const COMMANDS = [
   "status",
@@ -249,6 +262,10 @@ export const COMMANDS = [
   // The written page the wake leads with: read it, write it whole, and read
   // back what it used to say (2026-09-18, S1).
   "self-page",
+  // The console's own map, as a VERB. `counterparts help doctor` is what a
+  // person types; `counterparts doctor --help` was the only way to ask, and
+  // nothing said so (2026-09-21, new-user finding 4).
+  "help",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -396,153 +413,17 @@ export interface RunOptions {
   processes?: ProcessLister;
 }
 
+/**
+ * THE CONSOLE'S MAP — about forty lines, grouped, one line per command.
+ *
+ * It was 129 lines of dense paragraphs until 2026-09-21, and it is the SECOND
+ * thing a stranger types: the "did that install work?" check (new-user findings
+ * #4). The detail did not go anywhere — it moved to the page that answers the
+ * question it answers, `counterparts help <command>`. `help.ts` holds the split,
+ * the groups and the table of what was moved where.
+ */
 export function usage(): string {
-  return [
-    "counterparts — the owner's console for a Counterparts memory store.",
-    "",
-    "  status              What is held, what left, what was removed. Read-only.",
-    "  install             Cold start: create the store, write claude-code.json and a",
-    "                      0600 credentials.env under ~/.counterparts/ (the path every",
-    "                      entry point reads by default). At a terminal it then ASKS",
-    "                      whether to wire Claude Code and does it; through a pipe, in a",
-    "                      script, or with --no-wire it PRINTS the host's hooks block and",
-    "                      MCP line and changes nothing of theirs. --dir moves the",
-    "                      STORE only; --config <abs path> moves the CONFIG, the",
-    "                      credentials beside it and the default store beneath it, and",
-    "                      the printed lines then carry it.",
-    "                      --budget <bytes> --name <owner> --embedder --force --no-wire --yes.",
-    "  wire                Put the five hooks in ~/.claude/settings.json and register the",
-    "                      MCP server. It backs the settings file up first and says where,",
-    "                      leaves every other tool's hooks exactly where they are, repairs",
-    "                      an entry of ours that names a path that is gone, and refuses a",
-    "                      file it cannot parse. --dry-run --yes --config.",
-    "  unwire              Take those hooks back out and deregister the server. It removes",
-    "                      only what it recognises as ours. --dry-run --yes --config.",
-    "  uninstall           Leave: unwire, then say where your memory still is and the one",
-    "                      command that removes the package. Your memory is NOT touched",
-    "                      unless you ask: --park renames the whole directory aside under a",
-    "                      dated name (one rename, nothing copied, nothing deleted), and",
-    "                      --delete-memories destroys it after counting what is about to go",
-    "                      and taking a typed phrase. --yes --config.",
-    "  init                Just a store: create a data dir and PRINT the install steps.",
-    "                      No host config, no credentials file, nothing under",
-    "                      ~/.counterparts/. For a second store or a scratch one.",
-    '                      --name "<owner>" seeds the identity core, as install does.',
-    "  start-fresh         Begin again as a stranger: park the store your configuration",
-    "                      names beside itself under a dated name (one atomic rename —",
-    "                      never a copy, never a delete, and the old store is never",
-    "                      opened), park its snapshots the same way, then create a blank",
-    "                      store at the same path with 'install'. The configuration and",
-    "                      the credentials are kept byte for byte. --dry-run prints every",
-    "                      rename and changes nothing; --yes skips the typed confirmation;",
-    '                      --name "<owner>" seeds the new store. It refuses --dir: the',
-    "                      store is the one your configuration names, because that is the",
-    "                      one the hooks and the MCP server open. --yes on a store that has",
-    "                      anything in it also needs --nothing-is-open, because the typed",
-    "                      confirmation is the only check that catches an idle dashboard.",
-    "                      --undo puts the parked store back and parks the blank one.",
-    "  note <text>         Remember this, deliberately. The same two doors the MCP",
-    "                      tool uses. --kind --title --salience.",
-    "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
-    "                      memory in full instead. --json for the tool's own payload.",
-    "  export --out <dir>  Portable copy. --passphrase <secret> or --plaintext.",
-    "                      --markdown writes the readable tree instead of the database;",
-    "                      it omits confidential rows unless --include-confidential, says",
-    "                      how many, and takes --with-versions.",
-    "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
-    "  remove <id>         The loud removal. Dry run unless --confirm.",
-    "  verify              Census of the cache against canonical state. Read-only.",
-    "                      --rebuild drops and rebuilds the cache instead; it refuses",
-    "                      while the cache holds embeddings this console has no",
-    "                      embedder to recompute, unless --drop-vectors is passed —",
-    "                      or --keep-vectors, which re-indexes the text side and",
-    "                      leaves every vector where it is.",
-    "                      --prune-index takes archived and superseded rows out of",
-    "                      the text index and keeps the embeddings.",
-    "                      --retry-skipped puts the ids the backfill gave up on back",
-    "                      in the rotation, and changes nothing else.",
-    "                      --rebuild, --prune-index, --retry-skipped and --drop-vectors",
-    "                      are the writing half, and each needs the store NAMED by --dir.",
-    "  migrate-cache       Convert the cache's vectors from JSON text to float32",
-    "                      BLOBs, in place, and compact the file. The dry run is",
-    "                      read-only; --apply converts, needs the store NAMED by",
-    "                      --dir (never the default, and never resolved from",
-    "                      COUNTERPARTS_DATA_DIR) and asks unless --yes. --batch <n>.",
-    "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
-    "                      floor. Dry run unless --apply, which needs the store",
-    "                      NAMED by --dir.",
-    "  repair-dates        Propose true `learned` dates for MIGRATED memories that",
-    "                      carry the import day, read off engram-era ids (millisecond",
-    "                      timestamps), v1 date fields, session references and source",
-    "                      paths. Prints counts by confidence and a sample of 20.",
-    "                      Dry run unless --apply. --confidence high|medium|low sets",
-    "                      the floor for what --apply writes (default high);",
-    "                      --import-day <date> overrides the recorded/measured one;",
-    "                      --sample <n> changes the sample size. --apply needs the",
-    "                      store NAMED by --dir, never resolved for it: this is the",
-    "                      one owner op that rewrites thousands of canonical documents.",
-    "  repair-merged-beliefs",
-    "                      Find beliefs and current-state rows the nightly dedup",
-    "                      pass archived as duplicates of an ordinary memory, and",
-    "                      put them back. Dry run unless --apply, which needs the",
-    "                      store NAMED by --dir.",
-    "  doctor              Is the background half alive? Read-only. The config, the",
-    "                      credentials BY NAME, the two clocks, the newest sweep,",
-    "                      sleep, backfill and credit rows, the spawn refusals and",
-    "                      the vector coverage — worst first, each with the one line",
-    "                      that fixes it. Exit 1 if anything is red. --json.",
-    "  credentials set <NAME>",
-    "                      Put one key in the credentials file the config names,",
-    "                      0600, without it ever touching your shell history: the",
-    "                      value comes from stdin or from --from-env <VAR>, never",
-    "                      from the command line, and is never printed back.",
-    "                      'credentials list' says which names the file holds.",
-    "  rebrief             Re-render and republish the wake bundle NOW, through the",
-    "                      boundary's own renderer. Advances no sleep marker and runs",
-    "                      no other sleep phase. Needs an injection ceiling, and says",
-    "                      which of these gave it one: --budget <bytes>, else the",
-    "                      config named by --config / $COUNTERPARTS_CONFIG, else",
-    "                      <dir>/../claude-code.json (beside the store), else",
-    "                      ~/.counterparts/claude-code.json (where the hooks read).",
-    "                      Never a config INSIDE the data dir — that store stops",
-    "                      opening (§5 G11).",
-    "  probe-oq4           The OQ4 probe (recall CONTRACT §7): per calendar date, how",
-    "                      many footnotes were delivered and how many of those the",
-    "                      assistant later expanded by id, from recall.decision and",
-    "                      recall.credit rows. Read-only; the footnote header is the",
-    "                      one string the probe varies (recall/render.ts).",
-    "  fired               Which mechanisms have actually fired, and which have not.",
-    "                      One line each, SILENT FIRST: when it last fired, how many",
-    "                      times in the last 7 days, what it turned away, and — for",
-    "                      the ones nothing durable records — which row would fix it.",
-    "                      Read-only.",
-    "  self-page           The written page the wake opens with. With no flags it",
-    "                      prints the page, its size, its version and the date it",
-    "                      was last revised (and says when that has gone stale).",
-    "                      --write --file <path>, or --write --stdin, replaces it",
-    '                      whole — --reason "<why>" is kept with the version that',
-    "                      write produces. --versions lists the earlier ones;",
-    "                      --version <seq> prints one in full. Reading works under",
-    "                      observer; writing refuses there. A page written here",
-    "                      reaches the wake at the next boundary (or 'rebrief').",
-    "  scope <path|.>      Which directories this memory is for. With a mode flag it",
-    "                      writes <config dir>/scopes.json; with none it says what",
-    "                      the directory resolves to and which entry decided.",
-    "                      --on --observer --off --pause --resume --list",
-    '                      --note "<text>" --force. It opens no store and takes no',
-    "                      --dir; a subdirectory inherits its nearest ancestor.",
-    "",
-    "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
-    "  --config <path>     ONE rule, every entry point: --config <absolute path>, else",
-    "                      $COUNTERPARTS_CONFIG, else the default above. install and",
-    "                      rebrief take it here; counterparts-hook and counterparts-mcp",
-    "                      take the same flag, and the server the same variable.",
-    "  --observer          Stand down: read-only, owner operations refuse.",
-    "  <command> --help    Just that command: what it does and every flag it takes.",
-    "",
-    "Owner operations never run under observer, and removal is the only one that",
-    "asks for a human (CONTRACT §5 G12: owner-in-the-loop is a short, named list).",
-  ].join("\n");
+  return shortHelp();
 }
 
 interface Parsed {
@@ -648,6 +529,10 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // line is a page in shell history, and the same argument that keeps a
   // credential off argv keeps prose that is injected into every session off it.
   "self-page": ["write", "file", "stdin", "reason", "versions", "version", "restore", "clear", "if-version"],
+  // None of its own: it takes a COMMAND NAME, not a flag. `--help` and `--dir`
+  // reach it through `COMMON_FLAGS`, and `--dir` is declared everywhere rather
+  // than consulted here — this command opens nothing.
+  help: [],
 };
 
 /**
@@ -697,6 +582,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
   "self-page":
     "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
+  help:
+    "The console's own map. With no argument, every command in one short line each; with a command name, that command's whole page.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
@@ -706,7 +593,28 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   remove: " <id>",
   credentials: " set <NAME> | list",
   scope: " <path|.>",
+  help: " [<command>]",
 };
+
+/**
+ * COMMANDS WHOSE SYNOPSIS DOES NOT OFFER `--dir`.
+ *
+ * Every other command takes it. `start-fresh` turns it away in words (the store
+ * parked is the one the configuration names), and `help` opens no store at all —
+ * a usage line that showed the flag would be teaching the thing the refusal
+ * exists to prevent, or offering a flag that does nothing. Both still accept it
+ * as a common flag, and both say so under "Everywhere".
+ */
+const NO_DIR_IN_SYNOPSIS: readonly string[] = [
+  "start-fresh",
+  "help",
+  // The three host-editing verbs refuse it in the same words `start-fresh` does:
+  // what they act on is decided by the CONFIGURATION, and a second answer on the
+  // command line is how the wrong host file or the wrong directory gets edited.
+  "wire",
+  "unwire",
+  "uninstall",
+];
 
 /**
  * EVERY FLAG, IN ONE SENTENCE. Keyed by the names `COMMAND_FLAGS` and
@@ -765,7 +673,7 @@ const FLAG_HELP: Record<string, string> = {
   all:
     "print every mechanism, including the ones a store this new has had nothing to do with yet",
   config:
-    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
   "dry-run": "say the default out loud: plan and print, change nothing",
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
@@ -826,11 +734,6 @@ const HOST_FLAG_HELP: Record<string, string> = {
   "dry-run": "print what would change and change nothing (this command is NOT dry by default)",
   dir: "REFUSED on this command: what it acts on is decided by the configuration, not by a path on this line. Name the configuration instead, with --config",
 };
-
-/** The commands whose usage line does not offer `--dir`, because they turn it
- *  away in words. A line that showed it would teach what the refusal exists to
- *  prevent. */
-const REFUSES_DIR: readonly string[] = ["start-fresh", "wire", "unwire", "uninstall"];
 
 /**
  * THE SENTENCES `scope` PRINTS INSTEAD OF THE SHARED ONES.
@@ -901,16 +804,23 @@ export function commandHelp(command: Command): string {
     const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
     return `  ${shown.padEnd(20)} ${override[name] ?? FLAG_HELP[name] ?? "(undocumented)"}`;
   };
+  // WHAT THE OLD 129-LINE `usage()` SAID ABOUT THIS COMMAND and no blurb or
+  // flag sentence does (2026-09-21, new-user finding 4). Moved rather than
+  // rewritten, and pre-wrapped in `help.ts`: this page is where that detail
+  // lives now, so the short map can be short without anything being lost.
+  const detail = COMMAND_DETAIL[command] ?? [];
   return [
     `counterparts ${command} — ${COMMAND_BLURB[command]}`,
     "",
     // THE INVOCATION LINE DOES NOT OFFER A FLAG THE COMMAND REFUSES. Every
     // other command takes `--dir`; `start-fresh` turns it away in words (the
-    // store is the one the configuration names), and a usage line that showed
-    // it would be teaching the thing the refusal exists to prevent.
+    // store is the one the configuration names), and `help` opens nothing at
+    // all — a usage line that showed it would be teaching the thing the refusal
+    // exists to prevent (`NO_DIR_IN_SYNOPSIS`).
     `  counterparts ${command}${COMMAND_ARGS[command] ?? ""}${own.length === 0 ? "" : " [flags]"}${
-      REFUSES_DIR.includes(command) ? "" : " [--dir <path>]"
+      NO_DIR_IN_SYNOPSIS.includes(command) ? "" : " [--dir <path>]"
     }`,
+    ...(detail.length === 0 ? [] : ["", ...detail]),
     "",
     ...(own.length === 0
       ? ["This command takes no flags of its own."]
@@ -919,7 +829,7 @@ export function commandHelp(command: Command): string {
     "Everywhere:",
     ...COMMON_FLAGS.map(flagLine),
     "",
-    "Any other flag is refused before the store is opened.",
+    ...CONSOLE_FOOTER,
   ].join("\n");
 }
 
@@ -1196,6 +1106,33 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     return EXIT.refused;
   }
 
+  // `counterparts help [<command>]` — the same two pages `--help` reaches,
+  // reachable as a VERB, because `counterparts help doctor` is what a person
+  // types (2026-09-21, new-user finding 4).
+  //
+  // HERE, and not further down: this command opens no store and reads no
+  // configuration, so it must not pass through the stance reading or the
+  // explicit-dir guard — a shell with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`
+  // armed would otherwise refuse to tell somebody what the commands are. And
+  // after `unknownFlag`, so `counterparts help --dirr` is refused like every
+  // other typo rather than silently ignored.
+  if (command === "help") {
+    const asked = parsed.positional[0];
+    if (asked === undefined) {
+      io.out(usage());
+      return EXIT.ok;
+    }
+    if ((COMMANDS as readonly string[]).includes(asked)) {
+      io.out(commandHelp(asked as Command));
+      return EXIT.ok;
+    }
+    // ONE LINE, then the map — the same shape an unknown command gets above,
+    // because it is the same mistake and the reader needs the same list.
+    io.err(`no such command: ${asked}`);
+    io.out(usage());
+    return EXIT.usage;
+  }
+
   // THE STANCE VARIABLE IS READ THE WAY THE GUARD NEXT DOOR IS READ (G39).
   // This used to match `"1"` and `"true"` exactly, untrimmed, while
   // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` — documented one directory over as the
@@ -1454,7 +1391,14 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   try {
     switch (command) {
       case "status":
-        return statusCommand(dir, io, typeof parsed.flags["dir"] === "string", dateOf(now()), parsed.flags["layout"] === true);
+        return statusCommand(
+          dir,
+          io,
+          typeof parsed.flags["dir"] === "string",
+          dateOf(now()),
+          parsed.flags["layout"] === true,
+          env,
+        );
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
@@ -2000,6 +1944,11 @@ function statusCommand(
   namedDir: boolean,
   today: string,
   layout = false,
+  // THE ENVIRONMENT, for the layout only (`report.ts`): NO_COLOR, FORCE_COLOR,
+  // TERM. Never read from `process.env` down here — a suite that did would pass
+  // or fail with the developer's shell (`ui.ts`'s rule). Defaulted so every
+  // existing caller and test compiles and gets the plain arm.
+  env: Record<string, string | undefined> = {},
 ): number {
   if (!storeExists(dir)) {
     // An instrument that MINTS a data dir by looking at one is a wart — and
@@ -2129,35 +2078,53 @@ function statusCommand(
     // a thing the reader has any way to look up, and QUICKSTART §7 never
     // mentioned the block at all. The census leads; the prose follows; the
     // layout is behind `--layout`, where the person who wants it will ask.
-    io.out(`Store: ${store.dir}`);
-    io.out("");
+    //
+    // ── AND ONE READING, TWO LAYOUTS (2026-09-21, new-user finding 5) ───────
+    //
+    // Every fact is computed ONCE, below, and then written twice: `plain` is the
+    // exact `io.out` sequence this command has always produced, kept as strings
+    // rather than rebuilt (the only way to promise byte-identity is to keep the
+    // bytes), and `blocks` is the same facts as labelled rows for a terminal.
+    // `report.ts#printStatusReport` chooses, and a console that is not a
+    // terminal never reaches the second one.
+    const plain: string[] = [];
+    const say = (line: string): void => {
+      plain.push(line);
+    };
+    const lastActive = store.getMeta("lastActiveDate") || "never";
+    const lastBoundary = newestBoundary(store, day) ?? "never";
+    const removals = store.removalRecord().filter((r) => r.stage === "complete");
+    const pageSaid = pageLine(store);
+    const snapshotSaid = snapshotAge(store.dir);
+    const journalMode = journalModeOf(paths.operational(store.dir));
+
+    say(`Store: ${store.dir}`);
+    say("");
     // One line, four labelled populations, and the first number is the one the
     // wake preface says. Anything that adds them into a single "live" total is
     // a surface that will disagree with the briefing the model reads.
-    io.out(
+    say(
       `Memories: ${memories}` +
         `   Beliefs and entities: ${schemas}` +
         `   Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}` +
         `   Archived: ${archived}   Superseded: ${superseded}`,
     );
-    io.out(
-      `  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}   (memories + beliefs and entities)`,
-    );
-    io.out(
-      `  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}   (computed from physics today, not the stored column)`,
-    );
-    io.out("");
-    io.out(
+    const byKindSaid = kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ");
+    const byBandSaid = bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ");
+    say(`  by kind: ${byKindSaid}   (memories + beliefs and entities)`);
+    say(`  by band: ${byBandSaid}   (computed from physics today, not the stored column)`);
+    say("");
+    say(
       `Today (${today}): ${String(addedToday)} new` +
         `   ·   Lived day ${day}` +
-        `   ·   Last active ${store.getMeta("lastActiveDate") || "never"}` +
-        `   ·   Last boundary ${newestBoundary(store, day) ?? "never"}`,
+        `   ·   Last active ${lastActive}` +
+        `   ·   Last boundary ${lastBoundary}`,
     );
-    io.out(
-      `Self page: ${pageLine(store)}` +
-        `   ·   Newest snapshot: ${snapshotAge(store.dir)}` +
-        `   ·   Journal mode: ${journalModeOf(paths.operational(store.dir))}` +
-        `   ·   Removed: ${store.removalRecord().filter((r) => r.stage === "complete").length}` +
+    say(
+      `Self page: ${pageSaid}` +
+        `   ·   Newest snapshot: ${snapshotSaid}` +
+        `   ·   Journal mode: ${journalMode}` +
+        `   ·   Removed: ${removals.length}` +
         `   ·   Permanent: ${permanent.length}`,
     );
     // WHERE THIS STORE CAME FROM, when it came from a fresh start (N1). Host
@@ -2167,41 +2134,92 @@ function statusCommand(
     // facts ABOUT the store rather than above the census — E2's rule is that
     // the numbers a person came for come first.
     const began = store.getMeta(STORE_STARTED_KEY);
-    if (began !== undefined && began.length > 0) {
-      const previous = store.getMeta(STORE_PREVIOUS_PARKED_KEY);
-      io.out(
-        `Began: ${began}` +
-          (previous === undefined || previous.length === 0
-            ? "  (a fresh start; nothing was parked)"
-            : `   ·   the previous store is parked at ${previous}, untouched`),
-      );
-    }
-    io.out("");
-    io.out("  Memories is the number the wake preface states; the journal does not decay.");
-    io.out("  counterparts doctor grades all of this; counterparts fired says which mechanisms have run.");
+    const previous = store.getMeta(STORE_PREVIOUS_PARKED_KEY);
+    const beganSaid =
+      began === undefined || began.length === 0
+        ? null
+        : `${began}${
+            previous === undefined || previous.length === 0
+              ? "  (a fresh start; nothing was parked)"
+              : `   ·   the previous store is parked at ${previous}, untouched`
+          }`;
+    if (beganSaid !== null) say(`Began: ${beganSaid}`);
+    const asides = [
+      "Memories is the number the wake preface states; the journal does not decay.",
+      "counterparts doctor grades all of this; counterparts fired says which mechanisms have run.",
+    ];
+    say("");
+    for (const aside of asides) say(`  ${aside}`);
 
-    const removals = store.removalRecord().filter((r) => r.stage === "complete");
+    const tail: { title: string; lines: string[] }[] = [];
     if (removals.length > 0) {
-      io.out("");
-      io.out("Removed:");
-      for (const row of removals) {
-        // Owner side: the id and the date, no body and no content hash — ever.
-        io.out(`  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`);
-      }
+      // Owner side: the id and the date, no body and no content hash — ever.
+      const rows = removals.map(
+        (row) => `  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`,
+      );
+      tail.push({ title: "Removed:", lines: rows });
+      say("");
+      say("Removed:");
+      for (const line of rows) say(line);
     }
     if (permanent.length > 0) {
-      io.out("");
-      io.out("Permanent (enumerable on demand, §14.1 G9):");
-      for (const entry of permanent) io.out(`  ${entry.id}  ${entry.title}  — ${entry.why}`);
+      const rows = permanent.map((entry) => `  ${entry.id}  ${entry.title}  — ${entry.why}`);
+      tail.push({ title: "Permanent (enumerable on demand, §14.1 G9):", lines: rows });
+      say("");
+      say("Permanent (enumerable on demand, §14.1 G9):");
+      for (const line of rows) say(line);
     }
     if (layout) {
-      io.out("");
-      io.out("Layout:");
-      for (const entry of LAYOUT) {
+      const rows = LAYOUT.map((entry) => {
         const present = existsSync(join(store.dir, entry.name)) ? " " : "-";
-        io.out(`  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`);
-      }
+        return `  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`;
+      });
+      tail.push({ title: "Layout:", lines: rows });
+      say("");
+      say("Layout:");
+      for (const line of rows) say(line);
     }
+
+    const blocks: StatusBlock[] = [
+      {
+        title: "Memory",
+        rows: [
+          { label: "Memories", value: String(memories) },
+          { label: "Beliefs and entities", value: String(schemas) },
+          { label: "Journal", value: `${journal} ${journal === 1 ? "episode" : "episodes"}` },
+          { label: "Archived", value: String(archived) },
+          { label: "Superseded", value: String(superseded) },
+          { label: "by kind", value: byKindSaid, verbatim: true },
+          { label: "by band", value: byBandSaid, verbatim: true },
+        ],
+        notes: [
+          "by kind counts memories and beliefs and entities together.",
+          "by band is computed from physics today, not from the stored column.",
+        ],
+      },
+      {
+        title: `Today — ${today}`,
+        rows: [
+          { label: "New today", value: String(addedToday) },
+          { label: "Lived day", value: String(day) },
+          { label: "Last active", value: lastActive },
+          { label: "Last boundary", value: lastBoundary },
+        ],
+      },
+      {
+        title: "This store",
+        rows: [
+          { label: "Self page", value: pageSaid },
+          { label: "Newest snapshot", value: snapshotSaid },
+          { label: "Journal mode", value: journalMode },
+          { label: "Removed", value: String(removals.length) },
+          { label: "Permanent", value: String(permanent.length) },
+          ...(beganSaid === null ? [] : [{ label: "Began", value: beganSaid }]),
+        ],
+      },
+    ];
+    const view: StatusView = { plain, dir: store.dir, blocks, notes: asides, tail };
+    printStatusReport(io, env, view);
     // A STORE THAT NO SESSION CAN OPEN DOES NOT GET A GREEN CENSUS.
     //
     // `status` opens a `Store`, not a `Counterpart`, so it never runs
@@ -2587,12 +2605,39 @@ async function installInteractive(
   u.blank();
 
   // ── 4. the keys ───────────────────────────────────────────────────────────
+  //
+  // AFTER the config and the credentials template exist, and not before:
+  // `keys.ts#enableEmbedder` edits a configuration and never creates one, and
+  // the file it writes keys into is the one step 2 just made at 0600.
+  //
+  // CTRL-C PROPAGATES OUT OF HERE, by `keys.ts`'s own argument: a cancelled key
+  // prompt folded into a result is an install that carries on without the key
+  // somebody was in the middle of cancelling. It is caught, said plainly, and
+  // exits non-zero — and the summary below is NOT printed from the lost result
+  // but from the FILE, which is the only thing that knows what actually landed.
   u.step(4, INSTALL_STEPS, "Keys");
-  // KEYS: the coordinator wires keys.ts#promptForKeys here (builder C)
-  u.hint("Not asked for yet. Without them the day still runs, the crash-recovery sweep is");
-  u.hint("skipped and recall stays lexical-only:");
-  u.hint(`  ${BIN.cli} credentials set ${API_KEY_ENV}`);
-  u.hint(`  ${BIN.cli} credentials set ${EMBED_KEY_ENV}`);
+  const credentialsPath = credentialsPathFor(layout.config, config);
+  try {
+    await promptForKeys(io, env, {
+      ui: u,
+      configPath: layout.config,
+      credentialsPath,
+      held: credentialsHeld(credentialsPath),
+      ...(config.embedder?.enabled === true ? { embedderOn: true } : {}),
+    });
+  } catch (err) {
+    if (!isPromptAborted(err)) throw err;
+    u.blank();
+    u.fail("stopped; nothing else was changed.");
+    const holds = credentialsHeld(credentialsPath);
+    u.hint(
+      holds.length === 0
+        ? `No key was written. ${BIN.cli} credentials set <NAME> adds one whenever you like.`
+        : `${credentialsPath} holds ${holds.join(" and ")}.`,
+    );
+    u.hint(`Your memory is at ${store}. Run \`${BIN.cli} doctor\` to see where this got to.`);
+    return EXIT.refused;
+  }
   u.blank();
 
   // ── the summary ───────────────────────────────────────────────────────────
@@ -6374,7 +6419,11 @@ function doctorCommand(
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(reportJson(findings, today), null, 2));
     } else {
-      for (const line of reportLines(findings, today)) io.out(line);
+      // ONE READING, two layouts (2026-09-21, new-user finding 5). A console
+      // that is not a terminal — every test, every pipe, the install loop —
+      // still gets `reportLines` verbatim, from inside this call; see
+      // `report.ts`, which exists to hold exactly that promise.
+      printDoctorReport(io, env, findings, today);
     }
     return anyRed(findings) ? DOCTOR_RED_EXIT : EXIT.ok;
   } finally {
@@ -6447,6 +6496,12 @@ async function credentialsCommand(
 
   const fromEnv = typeof parsed.flags["from-env"] === "string" ? parsed.flags["from-env"] : null;
   let raw: string;
+  // TYPED AT A TERMINAL, or piped? The two arms answer differently in one place
+  // only — an EMPTY answer. A pipe that carried nothing is a script that went
+  // wrong and is refused; a person who pressed Enter at the prompt has SKIPPED,
+  // which is an ordinary answer and exits 0 (new-user finding #2, and the
+  // owner's "skipping is always offered and always fine").
+  let typedHere = false;
   if (fromEnv !== null) {
     const value = env[fromEnv];
     if (value === undefined) {
@@ -6462,15 +6517,41 @@ async function credentialsCommand(
       return EXIT.usage;
     }
     if (stdin.isTty && parsed.flags["stdin"] !== true) {
-      // A terminal with nothing piped into it would BLOCK, and a console that
-      // hangs waiting for a secret is a console people Ctrl-C before typing the
-      // key on the command line instead.
-      io.err(
-        `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
-      );
-      return EXIT.usage;
+      // NEW-USER FINDING #2: "a person at a terminal is the normal case."
+      //
+      // This branch used to refuse outright, and the refusal was the first
+      // thing the stranger who installed 0.1.0 hit after the install itself —
+      // `doctor`'s own fix line printed the command that then refused him. The
+      // terminal is now where the value is READ, without echo, when there is
+      // somebody to read it from: `isInteractive` wants `io.prompt`, both
+      // streams to be terminals and `CI` unset, so every pipe, every CI job and
+      // every test console falls through to the refusal below, byte for byte as
+      // before. `--stdin` also still falls through: it means "read all of
+      // stdin", and a caller who asked for that gets it.
+      if (isInteractive(io, env)) {
+        try {
+          raw = await askHidden(io, `${name} (Enter to skip): `);
+        } catch (err) {
+          if (!isPromptAborted(err)) throw err;
+          // Ctrl-C, or a console that cannot read without echoing. Either way
+          // the terminal has been restored by the reader and nothing was
+          // written — and the message never carries what was typed.
+          io.err(`refused: ${(err as Error).message} Nothing was written.`);
+          return EXIT.refused;
+        }
+        typedHere = true;
+      } else {
+        // A terminal with nothing piped into it would BLOCK, and a console that
+        // hangs waiting for a secret is a console people Ctrl-C before typing
+        // the key on the command line instead.
+        io.err(
+          `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
+        );
+        return EXIT.usage;
+      }
+    } else {
+      raw = await stdin.read();
     }
-    raw = await stdin.read();
   }
 
   // ONE trailing newline is the shell's, not the owner's: `printf '%s\n'`, a
@@ -6479,6 +6560,10 @@ async function credentialsCommand(
   // reader must agree about what the value IS.
   const value = raw.replace(/\r?\n$/, "").trim();
   if (value.length === 0) {
+    if (typedHere) {
+      ui(io, env).ok(`nothing written — ${name} is unchanged.`);
+      return EXIT.ok;
+    }
     io.err(`refused: the value for ${name} is empty. Nothing was written.`);
     return EXIT.refused;
   }
@@ -6490,81 +6575,11 @@ async function credentialsCommand(
   }
 
   writeCredential(path, name, value);
-  io.out(`set ${name} in ${path}`);
+  // The NAME and the PATH, never the value — and for the typed arm the same
+  // sentence through `ui`, so it reads as one line of a conversation rather
+  // than as a script's receipt. Every non-interactive caller keeps the exact
+  // bytes it had.
+  if (typedHere) ui(io, env).ok(`set ${name} in ${path}`);
+  else io.out(`set ${name} in ${path}`);
   return EXIT.ok;
-}
-
-/**
- * Write one name into the credentials file, keeping every other line.
- *
- * Three cases, in order: an ACTIVE line for this name is replaced where it
- * stands; else the template's own COMMENTED placeholder (`# NAME=...`) becomes
- * the real line — placed AFTER the indented comment lines that continue it, so
- * the explanation still sits above the line it explains; else the line is
- * appended. Every other line — every comment, the other name, anything the
- * owner added — is preserved byte for byte.
- *
- * **Written to a sibling and RENAMED over the target, never truncated in
- * place.** `writeFileSync` on the target opens it `O_TRUNC`: a crash, a full
- * disk or a kill between the truncate and the write leaves a file that exists
- * and is EMPTY — which is I32's own shape (the credentials file was empty from
- * 09-04, the worker refused `NO_CREDENTIAL` at every boundary for a week, and
- * every surface read healthy). `rename` is atomic on one filesystem, so a reader
- * sees the old file or the new one and never a zero-length one. The mode is set
- * on the TEMP file — `writeFileSync`'s `mode` applies only when a file is
- * created, so writing straight over an existing 0644 file would have held the
- * secret at 0644 until the `chmod` after it — and rename carries the bits with
- * the inode. The final `chmodSync` then holds the promise for the case where
- * the temp file already existed with looser bits.
- */
-function writeCredential(path: string, name: string, value: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const line = `${name}=${value}`;
-  let text = "";
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    /* absent is ordinary: this command is how the file comes to exist */
-  }
-  // The names are `CREDENTIAL_NAMES` members, so there is nothing to escape.
-  const active = new RegExp(`^\\s*(export\\s+)?${name}\\s*=`);
-  const commented = new RegExp(`^\\s*#\\s*(export\\s+)?${name}\\s*=`);
-  const out = text.length === 0 ? [] : text.split("\n");
-  let replaced = false;
-  for (let i = 0; i < out.length; i += 1) {
-    if (active.test(out[i] ?? "")) {
-      out[i] = line;
-      replaced = true;
-      break;
-    }
-  }
-  if (!replaced) {
-    for (let i = 0; i < out.length; i += 1) {
-      if (commented.test(out[i] ?? "")) {
-        // The placeholder OWNS the indented comment lines under it ("#" then
-        // four or more spaces — the template's own continuation shape). Putting
-        // the live line where the placeholder stood left them dangling under a
-        // secret, reading as if they explained it; the line goes after them
-        // instead, so `# NAME=... what it is / # <indent> why` stays a block.
-        let end = i;
-        while (/^#\s{4,}\S/.test(out[end + 1] ?? "")) end += 1;
-        out.splice(i, 1);
-        out.splice(end, 0, line);
-        replaced = true;
-        break;
-      }
-    }
-  }
-  if (!replaced) {
-    while (out.length > 0 && (out[out.length - 1] ?? "").trim().length === 0) out.pop();
-    out.push(line);
-    out.push("");
-  }
-  // Sibling, then rename: see the note above — the target is never observed
-  // truncated, and the secret is never on disk at anything but 0600.
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, out.join("\n"), { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
 }

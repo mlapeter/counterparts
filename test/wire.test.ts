@@ -917,10 +917,26 @@ describe("`counterparts wire` on the command line", () => {
  * exist at all.
  */
 describe("install, at a terminal", () => {
-  /** A console that says it IS a terminal, so `isInteractive` is true. */
-  function terminal(answers: readonly string[]): Console_ {
+  /**
+   * A console that says it IS a terminal, so `isInteractive` is true.
+   *
+   * IT MUST ALSO SUPPLY `promptHidden` — the trap `ui.ts`'s own docstring
+   * names. Without it `askHidden` REFUSES rather than falling back to the
+   * echoing reader, which is rule 3 defending itself, and the key step would
+   * abort every test here. `hidden` answers the two key prompts; empty is the
+   * ordinary "skip", so these tests ask for no keys.
+   */
+  function terminal(answers: readonly string[], hidden: readonly string[] = []): Console_ {
     const c = consoleWith(answers);
-    return { ...c, io: { ...c.io, tty: { stdin: true, stdout: true } } };
+    const queue = [...hidden];
+    return {
+      ...c,
+      io: {
+        ...c.io,
+        tty: { stdin: true, stdout: true },
+        promptHidden: async (): Promise<string> => queue.shift() ?? "",
+      },
+    };
   }
 
   async function install(

@@ -1294,9 +1294,13 @@ counterparts credentials set VOYAGE_API_KEY --from-env MY_VOYAGE_KEY
 counterparts credentials list
 ```
 
-The value comes from stdin or from one named environment variable, never from the
-command line, and is never echoed or logged — the command prints
-`set ANTHROPIC_API_KEY in /…/credentials.env` and nothing else. It writes the file
+The value comes from stdin, from one named environment variable, or — since
+2026-09-21 — from you, typed at the terminal: run it with no pipe and it asks
+for the key and reads it back without echoing it, and Enter on its own skips and
+writes nothing. It never comes from the command line, and it is never echoed or
+logged: the command prints `set ANTHROPIC_API_KEY in /…/credentials.env` and
+nothing else. A pipe, a CI job and a script behave exactly as they always did —
+the prompt appears only when both ends are a terminal and `CI` is unset. It writes the file
 the configuration names, creating it 0600 or putting it back to 0600, replaces
 that name's line (the template's commented placeholder included) and keeps every
 other line and comment. `credentials list` says which of the two names the file

@@ -12,6 +12,9 @@ export {
   COMMAND_BLURB,
   COMMAND_FLAGS,
   COMMON_FLAGS,
+  STORE_PREVIOUS_PARKED_KEY,
+  STORE_STARTED_BY_KEY,
+  STORE_STARTED_KEY,
   commandHelp,
   unknownFlag,
   EXIT,
@@ -22,6 +25,26 @@ export {
   usage,
 } from "./commands.js";
 export type { Command, Io, RunOptions } from "./commands.js";
+
+/**
+ * The console's two help pages. `shortHelp` is what `--help`, `help` and a bare
+ * invocation print; `commandHelp` (above) is one command's own page. The tables
+ * are exported so `test/help.test.ts` can walk them against `COMMANDS` — a
+ * command added without help for it fails there.
+ */
+export {
+  COMMAND_DETAIL,
+  CONSOLE_FOOTER,
+  GROUPS,
+  PENDING_COMMANDS,
+  SHORT,
+  SHORT_LIMIT,
+  shortHelp,
+} from "./help.js";
+export type { HelpGroup } from "./help.js";
+
+export { printDoctorReport, printStatusReport } from "./report.js";
+export type { StatusBlock, StatusRow, StatusView } from "./report.js";
 
 export {
   BLOB_NAME,
