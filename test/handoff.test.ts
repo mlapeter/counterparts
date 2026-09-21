@@ -762,12 +762,67 @@ describe("the field on the session_end ask", () => {
 
   test("a malformed memories array still leaves the handoff — the two halves are not one fate", async () => {
     const s = mcp();
+    // NOT an array at all: the caller sent the wrong TYPE and wants to be told.
+    // The handoff still lands, which is what "not one fate" means.
     const out = payload(
-      await s.call("session_end", { session: SESSION, memories: [], handoff: BODY }),
+      await s.call("session_end", { session: SESSION, memories: "not an array", handoff: BODY }),
     );
     expect(out["reason"]).toBe("memories-required");
     expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
     expect(s.counterpart.readHandoff(HERE)?.body).toBe(BODY);
+  });
+
+  /**
+   * NEW-USER FINDING #12 (2026-09-21). A handoff plus an EMPTY list came back
+   * as an error naming a missing field, while the handoff it had just asked for
+   * was already on disk. The ask's own last line says "nothing worth keeping is
+   * a real answer"; this is that sentence made true on the door.
+   */
+  test("a handoff with an EMPTY memories array is a SUCCESS that says no memories were sent", async () => {
+    const s = mcp();
+    const result = await s.call("session_end", { session: SESSION, memories: [], handoff: BODY });
+    expect(result.isError).toBeUndefined();
+    const out = payload(result);
+    expect(out["reason"]).toBe("handoff-only");
+    expect(out["entries"]).toBe(0);
+    expect(out["deposited"]).toBe(0);
+    expect(out["outcomes"]).toEqual([]);
+    expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
+    expect(s.counterpart.readHandoff(HERE)?.body).toBe(BODY);
+  });
+
+  test("a CLEAR with no memories is a success too — retiring a pointer is landing something", async () => {
+    const s = mcp();
+    await s.call("session_end", {
+      session: SESSION,
+      memories: [{ content: "The parser rewrite landed and the directory is finished with." }],
+      handoff: BODY,
+    });
+    const out = payload(await s.call("session_end", { session: SESSION, memories: [], handoff: "" }));
+    expect(out["reason"]).toBe("handoff-only");
+    expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("cleared");
+    expect(s.counterpart.readHandoff(HERE)).toBeNull();
+  });
+
+  test("NEITHER is still refused — an empty list on its own asks for nothing", async () => {
+    const s = mcp();
+    const result = await s.call("session_end", { session: SESSION, memories: [] });
+    expect(result.isError).toBe(true);
+    const out = payload(result);
+    expect(out["reason"]).toBe("memories-required");
+    expect(out["handoff"]).toBeUndefined();
+  });
+
+  test("a REFUSED handoff with no memories is still memories-required — nothing landed", async () => {
+    // The store's own directory is the one scope a handoff may not have, so
+    // this is a handoff that was SENT and did not land. Nothing landed at all,
+    // so the refusal stands and the handoff's outcome rides out on it.
+    const s = mcp({ scope: dir });
+    const result = await s.call("session_end", { session: SESSION, memories: [], handoff: BODY });
+    expect(result.isError).toBe(true);
+    const out = payload(result);
+    expect(out["reason"]).toBe("memories-required");
+    expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("no-scope");
   });
 
   test("a server the host named no directory for writes none — a pointer for everywhere is for nowhere", async () => {

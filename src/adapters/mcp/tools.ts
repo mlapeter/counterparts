@@ -421,6 +421,11 @@ const SESSION_END: ToolSpec = {
         "The handoff is refused past its size limit rather than cut, and passes the same gate battery, because what is cut at write time is the only copy.",
       mechanizedBy: "src/core/handoff/index.ts#Handoffs.write (HANDOFF_MAX_BYTES, gate-refused)",
     },
+    {
+      claim:
+        "A call that sets `handoff` and sends an EMPTY `memories` array is a success, not an error: nothing worth keeping is a real answer, and the answer says the handoff was written and that no memories were sent. Only a call that lands neither is refused.",
+      mechanizedBy: "src/adapters/mcp/server.ts#sessionEndTool (handoff-only)",
+    },
   ],
   inputSchema: {
     type: "object",

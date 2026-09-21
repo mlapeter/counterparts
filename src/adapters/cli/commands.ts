@@ -174,10 +174,18 @@ import {
   settingsBlock,
   writeOnce,
 } from "./install.js";
+// The keys module: the two install prompts, and `writeCredential` — the one
+// function in this package that puts a secret on disk. It imports only a TYPE
+// from here, the way `ui.ts` does, so this import is not half of a cycle.
+import { writeCredential } from "./keys.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
+// The console's shared manners (2026-09-21). `credentials set` is the first
+// command to use them, and it uses exactly three: is there a person here, read
+// a value without echoing it, and say one marked line back.
+import { askHidden, isInteractive, isPromptAborted, ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
@@ -5987,6 +5995,12 @@ async function credentialsCommand(
 
   const fromEnv = typeof parsed.flags["from-env"] === "string" ? parsed.flags["from-env"] : null;
   let raw: string;
+  // TYPED AT A TERMINAL, or piped? The two arms answer differently in one place
+  // only — an EMPTY answer. A pipe that carried nothing is a script that went
+  // wrong and is refused; a person who pressed Enter at the prompt has SKIPPED,
+  // which is an ordinary answer and exits 0 (new-user finding #2, and the
+  // owner's "skipping is always offered and always fine").
+  let typedHere = false;
   if (fromEnv !== null) {
     const value = env[fromEnv];
     if (value === undefined) {
@@ -6002,15 +6016,41 @@ async function credentialsCommand(
       return EXIT.usage;
     }
     if (stdin.isTty && parsed.flags["stdin"] !== true) {
-      // A terminal with nothing piped into it would BLOCK, and a console that
-      // hangs waiting for a secret is a console people Ctrl-C before typing the
-      // key on the command line instead.
-      io.err(
-        `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
-      );
-      return EXIT.usage;
+      // NEW-USER FINDING #2: "a person at a terminal is the normal case."
+      //
+      // This branch used to refuse outright, and the refusal was the first
+      // thing the stranger who installed 0.1.0 hit after the install itself —
+      // `doctor`'s own fix line printed the command that then refused him. The
+      // terminal is now where the value is READ, without echo, when there is
+      // somebody to read it from: `isInteractive` wants `io.prompt`, both
+      // streams to be terminals and `CI` unset, so every pipe, every CI job and
+      // every test console falls through to the refusal below, byte for byte as
+      // before. `--stdin` also still falls through: it means "read all of
+      // stdin", and a caller who asked for that gets it.
+      if (isInteractive(io, env)) {
+        try {
+          raw = await askHidden(io, `${name} (Enter to skip): `);
+        } catch (err) {
+          if (!isPromptAborted(err)) throw err;
+          // Ctrl-C, or a console that cannot read without echoing. Either way
+          // the terminal has been restored by the reader and nothing was
+          // written — and the message never carries what was typed.
+          io.err(`refused: ${(err as Error).message} Nothing was written.`);
+          return EXIT.refused;
+        }
+        typedHere = true;
+      } else {
+        // A terminal with nothing piped into it would BLOCK, and a console that
+        // hangs waiting for a secret is a console people Ctrl-C before typing
+        // the key on the command line instead.
+        io.err(
+          `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
+        );
+        return EXIT.usage;
+      }
+    } else {
+      raw = await stdin.read();
     }
-    raw = await stdin.read();
   }
 
   // ONE trailing newline is the shell's, not the owner's: `printf '%s\n'`, a
@@ -6019,6 +6059,10 @@ async function credentialsCommand(
   // reader must agree about what the value IS.
   const value = raw.replace(/\r?\n$/, "").trim();
   if (value.length === 0) {
+    if (typedHere) {
+      ui(io, env).ok(`nothing written — ${name} is unchanged.`);
+      return EXIT.ok;
+    }
     io.err(`refused: the value for ${name} is empty. Nothing was written.`);
     return EXIT.refused;
   }
@@ -6030,81 +6074,11 @@ async function credentialsCommand(
   }
 
   writeCredential(path, name, value);
-  io.out(`set ${name} in ${path}`);
+  // The NAME and the PATH, never the value — and for the typed arm the same
+  // sentence through `ui`, so it reads as one line of a conversation rather
+  // than as a script's receipt. Every non-interactive caller keeps the exact
+  // bytes it had.
+  if (typedHere) ui(io, env).ok(`set ${name} in ${path}`);
+  else io.out(`set ${name} in ${path}`);
   return EXIT.ok;
-}
-
-/**
- * Write one name into the credentials file, keeping every other line.
- *
- * Three cases, in order: an ACTIVE line for this name is replaced where it
- * stands; else the template's own COMMENTED placeholder (`# NAME=...`) becomes
- * the real line — placed AFTER the indented comment lines that continue it, so
- * the explanation still sits above the line it explains; else the line is
- * appended. Every other line — every comment, the other name, anything the
- * owner added — is preserved byte for byte.
- *
- * **Written to a sibling and RENAMED over the target, never truncated in
- * place.** `writeFileSync` on the target opens it `O_TRUNC`: a crash, a full
- * disk or a kill between the truncate and the write leaves a file that exists
- * and is EMPTY — which is I32's own shape (the credentials file was empty from
- * 09-04, the worker refused `NO_CREDENTIAL` at every boundary for a week, and
- * every surface read healthy). `rename` is atomic on one filesystem, so a reader
- * sees the old file or the new one and never a zero-length one. The mode is set
- * on the TEMP file — `writeFileSync`'s `mode` applies only when a file is
- * created, so writing straight over an existing 0644 file would have held the
- * secret at 0644 until the `chmod` after it — and rename carries the bits with
- * the inode. The final `chmodSync` then holds the promise for the case where
- * the temp file already existed with looser bits.
- */
-function writeCredential(path: string, name: string, value: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const line = `${name}=${value}`;
-  let text = "";
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    /* absent is ordinary: this command is how the file comes to exist */
-  }
-  // The names are `CREDENTIAL_NAMES` members, so there is nothing to escape.
-  const active = new RegExp(`^\\s*(export\\s+)?${name}\\s*=`);
-  const commented = new RegExp(`^\\s*#\\s*(export\\s+)?${name}\\s*=`);
-  const out = text.length === 0 ? [] : text.split("\n");
-  let replaced = false;
-  for (let i = 0; i < out.length; i += 1) {
-    if (active.test(out[i] ?? "")) {
-      out[i] = line;
-      replaced = true;
-      break;
-    }
-  }
-  if (!replaced) {
-    for (let i = 0; i < out.length; i += 1) {
-      if (commented.test(out[i] ?? "")) {
-        // The placeholder OWNS the indented comment lines under it ("#" then
-        // four or more spaces — the template's own continuation shape). Putting
-        // the live line where the placeholder stood left them dangling under a
-        // secret, reading as if they explained it; the line goes after them
-        // instead, so `# NAME=... what it is / # <indent> why` stays a block.
-        let end = i;
-        while (/^#\s{4,}\S/.test(out[end + 1] ?? "")) end += 1;
-        out.splice(i, 1);
-        out.splice(end, 0, line);
-        replaced = true;
-        break;
-      }
-    }
-  }
-  if (!replaced) {
-    while (out.length > 0 && (out[out.length - 1] ?? "").trim().length === 0) out.pop();
-    out.push(line);
-    out.push("");
-  }
-  // Sibling, then rename: see the note above — the target is never observed
-  // truncated, and the secret is never on disk at anything but 0600.
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, out.join("\n"), { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
 }

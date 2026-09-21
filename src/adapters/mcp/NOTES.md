@@ -203,3 +203,30 @@ fingerprinted `operational.sqlite`, which has been in WAL mode since F1 — the 
 unchanged whatever is written to it until a checkpoint, so that assertion proved nothing
 either way. It now asserts what §9.1 G4 actually guarantees: no memory, no version, no
 use, no `recall.decision` row.
+
+## 2026-09-21 — a handoff with no memories is not an error (new-user finding 12)
+
+`session_end` refused `memories-required` for a call that carried a `handoff` and an empty
+`memories` array — after the handoff had already been written. The Stop ask's own last
+line says "nothing worth keeping is a real answer", so the door was contradicting the
+invitation, and a model that reads its own result learns from that either to stop sending
+handoffs or to invent a memory.
+
+Three cases now, and only the first is new:
+
+- a handoff that LANDED (written, revised or cleared) with no memories → success,
+  `reason: "handoff-only"`, `deposited: 0`, no `isError`;
+- a handoff that was sent and REFUSED (`no-scope`, `too-large`, `not-text`,
+  `nothing-to-clear`) with no memories → nothing landed, so `memories-required` stands and
+  the handoff's own outcome rides out on it;
+- neither — and a `memories` that is not an array, because a caller who sent the wrong
+  TYPE wants to be told → `memories-required`, exactly as before.
+
+The gate is the handoff's OUTCOME (`written === true`) and not its presence, which is the
+distinction the first draft of this would have got wrong.
+
+The other half of the finding — "the published schema does not list `handoff`" — was
+already false on master: `handoff` has been in `SESSION_END.inputSchema` since E1
+(`d6eea0a`), `toolDefinitions()` publishes `spec.inputSchema` unfiltered, and
+`test/handoff.test.ts` asserts it. `memories` stays `required` in the schema: a
+handoff-only call sends `memories: []`, which that requirement already permits.
