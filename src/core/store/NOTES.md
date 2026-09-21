@@ -1066,3 +1066,27 @@ empty body (`revise` did not, and `patch.body ?? prior.body` accepted `""`
 happily — fixed here). The pair is what lets `Schemas.load` skip a removed schema
 row and keep the session alive (#139) while still standing the session down on a
 store that lost a memory's words.
+
+## 2026-09-21 — a store knows the day it was made (`store.created`)
+
+**The finding it exists for is one directory over.** `doctor`'s Authorship line reports a
+seven-day window, and on a store made that morning it printed `2026-09-15→2026-09-21` — a
+week the store did not exist for (new-user findings #8). Nothing in the store knew its own
+age: `livedDay` is the physics clock (the worker advances it, and it reads 0 on a store
+whose worker has never run), `lastActiveDate` is empty until the first boundary, and
+`store.started` is written only by `start-fresh`. So one meta row, `STORE_CREATED_KEY`.
+
+**Written by the open that CREATED the file, and by nothing else.** The `fresh` flag the
+constructor already computes (`!existsSync(paths.operational(dir))`), never under observer
+— an instrument that minted this row would be writing at open, which is the rule the two
+comments above it keep — and `INSERT OR IGNORE` on top of both, so a store that was already
+there is never stamped with a day it did not begin on. That is the same rule `install`
+keeps for `store.started`, and for the same reason: a falsehood on a surface the owner
+reads and cannot unset from the console.
+
+**The provenance clock**, `dateOf(this.nowFn())`, not an ambient `Date.now()` — so a seeded
+test dates a store's beginning the way it dates everything else.
+
+**Every store made before this is simply without it**, and every reader has to treat the
+absence as UNKNOWN rather than as "today". `doctor` does: no evidence, no clamp, the
+sentence it always printed.

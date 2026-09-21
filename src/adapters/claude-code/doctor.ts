@@ -53,7 +53,7 @@ import {
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
 import { Counterpart } from "../../core/counterpart.js";
-import { Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
+import { STORE_CREATED_KEY, Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
@@ -1057,14 +1057,43 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const p = payloadOf(sweep);
     const reason = str(p, "reason") ?? "(none)";
     const detail = `newest sweep.gate ${rowDate(sweep) ?? "?"}: reason ${reason}, ran ${num(p, "ran") ?? 0} of ${num(p, "scopes") ?? 0} scopes`;
+    /**
+     * THE REASON THAT HAS ALREADY BEEN ANSWERED (new-user findings #9).
+     *
+     * The gate row is the newest sweep, not the current state of the machine.
+     * Add the key and this line went on saying AMBER `reason no-credential`
+     * until the next session boundary wrote a fresh row — hours, on a quiet
+     * afternoon — with a fix line telling the reader to do the thing they had
+     * just done. A standing amber nobody can clear is how a person learns to
+     * read amber as decoration.
+     *
+     * So: the newest row says it stood down for want of a key AND the
+     * credentials file holds one NOW. Nothing is wrong, and there is nothing to
+     * fix, so it is GREEN and says which of the two facts it is looking at. The
+     * credentials come from the FILE, never the environment — `credentialFindings`
+     * keeps the same rule, and a hook process inherits no shell.
+     */
+    const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(
+      API_KEY_ENV,
+    );
+    const answered = reason === "no-credential" && keyNow;
     out.push(
       reason === "ran"
         ? finding("sweep", "green", "Sweep", detail, "", { reason, ran: num(p, "ran"), date: rowDate(sweep) })
-        : finding("sweep", "amber", "Sweep", detail, "The sweep stood down; the reason names why.", {
-            reason,
-            ran: num(p, "ran"),
-            date: rowDate(sweep),
-          }),
+        : answered
+          ? finding(
+              "sweep",
+              "green",
+              "Sweep",
+              `${detail} — that sweep ran before ${API_KEY_ENV} was added; the next session boundary will use it`,
+              "",
+              { reason, ran: num(p, "ran"), date: rowDate(sweep), answered: true },
+            )
+          : finding("sweep", "amber", "Sweep", detail, "The sweep stood down; the reason names why.", {
+              reason,
+              ran: num(p, "ran"),
+              date: rowDate(sweep),
+            }),
     );
   }
 
@@ -1220,6 +1249,78 @@ const DAY_CHAPTER_CAP = "day-chapter-cap";
  *  hits it says so rather than reporting the prefix as the whole. */
 const AUTHORSHIP_LIMIT = 20000;
 
+/**
+ * THE KEY `start-fresh` WRITES, spelled out rather than imported.
+ *
+ * `STORE_STARTED_KEY` lives in `adapters/cli/commands.ts`, which imports THIS
+ * file — so importing it back would be a cycle. `test/doctor.test.ts` holds the
+ * two strings to each other, so a rename there fails a test here instead of
+ * silently reading nothing one morning.
+ */
+const STORE_STARTED_META = "store.started";
+
+/**
+ * THE FIRST DAY THIS STORE CAN EVIDENCE, or null when it can evidence none.
+ *
+ * The finding (new-user findings #8, 2026-09-21): a seven-day window printed
+ * `2026-09-15→2026-09-21` on a store made that morning — a week the store did
+ * not exist for. The window is not wrong about what it LOOKED at; it is wrong
+ * about what it could have seen, and a reader has no way to tell the two apart.
+ *
+ * TWO SOURCES, and both are the store's own record of ITSELF — never of what is
+ * in it. The earliest of them wins, because an over-stated age costs nothing
+ * (the window is simply not clamped, which is today's behaviour) while an
+ * under-stated one would name a window narrower than the rows it counted:
+ *
+ *   1. `store.created` — one meta row, written by the open that made the file
+ *      (`core/store#STORE_CREATED_KEY`).
+ *   2. `store.started` — `start-fresh`'s own record of the day a blank store
+ *      took a parked one's place.
+ *
+ * **Absent on every store made before 2026-09-21, and that is the whole answer
+ * for them: null, no clamp, exactly today's sentence.** A reading that guessed
+ * would be worse than one that declines to.
+ *
+ * THREE THINGS THAT LOOK LIKE SOURCES AND ARE NOT. A memory's `learned_on` — an
+ * imported store carries dates from long before it existed. The oldest EVENT
+ * row's date — `rowDate` prefers the payload's own `date` field, which is the
+ * date the event is ABOUT and not the day the row was written, so a store whose
+ * first row is back-dated would be declared younger than its own contents.
+ * `livedDay` — the physics clock, which the worker advances and which is 0 on a
+ * store whose worker has never run.
+ */
+function storeFirstDay(store: Store): string | null {
+  let first: string | null = null;
+  for (const key of [STORE_CREATED_KEY, STORE_STARTED_META]) {
+    const said = store.getMeta(key);
+    if (said === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(said)) continue;
+    if (first === null || said < first) first = said;
+  }
+  return first;
+}
+
+/**
+ * The window to SAY, given the window that was read.
+ *
+ * Only ever moves the start FORWARD, and only into the range
+ * `(windowStart, today]` — a first day at or before the window start changes
+ * nothing, and one after today is a clock nobody should trust (it is also what
+ * every synthetic test store looks like: rows written now, graded against a
+ * `today` in the past).
+ *
+ * The READING is untouched: the counts are still taken over the full window, so
+ * no grade and no number moves. This decides one string.
+ */
+function windowShown(windowStart: string, today: string, firstDay: string | null): string {
+  if (firstDay === null) return windowStart;
+  return firstDay > windowStart && firstDay <= today ? firstDay : windowStart;
+}
+
+/** `2026-09-15→2026-09-21`, or `since 2026-09-21` for a store one day old. */
+function windowPhrase(shown: string, today: string): string {
+  return shown === today ? `since ${today}` : `${shown}→${today}`;
+}
+
 /** `YYYY-MM-DD`, `back` days before `today`. UTC, like every date in this store. */
 function daysBefore(today: string, back: number): string {
   const at = Date.parse(`${today}T00:00:00Z`);
@@ -1313,6 +1414,14 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     source: "fallback",
     learnedOnFrom: from,
   });
+  // WHAT THE LINE SAYS IT LOOKED AT (finding 8). The window READ is still the
+  // full seven days — every count above and below is taken over `from` — and
+  // this is the one string that changes: on a store younger than the window,
+  // claiming a week it did not exist for is the diagnostic telling its reader
+  // something that is not so.
+  const shown = windowShown(from, input.today, storeFirstDay(store));
+  // "of that week" is part of the same claim, and has to go with it.
+  const span = shown === from ? "of that week" : "in that time";
   // The NEW reason alone decides the hint: the old shared day cap stopped being
   // written on 2026-09-17 and its rows only age out of the window, so keying on
   // the total would go on blaming a rule nothing enforces any more.
@@ -1326,12 +1435,12 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
       : `${String(capped - cappedBySession - cappedByDay)} naming no cap`,
   ].filter((s) => s.length > 0);
   const detail =
-    `${from}→${input.today}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
+    `${windowPhrase(shown, input.today)}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
     `refused ${String(capped)} on a cap${cappedSplit.length === 0 ? "" : ` (${cappedSplit.join(", ")})`} ` +
     `and ${String(paced)} for pacing` +
     `${unlabelled === 0 ? "" : ` (${String(unlabelled)} older rows name no outcome)`}; ` +
     `it answered with ${String(deposits.rows.length)} ${deposits.rows.length === 1 ? "deposit" : "deposits"}; ` +
-    `${String(authored)} live ${authored === 1 ? "memory" : "memories"} of that week ${authored === 1 ? "is" : "are"} its own, ` +
+    `${String(authored)} live ${authored === 1 ? "memory" : "memories"} ${span} ${authored === 1 ? "is" : "are"} its own, ` +
     `${String(fallback)} ${fallback === 1 ? "was" : "were"} written for it by the fallback sweep` +
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
   const fixes = [
@@ -1344,6 +1453,10 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   ].filter((s) => s.length > 0);
   const data = {
     from,
+    // The window the SENTENCE names, beside the one the counts were taken over.
+    // They differ only on a store younger than seven days, and a consumer that
+    // wants the reading rather than the wording keeps reading `from`.
+    shownFrom: shown,
     to: input.today,
     asked,
     capped,
@@ -1433,8 +1546,13 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     c.blocked === 0
       ? ""
       : `, ${String(c.blocked)} ${c.blocked === 1 ? "was" : "were"} stopped by something that said so`;
+  // The same clamp the Authorship line takes (finding 8), through the same
+  // helper and with the same guard. `report.from` — what was READ, and what the
+  // `fired` command's own header prints — is untouched; this is the wording.
+  const shown = windowShown(report.from, report.today, storeFirstDay(store));
   const roll =
-    `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week${blocked}, ` +
+    `${windowPhrase(shown, report.today)}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired ` +
+    `${shown === report.from ? "this week" : "in that time"}${blocked}, ` +
     `${String(c.quiet)} ${c.quiet === 1 ? "has" : "have"} gone quiet, ` +
     `${String(c.never)} ${c.never === 1 ? "has" : "have"} never fired, ` +
     `${String(c.new)} ${c.new === 1 ? "is" : "are"} too new to grade, ` +

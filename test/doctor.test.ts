@@ -41,7 +41,7 @@ import {
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
-import { Store } from "../src/core/store/index.js";
+import { STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
 import {
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_COPY_WRITTEN_EVENT,
@@ -71,6 +71,7 @@ import {
   EXIT,
   HOST_EVENTS,
   MCP_SERVER_NAME,
+  STORE_STARTED_KEY,
   credentialsTemplate,
   readHost,
   run,
@@ -2523,5 +2524,164 @@ describe("counterparts credentials", () => {
     });
     expect(code).toBe(EXIT.ok);
     expect(readFileSync(nested, "utf8")).toBe(`${API_KEY_ENV}=${SECRET}\n`);
+  });
+});
+
+// ── the window a store did not exist for, and the amber nobody could clear ──
+
+/**
+ * New-user findings #8 and #9, 2026-09-21 — both the same shape: a true
+ * sentence that reads as a fault to the person who just installed this.
+ *
+ *   #8 The Authorship line reported `2026-09-15→2026-09-21` on a store made that
+ *      morning. The window is not wrong about what it LOOKED at; it is wrong
+ *      about what it could have seen, and a reader cannot tell the two apart.
+ *   #9 After a key was added the Sweep line went on saying AMBER
+ *      `reason no-credential` until the next boundary — with a fix line telling
+ *      the reader to do the thing they had just done. A standing amber nobody
+ *      can clear is how a person learns to read amber as decoration.
+ */
+describe("a store younger than the window it is graded over (findings 8, 9)", () => {
+  test("a store made TODAY says 'since <today>', and not a week it did not exist for", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "2026-09-14");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("since 2026-09-14: ")).toBe(true);
+    expect(f.detail).not.toContain("2026-09-08");
+    // "of that week" is part of the same claim and goes with it.
+    expect(f.detail).toContain("in that time");
+    expect(f.detail).not.toContain("of that week");
+    // The READING is untouched: the counts are still taken over the full window.
+    expect(f.data["from"]).toBe("2026-09-08");
+    expect(f.data["shownFrom"]).toBe("2026-09-14");
+    expect(f.severity).toBe("green");
+  });
+
+  test("a store made THREE DAYS AGO names those three days", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "2026-09-11");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-11→2026-09-14: ")).toBe(true);
+  });
+
+  test("`start-fresh`'s own record is read too, and the EARLIEST evidence wins", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // The key `start-fresh` writes. `doctor.ts` spells it out rather than
+    // importing it (that would be a cycle), so this test is what holds the two
+    // strings to each other: rename `STORE_STARTED_KEY` and this fails.
+    s.setMeta(STORE_STARTED_KEY, "2026-09-12");
+    s.setMeta(STORE_CREATED_KEY, "2026-09-13");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-12→2026-09-14: ")).toBe(true);
+  });
+
+  test("a store OLDER than the window keeps the full seven days", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "2026-01-01");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-08→2026-09-14: ")).toBe(true);
+    expect(f.detail).toContain("of that week");
+  });
+
+  test("a store with NO record of its beginning is not guessed at", () => {
+    // Every store made before 2026-09-21 is this store. The reading declines
+    // rather than inventing an age, and the sentence is the one it always was.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-08→2026-09-14: ")).toBe(true);
+  });
+
+  test("a beginning AFTER today is a clock nobody should trust, and clamps nothing", () => {
+    // Which is also every store in this file: they are minted now and graded
+    // against a `today` in the past.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "2026-09-20");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-08→2026-09-14: ")).toBe(true);
+  });
+
+  test("a fresh store stamps the day it was made, on the provenance clock", () => {
+    const made = join(root, "made-on-a-known-day");
+    const c = Counterpart.open({ dir: made, now: () => Date.parse("2026-03-04T10:00:00Z") });
+    c.close();
+    // A SECOND open, on a different day, must not restamp it: a store that was
+    // already there is never given a beginning it did not have.
+    const again = Store.open({ dir: made, now: () => Date.parse("2026-05-06T10:00:00Z") });
+    try {
+      expect(again.getMeta(STORE_CREATED_KEY)).toBe("2026-03-04");
+    } finally {
+      again.close();
+    }
+    rmSync(made, { recursive: true, force: true });
+  });
+
+  test("Sweep: `no-credential` with a key present NOW is green, and says which fact it is reading", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SWEEP_GATE_EVENT,
+      day: s.livedDay(),
+      payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
+    });
+    const f = by(doctorFindings(input({ store: s })), "sweep");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("reason no-credential");
+    expect(f.detail).toContain(`that sweep ran before ${API_KEY_ENV} was added`);
+    // NO FIX. There is nothing for the reader to do, and a fix line here is
+    // what made this read as a fault in the first place.
+    expect(f.fix).toBe("");
+    expect(f.data["answered"]).toBe(true);
+  });
+
+  test("Sweep: `no-credential` with NO key is the amber it always was", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SWEEP_GATE_EVENT,
+      day: s.livedDay(),
+      payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
+    });
+    const f = by(doctorFindings(input({ store: s })), "sweep");
+    expect(f.severity).toBe("amber");
+    expect(f.fix).toBe("The sweep stood down; the reason names why.");
+    expect(f.detail).not.toContain("was added");
+  });
+
+  test("Sweep: every OTHER stand-down reason is untouched by the key", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SWEEP_GATE_EVENT,
+      day: s.livedDay(),
+      payload: { reason: "observer", ran: 0, scopes: 0, date: "2026-09-14" },
+    });
+    const f = by(doctorFindings(input({ store: s })), "sweep");
+    expect(f.severity).toBe("amber");
+    expect(f.fix).toBe("The sweep stood down; the reason names why.");
   });
 });
