@@ -113,6 +113,24 @@ the code does rather than what he has seen.
 
 ## For the next round (not part of 0.2.0)
 
+- **#8 is closed for NEW stores only.** Doctor's window is clamped to `store.created`, which
+  only a store first opened by 0.2.0 carries. A store made by 0.1.0 still shows the week range.
+  A fallback is needed for existing stores (the oldest event row's real timestamp, or the
+  database file's birth time).
+- **#14 — `bun add -g <tarball>` over a registry install fails** with
+  `error: An internal error occurred (DependencyLoop)` (bun 1.3.10; measured 2026-09-21 in a
+  throwaway `BUN_INSTALL`). `bun remove -g counterparts` first, then add the file. QUICKSTART §2a
+  should say so for anyone moving from the npm install to a from-source one.
+- **#15 — nobody has run the registry-to-registry upgrade.** QUICKSTART §9 tells people
+  `bun add -g counterparts@latest`. It has never been run: there has only ever been one
+  published version. Run it the day 0.2.0 is published, from a machine holding 0.1.0.
+- **A store outside the home directory** refuses `uninstall --park` / `--delete-memories` with no
+  way through (uninstall refuses `--dir`). The builder's proposal, not built: accept `--dir` on
+  `uninstall` only when it equals the `dataDir` the configuration already names.
+- The adversarial review's NITs n1–n5 (`docs/adversarial-review-onboarding-ab-2026-09-21.md`).
+- `--help`'s Advanced group could collapse to a comma list (39 → ~31 lines) — the owner's call.
+
+
 - **#13 — the Stop ask has no pacing for a session that ends turns often** (found 2026-09-21,
   by the assistant living on the 0.1.0 install during a long coordinating session). The ask for
   memories + a chapter + a handoff arrives every time a turn ends — several times an hour while
