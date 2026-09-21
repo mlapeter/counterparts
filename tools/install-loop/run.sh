@@ -1051,6 +1051,153 @@ for p in "$STORE" "$BASE/claude-code.json" "$BASE/credentials.env" "$BUN_INSTALL
 done
 if [ -z "$STRAY" ] && [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "wrote outside the clean room:${STRAY:- (no session record)}"; fi
 
+# ── 7. the host's own files, and leaving (QUICKSTART §4, §9b) ───────────────
+#
+# THESE RUN LAST, and they have to: the last of them RENAMES `$BASE`, which is
+# the directory every step above resolves its paths from. The clean-room check
+# is therefore the step before this section rather than the end of the file.
+#
+# Two things are faked here, and only two. `claude` is a STUB on PATH that
+# records its argv — the real binary would edit the machine's own `~/.claude.json`
+# and this loop never touches anything outside its room. And the settings file is
+# pre-seeded with ANOTHER TOOL'S HOOK, because "your other hooks survive" is the
+# property this whole command is judged on and an empty file cannot prove it.
+
+STUBBIN="$WORK/stubbin"
+CLAUDE_LOG="$WORK/claude-argv.log"
+mkdir -p "$STUBBIN"
+cat >"$STUBBIN/claude" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$CLAUDE_LOG"
+exit 0
+STUB
+chmod +x "$STUBBIN/claude"
+export PATH="$STUBBIN:$PATH"
+
+SETTINGS="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+cat >"$SETTINGS" <<'JSON'
+{
+  "model": "opus",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/usr/local/bin/other-tool --hook" }] }
+    ]
+  }
+}
+JSON
+
+# How many backups sit beside the settings file right now.
+backup_count() {
+  ls "$HOME/.claude" 2>/dev/null | grep -c 'counterparts-backup' || true
+}
+
+step "counterparts wire merges the five hooks BESIDE another tool's, and backs the file up"
+CMD='counterparts wire --yes'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  HOOKED=$(grep -c 'bin/hook.ts' "$SETTINGS" || true)
+  BACKUPS=$(backup_count)
+  if [ "$HOOKED" != "5" ]; then
+    no "expected 5 hook entries in the settings file, found $HOOKED" "$(cat "$SETTINGS")"
+  elif ! grep -q 'other-tool' "$SETTINGS"; then
+    no "the other tool's hook is GONE — the one thing this may never do" "$(cat "$SETTINGS")"
+  elif ! grep -q '"model": "opus"' "$SETTINGS"; then
+    no "another top-level key was lost" "$(cat "$SETTINGS")"
+  elif [ "$BACKUPS" != "1" ]; then
+    no "expected exactly one backup beside the settings file, found $BACKUPS" "$OUT"
+  elif ! grep -q 'mcp add counterparts -s user' "$CLAUDE_LOG"; then
+    no "the MCP registration did not go out through \`claude mcp add\`" "$(cat "$CLAUDE_LOG" 2>/dev/null)"
+  else
+    ok
+  fi
+fi
+
+step "wiring TWICE changes nothing and takes no second backup"
+BEFORE=$(cksum <"$SETTINGS")
+OUT=$(counterparts wire --yes 2>&1)
+AFTER=$(cksum <"$SETTINGS")
+BACKUPS=$(backup_count)
+if [ "$BEFORE" != "$AFTER" ]; then
+  no "a second wire rewrote the settings file" "$OUT"
+elif [ "$BACKUPS" != "1" ]; then
+  no "a second wire took another backup ($BACKUPS beside the file)" "$OUT"
+else
+  ok
+fi
+
+step "counterparts unwire removes ONLY ours, and the other tool's hook is untouched"
+CMD='counterparts unwire --yes'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  if grep -q 'bin/hook.ts' "$SETTINGS"; then
+    no "a Counterparts hook survived the unwire" "$(cat "$SETTINGS")"
+  elif ! grep -q 'other-tool' "$SETTINGS"; then
+    no "the other tool's hook went with ours" "$(cat "$SETTINGS")"
+  elif ! grep -q 'mcp remove counterparts' "$CLAUDE_LOG"; then
+    no "the deregistration did not go out through \`claude mcp remove\`" "$(cat "$CLAUDE_LOG" 2>/dev/null)"
+  else
+    ok
+  fi
+fi
+
+step "counterparts uninstall leaves the memory where it is, and names what removes the package"
+# Re-wired first, so the plain uninstall has something to take out.
+counterparts wire --yes >/dev/null 2>&1
+CMD='counterparts uninstall --yes'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  if [ ! -f "$STORE/counterparts.sqlite" ]; then
+    no "the store is gone — uninstall never deletes memory by default" "$OUT"
+  elif grep -q 'bin/hook.ts' "$SETTINGS"; then
+    no "the hooks were not removed" "$(cat "$SETTINGS")"
+  elif ! printf '%s' "$OUT" | grep -q 'bun remove -g counterparts'; then
+    no "it did not say the one command that removes the package" "$OUT"
+  else
+    ok
+  fi
+fi
+
+step "counterparts uninstall --park moves the whole directory aside, or refuses because something of ours runs"
+# BOTH OUTCOMES ARE CORRECT, and which one happens is a fact about the machine
+# the loop is running on rather than about the package: the refusal is scoped to
+# "a Counterparts MCP server, worker or dashboard from ANY install", so a
+# developer with a live install of their own gets the refusal and a bare CI box
+# gets the rename. The step asserts whichever one it got, in full.
+CMD='counterparts uninstall --park --yes'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  CODE=$?
+  PARKED=$(ls -d "$BASE".parked-* 2>/dev/null | head -1)
+  if [ "$CODE" = "0" ]; then
+    if [ -d "$BASE" ]; then
+      no "it exited 0 and left the directory where it was" "$OUT"
+    elif [ -z "$PARKED" ] || [ ! -f "$PARKED/store/counterparts.sqlite" ]; then
+      no "nothing parked beside $BASE holds the store" "$OUT"
+    elif ! printf '%s' "$OUT" | grep -q 'REFUSING'; then
+      no "the guarded \`mv\` that undoes it was not printed" "$OUT"
+    else
+      ok
+    fi
+  else
+    if [ ! -d "$BASE" ]; then
+      no "it refused and the directory is gone anyway" "$OUT"
+    elif ! printf '%s' "$OUT" | grep -q 'Close Claude Code sessions and try again'; then
+      no "it refused without saying what to do about it (exit $CODE)" "$OUT"
+    else
+      ok
+    fi
+  fi
+fi
+
 # ── done ────────────────────────────────────────────────────────────────────
 
 T1=$(date +%s)

@@ -746,7 +746,20 @@ describe("unwire", () => {
       }),
     );
     expect(result.outcome).toBe("ok");
-    expect(result.mcp).toBe("removed");
+    expect(result.mcp).toBe("absent");
+    expect(text(c.out)).toContain("was there to remove");
+  });
+
+  test("the remove is ATTEMPTED even when our read of ~/.claude.json saw nothing", async () => {
+    // That file is the host's own state and may move; our read is evidence, not
+    // authority. An unwire that skipped the removal because of where it looked
+    // would leave a server pointed at a store nobody is wiring any more.
+    await wire(input({ io: consoleWith().io }));
+    expect(existsSync(mcpFile())).toBe(false);
+    const fake = spawnerThat(() => OK);
+    const result = await unwire(input({ io: consoleWith().io, spawner: fake.spawner }));
+    expect(result.outcome).toBe("ok");
+    expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
   });
 
   test("a console with no prompt and no --yes refuses rather than unwiring", async () => {

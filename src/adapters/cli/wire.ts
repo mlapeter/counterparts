@@ -1023,7 +1023,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   if (input.dryRun) {
     u.hint("dry run — nothing below has been written.");
     for (const e of merged.events) u.hint(`${e.event}: would remove ${e.was ?? "our hook"}`);
-    if (mcp.present) u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
     if (merged.foreignKept > 0) {
       u.hint(`${String(merged.foreignKept)} hook${merged.foreignKept === 1 ? "" : "s"} belonging to something else would stay.`);
     }
@@ -1078,23 +1078,32 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     u.ok(`no Counterparts hooks were in ${sight.target}.`);
   }
 
+  // THE REMOVE IS ATTEMPTED WHETHER OR NOT OUR READ SAW A REGISTRATION.
+  //
+  // `~/.claude.json` is the host's own state file — its documentation says so,
+  // and `install.ts#hostMcpFile` already warns that it may move. Our read is
+  // therefore evidence, not authority: a registration we cannot see is still a
+  // registration, and an unwire that skipped the removal because of where it
+  // looked would leave a server pointed at a store nobody is wiring any more.
+  // Removing what is not there costs one exit code, which is why the brief says
+  // "tolerate not found".
   let mcpWord: WireResult["mcp"] = "absent";
-  if (mcp.present || mcp.unreadable) {
-    const res = input.spawner(mcpRemoveArgs());
-    if (res.missing) {
-      u.warn("`claude` is not on this PATH, so the MCP server was not deregistered.");
-      u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
-      mcpWord = "printed";
-    } else if (res.code !== 0 && !/not found|no .*server|does not exist/i.test(`${res.out}\n${res.err}`)) {
-      u.warn(`\`claude mcp remove\` exited ${String(res.code ?? -1)}.`);
-      u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
-      mcpWord = "printed";
-    } else {
-      u.ok(`the MCP server "${MCP_SERVER_NAME}" is no longer registered.`);
-      mcpWord = "removed";
-    }
-  } else {
+  const res = input.spawner(mcpRemoveArgs());
+  const notThere = /not found|no .*server|does not exist|not configured/i.test(`${res.out}\n${res.err}`);
+  if (res.missing) {
+    u.warn("`claude` is not on this PATH, so the MCP server was not deregistered.");
+    u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    mcpWord = "printed";
+  } else if (res.code === 0) {
+    u.ok(`the MCP server "${MCP_SERVER_NAME}" is no longer registered.`);
+    mcpWord = "removed";
+  } else if (notThere || !mcp.present) {
     u.hint(`no MCP registration named "${MCP_SERVER_NAME}" was there to remove.`);
+    mcpWord = "absent";
+  } else {
+    u.warn(`\`claude mcp remove\` exited ${String(res.code ?? -1)}.`);
+    u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    mcpWord = "printed";
   }
 
   u.hint("An open Claude Code session keeps its hooks until its next turn, and keeps");

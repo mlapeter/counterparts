@@ -1022,3 +1022,88 @@ doctor line cannot drift apart silently.
 point binds it when the first command needs it. `ui.ts` is likewise not re-exported from
 `index.ts`: commands import `./ui.js` directly, and there is no reason yet to make it part
 of this package's public surface.
+
+## 2026-09-21 — `wire`, `unwire`, `uninstall`, and an `install` that asks (A)
+
+The owner installed 0.1.0 from npm as a stranger and stopped at the first screen:
+`install` printed a sixty-line JSON block and said "merge this yourself"
+(`docs/new-user-findings.md` #1, "the biggest barrier"). His answer was one line —
+**wire by default, after asking first** — plus a ruling on leaving, quoted at the top of
+`uninstall.ts`. This is those two sentences.
+
+**`install.ts`'s first rule is now narrower, not gone.** It said the host's files are only
+ever PRINTED, "an installer that edits somebody's editor configuration without being asked
+is the same class of surprise as a memory layer that writes without being asked". The
+operative clause turned out to be *without being asked*. So: a terminal is asked and then
+wired; a pipe, CI, every test and the scripted half of `tools/install-loop/run.sh` get the
+printed blocks byte for byte; `--no-wire` gets a terminal the same thing. Nothing that has
+ever been measured changed behaviour.
+
+**The merge is on the INNER hook entry, and that is the whole design.** Not on the `hooks`
+object, not on the event's array — on `hooks[event][i].hooks[j]`. Another tool's entry
+therefore keeps its index, its `matcher`, its `timeout` and every key we have never heard
+of, because it is never rewritten at all; ours is appended beside it (hooks on one event
+run in parallel) or, when it is already there under a path that has moved, has its
+`command` replaced in place by an object spread. A second entry of ours on one event is a
+block somebody pasted twice: it is DROPPED and counted, because rewriting both to the same
+string would leave the duplicate forever.
+
+**The recogniser is `HOOK_COMMAND_MARK`, taken from `install.ts` rather than written
+again.** `doctor`'s `readHost` uses it to answer "is this wired?", so a hook `wire` writes
+and a hook `doctor` counts are the same hook by construction. `test/wire.test.ts` wires a
+temp home and then asserts `readHost` sees all five events with `stale: []` — if those two
+ever disagreed, a correctly wired install would read as broken on the one surface a person
+checks.
+
+**Four refusals that are not caution, they are the file's own shapes.** Bytes that are not
+JSON; a top level that is not an object; a `hooks` key that is not an object; an event
+whose value is not an array. Each one is a settings file whose meaning we would be
+guessing at, and a guess there rewrites somebody's configuration into a shape they did not
+choose. The refusal prints the block for hand-merging — which is exactly what `install`
+printed before this change, so the worst case is the old behaviour.
+
+**A symlinked `settings.json` is written THROUGH.** A dotfiles repository is an ordinary
+arrangement, and `rename(2)` onto the link path would replace the link with a regular file
+and quietly detach whatever manages it. So the target is resolved, required to be inside
+the home, and written; the backup lands beside the TARGET. A link pointing outside the home
+is refused rather than followed — at that point this would be editing a file somewhere
+nobody named.
+
+**`~/.claude.json` is read and never written.** Claude Code owns its own state file; the
+registration goes out as `claude mcp add` with an ARGUMENT VECTOR (a store path comes off
+disk and can hold anything a shell would interpret). One consequence found by the install
+loop: `unwire` must attempt `claude mcp remove` **even when our read saw no
+registration**, because that file may move and our read is evidence rather than authority.
+"Tolerate not found" is cheaper than a server left pointed at a store nobody is wiring.
+
+**`--delete-memories` counts before it warns, and the fallback matters more than the
+count.** A store that will not open on this build — the old-floor `STORE_PRE_ROWS` case,
+which is precisely the state of somebody uninstalling after an upgrade went wrong — would
+otherwise produce "WARNING: this will delete 0 memories." That is the most dangerous
+sentence this command could print, so a store that refuses produces a SIZE and the name of
+the refusal instead. `storeExists` is checked first for a second reason: `Store.open`
+CREATES what it opens, and a count must never be the thing that mints a store.
+
+**Both moving verbs refuse while anything of ours is running, and the lister is not
+`pgrep -f counterparts`.** That pattern matches an editor with this repository open, a
+`tail` on a log, a dev server in a directory with the word in its path — the false
+positives `start-fresh` already warns about in prose. The marks here are the SCRIPTS
+(`mcp/bin/serve.ts`, `claude-code/bin/runner.ts`, `dashboard/bin/dashboard.ts`) plus the
+two installed shims anchored at a token boundary. It never throws, and a lister that fails
+is treated as no evidence rather than as evidence of absence.
+
+**Two things worth knowing about where this sits.**
+
+- `isInteractive` needs `io.tty`, and `bin/counterparts.ts` does not set it yet (builder C
+  owns that file this round). Until it does, the interactive install arm is unreachable in
+  a real terminal and `install` behaves exactly as it does today — which is the safe
+  direction for a change that edits a host. Every confirmation inside `wire`, `unwire` and
+  `uninstall` gates on `io.prompt` instead, the rule `start-fresh` already uses, so those
+  three work at a terminal now.
+- **The interactive arm writes `injectionBudgetBytes: 9000` when no `--budget` was given,
+  and says so.** Scar §2.18 says this package invents no host ceiling, and it still holds
+  everywhere else: the scripted arm ends on its "NO injectionBudgetBytes was written"
+  paragraph exactly as before. The difference is that there is a person to tell. This is
+  the owner's plan line ("`--budget` gets a default of 9000") and it is a working default,
+  not a new rule — if it fights §2.18 later, the interactive arm is the one place to take
+  it back out.

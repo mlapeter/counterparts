@@ -9,10 +9,10 @@ it cannot run `git clone`, `claude mcp add`, `export PATH` or Claude Code; §10
 lists what that leaves unverified.
 
 No API key required. The scripted version of this page — install, configure,
-hook, note, recall, the MCP round trip, the removal plan, the session write and the
-scope switch — is
-52 checks and runs end to end in two to three seconds; the part that takes you time is
-§4, pasting two blocks into Claude Code's own configuration.
+hook, note, recall, the MCP round trip, the removal plan, the session write, the
+scope switch, the wiring and leaving again — is
+57 checks and runs end to end in two to three seconds; the part that takes you time is
+§4, and `counterparts wire` now does that for you.
 
 ---
 
@@ -363,6 +363,33 @@ configuration it read on stderr at launch, before any protocol.
 
 Then **restart Claude Code**. Hooks are read at session start; MCP servers are
 launched at session start.
+
+### Or have it done for you
+
+At a terminal, `counterparts install` asks whether to wire Claude Code and does
+it. The same thing, on its own, at any time:
+
+```
+counterparts wire --yes
+```
+
+It backs `~/.claude/settings.json` up first and prints the path, adds the five
+hooks **beside** anything already on those events, replaces an entry of its own
+that names a path that has moved, and registers the MCP server by running
+`claude mcp add` — it never writes `~/.claude.json` itself, because Claude Code
+owns that file. A settings file it cannot parse is a refusal: it changes nothing
+and prints the block for you to merge by hand. Drop `--yes` to be asked first,
+and `--dry-run` says what would change without changing it.
+
+To take it all back out again — only the entries it recognises as its own,
+never another tool's:
+
+```
+counterparts unwire --yes
+```
+
+Hooks start with your next turn in any open session; the memory tools appear
+after you restart Claude Code.
 
 ---
 
@@ -990,6 +1017,45 @@ is also why the store you park stays readable by the build that wrote it
 
 `counterparts status` on the new store will say what day it began on and where the
 previous one is parked.
+
+---
+
+## 9b. Leaving
+
+```
+counterparts uninstall --yes
+```
+
+Takes the Claude Code wiring out — the hooks and the MCP registration — and then
+tells you where your memory still is, how many memories are in it, and the one
+command that removes the package itself:
+
+```
+bun remove -g counterparts
+```
+
+(A program does not delete itself while it is running.) **Your memory is not
+touched.** `~/.counterparts` stays exactly where it is, and `counterparts wire`
+puts the wiring back whenever you want it.
+
+If you do want the directory gone, say which:
+
+```
+counterparts uninstall --park --yes
+```
+
+moves the whole of `~/.counterparts` aside to `~/.counterparts.parked-<date>` —
+one rename, nothing copied, nothing deleted, and the store is never opened — and
+prints the single `mv` that undoes it.
+
+`counterparts uninstall --delete-memories` destroys it instead. It counts what is
+about to go first (`WARNING: this will delete 1,204 memories.`) and then asks you
+to type `DELETE MEMORIES` exactly. There is no `--yes` for that one, and it
+cannot be run from a script.
+
+Both of those refuse while a Counterparts MCP server, worker or dashboard is
+still running — close your Claude Code sessions first — and both name what they
+found.
 
 ---
 
