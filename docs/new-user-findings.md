@@ -65,11 +65,27 @@ coordinator runs the suite and the install loop on the combined branch. Then the
 tries it **from a local tarball first** (`bun add -g /abs/path.tgz`) — so a bad round costs
 no npm version — and only what he is happy with is published as **0.2.0**.
 
-## Questions for the owner
+## The owner's answers (2026-09-21) — working defaults, not law
 
-1. **Wiring by default?** `install` asks and defaults to yes — this reverses today's
-   "never edits the host" stance. (Recommended: yes, with the backup and the preview.)
-2. **Uninstall and your memory:** leave `~/.counterparts` in place and say so, with
-   `--park` to move it aside? (Recommended.) Or ask every time?
-3. **Version:** publish the polished round as 0.2.0, after a local-tarball trial?
-4. **Anything else you noticed** that is not in the table.
+1. **Wire by default: yes, after asking first.** Preview, backup, then the change.
+2. **Uninstall leaves `~/.counterparts` in place by default.** `--park` moves it aside under a
+   dated name. `--delete-memories` deletes it, and only after a warning that counts what is
+   about to go — `WARNING: this will delete 1,204 memories.` — and the person typing
+   `DELETE MEMORIES` exactly. No `--yes` for that one.
+3. **Trial from a local tarball first, then publish once as 0.2.0.**
+
+Added by the owner the same day:
+
+- Each key prompt carries **one line on what the key is for, and a link to where to get one**
+  (Anthropic: console.anthropic.com → API keys; Voyage: dash.voyageai.com). Skipping is
+  always offered and always fine.
+- **Claude Code sessions will be open during an install.** Handle it gracefully: hooks and MCP
+  servers are read when a session starts, so install says plainly "sessions that are open now
+  will not have memory until you restart them" — and, where it can see them, how many. Same for
+  upgrade (an open session keeps serving the old code) and for uninstall (an open session keeps
+  its hooks until it closes; with `--park`/`--delete-memories` it must refuse while a Counterparts
+  server or worker is running, and name what is running).
+
+Also found on day 1: **#12** the `session_end` tool's schema does not list the `handoff` field
+the Stop ask tells the model to set; sending a handoff with no memories is answered as an error
+(`memories-required`) although the handoff was written.
