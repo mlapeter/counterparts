@@ -1339,3 +1339,23 @@ everything `wire` writes matches both — so a hook we installed can never read 
 **Declined:** m7 (`terminalWidth` flooring a zero-column terminal at 30) stays with the
 docs builder, as the coordinator directed. The five NITs are not addressed here; n3 and n4
 are real and small, and n1's re-serialisation is the documented cost of editing JSON.
+
+**Three more the second look caught, all inside M2's own guarantee.** They are worth
+naming together, because they are one mistake in three costumes — *a check that answers
+"fine" when it could not actually tell*:
+
+- `unwire`'s re-read treated an UNREADABLE `~/.claude.json` as an absent registration
+  (`readMcp` reports `present: false` for a file that will not parse), so a corrupt host
+  file plus a missing `claude` confirmed a deregistration that never happened.
+- The pre-flight tested only `missing`, so a `claude` that HUNG (a `spawnSync` timeout
+  comes back `missing: false, code: null`) or exited non-zero passed it — the hooks came
+  out and the refusal landed thirty seconds later on the removal instead.
+- The cross-device check ran over `plan.entries` rather than `plan.targets`, so the
+  directory that actually gets renamed when it moves whole was never checked at all.
+
+**What is still open, and deliberately.** A store OUTSIDE the home refuses both moving
+arms with no way through, because `uninstall` refuses `--dir` the way `start-fresh` does.
+The coordinator's M1 wording allowed "an explicitly named `--dir`"; the shape that would
+close it without reopening the `--dirr` scar is to accept `--dir` on `uninstall` only when
+it is EQUAL to `resolve(config.dataDir)` — an assertion about the store the configuration
+already names, rather than a second answer to which store. Not built here.

@@ -1404,8 +1404,17 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   let mcpConfirmed = false;
   const res = input.spawner(mcpRemoveArgs());
   const notThere = /not found|no .*server|does not exist|not configured/i.test(`${res.out}\n${res.err}`);
-  const stillThere = (): boolean =>
-    readMcp(home, env, input.store, input.custom, input.exe).present;
+  // AN UNREADABLE FILE IS NOT AN ABSENT REGISTRATION.
+  //
+  // `readMcp` reports `present: false` when the file will not parse, and the
+  // first version of this read that as "nothing is registered" — so a corrupt
+  // `~/.claude.json` plus a missing `claude` confirmed the deregistration and
+  // let the irreversible arm run. M2's own words are "a read of the
+  // registration shows it ABSENT", and a read that failed shows nothing at all.
+  const stillThere = (): boolean => {
+    const fresh = readMcp(home, env, input.store, input.custom, input.exe);
+    return fresh.present || fresh.unreadable;
+  };
   if (res.missing) {
     mcpConfirmed = !stillThere();
     if (mcpConfirmed) {

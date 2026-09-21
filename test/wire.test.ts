@@ -1317,6 +1317,18 @@ describe("M2 — mcpConfirmed", () => {
     expect(result.mcpConfirmed).toBe(true);
   });
 
+  test("an UNREADABLE ~/.claude.json is not an absent registration", async () => {
+    // `readMcp` reports `present: false` for a file that will not parse, and
+    // reading that as "nothing registered" confirmed a deregistration that
+    // never happened — which is what the destructive arms gate on.
+    await wire(input({ io: consoleWith().io }));
+    writeFileSync(mcpFile(), "{ not json");
+    const result = await unwire(
+      input({ io: consoleWith().io, spawner: spawnerThat(() => MISSING).spawner }),
+    );
+    expect(result.mcpConfirmed).toBe(false);
+  });
+
   test("a remove that exits non-zero with the registration still there is not confirmed", async () => {
     await wire(input({ io: consoleWith().io }));
     registration();

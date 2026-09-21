@@ -781,8 +781,12 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       return "refused";
     }
     if (input.park) {
-      for (const entry of plan.entries) {
-        const cross = sameFilesystemRefusal(entry.path);
+      // `plan.targets`, NOT `plan.entries`: when the directory moves whole it
+      // is the directory that is renamed, and checking only the things inside
+      // it left a `~/.counterparts` that is its own mount point to fail at
+      // `renameSync` with EXDEV instead of refusing up front.
+      for (const entry of plan.targets) {
+        const cross = sameFilesystemRefusal(entry);
         if (cross !== null) {
           io.err(cross);
           io.err("Nothing has changed.");
@@ -964,13 +968,23 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
  */
 function mcpPreflight(input: UninstallInput, home: string): string | null {
   const mcp = readMcp(home, input.env, input.config.dataDir ?? "", input.custom, input.exe);
-  if (!mcp.present) return null;
+  if (!mcp.present && !mcp.unreadable) return null;
+  // MISSING, HANGING **AND** ANGRY. A `spawnSync` that timed out comes back
+  // `missing: false, code: null`, and a `claude` that exits non-zero on a
+  // read-only `mcp list` is one that will not manage a removal either. Testing
+  // only `missing` meant a hung binary passed the pre-flight, the hooks came
+  // out, and the refusal landed thirty seconds later on the removal instead.
   const probe = input.spawner(["mcp", "list"]);
-  if (!probe.missing) return null;
+  if (!probe.missing && probe.code === 0) return null;
+  const why = probe.missing
+    ? "`claude` is not on this PATH"
+    : probe.code === null
+      ? "`claude` did not answer"
+      : `\`claude mcp list\` exited ${String(probe.code)}`;
   return (
-    `refused: ${mcp.file} still registers "${MCP_SERVER_NAME}", and \`claude\` is not on this ` +
-    "PATH, so it cannot be deregistered — this will not move or delete a store while something " +
-    "is still registered to open it. Put `claude` on your PATH, or run " +
+    `refused: ${mcp.file} ${mcp.unreadable ? "could not be read, so a registration may still be there" : `still registers "${MCP_SERVER_NAME}"`}, and ${why}, ` +
+    "so it cannot be deregistered — this will not move or delete a store while something may " +
+    "still be registered to open it. Fix that, or run " +
     `\`claude mcp remove ${MCP_SERVER_NAME} -s user\` yourself first, then run this again.`
   );
 }

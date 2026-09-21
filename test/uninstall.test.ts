@@ -1083,6 +1083,41 @@ describe("M2 — a registration that is still there blocks both arms", () => {
     expect(existsSync(base())).toBe(false);
   });
 
+  test("a `claude` that HANGS or is ANGRY refuses before anything is touched, too", async () => {
+    // A `spawnSync` that timed out comes back `missing: false, code: null`, and
+    // a `claude` that exits non-zero on a read-only `mcp list` will not manage
+    // a removal either. Testing only `missing` let a hung binary through the
+    // pre-flight, took the hooks out, and refused thirty seconds later.
+    for (const probe of [
+      { missing: false, code: null, out: "", err: "" },
+      { missing: false, code: 9, out: "", err: "broken" },
+    ] as const) {
+      await install();
+      await wireIt();
+      registration();
+      const c = consoleWith();
+      expect(await uninstall(input({ io: c.io, park: true, spawner: () => probe }))).toBe(
+        "refused",
+      );
+      expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+      expect(existsSync(base())).toBe(true);
+      rmSync(base(), { recursive: true, force: true });
+      rmSync(join(home, ".claude"), { recursive: true, force: true });
+      rmSync(join(home, ".claude.json"), { force: true });
+    }
+  });
+
+  test("an UNREADABLE ~/.claude.json blocks the moving arms rather than passing them", async () => {
+    await install();
+    await wireIt();
+    writeFileSync(join(home, ".claude.json"), "{ not json");
+    const missing: Spawner = () => ({ missing: true, code: null, out: "", err: "" });
+    const c = consoleWith();
+    expect(await uninstall(input({ io: c.io, park: true, spawner: missing }))).toBe("refused");
+    expect(text(c.err)).toContain("could not be read");
+    expect(existsSync(base())).toBe(true);
+  });
+
   test("the plain uninstall is NOT blocked — it moves nothing", async () => {
     await install();
     await wireIt();
