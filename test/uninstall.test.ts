@@ -598,6 +598,18 @@ describe("uninstall --delete-memories", () => {
     expect(said).toContain(REMOVE_PACKAGE);
   });
 
+  test("a store with NO memories never headlines a bare zero", async () => {
+    // A fresh install holds an identity core and no memories, so the whole
+    // warning used to be "this will delete 0 memories." while the store went.
+    await install();
+    const c = consoleWith([DELETE_PHRASE]);
+    expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
+    const warning = c.out.find((l) => l.includes("WARNING: this will delete")) as string;
+    expect(warning).toContain("your whole store");
+    expect(warning).toContain("no memories in it yet");
+    expect(warning).not.toContain("0 memories");
+  });
+
   test("the warning carries the count the ruling asks for, spelled with a comma", async () => {
     await install();
     await notes(3);

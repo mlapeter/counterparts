@@ -204,7 +204,14 @@ export function ownedKind(name: string, owned: OwnedNames): OwnedKind | null {
 // ── how much is about to go ─────────────────────────────────────────────────
 
 export type Census =
-  | { readonly kind: "memories"; readonly memories: number; readonly journal: number }
+  | {
+      readonly kind: "memories";
+      readonly memories: number;
+      readonly journal: number;
+      /** Beliefs, entities and the self page — `status`'s second population.
+       *  Reported so a warning is never the bare word "0" while a store goes. */
+      readonly schemas: number;
+    }
   | { readonly kind: "size"; readonly bytes: number; readonly why: string };
 
 /** Every byte under a path. Used for the printed plan and for the fallback when
@@ -287,6 +294,7 @@ export function censusOf(base: string, storeDir: string | null): Census {
       const denied = new Set(opened.deniedIds());
       let live = 0;
       let journal = 0;
+      let schemas = 0;
       for (const id of opened.list()) {
         const row = opened.row(id);
         if (row === undefined || denied.has(id)) continue;
@@ -296,10 +304,13 @@ export function censusOf(base: string, storeDir: string | null): Census {
           journal += 1;
           continue;
         }
-        if (row.type === "schema") continue;
+        if (row.type === "schema") {
+          schemas += 1;
+          continue;
+        }
         live += 1;
       }
-      return { kind: "memories", memories: live, journal };
+      return { kind: "memories", memories: live, journal, schemas };
     } finally {
       opened.close();
     }
@@ -312,14 +323,35 @@ export function censusOf(base: string, storeDir: string | null): Census {
   }
 }
 
-/** The warning's first line, in the ruling's own shape. */
+/**
+ * The warning's first line, in the ruling's own shape — `WARNING: this will
+ * delete 1,204 memories.` — with two departures the pty drive earned.
+ *
+ * The journal rides BESIDE the count rather than inside it, because it is a
+ * different population that is also going. And a store with **no memories yet**
+ * never headlines a bare `0`: a fresh install holds an identity core and no
+ * memories at all, so "this will delete 0 memories" was the whole warning while
+ * two hundred kilobytes of store went. That case leads with the store instead.
+ */
 export function censusLine(census: Census, where: string): string {
-  if (census.kind === "size") return `WARNING: this will delete ${where} (${humanBytes(census.bytes)}).`;
+  if (census.kind === "size") {
+    return `WARNING: this will delete ${where} (${humanBytes(census.bytes)}).`;
+  }
   const journal =
     census.journal === 0
       ? ""
       : ` + ${grouped(census.journal)} journal episode${census.journal === 1 ? "" : "s"}`;
-  return `WARNING: this will delete ${memories(census.memories)}${journal}.`;
+  if (census.memories > 0) {
+    return `WARNING: this will delete ${memories(census.memories)}${journal}.`;
+  }
+  const rest =
+    census.schemas === 0
+      ? ""
+      : `, only ${grouped(census.schemas)} belief${census.schemas === 1 ? "" : "s"} or entit${
+          census.schemas === 1 ? "y" : "ies"
+        }`;
+  const episodes = journal.replace(" + ", " and ");
+  return `WARNING: this will delete your whole store: no memories in it yet${rest}${episodes}.`;
 }
 
 // ── the plan ────────────────────────────────────────────────────────────────

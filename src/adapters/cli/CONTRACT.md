@@ -86,7 +86,7 @@ owner owns the data.
 data directory.
 *`wire`, `unwire` and `uninstall` are the first commands here that write a file belonging
 to another program, and `install` at a terminal now calls the first of them. Guarantees
-21–27 are what that costs. Like `start-fresh` they refuse `--dir` in words: what they act
+21–35 are what that costs. Like `start-fresh` they refuse `--dir` in words: what they act
 on is decided by the CONFIGURATION, because that is the file the hooks, the worker and the
 MCP server read.*
 *`start-fresh` is the second command in this module that asks a human before it acts, and
@@ -275,30 +275,62 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     configuration at all: it needs nothing out of the file, and the person most likely to
     be running it is somebody who deleted `~/.counterparts` by hand and now has five hooks
     firing at a store that is gone.*
-27. **[M] `uninstall` never touches memory unless a flag says so.** The default unwires,
-    reports where the memory is and how many memories are in it, and names
-    `bun remove -g counterparts` as the one step left. `--park` is ONE rename to
-    `<base>.parked-<date>` (`-2`, `-3` when taken) and prints the guarded `mv` that undoes
-    it; `--delete-memories` counts first, warns with the number, and takes `DELETE
-    MEMORIES` typed exactly — it has **no `--yes`** and refuses a console with nobody at
-    it. Both moving verbs run guarantee 18's ring against the CONFIGURATION DIRECTORY
-    (absolute / not a forbidden root by either spelling / not a filesystem root / not the
-    home / inside the home / not a symlink / actually holds `claude-code.json`) and both
-    REFUSE while a Counterparts MCP server, worker or dashboard from any install is
-    running, naming each one. *A store that will not open on this build — the old-floor
-    case, which is exactly the state somebody uninstalling after a bad upgrade is in —
-    gets a SIZE and the refusal's name instead of a count, because "0 memories" would be
-    the most dangerous sentence this command could print.*
+27. **[M] `uninstall` acts on an EXPLICIT LIST of what this package writes, never on
+    "the directory the configuration sits in".** The list is the configuration file and our
+    own temp and backup siblings of it, `credentials.env` (or whatever the configuration
+    NAMES, when that sits beside it), `scopes.json` and its siblings, the `snapshots/` this
+    layout owns, and the STORE at `dataDir` **wherever that is**. The configuration
+    directory itself moves or goes only when it holds nothing else — which keeps the
+    ordinary `~/.counterparts` a single atomic rename; when it holds anything foreign the
+    directory is never touched, our entries go one by one, and the foreign ones are NAMED.
+    `~/.claude`, the home directory, any parent of it and any directory holding a `.git`
+    are refused outright. *This is the 2026-09-21 blocker: `install --config` puts a
+    configuration anywhere, and the first version renamed Claude Code's own settings,
+    project transcripts and todos away under a heading that said "Your memory, parked",
+    then destroyed a `~/Documents` holding `taxes/` and `photos/` after warning about ONE
+    memory.*
+28. **[M] The whole plan — every path that will move or go, with its size — is PRINTED
+    before the confirm and before the typed phrase.** `--park` is `rename(2)` once per
+    thing and prints the guarded `mv` that undoes each; `--delete-memories` has no `--yes`,
+    counts first, and takes `DELETE MEMORIES` typed exactly. The closing sentence names
+    what actually went, path by path, and never says the memory is gone unless the store
+    itself went.
+29. **[M] The store is in that plan under its own ring** — absolute, not a forbidden root
+    by either spelling, not a filesystem root, not the home, inside the home, not a
+    symlink, and recognisable as a store by its own files — and a store that fails it is a
+    REFUSAL rather than something left behind. *The first version counted the store at
+    `dataDir`, deleted the configuration directory without it, and said the memory was
+    gone.*
+30. **[M] Both destructive arms refuse unless the MCP deregistration is CONFIRMED** —
+    `claude mcp remove` exited 0, or a read of the host's own file shows nothing registered.
+    A registration on disk plus a `claude` that is missing refuses BEFORE anything is
+    touched. *A server pointed at a store that is gone fails at every session start with
+    nothing on screen, which is the argument this module already made for the hooks.*
+31. **[M] The process check FAILS CLOSED on those two arms, and the lister says whether it
+    LOOKED.** No `ps`, a timeout, a sandbox that refuses process listing — each is "I could
+    not check" and refuses, naming `--nothing-is-open` as the explicit override
+    (`start-fresh`'s own flag and meaning). The override never excuses a check that FOUND
+    something. The plain uninstall and `wire` keep failing open: they move nothing.
+32. **[M] A hook entry is ours to rewrite only when the command IS our invocation** — our
+    runtime and our hook script, or the installed shim, optionally with `--config <path>`,
+    and never anything carrying a shell operator. Somebody's WRAPPER (`… && counterparts-hook`)
+    is left exactly where it is by both directions and named in one line. `doctor`'s
+    `readHost` keeps the looser mark for REPORTING, and a test holds the two to each other
+    in the direction that matters: everything `wire` writes is matched by both.
+33. **[M] The count in the warning is the number `status` calls Memories** — not archived,
+    not superseded, not a journal episode, not a schema row — with the journal reported
+    beside it. Taking it opens the store **under observer**, read-only, and `--park` never
+    opens it at all.
 
 ### What the merge with C and D added (2026-09-21)
 
-28. **[M] The install conversation's fourth step is `keys.ts#promptForKeys`**, called
+34. **[M] The install conversation's fourth step is `keys.ts#promptForKeys`**, called
     AFTER the configuration and the 0600 credentials file exist — `enableEmbedder` edits a
     configuration and never creates one. `PromptAborted` propagates out of it by that
     module's own argument and is caught HERE: the install says nothing else was changed,
     summarises what is on disk from the FILE rather than from the result it just lost, and
     exits non-zero.
-29. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
+35. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
     Until the three verbs above existed, the only thing this package could do about a
     missing or stale hook was print a block for the reader to paste; the fix line now names
     the command that does the paste — including for the STALE case, which `wire` repairs in

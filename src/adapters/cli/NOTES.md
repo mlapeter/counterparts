@@ -1273,3 +1273,69 @@ that only showed up there:
   will meet — but `columns: 0` means "I do not know", which is what `FALLBACK_WIDTH` is
   for, and it is a one-line change in a file this piece does not own. **Left for D**, and
   written down here rather than fixed in passing.
+
+### The adversarial review, and what it cost (2026-09-21)
+
+One blocker, three majors, eight minors, against the branch at `5680022`. Every one of
+B1, M1, M2 and M3 was reproduced again in a throwaway HOME before a line was changed;
+`repro.sh` and `repro2.sh` in the session scratchpad are the two harnesses.
+
+**B1 is the one worth remembering, and the lesson is not about uninstall.** The owner's
+ruling says "`--park` moves `~/.counterparts` aside". The code read that as "the directory
+the configuration sits in" — and `install --config <path>` is the supported way to put a
+configuration anywhere at all. So the review pointed one at `~/.claude` and watched this
+command rename Claude Code's settings, its project transcripts and its todos away under a
+heading that said **"Your memory, parked"**; then pointed one at `~/Documents` and watched
+`--delete-memories` destroy `taxes/` and `photos/` after warning about **one memory**.
+
+The mistake was naming the subject by its LOCATION. A directory is whatever somebody put
+in it; a list of filenames is a thing this package can actually be said to own. So the
+subject is now `ownedNames` + `ownedKind`: the configuration and our own temp and backup
+siblings, the credentials file the configuration names, `scopes.json`, the `snapshots/`
+this layout owns, and the store at `dataDir`. The directory itself is acted on only when
+`readdirSync` of it turns up nothing else — which is the ordinary `~/.counterparts` and
+keeps it one atomic rename — and otherwise it is left, our entries go one by one, and the
+foreign names are printed. Four directories are refused whatever they hold: `~/.claude`,
+the home, any parent of it, and anything with a `.git` in it.
+
+**The generalisation, for whoever writes the next destructive verb here:** name what you
+own, then check that the ground holds nothing else. Do not name a place and assume it is
+yours.
+
+**M1 was the same error facing the other way.** `dataDir` can point anywhere, so the store
+is not reliably "in there" either: the command counted the memories at `dataDir`, deleted
+the configuration directory without them, and told the person their memory was gone while
+it sat intact on disk. Both halves of that are sentences somebody acts on — one is a
+privacy claim, the other is "nothing can bring it back" when everything can. The store is
+now its own entry in the plan, under its own ring, and the closing lines name what actually
+went rather than what the verb is called.
+
+**M2 and M3 are the same shape as each other: a guard that could not tell "no" from "I
+could not ask".** `unwire` reported `ok` when `claude` was missing, so the irreversible arm
+ran and left a registration pointing at a store that no longer existed — the exact failure
+this file already refuses to allow for the hooks. And `realProcessLister` answered `[]` for
+a missing `ps`, a timeout and a sandbox that refuses process listing, so a box with no `ps`
+parked a store and said nothing about not having looked. Both now carry the distinction in
+the type: `WireResult.mcpConfirmed`, and `ProcessSighting.looked`. `--nothing-is-open` is
+the way past the second — the same flag and the same meaning `start-fresh` gives it — and
+it never excuses a check that found something.
+
+**One correction the repro caught on the way.** The first cut of the MCP pre-flight asked
+for `claude` unconditionally, which refused every `--park` on a box that had never wired
+anything. It bites only when a registration is actually on disk now. A guard that fires on
+the innocent case is one people learn to work around, which is the same sentence
+`commands.ts` already makes about `COUNTERPARTS_CONFIG`.
+
+**m1 is the only minor with a design in it.** `HOOK_COMMAND_MARK` answers the question
+`doctor` asks — is a hook of ours installed on this event? — and it is right that it
+matches `~/bin/log-start.sh && counterparts-hook`, because that line really does run our
+hook. It is the wrong question for a WRITE: `wire` overwrote that wrapper with ours alone
+and `unwire` deleted the other one outright. `isOurHookCommand` is the write-side question,
+and it is exact: our runtime and our hook script, or the shim, optionally `--config <path>`,
+and nothing carrying a shell operator. A wrapper is left alone in both directions and named
+in one line. The two are held to each other by a test in the direction that matters —
+everything `wire` writes matches both — so a hook we installed can never read as missing.
+
+**Declined:** m7 (`terminalWidth` flooring a zero-column terminal at 30) stays with the
+docs builder, as the coordinator directed. The five NITs are not addressed here; n3 and n4
+are real and small, and n1's re-serialisation is the documented cost of editing JSON.
