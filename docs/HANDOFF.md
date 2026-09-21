@@ -1,5 +1,67 @@
 # Handoff — resume here
 
+## 2026-09-21, night — read this first: 0.1.0 IS ON NPM AND RUNNING HERE; 0.2.0 IS MERGED, NOT PUBLISHED, WAITING FOR THE OWNER'S TRIAL
+
+**Everything below this section describes the arrangement before 2026-09-21 and is history.** The
+cut-over runbook in the next section was never run: the owner chose instead to publish to npm and
+install as a stranger. What is true now:
+
+- **`counterparts@0.1.0` is published on npm** (2026-09-21, ~16:42 UTC; registry sha1 `9bd3ae1b…`,
+  195 files, MIT). The owner runs it **from the npm install** (`~/.bun/install/global/node_modules/
+  counterparts`), on a store he started blank that day at `~/.counterparts`. His pre-npm memory
+  (16,973 rows) is parked, untouched, at `~/.counterparts.parked-2026-09-21`. bansai's hooks are off.
+  `~/counterparts` is the development repo and nothing more — no pin, no "live checkout", and
+  `tools/deploy-checkout.sh` has nothing to deploy to.
+- **0.2.0 is merged to master** (code at `f89e150`; `b470349` and after are docs only). The coordinator's
+  run on a clean detached checkout: **3043 pass / 0 fail, `tsc` clean, install loop 58/58.** What it
+  adds — all from `docs/new-user-findings.md`, which holds the owner's day-1 findings, his rulings,
+  and the plan: an `install` that asks (name; wire Claude Code after a preview and a backup; two
+  optional keys, each with a one-line reason, a link, Enter to skip); `wire` / `unwire` /
+  `uninstall` (keeps memory by default; `--park`; `--delete-memories` prints the plan, counts, and
+  takes the typed phrase `DELETE MEMORIES`; both moving arms refuse while a Counterparts process
+  runs and fail closed); `credentials set` prompting with hidden input; a 39-line grouped `--help`
+  with `help <command>`; a coloured, folded doctor and status on a terminal only; doctor's window
+  clamped to the store's first day; the README leading with three install lines and a QUICKSTART
+  whose main path is 169 lines. Adversarial review of the host-editing piece:
+  `docs/adversarial-review-onboarding-ab-2026-09-21.md` — 1 BLOCKER (`--delete-memories` removed
+  the whole directory the configuration sat in), 3 MAJOR, 8 MINOR, all closed; the coordinator
+  re-ran the BLOCKER's repro on a pty against the fix.
+- **NOT published.** The owner tries it first from a local tarball so a bad round costs no npm
+  version: `~/counterparts-backups/2026-09-21-0.2.0-trial/counterparts-0.2.0.tgz` (built from
+  `f89e150` with `git archive` + `npm pack`; 201 files; scanned — no keys, home paths, emails or
+  memory ids) and his sheet `TRIAL-0.2.0.md` beside it: Claude Code fully closed → `bun remove -g
+  counterparts` → `bun add -g <that file>` → `counterparts uninstall --park` → `counterparts
+  install` → restart → `doctor`. (`bun add -g <file>` over a registry install fails with
+  `DependencyLoop` — hence the remove first.) A full dress rehearsal of that sequence was run from
+  the packed file in a throwaway HOME with a stub `claude`, on a pty: install, doctor, park, fresh
+  install, a second install (nothing re-asked, config byte-identical), a second park (`-2` suffix).
+
+**Next session, in order:** (1) ask the owner how the trial went; collect what he found into
+`docs/new-user-findings.md`. (2) Fix it; if any shipped file changes, rebuild the tarball from master
+(`git archive origin/master | tar -x`, `npm pack`), re-scan it, and re-run the suite on a clean
+detached checkout. (3) **Publish only on his word:** `npm publish <the tarball's absolute path>` —
+never from a working folder. (4) The day it is published, run the never-yet-run registry upgrade
+(`bun add -g counterparts@latest` from a machine on 0.1.0 — finding 15). (5) Then the next round,
+from the "For the next round" list in the findings doc: #16 the keyless write-up of a silent
+session (the owner's question; would make the Anthropic key a true extra), #13 pacing for the Stop
+ask, #8 for stores 0.1.0 made, a store outside the home, the review's NITs, and whether to collapse
+`--help`'s Advanced group. Then the website and Reddit.
+
+**Housekeeping owed:** `~/counterparts` sits detached at `40f92ae` — `git checkout master && git pull`
+when convenient. The 2026-09-21 agent worktrees (`.claude/worktrees/agent-a38c…`, `a892…`, `aab4…`,
+`a210…`, `a0d5…`, `acae…`) and `onboarding`, `coord-trial` can be removed; the older ones too.
+Rollback kits: `~/counterparts-backups/2026-09-21-pre-fresh/` (the pre-npm wiring, with a
+FRESH-START.md that lists exactly what was removed) and `…/2026-09-21-npm-publish/` (the 0.1.0
+tarball as published).
+
+**Standing rules that changed today:** there is no live checkout to protect any more, and merges to
+master need only the suite green on a clean detached checkout plus a review where the code edits
+a stranger's machine or touches their data. Deploys and publishes still need the owner's word.
+The two safety rules in `CLAUDE.md` (hermetic tests; never touch the live stores) are unchanged,
+and `~/.counterparts` is now the owner's live store under the npm build — never open it from a
+session or a test.
+
+
 ## 2026-09-20, evening — read this first: THE PLAN IS BUILT AND MERGED; the live store is pinned on the old floor; CUT-OVER DAY is the owner's word
 
 **State.** master = `bbfdc32` — the coordinator's run on a clean detached checkout AT `origin/master`: **2749 pass / 0 fail /
