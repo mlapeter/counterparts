@@ -1022,3 +1022,88 @@ doctor line cannot drift apart silently.
 point binds it when the first command needs it. `ui.ts` is likewise not re-exported from
 `index.ts`: commands import `./ui.js` directly, and there is no reason yet to make it part
 of this package's public surface.
+
+## 2026-09-21 — the help split, and "plain output never changes"
+
+**The two findings.** New-user #4: `counterparts --help` was 129 lines of dense
+paragraphs, and it is the SECOND thing a stranger types — the "did that install work?"
+check. New-user #5: `doctor` and `status`, the two commands that check an install, printed
+a dense block of long unbroken lines with no spacing and no colour.
+
+**The help split.** Two pages, each answering exactly one question.
+`counterparts --help` / `counterparts help` / a bare invocation print `help.ts#shortHelp`:
+one line of what this is, then every command grouped by what a person came to do
+(Everyday / Setup / Your data / Advanced), ONE short line each, then where to go for more.
+Thirty-nine lines. `counterparts help <command>` and `counterparts <command> --help` print
+the same page they always did — `commandHelp` — now with the paragraphs the old `usage()`
+carried, out of `help.ts#COMMAND_DETAIL`.
+
+**Nothing was deleted to make the short page short.** Every sentence the old page held is
+in `COMMAND_BLURB`, in `FLAG_HELP` (so it prints beside the flag it is about), or in
+`COMMAND_DETAIL`. `test/help.test.ts` holds a list of phrases lifted out of the old page
+and asserts each one still prints on the page of the command it was about — the guard on
+the one real risk of the split, which is that "move it" quietly became "drop it".
+
+**Totality, mechanized.** `test/help.test.ts` walks `COMMANDS` and fails on a command with
+no short line or no page, and holds the descriptions to `SHORT_LIMIT`. A command cannot be
+added to this console now without help for it, which is exactly how the old page drifted.
+`help` itself is a command — it is dispatched, it has a page, and it is one of two commands
+(`start-fresh` is the other) whose synopsis does not offer `--dir`, because it opens
+nothing. It is handled in `run()` immediately after `unknownFlag` and before the stance and
+the config are read, so a shell with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` armed can still
+ask what the commands are.
+
+**`help.ts` imports nothing but types from `commands.ts`**, which imports it. Its tables
+are keyed by plain strings for that reason, and the check that ties them to `COMMANDS`
+lives in the test, where both sides can be named at once.
+
+**PLAIN OUTPUT NEVER CHANGES — not a byte.** This is the whole safety property of
+`report.ts`, and it is what makes a second layout safe to have at all. A pipe, a test
+console, a CI job, `tools/install-loop/run.sh`, `--json`: every one of them gets exactly
+what it got before, from exactly the function that produced it before — `doctor` calls
+`reportLines` from inside `printDoctorReport`, and `status` carries its old `io.out`
+sequence as `StatusView.plain` rather than rebuilding it, because the only way to promise
+byte-identity is to keep the bytes. The laid-out arm is reached only when `ui.ts` says this
+console is a terminal (`io.tty`) or has asked for colour anyway (`FORCE_COLOR`).
+`test/report.test.ts` asserts the equality both ways.
+
+What the terminal arm adds to `doctor`: the same worst-first order (`worstFirst`, which
+QUICKSTART §12 documents — unchanged), one BLANK LINE between the reds, the ambers and the
+greens, the grade word in colour AND in words, the fix dim on its own line in the constant
+gutter, and a message folded with a hanging indent instead of wrapping back to column zero
+where it reads as a new finding. The summary is coloured by the worst thing in the report.
+For `status`: four labelled blocks with one aligned column each — not one column for the
+page, which would read as a table with a meaning it does not have — and `by kind` / `by
+band` emitted VERBATIM, because their own double-space grouping is the layout and a greedy
+fold rejoins on single spaces.
+
+**One dependency, stated because the colour is inert without it.** `bin/counterparts.ts`
+does not set `io.tty` yet; the builder who owns that file binds it with the hidden prompt.
+Until then the laid-out arm is reachable from a test, from a library caller that supplies
+`tty`, and from `FORCE_COLOR=1` (colour, no fold — `ui.ts` decides the two separately, so
+every existing grep keeps working).
+
+**Two doctor findings, both the same shape: a true sentence that reads as a fault.**
+New-user #8 — the Authorship line reported a seven-day window on a store made that morning.
+The window is not wrong about what it LOOKED at; it is wrong about what it could have seen,
+and a reader cannot tell the two apart. The store now records the day it was made
+(`core/store#STORE_CREATED_KEY`, written only by the open that CREATED the file, `OR
+IGNORE` on top of that, so a store that was already there is never stamped with a day it
+did not begin on), and `doctor` clamps the window it SAYS — never the window it reads, so
+no count and no grade moves — to that day, or to `start-fresh`'s `store.started`, whichever
+is earlier. A day at or before the window start changes nothing; a day after `today` is a
+clock nobody should trust and changes nothing either, which is also what every synthetic
+test store looks like. A store made before this key existed has no evidence, so the
+sentence is the one it always was: a reading that guessed would be worse than one that
+declines to. Deliberately NOT read as evidence: a memory's `learned_on` (an imported store
+carries dates from long before it existed) and the oldest event row's date (`rowDate`
+prefers the payload's own `date` field, which is the date the event is ABOUT).
+
+New-user #9 — after a key was added the Sweep line went on saying AMBER `reason
+no-credential` until the next boundary, with a fix line telling the reader to do the thing
+they had just done. The gate row is the newest sweep, not the current state of the machine.
+So: the newest row says it stood down for want of a key AND the credentials file holds one
+now → GREEN, saying which two facts it is looking at, and no fix, because there is nothing
+to do. A standing amber nobody can clear is how a person learns to read amber as
+decoration. Every other stand-down reason is untouched, and the credential comes from the
+FILE and never from the environment, which is the rule `credentialFindings` already keeps.
