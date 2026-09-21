@@ -42,7 +42,7 @@ import {
 import type { Handoff } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
-import { Store } from "../src/core/store/index.js";
+import { Store, dateOf } from "../src/core/store/index.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
@@ -56,6 +56,10 @@ const HERE = "/tmp/placeholder-project-a";
 const THERE = "/tmp/placeholder-project-b";
 const BODY = "Placeholder: the parser rewrite is half done; the failing case is the empty input.";
 const BODY_TWO = "Placeholder: the parser rewrite landed; next is the error messages.";
+// A handoff is stamped from the store's own clock (`store.today()`), not from the
+// date a wake is composed for — so the pointer's date is the day the suite runs.
+// Pinning it to the day these tests were written made them fail the next morning.
+const WRITTEN_ON = dateOf(Date.now());
 
 let dir: string;
 let priorEnv: string | undefined;
@@ -381,7 +385,7 @@ describe("the pointer at the wake", () => {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const woke = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE, session: "s2" });
     const id = c.readHandoff(HERE)?.id as string;
-    expect(woke.text).toContain("Where I left off in this directory (2026-09-20):");
+    expect(woke.text).toContain(`Where I left off in this directory (${WRITTEN_ON}):`);
     expect(woke.text).toContain(BODY);
     expect(woke.text).toContain(id);
     expect(woke.text).toContain("expand it with the counterparts recall tool");
@@ -1280,7 +1284,7 @@ describe("the session that writes it and the session that reads it", () => {
         at: "2026-09-20",
       });
       expect(out.ok).toBe(true);
-      expect(out.injection).toContain("Where I left off in this directory (2026-09-20):");
+      expect(out.injection).toContain(`Where I left off in this directory (${WRITTEN_ON}):`);
       expect(out.injection).toContain(BODY);
       // The sentinel the hook records as the delivery expectation is the
       // DELIVERED one — the pointer included.

@@ -178,11 +178,11 @@ export const TUNABLES: RecallTunables = {
   //     of this rule and is not a substitute for the first.
   //   - every b >= 0.5 takes hub hits to zero, at every cap and either sidedness.
   //     So b is chosen on what it COSTS, and the labeled positives decide:
-  //     b = 1.0 loses `mem_8fb634c2783e` (the School-of-Life passage) from the
-  //     deliberate answer; cap = 2 loses `mem_0d42a06a737977c9` from it.
+  //     b = 1.0 loses one labeled positive (a long quoted passage) from the
+  //     deliberate answer; cap = 2 loses a second one from it.
   //   - ONE cell in the grid delivers an AMBIENT labeled positive —
-  //     one-sided, b = 0.5, cap = 3, which footnotes `mem_e64f1a8b2d77` (the
-  //     owner's correction about anchoring on the first-stated goal) on turn 4.
+  //     one-sided, b = 0.5, cap = 3, which footnotes a third (a correction the
+  //     owner once gave) on turn 4.
   //     Nothing else in 23 cells does, and "0 of 9 delivered footnotes were
   //     relevant" is the finding this change exists to move. It also carries the
   //     fewest recurring ids of the hub-free cells (7 ids / 33 of 79 deliveries,
