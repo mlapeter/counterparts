@@ -1,6 +1,6 @@
 {
   "name": "counterparts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Memory that turns AI tools into counterparts - a local-first, human-memory-modeled memory layer for AI.",
   "repository": {

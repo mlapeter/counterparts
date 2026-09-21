@@ -11,12 +11,21 @@
  * removal requires an interactive confirmation (§5 G2). A non-interactive run
  * (a pipe, a CI job) has no prompt, and removal REFUSES there rather than
  * proceeding unconfirmed.
+ *
+ * Since 2026-09-21 it binds two more things, both from `ui.ts` and both
+ * additive: the NO-ECHO read (`promptHidden`), so `credentials set` can take a
+ * key from the person standing at the terminal without putting it in a
+ * scrollback buffer, and what the host knows about its TERMINAL (`tty`), which
+ * is the only input `ui.ts` decides colour, wrapping and interactivity from.
+ * Neither changes a non-interactive run: a pipe reports no terminal, and every
+ * gate in `ui.ts` is false when it does.
  */
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { run } from "../commands.js";
+import { PromptAborted, hiddenPrompt } from "../ui.js";
 
 /** Everything piped in, as one string. Never logged, never echoed: the one
  *  caller is `credentials set`, and what comes through here is a secret. */
@@ -26,10 +35,42 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * One line of text, and **Ctrl-C is not an answer** (review m4).
+ *
+ * `readline` closes on SIGINT and on EOF, and the first version of this simply
+ * never resolved: the process ended silently with **exit 0**. At the name
+ * prompt nothing had been created yet; at the wire question the store, the
+ * config and the 0600 credentials file all existed and nothing said so — and a
+ * `&&` chain or a wrapper script reads exit 0 as "installed".
+ *
+ * So both endings reject with the same `PromptAborted` the hidden reader
+ * already throws, and every caller's existing handling — "stopped; nothing else
+ * was changed", a non-zero code — applies to them without a line of new
+ * branching. `close` fires after `line` too, so the resolve latches.
+ */
 function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolveAnswer) => {
+  return new Promise((resolveAnswer, rejectAnswer) => {
+    let settled = false;
+    rl.on("SIGINT", () => {
+      if (settled) return;
+      settled = true;
+      // The newline the echo would have written, so the refusal does not land
+      // on the same line as the question.
+      process.stdout.write("\n");
+      rl.close();
+      rejectAnswer(new PromptAborted("interrupt", "cancelled."));
+    });
+    rl.on("close", () => {
+      if (settled) return;
+      settled = true;
+      // EOF with no line: stdin closed under us. Not an answer either.
+      rejectAnswer(new PromptAborted("interrupt", "the input ended before the question was answered."));
+    });
     rl.question(question, (answer) => {
+      if (settled) return;
+      settled = true;
       rl.close();
       resolveAnswer(answer);
     });
@@ -48,6 +89,26 @@ async function main(): Promise<number> {
       // Interactive only. `process.stdin.isTTY` is the host telling us whether
       // a human is there; absent, the prompt is not offered at all.
       ...(process.stdin.isTTY ? { prompt: ask } : {}),
+      // THE NO-ECHO READ, bound to the real streams (2026-09-21, finding #2).
+      // `ui.ts` shipped `hiddenPrompt` unwired; `credentials set` is the first
+      // command that needs it, and the install prompts are the second. Bound
+      // UNCONDITIONALLY, unlike `prompt`: `askHidden` is reached only from an
+      // arm that has already established there is a terminal, and a
+      // `promptHidden` that existed only on a terminal would make the seam's
+      // own refusal (`no-hidden-input`) unreachable where it matters.
+      promptHidden: hiddenPrompt(process.stdin, process.stdout),
+      // WHAT THIS HOST KNOWS ABOUT ITS TERMINAL — the one input `ui.ts` decides
+      // colour, wrapping and "is anyone there" from. A pipe reports neither
+      // stream as a terminal, so `isInteractive` is false, nothing wraps,
+      // nothing colours and nothing asks: every scripted caller, the install
+      // loop included, keeps exactly the bytes it had.
+      tty: {
+        stdin: process.stdin.isTTY === true,
+        stdout: process.stdout.isTTY === true,
+        ...(typeof process.stdout.columns === "number"
+          ? { columns: process.stdout.columns }
+          : {}),
+      },
     },
     // STANDARD INPUT, for the one command that takes its argument that way
     // (`credentials set`, whose value must never be argv). Read lazily: nothing

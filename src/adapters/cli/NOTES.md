@@ -508,7 +508,7 @@ confirmation. A command that performs a BULK WRITE always requires the `--dir`
 FLAG; neither `--yes` nor `COUNTERPARTS_DATA_DIR` stands in for it. Ordinary
 per-memory commands — `note`, `recall`, `remove`, `init`, `install`, `status`,
 and `verify` without a writing flag — keep today's behaviour: the variable names
-their store, which is what QUICKSTART §3 teaches. The distinction is blast
+their store, which is what QUICKSTART §3a teaches. The distinction is blast
 radius, not "writes": an exported variable is a shell's memory of where a store
 lives, and a rewrite of the whole store asks for a sentence typed about THIS
 rewrite.
@@ -934,3 +934,433 @@ target path.** Where the owner sent his memories is more than the row needs to
 prove the door works (§5 G10), and the terminal has already told him. F2's blind
 `backup` row and its "one `store.backup` event would fix it" are untouched:
 that is a different door and still an open gap.
+
+---
+
+## 2026-09-21 — `ui.ts`, the shared primitives the 0.2 install flow is built from
+
+**What it is.** One file — `src/adapters/cli/ui.ts`, zero runtime dependencies — holding
+the console's manners: whether there is a person to ask, whether to colour, how to ask,
+how to read a secret without echoing it, and how to lay a short line out. Four builders
+are about to add interactive commands (wiring, uninstall, the credential prompts, the
+reshaped `--help` and `doctor`), and a person should meet ONE set of manners, not four.
+This change adds the module and its tests and nothing else: no command's behaviour or
+output moved.
+
+**The rules it exists to hold.**
+
+- **Not a terminal → exactly as today.** `isInteractive` needs four things at once: the
+  caller did not pass its own opt-out flag, `io.prompt` exists, stdin AND stdout are
+  terminals, and `CI` is unset. Every existing test console fails the third, so it is
+  false everywhere it is false today. Nothing here wraps, colours or asks when it is
+  false, and pipes keep one logical line per item — which is what the suite's greps and
+  `tools/install-loop/run.sh` read.
+- **`NO_COLOR` is obeyed** (https://no-color.org) and its value is never interpreted:
+  `NO_COLOR=0` means no colour. Empty string reads as unset, which is the reading
+  `dashboard/ansi.ts` already takes — one repo should not hold two definitions of one
+  variable. `FORCE_COLOR` (non-empty, not `0`) turns colour on for a pipe; `TERM=dumb`
+  turns it off for a terminal.
+- **Colour and wrapping are decided separately.** Wrapping keys off `io.tty.stdout`
+  alone, so `FORCE_COLOR` on a pipe gives escapes and still one logical line. A grep that
+  works today cannot be broken by somebody's environment.
+- **A hidden value is never written.** `askHidden` returns it and writes nothing but the
+  question and one newline — not to `io.out`, not to `io.err`, not into an error message.
+- **Nothing proceeds unconfirmed.** With no `io.prompt`, `confirm` is `false` and `typed`
+  is `false` whatever their default says; `ask` alone falls back to its default, because a
+  name is a value and not a consent.
+
+**What `Io` gained** (`commands.ts`), both optional and both additive, so every existing
+caller and test compiles and behaves unchanged:
+
+- `promptHidden?: (question) => Promise<string>` — the same read without echo.
+- `tty?: { stdin, stdout, columns? }` — what the host knows about its terminal. ABSENT
+  means "not a terminal", which is the truth for every pipe and every test console.
+
+**The trap in that seam, stated because somebody will hit it.** A test that drives the
+interactive arm by setting `tty: { stdin: true, stdout: true }` must ALSO supply
+`promptHidden`, or `askHidden` REFUSES (`PromptAborted`, reason `no-hidden-input`) instead
+of falling back to the echoing reader. That refusal is the no-echo rule defending itself:
+the fallback to `io.prompt` is offered only to a console that has told us it is not a
+terminal, where there is no terminal to echo to.
+
+**Ctrl-C throws rather than returning a null.** `PromptAborted` with reason `interrupt`,
+after the terminal is restored. A nullable return would have turned a forgotten check into
+"the person skipped it" — which, at a key prompt, is an install that quietly continues
+without the key somebody was in the middle of cancelling. Uncaught, it still exits
+non-zero through the `bin/` entry's own rejection handler.
+
+**What the raw reader had to get right**, each one a way to lose a credential silently:
+Enter in raw mode is `\r` and not `\n` (a reader waiting for `\n` hangs forever); a paste
+arrives as ONE chunk, key and newline together; backspace (`\x7f` and `\b`) must work or a
+typo in a 100-character key can only be fixed by starting again; an escape sequence is
+swallowed WHOLE, because dropping only the ESC byte leaves `[A` inside a value nothing
+echoes; `setEncoding` is never called, since it is sticky on the stream
+`bin/counterparts.ts` also reads for `credentials set`; and the terminal is restored, the
+listener detached and the stream paused on every exit path — Enter, Ctrl-C, Ctrl-D, `end`,
+`error` — or the process does not exit.
+
+**Two of those the first round got wrong, and the review caught**, both in the same class:
+
+- **An `error` is not a submit.** It was bound to the same handler as `end`, so a stream
+  that failed halfway through a key would have RESOLVED with the half, and
+  `credentials set` would have written a truncated credential that reads as present and
+  fails at every boundary. That is I32's shape, minted fresh. `end` resolves (an EOF is a
+  submit); `error` aborts.
+- **Ctrl-C is checked before the escape state machine**, from every state. Underneath it,
+  the abort was swallowed as "the character after a bare ESC" — so a person who pressed an
+  arrow key and then gave up could not give up.
+
+**`statusLine` is held to `claude-code/doctor.ts`.** Its two columns are that file's
+`SEVERITY_COLUMN` and `TITLE_COLUMN`, its fix line is the same 18 spaces, and it keeps the
+2026-09-20 rule that a label as wide as its column still gets its space (without it,
+`AMBER Journal modewal`). `test/ui.test.ts` renders five findings through both `reportLines`
+and `statusLine` and asserts the plain arm is byte-identical, so the two renderings of one
+doctor line cannot drift apart silently.
+
+**Not wired.** `hiddenPrompt(input, output)` builds a real no-echo reader over
+`process.stdin`/`process.stdout`, and `bin/counterparts.ts` does NOT use it yet — the entry
+point binds it when the first command needs it. `ui.ts` is likewise not re-exported from
+`index.ts`: commands import `./ui.js` directly, and there is no reason yet to make it part
+of this package's public surface.
+
+## 2026-09-21 — `keys.ts`: the terminal is where a key comes from (findings 2 and 3)
+
+**What changed.** `credentials set <NAME>` reads the key from the person standing at the
+terminal, without echo; `keys.ts#promptForKeys` is the install step that asks for both
+keys; `bin/counterparts.ts` binds the two `Io` members `ui.ts` shipped and nobody had
+wired yet (`promptHidden` and `tty`).
+
+**Why the refusal was there, and why it goes.** `credentials set` refused a terminal
+because a terminal with nothing piped into it BLOCKS, and a console that hangs waiting for
+a secret is one people Ctrl-C before typing the key on the command line instead. That
+reasoning was right and the fix was the wrong half of it: the answer to "it would block"
+is to ASK, not to refuse. The refusal is still there, word for word, for every console
+that is not a terminal — `isInteractive` wants `io.prompt`, both streams to be terminals
+and `CI` unset, so a pipe, a CI job, `tools/install-loop/run.sh` and every test console
+fall through to it. `--stdin` and `--from-env` fall through too: both name a source, and a
+caller who named one gets it.
+
+**The one place the two arms answer differently: an empty value.** A pipe that carried
+nothing is a script that went wrong (`refused`, exit 2). A person who pressed Enter has
+SKIPPED — "skipping is always offered and always fine" (the owner, 2026-09-21) — and that
+exits 0 having written nothing. Same for both keys in `promptForKeys`.
+
+**`writeCredential` moved here from `commands.ts`**, unchanged. Two doors now write a key
+(the command and the install prompts) and there should be exactly one function in this
+package that puts a secret on disk. It also keeps the import one-way: `keys.ts` imports
+only a TYPE from `commands.ts`, the way `ui.ts` does, so `commands.ts` can import back
+without minting an ESM cycle.
+
+**A key is not consent to embed.** A Voyage key sets nothing but the key. The knob moves
+only after `Turn on recall by meaning now?` is answered yes, and then into the exact shape
+`loadConfig` reads and `doctor`'s fix line names — `"embedder": { "enabled": true }`.
+The edit parses the existing config, sets that one field and renames a sibling over the
+target: `writeOnce` writes straight over the file, and a crash mid-write leaves the config
+every hook reads EMPTY, which is I32's shape aimed at a different file. It never CREATES a
+config; a config invented there would name no store.
+
+**Two judgement calls worth knowing.** A pasted value with a space in it is NOT written —
+a credential that is present and broken fails at every boundary while reading as
+configured, which is worse than absent, and the console says so without echoing what was
+typed. A value whose prefix is not `sk-ant-` / `pa-` is WARNED about and saved anyway: a
+prefix is a convention, nothing here calls the network, and a key this console rejected
+for looking wrong is a key the person has to work around.
+
+**Ctrl-C propagates out of `promptForKeys`** rather than coming back as "skipped", for the
+reason `ui.ts` gives. A key written before the abort stays written — it is on disk, and
+saying otherwise would be the lie.
+
+## 2026-09-21 — the help split, and "plain output never changes"
+
+**The two findings.** New-user #4: `counterparts --help` was 129 lines of dense
+paragraphs, and it is the SECOND thing a stranger types — the "did that install work?"
+check. New-user #5: `doctor` and `status`, the two commands that check an install, printed
+a dense block of long unbroken lines with no spacing and no colour.
+
+**The help split.** Two pages, each answering exactly one question.
+`counterparts --help` / `counterparts help` / a bare invocation print `help.ts#shortHelp`:
+one line of what this is, then every command grouped by what a person came to do
+(Everyday / Setup / Your data / Advanced), ONE short line each, then where to go for more.
+Thirty-nine lines. `counterparts help <command>` and `counterparts <command> --help` print
+the same page they always did — `commandHelp` — now with the paragraphs the old `usage()`
+carried, out of `help.ts#COMMAND_DETAIL`.
+
+**Nothing was deleted to make the short page short.** Every sentence the old page held is
+in `COMMAND_BLURB`, in `FLAG_HELP` (so it prints beside the flag it is about), or in
+`COMMAND_DETAIL`. `test/help.test.ts` holds a list of phrases lifted out of the old page
+and asserts each one still prints on the page of the command it was about — the guard on
+the one real risk of the split, which is that "move it" quietly became "drop it".
+
+**Totality, mechanized.** `test/help.test.ts` walks `COMMANDS` and fails on a command with
+no short line or no page, and holds the descriptions to `SHORT_LIMIT`. A command cannot be
+added to this console now without help for it, which is exactly how the old page drifted.
+`help` itself is a command — it is dispatched, it has a page, and it is one of two commands
+(`start-fresh` is the other) whose synopsis does not offer `--dir`, because it opens
+nothing. It is handled in `run()` immediately after `unknownFlag` and before the stance and
+the config are read, so a shell with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` armed can still
+ask what the commands are.
+
+**`help.ts` imports nothing but types from `commands.ts`**, which imports it. Its tables
+are keyed by plain strings for that reason, and the check that ties them to `COMMANDS`
+lives in the test, where both sides can be named at once.
+
+**PLAIN OUTPUT NEVER CHANGES — not a byte.** This is the whole safety property of
+`report.ts`, and it is what makes a second layout safe to have at all. A pipe, a test
+console, a CI job, `tools/install-loop/run.sh`, `--json`: every one of them gets exactly
+what it got before, from exactly the function that produced it before — `doctor` calls
+`reportLines` from inside `printDoctorReport`, and `status` carries its old `io.out`
+sequence as `StatusView.plain` rather than rebuilding it, because the only way to promise
+byte-identity is to keep the bytes. The laid-out arm is reached only when `ui.ts` says this
+console is a terminal (`io.tty`) or has asked for colour anyway (`FORCE_COLOR`).
+`test/report.test.ts` asserts the equality both ways.
+
+What the terminal arm adds to `doctor`: the same worst-first order (`worstFirst`, which
+QUICKSTART §12 documents — unchanged), one BLANK LINE between the reds, the ambers and the
+greens, the grade word in colour AND in words, the fix dim on its own line in the constant
+gutter, and a message folded with a hanging indent instead of wrapping back to column zero
+where it reads as a new finding. The summary is coloured by the worst thing in the report.
+For `status`: four labelled blocks with one aligned column each — not one column for the
+page, which would read as a table with a meaning it does not have — and `by kind` / `by
+band` emitted VERBATIM, because their own double-space grouping is the layout and a greedy
+fold rejoins on single spaces.
+
+**One dependency, stated because the colour is inert without it.** `bin/counterparts.ts`
+does not set `io.tty` yet; the builder who owns that file binds it with the hidden prompt.
+Until then the laid-out arm is reachable from a test, from a library caller that supplies
+`tty`, and from `FORCE_COLOR=1` (colour, no fold — `ui.ts` decides the two separately, so
+every existing grep keeps working).
+
+**Two doctor findings, both the same shape: a true sentence that reads as a fault.**
+New-user #8 — the Authorship line reported a seven-day window on a store made that morning.
+The window is not wrong about what it LOOKED at; it is wrong about what it could have seen,
+and a reader cannot tell the two apart. The store now records the day it was made
+(`core/store#STORE_CREATED_KEY`, written only by the open that CREATED the file, `OR
+IGNORE` on top of that, so a store that was already there is never stamped with a day it
+did not begin on), and `doctor` clamps the window it SAYS — never the window it reads, so
+no count and no grade moves — to that day, or to `start-fresh`'s `store.started`, whichever
+is earlier. A day at or before the window start changes nothing; a day after `today` is a
+clock nobody should trust and changes nothing either, which is also what every synthetic
+test store looks like. A store made before this key existed has no evidence, so the
+sentence is the one it always was: a reading that guessed would be worse than one that
+declines to. Deliberately NOT read as evidence: a memory's `learned_on` (an imported store
+carries dates from long before it existed) and the oldest event row's date (`rowDate`
+prefers the payload's own `date` field, which is the date the event is ABOUT).
+
+New-user #9 — after a key was added the Sweep line went on saying AMBER `reason
+no-credential` until the next boundary, with a fix line telling the reader to do the thing
+they had just done. The gate row is the newest sweep, not the current state of the machine.
+So: the newest row says it stood down for want of a key AND the credentials file holds one
+now → GREEN, saying which two facts it is looking at, and no fix, because there is nothing
+to do. A standing amber nobody can clear is how a person learns to read amber as
+decoration. Every other stand-down reason is untouched, and the credential comes from the
+FILE and never from the environment, which is the rule `credentialFindings` already keeps.
+
+## 2026-09-21 — `wire`, `unwire`, `uninstall`, and an `install` that asks (A)
+
+The owner installed 0.1.0 from npm as a stranger and stopped at the first screen:
+`install` printed a sixty-line JSON block and said "merge this yourself"
+(`docs/new-user-findings.md` #1, "the biggest barrier"). His answer was one line —
+**wire by default, after asking first** — plus a ruling on leaving, quoted at the top of
+`uninstall.ts`. This is those two sentences.
+
+**`install.ts`'s first rule is now narrower, not gone.** It said the host's files are only
+ever PRINTED, "an installer that edits somebody's editor configuration without being asked
+is the same class of surprise as a memory layer that writes without being asked". The
+operative clause turned out to be *without being asked*. So: a terminal is asked and then
+wired; a pipe, CI, every test and the scripted half of `tools/install-loop/run.sh` get the
+printed blocks byte for byte; `--no-wire` gets a terminal the same thing. Nothing that has
+ever been measured changed behaviour.
+
+**The merge is on the INNER hook entry, and that is the whole design.** Not on the `hooks`
+object, not on the event's array — on `hooks[event][i].hooks[j]`. Another tool's entry
+therefore keeps its index, its `matcher`, its `timeout` and every key we have never heard
+of, because it is never rewritten at all; ours is appended beside it (hooks on one event
+run in parallel) or, when it is already there under a path that has moved, has its
+`command` replaced in place by an object spread. A second entry of ours on one event is a
+block somebody pasted twice: it is DROPPED and counted, because rewriting both to the same
+string would leave the duplicate forever.
+
+**The recogniser is `HOOK_COMMAND_MARK`, taken from `install.ts` rather than written
+again.** `doctor`'s `readHost` uses it to answer "is this wired?", so a hook `wire` writes
+and a hook `doctor` counts are the same hook by construction. `test/wire.test.ts` wires a
+temp home and then asserts `readHost` sees all five events with `stale: []` — if those two
+ever disagreed, a correctly wired install would read as broken on the one surface a person
+checks.
+
+**Four refusals that are not caution, they are the file's own shapes.** Bytes that are not
+JSON; a top level that is not an object; a `hooks` key that is not an object; an event
+whose value is not an array. Each one is a settings file whose meaning we would be
+guessing at, and a guess there rewrites somebody's configuration into a shape they did not
+choose. The refusal prints the block for hand-merging — which is exactly what `install`
+printed before this change, so the worst case is the old behaviour.
+
+**A symlinked `settings.json` is written THROUGH.** A dotfiles repository is an ordinary
+arrangement, and `rename(2)` onto the link path would replace the link with a regular file
+and quietly detach whatever manages it. So the target is resolved, required to be inside
+the home, and written; the backup lands beside the TARGET. A link pointing outside the home
+is refused rather than followed — at that point this would be editing a file somewhere
+nobody named.
+
+**`~/.claude.json` is read and never written.** Claude Code owns its own state file; the
+registration goes out as `claude mcp add` with an ARGUMENT VECTOR (a store path comes off
+disk and can hold anything a shell would interpret). One consequence found by the install
+loop: `unwire` must attempt `claude mcp remove` **even when our read saw no
+registration**, because that file may move and our read is evidence rather than authority.
+"Tolerate not found" is cheaper than a server left pointed at a store nobody is wiring.
+
+**`--delete-memories` counts before it warns, and the fallback matters more than the
+count.** A store that will not open on this build — the old-floor `STORE_PRE_ROWS` case,
+which is precisely the state of somebody uninstalling after an upgrade went wrong — would
+otherwise produce "WARNING: this will delete 0 memories." That is the most dangerous
+sentence this command could print, so a store that refuses produces a SIZE and the name of
+the refusal instead. `storeExists` is checked first for a second reason: `Store.open`
+CREATES what it opens, and a count must never be the thing that mints a store.
+
+**Both moving verbs refuse while anything of ours is running, and the lister is not
+`pgrep -f counterparts`.** That pattern matches an editor with this repository open, a
+`tail` on a log, a dev server in a directory with the word in its path — the false
+positives `start-fresh` already warns about in prose. The marks here are the SCRIPTS
+(`mcp/bin/serve.ts`, `claude-code/bin/runner.ts`, `dashboard/bin/dashboard.ts`) plus the
+two installed shims anchored at a token boundary. It never throws, and a lister that fails
+is treated as no evidence rather than as evidence of absence.
+
+**Two things worth knowing about where this sits.**
+
+- `isInteractive` needs `io.tty`, and `bin/counterparts.ts` does not set it yet (builder C
+  owns that file this round). Until it does, the interactive install arm is unreachable in
+  a real terminal and `install` behaves exactly as it does today — which is the safe
+  direction for a change that edits a host. Every confirmation inside `wire`, `unwire` and
+  `uninstall` gates on `io.prompt` instead, the rule `start-fresh` already uses, so those
+  three work at a terminal now.
+- **The interactive arm writes `injectionBudgetBytes: 9000` when no `--budget` was given,
+  and says so.** Scar §2.18 says this package invents no host ceiling, and it still holds
+  everywhere else: the scripted arm ends on its "NO injectionBudgetBytes was written"
+  paragraph exactly as before. The difference is that there is a person to tell. This is
+  the owner's plan line ("`--budget` gets a default of 9000") and it is a working default,
+  not a new rule — if it fights §2.18 later, the interactive arm is the one place to take
+  it back out.
+
+### The merge with C and D, and what a real pty found (2026-09-21)
+
+**Step 4 is `keys.ts#promptForKeys` now**, called after the configuration and the 0600
+credentials file exist — `enableEmbedder` edits a config and never creates one, so the
+order is not arbitrary. `PromptAborted` propagates out of it, as that module argues it
+must, and is caught here: the install says nothing else was changed, summarises from the
+FILE rather than from the result it just lost, and exits non-zero. A summary built from a
+result that was thrown away would be a summary of what did not happen.
+
+**`doctor`'s Host fix lines name `wire` now.** They said "Run: counterparts install — it
+prints the hooks block; paste that into ~/.claude/settings.json". That was the only true
+answer while printing was all this package could do. It is not any more, and the stale
+case is the sharpest one: `wire` repairs an entry that names a path that has moved, in
+place, which is exactly what that finding is about.
+
+**Driven on a real pty** (`python3 pty.openpty`, a throwaway HOME, a stub `claude` on
+PATH, nothing near the real `~/.claude` or `~/.counterparts`): install → re-run → wire →
+doctor → uninstall → `--delete-memories` with the wrong phrase. It works. Three things
+that only showed up there:
+
+- **"1 memories are still at …".** A brand-new install holds exactly one memory — its
+  identity core — so that is the sentence somebody leaving after five minutes actually
+  read. `memories(n)` now says "1 memory".
+- **The preview promised a backup it did not take.** On a re-run where the hooks were
+  already right and only the registration was missing, it said "5 hooks ->
+  ~/.claude/settings.json (backup first)" and then correctly took none. The clause comes
+  from the plan now, not from the verb.
+- **A terminal that reports ZERO columns is laid out at 30.** `ui.ts#terminalWidth` floors
+  a finite number at `MIN_WIDTH`, and a fresh pty starts 0×0, so every line folded to
+  thirty characters. A real terminal reports its real width, so this is not a bug anyone
+  will meet — but `columns: 0` means "I do not know", which is what `FALLBACK_WIDTH` is
+  for, and it is a one-line change in a file this piece does not own. **Left for D**, and
+  written down here rather than fixed in passing.
+
+### The adversarial review, and what it cost (2026-09-21)
+
+One blocker, three majors, eight minors, against the branch at `5680022`. Every one of
+B1, M1, M2 and M3 was reproduced again in a throwaway HOME before a line was changed;
+`repro.sh` and `repro2.sh` in the session scratchpad are the two harnesses.
+
+**B1 is the one worth remembering, and the lesson is not about uninstall.** The owner's
+ruling says "`--park` moves `~/.counterparts` aside". The code read that as "the directory
+the configuration sits in" — and `install --config <path>` is the supported way to put a
+configuration anywhere at all. So the review pointed one at `~/.claude` and watched this
+command rename Claude Code's settings, its project transcripts and its todos away under a
+heading that said **"Your memory, parked"**; then pointed one at `~/Documents` and watched
+`--delete-memories` destroy `taxes/` and `photos/` after warning about **one memory**.
+
+The mistake was naming the subject by its LOCATION. A directory is whatever somebody put
+in it; a list of filenames is a thing this package can actually be said to own. So the
+subject is now `ownedNames` + `ownedKind`: the configuration and our own temp and backup
+siblings, the credentials file the configuration names, `scopes.json`, the `snapshots/`
+this layout owns, and the store at `dataDir`. The directory itself is acted on only when
+`readdirSync` of it turns up nothing else — which is the ordinary `~/.counterparts` and
+keeps it one atomic rename — and otherwise it is left, our entries go one by one, and the
+foreign names are printed. Four directories are refused whatever they hold: `~/.claude`,
+the home, any parent of it, and anything with a `.git` in it.
+
+**The generalisation, for whoever writes the next destructive verb here:** name what you
+own, then check that the ground holds nothing else. Do not name a place and assume it is
+yours.
+
+**M1 was the same error facing the other way.** `dataDir` can point anywhere, so the store
+is not reliably "in there" either: the command counted the memories at `dataDir`, deleted
+the configuration directory without them, and told the person their memory was gone while
+it sat intact on disk. Both halves of that are sentences somebody acts on — one is a
+privacy claim, the other is "nothing can bring it back" when everything can. The store is
+now its own entry in the plan, under its own ring, and the closing lines name what actually
+went rather than what the verb is called.
+
+**M2 and M3 are the same shape as each other: a guard that could not tell "no" from "I
+could not ask".** `unwire` reported `ok` when `claude` was missing, so the irreversible arm
+ran and left a registration pointing at a store that no longer existed — the exact failure
+this file already refuses to allow for the hooks. And `realProcessLister` answered `[]` for
+a missing `ps`, a timeout and a sandbox that refuses process listing, so a box with no `ps`
+parked a store and said nothing about not having looked. Both now carry the distinction in
+the type: `WireResult.mcpConfirmed`, and `ProcessSighting.looked`. `--nothing-is-open` is
+the way past the second — the same flag and the same meaning `start-fresh` gives it — and
+it never excuses a check that found something.
+
+**One correction the repro caught on the way.** The first cut of the MCP pre-flight asked
+for `claude` unconditionally, which refused every `--park` on a box that had never wired
+anything. It bites only when a registration is actually on disk now. A guard that fires on
+the innocent case is one people learn to work around, which is the same sentence
+`commands.ts` already makes about `COUNTERPARTS_CONFIG`.
+
+**m1 is the only minor with a design in it.** `HOOK_COMMAND_MARK` answers the question
+`doctor` asks — is a hook of ours installed on this event? — and it is right that it
+matches `~/bin/log-start.sh && counterparts-hook`, because that line really does run our
+hook. It is the wrong question for a WRITE: `wire` overwrote that wrapper with ours alone
+and `unwire` deleted the other one outright. `isOurHookCommand` is the write-side question,
+and it is exact: our runtime and our hook script, or the shim, optionally `--config <path>`,
+and nothing carrying a shell operator. A wrapper is left alone in both directions and named
+in one line. The two are held to each other by a test in the direction that matters —
+everything `wire` writes matches both — so a hook we installed can never read as missing.
+
+**Declined:** m7 (`terminalWidth` flooring a zero-column terminal at 30) stays with the
+docs builder, as the coordinator directed. The five NITs are not addressed here; n3 and n4
+are real and small, and n1's re-serialisation is the documented cost of editing JSON.
+
+**Three more the second look caught, all inside M2's own guarantee.** They are worth
+naming together, because they are one mistake in three costumes — *a check that answers
+"fine" when it could not actually tell*:
+
+- `unwire`'s re-read treated an UNREADABLE `~/.claude.json` as an absent registration
+  (`readMcp` reports `present: false` for a file that will not parse), so a corrupt host
+  file plus a missing `claude` confirmed a deregistration that never happened.
+- The pre-flight tested only `missing`, so a `claude` that HUNG (a `spawnSync` timeout
+  comes back `missing: false, code: null`) or exited non-zero passed it — the hooks came
+  out and the refusal landed thirty seconds later on the removal instead.
+- The cross-device check ran over `plan.entries` rather than `plan.targets`, so the
+  directory that actually gets renamed when it moves whole was never checked at all.
+
+**What is still open, and deliberately.** A store OUTSIDE the home refuses both moving
+arms with no way through, because `uninstall` refuses `--dir` the way `start-fresh` does.
+The coordinator's M1 wording allowed "an explicitly named `--dir`"; the shape that would
+close it without reopening the `--dirr` scar is to accept `--dir` on `uninstall` only when
+it is EQUAL to `resolve(config.dataDir)` — an assertion about the store the configuration
+already names, rather than a second answer to which store. Not built here.
+
+  written down here rather than fixed in passing. **Fixed 2026-09-21** (the docs piece,
+  which was handed the one line): a floored `columns` at or below zero returns
+  `FALLBACK_WIDTH`, and the floor is kept for a width a terminal really reported — 4 is an
+  answer, 0 is the absence of one. `test/ui.test.ts` holds both halves.

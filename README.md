@@ -3,19 +3,58 @@
 **An AI that keeps its own memory of working with you — written in its own words, kept on
 your machine, and allowed to forget.**
 
-Every model you talk to is frozen. The only learning it does is what fits in its context
-window, and memory is what decides what goes in there. Most memory tools answer that by
-storing the transcript. Counterparts does not: the AI writes down what it *learned* at the
-end of a stretch of work, in the first person, and that interpretation is what gets kept.
-Unused memories fade the way human memories do. What survives is a small, structured
-account of your work together — plus a "who I have been" the AI reads at the start of
-every session. It runs entirely on your machine, in one small SQLite database you can read,
-back up or export to Markdown whenever you want, and no data leaves it unless you turn
-something on that sends it.
+Counterparts gives Claude Code a memory of you and your work. At the end of a stretch of
+work the assistant writes down what it *learned*, in the first person, and that
+interpretation is what gets kept. It all stays on your machine, in one small SQLite
+database you can read, back up, or export as Markdown whenever you want.
 
-*Built 2026-08-25, and the author's own daily memory under Claude Code since 2026-09-03.
-Node is untested — the [Status](#status-honestly) section is specific about what has been
-verified and what has not.*
+## Install
+
+```
+curl -fsSL https://bun.sh/install | bash     # only if you don't have bun
+bun add -g counterparts
+counterparts install
+```
+
+`counterparts install` is a short conversation, and nothing in it is compulsory:
+
+- **your name** — what the memory calls you; Enter skips it;
+- **whether to wire Claude Code** — it shows exactly what it would add (five hooks and one
+  memory server), backs up your `~/.claude/settings.json` before touching it, and leaves
+  hooks belonging to other tools exactly where they are. Answer `n` and nothing of Claude
+  Code's is touched; your store is made either way and `counterparts wire` does this part
+  whenever you are ready;
+- **two optional API keys**, one at a time, each with one line on what it buys and a link
+  to where you get one. Typing is hidden and Enter skips. **Skipping both is a supported
+  way to run** — what you give up is written down, not glossed over.
+
+Then **restart Claude Code** (the memory tools arrive when a session starts) and check it:
+
+```
+counterparts doctor
+```
+
+Nothing red means it is running. Amber is "you could have more" — a key you skipped, an
+embedder that is off — not "something is broken".
+
+**To remove it:**
+
+```
+counterparts uninstall
+```
+
+That takes the Claude Code wiring back out and **keeps your memory**. `--park` moves what
+Counterparts wrote aside under a dated name, `--delete-memories` destroys it after listing and counting what is
+about to go and asking you to type a phrase; neither happens unless you ask for it.
+
+The whole install path, with every flag and every reason:
+[`docs/QUICKSTART.md`](docs/QUICKSTART.md) — §1 to §5 is all of it, and everything below
+its "Reference" line is detail.
+
+**You need [bun](https://bun.sh) 1.3 or newer**, and nothing else. Counterparts ships as
+TypeScript sources and runs them directly — no build step, no `dist/`. **Node is
+untested**; the [Status](#status-honestly) section is specific about what has been verified
+and what has not.
 
 <!-- Images are produced by the dashboard workstream and land under docs/images/.
      The URLs are absolute so this file reads correctly from the npm tarball as
@@ -32,23 +71,14 @@ verified and what has not.*
 
 ---
 
-## Install
+## Why
 
-**[`docs/QUICKSTART.md`](docs/QUICKSTART.md) is the one canonical install path** and this
-is the summary of it. That page is kept honest mechanically: `tools/install-loop/run.sh`
-runs the page's console commands verbatim — each one is grepped out of the page before it
-is executed, so a doc edit that changes one fails the loop — in a throwaway home directory
-with no copy of this repository on the PATH. It packs the tarball itself and feeds the
-hook its own payload. It cannot reach the npm registry, and it cannot run `git clone`,
-`claude mcp add` or Claude Code; QUICKSTART §10 lists what that leaves unverified.
-
-**You need [bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript sources
-and runs them directly — there is no build step and no `dist/`. **Node is untested.** The
-store uses Node's built-in `node:sqlite`, which needs Node 22.5+ behind a flag and 23.4+
-by default; nobody has run this package under any Node, so it claims nothing there.
-
-That is the only prerequisite. (Installing from source also needs `npm`, for `npm pack`;
-QUICKSTART §1 and §2 cover that road.)
+Every model you talk to is frozen. The only learning it does is what fits in its context
+window, and memory is what decides what goes in there. Most memory tools answer that by
+storing the transcript; this one stores the interpretation instead, and lets it fade —
+unused memories decay the way human memories do. What survives is a small, structured
+account of your work together, plus a "who I have been" the AI reads at the start of
+every session.
 
 **No API keys are required.** With none, two things are off. Recall runs on its text
 channel alone rather than also matching by meaning; an embedding key buys the other half —
@@ -61,56 +91,22 @@ here leaves your machine, and both are yours to turn on. `counterparts doctor` g
 store that has never had a key **amber**, not red, and says on the line what works without
 one — so a fresh keyless install is a clean bill of health and not an alarm.
 
-```
-bun add -g counterparts
-```
-
-(Contributors, and anyone sent a tarball: QUICKSTART §2 has the from-source road.)
-
-That installs four executables — `counterparts` (your console), `counterparts-hook`,
-`counterparts-mcp` and `counterparts-dashboard` — into bun's global bin directory. Check
-that directory is on your PATH before going on: run `counterparts --help`, and if it says
-*command not found*, QUICKSTART §2 has the one-line fix. A fresh bun install does not
-always do this for you. Then create the store:
+**It works with no host at all.** `$HOME/.counterparts/store` is the default data dir, so
+this works with nothing set:
 
 ```
-counterparts install --budget 9000 --name "Your Name"
-```
-
-`--budget` is the size ceiling, in bytes, for the briefing injected at the start of each
-session; 9,000 is the number the author's host runs on, and the package has no default for
-one. This writes a store, a configuration file, and a 0600 credentials file holding only
-comments that name the two keys, all under
-`~/.counterparts/`, and then **prints — without applying** — the two things that belong to
-Claude Code: a block of hooks to merge into its settings, and one `claude mcp add` command
-to run. It never edits your Claude Code configuration for you. Apply both, restart Claude
-Code, and you are running. QUICKSTART §4 has them, and the reasons every path in them must
-be absolute.
-
-The hooks are registered once, globally, so every directory you open a session in is
-remembered by default. `counterparts scope . --off` says otherwise for one directory —
-`--observer` for reads-only, `--pause` for an afternoon, `--resume` to put it back — and
-the first session in a directory nobody has answered for asks you which you want.
-QUICKSTART §8 has the rest.
-
-`install` owns `~/.counterparts/` and is the cold start — run it once. For a second store,
-a scratch store, or a store you will only reach from the console, use
-`counterparts init --dir <path> --name "Your Name"`: just a store, anywhere, with no host
-config and no credentials file. QUICKSTART §3 has the difference.
-
-You can also use it with no host at all. `$HOME/.counterparts/store` is the default data
-dir, so this works with nothing set; the `export` is there for anyone whose store lives
-elsewhere or who would rather be explicit than rely on a default.
-
-```
-export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
 counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
 counterparts recall "what espresso machine is in the kitchen?"
 ```
 
 That works on the very first memory — a store holding one memory answers the question
-about it, whether or not `--name` put an identity core beside it — and the install loop
-checks that case on every run.
+about it — and the install loop checks that case on every run.
+
+**The hooks are registered once, globally**, so every directory you open a session in is
+remembered by default. `counterparts scope . --off` says otherwise for one directory —
+`--observer` for reads-only, `--pause` for an afternoon, `--resume` to put it back — and
+the first session in a directory nobody has answered for asks you which you want.
+QUICKSTART §8 has the rest.
 
 **Starting over is one command.** If you want a blank memory — to see what a new user
 sees, or because the first few days of a store are mostly you learning what it does —
@@ -176,17 +172,19 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, `doctor` (is
-the background half alive? — the one troubleshooting command, QUICKSTART §12), `fired`
-(which mechanisms have actually fired, and which have not), and `probe-oq4` (the
-footnote-header probe, recall CONTRACT §7). `verify` is
+**Your console** — `counterparts <command>`; `counterparts --help` is one line per command
+and `counterparts help <command>` is the detail. Read-only: `status`, `recall`, `doctor`
+(is the background half alive? — the one troubleshooting command, QUICKSTART §12), `fired`
+(which mechanisms have actually fired, and which have not), `self-page`, and `probe-oq4`
+(the footnote-header probe, recall CONTRACT §7). `verify` is
 a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
 which is why `verify` counts as a write and refuses under `--observer` even without the
 flag. `export` is a read too: it copies the store — as one SQLite file, or, with `--markdown`,
 as a readable tree of one file per memory plus the journal and the self page — encrypted
 under a passphrase or explicitly `--plaintext`, because it refuses to choose for you.
 `--markdown` omits confidential memories unless you pass `--include-confidential`, and says
-how many it left out. The rest write: `install`, `init`, `note`, `backup`, `remove` (a dry run
+how many it left out. The rest write: `install`, `init`, `wire`, `unwire`, `uninstall`,
+`credentials set`, `note`, `backup`, `start-fresh`, `remove` (a dry run
 unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
 `repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.
@@ -204,22 +202,42 @@ it would have opened. Pass `--default-store` if you meant the default.
 
 ## Status, honestly
 
-**Feature-complete 2026-08-25.** Since **2026-09-03** it has been the author's primary
-memory under Claude Code, running beside its predecessor so the two can be compared. On
-2026-09-04 that store held 13,751 memories. The living record of what is true right now is
-[`docs/PARALLEL-RUN-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/PARALLEL-RUN-STATUS.md),
-and the launch scoreboard — including the bugs found this week — is
-[`docs/LAUNCH-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/LAUNCH-STATUS.md).
+**First published on npm on 2026-09-21, as `counterparts@0.1.0`.** This is **0.2.0** — one
+round of polish after the author installed that first release the way a stranger would,
+and wrote down everything that was rough about it.
 
-**The test suite, measured 2026-09-04 on commit `b29034c` under bun 1.3.10:** `bun test` →
-**1,572 pass, 0 fail, nothing skipped**, over 20,800 assertions across 26 files, about
-19 s. (Three consecutive runs on that commit gave 20,813 / 20,836 / 20,832 assertions — a
-few tests assert once per row of data they generate — while the pass and fail counts did
-not move.)
+**It is the author's own daily memory under Claude Code.** Feature-complete 2026-08-25;
+running beside him every day since 2026-09-03. On 2026-09-21 he parked the store that had
+grown over those weeks, installed the published package from npm, and started again on a
+blank memory — so the *store* he is running is new and the *code* is what has been
+exercised daily for a month.
+
+**The test suite, measured 2026-09-21 on this branch under bun 1.3.10:** `bun test` →
+**2,996 pass, 0 fail, nothing skipped**, around 39,000 assertions across 50 files, 77
+seconds. (The assertion count moves by a few hundred between runs — a few tests assert
+once per row of data they generate — while the pass and fail counts do not.)
 No test touches a real store, and that is mechanized rather than promised:
 `test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
 directory for the whole run, clears `COUNTERPARTS_DATA_DIR`, and removes the directory on
 exit — so for the length of a test run there is no real home to reach.
+
+**The install loop, and what it cannot settle.** `tools/install-loop/run.sh` installs this
+package the way a stranger would — from a tarball it packs itself, into a throwaway home
+directory with no copy of this repository on its PATH — and runs 58 checks in about five
+seconds: the store, the config, the credentials file, the hook fed a real payload, a note
+and a recall on the console and again through the MCP server, the lazy session bind, the
+scope switch, and the host's own files (`wire` merging beside another tool's hooks,
+`unwire` taking only ours back out, `uninstall` leaving the memory alone). It also runs
+every console command on the QUICKSTART page verbatim, grepping each one out of the page
+first, so a doc edit that changes a command fails the loop.
+**What it cannot do**: reach the npm registry (it installs from disk), run `git clone`,
+launch Claude Code, or run the real `claude mcp add` — a stub answers. And it runs
+non-interactively, so the install conversation above is covered by unit tests and one run
+on a real pty, not by the loop.
+
+**Node is untested.** The store binds `bun:sqlite` under bun and `node:sqlite` under Node
+(22.5+ behind a flag, 23.4+ by default), but nobody has run this package under any Node,
+so it claims nothing there. `package.json` names bun and does not claim Node.
 
 **Verified inside real Claude Code sessions**, on the author's machine: the hooks fire on
 all five events, the MCP server registers and its tools are used daily, the briefing
@@ -231,8 +249,8 @@ blank, and what comes over from an earlier generation is its own later conversat
 end (which is also where the residue in rough edge 4 was found, and where the chase that
 closed it is asserted — note, remove, grep the whole store, back it up and grep that), and
 the console's and dashboard's behaviour on a missing store. **Not verified at
-all**: anything under Node, and — until you do it — a stranger installing from the
-documentation on a machine with no copy of this repository.
+all**: anything under Node, and — until you do it — a stranger installing from this
+documentation on a machine that is not the author's.
 
 **Known rough edges.** QUICKSTART §11 carries the install-facing ones — 1 as its §11.3, 2
 as its §11.4, and 4 as its §11.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
@@ -323,8 +341,8 @@ used in earnest before the next was written.
 - **engram**, the production ancestor, which contributed the first eight hard-won failure
   cases that this repository carries as acceptance criteria.
 - **v1 — bansai**, the full system this one distills: its behavioral specification, its
-  earned mechanisms, its test spine and twenty more of those failure cases. It keeps
-  running until Counterparts has finished proving itself beside it.
+  earned mechanisms, its test spine and twenty more of those failure cases. It ran as the
+  author's live memory until Counterparts took over.
 
 The rule across all three generations is one of the constitution's own: **"port the scars,
 not the code."** A lesson travels forward as a test that has to pass, never as copy-paste.
@@ -337,8 +355,8 @@ not the code."** A lesson travels forward as a test that has to pass, never as c
 
 **Not open to contributions yet.** There is no contributor agreement and no process, and
 it would be dishonest to invite pull requests into a codebase that is still changing
-underneath a live parallel run. Issues and questions are welcome. When contributions open,
-this section will say so.
+week to week. Issues and questions are welcome. When contributions open, this section will
+say so.
 
 ## Read next
 

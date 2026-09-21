@@ -98,7 +98,7 @@ export const SERVER_NAME = "counterparts";
  * host decides whether to trust what follows. Read from a constant rather than
  * from disk so the server opens no file to answer its first message.
  */
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.2.0";
 
 /** Telemetry: ids, counts, reasons, flags. NEVER body text (store §5 G10). */
 export interface McpEvent {
@@ -1080,12 +1080,53 @@ export class McpServer {
     const handoff = this.writeHandoffField(args["handoff"]);
 
     const raw = args["memories"];
+    // NOTHING WORTH KEEPING IS A REAL ANSWER — and until 2026-09-21 it was not
+    // one on this door (new-user finding #12). A session that learned nothing
+    // durable but is leaving work half-finished sends the handoff and an empty
+    // list, and got back an ERROR naming a missing field while the handoff it
+    // had just asked for was already on disk. A model that reads its own result
+    // learns from that to stop sending handoffs, or to invent a memory.
+    //
+    // Three cases, and only the first is new:
+    //
+    //   - A handoff LANDED (written or cleared) and there are no memories →
+    //     success, saying so. `deposited` is 0 and `isError` is false, because
+    //     something did land.
+    //   - A handoff was sent and REFUSED (`no-scope`, `too-large`, `not-text`,
+    //     `nothing-to-clear`) with no memories → nothing landed, so the refusal
+    //     stands and the handoff's own outcome rides out on it.
+    //   - Neither — no handoff and no memories → `memories-required`, as
+    //     before. So is a `memories` that is not an array: a caller who sent the
+    //     wrong TYPE wants to be told, and the field is still `required` in the
+    //     published schema.
+    const session = this.session as string;
+    const landed = handoff !== null && handoff["written"] === true;
+    const noMemories = raw === undefined || (Array.isArray(raw) && raw.length === 0);
+    if (landed && noMemories) {
+      this.emit("mcp.session_end", session, {
+        entries: 0,
+        deposited: 0,
+        refused: 0,
+        handoff: true,
+      });
+      return this.result(
+        {
+          session,
+          entries: 0,
+          deposited: 0,
+          refused: 0,
+          outcomes: [],
+          reason: "handoff-only",
+          handoff,
+        },
+        false,
+      );
+    }
     if (!Array.isArray(raw) || raw.length === 0) {
       return this.refuse("session_end", "memories-required", {
         ...(handoff === null ? {} : { handoff }),
       });
     }
-    const session = this.session as string;
     const entries: Record<string, unknown>[] = [];
     for (const item of raw) {
       if (item === null || typeof item !== "object" || Array.isArray(item)) {
