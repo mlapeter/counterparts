@@ -1042,8 +1042,9 @@ function parkPlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome {
     u.hint(`${plan.configDir} itself was left where it is, with everything in it that is not ours.`);
   }
   u.blank();
-  u.hint("The lines that undo it — each REFUSES rather than moving one directory inside");
-  u.hint("another, which is what a bare `mv` does when the destination exists:");
+  u.heading("To undo this");
+  u.hint("Paste the line below. It refuses, rather than nesting one folder inside another,");
+  u.hint("if the original path exists again by then (say, because you installed again).");
   for (const d of done) io.out(guardedMove(d.to, d.from));
   u.blank();
   u.heading("The package itself");

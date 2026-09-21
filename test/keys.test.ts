@@ -246,8 +246,8 @@ describe("promptForKeys at a terminal", () => {
     expect(said).toContain("Anthropic");
     expect(said).toContain("Voyage");
     // Truthful about what each one buys — and that it is an egress.
-    expect(said).toContain("sends that captured conversation to Anthropic");
-    expect(said).toContain("sends memory text to Voyage");
+    expect(said).toContain("Sends that conversation to Anthropic");
+    expect(said).toContain("Sends memory text to Voyage");
     // Skipping is offered, at both prompts.
     expect(f.askedHidden).toEqual([
       `${API_KEY_ENV} (Enter to skip): `,

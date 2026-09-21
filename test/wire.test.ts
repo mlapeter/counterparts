@@ -982,7 +982,7 @@ describe("install, at a terminal", () => {
     expect(said).toContain("Restart Claude Code");
     // The store was made, the core was seeded, and the host is wired.
     expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
-    expect(said).toContain("identity core seeded for Ada");
+    expect(said).toContain("Ada — the thing this memory is about.");
     expect([...readHost(home, home, ENV).events].sort()).toEqual([...HOST_EVENTS].sort());
     expect(fake.calls[0]?.slice(0, 3)).toEqual(["mcp", "add", MCP_SERVER_NAME]);
   });
@@ -1024,11 +1024,11 @@ describe("install, at a terminal", () => {
 
   test("a re-run does NOT repeat the ceiling sentence about a config it kept", async () => {
     const first = await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
-    expect(text(first.out)).toContain("injection ceiling was set to 9000");
+    expect(text(first.out)).toContain("injectionBudgetBytes");
     const again = await install([], [], spawnerThat(() => OK).spawner);
     // `writeOnce` KEEPS the file, so saying it was written would be false about
     // the one file the hooks actually read.
-    expect(text(again.out)).not.toContain("injection ceiling was set to");
+    expect(text(again.out)).not.toContain("injectionBudgetBytes");
   });
 
   test("a stale wiring is REPAIRED on a re-run, and the old path is named", async () => {

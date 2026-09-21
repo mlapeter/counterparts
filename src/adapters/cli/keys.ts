@@ -65,9 +65,9 @@ export const KEY_LINKS: Readonly<Record<string, string>> = {
  */
 export const KEY_REASONS: Readonly<Record<string, string>> = {
   [API_KEY_ENV]:
-    "Lets memory still be written for a session that ended before the assistant could write it up — it sends that captured conversation to Anthropic. Everything else works without it.",
+    "Only used to write up a session that ended before the assistant could. Sends that conversation to Anthropic. Everything else works without it.",
   [EMBED_KEY_ENV]:
-    "Buys recall by meaning, not just by words — it sends memory text to Voyage to be embedded. Recall works without it, on words alone.",
+    "Lets recall match by meaning, not just by words. Sends memory text to Voyage. Recall still works without it.",
 };
 
 /** The prefix each provider's keys have had for as long as this was written.
