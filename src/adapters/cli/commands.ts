@@ -305,6 +305,21 @@ export interface Io {
   /** Interactive confirmation. ABSENT means non-interactive, and a destructive
    *  command refuses rather than proceeding unconfirmed. */
   prompt?: (question: string) => Promise<string>;
+  /**
+   * The same read WITHOUT ECHO, for a value that must not reach a scrollback
+   * buffer (an API key). Optional and additive: every console that has only
+   * `prompt` behaves exactly as it did, and `ui.ts`'s `askHidden` REFUSES
+   * rather than fall back to the echoing reader when this is absent and stdin
+   * is a terminal. `ui.ts/hiddenPrompt` builds one over real streams.
+   */
+  promptHidden?: (question: string) => Promise<string>;
+  /**
+   * WHAT THE HOST KNOWS ABOUT ITS TERMINAL — the seam `ui.ts` decides colour,
+   * wrapping and interactivity from. ABSENT means "not a terminal", which is
+   * the truth for every pipe and every test console, so a console that does not
+   * set it keeps today's plain, unwrapped, never-asking output.
+   */
+  tty?: { readonly stdin: boolean; readonly stdout: boolean; readonly columns?: number };
 }
 
 export interface RunOptions {

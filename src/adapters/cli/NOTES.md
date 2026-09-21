@@ -934,3 +934,91 @@ target path.** Where the owner sent his memories is more than the row needs to
 prove the door works (§5 G10), and the terminal has already told him. F2's blind
 `backup` row and its "one `store.backup` event would fix it" are untouched:
 that is a different door and still an open gap.
+
+---
+
+## 2026-09-21 — `ui.ts`, the shared primitives the 0.2 install flow is built from
+
+**What it is.** One file — `src/adapters/cli/ui.ts`, zero runtime dependencies — holding
+the console's manners: whether there is a person to ask, whether to colour, how to ask,
+how to read a secret without echoing it, and how to lay a short line out. Four builders
+are about to add interactive commands (wiring, uninstall, the credential prompts, the
+reshaped `--help` and `doctor`), and a person should meet ONE set of manners, not four.
+This change adds the module and its tests and nothing else: no command's behaviour or
+output moved.
+
+**The rules it exists to hold.**
+
+- **Not a terminal → exactly as today.** `isInteractive` needs four things at once: the
+  caller did not pass its own opt-out flag, `io.prompt` exists, stdin AND stdout are
+  terminals, and `CI` is unset. Every existing test console fails the third, so it is
+  false everywhere it is false today. Nothing here wraps, colours or asks when it is
+  false, and pipes keep one logical line per item — which is what the suite's greps and
+  `tools/install-loop/run.sh` read.
+- **`NO_COLOR` is obeyed** (https://no-color.org) and its value is never interpreted:
+  `NO_COLOR=0` means no colour. Empty string reads as unset, which is the reading
+  `dashboard/ansi.ts` already takes — one repo should not hold two definitions of one
+  variable. `FORCE_COLOR` (non-empty, not `0`) turns colour on for a pipe; `TERM=dumb`
+  turns it off for a terminal.
+- **Colour and wrapping are decided separately.** Wrapping keys off `io.tty.stdout`
+  alone, so `FORCE_COLOR` on a pipe gives escapes and still one logical line. A grep that
+  works today cannot be broken by somebody's environment.
+- **A hidden value is never written.** `askHidden` returns it and writes nothing but the
+  question and one newline — not to `io.out`, not to `io.err`, not into an error message.
+- **Nothing proceeds unconfirmed.** With no `io.prompt`, `confirm` is `false` and `typed`
+  is `false` whatever their default says; `ask` alone falls back to its default, because a
+  name is a value and not a consent.
+
+**What `Io` gained** (`commands.ts`), both optional and both additive, so every existing
+caller and test compiles and behaves unchanged:
+
+- `promptHidden?: (question) => Promise<string>` — the same read without echo.
+- `tty?: { stdin, stdout, columns? }` — what the host knows about its terminal. ABSENT
+  means "not a terminal", which is the truth for every pipe and every test console.
+
+**The trap in that seam, stated because somebody will hit it.** A test that drives the
+interactive arm by setting `tty: { stdin: true, stdout: true }` must ALSO supply
+`promptHidden`, or `askHidden` REFUSES (`PromptAborted`, reason `no-hidden-input`) instead
+of falling back to the echoing reader. That refusal is the no-echo rule defending itself:
+the fallback to `io.prompt` is offered only to a console that has told us it is not a
+terminal, where there is no terminal to echo to.
+
+**Ctrl-C throws rather than returning a null.** `PromptAborted` with reason `interrupt`,
+after the terminal is restored. A nullable return would have turned a forgotten check into
+"the person skipped it" — which, at a key prompt, is an install that quietly continues
+without the key somebody was in the middle of cancelling. Uncaught, it still exits
+non-zero through the `bin/` entry's own rejection handler.
+
+**What the raw reader had to get right**, each one a way to lose a credential silently:
+Enter in raw mode is `\r` and not `\n` (a reader waiting for `\n` hangs forever); a paste
+arrives as ONE chunk, key and newline together; backspace (`\x7f` and `\b`) must work or a
+typo in a 100-character key can only be fixed by starting again; an escape sequence is
+swallowed WHOLE, because dropping only the ESC byte leaves `[A` inside a value nothing
+echoes; `setEncoding` is never called, since it is sticky on the stream
+`bin/counterparts.ts` also reads for `credentials set`; and the terminal is restored, the
+listener detached and the stream paused on every exit path — Enter, Ctrl-C, Ctrl-D, `end`,
+`error` — or the process does not exit.
+
+**Two of those the first round got wrong, and the review caught**, both in the same class:
+
+- **An `error` is not a submit.** It was bound to the same handler as `end`, so a stream
+  that failed halfway through a key would have RESOLVED with the half, and
+  `credentials set` would have written a truncated credential that reads as present and
+  fails at every boundary. That is I32's shape, minted fresh. `end` resolves (an EOF is a
+  submit); `error` aborts.
+- **Ctrl-C is checked before the escape state machine**, from every state. Underneath it,
+  the abort was swallowed as "the character after a bare ESC" — so a person who pressed an
+  arrow key and then gave up could not give up.
+
+**`statusLine` is held to `claude-code/doctor.ts`.** Its two columns are that file's
+`SEVERITY_COLUMN` and `TITLE_COLUMN`, its fix line is the same 18 spaces, and it keeps the
+2026-09-20 rule that a label as wide as its column still gets its space (without it,
+`AMBER Journal modewal`). `test/ui.test.ts` renders five findings through both `reportLines`
+and `statusLine` and asserts the plain arm is byte-identical, so the two renderings of one
+doctor line cannot drift apart silently.
+
+**Not wired.** `hiddenPrompt(input, output)` builds a real no-echo reader over
+`process.stdin`/`process.stdout`, and `bin/counterparts.ts` does NOT use it yet — the entry
+point binds it when the first command needs it. `ui.ts` is likewise not re-exported from
+`index.ts`: commands import `./ui.js` directly, and there is no reason yet to make it part
+of this package's public surface.
