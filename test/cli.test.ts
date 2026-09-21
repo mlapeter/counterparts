@@ -4342,7 +4342,7 @@ describe("note and recall", () => {
   });
 
   test("a chapter comes back marked [journal], and a memory beside it does not (I14)", async () => {
-    // The third door on the same result. QUICKSTART §5 and the recall CONTRACT
+    // The third door on the same result. QUICKSTART §5a and the recall CONTRACT
     // both now say the console marks a chapter; stated is mechanized here.
     const s = store();
     // Unrelated filler, so rarity has a population to discriminate against: on a
@@ -4911,7 +4911,7 @@ describe("install", () => {
  * The owner's ruling: `--yes` only ever skips an interactive confirmation, and
  * a BULK WRITE always requires the `--dir` flag — neither `--yes` nor the
  * environment variable stands in for it. Ordinary per-memory commands keep
- * today's behaviour, which QUICKSTART §3 teaches, and so do the dry runs.
+ * today's behaviour, which QUICKSTART §3a teaches, and so do the dry runs.
  *
  * Every door is walked from both sides here, and the refusal is proven to have
  * left the store byte-identical rather than merely to have printed something.

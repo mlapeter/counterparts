@@ -935,7 +935,7 @@ export function unknownFlag(command: Command, argv: readonly string[]): string |
  * names is the owner's live memory. Ordinary per-memory commands (`note`,
  * `recall`, `remove`, `init`, `install`, `status`, and `verify`'s read-only
  * census) keep today's behaviour: the variable names their store, which is what
- * QUICKSTART §3 teaches.
+ * QUICKSTART §3a teaches.
  *
  * Called FIRST in each writing body, before `storeExists` and before any
  * planning read: a guard that opened the directory before refusing it has

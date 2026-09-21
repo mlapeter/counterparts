@@ -1,39 +1,33 @@
 # Counterparts — install
 
-This is the one canonical install path. `tools/install-loop/run.sh` runs this
-page's CONSOLE commands verbatim — each one is grepped out of this file before it
-is executed, so a doc edit that changes one fails the loop — in a throwaway home
-directory with no copy of this repository on its PATH. It packs the tarball
-itself and feeds the hook its own payload. It cannot reach the npm registry, and
-it cannot run `git clone`, `claude mcp add`, `export PATH` or Claude Code; §10
-lists what that leaves unverified.
+**Sections 1 to 5 are the whole install: three commands, a few questions, no API keys.**
+Everything under **Reference**, further down, is detail — other ways to install, the host
+files by hand, the console, what is verified, the rough edges. Read it when you want it.
 
-No API key required. The scripted version of this page — install, configure,
-hook, note, recall, the MCP round trip, the removal plan, the session write, the
-scope switch, the wiring and leaving again — is
-57 checks and runs end to end in two to three seconds; the part that takes you time is
-§4, and `counterparts wire` now does that for you.
+This page is kept honest mechanically: `tools/install-loop/run.sh` runs the console
+commands on it verbatim, in a throwaway home directory with no copy of this repository on
+its PATH. Each command is grepped out of this page before it is run, so an edit that
+changes one fails the loop. §10 says what that proves and what it leaves unproven.
 
 ---
 
 ## 1. What you need
 
-- **[bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript
-  sources and runs them directly; bun is the runtime. `curl -fsSL https://bun.sh/install | bash`
-- **npm, only if you install from source** (§2, second half): `npm pack` is how
-  you build the tarball from a clone. It comes with Node; a machine set up by the
-  bun line above may not have it. (`bun pm pack` exists but is not what §2 was
-  tested with, so this page does not tell you to use it.) The ordinary install
-  needs bun and nothing else.
-- **[Claude Code](https://claude.com/claude-code)**, if you want the hooks and
-  the MCP tools. The store, the console and the dashboard work without it.
-- **No API keys.** Counterparts runs with none; §6 says exactly what you give up.
+- **[bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript and runs it
+  directly; bun is the runtime. If you do not have it, one line installs it:
 
-**Node is not verified.** The core targets built-in `node:sqlite`, which needs
-Node 22.5+ behind a flag and 23.4+ by default. Everything on this page was run
-under bun 1.3.10 on macOS. Nobody has run Counterparts under Node, so nothing
-here claims it works there. There is no build step and no `dist/`; if a Node
-target is ever added, it will need one.
+  ```
+  curl -fsSL https://bun.sh/install | bash
+  ```
+
+- **[Claude Code](https://claude.com/claude-code)**, if you want the memory to happen by
+  itself. The store, the console and the dashboard work without it.
+- **No API keys.** Counterparts runs with none, and that is a supported way to run. §6
+  says exactly what you give up.
+
+**Node is not verified.** The core targets the built-in `node:sqlite`, which needs Node
+22.5+ behind a flag and 23.4+ by default. Everything on this page was run under bun 1.3.10
+on macOS. Nobody has run Counterparts under Node, so nothing here claims it works there.
 
 ---
 
@@ -43,13 +37,12 @@ target is ever added, it will need one.
 bun add -g counterparts
 ```
 
-That is the whole install. It copies the package into bun's own global folder;
-nothing else on your machine is read or changed, and §3 is where a store gets
-made. It puts four executables into bun's global bin directory:
+That is the whole install. It copies the package into bun's own global folder; nothing
+else on your machine is read or changed. Four commands land in bun's global bin directory:
 
 | | |
 |---|---|
-| `counterparts` | the owner's console — status, install, backup, export, removal |
+| `counterparts` | your console — status, install, backup, export, removal |
 | `counterparts-hook` | the Claude Code hook entry point; one executable, five events |
 | `counterparts-mcp` | the MCP server — `note`, `recall`, `status`, `session_end`, `chapter` |
 | `counterparts-dashboard` | read-only views of what is in the store |
@@ -60,15 +53,133 @@ made. It puts four executables into bun's global bin directory:
 counterparts --help
 ```
 
-If that says `command not found`, bun told you so during the install
+If that says `command not found`, bun said so during the install
 (`warn: To run "counterparts", add the global bin folder to $PATH`) and the fix is
-`export PATH="$HOME/.bun/bin:$PATH"` in your shell profile. A fresh bun install
-does not always do this for you.
+`export PATH="$HOME/.bun/bin:$PATH"` in your shell profile. A fresh bun install does not
+always do this for you.
 
-### Installing from source instead
+Installing from a clone, or from a tarball somebody sent you: §2a.
+
+---
+
+## 3. `counterparts install`
+
+```
+counterparts install
+```
+
+At a terminal this is a short conversation — four steps, and nothing in it is compulsory.
+The name and the two keys take Enter as "skip"; the one question that changes anything
+outside `~/.counterparts` — wiring Claude Code — takes `n` for no.
+
+1. **Your name.** What the memory calls you, and the one thing it is told before it has
+   learned anything. Skip it and the store is made without an identity core.
+2. **Your store.** No question: it creates `~/.counterparts/` — the store itself, a
+   configuration file, and an empty credentials file only you can read — and prints each
+   path. If they are already there it keeps them and says so; nothing is overwritten.
+3. **Claude Code.** It shows what it would add — five hooks in `~/.claude/settings.json`
+   and one MCP server — says it will back that settings file up first, and counts any
+   hooks belonging to other tools that will stay exactly where they are. Then it asks:
+   `Wire Claude Code now? [Y/n]`. Answer `n` and it prints the two things for you to
+   apply by hand instead (§4a).
+4. **Keys.** Two optional API keys, one at a time, each with one line on what it buys and
+   a link to where you get one. Typing is hidden; Enter skips. **Skipping both is fine**
+   — §6 is the whole of what you give up, and `counterparts doctor` grades a store that
+   has never had a key amber rather than red.
+
+It ends by naming your store and its configuration, and by telling you the one thing left
+to do: restart Claude Code.
+
+**Not at a terminal, it asks nothing.** A pipe, a script or a CI job gets the old
+behaviour: the hooks block and the registration line are printed and nothing of the host's
+is touched. `--no-wire` gets you that at a terminal too, and `--yes` takes the ordinary
+answer to every question. Scripted, the whole thing is one line:
+
+```
+counterparts install --budget 9000 --name "Your Name"
+```
+
+`--budget` is the size ceiling in bytes for the briefing injected at the start of each
+session (§3a). The conversation above writes 9,000 when you do not pass one, and says so.
+
+---
+
+## 4. Restart Claude Code, then check it
+
+Restart Claude Code. Then:
+
+```
+counterparts doctor
+```
+
+It reads the store your hooks read, writes nothing, and prints one line per finding, worst
+first, each with the fix under it. It exits 1 if anything is red and 0 otherwise.
+
+**Nothing red means it is running.** On a fresh install with no API key you should expect
+a few amber lines — the embedder is off, the credentials file holds no key, nothing has
+been embedded yet. Amber is "you could have more", not "something is broken". §12 is the
+longer reading of `doctor`.
+
+Three things about sessions that were already open, because they surprise everybody:
+
+- **Hooks take effect on the next turn** of a session that is already open. You do not
+  have to restart for those.
+- **The memory tools appear only after a restart.** Claude Code launches an MCP server
+  when a session starts, so a session that was open when you installed has no `note`,
+  `recall` or `session_end` until it is restarted.
+- **After an upgrade, an open session keeps serving the old code** until it restarts —
+  the server it launched is the one it keeps.
+
+If the terminal says something at session start, or `doctor` shows something red, §12 is
+the page for it.
+
+---
+
+## 5. Removing it, and upgrading
+
+**Upgrading** is one line, and then a restart of every open session:
+
+```
+bun add -g counterparts@latest
+```
+
+Your store is untouched by an upgrade: `counterparts install` never rewrites a
+configuration or a credentials file that is already there. §9 has the detail.
+
+**Leaving** is one command:
+
+```
+counterparts uninstall
+```
+
+It takes the Claude Code wiring back out — the five hooks and the MCP registration, and
+only ever the entries that are ours — then tells you where your memory still is, how much
+is in it, and the one line that removes the package itself (`bun remove -g counterparts`;
+a program does not delete itself while it is running). **Your memory is kept** unless you
+say otherwise: `--park` moves `~/.counterparts` aside under a dated name, and
+`--delete-memories` destroys it after counting what is about to go and asking you to type
+a phrase. §9b has all three.
+
+An open Claude Code session keeps its hooks until its next turn, and keeps its memory
+server until you close it.
+
+Want a blank memory instead of no memory? That is `counterparts start-fresh`, §9a.
+
+---
+
+# Reference
+
+Everything below is detail. Nothing here is needed for an ordinary install.
+
+---
+
+## 2a. Installing from source
 
 For contributors, for a version that is not published yet, or for a tarball
-somebody sent you. **Already have the repository? Skip the clone and run
+somebody sent you. This road also needs **npm**, for `npm pack` — it comes with
+Node, and a machine set up by §1's bun line may not have it. (`bun pm pack`
+exists but is not what this was tested with, so this page does not tell you to
+use it.) **Already have the repository? Skip the clone and run
 `npm pack` there. Were you sent a tarball? Skip to `bun add -g`.** Run the clone
 somewhere that does not already hold a directory named `counterparts` — `git
 clone` refuses, harmlessly, if one is there.
@@ -104,14 +215,13 @@ Those four paths are stable; the live host has pointed at them since 2026-09-03.
 
 ---
 
-## 3. Set it up
+## 3a. `install` or `init`, and where the store and the config live
+
+The scripted form of §3, and the one the install loop runs:
 
 ```
 counterparts install --budget 9000 --name "Your Name"
 ```
-
-That is the command you want the first time. Before you run it, one paragraph on
-the other one, because the difference is not recoverable by guessing.
 
 ### `install` or `init` — which one
 
@@ -193,18 +303,20 @@ Three more directories appear under `store/` the first time they are needed and
 not before: `spans/` (lived experience awaiting encoding, written by the hooks
 and by `counterparts note`), `journal/` (the counterpart's diary, also written
 as Markdown files as each chapter lands) and `sessions/` (the live-session
-registry, §5). A fresh store has none of them, and `counterparts status` lists
+registry, §5a). A fresh store has none of them, and `counterparts status` lists
 them either way.
 
-…and `install` **prints**, without applying, the two things that belong to Claude
-Code: the hooks block and the MCP registration. It never opens
-`~/.claude/settings.json`.
+…and then it comes to the two things that belong to Claude Code: the hooks block
+and the MCP registration. **At a terminal it asks, and does them for you** (§3);
+anywhere else — a pipe, a script, a CI job — and with `--no-wire`, it **prints**
+them without applying, exactly as it always did, and opens no file of the host's.
+§4a is what it prints, and how to apply it by hand.
 
 Re-running it is safe: an existing config or credentials file is kept and
 reported, never merged and never rewritten. `--force` is the only way past that.
 
-Flags: `--budget <bytes>` (§4), `--name <owner>`, `--embedder` (§6),
-`--dir <store>` (below), `--force`.
+Flags: `--budget <bytes>` (below), `--name <owner>`, `--embedder` (§6),
+`--dir <store>` (below), `--force`, `--no-wire`, `--yes`.
 
 ### Why the store is `~/.counterparts/store` and the config is one level up
 
@@ -231,7 +343,7 @@ counterparts install --budget 9000 --name "Your Name" --dir /Volumes/vault/count
 path every entry point reads when nothing names another one, so a config written
 somewhere else with nothing pointing at it is an ambient half that never fires,
 and no hook will tell you: a hook that stands down says so on stderr and exits 0
-(§5 has the one exception). The hook falls back to `COUNTERPARTS_DATA_DIR` only
+(§5a has the one exception). The hook falls back to `COUNTERPARTS_DATA_DIR` only
 when the config it read names no `dataDir` at all, and `install` always writes
 one — so a hand-written config with no `dataDir` is the one shape that can still
 land on the default store.
@@ -257,7 +369,7 @@ path (§7).
 
 The environment variable is the flag's equivalent, for hosts that launch a
 process from a static registration and have no command line to write into —
-which is exactly how Claude Code launches an MCP server (§4).
+which is exactly how Claude Code launches an MCP server (§4a).
 
 A path you named and this cannot use is **refused**, at every entry point that
 reads a configuration, and nothing falls back to the default: naming a
@@ -293,16 +405,27 @@ model's context — records it as the `config` field of
 
 `--budget 9000` is the number the live host runs on, measured on Claude Code on
 2026-09-03: a wake of 8,859 bytes was delivered under it. It is **your host's**
-ceiling, not a Counterparts constant, and this package has no default for one
-anywhere — a briefing refuses to render rather than compose to a number nobody
-chose. Omit `--budget` and the key is left out of the config, the wake is
-injected unbounded, and an `adapter.budget.unreported` event says so.
+ceiling rather than a Counterparts constant, and a briefing refuses to render
+rather than compose to a number nobody chose.
+
+There are two answers to "what if I do not pass one", and which you get depends
+on whether there is a person to tell:
+
+- **The conversation of §3 writes 9,000** when you give no `--budget`, and says
+  so on the line under it, with the file to change when you know your host's
+  real number. It is a working default for somebody installing for the first
+  time, not a constant the system believes in.
+- **Scripted — a pipe, a script, `--no-wire`, CI — nothing is written.** The key
+  is left out of the config, the wake is injected unbounded, and an
+  `adapter.budget.unreported` event says so.
 
 ---
 
-## 4. Wire Claude Code
+## 4a. Wiring Claude Code by hand
 
-`counterparts install` printed both of these, filled in. They are yours to apply.
+For a person who answered `n` at §3's third step, used `--no-wire`, or would
+rather see what is being added. `counterparts install` and `counterparts wire`
+print both of these, filled in.
 
 **The hooks.** Merge into `~/.claude/settings.json` — one script, five events.
 `counterparts install` prints this with your own absolute paths filled in; the
@@ -367,7 +490,8 @@ launched at session start.
 ### Or have it done for you
 
 At a terminal, `counterparts install` asks whether to wire Claude Code and does
-it. The same thing, on its own, at any time:
+it (§3). The same thing, on its own, at any time — to repair wiring, or because
+you said no the first time:
 
 ```
 counterparts wire --yes
@@ -388,12 +512,16 @@ never another tool's:
 counterparts unwire --yes
 ```
 
+(`counterparts uninstall` does this as its first step, and then tells you where
+your memory is — §9b.)
+
 Hooks start with your next turn in any open session; the memory tools appear
-after you restart Claude Code.
+after you restart Claude Code. An open session keeps its memory server until you
+close it, wired or unwired.
 
 ---
 
-## 5. What the pieces do
+## 5a. What the pieces do
 
 **The hooks** are the ambient half. `SessionStart` injects the wake — what the
 last boundary published, plus a preface naming the system, the day and the
@@ -479,7 +607,7 @@ file it names, whatever `--dir` or `COUNTERPARTS_DATA_DIR` say about the store.
 That is a real trap — the cold-stranger review of 2026-09-04 hit it, running a
 scratch store against an existing config — and it is worth knowing that the store
 you point at and the credentials you use are chosen by two different files. The
-lever, since 2026-09-05, is `--config` / `COUNTERPARTS_CONFIG` (§3): point the
+lever, since 2026-09-05, is `--config` / `COUNTERPARTS_CONFIG` (§3a): point the
 second file somewhere too, and the server names the file it read on stderr at
 launch.
 
@@ -491,7 +619,7 @@ opens whatever keys are lying around.
 
 ---
 
-## 7. Check it
+## 7. Look at the memory yourself, from the console
 
 `$HOME/.counterparts/store` is the default data dir, so the commands below work
 with nothing set. If your store is somewhere else — or you would rather be
@@ -561,7 +689,7 @@ question · answered · semantic embedder-off · considered 1 of 3 live rows · 
   Nothing here came back vividly, so treat these as leads rather than answers.
 ```
 
-(A real capture, on a store made the way §3 says — `--name`, either door — and
+(A real capture, on a store made the way §3a says — `--name`, either door — and
 then those two notes. **Three** live rows for two memories: the identity core
 `--name` seeded is the third, because `live rows` counts every unarchived row and
 not only the memories. That is why this number and the wake preface's
@@ -587,7 +715,7 @@ channel with no embedder answers with the nearest thing it has; a `[quiet]` or
 *this is your answer*.
 
 It also works on the very first memory: a store holding one memory answers the
-question about it. On the store §3 makes that reads `considered 1 of 2 live rows`
+question about it. On the store §3a makes that reads `considered 1 of 2 live rows`
 — the memory, and the identity core beside it; on a store made by a bare `init`,
 with no `--name` and so no core, `1 of 1`. The install loop checks the bare case
 on every run, because it is the first thing anyone does and it is invisible to
@@ -738,7 +866,7 @@ and exits 0. That is the wake path working, with nothing yet to say.
 **With no arguments this reads `~/.counterparts/claude-code.json`.** It takes no
 `--dir`, so it acts on whatever store that file names — falling back to
 `COUNTERPARTS_DATA_DIR` only if the file names no `dataDir` at all — which is the
-point of §3's rule that the config stays where the hooks look.
+point of §3a's rule that the config stays where the hooks look.
 
 To try it against a scratch install without touching the one you use, name the
 configuration:
@@ -762,7 +890,7 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 
 which re-renders and republishes the wake bundle now, through the boundary's own
 renderer, advancing no sleep marker. Run the hook again and you get the bundle
-instead of the bootstrap line. On a store installed with §3's command exactly as
+instead of the bootstrap line. On a store installed with §3a's command exactly as
 written, and nothing yet written to it beyond the identity core `--name` seeded,
 that bundle is 572 bytes — a longer name makes it longer — and reads:
 
@@ -878,10 +1006,16 @@ six months.
 bun add -g counterparts@latest
 ```
 
-(From source: `git pull && npm pack` in the clone, then the tarball line from §2.)
+(From source: `git pull && npm pack` in the clone, then the tarball line from §2a.)
 
-Then restart every open Claude Code session (§5). Your store is untouched:
-`counterparts install` never rewrites an existing config or credentials file.
+Then restart every open Claude Code session (§5a). **An open session keeps
+serving the old code until it restarts** — the memory server it launched is the
+one it keeps for its whole life, so an upgrade reaches it only on the other side
+of a restart. The hooks are different: each is a fresh process, so an open
+session runs the new hooks on its next turn.
+
+Your store is untouched: `counterparts install` never rewrites an existing config
+or credentials file. Nothing about your memory changes when the package does.
 
 ---
 
@@ -1026,6 +1160,8 @@ previous one is parked.
 counterparts uninstall --yes
 ```
 
+(Without `--yes` it shows what it is about to do and asks once.)
+
 Takes the Claude Code wiring out — the hooks and the MCP registration — and then
 tells you where your memory still is, how many memories are in it, and the one
 command that removes the package itself:
@@ -1057,9 +1193,20 @@ Both of those refuse while a Counterparts MCP server, worker or dashboard is
 still running — close your Claude Code sessions first — and both name what they
 found.
 
+**What an open session does after an uninstall.** It keeps its hooks until its
+next turn, and keeps its memory server until you close it. So a session you had
+open goes on remembering for one more turn, and goes on offering the memory tools
+until it ends. Nothing you do here reaches into a session that is already
+running; that is why `--park` and `--delete-memories` refuse while one is.
+
 ---
 
 ## 10. What is actually verified, and what is not
+
+The scripted version of this page — install, configure, hook, note, recall, the
+MCP round trip, the removal plan, the session write, the scope switch, the wiring
+and leaving again — is
+57 checks and runs end to end in two to three seconds.
 
 The install loop (`tools/install-loop/run.sh`) runs in a throwaway HOME with no
 repo on its PATH and checks, every time:
@@ -1085,7 +1232,7 @@ repo on its PATH and checks, every time:
 - a `session_end` through a separate `counterparts-mcp` process **binds lazily** to
   the session the hook registered, and mints the memory — the deliberate write
   path a real session uses, without a real session;
-- the **one config rule** (§3) at the two entry points that could not be checked
+- the **one config rule** (§3a) at the two entry points that could not be checked
   before it existed: `counterparts-hook --config <a second config>` works on the
   store that file names, records it in the session file, and leaves the default
   store untouched; `COUNTERPARTS_CONFIG` launches `counterparts-mcp` on a named
@@ -1098,6 +1245,35 @@ repo on its PATH and checks, every time:
 - `rebrief` renders a bundle and the next `SessionStart` injects it;
 - the dashboard opens the same store.
 
+**And, since 2026-09-21, the host's own files (steps 53–57).** These run last,
+because the last of them renames the directory every other step resolves its
+paths from. A settings file is seeded with **another tool's hook** first, and
+`claude` on the loop's PATH is a stub that records what it was called with — the
+real binary would edit the machine's own `~/.claude.json`, which this loop never
+touches. What they establish:
+
+- `counterparts wire --yes` writes five hook entries **beside** the other tool's,
+  leaves that hook and every other key in the file exactly as they were, takes
+  exactly one backup, and sends the registration out through `claude mcp add`;
+- wiring a second time changes not one byte and takes no second backup;
+- `counterparts unwire --yes` removes only ours — the other tool's hook survives
+  — and the deregistration goes out through `claude mcp remove`;
+- `counterparts uninstall --yes` leaves the store where it is, removes the hooks,
+  and names `bun remove -g counterparts` as the one thing left to run;
+- `counterparts uninstall --park --yes` either renames the whole directory aside
+  and prints the guarded `mv` that undoes it, or refuses because something of
+  ours is running on that machine and says what. Both are correct, and which one
+  happens is a fact about the machine rather than about the package.
+
+**What the loop does not check about any of that**, so that it is said plainly:
+it never runs the real `claude mcp add` — the stub answers, so "Claude Code
+accepted the registration" is not a thing this loop can tell you. And it runs
+non-interactively, so **the install conversation of §3 is not exercised here at
+all**: the questions, the hidden key prompts and the skipping are held by unit
+tests, plus one run on a real pty on 2026-09-21 (install, re-run, wire, doctor,
+uninstall, and `--delete-memories` given the wrong phrase). A real terminal, on a
+machine that is not the author's, is still the thing nobody has watched.
+
 **The loop cannot reach the npm registry.** It installs the tarball it packed,
 from disk. `bun add -g counterparts` (§2) and `bun add -g counterparts@latest`
 (§9) deliver that same package by another road, and that road is *unverified by
@@ -1109,9 +1285,8 @@ real session can settle them: that Claude Code reads the hooks block from
 text actually reaches the model's context; that the Stop ask arrives (it is
 delivered on stderr with exit 2, the one channel measured to work on this host);
 and that `claude mcp add` registers a server the client then launches. **All four**
-are verified on the owner's machine by the parallel run
-([`docs/PARALLEL-RUN-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/PARALLEL-RUN-STATUS.md),
-in the repository), not by this loop.
+have been seen working on the author's machine, in real Claude Code sessions,
+every day since 2026-09-03 — but by him watching them, not by this loop.
 
 The fifth host behaviour — `session_end` binding to a live session **through the
 registry**, since the server is never told a session id — the loop now does
@@ -1149,7 +1324,7 @@ rather than from a script.
    WHICH CONFIGURATION: one rule for all four — `--config <absolute path>`, else
    `COUNTERPARTS_CONFIG`, else the default. The asymmetry that is left is the
    hook's: it is the one entry point with no `--dir`, so pointing it at another
-   store means pointing it at another configuration (§3, §7). Both defaults can
+   store means pointing it at another configuration (§3a, §7). Both defaults can
    be refused wholesale with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` (§7): with it
    set, an unnamed store or an unnamed configuration is a refusal, not a fallback
    — the one exception being `rebrief`'s ceiling, a number read from the default
@@ -1158,23 +1333,24 @@ rather than from a script.
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path
    naming a file that does not exist. Check `ls *.tgz`. Hence
-   `"$PWD"/counterparts-*.tgz` in §2.
+   `"$PWD"/counterparts-*.tgz` in §2a.
 3. **The store you point at and the host settings you get come from two different
    files** — and you now have to move both. `--dir` / `COUNTERPARTS_DATA_DIR`
    choose the store; the configuration supplies host settings — the embedder knob
    and the credentials file for the MCP server and the hooks, and, as a last
    resort, the injection ceiling for `counterparts rebrief` (§7). Running a
    scratch store on a machine that already has a configured install will use that
-   install's keys unless you also pass `--config` / `COUNTERPARTS_CONFIG` (§3),
+   install's keys unless you also pass `--config` / `COUNTERPARTS_CONFIG` (§3a),
    and can compose a briefing under that install's ceiling. §6 says how to tell
    from the `semantic` field; `rebrief` names the file it read, and the server
    names it on stderr at launch.
 4. **The vector cache stores embeddings as JSON text.** On the owner's migrated
    store that is 177 MB at 13.9K vectors, with a nearest-neighbour scan of
    0.6–1.0 s. Irrelevant to a fresh store; a named debt.
-5. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
-   parallel-run knob and makes Counterparts stand down unless another file says
-   it may speak. Do not copy it.
+5. **`parallel: { enabled: true }`** appeared in the author's own config while
+   this ran beside its predecessor. It is the parallel-run knob and makes
+   Counterparts stand down unless another file says it may speak. If you see it
+   in a configuration somebody copied to you, take it out.
 6. **Removal reaches the span buffer — with two things it names rather than
    takes.** A note is captured verbatim into `spans/<12-hex key>/jots.jsonl`
    before it is minted. Until 2026-09-05 `remove` chased the database,
@@ -1206,7 +1382,7 @@ rather than from a script.
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.
 8. **A configuration the hooks cannot read is a silent session with no memory.**
-   A named configuration that is missing, unreadable or not JSON is refused (§3),
+   A named configuration that is missing, unreadable or not JSON is refused (§3a),
    and the refusal happens before anything opens, so a stood-down hook leaves no
    ring event, no session record, nothing durable — the right choice (it will not
    write into a store it was not told about) with an unhelpful symptom: nothing

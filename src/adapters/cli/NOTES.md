@@ -508,7 +508,7 @@ confirmation. A command that performs a BULK WRITE always requires the `--dir`
 FLAG; neither `--yes` nor `COUNTERPARTS_DATA_DIR` stands in for it. Ordinary
 per-memory commands — `note`, `recall`, `remove`, `init`, `install`, `status`,
 and `verify` without a writing flag — keep today's behaviour: the variable names
-their store, which is what QUICKSTART §3 teaches. The distinction is blast
+their store, which is what QUICKSTART §3a teaches. The distinction is blast
 radius, not "writes": an exported variable is a shell's memory of where a store
 lives, and a rewrite of the whole store asks for a sentence typed about THIS
 rewrite.
@@ -1272,4 +1272,7 @@ that only showed up there:
   thirty characters. A real terminal reports its real width, so this is not a bug anyone
   will meet — but `columns: 0` means "I do not know", which is what `FALLBACK_WIDTH` is
   for, and it is a one-line change in a file this piece does not own. **Left for D**, and
-  written down here rather than fixed in passing.
+  written down here rather than fixed in passing. **Fixed 2026-09-21** (the docs piece,
+  which was handed the one line): a floored `columns` at or below zero returns
+  `FALLBACK_WIDTH`, and the floor is kept for a width a terminal really reported — 4 is an
+  answer, 0 is the absence of one. `test/ui.test.ts` holds both halves.

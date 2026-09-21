@@ -90,6 +90,27 @@ Also found on day 1: **#12** the `session_end` tool's schema does not list the `
 the Stop ask tells the model to set; sending a handoff with no memories is answered as an error
 (`memories-required`) although the handoff was written.
 
+## What 0.2.0 changed
+
+One line per finding above, saying what happens now. Written 2026-09-21, from the branch
+the five pieces landed on; the owner has not tried it from a tarball yet, so this is what
+the code does rather than what he has seen.
+
+| # | What happens now |
+|---|---|
+| 1 | At a terminal `install` asks `Wire Claude Code now? [Y/n]` and does it — backup first, the five hooks beside anything already there, `claude mcp add` for the server. A pipe, a script, CI and `--no-wire` still print the blocks and change nothing. |
+| 2 | `credentials set <NAME>` at a terminal asks for the value and reads it back without echoing; Enter skips and writes nothing. A pipe, `--from-env` and CI behave exactly as before. |
+| 3 | `install`'s fourth step asks for the Anthropic key and then the Voyage key, one line each on what it buys and where to get one, hidden input, Enter to skip. A Voyage key offers to turn the embedder on with it. |
+| 4 | `counterparts --help` is one line per command — about forty lines — and `counterparts help <command>` holds the old detail for one command at a time. |
+| 5 | Colour when it is a terminal and `NO_COLOR` is unset, blank lines between groups, and `doctor` as a grade word, one short line and the fix indented under it. Piped and `--json` output is byte for byte what it was. |
+| 6 | `counterparts uninstall` exists, with `wire` and `unwire` under it. It keeps your memory by default; `--park` renames the directory aside, `--delete-memories` counts first and takes a typed phrase. |
+| 7 | Doctor's fix lines name commands that work: `credentials set` (which now prompts) for a missing key, `wire` for wiring that is missing or stale. |
+| 8 | The store records the day it was made, and doctor clamps the Authorship window it *states* to that day — never the window it reads, so no count and no grade moves. |
+| 9 | The Sweep line reads green when the newest gate row says `no-credential` **and** the file holds a key now, saying which two facts it looked at, and offers no fix, because there is nothing to do. |
+| 10 | QUICKSTART's main path is §1–§5 and everything else is under a "Reference" line; the README leads with the install and its Status section is rewritten and dated. The two links into the private repo are gone rather than dead. |
+| 11 | The README's install block leads with `curl -fsSL https://bun.sh/install \| bash`, marked "only if you don't have bun", and QUICKSTART §1 says the same. |
+| 12 | `session_end`'s schema lists `handoff`, and a call that sets a handoff with an empty `memories` array is a success that says the handoff was written — not `memories-required`. |
+
 ## For the next round (not part of 0.2.0)
 
 - **#13 — the Stop ask has no pacing for a session that ends turns often** (found 2026-09-21,

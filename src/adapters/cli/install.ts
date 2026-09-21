@@ -474,7 +474,7 @@ function modeOf(path: string): { mode?: string } {
  * Nothing then checked them, so a user who pasted the block into a project
  * settings file instead of the user one, or who never restarted, got a fully
  * green `doctor` and total silence. The failure mode of this product is
- * silence, and QUICKSTART §4 says as much about a hook that stands down.
+ * silence, and QUICKSTART §4a says as much about a hook that stands down.
  *
  * It lives HERE and not in `doctor.ts` because it is the other half of what
  * this file prints: the block and the line are `settingsBlock` and

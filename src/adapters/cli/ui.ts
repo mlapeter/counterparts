@@ -163,12 +163,23 @@ export const FALLBACK_WIDTH = 80;
 /** Narrower than this and wrapping does more harm than the long line. */
 const MIN_WIDTH = 30;
 
-/** How wide to lay out for. Only ever the terminal's own report; `COLUMNS` is
- *  not read, because a stale export is worse than the fallback. */
+/**
+ * How wide to lay out for. Only ever the terminal's own report; `COLUMNS` is
+ * not read, because a stale export is worse than the fallback.
+ *
+ * ZERO IS NOT A WIDTH, IT IS "I DO NOT KNOW". A pty that has not been given a
+ * window size starts 0×0 and a terminal in the middle of being resized can
+ * report the same, so a number at or below zero — and a number that is not one
+ * at all — takes `FALLBACK_WIDTH`, not the floor. The floor is for a terminal
+ * that has told us something and told us something tiny: 4 columns is a real
+ * answer, and folding to four is worse than folding to thirty. Measured on a
+ * real pty, 2026-09-21: every line came out folded to thirty characters.
+ */
 export function terminalWidth(io: Io): number {
   const c = io.tty?.columns;
   if (typeof c !== "number" || !Number.isFinite(c)) return FALLBACK_WIDTH;
   const n = Math.floor(c);
+  if (n <= 0) return FALLBACK_WIDTH;
   return n < MIN_WIDTH ? MIN_WIDTH : n;
 }
 
