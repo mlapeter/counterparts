@@ -1239,3 +1239,37 @@ is treated as no evidence rather than as evidence of absence.
   the owner's plan line ("`--budget` gets a default of 9000") and it is a working default,
   not a new rule — if it fights §2.18 later, the interactive arm is the one place to take
   it back out.
+
+### The merge with C and D, and what a real pty found (2026-09-21)
+
+**Step 4 is `keys.ts#promptForKeys` now**, called after the configuration and the 0600
+credentials file exist — `enableEmbedder` edits a config and never creates one, so the
+order is not arbitrary. `PromptAborted` propagates out of it, as that module argues it
+must, and is caught here: the install says nothing else was changed, summarises from the
+FILE rather than from the result it just lost, and exits non-zero. A summary built from a
+result that was thrown away would be a summary of what did not happen.
+
+**`doctor`'s Host fix lines name `wire` now.** They said "Run: counterparts install — it
+prints the hooks block; paste that into ~/.claude/settings.json". That was the only true
+answer while printing was all this package could do. It is not any more, and the stale
+case is the sharpest one: `wire` repairs an entry that names a path that has moved, in
+place, which is exactly what that finding is about.
+
+**Driven on a real pty** (`python3 pty.openpty`, a throwaway HOME, a stub `claude` on
+PATH, nothing near the real `~/.claude` or `~/.counterparts`): install → re-run → wire →
+doctor → uninstall → `--delete-memories` with the wrong phrase. It works. Three things
+that only showed up there:
+
+- **"1 memories are still at …".** A brand-new install holds exactly one memory — its
+  identity core — so that is the sentence somebody leaving after five minutes actually
+  read. `memories(n)` now says "1 memory".
+- **The preview promised a backup it did not take.** On a re-run where the hooks were
+  already right and only the registration was missing, it said "5 hooks ->
+  ~/.claude/settings.json (backup first)" and then correctly took none. The clause comes
+  from the plan now, not from the verb.
+- **A terminal that reports ZERO columns is laid out at 30.** `ui.ts#terminalWidth` floors
+  a finite number at `MIN_WIDTH`, and a fresh pty starts 0×0, so every line folded to
+  thirty characters. A real terminal reports its real width, so this is not a bug anyone
+  will meet — but `columns: 0` means "I do not know", which is what `FALLBACK_WIDTH` is
+  for, and it is a one-line change in a file this piece does not own. **Left for D**, and
+  written down here rather than fixed in passing.

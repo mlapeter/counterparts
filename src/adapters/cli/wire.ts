@@ -797,15 +797,32 @@ export interface WireResult {
   readonly backup: string | null;
 }
 
-/** The SHORT preview — two lines, never the JSON. The block is what `install`
- *  prints when it is not allowed to apply it; a person about to say yes wants
- *  the shape of the change, not sixty lines of it. */
-function preview(u: Ui, sight: SettingsSight, home: string, mcpWord: string): void {
-  u.hint(
-    `${String(HOST_EVENTS.length)} hooks -> ${tilde(sight.target, home)}` +
-      (sight.exists ? " (backup first)" : " (new file)"),
-  );
+/**
+ * The SHORT preview — two lines, never the JSON. The block is what `install`
+ * prints when it is not allowed to apply it; a person about to say yes wants
+ * the shape of the change, not sixty lines of it.
+ *
+ * **It describes what WILL happen, not what the command is for.** Driven on a
+ * pty (2026-09-21) it said "5 hooks -> ~/.claude/settings.json (backup first)"
+ * on a re-run where the hooks were already right and only the registration was
+ * missing — promising a backup that was then correctly not taken. A preview
+ * that overstates is a preview people stop reading.
+ */
+function preview(
+  u: Ui,
+  sight: SettingsSight,
+  home: string,
+  hooksChange: string,
+  mcpWord: string,
+): void {
+  u.hint(`${String(HOST_EVENTS.length)} hooks -> ${tilde(sight.target, home)} ${hooksChange}`);
   u.hint(`1 MCP server -> ${mcpWord}`);
+}
+
+/** What the hooks half of the preview says, from the plan rather than the verb. */
+function hooksClause(changed: boolean, exists: boolean): string {
+  if (!changed) return "(already there — nothing to change)";
+  return exists ? "(backup first)" : "(new file)";
 }
 
 /**
@@ -859,6 +876,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
     u,
     sight,
     home,
+    hooksClause(merged.changed, sight.exists),
     mcp.present
       ? mcp.matches
         ? "already registered"
@@ -875,7 +893,9 @@ export async function wire(input: WireInput): Promise<WireResult> {
   }
   if (merged.foreignKept > 0) {
     u.hint(
-      `${String(merged.foreignKept)} hook${merged.foreignKept === 1 ? "" : "s"} belonging to something else stay exactly where they are.`,
+      merged.foreignKept === 1
+        ? "1 hook belonging to something else stays exactly where it is."
+        : `${String(merged.foreignKept)} hooks belonging to something else stay exactly where they are.`,
     );
   }
 
@@ -1061,7 +1081,11 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     for (const e of merged.events) u.hint(`${e.event}: would remove ${e.was ?? "our hook"}`);
     u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
     if (merged.foreignKept > 0) {
-      u.hint(`${String(merged.foreignKept)} hook${merged.foreignKept === 1 ? "" : "s"} belonging to something else would stay.`);
+      u.hint(
+        merged.foreignKept === 1
+          ? "1 hook belonging to something else would stay."
+          : `${String(merged.foreignKept)} hooks belonging to something else would stay.`,
+      );
     }
     return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null };
   }
@@ -1074,7 +1098,13 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       );
       return { outcome: "refused", hooks: "none", mcp: "skipped", backup: null };
     }
-    preview(u, sight, home, `removed via \`claude mcp remove\``);
+    preview(
+      u,
+      sight,
+      home,
+      merged.changed ? "(backup first)" : "(none of ours are there)",
+      "removed via `claude mcp remove`",
+    );
     const go = await confirm(io, "Remove the Counterparts hooks and the MCP server?", {
       default: true,
     });
@@ -1107,7 +1137,9 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     );
     if (again.foreignKept > 0) {
       u.hint(
-        `${String(again.foreignKept)} hook${again.foreignKept === 1 ? "" : "s"} belonging to something else were left exactly as they were.`,
+        again.foreignKept === 1
+          ? "1 hook belonging to something else was left exactly as it was."
+          : `${String(again.foreignKept)} hooks belonging to something else were left exactly as they were.`,
       );
     }
   } else {

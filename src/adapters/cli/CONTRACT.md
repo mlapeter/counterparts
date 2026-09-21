@@ -290,6 +290,20 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     gets a SIZE and the refusal's name instead of a count, because "0 memories" would be
     the most dangerous sentence this command could print.*
 
+### What the merge with C and D added (2026-09-21)
+
+28. **[M] The install conversation's fourth step is `keys.ts#promptForKeys`**, called
+    AFTER the configuration and the 0600 credentials file exist — `enableEmbedder` edits a
+    configuration and never creates one. `PromptAborted` propagates out of it by that
+    module's own argument and is caught HERE: the install says nothing else was changed,
+    summarises what is on disk from the FILE rather than from the result it just lost, and
+    exits non-zero.
+29. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
+    Until the three verbs above existed, the only thing this package could do about a
+    missing or stale hook was print a block for the reader to paste; the fix line now names
+    the command that does the paste — including for the STALE case, which `wire` repairs in
+    place.
+
 ## 6. Scars honored
 
 **E5** (the CLI is one side of the seam between locking domains — the owner console versus

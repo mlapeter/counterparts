@@ -58,16 +58,6 @@ export const REMOVE_PACKAGE = `bun remove -g ${BIN.cli}`;
 // ── the path ring ───────────────────────────────────────────────────────────
 
 /**
- * Why this configuration directory may not be renamed or removed, or null.
- *
- * Every clause is one way a path can turn out to name somewhere that matters,
- * and the order is the order in which a wrong answer does the most damage.
- * `assertSafeDataDir` runs on BOTH spellings — the path as written and the path
- * as it resolves — because it is pure string math and follows no links, so a
- * `--config` inside a symlink into `~/.bansai` clears it on the written
- * spelling alone (`snapshots.ts#assertRotatableDir`, the F2 review's lesson).
- */
-/**
  * The FORBIDDEN-ROOT clause on its own, because every arm of this command needs
  * it and only two arms need the rest of the ring.
  *
@@ -97,6 +87,17 @@ export function forbiddenBaseRefusal(base: string): string | null {
   return null;
 }
 
+/**
+ * Why this configuration directory may not be renamed or removed, or null.
+ *
+ * Every clause is one way a path can turn out to name somewhere that matters,
+ * and the order is the order in which a wrong answer does the most damage. It
+ * opens with the forbidden-root clause above — on BOTH spellings, because
+ * `assertSafeDataDir` is string math and follows no links, so a `--config`
+ * inside a symlink into `~/.bansai` clears it on the written spelling alone
+ * (`snapshots.ts#assertRotatableDir`, the F2 review's lesson) — and then adds
+ * the rest of the ring, which only the two MOVING arms need.
+ */
 export function baseRefusal(base: string, home: string, verb: string): string | null {
   const raw = base.trim();
   if (raw.length === 0) {
@@ -234,6 +235,13 @@ export function grouped(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+/** `1,204 memories`, and `1 memory`. Driven on a pty, the plain uninstall said
+ *  "1 memories are still at …" on a store holding only its identity core, which
+ *  is what every brand-new install holds. */
+export function memories(n: number): string {
+  return n === 1 ? "1 memory" : `${grouped(n)} memories`;
+}
+
 // ── the command ─────────────────────────────────────────────────────────────
 
 export interface UninstallInput {
@@ -340,7 +348,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
     census = censusOf(base, input.dataDir);
     u.blank();
     if (census.kind === "memories") {
-      u.fail(`WARNING: this will delete ${grouped(census.n)} memories.`);
+      u.fail(`WARNING: this will delete ${memories(census.n)}.`);
     } else {
       u.fail(`WARNING: this will delete ${base} (${humanBytes(census.bytes)}).`);
       u.hint(`The count could not be taken: ${census.why}.`);
@@ -413,7 +421,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   const kept = censusOf(base, input.dataDir);
   u.ok(
     kept.kind === "memories"
-      ? `${grouped(kept.n)} memories are still at ${base}.`
+      ? `${memories(kept.n)} ${kept.n === 1 ? "is" : "are"} still at ${base}.`
       : `everything is still at ${base} (${humanBytes(kept.bytes)}).`,
   );
   u.hint("Nothing here deleted anything. To move it aside under a dated name:");
@@ -477,7 +485,7 @@ function deleteBase(
   u.heading("Deleted");
   u.ok(
     census !== null && census.kind === "memories"
-      ? `${grouped(census.n)} memories are gone, and so is ${base}.`
+      ? `${memories(census.n)} ${census.n === 1 ? "is" : "are"} gone, and so is ${base}.`
       : `${base} is gone.`,
   );
   u.hint("Nothing in this package can bring it back.");

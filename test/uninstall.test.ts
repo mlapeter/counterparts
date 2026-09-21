@@ -50,6 +50,7 @@ import {
   dirSize,
   grouped,
   humanBytes,
+  memories,
   uninstall,
 } from "../src/adapters/cli/uninstall.js";
 import type { UninstallInput } from "../src/adapters/cli/uninstall.js";
@@ -486,10 +487,17 @@ describe("uninstall --delete-memories", () => {
 
   test("the warning carries the count the ruling asks for, spelled with a comma", async () => {
     await install();
+    await notes(3);
     const c = consoleWith([DELETE_PHRASE]);
     await uninstall(input({ io: c.io, deleteMemories: true }));
     const warning = c.out.find((l) => l.includes("WARNING: this will delete")) as string;
     expect(warning).toMatch(/WARNING: this will delete [\d,]+ memories\./);
+
+    // AND IT IS SINGULAR WHEN IT IS ONE. A brand-new install holds exactly one
+    // memory — its identity core — so "1 memories" was what a person leaving
+    // after five minutes actually read (found on a pty, 2026-09-21).
+    expect(memories(1)).toBe("1 memory");
+    expect(memories(1204)).toBe("1,204 memories");
   });
 
   test("ANYTHING but the exact phrase deletes nothing, changes nothing, and exits non-zero", async () => {
