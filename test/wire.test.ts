@@ -24,6 +24,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -307,6 +308,29 @@ describe("mergeHooks", () => {
     expect(bare.value).toEqual(foreign);
   });
 
+  test("another tool's EMPTY shapes survive both directions — neither is ours to tidy", () => {
+    // Both of these were destroyed before the A review: a foreign group whose
+    // own `hooks` array was already empty took the "the group held nothing but
+    // ours" branch, and a foreign `"Stop": []` had its event key deleted by an
+    // unwire that had found no hook of ours anywhere at all.
+    const foreign = {
+      hooks: { Stop: [], PreCompact: [{ matcher: "x", hooks: [] }] },
+      model: "opus",
+    };
+    const bare = mergeHooks(foreign, "", "unwire");
+    expect(bare.changed).toBe(false);
+    expect(bare.value).toEqual(foreign);
+
+    // And through a wire: the empty GROUP is still there afterwards. (The empty
+    // ARRAY on `Stop` is not — an array with no hook in it carries nothing, and
+    // it is the one shape a round trip does not restore exactly.)
+    const wired = mergeHooks(foreign, COMMAND(), "wire");
+    const back = mergeHooks(wired.value, "", "unwire");
+    const hooks = back.value["hooks"] as Record<string, unknown>;
+    expect(hooks["PreCompact"]).toEqual([{ matcher: "x", hooks: [] }]);
+    expect(back.value["model"]).toBe("opus");
+  });
+
   test("a group shaped in a way this does not read is carried through whole", () => {
     const odd = { hooks: { Stop: ["a string", 7, { hooks: "not an array" }] } };
     const merged = mergeHooks(odd, COMMAND(), "wire");
@@ -431,10 +455,28 @@ describe("writeSettings", () => {
     const sight = sightSettings(settingsFile(), home);
     writeSettings(sight, { hooks: { Stop: [] } }, Date.now());
     expect(readFileSync(real, "utf8")).toContain('"Stop"');
-    expect(existsSync(join(home, "dotfiles", `settings.json.${BACKUP_INFIX}-`.slice(0, 0) + "x"))).toBe(false);
-    // The link is still a link, and the backup is beside the TARGET.
-    expect(statSync(settingsFile()).isFile()).toBe(true);
+    // `lstat`, NOT `stat`: `stat` follows the link, so this would pass even if
+    // the rename had replaced the link with a regular file — which is the one
+    // thing this test exists to catch.
+    expect(lstatSync(settingsFile()).isSymbolicLink()).toBe(true);
+    // And the backup is beside the TARGET, not beside the link.
     expect(readdirSync(join(home, "dotfiles")).some((n) => n.includes(BACKUP_INFIX))).toBe(true);
+    expect(readdirSync(join(home, ".claude")).some((n) => n.includes(BACKUP_INFIX))).toBe(false);
+  });
+
+  test("a second backup in the same SECOND never lands on the first", () => {
+    // The stamp has second resolution, and `wire` then `unwire` is two hundred
+    // milliseconds apart in the install loop. Without a free name the second
+    // copy overwrote the first, and the person's ORIGINAL file was gone.
+    writeSettingsFile({ model: "opus" });
+    const original = readFileSync(settingsFile(), "utf8");
+    const now = Date.parse("2026-09-21T14:03:05.123Z");
+    const first = writeSettings(sightSettings(settingsFile(), home), { one: 1 }, now);
+    const second = writeSettings(sightSettings(settingsFile(), home), { two: 2 }, now);
+    expect(first.backup).not.toBe(second.backup);
+    expect(second.backup).toBe(`${first.backup as string}-2`);
+    expect(readFileSync(first.backup as string, "utf8")).toBe(original);
+    expect(backups()).toHaveLength(2);
   });
 });
 
@@ -858,6 +900,180 @@ describe("`counterparts wire` on the command line", () => {
     });
     expect(code).toBe(EXIT.ok);
     expect(existsSync(settingsFile())).toBe(false);
+  });
+});
+
+// ── install, as a conversation ──────────────────────────────────────────────
+
+/**
+ * The interactive arm of `counterparts install` — the path the owner will
+ * actually take, and the only one in this package that edits a host after
+ * asking.
+ *
+ * **Every test here injects `spawner` and `processes` through `RunOptions`.**
+ * Without that seam a test that sets `io.tty` would reach whatever `claude` is
+ * on the developer's PATH and run it against their own `~/.claude.json`. That
+ * is the hermetic rule at one remove, and it is the reason those two options
+ * exist at all.
+ */
+describe("install, at a terminal", () => {
+  /** A console that says it IS a terminal, so `isInteractive` is true. */
+  function terminal(answers: readonly string[]): Console_ {
+    const c = consoleWith(answers);
+    return { ...c, io: { ...c.io, tty: { stdin: true, stdout: true } } };
+  }
+
+  async function install(
+    argv: readonly string[],
+    answers: readonly string[],
+    spawner: Spawner = spawnerThat(() => OK).spawner,
+  ): Promise<Console_> {
+    const c = terminal(answers);
+    const code = await run(["install", "--config", configPath(), ...argv], {
+      io: c.io,
+      env: ENV,
+      home,
+      spawner,
+      processes: noProcesses,
+    });
+    expect(code).toBe(EXIT.ok);
+    return c;
+  }
+
+  test("it asks the name, asks to wire, and the host reads five hooks afterwards", async () => {
+    const fake = spawnerThat(() => OK);
+    const c = await install([], ["Ada", "y"], fake.spawner);
+    expect(c.asked[0]).toContain("What should this memory call you?");
+    expect(c.asked[1]).toContain("Wire Claude Code now?");
+
+    const said = text(c.out);
+    expect(said).toContain("[1/4]");
+    expect(said).toContain("[4/4]");
+    expect(said).toContain("Done");
+    expect(said).toContain("Your memory is at");
+    expect(said).toContain("Restart Claude Code");
+    // The store was made, the core was seeded, and the host is wired.
+    expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
+    expect(said).toContain("identity core seeded for Ada");
+    expect([...readHost(home, home, ENV).events].sort()).toEqual([...HOST_EVENTS].sort());
+    expect(fake.calls[0]?.slice(0, 3)).toEqual(["mcp", "add", MCP_SERVER_NAME]);
+  });
+
+  test("an empty name goes on without a core, and says how to add one", async () => {
+    const c = await install([], ["", "y"], spawnerThat(() => OK).spawner);
+    const said = text(c.out);
+    expect(said).toContain("No name");
+    expect(said).toContain("--name");
+    expect(said).not.toContain("identity core seeded");
+  });
+
+  test("a RE-RUN does not ask the name again, and says the store was kept", async () => {
+    await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
+    // The registration our first run made, as the host would have written it.
+    writeFileSync(
+      mcpFile(),
+      JSON.stringify({
+        mcpServers: {
+          [MCP_SERVER_NAME]: {
+            command: process.execPath,
+            args: ["run", MCP_SCRIPT],
+            env: { COUNTERPARTS_DATA_DIR: store() },
+          },
+        },
+      }),
+    );
+    const fake = spawnerThat(() => OK);
+    const again = await install([], [], fake.spawner);
+    // NOT asked: the core was seeded once and `--name` would not replace it.
+    expect(again.asked.some((q) => q.includes("call you"))).toBe(false);
+    const said = text(again.out);
+    expect(said).toContain("store already here, kept");
+    expect(said).toContain("already wired");
+    // Nothing was registered a second time, and no second backup was taken.
+    expect(fake.calls).toEqual([]);
+    expect(backups()).toHaveLength(0);
+  });
+
+  test("a re-run does NOT repeat the ceiling sentence about a config it kept", async () => {
+    const first = await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
+    expect(text(first.out)).toContain("injection ceiling was set to 9000");
+    const again = await install([], [], spawnerThat(() => OK).spawner);
+    // `writeOnce` KEEPS the file, so saying it was written would be false about
+    // the one file the hooks actually read.
+    expect(text(again.out)).not.toContain("injection ceiling was set to");
+  });
+
+  test("a stale wiring is REPAIRED on a re-run, and the old path is named", async () => {
+    await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
+    // The install moved — an upgrade, a reinstall from another checkout.
+    const stale = '"/old/bun" run "/gone/src/adapters/claude-code/bin/hook.ts"';
+    writeSettingsFile({
+      hooks: Object.fromEntries(
+        HOST_EVENTS.map((e) => [e, [{ hooks: [{ type: "command", command: stale }] }]]),
+      ),
+    });
+    const again = await install([], ["y"], spawnerThat(() => OK).spawner);
+    expect(text(again.out)).toContain("/gone/src/adapters/claude-code/bin/hook.ts");
+    expect(readHost(home, home, ENV).stale).toEqual([]);
+    expect(backups()).toHaveLength(1);
+  });
+
+  test("answering no leaves the host alone and says which command finishes it", async () => {
+    const fake = spawnerThat(() => OK);
+    const c = await install([], ["Ada", "n"], fake.spawner);
+    expect(existsSync(settingsFile())).toBe(false);
+    expect(fake.calls).toEqual([]);
+    const said = text(c.out);
+    expect(said).toContain("counterparts wire");
+    // The store is made either way.
+    expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
+  });
+
+  test("--yes wires without putting the question", async () => {
+    const c = await install(["--yes", "--name", "Ada"], [], spawnerThat(() => OK).spawner);
+    expect(c.asked).toEqual([]);
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+  });
+
+  test("--no-wire at a terminal is exactly today's behaviour: it prints, and edits nothing", async () => {
+    const fake = spawnerThat(() => OK);
+    const c = terminal([]);
+    const code = await run(
+      ["install", "--config", configPath(), "--no-wire", "--budget", "9000", "--name", "Ada"],
+      { io: c.io, env: ENV, home, spawner: fake.spawner, processes: noProcesses },
+    );
+    expect(code).toBe(EXIT.ok);
+    expect(c.asked).toEqual([]);
+    const said = text(c.out);
+    expect(said).toContain("Two steps left, and they are the HOST'S files");
+    expect(said).toContain("claude mcp add counterparts -s user");
+    expect(existsSync(settingsFile())).toBe(false);
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("a console that is NOT a terminal never reaches the conversation", async () => {
+    const fake = spawnerThat(() => OK);
+    const c = consoleWith(["Ada", "y"]); // a prompt, but no `tty`
+    const code = await run(["install", "--config", configPath(), "--budget", "9000"], {
+      io: c.io,
+      env: ENV,
+      home,
+      spawner: fake.spawner,
+      processes: noProcesses,
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(c.asked).toEqual([]);
+    expect(text(c.out)).toContain("Two steps left");
+    expect(existsSync(settingsFile())).toBe(false);
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("`claude` missing does not fail the install — the hooks are still in", async () => {
+    const c = await install([], ["Ada", "y"], spawnerThat(() => MISSING).spawner);
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    const said = text(c.out);
+    expect(said).toContain("`claude` is not on this PATH");
+    expect(said).toContain("Claude Code is wired");
   });
 });
 

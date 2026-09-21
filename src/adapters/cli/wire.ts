@@ -54,6 +54,7 @@
  */
 import {
   chmodSync,
+  constants,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -106,6 +107,31 @@ export function backupPath(path: string, now: number): string {
   return `${path}.${BACKUP_INFIX}-${stamp}`;
 }
 
+/**
+ * A BACKUP NEVER OVERWRITES A BACKUP. The stamp has second resolution, and two
+ * writes inside one second are not hypothetical — `wire` then `unwire` is two
+ * hundred milliseconds in `tools/install-loop/run.sh`. Without this, the second
+ * copy landed on the first and the person's ORIGINAL pre-wire file was gone,
+ * which is the one thing the backup exists to be.
+ *
+ * `-2`, `-3` … exactly as `start-fresh#parkedPath` numbers a parked directory,
+ * and the check is the copy itself (`COPYFILE_EXCL`) rather than an
+ * `existsSync` before it, so two processes racing cannot both win the name.
+ */
+export function copyToFreeBackup(target: string, now: number): string {
+  const base = backupPath(target, now);
+  for (let n = 1; n < 1000; n += 1) {
+    const candidate = n === 1 ? base : `${base}-${String(n)}`;
+    try {
+      copyFileSync(target, candidate, constants.COPYFILE_EXCL);
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+  throw new Error(`no free backup name beside ${target}`);
+}
+
 /** `~/…` for a path under the home directory — for the SHORT preview only.
  *  Everything this command actually does is reported in full. */
 export function tilde(path: string, home: string): string {
@@ -138,11 +164,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Read `~/.claude/settings.json` and decide, before anything is planned,
  * whether this is a file we are willing to write.
  *
- * Five refusals, and each one is a shape whose meaning we would be guessing at:
+ * Six refusals, and each one is a shape whose meaning we would be guessing at:
  * a symlink out of the home, something that is not a regular file, bytes that
- * are not JSON, a top-level value that is not an object, and a `hooks` key that
- * is not an object. Guessing about any of them means rewriting somebody's
- * configuration into a shape they did not choose.
+ * are not JSON, a top-level value that is not an object, a `hooks` key that is
+ * not an object, and one of our five events whose value is not an array.
+ * Guessing about any of them means rewriting somebody's configuration into a
+ * shape they did not choose.
  */
 export function sightSettings(named: string, home: string): SettingsSight {
   const absent: SettingsSight = {
@@ -398,9 +425,15 @@ export function mergeHooks(
         duplicates += 1;
         innerTouched = true;
       }
-      if (kept.length === 0) {
-        // The group held nothing but ours; it goes with it rather than staying
-        // as an empty `{ "hooks": [] }` the host would step over every session.
+      // A group that HELD SOMETHING and now holds nothing was all ours; it goes
+      // with it rather than staying as an empty `{ "hooks": [] }` the host
+      // steps over every session.
+      //
+      // `inner.length > 0` is load-bearing and was missing until the A review:
+      // a FOREIGN group that was already `{ "matcher": "x", "hooks": [] }` took
+      // this branch and was deleted — somebody else's configuration, removed by
+      // a command that promises never to touch it.
+      if (inner.length > 0 && kept.length === 0) {
         touchedGroup = true;
         continue;
       }
@@ -429,25 +462,26 @@ export function mergeHooks(
     }
 
     // ── unwire ──────────────────────────────────────────────────────────────
-    if (seen > 0) {
-      events.push({
-        event,
-        change: "removed",
-        ...(was === undefined ? {} : { was }),
-        duplicatesRemoved: Math.max(0, seen - 1),
-      });
-      changed = true;
-    }
-    if (outGroups.length === 0) {
-      // The EVENT KEY goes when nothing is left on it — an empty array left
-      // behind is our litter in somebody else's file.
-      if (event in hooks) {
-        delete hooks[event];
-        if (seen === 0 && touchedGroup) changed = true;
-      }
-    } else if (seen > 0 || touchedGroup) {
-      hooks[event] = outGroups;
-    }
+    //
+    // NOTHING HAPPENS TO AN EVENT WE HAD NO HOOK ON. `seen > 0` guards the
+    // whole block, and it was missing until the A review: an event carrying a
+    // foreign `[]` had its key DELETED, so an unwire on a file with no hook of
+    // ours in it reported a change and rewrote somebody else's document.
+    if (seen === 0) continue;
+    events.push({
+      event,
+      change: "removed",
+      ...(was === undefined ? {} : { was }),
+      duplicatesRemoved: Math.max(0, seen - 1),
+    });
+    changed = true;
+    // The EVENT KEY goes when nothing is left on it — an empty array where ours
+    // used to be is our litter in somebody else's file. (An event that was
+    // ALREADY `[]` before a `wire` therefore does not come back as `[]`; an
+    // empty array carries no hook, and this is the one shape a wire/unwire
+    // round trip does not restore exactly.)
+    if (outGroups.length === 0) delete hooks[event];
+    else hooks[event] = outGroups;
   }
 
   if (Object.keys(hooks).length === 0) {
@@ -494,8 +528,7 @@ export function writeSettings(
   try {
     mkdirSync(dir, { recursive: true });
     if (sight.exists) {
-      backup = backupPath(target, now);
-      copyFileSync(target, backup);
+      backup = copyToFreeBackup(target, now);
       // A backup of a 0600 file must not be world-readable because `copyFile`
       // took the umask's word for it.
       if (sight.mode !== null) chmodSync(backup, sight.mode);
@@ -1013,7 +1046,10 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   const merged = mergeHooks(sight.value, "", "unwire");
   const mcp = readMcp(home, env, input.store, input.custom, input.exe);
 
-  if (!merged.changed && !mcp.present) {
+  // `mcp.unreadable` is NOT "nothing there": that file is the host's own and a
+  // read that failed is no evidence either way, which is the same stance the
+  // removal below takes.
+  if (!merged.changed && !mcp.present && !mcp.unreadable) {
     u.ok("nothing to unwire: no Counterparts hooks and no MCP registration were found.");
     u.hint(`looked in: ${sight.target}`);
     u.hint(`and in:    ${mcp.file}`);

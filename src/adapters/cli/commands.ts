@@ -207,7 +207,7 @@ import { ask, isInteractive, ui } from "./ui.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, unwire, wire } from "./wire.js";
-import type { Outcome as WireOutcome, WireInput } from "./wire.js";
+import type { Outcome as WireOutcome, ProcessLister, Spawner, WireInput } from "./wire.js";
 import { uninstall } from "./uninstall.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
@@ -380,6 +380,20 @@ export interface RunOptions {
    * with the developer's `git status`.
    */
   checkout?: CheckoutReading;
+  /**
+   * `claude`, AND `ps` — the two programs `wire`, `unwire` and `uninstall`
+   * reach outside this process for.
+   *
+   * Real runs never pass them; `install.ts`'s own `realSpawner` / the process
+   * lister are the defaults. **The TESTS always do**, and it is the same rule
+   * `checkout` is here for one clause up: a test that let the interactive
+   * install arm run would otherwise invoke whatever `claude` is on the
+   * developer's PATH, against their own `~/.claude.json`. Nothing in this suite
+   * may run the real binary, and a seam is how that is a fact rather than a
+   * habit.
+   */
+  spawner?: Spawner;
+  processes?: ProcessLister;
 }
 
 export function usage(): string {
@@ -1285,7 +1299,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         nonInteractive: parsed.flags["no-wire"] === true,
       });
       return interactive
-        ? await installInteractive(parsed, io, env, opts.home, named, now)
+        ? await installInteractive(parsed, io, env, opts, named, now)
         : installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${describeDirRefusal(err)}`);
@@ -1307,7 +1321,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return EXIT.refused;
     }
     try {
-      return await hostWiringCommand(command, parsed, io, env, opts.home, named, now);
+      return await hostWiringCommand(command, parsed, io, env, opts, named, now);
     } catch (err) {
       io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
       // NOT "nothing was changed": a throw can land after the settings file has
@@ -2471,11 +2485,11 @@ async function installInteractive(
   parsed: Parsed,
   io: Io,
   env: Record<string, string | undefined>,
-  home: string | undefined,
+  opts: RunOptions,
   named: ConfigChoice | undefined,
   now: () => number,
 ): Promise<number> {
-  const home_ = home ?? homedir();
+  const home_ = opts.home ?? homedir();
   const u = ui(io, env);
   const custom = customConfigPath(named, home_);
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
@@ -2524,13 +2538,17 @@ async function installInteractive(
   // 9000".) A `--budget` on the line still wins.
   const suppliedBudget = typeof parsed.flags["budget"] === "string" ? parsed.flags["budget"] : undefined;
   if (suppliedBudget === undefined) flags["budget"] = String(DEFAULT_BUDGET_BYTES);
+  // WAS THERE A CONFIGURATION BEFORE THIS RUN? `writeOnce` KEEPS an existing
+  // one, so on a re-run the ceiling below is not written and a line saying it
+  // was would be false about the file the hooks actually read.
+  const configExisted = existsSync(layout.config);
   u.step(2, INSTALL_STEPS, already ? "Your store, as it already is" : "Your store");
   u.blank();
   const code = installCommand({ command: "install", positional: [], flags }, io, env, home_, named, {
     hostSteps: false,
   });
   if (code !== EXIT.ok) return code;
-  if (suppliedBudget === undefined) {
+  if (suppliedBudget === undefined && (!configExisted || parsed.flags["force"] === true)) {
     u.hint(
       `The injection ceiling was set to ${String(DEFAULT_BUDGET_BYTES)} bytes. Change it in ` +
         `${layout.config} whenever you know your host's real one.`,
@@ -2558,8 +2576,8 @@ async function installInteractive(
     yes: parsed.flags["yes"] === true,
     dryRun: false,
     exe: process.execPath,
-    spawner: realSpawner(env),
-    lister: realProcessLister(env),
+    spawner: opts.spawner ?? realSpawner(env),
+    lister: opts.processes ?? realProcessLister(env),
     heading: false,
   });
   if (wired.hooks === "declined" || wired.outcome !== "ok") {
@@ -2578,17 +2596,24 @@ async function installInteractive(
   u.blank();
 
   // ── the summary ───────────────────────────────────────────────────────────
+  //
+  // SENTENCES, NOT A PADDED TABLE. A terminal is the one console `ui` wraps
+  // for, and wrapping folds runs of whitespace — so a `label    value` column
+  // built here came apart the moment a path was long, which is every real
+  // install. Four short lines that read the same folded or not.
+  const isWired =
+    wired.hooks === "wired" || wired.hooks === "repaired" || wired.hooks === "already";
   u.heading("Done");
-  u.hint(`store    ${store}`);
-  u.hint(`config   ${layout.config}`);
+  u.hint(`Your memory is at ${store}`);
+  u.hint(`and its configuration is ${layout.config}`);
   u.hint(
-    `wired    ${
-      wired.hooks === "wired" || wired.hooks === "repaired" || wired.hooks === "already"
-        ? `yes — ${String(HOST_EVENTS.length)} hooks, and the MCP server ${wired.mcp === "printed" ? "line is printed above" : "is registered"}`
-        : `no — run \`${BIN.cli} wire\` when you are ready`
-    }`,
+    isWired
+      ? `Claude Code is wired: ${String(HOST_EVENTS.length)} hooks, and the memory tools ${
+          wired.mcp === "printed" ? "once you run the line above" : "once you restart it"
+        }.`
+      : `Claude Code is NOT wired. Run \`${BIN.cli} wire\` whenever you are ready.`,
   );
-  u.hint(`next     restart Claude Code, then: ${BIN.cli} doctor`);
+  u.hint(`Restart Claude Code, then check it with \`${BIN.cli} doctor\`.`);
   return EXIT.ok;
 }
 
@@ -2624,7 +2649,7 @@ async function hostWiringCommand(
   parsed: Parsed,
   io: Io,
   env: Record<string, string | undefined>,
-  home: string | undefined,
+  opts: RunOptions,
   named: ConfigChoice | undefined,
   now: () => number,
 ): Promise<number> {
@@ -2642,7 +2667,7 @@ async function hostWiringCommand(
     return EXIT.refused;
   }
 
-  const home_ = home ?? homedir();
+  const home_ = opts.home ?? homedir();
   const configPath = named === undefined ? defaultConfigPath(home_) : resolve(named.path);
   const custom = customConfigPath(named, home_);
   const present = existsSync(configPath);
@@ -2678,8 +2703,8 @@ async function hostWiringCommand(
   }
 
   const store = host.config.dataDir ?? join(dirname(configPath), DEFAULT_STORE_DIR);
-  const spawner = realSpawner(env);
-  const lister = realProcessLister(env);
+  const spawner = opts.spawner ?? realSpawner(env);
+  const lister = opts.processes ?? realProcessLister(env);
 
   if (command === "uninstall") {
     return exitFor(

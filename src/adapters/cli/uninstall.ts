@@ -67,19 +67,18 @@ export const REMOVE_PACKAGE = `bun remove -g ${BIN.cli}`;
  * `--config` inside a symlink into `~/.bansai` clears it on the written
  * spelling alone (`snapshots.ts#assertRotatableDir`, the F2 review's lesson).
  */
-export function baseRefusal(base: string, home: string, verb: string): string | null {
-  const raw = base.trim();
-  if (raw.length === 0) {
-    return `refused: there is no directory to ${verb} — nothing named one.`;
-  }
-  if (!isAbsolute(raw)) {
-    return (
-      `refused: "${raw}" is not an absolute path, so it names a different directory in every ` +
-      `process that reads it. This will not ${verb} whatever happens to sit at that name in ` +
-      `its own working directory (${resolve(raw)}).`
-    );
-  }
-  const written = resolve(raw);
+/**
+ * The FORBIDDEN-ROOT clause on its own, because every arm of this command needs
+ * it and only two arms need the rest of the ring.
+ *
+ * The plain uninstall renames nothing and deletes nothing — but it does READ:
+ * `censusOf`'s fallback walks the directory to size it. A `--config` pointed
+ * inside `~/.bansai` would have had this command stat-walking v1's live store,
+ * which the second safety rule forbids as flatly as writing to it. Both
+ * spellings, because `assertSafeDataDir` is string math and follows no links.
+ */
+export function forbiddenBaseRefusal(base: string): string | null {
+  const written = resolve(base);
   for (const spelling of [written, realpathDeep(written)]) {
     try {
       assertSafeDataDir(spelling);
@@ -95,6 +94,24 @@ export function baseRefusal(base: string, home: string, verb: string): string | 
       );
     }
   }
+  return null;
+}
+
+export function baseRefusal(base: string, home: string, verb: string): string | null {
+  const raw = base.trim();
+  if (raw.length === 0) {
+    return `refused: there is no directory to ${verb} — nothing named one.`;
+  }
+  if (!isAbsolute(raw)) {
+    return (
+      `refused: "${raw}" is not an absolute path, so it names a different directory in every ` +
+      `process that reads it. This will not ${verb} whatever happens to sit at that name in ` +
+      `its own working directory (${resolve(raw)}).`
+    );
+  }
+  const written = resolve(raw);
+  const forbidden = forbiddenBaseRefusal(written);
+  if (forbidden !== null) return forbidden;
   const real = realpathDeep(written);
   if (real === parsePath(real).root) {
     return `refused: ${written} resolves to a filesystem root (${real}). Nothing here will ${verb} that.`;
@@ -246,6 +263,14 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   u.hint(`configuration: ${input.configPath}`);
   u.hint(`memory:        ${base}`);
   u.blank();
+
+  // ── BEFORE EVERY ARM, including the one that only reads ──────────────────
+  const forbidden = forbiddenBaseRefusal(base);
+  if (forbidden !== null) {
+    io.err(forbidden);
+    io.err("Nothing has changed and nothing was read.");
+    return "refused";
+  }
 
   // ── the two flags are one choice ─────────────────────────────────────────
   if (input.park && input.deleteMemories) {
