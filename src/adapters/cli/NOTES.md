@@ -999,6 +999,17 @@ echoes; `setEncoding` is never called, since it is sticky on the stream
 listener detached and the stream paused on every exit path — Enter, Ctrl-C, Ctrl-D, `end`,
 `error` — or the process does not exit.
 
+**Two of those the first round got wrong, and the review caught**, both in the same class:
+
+- **An `error` is not a submit.** It was bound to the same handler as `end`, so a stream
+  that failed halfway through a key would have RESOLVED with the half, and
+  `credentials set` would have written a truncated credential that reads as present and
+  fails at every boundary. That is I32's shape, minted fresh. `end` resolves (an EOF is a
+  submit); `error` aborts.
+- **Ctrl-C is checked before the escape state machine**, from every state. Underneath it,
+  the abort was swallowed as "the character after a bare ESC" — so a person who pressed an
+  arrow key and then gave up could not give up.
+
 **`statusLine` is held to `claude-code/doctor.ts`.** Its two columns are that file's
 `SEVERITY_COLUMN` and `TITLE_COLUMN`, its fix line is the same 18 spaces, and it keeps the
 2026-09-20 rule that a label as wide as its column still gets its space (without it,

@@ -389,8 +389,13 @@ const ESC = String.fromCharCode(27);
  *   - **The terminal is restored on every exit path** — Enter, Ctrl-C, Ctrl-D,
  *     `end`, `error` — and the listener is detached and the stream paused, or
  *     the process does not exit.
- *   - Control and escape bytes below `0x20` are DROPPED rather than stored, so
- *     an arrow key does not end up inside a credential.
+ *   - **An `error` is not a submit.** `end` resolves (an EOF is a submit); a
+ *     stream that FAILED halfway through a key aborts, because resolving the
+ *     half writes a truncated credential that reads as present.
+ *   - **Ctrl-C works from every state**, escape sequence included.
+ *   - Control and escape bytes below `0x20` are DROPPED rather than stored, and
+ *     an escape sequence is swallowed whole, so an arrow key does not end up
+ *     inside a credential.
  */
 export function hiddenPrompt(
   input: RawInput,
@@ -412,13 +417,15 @@ export function hiddenPrompt(
        */
       let escape: "no" | "esc" | "csi" = "no";
 
+      const drop = (event: string, listener: (chunk: unknown) => void): void => {
+        if (input.off !== undefined) input.off(event, listener);
+        else if (input.removeListener !== undefined) input.removeListener(event, listener);
+      };
+
       const detach = (): void => {
-        if (input.off !== undefined) input.off("data", onData);
-        else if (input.removeListener !== undefined) input.removeListener("data", onData);
-        if (input.off !== undefined) input.off("end", onEnd);
-        else if (input.removeListener !== undefined) input.removeListener("end", onEnd);
-        if (input.off !== undefined) input.off("error", onEnd);
-        else if (input.removeListener !== undefined) input.removeListener("error", onEnd);
+        drop("data", onData);
+        drop("end", onEnd);
+        drop("error", onError);
       };
 
       /** The ONE way out: restore, detach, newline, then settle. */
@@ -442,9 +449,27 @@ export function hiddenPrompt(
         settle();
       };
 
+      /** End of input. An EOF is a submit — the same answer Ctrl-D gives. */
       function onEnd(): void {
+        const answer = value;
         finish(() => {
-          resolve(value);
+          resolve(answer);
+        });
+      }
+
+      /**
+       * A STREAM ERROR IS NOT A SUBMIT.
+       *
+       * Bound to `end` too until the U0 review caught it: a stream that failed
+       * halfway through a key would have resolved with the half, and
+       * `credentials set` would have written a truncated credential that reads
+       * as present and fails at every boundary. The same shape as I32, minted
+       * fresh. It aborts instead, and the caller's own `PromptAborted` handling
+       * covers it.
+       */
+      function onError(): void {
+        finish(() => {
+          reject(new PromptAborted("interrupt", "the terminal closed before the value was read."));
         });
       }
 
@@ -454,6 +479,15 @@ export function hiddenPrompt(
         // across two chunks is the known and accepted limit.
         const text = typeof chunk === "string" ? chunk : String(chunk);
         for (const ch of text) {
+          // CTRL-C IS CHECKED FIRST, FROM EVERY STATE. Below the escape machine
+          // it was swallowed as "the character after a bare ESC", so a person
+          // who pressed an arrow key and then gave up could not give up.
+          if (ch === ETX) {
+            finish(() => {
+              reject(new PromptAborted("interrupt", "cancelled."));
+            });
+            return;
+          }
           if (escape === "csi") {
             const c = ch.codePointAt(0) ?? 0;
             // The FINAL byte of a CSI sequence is `@`..`~`; everything before it
@@ -468,12 +502,6 @@ export function hiddenPrompt(
           if (ch === ESC) {
             escape = "esc";
             continue;
-          }
-          if (ch === ETX) {
-            finish(() => {
-              reject(new PromptAborted("interrupt", "cancelled."));
-            });
-            return;
           }
           if (ch === "\r" || ch === "\n") {
             const answer = value;
@@ -510,7 +538,7 @@ export function hiddenPrompt(
       }
       input.on("data", onData);
       input.on("end", onEnd);
-      input.on("error", onEnd);
+      input.on("error", onError);
       input.resume?.();
     });
 }

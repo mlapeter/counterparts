@@ -574,6 +574,45 @@ describe("hiddenPrompt", () => {
     expect(r.input.count("data")).toBe(0);
   });
 
+  test("a stream ERROR aborts — half a key is never returned as the key", async () => {
+    const r = rig();
+    const p = r.read("Key: ");
+    r.input.emit("data", "sk-half");
+    r.input.emit("error", new Error("EIO"));
+    let caught: unknown = null;
+    try {
+      await p;
+    } catch (e) {
+      caught = e;
+    }
+    expect(isPromptAborted(caught)).toBe(true);
+    expect((caught as PromptAborted).reason).toBe("interrupt");
+    expect((caught as Error).message).not.toContain("sk-half");
+    expect(r.input.raw).toEqual([true, false]);
+    expect(r.input.paused).toBe(1);
+    expect(r.input.count("error")).toBe(0);
+    expect(r.written.join("")).not.toContain("sk-half");
+  });
+
+  test("Ctrl-C works mid escape sequence, and after a bare ESC", async () => {
+    for (const lead of [ESC, `${ESC}[`, `${ESC}[1;`]) {
+      const r = rig();
+      const p = r.read("Key: ");
+      r.input.emit("data", "sk-half");
+      r.input.emit("data", lead);
+      r.input.emit("data", "\u0003");
+      let caught: unknown = null;
+      try {
+        await p;
+      } catch (e) {
+        caught = e;
+      }
+      expect(isPromptAborted(caught)).toBe(true);
+      expect((caught as PromptAborted).reason).toBe("interrupt");
+      expect(r.input.raw).toEqual([true, false]);
+    }
+  });
+
   test("a stream that is not a terminal is never put in raw mode", async () => {
     const r = rig();
     r.input.isTTY = false;
