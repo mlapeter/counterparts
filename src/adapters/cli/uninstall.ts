@@ -40,7 +40,6 @@ import { existsSync, lstatSync, readdirSync, renameSync, rmSync, statSync } from
 import { isAbsolute, join, parse as parsePath, resolve } from "node:path";
 
 import { Store, assertSafeDataDir, dateOf, isWithin, storeExists } from "../../core/store/index.js";
-import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
 import type { Io } from "./commands.js";
 import { BIN, CONFIG_FILE } from "./install.js";
 import { PARKED_INFIX, guardedMove, parkedPath, realpathDeep, sameFilesystemRefusal } from "./start-fresh.js";
@@ -461,11 +460,4 @@ function deleteBase(
   u.heading("The package itself");
   u.hint(`  ${REMOVE_PACKAGE}`);
   return "ok";
-}
-
-/** The sentence a non-default configuration earns, for the caller's summary. */
-export function customNote(custom: string | undefined): string | null {
-  return custom === undefined
-    ? null
-    : `This uninstall acted on ${custom} — named with ${CONFIG_FLAG} or ${CONFIG_ENV}.`;
 }

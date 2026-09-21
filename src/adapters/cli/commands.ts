@@ -1310,7 +1310,13 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return await hostWiringCommand(command, parsed, io, env, opts.home, named, now);
     } catch (err) {
       io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
-      io.err("Nothing of the host's was changed by this failure.");
+      // NOT "nothing was changed": a throw can land after the settings file has
+      // been written, and a sentence that is false in the one case somebody is
+      // reading it is worse than no sentence. What IS true is where to look.
+      io.err(
+        "Anything already done is named above, the backup path included. " +
+          `'${BIN.cli} doctor' says what the host reads now.`,
+      );
       return EXIT.failed;
     }
   }
@@ -2650,11 +2656,23 @@ async function hostWiringCommand(
     io.err("Nothing has changed.");
     return EXIT.refused;
   }
-  if (!present) {
+  // A MISSING CONFIGURATION STOPS `wire` AND `uninstall`, AND NOT `unwire`.
+  //
+  // The first two need it: `wire` has to tell the server which store to open,
+  // and `uninstall` has to know which directory this install's is at all. But
+  // `unwire` needs nothing out of it — it takes hooks OUT of the host's settings
+  // and runs one `claude mcp remove` — and the person most likely to be running
+  // it is somebody who deleted `~/.counterparts` by hand and now has five hooks
+  // firing at a store that is gone. Refusing them would leave the mess this
+  // command exists to clean up.
+  if (!present && command !== "unwire") {
     io.err(
       `refused: there is no configuration at ${configPath}, so there is no install here to ` +
         `${command === "uninstall" ? "remove" : command}. Run '${BIN.cli} install' first, or name ` +
-        `the configuration you mean with ${CONFIG_FLAG} <absolute path>.`,
+        `the configuration you mean with ${CONFIG_FLAG} <absolute path>.` +
+        (command === "wire"
+          ? ` (\`${BIN.cli} unwire\` does work without one: it only ever takes things out.)`
+          : ""),
     );
     return EXIT.refused;
   }

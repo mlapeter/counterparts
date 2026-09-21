@@ -271,7 +271,10 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     string. That file is READ to decide whether to call them, and a read that sees nothing
     does not stop the removal being attempted — the host owns that file and may move it,
     so our read is evidence, not authority. `claude` missing is a printed line and exit 0,
-    never a failed install.
+    never a failed install. *`unwire` is also the one of the three that runs with NO
+    configuration at all: it needs nothing out of the file, and the person most likely to
+    be running it is somebody who deleted `~/.counterparts` by hand and now has five hooks
+    firing at a store that is gone.*
 27. **[M] `uninstall` never touches memory unless a flag says so.** The default unwires,
     reports where the memory is and how many memories are in it, and names
     `bun remove -g counterparts` as the one step left. `--park` is ONE rename to

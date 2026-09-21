@@ -65,10 +65,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join, parse as parsePath, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
-import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
+import { CONFIG_ENV } from "../config-path.js";
 import type { Io } from "./commands.js";
 import {
   BIN,
@@ -1111,16 +1111,3 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup };
 }
 
-/** The lines `install` and `uninstall` print when they are not wiring. Kept
- *  here so the `--config` sentence has one author. */
-export function configNote(custom: string | undefined): string | null {
-  return custom === undefined
-    ? null
-    : `This install's configuration is not at the default path, so the hooks carry ` +
-        `${CONFIG_FLAG} and the server carries ${CONFIG_ENV}.`;
-}
-
-/** `/` — used only to say "this resolved to a filesystem root". */
-export function isFsRoot(path: string): boolean {
-  return resolve(path) === parsePath(resolve(path)).root;
-}

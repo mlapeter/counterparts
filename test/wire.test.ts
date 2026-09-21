@@ -785,11 +785,30 @@ describe("`counterparts wire` on the command line", () => {
     expect(code).toBe(EXIT.ok);
   }
 
-  test("with no configuration it refuses and names the command that makes one", async () => {
+  test("with no configuration `wire` refuses and names the command that makes one", async () => {
     const c = consoleWith();
     const code = await run(["wire", "--config", configPath(), "--yes"], { io: c.io, env: ENV, home });
     expect(code).toBe(EXIT.refused);
     expect(text(c.err)).toContain("install");
+  });
+
+  test("with no configuration `unwire` still works — it only ever takes things out", async () => {
+    // The person most likely to run this is somebody who deleted
+    // `~/.counterparts` by hand and now has five hooks firing at a store that
+    // is gone. Refusing them would leave the mess the command exists to clean.
+    await install();
+    await run(["wire", "--config", configPath(), "--yes"], { io: consoleWith().io, env: ENV, home });
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    rmSync(join(home, ".counterparts"), { recursive: true, force: true });
+
+    const c = consoleWith();
+    const code = await run(["unwire", "--config", configPath(), "--yes"], {
+      io: c.io,
+      env: ENV,
+      home,
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(readHost(home, home, ENV).events).toEqual([]);
   });
 
   test("it refuses --dir in words, and changes nothing", async () => {
