@@ -129,6 +129,23 @@ the code does rather than what he has seen.
   `uninstall` only when it equals the `dataDir` the configuration already names.
 - The adversarial review's NITs n1–n5 (`docs/adversarial-review-onboarding-ab-2026-09-21.md`).
 - `--help`'s Advanced group could collapse to a comma list (39 → ~31 lines) — the owner's call.
+- **#16 — write up a silent session WITHOUT an Anthropic key** (owner's question, 2026-09-21).
+  The key has exactly one job today: the crash-fallback sweep, which sends a session's captured
+  text to Anthropic when that session ended before the assistant wrote it up
+  (`bin/runner.ts` — every other background job runs with no key). The session itself already
+  writes memories at every turn end, so the sweep only ever covers the tail after the last
+  answered ask, or a session that never answered one. Proposal: at the next session start, the
+  hook notices captured text that was never written up and asks the live assistant to write it
+  — the same pattern the nightly page writer already uses ("the first session after a day is
+  owed is asked"). No key, nothing sent beyond what Claude Code already sees, the write-up in the
+  model's own voice. Costs: some of the next session's context (cap or chunk it); it waits for
+  you to come back (a project you never reopen is never written up — a cross-project ask is
+  possible but needs care with scopes); one more session-start ask, which must share pacing
+  with #13. Quieter variant: the worker runs `claude -p` headless (the page writer's `host`
+  mode — never yet run against a real host). Recommendation: keyless next-session write-up as
+  the default, the API-key sweep as an opt-in upgrade for people who want it to happen without
+  them; then no key is required OR suggested at install. Core behaviour — its own review; first
+  item of the next round, after the 0.2.0 trial.
 
 
 - **#13 — the Stop ask has no pacing for a session that ends turns often** (found 2026-09-21,
