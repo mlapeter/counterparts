@@ -213,8 +213,8 @@ blank memory — so the *store* he is running is new and the *code* is what has 
 exercised daily for a month.
 
 **The test suite, measured 2026-09-21 on this branch under bun 1.3.10:** `bun test` →
-**2,996 pass, 0 fail, nothing skipped**, about 39,200 assertions across 50 files, 77
-seconds. (The assertion count moves by a hundred or two between runs — a few tests assert
+**2,996 pass, 0 fail, nothing skipped**, around 39,000 assertions across 50 files, 77
+seconds. (The assertion count moves by a few hundred between runs — a few tests assert
 once per row of data they generate — while the pass and fail counts do not.)
 No test touches a real store, and that is mechanized rather than promised:
 `test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
