@@ -80,8 +80,9 @@ outside `~/.counterparts` — wiring Claude Code — takes `n` for no.
 3. **Claude Code.** It shows what it would add — five hooks in `~/.claude/settings.json`
    and one MCP server — says it will back that settings file up first, and counts any
    hooks belonging to other tools that will stay exactly where they are. Then it asks:
-   `Wire Claude Code now? [Y/n]`. Answer `n` and it prints the two things for you to
-   apply by hand instead (§4a).
+   `Wire Claude Code now? [Y/n]`. Answer `n` and nothing of the host's is touched — the
+   store is made either way, and `counterparts wire` does this part whenever you are
+   ready. §4a is the same two things to apply by hand.
 4. **Keys.** Two optional API keys, one at a time, each with one line on what it buys and
    a link to where you get one. Typing is hidden; Enter skips. **Skipping both is fine**
    — §6 is the whole of what you give up, and `counterparts doctor` grades a store that
@@ -1270,9 +1271,11 @@ it never runs the real `claude mcp add` — the stub answers, so "Claude Code
 accepted the registration" is not a thing this loop can tell you. And it runs
 non-interactively, so **the install conversation of §3 is not exercised here at
 all**: the questions, the hidden key prompts and the skipping are held by unit
-tests, plus one run on a real pty on 2026-09-21 (install, re-run, wire, doctor,
-uninstall, and `--delete-memories` given the wrong phrase). A real terminal, on a
-machine that is not the author's, is still the thing nobody has watched.
+tests, plus runs on a real pty on 2026-09-21: install answered both ways (wired, and `n`
+with nothing of the host's touched), a name skipped, both keys skipped, the re-run, `wire`
+again, `doctor`, `uninstall`, and `--delete-memories` refusing while a memory server was
+running. A real terminal, on a machine that is not the author's, is still the thing nobody
+has watched.
 
 **The loop cannot reach the npm registry.** It installs the tarball it packed,
 from disk. `bun add -g counterparts` (§2) and `bun add -g counterparts@latest`

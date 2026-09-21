@@ -21,8 +21,9 @@ counterparts install
 - **your name** — what the memory calls you; Enter skips it;
 - **whether to wire Claude Code** — it shows exactly what it would add (five hooks and one
   memory server), backs up your `~/.claude/settings.json` before touching it, and leaves
-  hooks belonging to other tools exactly where they are. Answer `n` and it prints the two
-  pieces for you to apply by hand instead;
+  hooks belonging to other tools exactly where they are. Answer `n` and nothing of Claude
+  Code's is touched; your store is made either way and `counterparts wire` does this part
+  whenever you are ready;
 - **two optional API keys**, one at a time, each with one line on what it buys and a link
   to where you get one. Typing is hidden and Enter skips. **Skipping both is a supported
   way to run** — what you give up is written down, not glossed over.
@@ -74,10 +75,9 @@ and what has not.
 
 Every model you talk to is frozen. The only learning it does is what fits in its context
 window, and memory is what decides what goes in there. Most memory tools answer that by
-storing the transcript. Counterparts does not: the AI writes down what it *learned* at the
-end of a stretch of work, in the first person, and that interpretation is what gets kept.
-Unused memories fade the way human memories do. What survives is a small, structured
-account of your work together — plus a "who I have been" the AI reads at the start of
+storing the transcript; this one stores the interpretation instead, and lets it fade —
+unused memories decay the way human memories do. What survives is a small, structured
+account of your work together, plus a "who I have been" the AI reads at the start of
 every session.
 
 **No API keys are required.** With none, two things are off. Recall runs on its text
