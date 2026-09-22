@@ -1523,3 +1523,65 @@ destruction path was never entered rather than entered and turned back.
 **Not fixed, deliberately:** the "that looked like an id" hint (n2). There is nothing to
 point at — a string typed at the question is read the same way as one on the command line,
 so the hint would have to name an escape hatch this door does not have.
+
+## 2026-09-22 — the round, in one place (the coordinator's pass)
+
+The two entries above are the first and the last of six pull requests that landed on one
+day, from the owner's 0.2.0 trial: he took the tarball into a plain terminal with no help
+and nothing broke, so what came back was eleven complaints about **words** (findings 17–27
+in `docs/new-user-findings.md`), answered one at a time, with five rendered screens as the
+acceptance criteria. What the six did:
+
+- **#170, D — `remove` gets a front door.** Its own entry above.
+- **#171, A — Esc on every prompt, and the two `uninstall` screens.** Its own entry above.
+- **#172, C — `doctor`.** A fourth grade word, `OFF`, carried as a flag on amber rather
+  than a fourth severity (CONTRACT 38); two OFF lines where there had been five findings,
+  so one skipped optional key is one line and not three ambers; the internal greens folded
+  into one `Background` line on a terminal, with `--all` to unfold; every fix line a
+  command. `--json` gained `optional: true` and split counts, and stayed complete and
+  unfolded.
+- **#173, E — `install`.** No step numbers, the store step silent, Claude Code **connected
+  by default** (this replaces ruling 1 of 09-21: preview-then-ask), keys one at a time with
+  `[y/N]` first, and `install` as the undo of `uninstall --park` (CONTRACT 37). `credentials`
+  bare lists the names it holds; `credentials set VOYAGE_API_KEY` offers the embedder the
+  way install does, which is what makes doctor's fix line true.
+- **#174, B — the help page, and the names.** Fourteen commands in three groups, the rest
+  under `counterparts help advanced`, and `help.ts` now accounts for every dispatched
+  command in exactly one of three tables — the third demands a reason in words, so a
+  command cannot be hidden without a reviewer reading the sentence that hides it. `ask` is
+  the listed spelling of `recall`; `wire`/`unwire` became `connect`/`disconnect` with no
+  aliases (neither had shipped); `dashboard` and `--version` are new; a bare `counterparts`
+  offers setup on a terminal and prints the help page everywhere else.
+- **#175, F — the follow-ups** A and E could not make in each other's files: the three
+  hand-rolled confirmations routed through `typed()` (which closes the "four prompts are
+  not covered" paragraph in CONTRACT 36), and the help text for `install`, `credentials`
+  and `uninstall` — including the two keys' egress sentences, which left the install screen
+  with the rest of the long form. *A product that stops saying where text goes has stopped
+  being able to say it*: they had to land somewhere, and `help` is where.
+
+**Two adversarial reviews, two blockers, and they rhyme.** Both are the same shape: a new
+door reached a destructive or destructive-adjacent path with a weaker guard than the old
+door had.
+
+- **#170's B1** — the interactive door opened on `io.prompt === undefined`, which is
+  stdin's answer to "is anybody there", not the console's. With **stdout redirected** the
+  question went into the file and `counterparts remove <id> > log` deleted on a `y` typed
+  for something else; a CI job with a pty got a live delete where it had always got a dry
+  run. The test is `isInteractive(io, env)` now — the same one `install` and
+  `credentials set` already use. *The destructive command may not use a weaker test for
+  "is anyone there" than the commands that are not.*
+- **#173's B1** — `install --force` at a terminal silently replaced `claude-code.json`,
+  dropping `identity`, `embedder` and a chosen budget: the interactive arm injected a
+  budget whenever none was given, and the new `quiet` option had removed the `replaced …`
+  receipt. Harmless enough as an old wart; a blocker because the **restore path is new**,
+  so it could throw away a configuration the person had just been told came back
+  untouched. The injection is conditional on the configuration not existing now.
+
+Neither review is a file in this repository — they were posted as comments on PRs #170 and
+#173, which is where the fixes are too.
+
+**What did not change, and is not pretending to have.** #26 (the store measured 6.7 MB in
+one plan and 1.4 MB in another a minute later) was not investigated; the most likely cause
+is still a checkpoint or the worker finishing between two runs. #28, the Stop ask's
+verbosity, is explicitly the next round. And `Everywhere` is still the label over the three
+global flags on every command's help page — the rest of #27's list went, that one stayed.
