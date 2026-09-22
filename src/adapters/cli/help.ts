@@ -266,7 +266,9 @@ export function shortHelp(): string {
 export function advancedHelp(): string {
   const lines: string[] = ["counterparts help advanced — maintenance and developer commands", ""];
   for (const name of ADVANCED) lines.push(...shortLine(name, ADVANCED_NAME_COLUMN));
-  lines.push("", "Everywhere");
+  // "Options every command takes", not "Everywhere" — the owner read the old
+  // label as a puzzle (finding #27), and the per-command footer says the same.
+  lines.push("", "Options every command takes");
   for (const { flag, said } of GLOBAL_FLAGS) {
     lines.push(`  ${flag.padEnd(ADVANCED_NAME_COLUMN)}${said}`);
   }
@@ -462,6 +464,9 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
  */
 export const CONSOLE_FOOTER: readonly string[] = [
   "Any other flag is refused before the store is opened.",
-  "Owner operations never run under observer, and removal is the only one that",
-  "asks for a human (CONTRACT §5 G12: owner-in-the-loop is a short, named list).",
+  // Not "removal is the only one that asks": since 2026-09-20 start-fresh asks,
+  // and since 2026-09-22 so do uninstall's moving arms and install's parked
+  // question. The list is still short and named (CONTRACT §5 G12).
+  "Owner operations never run under observer, and the ones that delete or move",
+  "memory ask a person first (CONTRACT §5 G12: owner-in-the-loop is a short, named list).",
 ];

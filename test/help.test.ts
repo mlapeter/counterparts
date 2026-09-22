@@ -223,8 +223,8 @@ describe("counterparts help", () => {
   test("its own page does not offer --dir in the synopsis: it opens no store", async () => {
     const page = commandHelp("help");
     expect(page.split("\n")[2]).toBe("  counterparts help [advanced | <command>]");
-    // It is still a common flag, and the page still says so under "Everywhere".
-    expect(page).toContain("Everywhere:");
+    // It is still a common flag, and the page still says so under the common-flags label.
+    expect(page).toContain("Options every command takes:");
     expect(page).toContain("--dir <value>");
   });
 });
