@@ -96,3 +96,64 @@ const pairs: [string, string][] = [
 ];
 for (const [a, b] of pairs) console.log(cos(embed(a), embed(b)).toFixed(3), "|", a, "<->", b);
 ```
+
+## Appendix 2 — the same proof for potion-base-8M (the owner's chosen trial candidate, 2026-09-22)
+
+Files: `model.safetensors` (one tensor `embeddings`, F32, shape [29528, 256] = 30,236,672 bytes) and `vocab.txt` from https://huggingface.co/minishlab/potion-base-8M (MIT; updated 2026-03; ~460k downloads/month). Run from the directory holding the two files. Measured here: 0.037 ms per embed; related pairs 0.58 / 0.42, unrelated 0.06 / 0.09.
+
+```ts
+// Zero-dependency model2vec (potion) embedder: BERT basic tokenizer + WordPiece + table lookup + mean + L2.
+const buf = new Uint8Array(await Bun.file("model.safetensors").arrayBuffer());
+const hlen = Number(new DataView(buf.buffer).getBigUint64(0, true));
+const header = JSON.parse(new TextDecoder().decode(buf.subarray(8, 8 + hlen)));
+const { shape, data_offsets } = header.embeddings;
+const [rows, dim] = shape;
+const table = new Float32Array(buf.buffer.slice(8 + hlen + data_offsets[0], 8 + hlen + data_offsets[1]));
+const vocab = new Map<string, number>();
+(await Bun.file("vocab.txt").text()).split("\n").forEach((t, i) => t && vocab.set(t, i));
+const UNK = vocab.get("[UNK]")!;
+const isPunct = (c: string) => /[\p{P}\p{S}]/u.test(c) || /[!-\/:-@\[-`{-~]/.test(c);
+function basicTokenize(text: string): string[] {
+  text = text.replace(/[\u0000�\p{Cc}]/gu, (c) => (/\s/.test(c) ? " " : ""));
+  text = text.replace(/[一-鿿㐀-䶿豈-﫿]/g, (c) => ` ${c} `);
+  text = text.toLowerCase().normalize("NFD").replace(/\p{Mn}/gu, "");
+  const out: string[] = [];
+  for (const w of text.split(/\s+/)) {
+    let cur = "";
+    for (const ch of w) { if (isPunct(ch)) { if (cur) out.push(cur); out.push(ch); cur = ""; } else cur += ch; }
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+function wordpiece(word: string): number[] {
+  if (word.length > 100) return [UNK];
+  const ids: number[] = []; let start = 0;
+  while (start < word.length) {
+    let end = word.length, id = -1;
+    while (start < end) { const sub = (start > 0 ? "##" : "") + word.slice(start, end); const v = vocab.get(sub); if (v !== undefined) { id = v; break; } end--; }
+    if (id < 0) return [UNK];
+    ids.push(id); start = end;
+  }
+  return ids;
+}
+export function embed(text: string): Float32Array {
+  const ids = basicTokenize(text).flatMap(wordpiece).filter((i) => i !== UNK).slice(0, 512);
+  const v = new Float32Array(dim);
+  for (const id of ids) for (let d = 0, o = id * dim; d < dim; d++) v[d] += table[o + d];
+  let n = 0; for (let d = 0; d < dim; d++) n += v[d] * v[d]; n = Math.sqrt(n) + 1e-32;
+  for (let d = 0; d < dim; d++) v[d] /= n;
+  return v;
+}
+const cos = (a: Float32Array, b: Float32Array) => a.reduce((s, x, i) => s + x * b[i], 0);
+const text = "The owner prefers to decide things in conversation rather than across many markdown documents, and wants answers that are self-contained and moderately concise, a few items at a time. He now runs the published npm install on a fresh store he started that day, and the old hooks are switched off, so the development repository is nothing more than a place to build. Tests are hermetic and never touch the live stores; decisions are defaults that stay revisable.";
+embed(text); const N = 2000; let t0 = performance.now();
+for (let i = 0; i < N; i++) embed(text + i);
+console.log(`rows=${rows} dim=${dim} ms/embed=${((performance.now() - t0) / N).toFixed(3)}`);
+const pairs: [string, string][] = [
+  ["he likes to talk decisions through out loud", "the owner prefers to decide things in conversation"],
+  ["he likes to talk decisions through out loud", "the database uses write-ahead logging"],
+  ["never open the live memory store from a test", "tests must not touch the real data directory"],
+  ["never open the live memory store from a test", "the website launched with a coming-soon page"],
+];
+for (const [a, b] of pairs) console.log(cos(embed(a), embed(b)).toFixed(3), "|", a, "<->", b);
+```
