@@ -26,9 +26,10 @@ suite, `tsc`, and the install loop where it applied — before the merge):
 | #176 G | docs: README, QUICKSTART (§1 check = `--version`, step 2 = bare `counterparts`, §3–§5, §7, §9a/b, §12), cli CONTRACT (G12/G21/G34–G36 amended, G37 install-as-undo, G38 doctor OFF/fold) + NOTES, findings table for #17–#27 | README 405 lines (grew 39) |
 | #177 H | three strings G caught: the help footer no longer says removal is the only command that asks; "Everywhere" → "Options every command takes"; the scripted install points at `doctor` | |
 
-**master = `d44d49b`** (code last changed by #177; the final gate — suite, `tsc`, install loop on a
-clean detached checkout — is recorded in the section's last line). Both adversarial reviews are
-PR comments on #170 and #173, not files.
+**master = `31659fe`** (code last changed by #179 — after a dress rehearsal of the trial sheet
+against the packed file found no code bug but one wording error: "Found 2 memories set aside" for
+two *folders*, now "memory folders"; the final gate on that commit is in the section's last line).
+Both adversarial reviews are PR comments on #170 and #173, not files.
 
 **Rulings the coordinator made without the owner** (working defaults; revisable): the shared
 `ok` gutter stays as `ui.ok()` renders it (the screens fix the words, not the columns);
@@ -51,12 +52,14 @@ sizes, #8 for stores 0.1.0 made, the n2 hint D declined.
 refused by the session's permission classifier — `git worktree remove --force <path>` by hand);
 `review/round-7` is an untracked leftover in the repo root.
 
-**The final gate, on a clean detached checkout of `d44d49b`: `tsc` clean; `bun test` 3182 pass /
-0 fail / 51 files (78.8 s); `tools/install-loop/run.sh` 58/58.** The tarball for the trial —
+**The final gate, on a clean detached checkout of `31659fe`: `tsc` clean; `bun test` 3182 pass /
+0 fail / 51 files (78.4 s); `tools/install-loop/run.sh` 58/58.** The tarball for the trial —
 `~/counterparts-backups/2026-09-22-0.2.0-trial/counterparts-0.2.0.tgz` — was built from that
-commit with `git archive` + `npm pack`: 201 files, 1,639,912 bytes, sha256 `28e19a05…6435f0`,
+commit with `git archive` + `npm pack`: 201 files, 1,639,972 bytes, sha256 `cc166407…a71d30`,
 scanned clean (no keys, home paths, emails or memory ids; HANDOFF and the findings doc do not
-ship). The sheet is `TRIAL-0.2.0.md` beside it.
+ship). The sheet is `TRIAL-0.2.0.md` beside it; its steps 1–6 were driven on a pseudo-terminal
+from that exact file, in a throwaway home seeded like the owner's (three parked folders, one
+on the old floor), and the sheet was corrected to what actually prints.
 
 ## 2026-09-21, night — 0.1.0 IS ON NPM AND RUNNING HERE; 0.2.0 IS MERGED, NOT PUBLISHED, WAITING FOR THE OWNER'S TRIAL
 
