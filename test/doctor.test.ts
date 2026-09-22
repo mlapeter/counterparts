@@ -2542,27 +2542,44 @@ describe("counterparts credentials", () => {
     expect(env[API_KEY_ENV]).toBe(SECRET);
   });
 
-  test("set on the template replaces the placeholder line and keeps every comment", async () => {
+  test("set on the template adds the line under its own block and keeps every comment", async () => {
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const comments = credentialsTemplate().split("\n").filter((l) => l.startsWith("#")).length;
     const r = await set(API_KEY_ENV, SECRET);
     expect(r.code).toBe(EXIT.ok);
     const lines = readFileSync(credsPath, "utf8").split("\n");
-    // The placeholder BECAME the line, in place: one active line, and every
-    // other comment still there.
+    // One active line, and EVERY comment still there — the placeholder
+    // included (adversarial review n4). Deleting it left its own indented
+    // continuation lines dangling under the OTHER name's paragraph, where they
+    // read as part of that explanation. The loader reads `#` as a comment, so
+    // keeping it costs nothing and the file goes on saying what each name is
+    // for.
     expect(lines.filter((l) => l === `${API_KEY_ENV}=${SECRET}`).length).toBe(1);
-    expect(lines.filter((l) => l.startsWith("#")).length).toBe(comments - 1);
+    expect(lines.filter((l) => l.startsWith("#")).length).toBe(comments);
     // The OTHER name's placeholder is untouched.
     expect(lines.some((l) => l.startsWith(`# ${EMBED_KEY_ENV}=`))).toBe(true);
     expect(loadCredentials(credsPath, {}).loaded).toEqual([API_KEY_ENV]);
-    // AND THE COMMENT BLOCK STILL READS AS ONE. The placeholder owns the
-    // indented lines under it ("Without it the worker…"); putting the live line
-    // where the placeholder stood left them dangling under a secret, as if they
-    // explained it. The line goes after them instead.
+    // AND THE COMMENT BLOCK STILL READS AS ONE: the live line sits after the
+    // indented lines that explain it, and immediately before the next name's
+    // block, which still has its own header.
     const at = lines.indexOf(`${API_KEY_ENV}=${SECRET}`);
     expect(lines[at - 1]).toMatch(/^#\s{4,}\S/);
     expect(lines[at + 1] ?? "").toStartWith(`# ${EMBED_KEY_ENV}=`);
+    expect(lines.some((l) => l.startsWith(`# ${API_KEY_ENV}=`))).toBe(true);
+  });
+
+  test("the other name's explanation never ends up under the wrong header", async () => {
+    writeConfig();
+    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    expect((await set(EMBED_KEY_ENV, SECRET)).code).toBe(EXIT.ok);
+    const lines = readFileSync(credsPath, "utf8").split("\n");
+    const at = lines.indexOf(`${EMBED_KEY_ENV}=${SECRET}`);
+    // Walk back from the live line: every continuation line, then the header
+    // that owns them — which must be the VOYAGE one, not the Anthropic one.
+    let i = at - 1;
+    while (/^#\s{4,}\S/.test(lines[i] ?? "")) i -= 1;
+    expect(lines[i] ?? "").toStartWith(`# ${EMBED_KEY_ENV}=`);
   });
 
   /**
@@ -2666,17 +2683,50 @@ describe("counterparts credentials", () => {
     const code = await run(["credentials", "list", `--config=${configPath}`], { io: c.io, env: {}, home: root });
     expect(code).toBe(EXIT.ok);
     const said = c.out.join("\n");
-    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} present`);
+    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} saved`);
     expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
     expect(said).not.toContain(SECRET);
   });
 
-  test("a subcommand that is neither is refused, and names both", async () => {
+  /**
+   * NEW-USER ANSWER 6 (2026-09-22). Bare `credentials` used to be a usage
+   * error — "takes 'set <NAME>' or 'list', and neither was given" — for the one
+   * word somebody types when they want to know which keys they have. It is that
+   * question, so it answers it, and it says how to add one.
+   */
+  test("bare `credentials` LISTS instead of refusing, and prints the set line", async () => {
+    writeConfig();
+    writeCredentials([EMBED_KEY_ENV]);
+    const c = consoleWith();
+    const code = await run(["credentials", `--config=${configPath}`], { io: c.io, env: {}, home: root });
+    expect(code).toBe(EXIT.ok);
+    const said = c.out.join("\n");
+    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} saved`);
+    expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
+    expect(said).toContain("counterparts credentials set <NAME>");
+    // NAMES ONLY, on this door as on every other.
+    expect(said).not.toContain(SECRET);
+    expect(c.err).toEqual([]);
+  });
+
+  test("bare `credentials` with no file yet says both are missing, not that it failed", async () => {
+    writeConfig();
+    const c = consoleWith();
+    const code = await run(["credentials", `--config=${configPath}`], { io: c.io, env: {}, home: root });
+    expect(code).toBe(EXIT.ok);
+    const said = c.out.join("\n");
+    expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
+    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} missing`);
+    expect(said).toContain("0600");
+  });
+
+  test("a subcommand that is neither is refused, and says what there is", async () => {
     writeConfig();
     const c = consoleWith();
     const code = await run(["credentials", "rotate", `--config=${configPath}`], { io: c.io, env: {}, home: root });
     expect(code).toBe(EXIT.usage);
-    expect(c.err.join("\n")).toContain("'set <NAME>' or 'list'");
+    expect(c.err.join("\n")).toContain("'set <NAME>'");
+    expect(c.err.join("\n")).toContain("nothing at all to list");
   });
 
   test("an observer refuses the whole command — an instrument does not hand a host a key", async () => {

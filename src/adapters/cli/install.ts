@@ -34,14 +34,17 @@
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The store directory under the base. Named, because three files agree on it. */
@@ -54,7 +57,15 @@ export const DEFAULT_STORE_DIR = "store";
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
 import { loadCredentials } from "../claude-code/credentials.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
-import { DEFAULT_DATA_DIR_NAME, isWithin } from "../../core/store/index.js";
+// `preRowsMarkersIn` reads FILENAMES and opens nothing, which is the only
+// reason a module that promises never to open a parked store may call it —
+// the same clause `start-fresh.ts` states over its own import of it.
+import {
+  DEFAULT_DATA_DIR_NAME,
+  PRE_ROWS_READABLE_BY,
+  isWithin,
+  preRowsMarkersIn,
+} from "../../core/store/index.js";
 
 /** The five host events one executable serves (`claude-code/bin/hook.ts`). */
 export const HOST_EVENTS = [
@@ -305,6 +316,16 @@ export interface ConfigInput {
   readonly budgetBytes?: number;
   readonly name?: string;
   readonly embedder?: boolean;
+  /**
+   * Keys carried forward from a configuration this write is REPLACING, and
+   * only ones the command line did not supply (`commands.ts#carryForward`).
+   *
+   * B1, 2026-09-22: `--force` used to blank whatever the flags did not name —
+   * the owner's `identity`, a running `embedder` opt-in, a ceiling somebody
+   * chose. `--force` is consent to rewrite a file, not consent to forget what
+   * it said.
+   */
+  readonly carried?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -317,6 +338,12 @@ export function configObject(input: ConfigInput): Record<string, unknown> {
     dataDir: input.layout.store,
     credentialsFile: input.layout.credentials,
     owner: true,
+    // WHAT THE FILE BEING REPLACED SAID, first, so a flag below still wins —
+    // though `carryForward` has already dropped every key this line supplied,
+    // so the two can never disagree. `dataDir` and `credentialsFile` are set
+    // ABOVE it and are never carried: moving an install is what `--force` is
+    // for, and a path from the old file would silently undo the move.
+    ...(input.carried ?? {}),
   };
   // Scar §2.18: written only when a number was SUPPLIED. There is no default
   // for a host's ceiling anywhere in this package and this is not the place
@@ -667,4 +694,321 @@ export function readHost(
     mcpFile,
     mcpUnreadable: mcpRead.state === "unreadable",
   };
+}
+
+// ── the undo of `uninstall --park` (2026-09-22, item 11) ────────────────────
+
+/**
+ * `install` IS THE WAY BACK FROM `uninstall --park`.
+ *
+ * Trial finding #22, in the owner's words: after `--park` "the undo is a pasted
+ * shell one-liner with an `if [ -e … ] … REFUSING … mv … fi` guard. Doesn't make
+ * sense." So the undo became a command, and the command is the one a person
+ * runs anyway when they come back: `install` looks beside the configuration
+ * directory, finds what the park left, and asks.
+ *
+ * ── THE RULE THIS SECTION EXISTS TO KEEP ────────────────────────────────────
+ *
+ * **The parked directory is never opened.** Not `Store.open`, not `openDb`, not
+ * read-only, and not its `claude-code.json` either. `start-fresh.ts`'s header
+ * says why for the store itself — a WAL store's `-wal` holds committed pages
+ * until somebody checkpoints it, and an opener is somebody — and the park arm
+ * repeats it on screen ("the store was never opened — not even read-only, which
+ * is why this arm does not print a count"). A command that brought the folder
+ * back by first reading what is in it would make that sentence false one release
+ * later.
+ *
+ * So everything below is `readdir`, `lstat` and ONE `rename`. The date comes out
+ * of the NAME, the size out of a walk of the tree, the floor out of
+ * `preRowsMarkersIn`, which reads filenames. There is no memory count, and the
+ * screen says so rather than leaving a reader to wonder.
+ *
+ * ── AND THE REFUSALS, WHICH ARE THE REASON IT GETS A REVIEW ─────────────────
+ *
+ * This moves a stranger's data. Every candidate is refused BY NAME, with the
+ * reason, and left exactly where it is, unless it is a plain directory, under
+ * this home, holding a store this build can open. The sharpest of them is the
+ * symlink clause: `~/.counterparts.parked-2026-09-22 -> ~/.bansai` renamed into
+ * place would make `~/.counterparts` a link into v1's live memory, and the very
+ * next `Store.open` would open it. That is the one CLAUDE.md forbids twice.
+ */
+
+/**
+ * `<base>.parked-<date>` with an optional `-N` — the name `uninstall --park`
+ * writes, by way of `start-fresh#pairedSuffix`. Nothing else is a candidate.
+ *
+ * THE DATE IS A DATE, not four-two-two digits (review n1). The pattern alone
+ * accepted `.counterparts.parked-2099-13-45`, which then sorted ABOVE a real
+ * folder and put "Found memory set aside on 2099-13-45" on the screen —
+ * anything that wants to be picked first need only name a month that does not
+ * exist. It is round-tripped through `Date` instead, so only a day that is
+ * really on the calendar is a candidate at all.
+ *
+ * AND THE ORDINAL IS AT LEAST 2 (review n2). `pairedSuffix` starts counting at
+ * two — a `-0` or a `-1` is not a name this package writes, and `-0` sorted
+ * BELOW the bare same-day folder it was pretending to follow.
+ */
+export function parkedNameParts(
+  name: string,
+  base: string,
+): { date: string; ordinal: number } | null {
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`^${escaped}\\.parked-(\\d{4}-\\d{2}-\\d{2})(?:-(\\d+))?$`).exec(name);
+  if (m === null) return null;
+  const date = m[1] ?? "";
+  // `Date.parse` of a bare ISO date is UTC midnight, and `toISOString` gives
+  // the same ten characters back — for a real day, and not for 2099-13-45,
+  // which either fails to parse or comes back as some other day.
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  if (m[2] === undefined) return { date, ordinal: 1 };
+  const ordinal = Number(m[2]);
+  if (!Number.isInteger(ordinal) || ordinal < 2) return null;
+  return { date, ordinal };
+}
+
+/** Every byte under a path, by walking it. `lstat`, so a symlink is counted as
+ *  the link it is and never followed out of the tree. No file is opened. */
+export function dirBytes(path: string): number {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return 0;
+  }
+  if (!stat.isDirectory()) return stat.size;
+  let total = 0;
+  let entries: string[];
+  try {
+    entries = readdirSync(path);
+  } catch {
+    return total;
+  }
+  for (const name of entries) total += dirBytes(join(path, name));
+  return total;
+}
+
+export interface ParkedSighting {
+  readonly path: string;
+  /** The date out of the NAME. Never out of anything inside the folder. */
+  readonly date: string;
+  /** The `-2`, `-3` … a second park the same day wears; 1 when there is none. */
+  readonly ordinal: number;
+  /** Every byte under it, from the walk above. */
+  readonly bytes: number;
+  /** Why this one may not be brought back, or null. It is still LISTED when it
+   *  is refused: a folder nobody mentions is a folder somebody thinks is gone. */
+  readonly refusal: string | null;
+}
+
+/**
+ * Why this parked directory may not be renamed into place, or null.
+ *
+ * Every clause is a way for one `rename` to do something nobody asked for, and
+ * each of them is checked on the FILESYSTEM rather than on the name — with
+ * `lstat`, never `existsSync`, wherever a link could be the answer.
+ *
+ * ORDER MATTERS HERE. Every clause that could make a READ go somewhere it
+ * should not runs before the read does: the folder's own symlink test and the
+ * home-containment test before anything looks inside, and the `store/` symlink
+ * test before `preRowsMarkersIn` reads a single filename.
+ */
+export function parkedRefusal(path: string, home: string): string | null {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return `refused: ${path} is not there any more.`;
+  }
+  // THE SYMLINK CLAUSE. Renaming a link moves the link: `~/.counterparts` would
+  // become a pointer into whatever it names — `~/.bansai`, say — and the next
+  // `Store.open` would open that. `uninstall.ts` refuses a symlink on the way
+  // out for the mirror-image reason; this is the way back in.
+  if (stat.isSymbolicLink()) {
+    return (
+      `refused: ${path} is a SYMBOLIC LINK, not the directory a park leaves. Renaming a link ` +
+      "moves the link and leaves whatever it points at exactly where it is — and what came " +
+      "back would be a name pointing somewhere nobody here chose. Nothing was moved."
+    );
+  }
+  if (!stat.isDirectory()) {
+    return `refused: ${path} is not a directory, so it is not a parked memory. Nothing was moved.`;
+  }
+  // BELT, ON THE PATH IT ACTUALLY REACHES. The name matched a pattern; the
+  // thing it reaches is what gets renamed.
+  let real = resolve(path);
+  try {
+    real = realpathSync(real);
+  } catch {
+    /* a path that cannot be resolved is judged as written */
+  }
+  let realHome = resolve(home);
+  try {
+    realHome = realpathSync(realHome);
+  } catch {
+    /* likewise */
+  }
+  // A CANDIDATE OUTSIDE THIS HOME. Closed in practice rather than in theory:
+  // `uninstall --park` refuses a base outside the home too
+  // (`uninstall.ts#configDirRefusal`), so no folder this package wrote can be
+  // here — what can is a symlink pointing out, or an `--config` somewhere
+  // exotic, and neither is a thing to rename on a pattern match (review n5).
+  if (!isWithin(realHome, real)) {
+    return (
+      `refused: ${path} resolves to ${real}, outside your home directory (${realHome}). This ` +
+      "command brings back what an install of yours set aside; a path anywhere else is one " +
+      "somebody else is responsible for. Nothing was moved."
+    );
+  }
+  // AND THE SAME SYMLINK CLAUSE ONE DIRECTORY DOWN, BEFORE ANYTHING READS IT.
+  //
+  // A REAL parked directory holding `store -> ~/.bansai/store` clears every
+  // check above: the folder is not a link, and it is under this home. Then
+  // `preRowsMarkersIn` would `readdir` through the link — a read of v1's live
+  // memory, which CLAUDE.md forbids as flatly as a write — and, finding no
+  // pre-rows names, would let the rename put `~/.counterparts/store` on top of
+  // it. `assertSafeDataDir` is pure string math and follows no links (the F2
+  // review's lesson, stated in `start-fresh.ts`), so nothing downstream would
+  // catch it either. `uninstall.ts#storeRefusal` makes this same check on the
+  // way out; this is the way back in.
+  //
+  // `lstatSync` and not `existsSync`: the latter FOLLOWS the link, which is the
+  // one thing that must not happen here.
+  const storePath = join(path, DEFAULT_STORE_DIR);
+  let storeStat;
+  try {
+    storeStat = lstatSync(storePath);
+  } catch {
+    storeStat = undefined;
+  }
+  if (storeStat === undefined) {
+    return (
+      `refused: ${path} holds no '${DEFAULT_STORE_DIR}' directory, so the memory is not in it — ` +
+      "a store that lived somewhere else was parked under its own name beside itself. Bringing " +
+      "this folder back alone would point the hooks at a store that is not there. Move both by " +
+      "hand if that is what you meant; nothing was moved."
+    );
+  }
+  if (storeStat.isSymbolicLink()) {
+    return (
+      `refused: ${storePath} is a SYMBOLIC LINK. What would come back is a name pointing at ` +
+      "somebody else's directory — the next thing to open the store would open whatever it " +
+      "names, and nothing downstream follows a link to find out. Act on the real directory by " +
+      "hand; nothing was moved, and nothing in it was read."
+    );
+  }
+  if (!storeStat.isDirectory()) {
+    return (
+      `refused: ${storePath} is not a directory, so this is not a parked store. Nothing was moved.`
+    );
+  }
+
+  // THE FLOOR, FROM THE FILENAMES ONLY (`preRowsMarkersIn`). A store from
+  // before the rows floor is one this build refuses to open by name, so
+  // bringing it back would put a directory at `dataDir` that every hook, the
+  // worker and the MCP server refuse from the next session start — silently,
+  // because a hook that cannot open a store stands down and exits 0.
+  const markers = preRowsMarkersIn(storePath);
+  if (markers.length > 0) {
+    return (
+      `refused: ${path} holds a store from before the rows floor (${markers.join(", ")}), which ` +
+      "this build will not open. Bringing it back would leave every hook standing down with " +
+      `nothing on screen to say why. ${PRE_ROWS_READABLE_BY} is the last build that reads one. ` +
+      "It is left exactly where it is; nothing was moved."
+    );
+  }
+  return null;
+}
+
+/**
+ * What `uninstall --park` left beside this configuration directory, newest
+ * first.
+ *
+ * NEWEST FIRST MEANS THE DATE AND THEN THE ORDINAL: two parks on one day are
+ * `…parked-2026-09-22` and `…parked-2026-09-22-2`, and the `-2` is the later of
+ * the two, so it sorts above the bare one.
+ *
+ * **THE REFUSAL IS DECIDED BEFORE THE SIZE IS MEASURED** (review m5). Object
+ * literals evaluate in order, so `bytes` first meant every directory under a
+ * candidate had already been `readdir`'d and every entry `lstat`'d by the time
+ * it was refused — and then the number was thrown away, because a refusal
+ * prints only the path and the reason. Nothing was opened and no link was
+ * followed, so the safety claim survived; but the refusal says "nothing in it
+ * was read", and a walk of the tree is a read of it. Cheaper, and now true.
+ */
+export function parkedSiblings(configDir: string, home: string): ParkedSighting[] {
+  const dir = resolve(configDir);
+  const parent = dirname(dir);
+  const base = basename(dir);
+  let names: string[];
+  try {
+    names = readdirSync(parent);
+  } catch {
+    return [];
+  }
+  const out: ParkedSighting[] = [];
+  for (const name of names) {
+    const parts = parkedNameParts(name, base);
+    if (parts === null) continue;
+    const path = join(parent, name);
+    const refusal = parkedRefusal(path, home);
+    out.push({
+      path,
+      date: parts.date,
+      ordinal: parts.ordinal,
+      bytes: refusal === null ? dirBytes(path) : 0,
+      refusal,
+    });
+  }
+  out.sort((a, b) =>
+    a.date === b.date ? b.ordinal - a.ordinal : a.date < b.date ? 1 : -1,
+  );
+  return out;
+}
+
+export type BringBack = { ok: true } | { ok: false; reason: string };
+
+/**
+ * ONE `rename`, and the guard re-made against the ground rather than against
+ * the plan.
+ *
+ * `start-fresh#guardedMove` is the same discipline as a shell line, and the
+ * reason it exists is measured: on macOS `mv src dst` where `dst` is an existing
+ * DIRECTORY moves `src` INSIDE it, exit 0 (review M3). `rename(2)` on a
+ * non-empty destination fails instead — but it is not the only outcome worth
+ * refusing, and the check is made HERE, immediately before the call, because the
+ * person has been at a prompt in between (scar §2.13: a plan made before
+ * somebody went to make coffee is a plan about a filesystem that may have
+ * changed).
+ *
+ * `lstatSync` rather than `existsSync`: a DANGLING symlink at the destination is
+ * something at that path, and `existsSync` answers false for it.
+ */
+export function bringParkedBack(parked: string, destination: string, home: string): BringBack {
+  const why = parkedRefusal(parked, home);
+  if (why !== null) return { ok: false, reason: why };
+  let there = true;
+  try {
+    lstatSync(destination);
+  } catch {
+    there = false;
+  }
+  if (there) {
+    return {
+      ok: false,
+      reason:
+        `refused: ${destination} exists again, so there is nowhere to put ${parked} back. ` +
+        "A rename onto a directory that is there is how one folder ends up inside another. " +
+        "Nothing was moved.",
+    };
+  }
+  try {
+    renameSync(parked, destination);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `refused: ${parked} could not be moved back: ${String((err as Error).message ?? err)}. Nothing was moved.`,
+    };
+  }
+  return { ok: true };
 }

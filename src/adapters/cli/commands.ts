@@ -167,12 +167,15 @@ import {
   DEFAULT_STORE_DIR,
   HOST_EVENTS,
   MCP_SERVER_NAME,
+  bringParkedBack,
   budgetRefusal,
   configObject,
   credentialsHeld,
   credentialsTemplate,
   hookCommand,
+  hostConfigBase,
   installLayout,
+  parkedSiblings,
   throwawayDefaultRefusal,
   layoutRefusal,
   mcpCommand,
@@ -180,10 +183,11 @@ import {
   settingsBlock,
   writeOnce,
 } from "./install.js";
+import type { InstallLayout, ParkedSighting } from "./install.js";
 // The keys module: the two install prompts, and `writeCredential` — the one
 // function in this package that puts a secret on disk. It imports only a TYPE
 // from here, the way `ui.ts` does, so this import is not half of a cycle.
-import { promptForKeys, writeCredential } from "./keys.js";
+import { offerEmbedder, promptForKeys, writeCredential } from "./keys.js";
 // `removalRefusal` is step 1 of a plan on its own — the console's picker asks it
 // of every search hit before it offers one, and of every pick before it asks the
 // one question. It is an extraction from `planRemoval`, never a second rule.
@@ -196,6 +200,7 @@ import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./
 // command to use them, and it uses exactly three: is there a person here, read
 // a value without echoing it, and say one marked line back.
 import { ask, askHidden, confirm, isInteractive, isPromptAborted, typed, ui } from "./ui.js";
+import type { Ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
@@ -219,8 +224,19 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
-import type { Outcome as WireOutcome, ProcessLister, Spawner, WireInput } from "./wire.js";
-import { uninstall } from "./uninstall.js";
+import type {
+  Outcome as WireOutcome,
+  ProcessLister,
+  Spawner,
+  WireInput,
+  WireResult,
+} from "./wire.js";
+// `humanBytes` comes from `uninstall.ts` rather than from the private one
+// below: the two spell a size differently ("7.6 MB" against "7.6 MiB"), and
+// the folder `install` offers to bring back is the one `uninstall --park` set
+// aside — the same folder, named twice on two screens, has to carry the same
+// number.
+import { humanBytes as humanDiskBytes, uninstall } from "./uninstall.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 // The console's map and the paragraphs the old `usage()` carried. One
@@ -598,7 +614,10 @@ export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
 
 export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   status: ["layout"],
-  install: ["budget", "name", "embedder", "force", "config", "no-wire", "yes"],
+  // `--no-connect` was `--no-wire` until 2026-09-22 (item 3 renamed the verbs,
+  // item 9 made connecting the default). Both are new in 0.2.0 and neither has
+  // shipped, so there is no compatibility to keep and no alias to carry.
+  install: ["budget", "name", "embedder", "force", "config", "no-connect", "yes"],
   // `--dir` is deliberately absent from all three, exactly as it is from
   // `start-fresh`: it is a COMMON flag, so it parses either way, and these
   // commands refuse it in words rather than ignoring it. The store they name is
@@ -709,7 +728,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it then asks whether to wire Claude Code and does it; anywhere else — a pipe, a script, a CI job — and with --no-wire it prints the host's hooks block and MCP line and changes nothing of the host's.",
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, connects Claude Code (counterparts disconnect undoes that), asks for each optional key, and offers back any memory a parked uninstall set aside. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
   connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. Claude Code is the one host it knows today.",
   disconnect:
     "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
@@ -884,7 +903,8 @@ const FLAG_HELP: Record<string, string> = {
   resume: "undo a pause (or an off): back to what it was, or on",
   list: "print the whole registry, and the file it came from",
   note: "free text recorded beside the entry, for why",
-  "no-wire": "do not offer to edit the host at all: print the hooks block and the registration line, and change nothing of theirs",
+  "no-connect":
+    "do not touch the host at all: print the hooks block and the registration line, and change nothing of theirs — which is also what a pipe, a script and a CI job get",
   port: "the port to serve the dashboard on (default 4747, or $COUNTERPARTS_DASHBOARD_PORT)",
   "no-open": "do not open a browser — just print the address and serve it",
   park: "move the whole directory aside under a dated name — one rename, nothing copied, nothing deleted, and the store is never opened",
@@ -896,11 +916,16 @@ const FLAG_HELP: Record<string, string> = {
  * THE SENTENCE `install` PRINTS FOR `--yes` INSTEAD OF THE SHARED ONE.
  *
  * The shared sentence is about a bulk write that requires the store to be
- * named, and `install` does no bulk write: here the flag means "do not put the
- * wiring question, take yes for an answer".
+ * named, and `install` does no bulk write.
+ *
+ * SINCE 2026-09-22 IT ANSWERS ALMOST NOTHING, and the sentence says so rather
+ * than promising a question it no longer skips: connecting Claude Code is what
+ * `install` does at a terminal (item 9), so the yes it used to take has no
+ * question left. It is kept because a scripted caller passes it, and because a
+ * question added later should not find the flag missing.
  */
 const INSTALL_FLAG_HELP: Record<string, string> = {
-  yes: "do not put the wiring question at a terminal: take yes for an answer",
+  yes: "kept so a scripted caller need not change, and it answers nothing this command asks: your name, the two optional keys and a memory a parked uninstall set aside are all questions only a person can answer, and moving somebody's data is never something a flag decides",
 };
 
 /**
@@ -1238,7 +1263,7 @@ export function parse(argv: readonly string[]): Parsed {
       // is: `strict: false` does not make an undeclared boolean reliable, and
       // `--delete-memories` arriving as anything but `true` would be a flag the
       // most dangerous command in the package could not see.
-      "no-wire": { type: "boolean" },
+      "no-connect": { type: "boolean" },
       park: { type: "boolean" },
       "delete-memories": { type: "boolean" },
       // `dashboard`'s two. `--port` is a string for the reason every valued flag
@@ -1476,9 +1501,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       // TODAY'S BYTES. `isInteractive` is false for a pipe, a CI job, the
       // install loop and every test console, so the scripted path — which is
       // every path this package has ever been measured on — is untouched.
-      // `--no-wire` opts a terminal out of it too and prints the blocks.
+      // `--no-connect` opts a terminal out of it too and prints the blocks.
       const interactive = isInteractive(io, env, {
-        nonInteractive: parsed.flags["no-wire"] === true,
+        nonInteractive: parsed.flags["no-connect"] === true,
       });
       return interactive
         ? await installInteractive(parsed, io, env, opts, named, now)
@@ -2553,7 +2578,14 @@ function installCommand(
    * day he is most likely to follow instructions literally. So the tail is
    * separable, and that caller prints its own three lines instead.
    */
-  opts: { hostSteps?: boolean; nameAlreadySaid?: boolean } = {},
+  opts: {
+    hostSteps?: boolean;
+    nameAlreadySaid?: boolean;
+    quiet?: boolean;
+    /** False for the conversational arm, which has already ASKED about a
+     *  parked memory (`offerParkedMemory`) and must not say it twice. */
+    parkedNotice?: boolean;
+  } = {},
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
   // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
@@ -2587,6 +2619,35 @@ function installCommand(
   if (throwaway !== null) {
     io.err(throwaway);
     return EXIT.refused;
+  }
+
+  // A PARKED MEMORY IS NAMED HERE TOO, AND ONLY NAMED (review M4).
+  //
+  // `offerParkedMemory` asks — and it is interactive-only, so a pipe, a script,
+  // CI, `--yes` and `--no-connect` at a terminal all walked past a parked
+  // folder, made a blank store beside it, and said nothing at all. That is the
+  // hazard this feature's own docstring names ("a second store the person does
+  // not know about"), reached by the one arm that had no words for it.
+  //
+  // PRINTED RATHER THAN REFUSED, deliberately. A refusal would change what a
+  // scripted caller's exit code means, on a path that has worked since day one
+  // — `tools/install-loop/run.sh` and every CI job install into a fresh home —
+  // and it would make a folder this command never touches able to stop it. Four
+  // lines of stdout cannot surprise anybody; a new non-zero exit can. Nothing
+  // below writes, renames or opens anything.
+  if (opts.parkedNotice !== false && !existsSync(layout.base)) {
+    const found = parkedSiblings(layout.base, home_);
+    if (found.length > 0) {
+      io.out(`Memory was set aside beside ${tilde(layout.base, home_)} and is NOT being brought back:`);
+      for (const one of found) {
+        io.out(
+          `  ${tilde(one.path, home_)}  ${one.refusal === null ? humanDiskBytes(one.bytes) : "(cannot be brought back — run install at a terminal for the reason)"}`,
+        );
+      }
+      io.out("This makes a SECOND, blank store beside it. To bring that one back instead,");
+      io.out(`run \`${BIN.cli} install\` at a terminal: it asks first, and moves nothing on its own.`);
+      io.out("");
+    }
   }
 
   let budgetBytes: number | undefined;
@@ -2637,11 +2698,36 @@ function installCommand(
     }
   }
 
+  // `--force` MAY NOT BLANK A SETTING EITHER (adversarial review B1,
+  // 2026-09-22) — the same argument the credentials file has carried since I32,
+  // applied to the file beside it.
+  //
+  // The old comment below says "a config is regenerable from this command's own
+  // flags". That is true only if the flags were all TYPED, and on a re-install
+  // they are not: `configObject` writes `identity` only from `--name` and
+  // `embedder` only from `--embedder`, so `install --force` over a working
+  // install dropped the owner's name, a running third-party egress opt-in and a
+  // ceiling somebody chose — silently, and on the restore path one line after
+  // the screen said the parked folder came back untouched.
+  //
+  // So a forced write CARRIES FORWARD what the file already said, and only for
+  // keys this command line did not supply: a flag still wins, and the two paths
+  // (`dataDir`, `credentialsFile`) that this install resolved itself are never
+  // taken from the old file, because moving an install is exactly what `--force`
+  // is for. What was kept is SAID, below, on both arms.
+  const carried = force
+    ? carryForward(layout.config, {
+        budget: budgetBytes !== undefined,
+        name: name !== undefined && name.length > 0,
+        embedder,
+      })
+    : {};
   const body = configObject({
     layout,
     ...(budgetBytes === undefined ? {} : { budgetBytes }),
     ...(name === undefined ? {} : { name }),
     embedder,
+    carried,
   });
   const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
   // `--force` MAY NOT BLANK A CREDENTIAL (I32 — 2026-09-04's second clobbered
@@ -2662,9 +2748,37 @@ function installCommand(
     mode: 0o600,
   });
 
-  io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
-  io.out(`  ${config.what} ${config.path}`);
-  io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  // THE STORE STEP IS SILENT ON THE CONVERSATIONAL ARM (2026-09-22, item 10).
+  //
+  // A person installing a memory layer did not ask to be shown three files
+  // being created; the screen the owner signed off on says one thing about all
+  // of it, at the end: "Your memory lives at ~/.counterparts." So the ROUTINE
+  // lines go through `say`, which the interactive caller silences.
+  //
+  // WHAT IS NEVER SILENCED: a warning, and a refusal. `io.err` is untouched,
+  // and the three cases below that are facts a reader would act on — a
+  // credentials file kept under `--force` because it holds a key, a mode that
+  // is not 0600, and a `--dir` that moved the store away from the
+  // configuration — print on both arms. Quiet means fewer receipts, never a
+  // fact withheld.
+  const say = opts.quiet === true ? (_line: string): void => {} : (line: string): void => { io.out(line); };
+  say(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
+  // **A REPLACED CONFIGURATION IS NOT A ROUTINE RECEIPT** (review B1). Creating
+  // one, or keeping one, is bookkeeping; OVERWRITING the file the hooks, the
+  // worker and the MCP server all read is a fact a reader would act on, and the
+  // rule stated above is "quiet means fewer receipts, never a fact withheld".
+  // So this one line goes to `io.out` on both arms, and names what survived.
+  if (config.what === "replaced") {
+    io.out(`  replaced ${config.path}`);
+    const kept = Object.keys(carried);
+    if (kept.length > 0) {
+      io.out(`    kept from the file it replaced: ${kept.join(", ")}.`);
+      io.out("    A flag on this line would have won; none was given for those.");
+    }
+  } else {
+    say(`  ${config.what} ${config.path}`);
+  }
+  say(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
   if (held.length > 0) {
     io.out(`    kept even under --force: it already holds ${held.join(" and ")}.`);
     io.out("    A key cannot be regenerated from anything here. Delete the file by");
@@ -2676,7 +2790,7 @@ function installCommand(
   // The conversation (`installInteractive`) has already said this, one step up, in
   // the person's own answer; saying it twice is the wall of text the owner named.
   if (seeded && opts.nameAlreadySaid !== true) {
-    io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
+    say(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
   }
   if (!isWithin(layout.base, resolved)) {
     // --dir moved the STORE. It does not move the configuration: the hooks read
@@ -2698,20 +2812,69 @@ function installCommand(
   // exactly what the reader just passed, and telling them to pass it again
   // would send them back to the incident this guard exists to prevent.
   if (config.what === "kept" || (creds.what === "kept" && held.length === 0)) {
-    io.out("  (an existing file is never rewritten — pass --force to replace it)");
+    say("  (an existing file is never rewritten — pass --force to replace it)");
   }
   if (creds.mode !== undefined && creds.mode !== "600") {
     io.out(`  WARNING: ${creds.path} is mode ${creds.mode}; group or other can read your keys.`);
   }
   if (budgetBytes === undefined) {
-    io.out("");
-    io.out('  NO "injectionBudgetBytes" was written: nobody told us this host\'s ceiling');
-    io.out("  and this package invents none (scar §2.18). Re-run with --budget <bytes>,");
-    io.out(`  or add the key to ${config.path}.`);
+    say("");
+    say('  NO "injectionBudgetBytes" was written: nobody told us this host\'s ceiling');
+    say("  and this package invents none (scar §2.18). Re-run with --budget <bytes>,");
+    say(`  or add the key to ${config.path}.`);
   }
 
   if (opts.hostSteps !== false) printHostSteps(io, resolved, custom, home_);
   return EXIT.ok;
+}
+
+/**
+ * WHAT A FORCED WRITE KEEPS FROM THE CONFIGURATION IT IS REPLACING (B1).
+ *
+ * The keys this command can write but cannot RE-DERIVE: `identity` comes only
+ * from `--name`, `embedder` only from `--embedder`, and the ceiling only from
+ * `--budget`. A re-install that passes none of the three is the ordinary case —
+ * the owner's own 0.2.0 trial is one — and before this the three were simply
+ * gone, with nothing on screen.
+ *
+ * Two rules in the shape of it:
+ *
+ *   - **A flag always wins.** A key the command line supplies is not carried,
+ *     so there is no merge and no precedence to get wrong later.
+ *   - **`dataDir` and `credentialsFile` are NEVER carried.** This install
+ *     resolved both (`installLayout`), and `--force` over a config that names
+ *     somewhere else is exactly how an install is moved. Carrying them would
+ *     make the move silently not happen.
+ *
+ * It reads the file with `JSON.parse` rather than `loadConfig`: what is wanted
+ * is what the file SAID, key for key, not what a loader makes of it — an
+ * unreadable or non-object file carries nothing, which is the same answer the
+ * ordinary write path gives it.
+ */
+export function carryForward(
+  configPath: string,
+  supplied: { budget: boolean; name: boolean; embedder: boolean },
+): Record<string, unknown> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch {
+    return {};
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const was = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  // Every key the file holds that is NOT one of the four this command resolves
+  // or is being given. Anything an owner added by hand is in here too, which is
+  // the point: `--force` was typed to fix a config, not to normalise it.
+  for (const [key, value] of Object.entries(was)) {
+    if (key === "dataDir" || key === "credentialsFile" || key === "owner") continue;
+    if (key === "injectionBudgetBytes" && supplied.budget) continue;
+    if (key === "identity" && supplied.name) continue;
+    if (key === "embedder" && supplied.embedder) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 /**
@@ -2758,30 +2921,40 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
 
 // ── install, as a short conversation ────────────────────────────────────────
 
-/** How many questions the interactive install has. Named, because `step`
- *  prints it and the keys step is counted before it exists. */
-const INSTALL_STEPS = 4;
-
 /**
  * The same install, with a person in the room.
  *
  * **Everything about the files is `installCommand`'s, unchanged.** This wraps
- * it: it asks for a name, hands the same flags to the same function, offers to
- * wire the host, and ends on a short summary. There is deliberately no second
- * code path that creates a store — that is the rule `start-fresh` already
- * follows ("invent no second install path"), and it is what keeps the refusals
- * (`layoutRefusal`, `throwawayDefaultRefusal`, the credentials guard) true on
- * this arm without being restated.
+ * it: it asks for a name, hands the same flags to the same function, connects
+ * the host, asks for the two keys and ends on two lines. There is deliberately
+ * no second code path that creates a store — that is the rule `start-fresh`
+ * already follows ("invent no second install path"), and it is what keeps the
+ * refusals (`layoutRefusal`, `throwawayDefaultRefusal`, the credentials guard)
+ * true on this arm without being restated.
  *
  * Reached only when `ui.ts#isInteractive` says there is a person who can
  * answer: stdin AND stdout are terminals, `CI` is unset, this console has a
- * prompt, and `--no-wire` was not passed. Everything else — a pipe, a script,
- * `tools/install-loop/run.sh`, every test in the suite — goes to
+ * prompt, and `--no-connect` was not passed. Everything else — a pipe, a
+ * script, `tools/install-loop/run.sh`, every test in the suite — goes to
  * `installCommand` and gets today's bytes.
  *
+ * ── WHAT 2026-09-22 CHANGED, AND WHY (the owner's items 9, 10, 11) ──────────
+ *
+ *   - **No step numbers.** `[1/4]` counted questions the person had not asked
+ *     to be asked. The screen is now five short exchanges with blank lines
+ *     between them.
+ *   - **Claude Code is connected BY DEFAULT**, not offered. Ruling 1 of 09-21
+ *     ("wire by default, after asking first") is replaced: a person who typed
+ *     `install` has asked. `--no-connect` and every scripted console still get
+ *     the printed blocks and no edit at all, which is the half that must not
+ *     move.
+ *   - **The store step is silent** (`quiet`), and says one thing at the end.
+ *   - **`install` is the undo of `uninstall --park`**: before anything else, a
+ *     parked folder beside the configuration directory is offered back.
+ *
  * THE RE-RUN IS THE SECOND MOST COMMON PATH and reads as one: a store that is
- * already there is not asked about again, and an install that is already wired
- * says so instead of asking.
+ * already there greets you instead of asking your name again, and a connection
+ * that is already in place says so instead of being redone.
  */
 async function installInteractive(
   parsed: Parsed,
@@ -2791,13 +2964,13 @@ async function installInteractive(
   named: ConfigChoice | undefined,
   now: () => number,
 ): Promise<number> {
-  // CTRL-C IS NOT AN ANSWER, at ANY of this conversation's questions (review
-  // m4). It used to end the process silently with exit 0 — at the name prompt
-  // nothing existed yet, at the wire question the store, the config and the
-  // 0600 credentials file all did, and a `&&` chain read that zero as
-  // "installed". The keys step already had this handling; now every prompt
-  // does, and it reports from the FILESYSTEM rather than from a flow that was
-  // abandoned halfway.
+  // CTRL-C (and, since 2026-09-22, Esc) IS NOT AN ANSWER, at ANY of this
+  // conversation's questions (review m4). It used to end the process silently
+  // with exit 0 — at the name prompt nothing existed yet, at the wire question
+  // the store, the config and the 0600 credentials file all did, and a `&&`
+  // chain read that zero as "installed". Every prompt reports from the
+  // FILESYSTEM rather than from a flow that was abandoned halfway, which is
+  // also what makes it true either side of the parked folder's one rename.
   try {
     return await installConversation(parsed, io, env, opts, named, now);
   } catch (err) {
@@ -2810,9 +2983,7 @@ async function installInteractive(
     u.blank();
     u.fail("stopped; nothing else was changed.");
     u.hint(
-      storeExists(layout.store)
-        ? `Your store is at ${layout.store}.`
-        : "No store was created.",
+      storeExists(layout.store) ? `Your store is at ${layout.store}.` : "No store was created.",
     );
     if (existsSync(layout.config)) u.hint(`Its configuration is ${layout.config}.`);
     u.hint(`Run \`${BIN.cli} install\` again whenever you like; it picks up where this left off.`);
@@ -2833,24 +3004,47 @@ async function installConversation(
   const custom = customConfigPath(named, home_);
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
   const layout = installLayout(dirFlag, env, home_, custom);
-  const already = storeExists(layout.store);
 
   u.heading(`${BIN.cli} install`);
   u.blank();
 
-  // ── 1. the name ───────────────────────────────────────────────────────────
+  // ── a memory that was set aside ───────────────────────────────────────────
   //
-  // A store that is already there is NOT asked about again: its identity core
-  // was seeded once, `--name` on a second run would not replace it, and asking
-  // a question whose answer is ignored is worse than not asking.
+  // FIRST, before the name question: everything below reads differently once a
+  // parked folder is back in place, and asking somebody their name and then
+  // discovering their memory is the wrong order to meet a stranger in.
+  if ((await offerParkedMemory(io, u, layout, home_)) === "stopped") return EXIT.refused;
+
+  // ── the name ──────────────────────────────────────────────────────────────
+  //
+  // ASKED AFTER THE PARKED BRANCH, never before it: a folder that just came
+  // back holds a store and an identity core, and a run that had already decided
+  // "there is nothing here" would ask a returning owner his name and then try
+  // to seed a core into a store that has one.
+  const already = storeExists(layout.store);
   const flags: Record<string, string | boolean | undefined> = { ...parsed.flags };
   let name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
-  u.step(1, INSTALL_STEPS, "Your name");
   if (already) {
-    u.ok(`store already here, kept — ${layout.store}`);
-    u.hint("Its identity core is whatever the first install seeded; this does not change it.");
+    // THE NAME COMES OUT OF THE CONFIGURATION, not out of the store. It is the
+    // same value `openAdapter` hands `Counterpart.open` as `identity`, so it IS
+    // the core's name for every store this command made — and reading it costs
+    // no `Store.open` at all, which matters most on the path where the store was
+    // a parked folder thirty lines ago.
+    const known = hostConfigFor(layout.config).config.identity?.name;
+    io.out(known === undefined || known.length === 0 ? "Welcome back." : `Welcome back, ${known}.`);
+    // A `--name` HERE CHANGES NOTHING, AND SAYS SO (review m2). The identity
+    // core is an ENSURE — `Counterpart.open` keeps the name it has — and the
+    // configuration is kept, so the flag was accepted, ignored, and invisible.
+    // A flag that is silently dropped is one somebody re-passes forever.
+    if (name !== undefined && name.trim().length > 0 && name.trim() !== known) {
+      u.hint(
+        known === undefined || known.length === 0
+          ? `--name was not used: this memory already exists, and a name is only seeded when one is made.`
+          : `--name was not used: this memory is already called ${known}.`,
+      );
+    }
   } else if (name !== undefined && name.trim().length > 0) {
-    u.ok(`${name} — from --name.`);
+    io.out(`Nice to meet you, ${name.trim()}.`);
   } else {
     const answer = (await ask(io, "What should this memory call you?")).trim();
     if (answer.length === 0) {
@@ -2861,42 +3055,42 @@ async function installConversation(
     } else {
       name = answer;
       flags["name"] = answer;
-      u.ok(`${answer} — the thing this memory is about.`);
+      io.out(`Nice to meet you, ${answer}.`);
     }
   }
   u.blank();
 
-  // ── 2. the store, the configuration and the credentials ───────────────────
+  // ── the store, the configuration and the credentials — SILENTLY ───────────
   //
   // THE CEILING GETS A NUMBER ON THIS ARM ONLY. Scar §2.18 says this package
   // invents no host ceiling, and nothing about that changes for a script: the
   // non-interactive arm still ends on its "NO injectionBudgetBytes was written"
-  // paragraph. What changes here is that there is a person to tell, so a value
-  // is written and SAID rather than a paragraph of homework being left behind.
-  // (`docs/new-user-findings.md`, the owner's plan: "--budget gets a default of
-  // 9000".) A `--budget` on the line still wins.
-  const suppliedBudget = typeof parsed.flags["budget"] === "string" ? parsed.flags["budget"] : undefined;
-  if (suppliedBudget === undefined) flags["budget"] = String(DEFAULT_BUDGET_BYTES);
-  // WAS THERE A CONFIGURATION BEFORE THIS RUN? `writeOnce` KEEPS an existing
-  // one, so on a re-run the ceiling below is not written and a line saying it
-  // was would be false about the file the hooks actually read.
-  const configExisted = existsSync(layout.config);
-  u.step(2, INSTALL_STEPS, already ? "Your store, as it already is" : "Your store");
-  u.blank();
+  // paragraph. What changes here is that there is a person, and the sentence
+  // explaining the knob moved off this screen into `help install` (item 10) — a
+  // number that works is worth more to a stranger than a paragraph of homework.
+  // A `--budget` on the line still wins.
+  //
+  // AND IT IS INJECTED ONLY WHEN THE CONFIGURATION IS BEING CREATED (review
+  // B1). An injected default is a value nobody typed, so on a forced re-install
+  // it counted as "supplied", beat the carry-forward, and rewrote a ceiling
+  // somebody had chosen back to 9000 — the same failure as the one the carry
+  // exists to prevent, arriving through the fix for it.
+  const suppliedBudget =
+    typeof parsed.flags["budget"] === "string" ? parsed.flags["budget"] : undefined;
+  if (suppliedBudget === undefined && !existsSync(layout.config)) {
+    flags["budget"] = String(DEFAULT_BUDGET_BYTES);
+  }
   const code = installCommand({ command: "install", positional: [], flags }, io, env, home_, named, {
     hostSteps: false,
     nameAlreadySaid: true,
+    quiet: true,
+    // This arm ASKED, a few lines up. The scripted arm's notice would repeat
+    // the answer back at somebody who has just given it.
+    parkedNotice: false,
   });
   if (code !== EXIT.ok) return code;
-  if (suppliedBudget === undefined && (!configExisted || parsed.flags["force"] === true)) {
-    u.hint(
-      `Each session starts with a short briefing from memory, capped at ${String(DEFAULT_BUDGET_BYTES)} bytes. ` +
-        `To change the cap, edit "injectionBudgetBytes" in ${layout.config}.`,
-    );
-  }
-  u.blank();
 
-  // ── 3. the host ───────────────────────────────────────────────────────────
+  // ── Claude Code ───────────────────────────────────────────────────────────
   //
   // The store the server is told about is read back OUT OF THE FILE that was
   // just written, never re-derived: `install` resolves the path through
@@ -2904,40 +3098,54 @@ async function installConversation(
   // store actually landed.
   const config = hostConfigFor(layout.config).config;
   const store = config.dataDir ?? layout.store;
-  u.step(3, INSTALL_STEPS, "Claude Code");
-  const wired = await wire({
-    io,
-    env,
-    home: home_,
-    configPath: layout.config,
-    custom,
-    store,
-    now: now(),
-    yes: parsed.flags["yes"] === true,
-    dryRun: false,
-    exe: process.execPath,
-    spawner: opts.spawner ?? realSpawner(env),
-    lister: opts.processes ?? realProcessLister(env),
-    heading: false,
-  });
-  if (wired.hooks === "declined" || wired.outcome !== "ok") {
-    u.blank();
-    u.hint("Your store is made either way; the wiring is the only part not done.");
+  const spawner = opts.spawner ?? realSpawner(env);
+  const lister = opts.processes ?? realProcessLister(env);
+  let wired: WireResult | null = null;
+  if (!claudeCodeHere(home_, env, spawner)) {
+    // NOT AN ERROR AND NOT A REFUSAL (item 9: "say so, move on"). Everything
+    // this command actually owns — the store, the configuration, the
+    // credentials — is done, and the one part that needs somebody else's
+    // program can be done the day they have it.
+    io.out("Claude Code is not on this machine, so there was nothing to connect.");
+    u.hint(`When you have it, run \`${BIN.cli} connect\`.`);
+  } else {
+    io.out("Connecting Claude Code…");
+    // `yes: true` because THE QUESTION IS GONE. Connecting is what `install`
+    // does now; the opt-out is `--no-connect`, which never reaches this arm at
+    // all — it makes the console non-interactive one level up.
+    wired = await wire({
+      io,
+      env,
+      home: home_,
+      configPath: layout.config,
+      custom,
+      store,
+      now: now(),
+      yes: true,
+      dryRun: false,
+      exe: process.execPath,
+      spawner,
+      lister,
+      heading: false,
+    });
+    if (wired.hooks === "declined" || wired.outcome !== "ok") {
+      u.hint("Your store is made either way; connecting is the only part not done.");
+      u.hint(`You can do it later with: ${BIN.cli} connect`);
+    }
   }
   u.blank();
 
-  // ── 4. the keys ───────────────────────────────────────────────────────────
+  // ── the keys ──────────────────────────────────────────────────────────────
   //
   // AFTER the config and the credentials template exist, and not before:
   // `keys.ts#enableEmbedder` edits a configuration and never creates one, and
-  // the file it writes keys into is the one step 2 just made at 0600.
+  // the file it writes keys into is the one the step above made at 0600.
   //
   // CTRL-C PROPAGATES OUT OF HERE, by `keys.ts`'s own argument: a cancelled key
   // prompt folded into a result is an install that carries on without the key
   // somebody was in the middle of cancelling. It is caught, said plainly, and
-  // exits non-zero — and the summary below is NOT printed from the lost result
-  // but from the FILE, which is the only thing that knows what actually landed.
-  u.step(4, INSTALL_STEPS, "Keys");
+  // exits non-zero — and what is reported is read from the FILE, which is the
+  // only thing that knows what actually landed.
   const credentialsPath = credentialsPathFor(layout.config, config);
   try {
     await promptForKeys(io, env, {
@@ -2962,26 +3170,202 @@ async function installConversation(
   }
   u.blank();
 
-  // ── the summary ───────────────────────────────────────────────────────────
+  // ── the last two lines ────────────────────────────────────────────────────
   //
-  // SENTENCES, NOT A PADDED TABLE. A terminal is the one console `ui` wraps
-  // for, and wrapping folds runs of whitespace — so a `label    value` column
-  // built here came apart the moment a path was long, which is every real
-  // install. Four short lines that read the same folded or not.
-  const isWired =
-    wired.hooks === "wired" || wired.hooks === "repaired" || wired.hooks === "already";
-  u.heading("Done");
-  u.hint(`Your memory is at ${store}`);
-  u.hint(`and its configuration is ${layout.config}`);
-  u.hint(
-    isWired
-      ? `Claude Code is wired: ${String(HOST_EVENTS.length)} hooks, and the memory tools ${
-          wired.mcp === "printed" ? "once you run the line above" : "once you restart it"
-        }.`
-      : `Claude Code is NOT connected. Run \`${BIN.cli} connect\` whenever you are ready.`,
-  );
-  u.hint(`Restart Claude Code, then check it with \`${BIN.cli} doctor\`.`);
+  // THE FOLDER, NOT THE STORE, and `~` rather than the spelled-out home: what a
+  // person wants to be able to find again is `~/.counterparts`, which holds the
+  // memory, the configuration and the keys. A `--dir` that moved the store out
+  // of that folder is named instead, because then the folder is not where the
+  // memory lives and the sentence would be false.
+  const memoryAt = isWithin(layout.base, store) ? layout.base : store;
+  io.out(`Done. Your memory lives at ${tilde(memoryAt, home_)}.`);
+  // "IT SHOULD BE ALL GREEN" IS A PROMISE, AND IT NEEDS BOTH HALVES (review
+  // M1). It used to read `wired.hooks` alone, so an install whose `claude mcp
+  // add` had just failed — warning and all, four lines up — still ended by
+  // telling the person to expect a green doctor. Doctor is RED on that line,
+  // and the named failure mode of this whole product is silence. The MCP half
+  // is consulted too, and a connect that did not finish says WHAT is missing
+  // rather than sending somebody to a doctor they have not been warned about.
+  const hooksIn =
+    wired !== null &&
+    (wired.hooks === "wired" || wired.hooks === "repaired" || wired.hooks === "already");
+  const toolsIn =
+    wired !== null &&
+    (wired.mcp === "added" || wired.mcp === "re-added" || wired.mcp === "already");
+  if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn) {
+    io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — it should be all green.`);
+  } else if (hooksIn && !toolsIn) {
+    io.out("The hooks are in; the memory tools are NOT registered — the line above does that.");
+    io.out(`Then restart Claude Code and run \`${BIN.cli} doctor\`.`);
+  } else {
+    io.out(`Run \`${BIN.cli} doctor\` to see where this got to.`);
+  }
   return EXIT.ok;
+}
+
+/**
+ * IS CLAUDE CODE ON THIS MACHINE AT ALL? (item 9's last clause.)
+ *
+ * Two questions, and either one answering yes is enough, because they fail in
+ * opposite directions. The DIRECTORY is what a person who has ever run Claude
+ * Code has — `CLAUDE_CONFIG_DIR` moves it, and `install.ts#hostConfigBase` is
+ * the one place that knows so. The BINARY on PATH is what a fresh install has
+ * before it has been run, and the reason `install.ts`'s own docstring exists: a
+ * process's PATH is not a login shell's, so a `claude` we cannot see may still
+ * be there for the person.
+ *
+ * Answering "no" means only that nothing here found it; it is said in one line
+ * and the install carries on. The probe is spawned ONLY when the directory is
+ * absent, so a machine that has Claude Code never pays for it — and a re-run on
+ * a connected install never spawns anything at all.
+ */
+function claudeCodeHere(
+  home: string,
+  env: Record<string, string | undefined>,
+  spawner: Spawner,
+): boolean {
+  if (existsSync(join(hostConfigBase(home, env), ".claude"))) return true;
+  return !spawner(["--version"]).missing;
+}
+
+// ── install as the undo of `uninstall --park` (item 11) ─────────────────────
+
+/**
+ * Offer a parked memory back, before anything else happens.
+ *
+ * The trial's finding #22: after `uninstall --park` the way back was a pasted
+ * shell line with an `if [ -e … ] … REFUSING … mv … fi` guard in it. This is
+ * that guard, in code, behind a question — and `install` is where it lives
+ * because `install` is what a person runs when they come back.
+ *
+ * ── THE RULES, and every one of them is mechanized in `install.ts` ──────────
+ *
+ *   - **The parked folder is never opened.** No store, no config, no file at
+ *     all: the date comes from the NAME, the size from a walk, the floor from
+ *     `preRowsMarkersIn`, which reads filenames. So there is no memory count on
+ *     this screen, and the screen says why rather than leaving a gap.
+ *   - **Anything that cannot be brought back is named and left**, with the
+ *     reason — a symlink, a folder outside this home, a store from before the
+ *     rows floor, a folder whose store was parked separately.
+ *   - **Nothing moves without a typed answer.** Enter is not "start blank": a
+ *     blank start beside a parked folder is a second store the person does not
+ *     know about. An empty or unrecognised answer is asked once more and then
+ *     stops the command with nothing changed.
+ *   - **One `rename`,** and its destination is re-checked immediately before
+ *     the call rather than at the top of this function (scar §2.13).
+ */
+async function offerParkedMemory(
+  io: Io,
+  u: Ui,
+  layout: InstallLayout,
+  home: string,
+): Promise<"none" | "back" | "blank" | "stopped"> {
+  // A configuration directory that is THERE is an install, not a return. The
+  // question is only ever asked into an empty space.
+  if (existsSync(layout.base)) return "none";
+  const found = parkedSiblings(layout.base, home);
+  if (found.length === 0) return "none";
+
+  for (const one of found) {
+    if (one.refusal === null) continue;
+    u.warn(`${tilde(one.path, home)} cannot be brought back.`);
+    u.hint(one.refusal);
+  }
+  const usable = found.filter((one) => one.refusal === null);
+  if (usable.length === 0) {
+    u.hint("Nothing here can be brought back, so this is a fresh start.");
+    u.blank();
+    return "blank";
+  }
+
+  let chosen: string;
+  if (usable.length === 1) {
+    const one = usable[0] as ParkedSighting;
+    const answer = await askOnce(
+      io,
+      u,
+      `Found memory set aside on ${one.date} (${humanDiskBytes(one.bytes)}). Bring it back, or start blank? [back/blank]`,
+      (raw) =>
+        raw === "back" || raw === "b" || raw === "1" ? "back" : raw === "blank" ? "blank" : null,
+      "Answer back or blank.",
+    );
+    if (answer === null) return stoppedAtParked(io);
+    if (answer === "blank") return blankBeside(u, usable, home);
+    chosen = one.path;
+  } else {
+    io.out(`Found ${String(usable.length)} memories set aside, newest first:`);
+    for (const [i, one] of usable.entries()) {
+      io.out(
+        `  ${String(i + 1)}. ${tilde(one.path, home)}  set aside ${one.date}  ${humanDiskBytes(one.bytes)}`,
+      );
+    }
+    const tags = usable.map((_, i) => String(i + 1)).join("/");
+    const answer = await askOnce(
+      io,
+      u,
+      `Bring one back, or start blank? [${tags}/blank]`,
+      (raw) => {
+        if (raw === "blank") return "blank";
+        const n = Number(raw);
+        return Number.isInteger(n) && n >= 1 && n <= usable.length ? String(n) : null;
+      },
+      // NAMING THE ANSWERS RATHER THAN "the words in brackets" (review n3).
+      // `back` is the word the one-candidate question takes, and somebody who
+      // has met that question once will type it here, where it cannot say
+      // WHICH — so the re-ask spells out the numbers instead of repeating a
+      // sentence that does not help.
+      `Answer ${tags.split("/").join(", ")} or blank.`,
+    );
+    if (answer === null) return stoppedAtParked(io);
+    if (answer === "blank") return blankBeside(u, usable, home);
+    chosen = (usable[Number(answer) - 1] as ParkedSighting).path;
+  }
+
+  const moved = bringParkedBack(chosen, layout.base, home);
+  if (!moved.ok) {
+    io.err(moved.reason);
+    return "stopped";
+  }
+  u.ok(`brought back — ${tilde(chosen, home)} -> ${tilde(layout.base, home)}`);
+  u.hint("One rename. Nothing was copied and nothing was opened, so there is no count here.");
+  u.blank();
+  return "back";
+}
+
+/** The question, once, then once more, then nothing. `parse` returns the
+ *  canonical answer, or null for "that was not one of the choices"; `retry` is
+ *  the one line between the two attempts, and it NAMES the answers rather than
+ *  pointing back at the brackets. */
+async function askOnce(
+  io: Io,
+  u: Ui,
+  question: string,
+  parse: (raw: string) => string | null,
+  retry: string,
+): Promise<string | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const raw = (await ask(io, question)).trim().toLowerCase();
+    const answer = parse(raw);
+    if (answer !== null) return answer;
+    if (attempt === 0) u.hint(retry);
+  }
+  return null;
+}
+
+/** An answer nobody gave is not a decision. Nothing has moved at this point —
+ *  the rename is the last thing that happens — so the exit can say so. */
+function stoppedAtParked(io: Io): "stopped" {
+  io.err("Nothing was changed, and the memory set aside is exactly where it was.");
+  return "stopped";
+}
+
+/** "Start blank" is a real answer, and it is the one where saying what was NOT
+ *  touched matters most: there will now be two stores on this machine. */
+function blankBeside(u: Ui, usable: readonly ParkedSighting[], home: string): "blank" {
+  for (const one of usable) u.hint(`${tilde(one.path, home)} is untouched, exactly as it was.`);
+  u.hint(`It stays there until you move it; \`${BIN.cli} install\` will offer it again.`);
+  u.blank();
+  return "blank";
 }
 
 /**
@@ -7599,25 +7983,36 @@ async function credentialsCommand(
   const allowed = CREDENTIAL_NAMES.join(", ");
   const sub = parsed.positional[0];
 
-  if (sub === "list") {
+  // BARE `credentials` LISTS; IT DOES NOT REFUSE (2026-09-22, item 6).
+  //
+  // It used to answer "refused: 'credentials' takes 'set <NAME>' or 'list', and
+  // neither was given" — a usage error for the one word a person types when
+  // they want to know what this command is about. The question they are asking
+  // is "which keys do I have?", and that is what `list` answers, so bare
+  // `credentials` IS `list`, plus the line that says how to add one. Names
+  // only, here as everywhere: a value never leaves the file.
+  if (sub === "list" || sub === undefined) {
     io.out(`credentials: ${path}`);
     if (!existsSync(path)) {
-      io.out("  (no such file — counterparts credentials set <NAME> creates it, 0600)");
-      return EXIT.ok;
+      for (const name of CREDENTIAL_NAMES) io.out(`  ${name.padEnd(20)} missing`);
+      io.out("  (no such file yet — the line below creates it, 0600)");
+    } else {
+      // NAMES ONLY, from the loader's own reading of the file (`credentialsHeld`
+      // runs it against a scratch environment, so what it returns is what the
+      // FILE answers — never what this shell happens to export).
+      const held = credentialsHeld(path);
+      for (const name of CREDENTIAL_NAMES) {
+        io.out(`  ${name.padEnd(20)} ${held.includes(name) ? "saved" : "missing"}`);
+      }
     }
-    // NAMES ONLY, from the loader's own reading of the file (`credentialsHeld`
-    // runs it against a scratch environment, so what it returns is what the FILE
-    // answers — never what this shell happens to export).
-    const held = credentialsHeld(path);
-    for (const name of CREDENTIAL_NAMES) {
-      io.out(`  ${name.padEnd(20)} ${held.includes(name) ? "present" : "missing"}`);
-    }
+    io.out("");
+    io.out(`Add or change one: ${BIN.cli} credentials set <NAME>`);
     return EXIT.ok;
   }
 
   if (sub !== "set") {
     io.err(
-      `refused: 'credentials' takes 'set <NAME>' or 'list'${sub === undefined ? ", and neither was given" : `, not '${sub}'`}.`,
+      `refused: 'credentials' takes 'set <NAME>', or nothing at all to list what is saved — not '${sub}'.`,
     );
     return EXIT.usage;
   }
@@ -7716,7 +8111,34 @@ async function credentialsCommand(
   // sentence through `ui`, so it reads as one line of a conversation rather
   // than as a script's receipt. Every non-interactive caller keeps the exact
   // bytes it had.
-  if (typedHere) ui(io, env).ok(`set ${name} in ${path}`);
-  else io.out(`set ${name} in ${path}`);
+  if (!typedHere) {
+    io.out(`set ${name} in ${path}`);
+    return EXIT.ok;
+  }
+  const u = ui(io, env);
+  u.ok(`set ${name} in ${path}`);
+
+  // AND THE SECOND YES, FOR THE VOYAGE KEY ONLY (2026-09-22, item 6).
+  //
+  // `doctor`'s fix line for recall-by-meaning is now a COMMAND — `counterparts
+  // credentials set VOYAGE_API_KEY` — rather than an instruction to hand-edit
+  // JSON (item 12, item 19 of the trial). That sentence is only TRUE if this
+  // command does what the install does, so it calls the same function the
+  // install's key step calls: a key is not consent, the question is asked once,
+  // and the line above it says where the text goes.
+  //
+  // Typed-at-a-terminal only. A pipe, `--from-env`, `--stdin` and CI return
+  // above with their bytes untouched, because there is nobody there to ask and
+  // an egress is not something to turn on for a script that did not mention it.
+  if (name === EMBED_KEY_ENV) {
+    try {
+      await offerEmbedder(io, u, configPath, config.embedder?.enabled === true);
+    } catch (err) {
+      if (!isPromptAborted(err)) throw err;
+      // The KEY is written and stays written; only the knob was being decided.
+      u.hint(`${name} is saved. Recall by meaning is off; this command offers it again.`);
+      return EXIT.refused;
+    }
+  }
   return EXIT.ok;
 }

@@ -1076,27 +1076,74 @@ describe("install, at a terminal", () => {
     return c;
   }
 
-  test("it asks the name, asks to wire, and the host reads five hooks afterwards", async () => {
+  /**
+   * THE SCREEN THE OWNER SIGNED OFF ON (docs/new-user-findings.md, "The
+   * screens", 2026-09-22). The name, the greeting, the connection, the two key
+   * questions, and two lines at the end — no step numbers, and nothing about
+   * files being created.
+   */
+  test("it asks the name, connects Claude Code, and the host reads five hooks afterwards", async () => {
     const fake = spawnerThat(() => OK);
-    const c = await install([], ["Ada", "y"], fake.spawner);
+    const c = await install([], ["Ada"], fake.spawner);
     expect(c.asked[0]).toContain("What should this memory call you?");
-    expect(c.asked[1]).toContain("Connect Claude Code now?");
+    // THE CONNECT QUESTION IS GONE (item 9): connecting is what install does,
+    // so the only questions left are the name and the two optional keys.
+    expect(text(c.asked)).not.toContain("Connect Claude Code now?");
 
     const said = text(c.out);
-    expect(said).toContain("[1/4]");
-    expect(said).toContain("[4/4]");
-    expect(said).toContain("Done");
-    expect(said).toContain("Your memory is at");
-    expect(said).toContain("Restart Claude Code");
+    expect(said).toContain("Nice to meet you, Ada.");
+    expect(said).toContain("Connecting Claude Code…");
+    expect(said).toContain("Done. Your memory lives at ~/.counterparts.");
+    expect(said).toContain("Restart Claude Code, then run `counterparts doctor`");
+    // No step numbers, and no receipt for each file written.
+    expect(said).not.toContain("[1/4]");
+    expect(said).not.toContain("Created a store at");
     // The store was made, the core was seeded, and the host is wired.
     expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
-    expect(said).toContain("Ada — the thing this memory is about.");
+    expect(
+      (JSON.parse(readFileSync(configPath(), "utf8")) as { identity?: { name?: string } }).identity
+        ?.name,
+    ).toBe("Ada");
     expect([...readHost(home, home, ENV).events].sort()).toEqual([...HOST_EVENTS].sort());
-    expect(fake.calls[0]?.slice(0, 3)).toEqual(["mcp", "add", MCP_SERVER_NAME]);
+    expect(fake.calls.some((call) => call.slice(0, 3).join(" ") === `mcp add ${MCP_SERVER_NAME}`)).toBe(true);
+  });
+
+  /**
+   * "IT SHOULD BE ALL GREEN" IS A PROMISE (adversarial review M1). It used to
+   * read `wired.hooks` alone, so an install whose `claude mcp add` had just
+   * failed — warning and all, four lines up — still ended by telling the person
+   * to expect a green doctor. Doctor is RED on that line.
+   */
+  test("a failed `claude mcp add` does not end with 'it should be all green'", async () => {
+    const angry: Spawner = (args) =>
+      args[0] === "mcp" && args[1] === "add"
+        ? { missing: false, code: 1, out: "", err: "nope" }
+        : OK;
+    const c = await install([], ["Ada"], angry);
+    const said = text(c.out);
+    expect(said).not.toContain("it should be all green");
+    expect(said).toContain("the memory tools are NOT registered");
+    // The hooks DID land, and the screen says so rather than calling the whole
+    // install a failure.
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    expect(said).toContain("Done. Your memory lives at");
+  });
+
+  test("the two keys are asked one at a time, y/N first, and Enter is no", async () => {
+    const c = await install([], ["Ada"], spawnerThat(() => OK).spawner);
+    const asked = text(c.asked);
+    expect(asked).toContain("Add an Anthropic key?");
+    expect(asked).toContain("[y/N]");
+    expect(asked).toContain("Add a Voyage key?");
+    // Nothing was pasted, so nothing was written — and that is not an error.
+    expect(existsSync(join(home, ".counterparts", "credentials.env"))).toBe(true);
+    expect(readFileSync(join(home, ".counterparts", "credentials.env"), "utf8")).not.toContain(
+      "sk-ant-",
+    );
   });
 
   test("an empty name goes on without a core, and says how to add one", async () => {
-    const c = await install([], ["", "y"], spawnerThat(() => OK).spawner);
+    const c = await install([], [""], spawnerThat(() => OK).spawner);
     const said = text(c.out);
     expect(said).toContain("No name");
     expect(said).toContain("--name");
@@ -1123,24 +1170,34 @@ describe("install, at a terminal", () => {
     // NOT asked: the core was seeded once and `--name` would not replace it.
     expect(again.asked.some((q) => q.includes("call you"))).toBe(false);
     const said = text(again.out);
-    expect(said).toContain("store already here, kept");
+    // The greeting a returning owner gets, with the name read out of the
+    // CONFIGURATION rather than by opening the store.
+    expect(said).toContain("Welcome back, Ada.");
     expect(said).toContain("already connected");
-    // Nothing was registered a second time, and no second backup was taken.
+    // Nothing was registered a second time, and no second backup was taken —
+    // and nothing was spawned at all, because `~/.claude` is there, so the
+    // "is Claude Code on this machine" probe never runs.
     expect(fake.calls).toEqual([]);
     expect(backups()).toHaveLength(0);
   });
 
-  test("a re-run does NOT repeat the ceiling sentence about a config it kept", async () => {
-    const first = await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
-    expect(text(first.out)).toContain("injectionBudgetBytes");
+  /**
+   * THE CEILING IS WRITTEN AND NOT EXPLAINED (item 10). The sentence about
+   * `injectionBudgetBytes` left this screen for `help install`; the number
+   * itself still lands in the file the hooks read, which is the half that
+   * matters to somebody who is not reading the screen.
+   */
+  test("the ceiling is written into the config and never mentioned on screen", async () => {
+    const first = await install([], ["Ada"], spawnerThat(() => OK).spawner);
+    expect(text(first.out)).not.toContain("injectionBudgetBytes");
+    const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(body["injectionBudgetBytes"]).toBe(9000);
     const again = await install([], [], spawnerThat(() => OK).spawner);
-    // `writeOnce` KEEPS the file, so saying it was written would be false about
-    // the one file the hooks actually read.
     expect(text(again.out)).not.toContain("injectionBudgetBytes");
   });
 
   test("a stale wiring is REPAIRED on a re-run, and the old path is named", async () => {
-    await install([], ["Ada", "y"], spawnerThat(() => OK).spawner);
+    await install([], ["Ada"], spawnerThat(() => OK).spawner);
     // The install moved — an upgrade, a reinstall from another checkout.
     const stale = '"/old/bun" run "/gone/src/adapters/claude-code/bin/hook.ts"';
     writeSettingsFile({
@@ -1148,34 +1205,50 @@ describe("install, at a terminal", () => {
         HOST_EVENTS.map((e) => [e, [{ hooks: [{ type: "command", command: stale }] }]]),
       ),
     });
-    const again = await install([], ["y"], spawnerThat(() => OK).spawner);
+    const again = await install([], [], spawnerThat(() => OK).spawner);
     expect(text(again.out)).toContain("/gone/src/adapters/claude-code/bin/hook.ts");
     expect(readHost(home, home, ENV).stale).toEqual([]);
     expect(backups()).toHaveLength(1);
   });
 
-  test("answering no leaves the host alone and says which command finishes it", async () => {
-    const fake = spawnerThat(() => OK);
-    const c = await install([], ["Ada", "n"], fake.spawner);
-    expect(existsSync(settingsFile())).toBe(false);
-    expect(fake.calls).toEqual([]);
+  /**
+   * ITEM 9'S LAST CLAUSE: "Claude Code not on the machine: say so, move on."
+   *
+   * Neither `~/.claude` nor a `claude` on PATH. Nothing of the host's is
+   * created — not even the directory — and the install is still an install.
+   */
+  test("no Claude Code on the machine: one line, no host files, and the store is still made", async () => {
+    const fake = spawnerThat(() => MISSING);
+    const c = await install([], ["Ada"], fake.spawner);
     const said = text(c.out);
+    expect(said).toContain("Claude Code is not on this machine");
     expect(said).toContain("counterparts connect");
-    // The store is made either way.
+    expect(said).not.toContain("Connecting Claude Code…");
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+    expect(existsSync(settingsFile())).toBe(false);
+    // It looked, and it looked exactly once.
+    expect(fake.calls).toEqual([["--version"]]);
+    // The store is made either way, and the last line does not tell somebody
+    // to restart a program they do not have.
     expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
+    expect(said).not.toContain("Restart Claude Code");
   });
 
-  test("--yes wires without putting the question", async () => {
+  test("--name and --yes ask nothing but the two optional keys", async () => {
     const c = await install(["--yes", "--name", "Ada"], [], spawnerThat(() => OK).spawner);
-    expect(c.asked).toEqual([]);
+    expect(text(c.asked)).not.toContain("call you");
+    expect(text(c.asked)).not.toContain("Wire Claude Code now?");
+    // The keys are the only questions left, and they are always asked: a flag
+    // cannot answer for somebody about a secret.
+    expect(c.asked).toHaveLength(2);
     expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
   });
 
-  test("--no-wire at a terminal is exactly today's behaviour: it prints, and edits nothing", async () => {
+  test("--no-connect at a terminal is exactly today's behaviour: it prints, and edits nothing", async () => {
     const fake = spawnerThat(() => OK);
     const c = terminal([]);
     const code = await run(
-      ["install", "--config", configPath(), "--no-wire", "--budget", "9000", "--name", "Ada"],
+      ["install", "--config", configPath(), "--no-connect", "--budget", "9000", "--name", "Ada"],
       { io: c.io, env: ENV, home, spawner: fake.spawner, processes: noProcesses },
     );
     expect(code).toBe(EXIT.ok);
@@ -1204,12 +1277,21 @@ describe("install, at a terminal", () => {
     expect(fake.calls).toEqual([]);
   });
 
+  /**
+   * CLAUDE CODE IS HERE, THE BINARY IS NOT ON THIS PATH. The directory is the
+   * evidence that decides (`commands.ts#claudeCodeHere`), and it is the honest
+   * one: a host's process environment is not a login shell's, so a `claude` we
+   * cannot see may still be there for the person. The hooks — the half that
+   * needs no binary — go in, and the registration line is printed.
+   */
   test("`claude` missing does not fail the install — the hooks are still in", async () => {
-    const c = await install([], ["Ada", "y"], spawnerThat(() => MISSING).spawner);
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const c = await install([], ["Ada"], spawnerThat(() => MISSING).spawner);
     expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
     const said = text(c.out);
+    expect(said).toContain("Connecting Claude Code…");
     expect(said).toContain("`claude` is not on this PATH");
-    expect(said).toContain("Claude Code is wired");
+    expect(said).toContain("Done. Your memory lives at");
   });
 });
 
@@ -1488,7 +1570,13 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
     expect(existsSync(settingsFile())).toBe(false);
   });
 
-  test("at the WIRE question: the store exists and the summary names it", async () => {
+  /**
+   * THE SECOND PROMPT IS NOW A KEY QUESTION — the wiring is no longer asked
+   * about (item 9). What the abort must still do is report from the
+   * FILESYSTEM: the store is there, the host IS connected, and the exit is
+   * non-zero so a `&&` chain does not read this as a finished install.
+   */
+  test("at the first KEY question: what exists is named, and the exit is non-zero", async () => {
     const c = aborting(1);
     const code = await run(["install", "--config", configPath()], {
       io: c.io,
@@ -1500,9 +1588,9 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
     expect(code).not.toBe(EXIT.ok);
     const said = text(c.out);
     expect(said).toContain("stopped; nothing else was changed");
-    expect(said).toContain("Your store is at");
-    // The host was never touched.
-    expect(existsSync(settingsFile())).toBe(false);
+    expect(said).toContain("Your memory is at");
+    expect(said).toContain("No key was written");
+    expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
   });
 
   /**

@@ -16,7 +16,9 @@
  *      output line verbatim, because `tools/install-loop/run.sh` and the suite
  *      read them.
  *   3. **Skipping is always offered and always fine** (the owner, 2026-09-21):
- *      Enter writes nothing, says so, and is not an error.
+ *      since 2026-09-22 the offer is the FIRST thing each key asks (`[y/N]`,
+ *      Enter is no), an empty paste after a yes is a skip too, and neither is
+ *      an error.
  *   4. **The embedder moves only on an explicit yes**, and only into the exact
  *      shape `loadConfig` reads and `doctor`'s fix line names — embedding sends
  *      memory text to a third party, so a key is not consent.
@@ -215,7 +217,8 @@ describe("promptForKeys with no terminal", () => {
 describe("promptForKeys at a terminal", () => {
   test("both keys land in the file, and NEITHER VALUE reaches any stream", async () => {
     writeConfig();
-    const f = terminal({ hidden: [ANTHROPIC_KEY, VOYAGE_KEY], answers: ["n"] });
+    // y to the Anthropic question, y to the Voyage one, n to the knob.
+    const f = terminal({ hidden: [ANTHROPIC_KEY, VOYAGE_KEY], answers: ["y", "y", "n"] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.asked).toBe(true);
     expect(r.anthropic).toBe("set");
@@ -230,67 +233,87 @@ describe("promptForKeys at a terminal", () => {
     // Not even a prefix of one: a console that printed half a key printed a key.
     expect(said).not.toContain(ANTHROPIC_KEY.slice(0, 12));
     expect(said).not.toContain(VOYAGE_KEY.slice(0, 12));
-    // The names and the path, though, are exactly what it should say.
-    expect(said).toContain(API_KEY_ENV);
-    expect(said).toContain(credsPath);
+    // WHAT IT SAYS INSTEAD, since 2026-09-22: one word per key. The screen the
+    // owner signed off on carries no path and no variable name — `install`'s
+    // own last line says where the folder is, and `counterparts credentials`
+    // lists the file and the names whenever somebody wants them.
+    expect(said).toContain("ok saved");
+    expect(said).not.toContain(credsPath);
   });
 
-  test("each prompt carries one line on what the key is for, a link, and the way out", async () => {
+  /**
+   * THE SHAPE THE OWNER SETTLED ON, 2026-09-22 (item 10): the y/N comes FIRST,
+   * and everything else is behind the yes. The two sentences are the acceptance
+   * criterion's own, word for word.
+   */
+  test("each key is one y/N question, and a yes shows the link then reads without echo", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", ""] });
+    const f = terminal({ answers: ["y", "y"], hidden: ["", ""] });
     await promptForKeys(f.io, NO_ENV, context(f));
+    const asked = f.asked.join("\n");
+    expect(asked).toContain(
+      "Add an Anthropic key? Optional — lets a session that ended too soon get written up anyway. [y/N]",
+    );
+    expect(asked).toContain(
+      "Add a Voyage key? Optional — lets recall match by meaning, not just words. [y/N]",
+    );
+    // The link, only after the yes, and where to get one is the owner's ask.
     const said = f.said();
-    // The owner's own ask: what it is for, and where to get one.
     expect(said).toContain(KEY_LINKS[API_KEY_ENV] as string);
     expect(said).toContain(KEY_LINKS[EMBED_KEY_ENV] as string);
-    expect(said).toContain("Anthropic");
-    expect(said).toContain("Voyage");
-    // Truthful about what each one buys — and that it is an egress.
-    expect(said).toContain("Sends that conversation to Anthropic");
-    expect(said).toContain("Sends memory text to Voyage");
-    // Skipping is offered, at both prompts.
-    expect(f.askedHidden).toEqual([
-      `${API_KEY_ENV} (Enter to skip): `,
-      `${EMBED_KEY_ENV} (Enter to skip): `,
-    ]);
+    expect(f.askedHidden).toEqual(["  Paste it here (hidden): ", "  Paste it here (hidden): "]);
   });
 
-  test("Enter at both prompts writes nothing at all and is not an error", async () => {
+  test("Enter at both questions is a no: nothing is read, nothing is written, no error", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", ""] });
+    const f = terminal({ answers: [], hidden: [ANTHROPIC_KEY, VOYAGE_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.anthropic).toBe("skipped");
     expect(r.voyage).toBe("skipped");
     expect(r.embedder).toBe("not-asked");
+    // THE HIDDEN READER IS NEVER REACHED — a person who said no is not shown a
+    // paste prompt, and no link is printed at them either.
+    expect(f.askedHidden).toEqual([]);
+    expect(f.said()).not.toContain(KEY_LINKS[API_KEY_ENV] as string);
     expect(existsSync(credsPath)).toBe(false);
     expect(f.err).toEqual([]);
   });
 
-  test("a key that is already saved is KEPT on a yes, and nothing is written", async () => {
+  test("an empty paste after a yes is a skip, and says so", async () => {
+    writeConfig();
+    const f = terminal({ answers: ["y"], hidden: [""] });
+    const r = await promptForKeys(f.io, NO_ENV, context(f));
+    expect(r.anthropic).toBe("skipped");
+    expect(existsSync(credsPath)).toBe(false);
+    expect(f.said()).toContain("skipped");
+  });
+
+  test("a key that is already saved is KEPT on Enter, and nothing is written", async () => {
     writeConfig();
     writeFileSync(credsPath, `${API_KEY_ENV}=already-there\n`, { mode: 0o600 });
     const before = readFileSync(credsPath, "utf8");
-    const f = terminal({ answers: ["y"], hidden: [""] });
+    const f = terminal({ answers: ["n"], hidden: [] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [API_KEY_ENV] }));
     expect(r.anthropic).toBe("kept");
     expect(readFileSync(credsPath, "utf8")).toBe(before);
-    expect(f.asked[0]).toContain("An Anthropic key is already saved. Keep it?");
-    expect(f.asked[0]).toContain("[Y/n]");
+    // Still y/N FIRST, and the default is the answer that changes nothing.
+    expect(f.asked[0]).toContain("An Anthropic key is already saved. Replace it?");
+    expect(f.asked[0]).toContain("[y/N]");
   });
 
-  test("a no on a saved key asks for a new one, and Enter there STILL keeps the old one", async () => {
+  test("a yes on a saved key asks for a new one, and Enter there STILL keeps the old one", async () => {
     writeConfig();
     writeFileSync(credsPath, `${API_KEY_ENV}=already-there\n`, { mode: 0o600 });
-    const f = terminal({ answers: ["n"], hidden: ["", ""] });
+    const f = terminal({ answers: ["y"], hidden: [""] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [API_KEY_ENV] }));
     expect(r.anthropic).toBe("kept");
     expect(readFileSync(credsPath, "utf8")).toContain("already-there");
   });
 
-  test("a no on a saved key followed by a value replaces that line and nothing else", async () => {
+  test("a yes on a saved key followed by a value replaces that line and nothing else", async () => {
     writeConfig();
     writeFileSync(credsPath, `# mine\n${API_KEY_ENV}=already-there\n`, { mode: 0o600 });
-    const f = terminal({ answers: ["n"], hidden: [ANTHROPIC_KEY, ""] });
+    const f = terminal({ answers: ["y"], hidden: [ANTHROPIC_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [API_KEY_ENV] }));
     expect(r.anthropic).toBe("set");
     expect(readFileSync(credsPath, "utf8")).toBe(`# mine\n${API_KEY_ENV}=${ANTHROPIC_KEY}\n`);
@@ -298,7 +321,7 @@ describe("promptForKeys at a terminal", () => {
 
   test("a value with a space in it is NOT written — a broken key reads as present", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["sk-ant-half of a paste", ""] });
+    const f = terminal({ answers: ["y"], hidden: ["sk-ant-half of a paste"] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.anthropic).toBe("skipped");
     expect(existsSync(credsPath)).toBe(false);
@@ -309,7 +332,7 @@ describe("promptForKeys at a terminal", () => {
 
   test("a key with an unexpected prefix is WARNED about and saved anyway", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["definitely-not-a-prefix-anybody-uses", ""] });
+    const f = terminal({ answers: ["y"], hidden: ["definitely-not-a-prefix-anybody-uses"] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.anthropic).toBe("set");
     expect(readFileSync(credsPath, "utf8")).toContain(API_KEY_ENV);
@@ -319,7 +342,7 @@ describe("promptForKeys at a terminal", () => {
 
   test("the same name exported in this shell earns one line about which value wins", async () => {
     writeConfig();
-    const f = terminal({ hidden: [ANTHROPIC_KEY, ""] });
+    const f = terminal({ answers: ["y"], hidden: [ANTHROPIC_KEY] });
     await promptForKeys(f.io, { [API_KEY_ENV]: "something-else" }, context(f));
     expect(f.said()).toContain("that value wins");
     expect(f.said()).not.toContain("something-else");
@@ -327,7 +350,7 @@ describe("promptForKeys at a terminal", () => {
 
   test("Ctrl-C PROPAGATES, and a key written before it stays written", async () => {
     writeConfig();
-    const f = terminal({ hidden: [ANTHROPIC_KEY, "\u0003"] });
+    const f = terminal({ answers: ["y", "y"], hidden: [ANTHROPIC_KEY, "\u0003"] });
     await expect(promptForKeys(f.io, NO_ENV, context(f))).rejects.toThrow("cancelled.");
     expect(readFileSync(credsPath, "utf8")).toContain(`${API_KEY_ENV}=${ANTHROPIC_KEY}`);
     expect(f.said()).not.toContain(ANTHROPIC_KEY);
@@ -339,7 +362,7 @@ describe("promptForKeys at a terminal", () => {
 describe("the embedder is a second yes", () => {
   test("a Voyage key plus a yes writes the exact shape, and keeps everything else", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", VOYAGE_KEY], answers: ["y"] });
+    const f = terminal({ answers: ["n", "y", "y"], hidden: [VOYAGE_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.voyage).toBe("set");
     expect(r.embedder).toBe("enabled");
@@ -356,7 +379,7 @@ describe("the embedder is a second yes", () => {
 
   test("a Voyage key plus a NO leaves the knob alone — a key is not consent", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", VOYAGE_KEY], answers: ["n"] });
+    const f = terminal({ answers: ["n", "y", "n"], hidden: [VOYAGE_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.voyage).toBe("set");
     expect(r.embedder).toBe("declined");
@@ -373,8 +396,8 @@ describe("the embedder is a second yes", () => {
   test("a Voyage key that was already saved is offered the knob too", async () => {
     writeConfig();
     writeFileSync(credsPath, `${EMBED_KEY_ENV}=already-there\n`, { mode: 0o600 });
-    // Anthropic: not held, Enter skips. Voyage: held, keep it, then turn it on.
-    const f = terminal({ hidden: [""], answers: ["y", "y"] });
+    // Anthropic: not held, Enter is no. Voyage: held, Enter keeps it, then on.
+    const f = terminal({ answers: ["n", "n", "y"], hidden: [] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [EMBED_KEY_ENV] }));
     expect(r.voyage).toBe("kept");
     expect(r.embedder).toBe("enabled");
@@ -387,7 +410,7 @@ describe("the embedder is a second yes", () => {
   test("a saved Voyage key plus a NO still leaves the knob alone", async () => {
     writeConfig();
     writeFileSync(credsPath, `${EMBED_KEY_ENV}=already-there\n`, { mode: 0o600 });
-    const f = terminal({ hidden: [""], answers: ["y", "n"] });
+    const f = terminal({ answers: ["n", "n", "n"], hidden: [] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { held: [EMBED_KEY_ENV] }));
     expect(r.voyage).toBe("kept");
     expect(r.embedder).toBe("declined");
@@ -396,7 +419,7 @@ describe("the embedder is a second yes", () => {
 
   test("a Voyage key SKIPPED at the prompt is offered nothing — there is no key", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", ""] });
+    const f = terminal({ answers: ["n", "y"], hidden: [""] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.voyage).toBe("skipped");
     expect(r.embedder).toBe("not-asked");
@@ -405,7 +428,7 @@ describe("the embedder is a second yes", () => {
 
   test("no Voyage key, no question about the knob", async () => {
     writeConfig();
-    const f = terminal({ hidden: ["", ""] });
+    const f = terminal({ answers: ["n", "n"], hidden: [] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.embedder).toBe("not-asked");
     expect(f.asked.join("\n")).not.toContain("recall by meaning");
@@ -413,7 +436,7 @@ describe("the embedder is a second yes", () => {
 
   test("a knob already on is not asked about again", async () => {
     writeConfig({ embedder: { enabled: true } });
-    const f = terminal({ hidden: ["", VOYAGE_KEY] });
+    const f = terminal({ answers: ["n", "y"], hidden: [VOYAGE_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f, { embedderOn: true }));
     expect(r.embedder).toBe("already-on");
     expect(f.asked.join("\n")).not.toContain("recall by meaning");
@@ -421,7 +444,7 @@ describe("the embedder is a second yes", () => {
 
   test("a config that cannot be edited leaves the KEY written and names the fix", async () => {
     // No config file at all: the knob cannot move, and the key still should.
-    const f = terminal({ hidden: ["", VOYAGE_KEY], answers: ["y"] });
+    const f = terminal({ answers: ["n", "y", "y"], hidden: [VOYAGE_KEY] });
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.voyage).toBe("set");
     expect(r.embedder).toBe("failed");
@@ -524,6 +547,72 @@ describe("counterparts credentials set, typed at a terminal", () => {
     expect(code).not.toBe(EXIT.ok);
     expect(existsSync(credsPath)).toBe(false);
     expect(f.err.join("\n")).toContain("Nothing was written.");
+  });
+
+  /**
+   * ITEM 6, AND WHAT MAKES DOCTOR'S FIX LINE TRUE.
+   *
+   * `doctor` now answers a missing embedder with `counterparts credentials set
+   * VOYAGE_API_KEY` — a command, never an instruction to hand-edit JSON. That
+   * sentence is only true if this command turns the thing on, so it asks the
+   * same question the install asks, through the same function.
+   */
+  test("a typed VOYAGE_API_KEY offers the knob, and a yes writes the exact shape", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [VOYAGE_KEY], answers: ["y"] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(readFileSync(credsPath, "utf8")).toContain(`${EMBED_KEY_ENV}=${VOYAGE_KEY}`);
+    expect(f.asked.join("\n")).toContain("Turn on recall by meaning now?");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toEqual({ enabled: true });
+    expect(f.said()).not.toContain(VOYAGE_KEY);
+  });
+
+  /**
+   * ENTER IS NOT AN EXPLICIT YES (adversarial review M3). The question was
+   * `[Y/n]`, so a bare Enter — the same key the person has just pressed twice
+   * to decline the two optional keys above it — turned a third-party egress on,
+   * one line under a docstring saying the knob moves on an explicit yes and on
+   * nothing else.
+   */
+  test("ENTER at the embedder question leaves it off: the question is [y/N]", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [VOYAGE_KEY], answers: [] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(readFileSync(credsPath, "utf8")).toContain(EMBED_KEY_ENV);
+    expect(f.asked.join("\n")).toContain("Turn on recall by meaning now? [y/N]");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
+  });
+
+  test("a no leaves the knob alone, and the key is still saved — a key is not consent", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [VOYAGE_KEY], answers: ["n"] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(readFileSync(credsPath, "utf8")).toContain(EMBED_KEY_ENV);
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
+  });
+
+  test("the ANTHROPIC key is never asked about the embedder", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [ANTHROPIC_KEY], answers: ["y"] });
+    expect(await set(f, API_KEY_ENV)).toBe(EXIT.ok);
+    expect(f.asked.join("\n")).not.toContain("recall by meaning");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
+  });
+
+  test("a PIPED Voyage key is asked nothing: an egress is not turned on for a script", async () => {
+    writeConfig();
+    const f = terminal({ hidden: ["must not be asked"] });
+    const code = await run(["credentials", "set", EMBED_KEY_ENV, `--config=${configPath}`], {
+      io: f.io,
+      env: {},
+      home: root,
+      stdin: { isTty: false, read: () => Promise.resolve(`${VOYAGE_KEY}\n`) },
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(f.asked).toEqual([]);
+    // The old single line, unwrapped and unmarked.
+    expect(f.out).toEqual([`set ${EMBED_KEY_ENV} in ${credsPath}`]);
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
   });
 
   test("an existing file's other lines survive a typed set", async () => {
