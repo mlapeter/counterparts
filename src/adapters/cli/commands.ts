@@ -191,7 +191,7 @@ import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./
 // The console's shared manners (2026-09-21). `credentials set` is the first
 // command to use them, and it uses exactly three: is there a person here, read
 // a value without echoing it, and say one marked line back.
-import { ask, askHidden, confirm, isInteractive, isPromptAborted, ui } from "./ui.js";
+import { ask, askHidden, confirm, isInteractive, isPromptAborted, typed, ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
@@ -3748,8 +3748,19 @@ async function startFreshCommand(
         io.err("Nothing has changed.");
         return EXIT.refused;
       }
-      const answer = (await io.prompt(`Type the parked name to go ahead [${word}]: `)).trim();
-      if (answer !== word) {
+      // `typed()`, not a hand-rolled compare (cli CONTRACT 36): Esc, an empty
+      // Enter and the word `cancel` are a person deciding against it, said back
+      // in the sentence every typed confirmation uses, and they exit 0.
+      const said = await typed(
+        io,
+        word,
+        `Type the parked name to go ahead [${word}] — Esc or "cancel" to stop: `,
+      );
+      if (said === "cancelled") {
+        io.out("Cancelled. Nothing has changed.");
+        return EXIT.ok;
+      }
+      if (said !== "typed") {
         io.err("refused: the confirmation did not match. Nothing has changed.");
         return EXIT.refused;
       }
@@ -4149,8 +4160,16 @@ async function startFreshUndo(
     // so typing it back proves nothing; the dated parked name is the thing on
     // the screen that has to have been read.
     const word = basename(plan.parked ?? storeDir);
-    const answer = (await io.prompt(`Type the parked name to go ahead [${word}]: `)).trim();
-    if (answer !== word) {
+    const said = await typed(
+      io,
+      word,
+      `Type the parked name to go ahead [${word}] — Esc or "cancel" to stop: `,
+    );
+    if (said === "cancelled") {
+      io.out("Cancelled. Nothing has changed.");
+      return EXIT.ok;
+    }
+    if (said !== "typed") {
       io.err("refused: the confirmation did not match. Nothing has changed.");
       return EXIT.refused;
     }
@@ -5583,8 +5602,14 @@ async function confirmMigrate(
     io.err("refused: this is not an interactive console — pass --yes if that is what you mean.");
     return false;
   }
-  const answer = (await io.prompt("Type 'yes' to proceed: ")).trim().toLowerCase();
-  if (answer !== "yes") {
+  // Exactly `yes`, through `typed()`: Esc, an empty Enter and `cancel` are the
+  // person stopping, and say so; anything else is "not confirmed".
+  const said = await typed(io, "yes", `Type 'yes' to proceed — Esc or "cancel" to stop: `);
+  if (said === "cancelled") {
+    io.out("Cancelled. Nothing has changed.");
+    return false;
+  }
+  if (said !== "typed") {
     io.err("refused: not confirmed. Nothing has changed.");
     return false;
   }
