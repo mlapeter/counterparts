@@ -549,6 +549,21 @@ describe("the refusals", () => {
     expect(fingerprint(base())).toBe(before);
   });
 
+  test("an empty Enter, or `cancel`, at the confirmation is a cancel: exit 0, nothing moved", async () => {
+    await install();
+    await note();
+    const before = fingerprint(base());
+    for (const answer of ["", "cancel"]) {
+      const c = consoleWith([answer]);
+      expect(
+        await run(["start-fresh", "--config", configPath()], { io: c.io, env: env(), home }),
+      ).toBe(EXIT.ok);
+      expect(text(c.out)).toContain("Cancelled. Nothing has changed.");
+      expect(text(c.err)).not.toContain("did not match");
+      expect(fingerprint(base())).toBe(before);
+    }
+  });
+
   test("the confirmation asks for the PARKED NAME, and that answer proceeds", async () => {
     await install();
     await note();
