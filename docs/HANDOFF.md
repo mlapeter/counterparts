@@ -1,6 +1,64 @@
 # Handoff — resume here
 
-## 2026-09-21, night — read this first: 0.1.0 IS ON NPM AND RUNNING HERE; 0.2.0 IS MERGED, NOT PUBLISHED, WAITING FOR THE OWNER'S TRIAL
+## 2026-09-22, night — read this first: THE SECOND 0.2.0 IS ON MASTER, PACKED FOR THE OWNER'S TRIAL, NOT PUBLISHED
+
+**What happened today.** The owner ran the 09-21 trial sheet from a plain terminal; every step
+behaved, and all of his feedback was about words (findings #17–#28 in `docs/new-user-findings.md`).
+We then went through it ONE ITEM AT A TIME in conversation — his rule, ELI5, nothing built until
+every item was agreed — and the result is `docs/new-user-findings.md` §"The owner's answers
+(2026-09-22)" with five rendered screens (help, doctor, `uninstall --delete-memories`,
+`uninstall --park`, `install`) that were the builders' acceptance criteria. Then one round of
+building: five Opus builders in parallel with file ownership drawn to avoid collisions, two
+adversarial reviews, a docs pass, and three coordinator PRs.
+
+**Merged today, in order** (each verified by the coordinator on a clean detached checkout —
+suite, `tsc`, and the install loop where it applied — before the merge):
+
+| PR | what | notes |
+|---|---|---|
+| #169 | docs: findings #17–#28 + the owner's answers + the five screens | the spec |
+| #171 A | Esc on every prompt (an echoing raw-mode reader beside `hiddenPrompt`; `typed()` → typed / cancelled / mismatch; `ui.warning()`); the two `uninstall` screens | driven on a pty twice by the builder |
+| #172 C | doctor: `OFF` grade (JSON: `severity: "amber"` + `optional: true`, counts split `{red, amber, off, green}`), green internals fold into one `Background` line on a TTY, `--all`, every fix a command, green `Crash write-up  on` when the Anthropic key is present | `--json` complete and unfolded always |
+| #174 B | the help page verbatim; `ask` (listed) / `recall` (unlisted); `wire`/`unwire` → `connect`/`disconnect` (no aliases); `dashboard`; `--version`; bare `counterparts` offers setup on a TTY, prints help otherwise; `help advanced` | install loop grep changed from "the owner's console" to `--version` |
+| #175 F | coordinator: `start-fresh`, `--undo`, `migrate-cache` confirm through `typed()`; `help install` / `credentials` / `uninstall` text (the guarded rename lives in `help uninstall` now) | |
+| #170 D | `remove`: bare asks for an id or words, numbered hits, pick one or several, the plan, one confirm; scripted door byte-identical (golden test) | **review**: BLOCKER — the door was `io.prompt === undefined`, so a redirected stdout or CI took the live door; now `isInteractive(io, env)` like install. Plus plan-before-yes, a false "Nothing has changed", confidential bodies never listed |
+| #173 E | `install`: connects Claude Code by default on a TTY (`--no-connect`; off a TTY unchanged), keys y/N-first then hidden paste, "Nice to meet you" / "Welcome back", silent store step; **`install` is the undo of `uninstall --park`** (parked siblings listed newest first, never opened — `lstat` before any name is read, symlinks in every shape refused, old floor refused by filename markers); bare `credentials` lists names; `credentials set VOYAGE_API_KEY` offers the embedder | **review**: the restore held under everything; BLOCKER downstream — `install --force` silently rewrote `claude-code.json` (now `carryForward` keeps every key a flag did not supply, and `replaced` always prints); "all green" after a failed `claude mcp add`; the embedder offer defaulted to Y; the scripted arm now NAMES a parked sibling before making a blank store |
+| #176 G | docs: README, QUICKSTART (§1 check = `--version`, step 2 = bare `counterparts`, §3–§5, §7, §9a/b, §12), cli CONTRACT (G12/G21/G34–G36 amended, G37 install-as-undo, G38 doctor OFF/fold) + NOTES, findings table for #17–#27 | README 405 lines (grew 39) |
+| #177 H | three strings G caught: the help footer no longer says removal is the only command that asks; "Everywhere" → "Options every command takes"; the scripted install points at `doctor` | |
+
+**master = `d44d49b`** (code last changed by #177; the final gate — suite, `tsc`, install loop on a
+clean detached checkout — is recorded in the section's last line). Both adversarial reviews are
+PR comments on #170 and #173, not files.
+
+**Rulings the coordinator made without the owner** (working defaults; revisable): the shared
+`ok` gutter stays as `ui.ok()` renders it (the screens fix the words, not the columns);
+`dashboard` prints a second line naming the store it reads; bare `counterparts` exits 0;
+`--no-connect` also skips the parked-restore question (documented, not changed); the restore
+prompt shows date + size, never a memory count (the park arm's never-open rule); the two
+config-edit fix lines with no command (snapshots dir, observer) stay.
+
+**Next, in order:** (1) the owner's trial from
+`~/counterparts-backups/2026-09-22-0.2.0-trial/TRIAL-0.2.0.md` (Claude Code closed → swap to the
+new tarball → `--version` → `doctor` → Esc at `--delete-memories` → `--park` → `install` answering
+**back** → restart → `doctor`; then `ask`, `dashboard`, `credentials`, `remove` with **n**). (2) Fix
+what he finds; any shipped change = rebuild the tarball from master + re-scan + suite on a clean
+checkout. (3) **Publish only on his word**, from that file, never a working folder. (4) The same
+day: finding #15's never-run registry upgrade (`bun add -g counterparts@latest` from a machine on
+0.1.0). (5) The next round: #28 the Stop-hook text in the terminal, #13 pacing, #26 the two store
+sizes, #8 for stores 0.1.0 made, the n2 hint D declined.
+
+**Housekeeping owed:** ~30 stale agent worktrees under `.claude/worktrees/` (bulk removal was
+refused by the session's permission classifier — `git worktree remove --force <path>` by hand);
+`review/round-7` is an untracked leftover in the repo root.
+
+**The final gate, on a clean detached checkout of `d44d49b`: `tsc` clean; `bun test` 3182 pass /
+0 fail / 51 files (78.8 s); `tools/install-loop/run.sh` 58/58.** The tarball for the trial —
+`~/counterparts-backups/2026-09-22-0.2.0-trial/counterparts-0.2.0.tgz` — was built from that
+commit with `git archive` + `npm pack`: 201 files, 1,639,912 bytes, sha256 `28e19a05…6435f0`,
+scanned clean (no keys, home paths, emails or memory ids; HANDOFF and the findings doc do not
+ship). The sheet is `TRIAL-0.2.0.md` beside it.
+
+## 2026-09-21, night — 0.1.0 IS ON NPM AND RUNNING HERE; 0.2.0 IS MERGED, NOT PUBLISHED, WAITING FOR THE OWNER'S TRIAL
 
 **Everything below this section describes the arrangement before 2026-09-21 and is history.** The
 cut-over runbook in the next section was never run: the owner chose instead to publish to npm and
