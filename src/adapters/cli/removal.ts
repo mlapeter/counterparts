@@ -198,6 +198,51 @@ export interface RemovalOptions extends PlanOptions {
 /** Prose families a removal may target. Everything else is chased, never named. */
 const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
 
+/** Everything `planRemoval` can say instead of `ok`. */
+export type RemovalRefusal = Exclude<RemovalPlan["reason"], "ok">;
+
+/**
+ * IS THIS ID REMOVABLE AT ALL — step 1 on its own, and nothing after it.
+ *
+ * Extracted 2026-09-22 for the console's interactive picker, which has to ask
+ * the question twice before anything is planned: once to decide which search
+ * hits it may OFFER, and once over what the person picked, before the single
+ * confirmation. Both of those run over several ids at a time, and step 2 —
+ * reading the body, the contamination scan, the bounded journal-echo pass — is
+ * the expensive half of a plan and answers a question nobody has asked yet.
+ *
+ * It is an EXTRACTION, not a second rule: `planRemoval` calls this and nothing
+ * else decides its refusals, so a candidate the picker offers is a candidate the
+ * plan accepts. Pure, like the plan: it writes nothing and takes no lock.
+ */
+export function removalRefusal(store: Store, targetId: string): RemovalRefusal | null {
+  const row = store.row(targetId);
+  if (row === undefined) return "unknown-id";
+  if (!MEMORY_BEARING.has(row.type)) return "not-memory-bearing";
+  if (store.deniedIds().includes(targetId)) return "already-removed";
+  // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1, and the
+  // adversarial review that found the dead end). Removal tombstones a row —
+  // blank body, blank content hash, id on the deny-list, row still listed — and
+  // `schemas/` reads every `type: "schema"` row at open, so removing the page
+  // (or the identity core, which has had the same exposure since it shipped)
+  // left a store that would not open at all, with the wake hook swallowing the
+  // error so the symptom was silence.
+  //
+  // *(The floor, 2026-09-20, closed the crash half of that: `Schemas.load`
+  // SKIPS a tombstoned row and counts it, so a removed page no longer takes the
+  // session down. Everything below still holds and is why this door stays —
+  // removal is permanent and the page is the one schema row the owner is
+  // guaranteed to have, so sending him to `--clear` is about being able to put
+  // it back, not only about the store opening.)*
+  //
+  // The page is also the most conspicuous schema row an owner has:
+  // `enumerate()` lists it and `status` prints its id. So the console sends him
+  // one door along, to the one that keeps the page as a version and lets him
+  // put it back.
+  if (isSelfPageRow(store, targetId)) return "is-the-self-page";
+  return null;
+}
+
 /**
  * The one state still unreachable, in the same words wherever it is reported.
  * Kept as a constant for the reason it was written as one: a blind spot
@@ -691,30 +736,14 @@ export function planRemoval(
     leftAlone: [],
   });
 
+  // STEP 1, through the seam the console's picker asks through, so the two
+  // cannot drift: an id this turns away is one the picker never offered.
+  const refusal = removalRefusal(store, targetId);
+  if (refusal !== null) return none(refusal);
   const row = store.row(targetId);
+  // `removalRefusal` has just proved there is one; this is the narrowing, and
+  // the arm is unreachable rather than defensive.
   if (row === undefined) return none("unknown-id");
-  if (!MEMORY_BEARING.has(row.type)) return none("not-memory-bearing");
-  if (store.deniedIds().includes(targetId)) return none("already-removed");
-  // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1, and the
-  // adversarial review that found the dead end). Removal tombstones a row —
-  // blank body, blank content hash, id on the deny-list, row still listed — and
-  // `schemas/` reads every `type: "schema"` row at open, so removing the page
-  // (or the identity core, which has had the same exposure since it shipped)
-  // left a store that would not open at all, with the wake hook swallowing the
-  // error so the symptom was silence.
-  //
-  // *(The floor, 2026-09-20, closed the crash half of that: `Schemas.load`
-  // SKIPS a tombstoned row and counts it, so a removed page no longer takes the
-  // session down. Everything below still holds and is why this door stays —
-  // removal is permanent and the page is the one schema row the owner is
-  // guaranteed to have, so sending him to `--clear` is about being able to put
-  // it back, not only about the store opening.)*
-  //
-  // The page is also the most conspicuous schema row an owner has:
-  // `enumerate()` lists it and `status` prints its id. So the console sends him
-  // one door along, to the one that keeps the page as a version and lets him
-  // put it back.
-  if (isSelfPageRow(store, targetId)) return none("is-the-self-page");
 
   // EVERYTHING THAT READS THE DOOMED CONTENT HAPPENS HERE (§16 G13).
   let body = "";

@@ -38,6 +38,7 @@ import {
   journalFiles,
   journalFilesFor,
   readSentinel,
+  SELF_PAGE_ROLE,
 } from "../src/core/self/index.js";
 import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
@@ -86,6 +87,9 @@ import {
   vacuumInto,
 } from "../src/adapters/cli/index.js";
 import type { DashboardSeam, Io, RunningView } from "../src/adapters/cli/index.js";
+// The abort a prompt throws instead of returning an answer: `remove`'s
+// interactive door has to read it as a No rather than let it out of the command.
+import { PromptAborted } from "../src/adapters/cli/ui.js";
 import { ownerRemoval, planRemoval, verifyRemoval } from "../src/adapters/cli/removal.js";
 // The box-2 half of the destruction path. Imported HERE for the same reason
 // `removal.ts` is: this is the directory allowed to reach it, and the
@@ -1622,6 +1626,315 @@ describe("remove — the loud removal", () => {
       ownerRemoval(s, { targetId: "mem_nope", actor: "owner", reason: "typo", requestedAt: 0 }),
     ).toThrow();
     expect(s.removalRecord().length).toBe(0);
+  });
+});
+
+// ── remove: the interactive door ────────────────────────────────────────────
+
+/**
+ * `counterparts remove` with nothing after it, at a terminal (the owner's answer
+ * 7 of 2026-09-22, after the 0.2.0 trial): ask for an id or for words, find it,
+ * show it, ask ONCE.
+ *
+ * These tests are written for the adversarial review this piece gets, so most of
+ * them are about the ways a person can fail to choose: a number that is not on
+ * the list, an empty answer, a No. **The assertion in every one of those is the
+ * same pair** — nothing on the deny-list, and NOT ONE ROW in the removal record.
+ * The record's first stage is `requested`, written before anything moves (§16
+ * G10), so an empty record is the proof that the destruction path was never
+ * entered rather than entered and turned back.
+ *
+ * The console is the one the rest of this file uses: `prompt` exists exactly
+ * when answers are scripted, which is the same seam `bin/counterparts.ts` binds
+ * only on a terminal — so a console with answers IS the terminal case and one
+ * without IS the pipe.
+ */
+describe("remove — the interactive door", () => {
+  const SECRET = "The culvert gate key is kept under the third fence post.";
+
+  /** One findable memory, and one that shares none of its words. */
+  function seed(): { doomed: string; other: string } {
+    const s = store();
+    const doomed = s.put({ type: "memory", kind: "fact", title: "The culvert gate", body: SECRET });
+    const other = s.put({ type: "memory", kind: "fact", title: "Espresso", body: "Grind finer on humid mornings." });
+    s.close();
+    return { doomed, other };
+  }
+
+  /** Denied ids and record rows — the two facts every cancel test asserts. */
+  function aftermath(): { denied: string[]; records: number } {
+    const after = store({ observer: true });
+    return { denied: after.deniedIds(), records: after.removalRecord().length };
+  }
+
+  test("bare: it asks for words, numbers what it found, and one confirm removes it", async () => {
+    const { doomed, other } = seed();
+    const c = consoleWith(["culvert", "1", "y"]);
+
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    const printed = text(c.out);
+
+    // The three questions, in the owner's words.
+    expect(c.asked[0]).toContain("Memory id, or words to search for:");
+    expect(c.asked[1]).toContain("Which one?");
+    expect(c.asked[2]).toContain("Delete this memory for good? [y/N]");
+    expect(c.asked.length).toBe(3);
+
+    // The listing: number, id, kind, title, date.
+    expect(printed).toContain(`1. ${doomed}  fact — The culvert gate  (`);
+    expect(printed).not.toContain(other);
+    // The outcome, in the words the scripted door has always used.
+    expect(printed).toContain(`Removed ${doomed}.`);
+    expect(printed).toContain("chased:");
+    expect(printed).toContain("unchased (dark via the deny-list, never silently dropped):");
+    expect(printed).toContain("left on purpose (not a failure");
+    expect(printed).toContain("removal record: 4 stages appended");
+    // A title is shown; the memory's WORDS never are, on either side of the yes.
+    expect(printed).not.toContain(SECRET);
+
+    const after = store({ observer: true });
+    expect(after.deniedIds()).toEqual([doomed]);
+    expect(after.removalRecord(doomed).map((r) => r.stage)).toEqual([
+      "requested",
+      "dark",
+      "chased",
+      "complete",
+    ]);
+    expect(verifyRemoval(after, doomed).bodyGone).toBe(true);
+    // The neighbour is untouched: this door picks one memory, not a subject.
+    expect(after.row(other)?.body).toBe("Grind finer on humid mornings.");
+  });
+
+  test("an id TYPED at the opening question skips the search — it is the first thing asked for", async () => {
+    const { doomed } = seed();
+    const c = consoleWith([doomed, "y"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(c.asked.length).toBe(2);
+    expect(c.asked[1]).toContain("Delete this memory for good?");
+    expect(text(c.out)).not.toContain("Which one?");
+    expect(aftermath().denied).toEqual([doomed]);
+  });
+
+  test("an argument that is not an id is searched for, and never taken as an id", async () => {
+    const { doomed } = seed();
+    const c = consoleWith(["1", "y"]);
+    expect(await run(["remove", "culvert", "gate"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    // No opening question: the words were on the command line.
+    expect(c.asked[0]).toContain("Which one?");
+    expect(text(c.out)).toContain(`1. ${doomed}`);
+    expect(aftermath().denied).toEqual([doomed]);
+  });
+
+  test("an id on a terminal, without --confirm: its title and date, then one confirm", async () => {
+    const { doomed } = seed();
+    const c = consoleWith(["y"]);
+    expect(await run(["remove", doomed], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    // ONE question, and it is the confirm — no search, no picking.
+    expect(c.asked.length).toBe(1);
+    expect(c.asked[0]).toContain("Delete this memory for good? [y/N]");
+    expect(text(c.out)).toContain(`${doomed}  fact — The culvert gate  (`);
+    expect(aftermath().denied).toEqual([doomed]);
+  });
+
+  test("No at the confirm: nothing is deleted, and nothing is recorded", async () => {
+    const { doomed } = seed();
+    const before = fingerprint(dir);
+    const c = consoleWith(["culvert", "1", "n"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(c.out)).toContain("Cancelled. Nothing was deleted.");
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+    expect(store({ observer: true }).row(doomed)?.body).toBe(SECRET);
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("a number that is not on the list: one re-ask, then it stops", async () => {
+    seed();
+    const c = consoleWith(["culvert", "9", "12", "y"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    const printed = text(c.out);
+    expect(printed).toContain("Answer with a number from 1 to 1, or several like 1,3.");
+    expect(printed).toContain("Cancelled. Nothing was deleted.");
+    // The scripted `y` was never reached: two bad answers end it, and a third
+    // question would be the trap `ui.ts#confirm`'s own one-re-ask rule refuses.
+    expect(c.asked.filter((q) => q.includes("Delete")).length).toBe(0);
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("a pick that is half in range is refused WHOLE — 1,9 removes nothing", async () => {
+    seed();
+    const c = consoleWith(["culvert", "1,9", "1,9"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(c.out)).toContain("Cancelled. Nothing was deleted.");
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("an empty pick stops it, and so does an empty opening answer", async () => {
+    seed();
+    const picked = consoleWith(["culvert", "", ""]);
+    expect(await run(["remove"], { io: picked.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(picked.out)).toContain("Cancelled. Nothing was deleted.");
+
+    const opened = consoleWith([""]);
+    expect(await run(["remove"], { io: opened.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(opened.out)).toContain("Cancelled. Nothing was deleted.");
+    expect(opened.asked.length).toBe(1);
+
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("two picks, two removals, each one recorded in full", async () => {
+    const s = store();
+    const first = s.put({ type: "memory", kind: "fact", title: "Culvert one", body: "The culvert gate key, one." });
+    const second = s.put({ type: "memory", kind: "fact", title: "Culvert two", body: "The culvert gate key, two." });
+    const kept = s.put({ type: "memory", kind: "fact", title: "Culvert three", body: "The culvert gate key, three." });
+    s.close();
+
+    const c = consoleWith(["culvert gate", "1 2", "y"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    // The question counts the memories, and it is asked ONCE for both.
+    expect(c.asked[2]).toContain("Delete these 2 memories for good? [y/N]");
+    expect(c.asked.filter((q) => q.includes("Delete")).length).toBe(1);
+
+    // WHICH two, read off the screen rather than assumed: all three share the
+    // same words, so the index's order between them is its own business and a
+    // test that guessed it would be testing the ranking, not the picker.
+    const numbered = new Map<number, string>();
+    for (const line of c.out) {
+      const match = /^ {2}([123])\. (mem_[0-9a-f]+) /.exec(line);
+      if (match !== null) numbered.set(Number(match[1]), match[2] as string);
+    }
+    expect(numbered.size).toBe(3);
+    const gone = [numbered.get(1) as string, numbered.get(2) as string];
+    const survivor = numbered.get(3) as string;
+    expect([first, second, kept].sort()).toEqual([...gone, survivor].sort());
+
+    const after = store({ observer: true });
+    expect(after.deniedIds().sort()).toEqual([...gone].sort());
+    for (const id of gone) {
+      expect(after.removalRecord(id).map((r) => r.stage)).toEqual([
+        "requested",
+        "dark",
+        "chased",
+        "complete",
+      ]);
+      expect(text(c.out)).toContain(`Removed ${id}.`);
+    }
+    // The one nobody picked is whole — words, record and all.
+    expect(after.removalRecord(survivor).length).toBe(0);
+    expect(after.row(survivor)?.body).toContain("The culvert gate key");
+  });
+
+  test("a search that matches nothing says so, by the words that were typed", async () => {
+    seed();
+    const c = consoleWith(["pelican"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    const printed = text(c.out);
+    expect(printed).toContain("Nothing matched");
+    expect(printed).toContain("pelican");
+    expect(printed).toContain("Cancelled. Nothing was deleted.");
+    // It asked once and stopped: there is nothing to pick from.
+    expect(c.asked.length).toBe(1);
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("an id that does not exist is refused as an id, never searched for", async () => {
+    seed();
+    const c = consoleWith(["y"]);
+    expect(await run(["remove", "mem_notarealid"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(c.err)).toContain("refused: unknown-id (mem_notarealid)");
+    expect(text(c.out)).toContain("Cancelled. Nothing was deleted.");
+    // Nothing was asked: an id-shaped string is an id, and a wrong one is wrong.
+    expect(c.asked.length).toBe(0);
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("the self page is refused by name, and the picker never offers it", async () => {
+    const s = store();
+    const page = s.put({
+      type: "schema",
+      kind: "self",
+      title: "The culvert page",
+      body: "A page about the culvert gate.",
+      meta: { role: SELF_PAGE_ROLE },
+    });
+    s.close();
+
+    // Named outright: the sentence that sends him one door along.
+    const named = consoleWith(["y"]);
+    expect(await run(["remove", page], { io: named.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(named.err)).toContain("self-page --clear");
+
+    // And it is not a candidate: the search finds nothing it may offer.
+    const searched = consoleWith(["culvert"]);
+    expect(await run(["remove"], { io: searched.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(searched.out)).toContain("Nothing matched");
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("an already-removed memory is never offered a second time", async () => {
+    const { doomed } = seed();
+    const s = store();
+    const survivor = s.put({ type: "memory", kind: "fact", title: "Culvert notes", body: "More about the culvert gate." });
+    s.close();
+    await run(["remove", doomed, "--confirm"], { io: consoleWith([doomed]).io, env: { [ENV]: dir } });
+
+    const c = consoleWith(["culvert", "1", "n"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    const printed = text(c.out);
+    expect(printed).toContain(`1. ${survivor}`);
+    expect(printed).not.toContain(`${doomed}  fact`);
+  });
+
+  test("--confirm is untouched: the old typed-id question, and only that one", async () => {
+    const { doomed } = seed();
+    // A console WITH a prompt — so the new door was available and not taken.
+    const c = consoleWith([doomed]);
+    expect(await run(["remove", doomed, "--confirm"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(c.asked).toEqual([`Type the id to remove it permanently [${doomed}]: `]);
+    const printed = text(c.out);
+    // The plan still prints, above the confirmation, exactly as it did.
+    expect(printed).toContain(`Removal plan for ${doomed}:`);
+    expect(printed).toContain("chase prose");
+    expect(printed).toContain("other memories whose text overlaps (ids only): 0");
+    expect(printed).not.toContain("Delete this memory for good?");
+    expect(aftermath().denied).toEqual([doomed]);
+  });
+
+  test("off a terminal it is still a dry run, and bare it still asks for an id", async () => {
+    const { doomed } = seed();
+    const before = fingerprint(dir);
+
+    const dry = consoleWith();
+    expect(await run(["remove", doomed], { io: dry.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(dry.out)).toContain("Dry run. Nothing has changed. Re-run with --confirm to remove.");
+
+    const bare = consoleWith();
+    expect(await run(["remove"], { io: bare.io, env: { [ENV]: dir } })).toBe(EXIT.usage);
+    expect(text(bare.err)).toContain("remove needs a memory id");
+
+    expect(fingerprint(dir)).toBe(before);
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+  });
+
+  test("Esc at a question reads as No — the abort is caught, not crashed on", async () => {
+    const { doomed } = seed();
+    // The shape `ui.ts#ask` will have after A's Esc handling: the prompt throws
+    // `PromptAborted` rather than returning a line. This console throws the same
+    // error by name, so the arm is proved without reaching into the reader.
+    const out: string[] = [];
+    const io: Io = {
+      out: (line) => out.push(line),
+      err: () => {},
+      prompt: async (): Promise<string> => {
+        throw new PromptAborted("interrupt", "cancelled.");
+      },
+    };
+    expect(await run(["remove"], { io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(out)).toContain("Cancelled. Nothing was deleted.");
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
+    expect(store({ observer: true }).row(doomed)?.body).toBe(SECRET);
   });
 });
 

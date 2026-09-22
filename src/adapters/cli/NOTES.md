@@ -1435,3 +1435,53 @@ comes back as the sentinel after the wait, and Ctrl-C rejects with `cancelled.` 
 Esc, which does not match their expected word, so they refuse and change nothing — safe,
 but "refused: the confirmation did not match" is not the sentence item 8 asks for. Those
 prompts belong to the builders who own those commands.
+## 2026-09-22 — `remove` gets a front door (owner's answer 7)
+
+The 0.2.0 trial's complaint was not about what removal does; it is that the only way in was
+an id, and a person who wants a thing gone does not have one. So `counterparts remove` at a
+terminal now asks — "Memory id, or words to search for:" — searches the lexical index on
+the words, numbers what it finds, takes `3` or `1,3` or `1 3`, lists the chosen memories
+back by title, and asks ONCE: `Delete these N memories for good? [y/N]`.
+
+**Nothing in `removal.ts` moved.** The plan/`requested`/`dark`/chase order, the seventh
+surface, the journal echo, the two reclaims — untouched. What was added is one function,
+`removalRefusal`: step 1 of a plan (the four ways an id is not removable) EXTRACTED from
+`planRemoval`, which now calls it. The picker needs that question answered twice before
+anything is planned — once to decide which search hits it may offer, once over the pick —
+and both of those are over several ids at a time, where step 2 (reading the body, the
+contamination scan, the bounded episode scan) is the expensive half answering a question
+nobody has asked yet. An extraction, not a second rule: a candidate the picker offers is a
+candidate the plan accepts, because they are the same four lines.
+
+**Three decisions worth the ink.**
+
+- **Which door, decided by `io.prompt`.** `bin/counterparts.ts` binds it only when stdin is
+  a terminal, so `io.prompt === undefined` already WAS the console's answer to "is anyone
+  there" — the one the typed confirmation has refused on since the beginning. Reading
+  `io.tty` here would have been a second answer that could disagree with it. `--confirm`,
+  or no prompt, and the scripted door runs byte for byte what it ran before: the plan, then
+  the id typed back, or the dry run. A test asserts the `--confirm` path asks exactly one
+  question and that it is the old one.
+- **The listing prints titles, and that is not §16 G15.** The contamination scan returns
+  ids only because it matches OTHER memories against the doomed body — printing those
+  re-leaks the words being erased. This list runs the other way: it is the answer to words
+  the person typed a moment ago, about memories they are deciding whether to keep, and a
+  numbered list with no titles is a list nobody can choose from. The report after the yes
+  still prints no body, and neither does the record.
+- **A pick is refused whole.** `1,9` on a list of three is somebody who misread the list,
+  not "remove 1" with a stray character; acting on the half that parsed would delete a
+  memory on the strength of a typo. One re-ask, then stop — the rule `ui.ts#confirm`
+  already uses, except that this one stops rather than taking a default, because there is
+  no safe default for *which of these do I delete*.
+
+Every way out that is not a removal says `Cancelled. Nothing was deleted.` on stdout and
+exits non-zero, so a wrapper can never read a cancel as a removal. An Esc or a Ctrl-C mid
+question arrives as `PromptAborted` and is caught into that same sentence. The cancel tests
+all assert the same pair: nothing on the deny-list, and not one row in the removal record —
+`requested` is written before anything moves (§16 G10), so an empty record is proof the
+destruction path was never entered rather than entered and turned back.
+
+**Not covered:** the mid-loop arm where the second of two picks fails its re-plan under the
+writing store. It needs a race this suite has no seam for; the sentence it prints is the
+one thing in `removeOne` no test reaches, and it exists because "Nothing has changed" —
+true of a door that removes one memory — is a lie on the second of a picked pair.

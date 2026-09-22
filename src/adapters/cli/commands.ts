@@ -184,7 +184,11 @@ import {
 // function in this package that puts a secret on disk. It imports only a TYPE
 // from here, the way `ui.ts` does, so this import is not half of a cycle.
 import { promptForKeys, writeCredential } from "./keys.js";
-import { ownerRemoval, planRemoval } from "./removal.js";
+// `removalRefusal` is step 1 of a plan on its own — the console's picker asks it
+// of every search hit before it offers one, and of every pick before it asks the
+// one question. It is an extraction from `planRemoval`, never a second rule.
+import { ownerRemoval, planRemoval, removalRefusal } from "./removal.js";
+import type { RemovalPlan } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
@@ -719,7 +723,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   recall: "Ask memory a question — the same command as `ask`, under its older name. Read-only.",
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
-  remove: "The loud removal. Dry run unless --confirm.",
+  remove:
+    "The loud removal. With nothing after it, at a terminal, it asks for a memory id or for words to search for, numbers what it finds, lets you pick one or several, and asks once before it deletes them. --confirm is the scripted door: that exact id, confirmed by typing it back. Off a terminal and without --confirm it prints the plan and changes nothing.",
   verify:
     "Census of the cache against canonical state. Read-only unless --rebuild, --prune-index or --retry-skipped. --rebuild, --prune-index, --retry-skipped and --drop-vectors require --dir.",
   "migrate-cache":
@@ -754,7 +759,9 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   note: ' "<text>"',
   ask: ' "<question>"',
   recall: ' "<question>"',
-  remove: " <id>",
+  // Three shapes, and the bare one is the door a person uses: an id, the words
+  // to find one by, or nothing at all and it asks.
+  remove: " [<id> | <words>]",
   credentials: " set <NAME> | list",
   scope: " <path|.>",
   // The host is OPTIONAL and there is one of them: `counterparts connect` and
@@ -824,7 +831,8 @@ const FLAG_HELP: Record<string, string> = {
   "with-versions": "also write out every earlier wording of every memory (markdown only)",
   "into-non-empty": "write into a directory that already holds something",
   overwrite: "replace the files this export's own paths collide with (it says which); without it a collision is a refusal",
-  confirm: "actually do it — without this, removal is a dry run",
+  confirm:
+    "the scripted door: this exact id, no search and no picking, confirmed by typing the id back. Without it, a terminal asks and anything else prints the plan and changes nothing",
   // TWO COMMANDS, ONE SENTENCE, as `--json` already is: `remove --reason` is
   // recorded with the removal, `self-page --reason` with the version the write
   // produces. The table is keyed by flag NAME, so the sentence is true of both.
@@ -1686,7 +1694,10 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "export":
         return exportCommand(dir, io, parsed.flags, observer);
       case "remove":
-        return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
+        // EVERY positional, not just the first: since 2026-09-22 what follows
+        // `remove` may be words to search for, and `counterparts remove culvert
+        // gate key` is three of them.
+        return await removeCommand(dir, io, parsed.positional, parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags);
       case "repair-dates":
@@ -5755,15 +5766,64 @@ function exportCommand(
 // ── remove ──────────────────────────────────────────────────────────────────
 
 /**
- * THE LOUD REMOVAL. Dry run by default; `--confirm` plus a typed-back id to go
- * through with it; the plan re-made under a freshly opened store afterwards.
+ * THE LOUD REMOVAL, and since 2026-09-22 it has two doors into the same path
+ * (the owner's answer 7 after the 0.2.0 trial).
  *
- * Nothing about this is fast, and that is the design: removal has never fired in
- * production in any generation (§7 OQ2), which by scar §2.17's own criterion
- * makes it unproven rather than sound. The friction is what makes it safe to
- * have at all.
+ *   - **The scripted door** — `--confirm`, or any console that cannot ask (a
+ *     pipe, a CI job, a test with no answers): exactly what it did before the
+ *     other door existed. The plan, then the typed-back id, or the dry run that
+ *     says to re-run with `--confirm`.
+ *   - **The interactive door** — a terminal with no `--confirm`: it asks for an
+ *     id or for words to search for, numbers what it finds, takes a pick, and
+ *     asks ONCE.
+ *
+ * Nothing about the destruction path changes between them, and nothing about it
+ * changed to add the second: `removal.ts` still plans, records, darkens and
+ * chases in that order, and this is a front door. Nothing about it is fast
+ * either, and that is the design: removal has never fired in production in any
+ * generation (§7 OQ2), which by scar §2.17's own criterion makes it unproven
+ * rather than sound. The friction is what makes it safe to have at all.
  */
 async function removeCommand(
+  dir: string,
+  io: Io,
+  positional: readonly string[],
+  flags: Record<string, string | boolean | undefined>,
+  now: () => number,
+): Promise<number> {
+  // WHICH DOOR — and `io.prompt` is the whole test, because `bin/counterparts.ts`
+  // binds it only when stdin is a terminal. Asking the question that way rather
+  // than reading `io.tty` keeps ONE answer to "is anyone there": the same one
+  // the typed confirmation below has always refused on.
+  if (flags["confirm"] === true || io.prompt === undefined) {
+    return removeByIdCommand(dir, io, positional[0], flags, now);
+  }
+  return removeInteractively(dir, io, positional.join(" ").trim(), flags, now);
+}
+
+/** The two plan knobs, read once and shared by both doors. */
+function removalPlanOptions(
+  flags: Record<string, string | boolean | undefined>,
+): { crossScopeContent: boolean; echoScanMax?: number } {
+  const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+  // HOW MANY EPISODES THE JOURNAL-ECHO CHECK READS. Injectable so the bound can
+  // be proved REPORTED rather than silent; absent, the module's own applies.
+  const echoScanRaw = typeof flags["echo-scan"] === "string" ? Number(flags["echo-scan"]) : NaN;
+  return {
+    crossScopeContent,
+    ...(Number.isFinite(echoScanRaw) && echoScanRaw >= 0
+      ? { echoScanMax: Math.floor(echoScanRaw) }
+      : {}),
+  };
+}
+
+/**
+ * THE SCRIPTED DOOR, unchanged since before the interactive one existed: the
+ * plan, then `--confirm` plus the id typed back, or a dry run that changes
+ * nothing. Every sentence it prints is the sentence it printed, because a script
+ * reading this output is a caller nobody can ask about a rewording.
+ */
+async function removeByIdCommand(
   dir: string,
   io: Io,
   targetId: string | undefined,
@@ -5779,16 +5839,7 @@ async function removeCommand(
     return EXIT.failed;
   }
 
-  const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
-  // HOW MANY EPISODES THE JOURNAL-ECHO CHECK READS. Injectable so the bound can
-  // be proved REPORTED rather than silent; absent, the module's own applies.
-  const echoScanRaw = typeof flags["echo-scan"] === "string" ? Number(flags["echo-scan"]) : NaN;
-  const planOpts = {
-    crossScopeContent,
-    ...(Number.isFinite(echoScanRaw) && echoScanRaw >= 0
-      ? { echoScanMax: Math.floor(echoScanRaw) }
-      : {}),
-  };
+  const planOpts = removalPlanOptions(flags);
 
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
@@ -5799,13 +5850,7 @@ async function removeCommand(
     planning.close();
   }
   if (!plan.valid) {
-    // One refusal gets a sentence rather than a code, because it is the one
-    // that means "you want a different command" rather than "that id is wrong".
-    io.err(
-      plan.reason === "is-the-self-page"
-        ? `refused: ${targetId} is the self page, and removal is not how a page goes away — it would tombstone the row that every session's wake and the schema index read. Unwrite it with 'counterparts self-page --clear', which keeps what it said as a version you can restore.`
-        : `refused: ${plan.reason} (${targetId})`,
-    );
+    io.err(removalRefusalLine(plan.reason, targetId));
     return EXIT.refused;
   }
 
@@ -5856,10 +5901,43 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
+    const outcome = removeOne(store, io, targetId, flags, now, planOpts, 0);
+    return outcome === "removed" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * ONE MEMORY, THROUGH THE ONE PATH — re-planned under the writing store, removed,
+ * and reported. Both doors call this and nothing else calls `ownerRemoval`, so
+ * the front door a person came through cannot change what happens to the memory
+ * or what is said about it afterwards.
+ *
+ * `removedSoFar` exists for one sentence and is not decoration: the refusal
+ * below said "Nothing has changed", which is true of a door that removes one
+ * memory and a LIE on the second of a picked pair. A report that overstates what
+ * survived is the same failure as one that overstates what was chased (§16 G15),
+ * pointed the other way.
+ */
+function removeOne(
+  store: Store,
+  io: Io,
+  targetId: string,
+  flags: Record<string, string | boolean | undefined>,
+  now: () => number,
+  planOpts: { crossScopeContent: boolean; echoScanMax?: number },
+  removedSoFar: number,
+): "removed" | "refused" | "failed" {
+  try {
     const replan = planRemoval(store, targetId, planOpts);
     if (!replan.valid) {
-      io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
-      return EXIT.refused;
+      io.err(
+        removedSoFar === 0
+          ? `refused after re-plan: ${replan.reason}. Nothing has changed.`
+          : `refused after re-plan: ${replan.reason} (${targetId}). That one is untouched; the ${removedSoFar} above ${removedSoFar === 1 ? "is" : "are"} already gone.`,
+      );
+      return "refused";
     }
     const outcome = ownerRemoval(
       store,
@@ -5877,13 +5955,306 @@ async function removeCommand(
     io.out(`  unchased (dark via the deny-list, never silently dropped): ${outcome.unchased.join(", ") || "nothing"}`);
     io.out(`  left on purpose (not a failure — this removal was never entitled to it): ${outcome.leftAlone.join(", ") || "nothing"}`);
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
-    return EXIT.ok;
+    return "removed";
   } catch (err) {
     io.err(`removal failed: ${describeDirRefusal(err)}`);
+    return "failed";
+  }
+}
+
+/**
+ * WHY AN ID CANNOT BE REMOVED, in the words both doors use.
+ *
+ * One refusal gets a sentence rather than a code, because it is the one that
+ * means "you want a different command" rather than "that id is wrong".
+ */
+function removalRefusalLine(reason: RemovalPlan["reason"], targetId: string): string {
+  return reason === "is-the-self-page"
+    ? `refused: ${targetId} is the self page, and removal is not how a page goes away — it would tombstone the row that every session's wake and the schema index read. Unwrite it with 'counterparts self-page --clear', which keeps what it said as a version you can restore.`
+    : `refused: ${reason} (${targetId})`;
+}
+
+// ── remove, the interactive door ────────────────────────────────────────────
+
+/**
+ * WHAT THIS CONSOLE TAKES FOR AN ID rather than for words to search for.
+ *
+ * Built from `ID_PREFIX` — the store's own table of id families — rather than
+ * from a second copy of `mem|epi|sch` here, so a family added there is an id
+ * here on the same day. A string shaped like an id is one: `remove
+ * mem_notarealid` is a wrong id and gets told so, never quietly turned into a
+ * search for the word "mem_notarealid".
+ */
+const MEMORY_ID_SHAPE = new RegExp(`^(?:${Object.values(ID_PREFIX).join("|")})_[0-9a-z]+$`, "i");
+
+/** How many search hits the picker offers before it says to narrow. */
+const REMOVE_SEARCH_LIMIT = 10;
+
+/** What a candidate line gives a summary before it cuts it short. */
+const REMOVE_SUMMARY_WIDTH = 64;
+
+/**
+ * The one sentence every way out of the interactive door ends with — a No, an
+ * Esc, an empty answer, a second bad pick. Said in the same words every time,
+ * because "did that just delete something?" is the question this door exists to
+ * make unnecessary.
+ */
+const NOTHING_DELETED = "Cancelled. Nothing was deleted.";
+
+/**
+ * THE INTERACTIVE DOOR (owner's answer 7, 2026-09-22): a person at a terminal
+ * who has a thing they want gone and does not have its id in their hand.
+ *
+ * Ask what, find it, show it, ask once. Everything destructive still happens in
+ * `removeOne` and therefore in `removal.ts`, in the order that file's header
+ * sets out; this function only decides which ids get there.
+ *
+ * EVERY exit that is not a removal prints `NOTHING_DELETED` and returns
+ * `EXIT.refused` — on `io.out`, because it is the answer to a question this
+ * console asked rather than something that went wrong, and non-zero, because a
+ * wrapper script must never read a cancelled removal as a removal that happened.
+ */
+async function removeInteractively(
+  dir: string,
+  io: Io,
+  argument: string,
+  flags: Record<string, string | boolean | undefined>,
+  now: () => number,
+): Promise<number> {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
     return EXIT.failed;
+  }
+  const planOpts = removalPlanOptions(flags);
+
+  let chosen: readonly string[];
+  let go: boolean;
+  try {
+    chosen = await chooseForRemoval(dir, io, argument);
+    // Empty means the picker has already said why on screen — nothing matched,
+    // nothing was typed, or two answers in a row were not numbers.
+    if (chosen.length === 0) return EXIT.refused;
+
+    // THE PICK, CHECKED BEFORE THE CONFIRMATION. A person who is about to be
+    // asked one yes/no question about N memories must not have one of them turn
+    // out to be unremovable AFTER the others are gone. The check runs on a
+    // read-only store that is CLOSED before the prompt: this console never holds
+    // a store across a human (scar E5).
+    const inspected = inspectForRemoval(dir, chosen);
+    if (inspected.refused !== null) {
+      io.err(removalRefusalLine(inspected.refused.reason, inspected.refused.id));
+      io.out(NOTHING_DELETED);
+      return EXIT.refused;
+    }
+    io.out("");
+    for (const line of inspected.lines) io.out(`  ${line}`);
+    io.out("");
+    go = await confirm(
+      io,
+      chosen.length === 1
+        ? "Delete this memory for good?"
+        : `Delete these ${chosen.length} memories for good?`,
+      { default: false },
+    );
+  } catch (err) {
+    if (!isPromptAborted(err)) throw err;
+    // Esc, Ctrl-C, or stdin closing under the question. The prompt helpers throw
+    // rather than return a null so that a forgotten check cannot read an abort
+    // as an answer (`ui.ts#PromptAborted`); here an abort means exactly what a
+    // No means, and says so in the same words.
+    io.out(NOTHING_DELETED);
+    return EXIT.refused;
+  }
+  if (!go) {
+    io.out(NOTHING_DELETED);
+    return EXIT.refused;
+  }
+
+  // ONE writing store for the whole selection, and each memory re-planned under
+  // it on its own — the human took time, and the store may have moved since the
+  // lines above were printed.
+  const store = Store.open({ dir });
+  let removed = 0;
+  let trouble = 0;
+  try {
+    for (const targetId of chosen) {
+      // A failure is reported and the loop goes ON: the person confirmed these
+      // memories, and the ones after a hiccup are no less confirmed than the
+      // ones before it. Stopping would leave them without either a removal or a
+      // sentence saying why.
+      if (removeOne(store, io, targetId, flags, now, planOpts, removed) === "removed") removed += 1;
+      else trouble += 1;
+    }
   } finally {
     store.close();
   }
+  return trouble === 0 ? EXIT.ok : EXIT.failed;
+}
+
+/**
+ * WHICH MEMORIES THE PERSON MEANS. Ids out; nothing here writes or deletes.
+ *
+ * Empty means "stop, and the reason is already printed". The caller turns that
+ * into an exit code and nothing else.
+ */
+async function chooseForRemoval(
+  dir: string,
+  io: Io,
+  argument: string,
+): Promise<readonly string[]> {
+  const query =
+    argument.length > 0 ? argument : (await ask(io, "Memory id, or words to search for:")).trim();
+  if (query.length === 0) {
+    io.out(NOTHING_DELETED);
+    return [];
+  }
+  if (MEMORY_ID_SHAPE.test(query)) return [query];
+
+  const candidates = searchForRemoval(dir, query);
+  if (candidates.length === 0) {
+    // A search that finds nothing is not a failure and is not a silence: say
+    // which words were asked, so a typo is visible as a typo.
+    io.out(`Nothing matched “${query}”.`);
+    io.out(NOTHING_DELETED);
+    return [];
+  }
+  io.out("");
+  candidates.forEach((candidate, index) => io.out(`  ${index + 1}. ${candidate.line}`));
+  if (candidates.length === REMOVE_SEARCH_LIMIT) {
+    io.out(`  (the ${REMOVE_SEARCH_LIMIT} closest — add a word or two to narrow it)`);
+  }
+  io.out("");
+
+  // ONE re-ask, then stop — the same rule `ui.ts#confirm` uses, and for the same
+  // reason: a person who has typed two non-answers is not reading, and a third
+  // identical question is a trap rather than a kindness. Here it stops rather
+  // than taking a default, because there is no safe default for "which of these
+  // do I delete".
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const picks = parsePicks(await ask(io, "Which one? (a number, or several like 1,3):"), candidates.length);
+    if (picks !== null) return picks.map((n) => candidates[n - 1]?.id ?? "");
+    if (attempt === 0) {
+      io.out(`Answer with a number from 1 to ${candidates.length}, or several like 1,3.`);
+    }
+  }
+  io.out(NOTHING_DELETED);
+  return [];
+}
+
+/**
+ * The numbers in an answer, or null when the WHOLE answer cannot be read as
+ * numbers in range.
+ *
+ * Whole, deliberately: `1,99` on a list of three is not "remove 1" with a stray
+ * character, it is somebody who has misread the list, and acting on the half
+ * that parsed would delete a memory on the strength of a typo. Duplicates fold
+ * — `1,1` is one memory — and both separators the owner named work, comma and
+ * space.
+ */
+function parsePicks(answer: string, count: number): number[] | null {
+  const parts = answer.trim().split(/[\s,]+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return null;
+  const picked: number[] = [];
+  for (const part of parts) {
+    if (!/^[0-9]+$/.test(part)) return null;
+    const n = Number(part);
+    if (n < 1 || n > count) return null;
+    if (!picked.includes(n)) picked.push(n);
+  }
+  return picked;
+}
+
+interface RemovalCandidate {
+  readonly id: string;
+  readonly line: string;
+}
+
+/**
+ * THE SEARCH BEHIND THE PICKER — the lexical index, read-only, through the same
+ * `Store.search` the recall path's token channel reads (`recall/activate.ts`)
+ * and `planRemoval`'s own contamination scan already uses.
+ *
+ * **This prints titles, and that is not the thing §16 G15 forbids.** The
+ * contamination scan returns IDS ONLY because it matches OTHER memories against
+ * the doomed body: printing those would re-leak the very words being erased, to
+ * somebody who had asked to see them gone. This list is the opposite direction —
+ * it is the answer to words the person typed a moment ago, about memories they
+ * are deciding whether to keep, and a numbered list with no titles in it is a
+ * list nobody can choose from. The removal's own report still prints no body,
+ * and neither does the record.
+ *
+ * Candidates `removalRefusal` would turn away are skipped rather than numbered:
+ * an already-removed row or the self page offered as choice 3 is a choice that
+ * dead-ends. It asks for more hits than it shows for exactly that reason, so the
+ * skipping does not quietly shorten the list.
+ */
+function searchForRemoval(dir: string, query: string): RemovalCandidate[] {
+  const store = Store.open({ dir, observer: true });
+  try {
+    const out: RemovalCandidate[] = [];
+    for (const hit of store.search(query, REMOVE_SEARCH_LIMIT * 2)) {
+      if (out.length === REMOVE_SEARCH_LIMIT) break;
+      if (removalRefusal(store, hit.id) !== null) continue;
+      const row = store.row(hit.id);
+      if (row === undefined) continue;
+      out.push({ id: hit.id, line: candidateLine(row) });
+    }
+    return out;
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * THE PICK, RE-READ — is every chosen id still removable, and what does each one
+ * say it is? Read-only, and the store is closed before the caller asks anything,
+ * so no lock and no handle is held across a human (scar E5).
+ *
+ * The first refusal stops it: a selection that cannot be carried out whole is
+ * refused whole, before the single confirmation rather than in the middle of it.
+ */
+function inspectForRemoval(
+  dir: string,
+  chosen: readonly string[],
+): { refused: { id: string; reason: RemovalPlan["reason"] } | null; lines: string[] } {
+  const store = Store.open({ dir, observer: true });
+  try {
+    const lines: string[] = [];
+    for (const id of chosen) {
+      const reason = removalRefusal(store, id);
+      if (reason !== null) return { refused: { id, reason }, lines: [] };
+      const row = store.row(id);
+      lines.push(row === undefined ? id : candidateLine(row));
+    }
+    return { refused: null, lines };
+  } finally {
+    store.close();
+  }
+}
+
+/** `mem_xxx  fact — what it is about  (2026-09-22)`, and nothing wider. */
+function candidateLine(row: {
+  id: string;
+  kind: string;
+  title: string | null;
+  body: string;
+  learned_on: string;
+}): string {
+  return `${row.id}  ${row.kind} — ${summaryOf(row)}  (${row.learned_on})`;
+}
+
+/**
+ * The title, or the body's first line when there is no title — folded to one
+ * line and cut to fit, because a candidate list whose rows wrap is a list whose
+ * numbers stop lining up. The cut is at a width, not at a word: this is a label
+ * for choosing by, and the memory itself is one `counterparts ask --id` away.
+ */
+function summaryOf(row: { title: string | null; body: string }): string {
+  const titled = row.title !== null && row.title.trim().length > 0;
+  const raw = titled ? row.title ?? "" : (row.body.split("\n").find((line) => line.trim().length > 0) ?? "");
+  const one = raw.replace(/\s+/g, " ").trim();
+  if (one.length === 0) return "(no words)";
+  return one.length <= REMOVE_SUMMARY_WIDTH ? one : `${one.slice(0, REMOVE_SUMMARY_WIDTH - 1)}…`;
 }
 
 // ── backfill-claims ─────────────────────────────────────────────────────────

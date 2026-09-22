@@ -47,9 +47,13 @@ owner owns the data.
   and rebuild; a stray copy is skipped and logged, never deleted. [v1] §16 G12.
 - **Catastrophe is covered separately, cheaply, and non-fatally**: rotated local snapshots,
   an **allowlist not a denylist**, never leaving the machine, never throwing. [v1] §16 G18.
-- **Dry run is the default for anything destructive**, with an interactive confirmation, and
-  the writer's lock taken only *after* the confirmation, then reload and re-plan under it.
-  [v1] scar §2.13.
+- **Nothing destructive happens without a human saying so**, and the writer's lock is taken
+  only *after* that, then reload and re-plan under it. [v1] scar §2.13. *Where there is
+  nobody to ask — a pipe, a script, a CI job — the default is a dry run that prints the plan
+  and changes nothing. At a terminal, since 2026-09-22 (owner's answer 7), `remove` ASKS
+  instead of printing a plan nobody requested: same path, same record, one question. The
+  mechanized test is the non-interactive one, because that is the arm where silence would
+  have to stand in for consent.*
 - **Wall-clock, not active days, for any cooling-off.** [v1] §16's note on the released
   ceremony — *a week of not using the machine must still be a week of second thoughts*, and
   an immediate-destroy setting was rejected in v1 because it would delete the only property
@@ -81,7 +85,7 @@ owner owns the data.
 ## 5. Contract
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
-`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
+`remove [<id> | <words>]`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
 (2026-09-20), `wire` / `unwire` / `uninstall` (2026-09-21); interactive confirmation; the
 data directory.
 *`wire`, `unwire` and `uninstall` are the first commands here that write a file belonging
@@ -114,8 +118,11 @@ snapshots and exports; the removal record; telemetry by reference.
 1. **[M] The destruction path is importable only from this directory**, asserted by a
    caller-universality test over the import graph. No core module, no adapter, no model
    path reaches it.
-2. **[M] Destructive commands default to dry run and require interactive confirmation**,
-   and take the writer's lock only after confirmation, then reload and re-plan under it.
+2. **[M] Destructive commands require an interactive confirmation, and default to a dry run
+   wherever there is nobody to ask**, and take the writer's lock only after the
+   confirmation, then reload and re-plan under it. *At a terminal `remove` asks for its
+   target and confirms once (2026-09-22) rather than printing a plan first; `--confirm`
+   is unchanged, and every arm that cannot ask still prints the plan and changes nothing.*
 3. **[M] Every path comparison resolves and realpaths both sides before comparing**, and no
    tool honors a pre-set data-directory environment variable when it claims a throwaway
    directory (scar §2.13 — v1's migration guard was a raw string comparison, and
