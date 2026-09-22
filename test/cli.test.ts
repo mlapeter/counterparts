@@ -1674,10 +1674,13 @@ describe("remove — the interactive door", () => {
     expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
 
-    // The three questions, in the owner's words.
+    // The three questions, in the owner's words — and only the words this
+    // command owns. What `ui.ts` appends to them (the `[y/N]` tag, and whatever
+    // it grows to say about Esc) is that module's sentence and its tests', not
+    // a thing to pin from here.
     expect(c.asked[0]).toContain("Memory id, or words to search for:");
     expect(c.asked[1]).toContain("Which one?");
-    expect(c.asked[2]).toContain("Delete this memory for good? [y/N]");
+    expect(c.asked[2]).toContain("Delete this memory for good?");
     expect(c.asked.length).toBe(3);
 
     // The listing: number, id, kind, title, date.
@@ -1731,7 +1734,7 @@ describe("remove — the interactive door", () => {
     expect(await run(["remove", doomed], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     // ONE question, and it is the confirm — no search, no picking.
     expect(c.asked.length).toBe(1);
-    expect(c.asked[0]).toContain("Delete this memory for good? [y/N]");
+    expect(c.asked[0]).toContain("Delete this memory for good?");
     expect(text(c.out)).toContain(`${doomed}  fact — The culvert gate  (`);
     expect(aftermath().denied).toEqual([doomed]);
   });
@@ -1792,7 +1795,7 @@ describe("remove — the interactive door", () => {
     const c = consoleWith(["culvert gate", "1 2", "y"]);
     expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     // The question counts the memories, and it is asked ONCE for both.
-    expect(c.asked[2]).toContain("Delete these 2 memories for good? [y/N]");
+    expect(c.asked[2]).toContain("Delete these 2 memories for good?");
     expect(c.asked.filter((q) => q.includes("Delete")).length).toBe(1);
 
     // WHICH two, read off the screen rather than assumed: all three share the
@@ -1822,6 +1825,24 @@ describe("remove — the interactive door", () => {
     // The one nobody picked is whole — words, record and all.
     expect(after.removalRecord(survivor).length).toBe(0);
     expect(after.row(survivor)?.body).toContain("The culvert gate key");
+  });
+
+  test("a chapter in the list is marked [journal], the way recall marks one", async () => {
+    const s = store();
+    const chapter = s.put({
+      type: "episode",
+      kind: "fact",
+      title: "The day of the culvert",
+      body: "We spent the afternoon at the culvert gate.",
+    });
+    s.close();
+
+    const c = consoleWith(["culvert", "1", "n"]);
+    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    // THE JOURNAL SAYS SO (owner ruling 2026-09-04, §I14): a chapter is never
+    // presented as a memory, and this list is a place somebody decides from.
+    expect(text(c.out)).toContain(`1. ${chapter}  [journal] fact — The day of the culvert  (`);
+    expect(aftermath()).toEqual({ denied: [], records: 0 });
   });
 
   test("a search that matches nothing says so, by the words that were typed", async () => {

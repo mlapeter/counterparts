@@ -6232,15 +6232,25 @@ function inspectForRemoval(
   }
 }
 
-/** `mem_xxx  fact — what it is about  (2026-09-22)`, and nothing wider. */
+/**
+ * `mem_xxx  fact — what it is about  (2026-09-22)`, and nothing wider.
+ *
+ * THE JOURNAL SAYS SO (owner ruling 2026-09-04, LAUNCH-STATUS §I14), in the
+ * same place and the same word `recall` prints it: a chapter is recallable and
+ * is never presented as a memory. The lexical index holds episode rows too, so
+ * without this a day's account would come up in the list looking like a fact,
+ * and the question under it says "delete this memory for good".
+ */
 function candidateLine(row: {
   id: string;
+  type: string;
   kind: string;
   title: string | null;
   body: string;
   learned_on: string;
 }): string {
-  return `${row.id}  ${row.kind} — ${summaryOf(row)}  (${row.learned_on})`;
+  const journal = row.type === "episode" ? "[journal] " : "";
+  return `${row.id}  ${journal}${row.kind} — ${summaryOf(row)}  (${row.learned_on})`;
 }
 
 /**
