@@ -51,8 +51,11 @@
  *     memory still is and how much of it there is, and gives the one command
  *     that removes the package.
  *   - **`--park` is `rename(2)`**, once per thing. Never a copy, never a delete.
- *     The `mv` that undoes each one is printed, guarded the way `start-fresh`
- *     guards its way back.
+ *     The way back is `counterparts install`, which finds a parked folder beside
+ *     a missing one and asks; the guarded `mv` that does it by hand moved to
+ *     `counterparts help uninstall` (owner, 2026-09-22, finding #22 — a shell
+ *     one-liner with an `if [ -e … ] … REFUSING …` guard in it "doesn't make
+ *     sense" as the last thing on the screen).
  *   - **`--delete-memories` is the only destructive verb in this package**, and
  *     the one with no `--yes`. It PRINTS THE WHOLE PLAN — every path, with its
  *     size — and then takes a typed phrase.
@@ -74,7 +77,6 @@ import type { Io } from "./commands.js";
 import { BIN, CONFIG_FILE, CREDENTIALS_FILE, MCP_SERVER_NAME } from "./install.js";
 import {
   PARKED_INFIX,
-  guardedMove,
   pairedSuffix,
   realpathDeep,
   sameFilesystemRefusal,
@@ -82,7 +84,7 @@ import {
 import { confirm, typed, ui } from "./ui.js";
 import type { Ui } from "./ui.js";
 import type { Outcome, ProcessLister, Spawner, WireInput } from "./wire.js";
-import { look, readMcp, unwire } from "./wire.js";
+import { look, readMcp, tilde, unwire } from "./wire.js";
 
 /** The phrase `--delete-memories` asks for, exactly. Case-sensitive, and
  *  nothing is trimmed but the end-of-line (`ui.ts#typed`). */
@@ -235,8 +237,15 @@ export function dirSize(path: string): number {
   return total;
 }
 
+/**
+ * `214 B`, `2.0 KB`, `913 KB`, `6.7 MB` — the screen's own spelling.
+ *
+ * One decimal below ten and none at or above it: these numbers sit in a column
+ * beside each other, and `913.0 KB` spends four characters saying nothing while
+ * `6.7 MB` needs its one.
+ */
 export function humanBytes(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} bytes`;
+  if (bytes < 1024) return `${String(bytes)} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let n = bytes / 1024;
   let i = 0;
@@ -244,7 +253,7 @@ export function humanBytes(bytes: number): string {
     n /= 1024;
     i += 1;
   }
-  return `${n.toFixed(1)} ${units[i] ?? "KB"}`;
+  return `${n < 10 ? n.toFixed(1) : String(Math.round(n))} ${units[i] ?? "KB"}`;
 }
 
 /** `1,204` — the ruling's own spelling of a count. */
@@ -324,40 +333,41 @@ export function censusOf(base: string, storeDir: string | null): Census {
 }
 
 /**
- * The warning's first line, in the ruling's own shape — `WARNING: this will
- * delete 1,204 memories.` — with two departures the pty drive earned.
+ * WHAT IS IN THE STORE, in the words that sit on the store's own line of the
+ * plan: `32 memories, 2 journal entries`.
+ *
+ * The 2026-09-21 ruling put this count in a `WARNING:` line of its own —
+ * `WARNING: this will delete 1,204 memories.` — and the 09-22 screen moves it
+ * onto the line naming the thing it is a count OF, leaving the warning to say
+ * the one thing the list cannot: that there is no way back. The count is still
+ * on the screen before anything is asked, which is guarantee 28's whole claim.
  *
  * The journal rides BESIDE the count rather than inside it, because it is a
  * different population that is also going. And a store with **no memories yet**
- * never headlines a bare `0`: a fresh install holds an identity core and no
- * memories at all, so "this will delete 0 memories" was the whole warning while
- * two hundred kilobytes of store went. That case leads with the store instead.
+ * never reads as a bare `0`: a fresh install holds an identity core and no
+ * memories at all, so "0 memories" was the whole account of a store going.
  */
-export function censusLine(census: Census, where: string): string {
-  if (census.kind === "size") {
-    return `WARNING: this will delete ${where} (${humanBytes(census.bytes)}).`;
-  }
+export function censusWords(census: Census): string {
+  if (census.kind === "size") return "the count could not be taken";
   const journal =
     census.journal === 0
       ? ""
-      : ` + ${grouped(census.journal)} journal episode${census.journal === 1 ? "" : "s"}`;
-  if (census.memories > 0) {
-    return `WARNING: this will delete ${memories(census.memories)}${journal}.`;
-  }
+      : `, ${grouped(census.journal)} journal entr${census.journal === 1 ? "y" : "ies"}`;
+  if (census.memories > 0) return `${memories(census.memories)}${journal}`;
   const rest =
     census.schemas === 0
       ? ""
-      : `, only ${grouped(census.schemas)} belief${census.schemas === 1 ? "" : "s"} or entit${
+      : `, ${grouped(census.schemas)} belief${census.schemas === 1 ? "" : "s"} or entit${
           census.schemas === 1 ? "y" : "ies"
         }`;
-  const episodes = journal.replace(" + ", " and ");
-  return `WARNING: this will delete your whole store: no memories in it yet${rest}${episodes}.`;
+  return `no memories in it yet${rest}${journal}`;
 }
 
 // ── the plan ────────────────────────────────────────────────────────────────
 
 export interface PlanEntry {
   readonly path: string;
+  readonly kind: OwnedKind;
   /** In the words the printed plan uses. */
   readonly what: string;
   readonly bytes: number;
@@ -479,6 +489,7 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     const path = join(configDir, name);
     ours.push({
       path,
+      kind,
       what: WHAT[kind],
       bytes: dirSize(path),
       directory: isDirectory(path),
@@ -491,7 +502,8 @@ export function planUninstall(input: PlanInput): UninstallPlan {
   if (storeActed && storeDir !== null) {
     entries.push({
       path: storeDir,
-      what: "your memory",
+      kind: "store",
+      what: WHAT.store,
       bytes: dirSize(storeDir),
       directory: true,
     });
@@ -518,13 +530,27 @@ export function planUninstall(input: PlanInput): UninstallPlan {
   };
 }
 
+/** What each thing IS, in the words somebody who never read this code would
+ *  use — the owner's screen of 2026-09-22, where "the scope registry" became
+ *  "which directories memory is on for". */
 const WHAT: Record<OwnedKind, string> = {
   config: "the configuration",
-  credentials: "the credentials file",
-  scopes: "the scope registry",
+  credentials: "your API keys",
+  scopes: "which directories memory is on for",
   snapshots: "the snapshots",
   store: "your memory",
   sidecar: "a file this package left",
+};
+
+/** The same things named in a list rather than a column, for the one sentence
+ *  under `--park`'s arrow: "your memory, configuration, API keys, snapshots". */
+const SHORT_WHAT: Record<OwnedKind, string> = {
+  config: "configuration",
+  credentials: "API keys",
+  scopes: "scopes",
+  snapshots: "snapshots",
+  store: "your memory",
+  sidecar: "files it left behind",
 };
 
 function isDirectory(path: string): boolean {
@@ -683,21 +709,63 @@ export function storeRefusal(storeDir: string, home: string, verb: string): stri
 
 // ── printing it ─────────────────────────────────────────────────────────────
 
-/** The plan, path by path, with sizes — printed BEFORE anything is asked. */
-export function planLines(plan: UninstallPlan, verb: "park" | "delete", home: string): string[] {
+/**
+ * The plan — printed BEFORE anything is asked, and in the two shapes the owner
+ * drew on 2026-09-22.
+ *
+ * `--delete-memories` is a column: path, size, what it is, with the store's
+ * count on the store's own line. `--park` is a list of arrows, because the
+ * thing a rename does is the arrow, and one sentence under it saying what is
+ * inside.
+ *
+ * **Home paths are written `~/…`** (item 13). Only on screen: every path this
+ * command actually acts on is the absolute one, and every refusal still prints
+ * it in full, because a refusal is a thing somebody has to be able to act on.
+ */
+export function planLines(
+  plan: UninstallPlan,
+  verb: "park" | "delete",
+  home: string,
+  /** The suffix `--park` will append — for the destination column. Null when
+   *  it could not be worked out, in which case the arrow is left off. */
+  suffix: string | null = null,
+): string[] {
   const out: string[] = [];
-  const width = plan.entries.reduce((n, e) => Math.max(n, e.path.length), 0);
-  out.push(verb === "park" ? "This will move, one rename each:" : "This will delete:");
-  for (const e of plan.entries) {
-    out.push(`  ${e.path.padEnd(Math.min(width, 60))}  ${humanBytes(e.bytes)}  — ${e.what}`);
+  const short = (path: string): string => tilde(path, home);
+  if (verb === "park") {
+    out.push("This will set aside (renamed, nothing copied, nothing deleted):");
+    for (const from of plan.targets) {
+      out.push(
+        suffix === null
+          ? `  ${short(from)}`
+          : `  ${short(from)}  →  ${short(`${from}${suffix}`)}`,
+      );
+    }
+    if (plan.targets.length === 0) out.push("  (nothing — there is none of ours left here)");
+    else out.push(`     ${contentsSentence(plan)}`);
+  } else {
+    out.push("This will delete, for good:");
+    // Two columns, sized to what is actually in them: the paths are shortened
+    // by now and the sizes are short by construction, so nothing here needs the
+    // 60-character ceiling the absolute paths did.
+    const pathWidth = plan.entries.reduce((n, e) => Math.max(n, short(e.path).length), 0);
+    const sizeWidth = plan.entries.reduce((n, e) => Math.max(n, humanBytes(e.bytes).length), 0);
+    for (const e of plan.entries) {
+      const what =
+        e.kind === "store" && plan.census !== null ? `${e.what} — ${censusWords(plan.census)}` : e.what;
+      out.push(
+        `  ${short(e.path).padEnd(pathWidth)}  ${humanBytes(e.bytes).padEnd(sizeWidth)}   ${what}`,
+      );
+    }
+    if (plan.entries.length === 0) out.push("  (nothing — there is none of ours left here)");
+    if (plan.wholeDirectory) {
+      out.push(`  and the ${short(plan.configDir)} folder itself.`);
+    }
   }
-  if (plan.entries.length === 0) out.push("  (nothing — there is none of ours left here)");
-  if (plan.wholeDirectory) {
-    out.push(`  and ${plan.configDir} itself, which holds nothing but the above.`);
-  } else if (plan.foreign.length > 0) {
+  if (!plan.wholeDirectory && plan.foreign.length > 0) {
     out.push("");
     out.push(
-      `  ${plan.configDir} itself STAYS. It also holds ` +
+      `  ${short(plan.configDir)} itself STAYS. It also holds ` +
         (plan.foreign.length === 1
           ? "1 thing that is not ours:"
           : `${String(plan.foreign.length)} things that are not ours:`),
@@ -708,15 +776,32 @@ export function planLines(plan: UninstallPlan, verb: "park" | "delete", home: st
   }
   if (plan.storeDir !== null && !plan.storeInside) {
     out.push("");
-    out.push(`  Your memory is NOT inside that directory — it is at ${plan.storeDir},`);
+    out.push(`  Your memory is NOT inside that directory — it is at ${short(plan.storeDir)},`);
     out.push(`  and it is ${verb === "park" ? "moved" : "deleted"} there, on its own line above.`);
   }
   if (plan.storeDir !== null && !plan.storeActed) {
     out.push("");
-    out.push(`  There is no store at ${plan.storeDir}, so no memory is ${verb === "park" ? "moved" : "deleted"}.`);
+    out.push(
+      `  There is no store at ${short(plan.storeDir)}, so no memory is ${verb === "park" ? "moved" : "deleted"}.`,
+    );
   }
-  void home;
   return out;
+}
+
+/** `your memory, configuration, API keys, snapshots — 7.6 MB`: what is inside
+ *  the thing being renamed, since the arrow above names a folder rather than
+ *  its contents. The store first, then the rest in the order they were read. */
+function contentsSentence(plan: UninstallPlan): string {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const e of plan.entries) {
+    const word = SHORT_WHAT[e.kind];
+    if (seen.has(word)) continue;
+    seen.add(word);
+    words.push(word);
+  }
+  const what = words.length === 0 ? "this install's own files" : words.join(", ");
+  return `${what} — ${humanBytes(plan.bytes)}`;
 }
 
 // ── the command ─────────────────────────────────────────────────────────────
@@ -751,8 +836,17 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   const moving = input.park || input.deleteMemories;
   const verb = input.park ? "park" : "delete";
 
-  u.heading(`${BIN.cli} uninstall`);
-  u.hint(`configuration: ${input.configPath}`);
+  // THE COMMAND THAT IS RUNNING, flag and all: three arms of this command do
+  // three different things to somebody's memory, and the heading is the one
+  // line that says which of them they typed.
+  u.heading(
+    `${BIN.cli} uninstall${input.park ? " --park" : input.deleteMemories ? " --delete-memories" : ""}`,
+  );
+  // ONLY WHEN SOMEBODY NAMED ONE. The default configuration is the path in
+  // every line below it; a `--config` somewhere else is the fact that explains
+  // a screen full of paths nobody expected (`install --config` is supported,
+  // and it is how the 2026-09-21 blocker was reached).
+  if (input.custom !== undefined) u.hint(`configuration: ${tilde(input.configPath, home)}`);
   u.blank();
 
   // ── BEFORE EVERY ARM, including the one that only reads ──────────────────
@@ -840,8 +934,15 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
     }
 
     // ── THE PLAN, PRINTED, BEFORE A SINGLE QUESTION ────────────────────────
-    u.blank();
-    for (const line of planLines(plan, input.park ? "park" : "delete", home)) io.out(line);
+    //
+    // The park arm shows WHERE each thing is going, which means working the
+    // dated suffix out here rather than at the rename. It is worked out AGAIN
+    // when the renames happen (`parkPlan`) — the ground can move while somebody
+    // reads — and the report afterwards prints the names that were actually
+    // used, so a `-2` from a collision is visible rather than assumed.
+    for (const line of planLines(plan, input.park ? "park" : "delete", home, previewSuffix(input, plan))) {
+      io.out(line);
+    }
     u.blank();
   }
 
@@ -856,15 +957,31 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       return "refused";
     }
     const census = plan.census;
-    u.fail(censusLine(census, plan.configDir));
-    if (census.kind === "size") u.hint(`The count could not be taken: ${census.why}.`);
-    u.hint(`Everything listed above goes — ${humanBytes(plan.bytes)} in total.`);
-    u.hint(`Nothing is recoverable from this package afterwards. ${BIN.cli} uninstall --park`);
-    u.hint("moves the same things aside instead.");
+    // A PLAIN RED WARNING, not a `fail` tag (owner, finding #25): nothing has
+    // failed here. The count it used to carry is on the store's own line of the
+    // plan above, which is the line it is a count of.
+    u.warning(
+      "nothing can bring these back afterwards.",
+      `(${BIN.cli} uninstall --park sets them aside instead of deleting.)`,
+    );
+    if (census.kind === "size") {
+      u.hint(`The count could not be taken: ${census.why}.`);
+    }
     u.blank();
-    const said = await typed(io, DELETE_PHRASE, `Type ${DELETE_PHRASE} to go ahead: `);
-    if (!said) {
-      io.err(`refused: that was not "${DELETE_PHRASE}". Nothing was deleted and nothing was changed.`);
+    const said = await typed(
+      io,
+      DELETE_PHRASE,
+      `Type ${DELETE_PHRASE} to go ahead — Esc or "cancel" to stop: `,
+    );
+    // THREE ANSWERS, TWO SENTENCES, TWO EXIT CODES. Stopping is something
+    // somebody chose and it exits 0; typing the wrong thing is a refusal, in
+    // case it was a script or a paste that went wrong.
+    if (said === "cancelled") {
+      io.out("Cancelled. Nothing was deleted.");
+      return "ok";
+    }
+    if (said !== "typed") {
+      io.err(`That was not ${DELETE_PHRASE}. Nothing was deleted.`);
       return "refused";
     }
   } else if (!input.yes) {
@@ -875,14 +992,18 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       );
       return "refused";
     }
-    u.hint(
+    // THE QUESTION SAYS WHAT IT IS AGREEING TO, and the tag says how to get
+    // out (item 8: every prompt that can be cancelled says how in its own
+    // text). Esc and `n` are the same answer here.
+    const go = await confirm(
+      io,
       input.park
-        ? "This removes the Claude Code wiring and moves the things listed above aside."
-        : "This removes the Claude Code wiring. Your memory stays exactly where it is.",
+        ? "Claude Code will be disconnected. Go ahead?"
+        : "Claude Code will be disconnected — your memory stays exactly where it is. Go ahead?",
+      { default: true, hint: "(Esc or n to stop)" },
     );
-    const go = await confirm(io, "Go ahead?", { default: true });
     if (!go) {
-      u.hint("Nothing has changed.");
+      io.out(input.park ? "Cancelled. Nothing was moved." : "Cancelled. Nothing was changed.");
       return "ok";
     }
   }
@@ -936,20 +1057,38 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
 
   u.heading("Your memory");
   const kept = censusOf(configDir, input.config.dataDir ?? null);
+  const where = tilde(input.config.dataDir ?? join(configDir, "store"), home);
   u.ok(
     kept.kind === "memories"
-      ? `${memories(kept.memories)} ${kept.memories === 1 ? "is" : "are"} still at ${input.config.dataDir ?? join(configDir, "store")}.`
-      : `everything is still at ${configDir} (${humanBytes(kept.bytes)}).`,
+      ? `${memories(kept.memories)} ${kept.memories === 1 ? "is" : "are"} still at ${where}.`
+      : `everything is still at ${tilde(configDir, home)} (${humanBytes(kept.bytes)}).`,
   );
   u.hint("Nothing here deleted anything. To move it aside under a dated name:");
   u.hint(`  ${BIN.cli} uninstall --park`);
   u.hint("To destroy it (it prints the whole plan first, then asks you to type a phrase):");
   u.hint(`  ${BIN.cli} uninstall --delete-memories`);
   u.blank();
-  u.heading("The package itself");
-  u.hint("A program does not delete itself while it is running, so this is yours to run:");
-  u.hint(`  ${REMOVE_PACKAGE}`);
+  io.out(`To remove the program too: ${REMOVE_PACKAGE}`);
   return "ok";
+}
+
+/**
+ * The suffix the park arm is ABOUT to use, for the destination column — or null
+ * when it cannot be worked out yet.
+ *
+ * Never a decision: `parkPlan` computes its own at the moment of the rename,
+ * against the ground as it is then. This one exists so the screen can show
+ * somebody where their memory is going before they agree to it, and a failure
+ * here costs an arrow rather than the command (the real refusal, with its
+ * sentence, comes from the same call inside `parkPlan`).
+ */
+function previewSuffix(input: UninstallInput, plan: UninstallPlan): string | null {
+  if (!input.park || plan.targets.length === 0) return null;
+  try {
+    return pairedSuffix([...plan.targets], dateOf(input.now));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -991,7 +1130,7 @@ function mcpPreflight(input: UninstallInput, home: string): string | null {
 
 /** ONE atomic rename per thing, never a copy, and the store is never opened. */
 function parkPlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome {
-  const { io } = input;
+  const { io, home } = input;
   const date = dateOf(input.now);
   const all = [...plan.targets];
   if (all.length === 0) {
@@ -1028,33 +1167,33 @@ function parkPlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome {
     }
   }
 
-  u.heading("Parked");
-  for (const d of done) {
-    u.ok(d.from);
-    u.hint(`  -> ${d.to}`);
-  }
-  u.hint("One rename each. Nothing was copied, nothing was deleted, and the store was never");
-  u.hint("opened — not even read-only, which is why this arm does not print a count.");
+  // THE NAMES THAT WERE ACTUALLY USED, not the ones the preview predicted: a
+  // collision between the two turns `…parked-2026-09-22` into `…-2`, and this
+  // block is the one a person reads to find their memory again.
+  u.heading("Set aside");
+  for (const d of done) u.ok(`${tilde(d.from, home)}  →  ${tilde(d.to, home)}`);
   if (!plan.storeActed) {
     u.hint("No memory was moved: there was no store at the path the configuration named.");
   }
   if (plan.foreign.length > 0) {
-    u.hint(`${plan.configDir} itself was left where it is, with everything in it that is not ours.`);
+    u.hint(
+      `${tilde(plan.configDir, home)} itself was left where it is, with everything in it that is not ours.`,
+    );
   }
   u.blank();
-  u.heading("To undo this");
-  u.hint("Paste the line below. It refuses, rather than nesting one folder inside another,");
-  u.hint("if the original path exists again by then (say, because you installed again).");
-  for (const d of done) io.out(guardedMove(d.to, d.from));
-  u.blank();
-  u.heading("The package itself");
-  u.hint(`  ${REMOVE_PACKAGE}`);
+  // THE WAY BACK IS A COMMAND NOW (owner, finding #22: the guarded `mv`
+  // one-liner "doesn't make sense"). `install` finds a parked folder beside a
+  // missing one and asks; the shell line that does it by hand lives in
+  // `counterparts help uninstall`, where somebody looking for it can read it
+  // whole instead of meeting it at the end of a screen.
+  io.out(`To bring it back later: ${BIN.cli} install — it finds this folder and asks.`);
+  io.out(`To remove the program too: ${REMOVE_PACKAGE}`);
   return "ok";
 }
 
 /** The only delete in this package, and it happens after everything above. */
 function deletePlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome {
-  const { io } = input;
+  const { io, home } = input;
   const gone: string[] = [];
   for (const path of plan.targets) {
     try {
@@ -1071,7 +1210,7 @@ function deletePlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome 
   u.heading("Deleted");
   // EXACTLY WHAT WENT, PATH BY PATH (review M1). Never "your memory is gone"
   // unless the store itself went.
-  for (const path of gone) u.ok(path);
+  for (const path of gone) u.ok(tilde(path, home));
   if (plan.storeActed) {
     u.hint(
       plan.census !== null && plan.census.kind === "memories"
@@ -1082,11 +1221,12 @@ function deletePlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome 
     u.hint("No memory was deleted: there was no store at the path the configuration named.");
   }
   if (plan.foreign.length > 0) {
-    u.hint(`${plan.configDir} itself is still there, with everything in it that is not ours.`);
+    u.hint(
+      `${tilde(plan.configDir, home)} itself is still there, with everything in it that is not ours.`,
+    );
   }
   u.hint("Nothing in this package can bring the rest back.");
   u.blank();
-  u.heading("The package itself");
-  u.hint(`  ${REMOVE_PACKAGE}`);
+  io.out(`To remove the program too: ${REMOVE_PACKAGE}`);
   return "ok";
 }

@@ -1364,3 +1364,74 @@ already names, rather than a second answer to which store. Not built here.
   which was handed the one line): a floored `columns` at or below zero returns
   `FALLBACK_WIDTH`, and the floor is kept for a width a terminal really reported — 4 is an
   answer, 0 is the absence of one. `test/ui.test.ts` holds both halves.
+
+## 2026-09-22 — Esc on every prompt, and the two `uninstall` screens (items 8 and 13)
+
+From the owner's 0.2.0 trial, where the five rendered screens in
+`docs/new-user-findings.md` are the acceptance criteria. Two findings drove this piece:
+**#21**, "once the typed-phrase prompt is up there is no visible way out", and **#22/#25**,
+the pasted `mv` one-liner and the `fail` tag in front of a warning.
+
+**`node:readline` is gone from `bin/counterparts.ts`.** The ordinary line prompt is
+`ui.ts#echoPrompt` — the hidden reader's own character loop, echoing. The reason is one
+word long: `readline` hands back a LINE and nothing else, so a terminal it owns cannot
+tell an Escape from an arrow key, and Esc is the way out of every prompt now. Everything
+`readline` was doing the loop already did, review m4's two endings included — a Ctrl-C and
+a stdin that closes under the question both reject rather than resolving as an answer
+nobody gave. `hiddenPrompt` and `echoPrompt` are now two dresses on one `rawPrompt`, which
+is what keeps "Esc cancels" from being implemented twice and drifting.
+
+**A bare ESC cannot be recognised when it arrives** — an arrow key starts with the same
+byte. So an ESC with something after it in the same chunk is the head of a sequence, as
+before, and an ESC that ENDS a chunk starts a 50 ms timer that the next byte clears. The
+timer is armed only for a stream that says it is a terminal, and cleared on every exit
+path, so it can neither fire late nor hold the process open. A scripted console never
+meets it: nothing binds this reader off a terminal.
+
+**One sentinel, four meanings.** A cancelled read comes back as one raw ESC byte
+(`PROMPT_CANCEL`) through `Io.prompt`'s ordinary string, rather than as a second channel or
+a nullable return — so every console that knows nothing about cancelling is unchanged, and
+each asking function decides what cancelling means for it: `confirm` is no (and not one of
+its two attempts), `typed` is `"cancelled"`, `ask` throws `PromptAborted("cancelled")`,
+`askHidden` is the empty answer that prompt already calls a skip. The hint on the tag is
+OPT-IN (`ConfirmOptions.hint`): on `Add an Anthropic key? [y/N]` Esc, Enter and `n` are the
+same answer and the hint would be noise on the busiest screen in the package.
+
+**`typed` returns three things now**, and that is the whole point: somebody who stopped and
+somebody who mistyped get different sentences and different exit codes — `Cancelled.
+Nothing was deleted.` at exit 0, `That was not DELETE MEMORIES. Nothing was deleted.` at a
+refusal. An empty Enter used to be a mismatch, which told a person who had decided against
+it that they had typed the phrase wrong.
+
+**The two screens.** `~/…` for home paths (`wire.ts#tilde`, on screen only — every refusal
+still prints the absolute path, because a refusal is a thing somebody has to act on); the
+count moved off its own `WARNING:` line and onto the line of the thing it counts (`your
+memory — 32 memories, 2 journal entries`), leaving the warning to say the one thing the
+list cannot; `ui.ts#warning`, a red word rather than a `fail` tag; and `--park` printing
+the DESTINATION before it asks, which means working the dated suffix out twice — once for
+the preview, once at the rename — and reporting the names that were actually used, so a
+`-2` from a collision is visible rather than assumed.
+
+**The guarded `mv` left the screen.** The way back is `counterparts install`, which finds a
+parked folder beside a missing one and asks (item 11, another builder). The shell line is
+not gone — `start-fresh.ts#guardedMove` still writes it and `test/start-fresh.test.ts`
+still proves the guard by running it against a destination that exists — but it belongs in
+`counterparts help uninstall`, where somebody looking for it can read it whole.
+**`help.ts#COMMAND_DETAIL.uninstall` is not this piece's file, so that paragraph is an ask
+rather than a change**; until it lands, the only documented undo is the `install` that
+item 11 is building. `tools/install-loop/run.sh` looked for `REFUSING` on the park screen
+and looks for `To bring it back later` now.
+
+**Driven on a real pty** (`python3 pty.fork()`, a throwaway HOME, the reader alone —
+nothing near a store): while the prompt is up the terminal reads `ECHO=off ICANON=off
+ISIG=off`, a partial line arrives before Enter (so raw mode is really on), backspace writes
+`\b \b` and erases, a paste arrives whole, an arrow key leaves nothing behind, a bare ESC
+comes back as the sentinel after the wait, and Ctrl-C rejects with `cancelled.` — with
+`ECHO`, `ICANON` and `ISIG` all restored afterwards in both endings.
+
+**Still open, deliberately.** `start-fresh`, `start-fresh --undo`, `remove` and
+`migrate-cache` roll their own `io.prompt` calls in `commands.ts` rather than calling
+`typed()`, whose docstring claimed otherwise until today. They now receive the sentinel on
+Esc, which does not match their expected word, so they refuse and change nothing — safe,
+but "refused: the confirmation did not match" is not the sentence item 8 asks for. Those
+prompts belong to the builders who own those commands.

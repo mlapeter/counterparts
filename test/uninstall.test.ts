@@ -9,11 +9,17 @@
  *      and after, entry list included.
  *   2. **`--park` moves it aside under a dated name** — ONE rename, never a
  *      copy, never a delete, and the store is never opened. The `-2` collision
- *      case is here too, and the printed `mv` really is the way back.
- *   3. **`--delete-memories` counts first, warns with the number, and takes the
- *      phrase.** Anything but the exact phrase deletes nothing and exits
- *      non-zero. There is no `--yes` for it, and a console with no person is a
- *      refusal.
+ *      case is here too, and the screen names the destination before it asks.
+ *   3. **`--delete-memories` counts first, warns, and takes the phrase.**
+ *      Anything but the exact phrase deletes nothing and exits non-zero; Esc,
+ *      an empty Enter and `cancel` stop it and exit 0. There is no `--yes` for
+ *      it, and a console with no person is a refusal.
+ *
+ * Both screens are the ones the owner drew on 2026-09-22
+ * (`docs/new-user-findings.md` §"The screens"), and a rendered screen is the
+ * acceptance criterion: `~/…` paths, the count on the line of the thing it
+ * counts, a plain red WARNING, and the way back as a command rather than a
+ * pasted shell line.
  *
  * Plus the guard ring: a path outside the home, the home itself, a symlink, a
  * directory that is not one of ours, a live store's root, and anything of ours
@@ -59,6 +65,7 @@ import {
 } from "../src/adapters/cli/uninstall.js";
 import type { UninstallInput } from "../src/adapters/cli/uninstall.js";
 import { PARKED_INFIX } from "../src/adapters/cli/start-fresh.js";
+import { PROMPT_CANCEL } from "../src/adapters/cli/ui.js";
 import { Store } from "../src/core/store/index.js";
 import type { ProcessLister, SpawnResult, Spawner } from "../src/adapters/cli/wire.js";
 import { DATABASE_FILE, dateOf } from "../src/core/store/index.js";
@@ -389,10 +396,14 @@ describe("what the warning counts", () => {
     expect(existsSync(join(empty, "store"))).toBe(false);
   });
 
-  test("the numbers are spelled the way the ruling spells them", () => {
+  test("the numbers are spelled the way the screen spells them", () => {
     expect(grouped(1204)).toBe("1,204");
-    expect(humanBytes(512)).toBe("512 bytes");
+    expect(humanBytes(214)).toBe("214 B");
     expect(humanBytes(2048)).toBe("2.0 KB");
+    // One decimal below ten and none at or above it: these sit in a column
+    // beside each other, and `913.0 KB` spends four characters saying nothing.
+    expect(humanBytes(934912)).toBe("913 KB");
+    expect(humanBytes(7025459)).toBe("6.7 MB");
     expect(dirSize(join(home, "nothing-here"))).toBe(0);
   });
 });
@@ -416,9 +427,11 @@ describe("uninstall, plain", () => {
     expect(fingerprint(base(), true)).toBe(before);
 
     const said = text(c.out);
-    expect(said).toContain(base());
+    // `~/…` on screen (item 13), and the absolute path nowhere on it.
+    expect(said).toContain("~/.counterparts/store");
+    expect(said).not.toContain(base());
     expect(said).toContain("memories are still at");
-    expect(said).toContain(REMOVE_PACKAGE);
+    expect(said).toContain(`To remove the program too: ${REMOVE_PACKAGE}`);
     expect(said).toContain("--park");
   });
 
@@ -456,7 +469,7 @@ describe("uninstall, plain", () => {
 // ── --park ──────────────────────────────────────────────────────────────────
 
 describe("uninstall --park", () => {
-  test("ONE rename: the tree is byte-identical under the dated name, and the way back is printed", async () => {
+  test("ONE rename: the tree is byte-identical under the dated name, and the screen is the owner's", async () => {
     await install();
     await notes(2);
     await wireIt();
@@ -470,35 +483,35 @@ describe("uninstall --park", () => {
     expect(existsSync(parked)).toBe(true);
     expect(fingerprint(parked)).toBe(before);
 
+    // THE SCREEN, as the owner drew it on 2026-09-22.
     const said = text(c.out);
-    expect(said).toContain(parked);
-    // The guarded `mv`, and it really does put it back.
-    const line = c.out.find((l) => l.trimStart().startsWith("if [ -e "));
-    expect(line).toBeDefined();
-    const ran = spawnSync("/bin/sh", ["-c", line as string], {
-      encoding: "utf8",
-      env: { PATH: "/usr/bin:/bin", HOME: home },
-    });
-    expect(ran.status).toBe(0);
-    expect(existsSync(base())).toBe(true);
-    expect(fingerprint(base())).toBe(before);
+    expect(said).toContain("counterparts uninstall --park");
+    expect(said).toContain("This will set aside (renamed, nothing copied, nothing deleted):");
+    // The destination is named BEFORE anything happens, and again afterwards.
+    const arrow = `~/.counterparts  →  ~/.counterparts.${PARKED_INFIX}-${today()}`;
+    expect(c.out.filter((l) => l.includes(arrow)).length).toBe(2);
+    expect(said).toContain("your memory, configuration");
+    expect(said).toContain("Set aside");
+    expect(said).toContain(
+      "To bring it back later: counterparts install — it finds this folder and asks.",
+    );
+    expect(said).toContain(`To remove the program too: ${REMOVE_PACKAGE}`);
+    // `~/…`, and the absolute paths nowhere on the screen.
+    expect(said).not.toContain(parked);
+    expect(said).not.toContain(base());
   });
 
-  test("the printed `mv` REFUSES rather than nesting when the destination exists", async () => {
+  test("the guarded `mv` has LEFT the screen — the way back is a command now", async () => {
+    // Finding #22: the undo was a pasted shell one-liner with an
+    // `if [ -e … ] … REFUSING … mv … fi` guard in it. "Doesn't make sense."
+    // The line itself is not gone — it lives in `counterparts help uninstall`,
+    // and `start-fresh.ts#guardedMove` is still where it is proved.
     await install();
     const c = consoleWith();
     await uninstall(input({ io: c.io, park: true }));
-    // Something reappears at the live name — a hook, a second install.
-    mkdirSync(base(), { recursive: true });
-    const line = c.out.find((l) => l.trimStart().startsWith("if [ -e ")) as string;
-    const ran = spawnSync("/bin/sh", ["-c", line], {
-      encoding: "utf8",
-      env: { PATH: "/usr/bin:/bin", HOME: home },
-    });
-    expect(ran.status).not.toBe(0);
-    expect(ran.stderr).toContain("REFUSING");
-    // And nothing was nested inside it.
-    expect(readdirSync(base())).toEqual([]);
+    expect(c.out.some((l) => l.trimStart().startsWith("if [ -e "))).toBe(false);
+    expect(text(c.out)).not.toContain("REFUSING");
+    expect(text(c.out)).toContain("To bring it back later:");
   });
 
   test("a name already taken becomes -2 rather than a merge", async () => {
@@ -590,33 +603,40 @@ describe("uninstall --delete-memories", () => {
     expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
 
     const said = text(c.out);
-    expect(said).toContain("WARNING: this will delete");
-    expect(said).toContain("memories.");
-    expect(c.asked[0]).toContain(DELETE_PHRASE);
+    // THE SCREEN, as the owner drew it on 2026-09-22: the plan, the count on
+    // the line of the thing it counts, then a plain red WARNING (finding #25 —
+    // a `fail` tag in front of a warning reads as a failure).
+    expect(said).toContain("counterparts uninstall --delete-memories");
+    expect(said).toContain("This will delete, for good:");
+    expect(said).toMatch(/~\/\.counterparts\/store\s+[\d.]+ [KMG]?B\s+your memory — [\d,]+ memories/);
+    expect(said).toContain("and the ~/.counterparts folder itself.");
+    expect(said).toContain("WARNING: nothing can bring these back afterwards.");
+    expect(said).not.toContain("fail  WARNING");
+    expect(c.asked[0]).toBe(`Type ${DELETE_PHRASE} to go ahead — Esc or "cancel" to stop: `);
     expect(existsSync(base())).toBe(false);
     expect(readHost(home, home, ENV).events).toEqual([]);
-    expect(said).toContain(REMOVE_PACKAGE);
+    expect(said).toContain(`To remove the program too: ${REMOVE_PACKAGE}`);
+    expect(said).not.toContain(base());
   });
 
-  test("a store with NO memories never headlines a bare zero", async () => {
+  test("a store with NO memories never reads as a bare zero", async () => {
     // A fresh install holds an identity core and no memories, so the whole
-    // warning used to be "this will delete 0 memories." while the store went.
+    // account of the store going used to be "0 memories".
     await install();
     const c = consoleWith([DELETE_PHRASE]);
     expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
-    const warning = c.out.find((l) => l.includes("WARNING: this will delete")) as string;
-    expect(warning).toContain("your whole store");
-    expect(warning).toContain("no memories in it yet");
-    expect(warning).not.toContain("0 memories");
+    const line = c.out.find((l) => l.includes("your memory —")) as string;
+    expect(line).toContain("no memories in it yet");
+    expect(line).not.toContain("0 memories");
   });
 
-  test("the warning carries the count the ruling asks for, spelled with a comma", async () => {
+  test("the count is on the store's own line, spelled with a comma", async () => {
     await install();
     await notes(3);
     const c = consoleWith([DELETE_PHRASE]);
     await uninstall(input({ io: c.io, deleteMemories: true }));
-    const warning = c.out.find((l) => l.includes("WARNING: this will delete")) as string;
-    expect(warning).toMatch(/WARNING: this will delete [\d,]+ memories\./);
+    const line = c.out.find((l) => l.includes("your memory —")) as string;
+    expect(line).toMatch(/your memory — [\d,]+ memories/);
 
     // AND IT IS SINGULAR WHEN IT IS ONE. A brand-new install holds exactly one
     // memory — its identity core — so "1 memories" was what a person leaving
@@ -630,15 +650,45 @@ describe("uninstall --delete-memories", () => {
     await notes(2);
     await wireIt();
     const before = fingerprint(base(), true);
-    for (const wrong of ["delete memories", "DELETE MEMORIES ", "yes", "", "DELETE  MEMORIES"]) {
+    for (const wrong of ["delete memories", "DELETE MEMORIES ", "yes", "DELETE  MEMORIES"]) {
       const c = consoleWith([wrong]);
       expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("refused");
-      expect(text(c.err)).toContain("Nothing was deleted");
+      expect(text(c.err)).toBe(`That was not ${DELETE_PHRASE}. Nothing was deleted.`);
       // Not one byte, and the hooks are still in: the phrase is asked BEFORE
       // anything at all is taken out.
       expect(fingerprint(base(), true)).toBe(before);
       expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
     }
+  });
+
+  test("the THREE ways out stop it, say so, and exit 0", async () => {
+    // Owner, finding #21: "once the typed-phrase prompt is up there is no
+    // visible way out". Esc, an empty Enter and the word `cancel` are all the
+    // person deciding against it — which is not a refusal, and not a failure.
+    await install();
+    await notes(2);
+    await wireIt();
+    const before = fingerprint(base(), true);
+    for (const out of ["", "cancel", "CANCEL", PROMPT_CANCEL]) {
+      const c = consoleWith([out]);
+      expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
+      expect(text(c.out)).toContain("Cancelled. Nothing was deleted.");
+      expect(c.err).toEqual([]);
+      expect(fingerprint(base(), true)).toBe(before);
+      expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    }
+  });
+
+  test("Esc at the park confirmation is a no, and nothing moves", async () => {
+    await install();
+    await wireIt();
+    const c = consoleWith([PROMPT_CANCEL]);
+    expect(await uninstall(input({ io: c.io, park: true, yes: false }))).toBe("ok");
+    expect(text(c.out)).toContain("Cancelled. Nothing was moved.");
+    // The question said how to get out of it.
+    expect(c.asked[0]).toBe("Claude Code will be disconnected. Go ahead? [Y/n]   (Esc or n to stop) ");
+    expect(existsSync(base())).toBe(true);
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
   });
 
   test("there is no --yes for it: a console with no person refuses and says why", async () => {
@@ -669,7 +719,8 @@ describe("uninstall --delete-memories", () => {
     const c = consoleWith([DELETE_PHRASE]);
     expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
     const said = text(c.out);
-    expect(said).toContain("WARNING: this will delete");
+    expect(said).toContain("your memory — the count could not be taken");
+    expect(said).toContain("WARNING: nothing can bring these back afterwards.");
     expect(said).toContain("The count could not be taken");
     expect(existsSync(base())).toBe(false);
   });
@@ -859,7 +910,7 @@ describe("B1 — only what this package wrote", () => {
     expect(fingerprint(join(dir, "taxes")) + "|" + fingerprint(join(dir, "photos"))).toBe(before);
     // The plan said so before the phrase was asked for.
     const said = text(c.out);
-    expect(said).toContain("This will delete:");
+    expect(said).toContain("This will delete, for good:");
     expect(said).toContain("itself STAYS");
     expect(said).toContain("taxes");
     expect(c.asked[0]).toContain(DELETE_PHRASE);
@@ -978,7 +1029,9 @@ describe("M1 — the store, wherever it is", () => {
     expect(existsSync(store)).toBe(false);
     expect(existsSync(base())).toBe(false);
     const said = text(c.out);
-    expect(said).toContain(store);
+    // Named, and named in the spelling the rest of the screen uses.
+    expect(said).toContain("~/elsewhere/store");
+    expect(said).not.toContain(store);
     expect(said).toContain("is NOT inside that directory");
   });
 

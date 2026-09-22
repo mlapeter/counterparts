@@ -7,10 +7,9 @@
  * lives in `commands.ts`, where it can be tested against a temp dir with a faked
  * console instead of a subprocess.
  *
- * The prompt is `node:readline` — no dependency, and it exists at all because
- * removal requires an interactive confirmation (§5 G2). A non-interactive run
- * (a pipe, a CI job) has no prompt, and removal REFUSES there rather than
- * proceeding unconfirmed.
+ * The prompt exists at all because removal requires an interactive confirmation
+ * (§5 G2). A non-interactive run (a pipe, a CI job) has no prompt, and removal
+ * REFUSES there rather than proceeding unconfirmed.
  *
  * Since 2026-09-21 it binds two more things, both from `ui.ts` and both
  * additive: the NO-ECHO read (`promptHidden`), so `credentials set` can take a
@@ -19,13 +18,21 @@
  * is the only input `ui.ts` decides colour, wrapping and interactivity from.
  * Neither changes a non-interactive run: a pipe reports no terminal, and every
  * gate in `ui.ts` is false when it does.
+ *
+ * **2026-09-22: `node:readline` is gone from this file.** The ordinary line
+ * prompt is now `ui.ts#echoPrompt` — the same raw-mode reader the hidden one is
+ * built from, echoing. `readline` hands back a line and nothing else, so it
+ * cannot tell Escape from an arrow key, and Esc is the way out of every prompt
+ * in the package now (owner, 2026-09-22, item 8). Everything `readline` was
+ * doing for us the reader does, review m4's two endings included: a Ctrl-C and
+ * a stdin that closes under the question both reject with `PromptAborted`
+ * rather than resolving as an answer nobody gave.
  */
-import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { run } from "../commands.js";
-import { PromptAborted, hiddenPrompt } from "../ui.js";
+import { echoPrompt, hiddenPrompt } from "../ui.js";
 
 /** Everything piped in, as one string. Never logged, never echoed: the one
  *  caller is `credentials set`, and what comes through here is a secret. */
@@ -38,44 +45,16 @@ async function readStdin(): Promise<string> {
 /**
  * One line of text, and **Ctrl-C is not an answer** (review m4).
  *
- * `readline` closes on SIGINT and on EOF, and the first version of this simply
- * never resolved: the process ended silently with **exit 0**. At the name
- * prompt nothing had been created yet; at the wire question the store, the
+ * The first version of this — `readline` — closed on SIGINT and on EOF and
+ * simply never resolved: the process ended silently with **exit 0**. At the
+ * name prompt nothing had been created yet; at the wire question the store, the
  * config and the 0600 credentials file all existed and nothing said so — and a
- * `&&` chain or a wrapper script reads exit 0 as "installed".
- *
- * So both endings reject with the same `PromptAborted` the hidden reader
- * already throws, and every caller's existing handling — "stopped; nothing else
- * was changed", a non-zero code — applies to them without a line of new
- * branching. `close` fires after `line` too, so the resolve latches.
+ * `&&` chain or a wrapper script reads exit 0 as "installed". `echoPrompt`
+ * rejects on both endings with the `PromptAborted` the hidden reader already
+ * throws, so every caller's existing handling — "stopped; nothing else was
+ * changed", a non-zero code — covers them with no new branching.
  */
-function ask(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolveAnswer, rejectAnswer) => {
-    let settled = false;
-    rl.on("SIGINT", () => {
-      if (settled) return;
-      settled = true;
-      // The newline the echo would have written, so the refusal does not land
-      // on the same line as the question.
-      process.stdout.write("\n");
-      rl.close();
-      rejectAnswer(new PromptAborted("interrupt", "cancelled."));
-    });
-    rl.on("close", () => {
-      if (settled) return;
-      settled = true;
-      // EOF with no line: stdin closed under us. Not an answer either.
-      rejectAnswer(new PromptAborted("interrupt", "the input ended before the question was answered."));
-    });
-    rl.question(question, (answer) => {
-      if (settled) return;
-      settled = true;
-      rl.close();
-      resolveAnswer(answer);
-    });
-  });
-}
+const ask = echoPrompt(process.stdin, process.stdout);
 
 async function main(): Promise<number> {
   return run(process.argv.slice(2), {
@@ -86,8 +65,11 @@ async function main(): Promise<number> {
       err: (line) => {
         process.stderr.write(`${line}\n`);
       },
-      // Interactive only. `process.stdin.isTTY` is the host telling us whether
-      // a human is there; absent, the prompt is not offered at all.
+      // Interactive only, and now doubly so: `process.stdin.isTTY` is the host
+      // telling us whether a human is there, and `ask` is a RAW-MODE reader
+      // that has nothing to offer anything else. Absent a terminal the prompt
+      // is not offered at all, `ui.ts`'s gates are false, and every scripted
+      // caller keeps the bytes it had.
       ...(process.stdin.isTTY ? { prompt: ask } : {}),
       // THE NO-ECHO READ, bound to the real streams (2026-09-21, finding #2).
       // `ui.ts` shipped `hiddenPrompt` unwired; `credentials set` is the first

@@ -1207,8 +1207,11 @@ else
       no "it exited 0 and left the directory where it was" "$OUT"
     elif [ -z "$PARKED" ] || [ ! -f "$PARKED/store/counterparts.sqlite" ]; then
       no "nothing parked beside $BASE holds the store" "$OUT"
-    elif ! printf '%s' "$OUT" | grep -q 'REFUSING'; then
-      no "the guarded \`mv\` that undoes it was not printed" "$OUT"
+    elif ! printf '%s' "$OUT" | grep -q 'To bring it back later'; then
+      # The guarded `mv` used to be the last thing on this screen; since
+      # 2026-09-22 (finding #22) the way back is a command, and the shell line
+      # lives in `counterparts help uninstall`.
+      no "it did not say how to bring the parked memory back" "$OUT"
     else
       ok
     fi

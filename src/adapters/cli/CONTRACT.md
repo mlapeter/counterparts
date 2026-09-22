@@ -291,10 +291,14 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     memory.*
 28. **[M] The whole plan — every path that will move or go, with its size — is PRINTED
     before the confirm and before the typed phrase.** `--park` is `rename(2)` once per
-    thing and prints the guarded `mv` that undoes each; `--delete-memories` has no `--yes`,
+    thing and names each destination BEFORE it asks; `--delete-memories` has no `--yes`,
     counts first, and takes `DELETE MEMORIES` typed exactly. The closing sentence names
     what actually went, path by path, and never says the memory is gone unless the store
-    itself went.
+    itself went. *Home paths are written `~/…` on screen and in full in every refusal
+    (2026-09-22, item 13). The guarded `mv` that undoes a park is no longer on the screen
+    — the way back is `counterparts install`, which finds a parked folder beside a missing
+    one and asks; the shell line moved to `counterparts help uninstall` (finding #22).
+    `start-fresh` still prints its own, and is still where the guard is proved.*
 29. **[M] The store is in that plan under its own ring** — absolute, not a forbidden root
     by either spelling, not a filesystem root, not the home, inside the home, not a
     symlink, and recognisable as a store by its own files — and a store that fails it is a
@@ -317,10 +321,14 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     is left exactly where it is by both directions and named in one line. `doctor`'s
     `readHost` keeps the looser mark for REPORTING, and a test holds the two to each other
     in the direction that matters: everything `wire` writes is matched by both.
-33. **[M] The count in the warning is the number `status` calls Memories** — not archived,
-    not superseded, not a journal episode, not a schema row — with the journal reported
-    beside it. Taking it opens the store **under observer**, read-only, and `--park` never
-    opens it at all.
+33. **[M] The count is the number `status` calls Memories** — not archived, not
+    superseded, not a journal episode, not a schema row — with the journal reported beside
+    it. Taking it opens the store **under observer**, read-only, and `--park` never opens
+    it at all. *Since 2026-09-22 it is printed on the STORE's own line of the plan rather
+    than on a `WARNING:` line of its own, which leaves the warning to say the one thing
+    the list cannot — that nothing brings these back. Still on the screen before anything
+    is asked, which is what guarantee 28 claims. A warning is not a `fail` (finding #25):
+    nothing has failed at the moment somebody is deciding.*
 
 ### What the merge with C and D added (2026-09-21)
 
@@ -335,6 +343,20 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     missing or stale hook was print a block for the reader to paste; the fix line now names
     the command that does the paste — including for the STALE case, which `wire` repairs in
     place.
+
+### Esc, and the screens the trial asked for (2026-09-22)
+
+36. **[M] Every prompt this package asks can be CANCELLED, and the ones whose Esc is not
+    already their Enter say so in their own text** (owner, item 8; finding #21 — a
+    typed-phrase prompt with no visible way out is one people answer by closing the
+    terminal). On a real terminal `Io.prompt` is a raw-mode reader (`ui.ts#echoPrompt`,
+    the hidden reader's own loop, echoing), and a bare ESC — nothing following it within
+    ~50 ms, because an arrow key starts with the same byte — comes back as one sentinel
+    through the ordinary string. `confirm` reads it as no, `typed` as `"cancelled"`, `ask`
+    as an abort, `askHidden` as the empty answer it already calls a skip. **Cancelling is
+    not a refusal**: it prints "Cancelled. Nothing was …" and exits 0, while the wrong
+    phrase still exits non-zero. *Nothing binds that reader off a terminal, so a pipe, a
+    test console and CI keep the prompt they had and the bytes they had.*
 
 ## 6. Scars honored
 
