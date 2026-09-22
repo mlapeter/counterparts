@@ -468,14 +468,21 @@ export function writeCredential(path: string, name: string, value: string): void
     for (let i = 0; i < out.length; i += 1) {
       if (commented.test(out[i] ?? "")) {
         // The placeholder OWNS the indented comment lines under it ("#" then
-        // four or more spaces — the template's own continuation shape). Putting
-        // the live line where the placeholder stood left them dangling under a
-        // secret, reading as if they explained it; the line goes after them
-        // instead, so `# NAME=... what it is / # <indent> why` stays a block.
+        // four or more spaces — the template's own continuation shape), and the
+        // live line goes AFTER the whole block.
+        //
+        // **THE PLACEHOLDER LINE ITSELF STAYS** (adversarial review n4). It
+        // used to be deleted, which left its continuation lines dangling under
+        // the OTHER name's block, where they read as part of that explanation:
+        // after `credentials set VOYAGE_API_KEY`, the two lines about
+        // `"embedder": { "enabled": true }` sat directly beneath the Anthropic
+        // paragraph and appeared to be about the Anthropic key. A comment costs
+        // nothing — the loader reads `#` as a comment — and the file keeps
+        // saying what each name is for, which is the whole reason the template
+        // has paragraphs at all.
         let end = i;
         while (/^#\s{4,}\S/.test(out[end + 1] ?? "")) end += 1;
-        out.splice(i, 1);
-        out.splice(end, 0, line);
+        out.splice(end + 1, 0, line);
         replaced = true;
         break;
       }

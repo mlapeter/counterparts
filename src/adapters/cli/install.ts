@@ -316,6 +316,16 @@ export interface ConfigInput {
   readonly budgetBytes?: number;
   readonly name?: string;
   readonly embedder?: boolean;
+  /**
+   * Keys carried forward from a configuration this write is REPLACING, and
+   * only ones the command line did not supply (`commands.ts#carryForward`).
+   *
+   * B1, 2026-09-22: `--force` used to blank whatever the flags did not name —
+   * the owner's `identity`, a running `embedder` opt-in, a ceiling somebody
+   * chose. `--force` is consent to rewrite a file, not consent to forget what
+   * it said.
+   */
+  readonly carried?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -328,6 +338,12 @@ export function configObject(input: ConfigInput): Record<string, unknown> {
     dataDir: input.layout.store,
     credentialsFile: input.layout.credentials,
     owner: true,
+    // WHAT THE FILE BEING REPLACED SAID, first, so a flag below still wins —
+    // though `carryForward` has already dropped every key this line supplied,
+    // so the two can never disagree. `dataDir` and `credentialsFile` are set
+    // ABOVE it and are never carried: moving an install is what `--force` is
+    // for, and a path from the old file would silently undo the move.
+    ...(input.carried ?? {}),
   };
   // Scar §2.18: written only when a number was SUPPLIED. There is no default
   // for a host's ceiling anywhere in this package and this is not the place
@@ -717,8 +733,21 @@ export function readHost(
  * next `Store.open` would open it. That is the one CLAUDE.md forbids twice.
  */
 
-/** `<base>.parked-<date>` with an optional `-N` — the name `uninstall --park`
- *  writes, by way of `start-fresh#pairedSuffix`. Nothing else is a candidate. */
+/**
+ * `<base>.parked-<date>` with an optional `-N` — the name `uninstall --park`
+ * writes, by way of `start-fresh#pairedSuffix`. Nothing else is a candidate.
+ *
+ * THE DATE IS A DATE, not four-two-two digits (review n1). The pattern alone
+ * accepted `.counterparts.parked-2099-13-45`, which then sorted ABOVE a real
+ * folder and put "Found memory set aside on 2099-13-45" on the screen —
+ * anything that wants to be picked first need only name a month that does not
+ * exist. It is round-tripped through `Date` instead, so only a day that is
+ * really on the calendar is a candidate at all.
+ *
+ * AND THE ORDINAL IS AT LEAST 2 (review n2). `pairedSuffix` starts counting at
+ * two — a `-0` or a `-1` is not a name this package writes, and `-0` sorted
+ * BELOW the bare same-day folder it was pretending to follow.
+ */
 export function parkedNameParts(
   name: string,
   base: string,
@@ -727,7 +756,14 @@ export function parkedNameParts(
   const m = new RegExp(`^${escaped}\\.parked-(\\d{4}-\\d{2}-\\d{2})(?:-(\\d+))?$`).exec(name);
   if (m === null) return null;
   const date = m[1] ?? "";
-  const ordinal = m[2] === undefined ? 1 : Number(m[2]);
+  // `Date.parse` of a bare ISO date is UTC midnight, and `toISOString` gives
+  // the same ten characters back — for a real day, and not for 2099-13-45,
+  // which either fails to parse or comes back as some other day.
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  if (m[2] === undefined) return { date, ordinal: 1 };
+  const ordinal = Number(m[2]);
+  if (!Number.isInteger(ordinal) || ordinal < 2) return null;
   return { date, ordinal };
 }
 
@@ -812,6 +848,11 @@ export function parkedRefusal(path: string, home: string): string | null {
   } catch {
     /* likewise */
   }
+  // A CANDIDATE OUTSIDE THIS HOME. Closed in practice rather than in theory:
+  // `uninstall --park` refuses a base outside the home too
+  // (`uninstall.ts#configDirRefusal`), so no folder this package wrote can be
+  // here — what can is a symlink pointing out, or an `--config` somewhere
+  // exotic, and neither is a thing to rename on a pattern match (review n5).
   if (!isWithin(realHome, real)) {
     return (
       `refused: ${path} resolves to ${real}, outside your home directory (${realHome}). This ` +
@@ -886,6 +927,14 @@ export function parkedRefusal(path: string, home: string): string | null {
  * NEWEST FIRST MEANS THE DATE AND THEN THE ORDINAL: two parks on one day are
  * `…parked-2026-09-22` and `…parked-2026-09-22-2`, and the `-2` is the later of
  * the two, so it sorts above the bare one.
+ *
+ * **THE REFUSAL IS DECIDED BEFORE THE SIZE IS MEASURED** (review m5). Object
+ * literals evaluate in order, so `bytes` first meant every directory under a
+ * candidate had already been `readdir`'d and every entry `lstat`'d by the time
+ * it was refused — and then the number was thrown away, because a refusal
+ * prints only the path and the reason. Nothing was opened and no link was
+ * followed, so the safety claim survived; but the refusal says "nothing in it
+ * was read", and a walk of the tree is a read of it. Cheaper, and now true.
  */
 export function parkedSiblings(configDir: string, home: string): ParkedSighting[] {
   const dir = resolve(configDir);
@@ -902,12 +951,13 @@ export function parkedSiblings(configDir: string, home: string): ParkedSighting[
     const parts = parkedNameParts(name, base);
     if (parts === null) continue;
     const path = join(parent, name);
+    const refusal = parkedRefusal(path, home);
     out.push({
       path,
       date: parts.date,
       ordinal: parts.ordinal,
-      bytes: dirBytes(path),
-      refusal: parkedRefusal(path, home),
+      bytes: refusal === null ? dirBytes(path) : 0,
+      refusal,
     });
   }
   out.sort((a, b) =>

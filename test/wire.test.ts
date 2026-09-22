@@ -1108,6 +1108,27 @@ describe("install, at a terminal", () => {
     expect(fake.calls.some((call) => call.slice(0, 3).join(" ") === `mcp add ${MCP_SERVER_NAME}`)).toBe(true);
   });
 
+  /**
+   * "IT SHOULD BE ALL GREEN" IS A PROMISE (adversarial review M1). It used to
+   * read `wired.hooks` alone, so an install whose `claude mcp add` had just
+   * failed — warning and all, four lines up — still ended by telling the person
+   * to expect a green doctor. Doctor is RED on that line.
+   */
+  test("a failed `claude mcp add` does not end with 'it should be all green'", async () => {
+    const angry: Spawner = (args) =>
+      args[0] === "mcp" && args[1] === "add"
+        ? { missing: false, code: 1, out: "", err: "nope" }
+        : OK;
+    const c = await install([], ["Ada"], angry);
+    const said = text(c.out);
+    expect(said).not.toContain("it should be all green");
+    expect(said).toContain("the memory tools are NOT registered");
+    // The hooks DID land, and the screen says so rather than calling the whole
+    // install a failure.
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    expect(said).toContain("Done. Your memory lives at");
+  });
+
   test("the two keys are asked one at a time, y/N first, and Enter is no", async () => {
     const c = await install([], ["Ada"], spawnerThat(() => OK).spawner);
     const asked = text(c.asked);

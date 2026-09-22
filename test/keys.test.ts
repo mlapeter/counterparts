@@ -567,6 +567,22 @@ describe("counterparts credentials set, typed at a terminal", () => {
     expect(f.said()).not.toContain(VOYAGE_KEY);
   });
 
+  /**
+   * ENTER IS NOT AN EXPLICIT YES (adversarial review M3). The question was
+   * `[Y/n]`, so a bare Enter — the same key the person has just pressed twice
+   * to decline the two optional keys above it — turned a third-party egress on,
+   * one line under a docstring saying the knob moves on an explicit yes and on
+   * nothing else.
+   */
+  test("ENTER at the embedder question leaves it off: the question is [y/N]", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [VOYAGE_KEY], answers: [] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(readFileSync(credsPath, "utf8")).toContain(EMBED_KEY_ENV);
+    expect(f.asked.join("\n")).toContain("Turn on recall by meaning now? [y/N]");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))["embedder"]).toBeUndefined();
+  });
+
   test("a no leaves the knob alone, and the key is still saved — a key is not consent", async () => {
     writeConfig();
     const f = terminal({ hidden: [VOYAGE_KEY], answers: ["n"] });
