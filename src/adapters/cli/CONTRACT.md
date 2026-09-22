@@ -49,11 +49,12 @@ owner owns the data.
   an **allowlist not a denylist**, never leaving the machine, never throwing. [v1] §16 G18.
 - **Nothing destructive happens without a human saying so**, and the writer's lock is taken
   only *after* that, then reload and re-plan under it. [v1] scar §2.13. *Where there is
-  nobody to ask — a pipe, a script, a CI job — the default is a dry run that prints the plan
-  and changes nothing. At a terminal, since 2026-09-22 (owner's answer 7), `remove` ASKS
-  instead of printing a plan nobody requested: same path, same record, one question. The
-  mechanized test is the non-interactive one, because that is the arm where silence would
-  have to stand in for consent.*
+  nobody to ask — a pipe, a redirected stdout, a script, a CI job — the default is a dry run
+  that prints the plan and changes nothing. At a terminal, since 2026-09-22 (owner's answer
+  7), `remove` ASKS: same path, same record, the same plan on the screen, one question
+  instead of "run it again with --confirm". Which of the two is decided by `isInteractive`
+  and not by stdin alone — the adversarial review deleted a memory through a redirected
+  stdout, where the question went into the file and the person saw nothing.*
 - **Wall-clock, not active days, for any cooling-off.** [v1] §16's note on the released
   ceremony — *a week of not using the machine must still be a week of second thoughts*, and
   an immediate-destroy setting was rejected in v1 because it would delete the only property
@@ -121,8 +122,10 @@ snapshots and exports; the removal record; telemetry by reference.
 2. **[M] Destructive commands require an interactive confirmation, and default to a dry run
    wherever there is nobody to ask**, and take the writer's lock only after the
    confirmation, then reload and re-plan under it. *At a terminal `remove` asks for its
-   target and confirms once (2026-09-22) rather than printing a plan first; `--confirm`
-   is unchanged, and every arm that cannot ask still prints the plan and changes nothing.*
+   target and confirms once (2026-09-22) instead of asking to be run a second time; the
+   plan is printed either way, before the question. "Nobody to ask" is `isInteractive` —
+   a prompt, BOTH streams a terminal, `CI` unset — so a pipe, a redirected stdout and a
+   CI job all get the dry run, and `--confirm` is unchanged.*
 3. **[M] Every path comparison resolves and realpaths both sides before comparing**, and no
    tool honors a pre-set data-directory environment variable when it claims a throwaway
    directory (scar §2.13 — v1's migration guard was a raw string comparison, and

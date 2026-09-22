@@ -724,7 +724,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove:
-    "The loud removal. With nothing after it, at a terminal, it asks for a memory id or for words to search for, numbers what it finds, lets you pick one or several, and asks once before it deletes them. --confirm is the scripted door: that exact id, confirmed by typing it back. Off a terminal and without --confirm it prints the plan and changes nothing.",
+    "The loud removal. With nothing after it, at a terminal, it asks for a memory id or for words to search for, numbers what it finds, lets you pick one or several (or name several ids outright), shows the plan for each, and asks once before it deletes them. --confirm is the scripted door: that exact id, confirmed by typing it back. Anywhere a person cannot be asked — a pipe, a redirect, a CI job — and without --confirm, it prints the plan and changes nothing.",
   verify:
     "Census of the cache against canonical state. Read-only unless --rebuild, --prune-index or --retry-skipped. --rebuild, --prune-index, --retry-skipped and --drop-vectors require --dir.",
   "migrate-cache":
@@ -761,7 +761,7 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   recall: ' "<question>"',
   // Three shapes, and the bare one is the door a person uses: an id, the words
   // to find one by, or nothing at all and it asks.
-  remove: " [<id> | <words>]",
+  remove: " [<id>… | <words>]",
   credentials: " set <NAME> | list",
   scope: " <path|.>",
   // The host is OPTIONAL and there is one of them: `counterparts connect` and
@@ -1696,8 +1696,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "remove":
         // EVERY positional, not just the first: since 2026-09-22 what follows
         // `remove` may be words to search for, and `counterparts remove culvert
-        // gate key` is three of them.
-        return await removeCommand(dir, io, parsed.positional, parsed.flags, now);
+        // gate key` is three of them. `env` rides along because the door test is
+        // `isInteractive`, which reads `CI` out of it.
+        return await removeCommand(dir, io, env, parsed.positional, parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags);
       case "repair-dates":
@@ -5787,18 +5788,32 @@ function exportCommand(
 async function removeCommand(
   dir: string,
   io: Io,
+  env: Record<string, string | undefined>,
   positional: readonly string[],
   flags: Record<string, string | boolean | undefined>,
   now: () => number,
 ): Promise<number> {
-  // WHICH DOOR — and `io.prompt` is the whole test, because `bin/counterparts.ts`
-  // binds it only when stdin is a terminal. Asking the question that way rather
-  // than reading `io.tty` keeps ONE answer to "is anyone there": the same one
-  // the typed confirmation below has always refused on.
-  if (flags["confirm"] === true || io.prompt === undefined) {
+  // WHICH DOOR — `isInteractive`, the same test `install` and `credentials set`
+  // split on, and not a weaker one.
+  //
+  // The first version of this asked `io.prompt === undefined`, which is stdin
+  // alone (`bin/counterparts.ts` binds the prompt on `process.stdin.isTTY`).
+  // The adversarial review took that apart on the command that can least afford
+  // it (B1): with stdout redirected to a file the question `readline` writes
+  // goes into the FILE, so `counterparts remove <id> > log` asked nothing a
+  // person could see and deleted the memory on the `y` they were typing for
+  // something else — and a CI job with a pty got a live delete where it had
+  // always got a dry run. `isInteractive` wants the prompt, BOTH streams to be
+  // terminals, and `CI` unset, so every pipe, every redirect, every CI job and
+  // every test console falls to the scripted door exactly as before.
+  //
+  // It also keeps the dry run reachable at a terminal — `remove <id> | cat` —
+  // which is what `--strike-by-content-across-scopes`'s own help tells a person
+  // to look at first.
+  if (flags["confirm"] === true || !isInteractive(io, env)) {
     return removeByIdCommand(dir, io, positional[0], flags, now);
   }
-  return removeInteractively(dir, io, positional.join(" ").trim(), flags, now);
+  return removeInteractively(dir, io, positional, flags, now);
 }
 
 /** The two plan knobs, read once and shared by both doors. */
@@ -5826,10 +5841,16 @@ function removalPlanOptions(
 async function removeByIdCommand(
   dir: string,
   io: Io,
-  targetId: string | undefined,
+  raw: string | undefined,
   flags: Record<string, string | boolean | undefined>,
   now: () => number,
 ): Promise<number> {
+  // TRIMMED, on BOTH doors and in the same place (review m4). `remove "mem_x "`
+  // used to remove through one door and say `unknown-id` through the other,
+  // which is a console disagreeing with itself about which id was named. It can
+  // only ever turn a refusal into the removal of the id plainly typed: a lookup
+  // of `"mem_x "` matches no row, here or anywhere.
+  const targetId = raw?.trim();
   if (targetId === undefined || targetId.length === 0) {
     io.err("remove needs a memory id");
     return EXIT.usage;
@@ -5854,33 +5875,7 @@ async function removeByIdCommand(
     return EXIT.refused;
   }
 
-  io.out(`Removal plan for ${targetId}:`);
-  for (const surface of plan.surfaces) io.out(`  chase ${surface.surface}: ${surface.count}`);
-  // The seventh surface, printed in ALL THREE states and ABOVE the closing
-  // "Nothing has changed" line — a disclosure under the last line of a dry run
-  // is a disclosure a reader has already stopped reading (cold-stranger round 3,
-  // C3). `not applicable` is stated too: the silence is what made the residue
-  // undiscoverable outside the README (LAUNCH-STATUS §I2). `held` is a CHASE
-  // now, not a confession; only `unknown` still says NOT chased.
-  io.out(
-    plan.spans.state === "held"
-      ? `  chased — ${plan.spans.line}`
-      : plan.spans.state === "unknown"
-        ? `  NOT chased — ${plan.spans.line}`
-        : `  ${plan.spans.line}`,
-  );
-  for (const name of plan.unchasable) {
-    if (name === plan.spans.line) continue; // said once, on its own line above
-    io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
-  }
-  // LEFT ON PURPOSE, which is neither a chase nor a failure (review F6). The
-  // spans sentence above already carries the count; this line is what the
-  // completion report will repeat, so the two read the same.
-  for (const name of plan.leftAlone) io.out(`  LEFT on purpose — ${name}`);
-  // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
-  // thing being removed.
-  io.out(`  other memories whose text overlaps (ids only): ${plan.contamination.length}`);
-  for (const id of plan.contamination) io.out(`    ${id}`);
+  printRemovalPlan(io, plan);
 
   if (flags["confirm"] !== true) {
     io.out("");
@@ -5901,7 +5896,7 @@ async function removeByIdCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const outcome = removeOne(store, io, targetId, flags, now, planOpts, 0);
+    const outcome = removeOne(store, io, targetId, flags, now, planOpts, "scripted");
     return outcome === "removed" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
   } finally {
     store.close();
@@ -5914,11 +5909,15 @@ async function removeByIdCommand(
  * the front door a person came through cannot change what happens to the memory
  * or what is said about it afterwards.
  *
- * `removedSoFar` exists for one sentence and is not decoration: the refusal
- * below said "Nothing has changed", which is true of a door that removes one
- * memory and a LIE on the second of a picked pair. A report that overstates what
- * survived is the same failure as one that overstates what was chased (§16 G15),
- * pointed the other way.
+ * `door` exists for one sentence and is not decoration. It was derived from a
+ * count of what had already gone — `removedSoFar === 0` — and the adversarial
+ * review (M1) showed what that costs: a refusal on the FIRST of two picks reads
+ * "none gone yet" as "none will be", prints the single-target door's *"Nothing
+ * has changed."*, and the loop then removes the second one. The person is told
+ * nothing changed and a memory is deleted under the sentence. A report that
+ * overstates what survived is the same failure as one that overstates what was
+ * chased (§16 G15), pointed the other way. The door is a fact about the caller,
+ * so it is passed as one.
  */
 function removeOne(
   store: Store,
@@ -5927,15 +5926,18 @@ function removeOne(
   flags: Record<string, string | boolean | undefined>,
   now: () => number,
   planOpts: { crossScopeContent: boolean; echoScanMax?: number },
-  removedSoFar: number,
+  door: "scripted" | "picked",
 ): "removed" | "refused" | "failed" {
   try {
     const replan = planRemoval(store, targetId, planOpts);
     if (!replan.valid) {
       io.err(
-        removedSoFar === 0
+        door === "scripted"
           ? `refused after re-plan: ${replan.reason}. Nothing has changed.`
-          : `refused after re-plan: ${replan.reason} (${targetId}). That one is untouched; the ${removedSoFar} above ${removedSoFar === 1 ? "is" : "are"} already gone.`,
+          : // NAMED, and claiming nothing about the rest of the batch: the
+            // tail line at the end of the loop counts what happened, and it is
+            // the only sentence in a position to be true about all of it.
+            `refused after re-plan: ${replan.reason} (${targetId}). That memory is untouched.`,
       );
       return "refused";
     }
@@ -5963,6 +5965,48 @@ function removeOne(
 }
 
 /**
+ * WHAT A REMOVAL WILL AND WILL NOT REACH — the same block through both doors.
+ *
+ * It was the scripted door's alone until the adversarial review's M3: the person
+ * at the terminal is the LESS expert caller and was getting strictly less before
+ * the irreversible yes than the scripted one got. `removal.ts`'s own comment on
+ * `SpanSurface.matchedBy` settles it — *"printed, because the two are not
+ * equally strong and a reader deciding whether to confirm deserves to know which
+ * one is about to run"* (review F4). Sharpest with
+ * `--strike-by-content-across-scopes`, which the interactive door honours and
+ * which chases a body through every project's buffer on the machine.
+ */
+function printRemovalPlan(io: Io, plan: RemovalPlan): void {
+  io.out(`Removal plan for ${plan.targetId}:`);
+  for (const surface of plan.surfaces) io.out(`  chase ${surface.surface}: ${surface.count}`);
+  // The seventh surface, printed in ALL THREE states and ABOVE the closing
+  // "Nothing has changed" line — a disclosure under the last line of a dry run
+  // is a disclosure a reader has already stopped reading (cold-stranger round 3,
+  // C3). `not applicable` is stated too: the silence is what made the residue
+  // undiscoverable outside the README (LAUNCH-STATUS §I2). `held` is a CHASE
+  // now, not a confession; only `unknown` still says NOT chased.
+  io.out(
+    plan.spans.state === "held"
+      ? `  chased — ${plan.spans.line}`
+      : plan.spans.state === "unknown"
+        ? `  NOT chased — ${plan.spans.line}`
+        : `  ${plan.spans.line}`,
+  );
+  for (const name of plan.unchasable) {
+    if (name === plan.spans.line) continue; // said once, on its own line above
+    io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
+  }
+  // LEFT ON PURPOSE, which is neither a chase nor a failure (review F6). The
+  // spans sentence above already carries the count; this line is what the
+  // completion report will repeat, so the two read the same.
+  for (const name of plan.leftAlone) io.out(`  LEFT on purpose — ${name}`);
+  // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
+  // thing being removed.
+  io.out(`  other memories whose text overlaps (ids only): ${plan.contamination.length}`);
+  for (const id of plan.contamination) io.out(`    ${id}`);
+}
+
+/**
  * WHY AN ID CANNOT BE REMOVED, in the words both doors use.
  *
  * One refusal gets a sentence rather than a code, because it is the one that
@@ -5985,7 +6029,20 @@ function removalRefusalLine(reason: RemovalPlan["reason"], targetId: string): st
  * mem_notarealid` is a wrong id and gets told so, never quietly turned into a
  * search for the word "mem_notarealid".
  */
-const MEMORY_ID_SHAPE = new RegExp(`^(?:${Object.values(ID_PREFIX).join("|")})_[0-9a-z]+$`, "i");
+const MEMORY_ID_SHAPE = new RegExp(`^(?:${Object.values(ID_PREFIX).join("|")})_[0-9a-z]+$`);
+
+/**
+ * Is this one token an id? CASE-SENSITIVE, and that is the answer to review n1.
+ *
+ * `store.row` is case-sensitive and ids are minted lowercase (`newId`, hex), so
+ * `MEM_7F29…` names no row. The two ways to handle it are to lowercase before
+ * the lookup — which would let one string silently become a different row's id
+ * on the one command that cannot take that back — or to say it is not an id.
+ * This says it is not an id.
+ */
+function looksLikeMemoryId(token: string): boolean {
+  return MEMORY_ID_SHAPE.test(token);
+}
 
 /** How many search hits the picker offers before it says to narrow. */
 const REMOVE_SEARCH_LIMIT = 10;
@@ -6017,7 +6074,7 @@ const NOTHING_DELETED = "Cancelled. Nothing was deleted.";
 async function removeInteractively(
   dir: string,
   io: Io,
-  argument: string,
+  positional: readonly string[],
   flags: Record<string, string | boolean | undefined>,
   now: () => number,
 ): Promise<number> {
@@ -6030,24 +6087,34 @@ async function removeInteractively(
   let chosen: readonly string[];
   let go: boolean;
   try {
-    chosen = await chooseForRemoval(dir, io, argument);
+    chosen = await chooseForRemoval(dir, io, positional);
     // Empty means the picker has already said why on screen — nothing matched,
     // nothing was typed, or two answers in a row were not numbers.
     if (chosen.length === 0) return EXIT.refused;
 
-    // THE PICK, CHECKED BEFORE THE CONFIRMATION. A person who is about to be
-    // asked one yes/no question about N memories must not have one of them turn
-    // out to be unremovable AFTER the others are gone. The check runs on a
-    // read-only store that is CLOSED before the prompt: this console never holds
-    // a store across a human (scar E5).
-    const inspected = inspectForRemoval(dir, chosen);
+    // THE PICK, CHECKED AND PLANNED BEFORE THE CONFIRMATION. Two reasons, and
+    // the second arrived with the adversarial review (M3):
+    //
+    //   - a person about to be asked ONE yes/no question about N memories must
+    //     not have one of them turn out to be unremovable after the others are
+    //     gone;
+    //   - and what they are saying yes to has to be on the screen — the
+    //     surfaces, the spans sentence, what is left on purpose, how many other
+    //     memories overlap. The scripted caller has always had it.
+    //
+    // Read-only, and CLOSED before the prompt: this console never holds a store
+    // across a human (scar E5).
+    const inspected = inspectForRemoval(dir, chosen, planOpts);
     if (inspected.refused !== null) {
       io.err(removalRefusalLine(inspected.refused.reason, inspected.refused.id));
       io.out(NOTHING_DELETED);
       return EXIT.refused;
     }
-    io.out("");
-    for (const line of inspected.lines) io.out(`  ${line}`);
+    for (const entry of inspected.entries) {
+      io.out("");
+      io.out(`  ${entry.line}`);
+      printRemovalPlan(io, entry.plan);
+    }
     io.out("");
     go = await confirm(
       io,
@@ -6075,20 +6142,35 @@ async function removeInteractively(
   // lines above were printed.
   const store = Store.open({ dir });
   let removed = 0;
-  let trouble = 0;
+  let refused = 0;
+  let failed = 0;
   try {
     for (const targetId of chosen) {
-      // A failure is reported and the loop goes ON: the person confirmed these
-      // memories, and the ones after a hiccup are no less confirmed than the
-      // ones before it. Stopping would leave them without either a removal or a
-      // sentence saying why.
-      if (removeOne(store, io, targetId, flags, now, planOpts, removed) === "removed") removed += 1;
-      else trouble += 1;
+      // A REFUSAL IS REPORTED AND THE LOOP GOES ON, deliberately. The person
+      // confirmed these memories; the ones after a hiccup are no less confirmed
+      // than the ones before it, and the ordinary cause — another session got
+      // to that id first — says nothing at all about the rest. Stopping would
+      // leave them with neither a removal nor a sentence.
+      const outcome = removeOne(store, io, targetId, flags, now, planOpts, "picked");
+      if (outcome === "removed") removed += 1;
+      else if (outcome === "refused") refused += 1;
+      else failed += 1;
     }
   } finally {
     store.close();
   }
-  return trouble === 0 ? EXIT.ok : EXIT.failed;
+  if (refused + failed > 0) {
+    // THE ONLY SENTENCE IN A POSITION TO BE TRUE ABOUT ALL OF IT, which is why
+    // the per-memory refusal above claims nothing about the batch (review M1).
+    io.out("");
+    io.out(
+      `${removed} of ${chosen.length} removed. The ${refused + failed} not removed ${refused + failed === 1 ? "is" : "are"} untouched, and named above.`,
+    );
+  }
+  // REFUSED AND BROKEN ARE DIFFERENT ANSWERS (review m2): the scripted door
+  // exits `refused` for a re-plan refusal, and a wrapper told `failed` for the
+  // same condition has been told the wrong thing.
+  return failed > 0 ? EXIT.failed : refused > 0 ? EXIT.refused : EXIT.ok;
 }
 
 /**
@@ -6100,17 +6182,31 @@ async function removeInteractively(
 async function chooseForRemoval(
   dir: string,
   io: Io,
-  argument: string,
+  positional: readonly string[],
 ): Promise<readonly string[]> {
+  const typed = positional.map((word) => word.trim()).filter((word) => word.length > 0);
+  const named = allIds(typed);
+  // SEVERAL IDS ARE SEVERAL IDS (review m3). `remove mem_a mem_b` used to be
+  // joined into one search string and answered "nothing matched" — the most
+  // obvious thing a person with two ids can type, refused for looking like a
+  // sentence. This door already removes several; it just had no way to be told
+  // two.
+  if (named !== null) return named;
+
   const query =
-    argument.length > 0 ? argument : (await ask(io, "Memory id, or words to search for:")).trim();
+    typed.length > 0
+      ? typed.join(" ")
+      : (await ask(io, "Memory id, or words to search for:")).trim();
   if (query.length === 0) {
     io.out(NOTHING_DELETED);
     return [];
   }
-  if (MEMORY_ID_SHAPE.test(query)) return [query];
+  // The same rule for what was typed AT the question, so the two ways in agree.
+  const atThePrompt = allIds(query.split(/\s+/).filter((word) => word.length > 0));
+  if (atThePrompt !== null) return atThePrompt;
 
-  const candidates = searchForRemoval(dir, query);
+  const found = searchForRemoval(dir, query);
+  const candidates = found.candidates;
   if (candidates.length === 0) {
     // A search that finds nothing is not a failure and is not a silence: say
     // which words were asked, so a typo is visible as a typo.
@@ -6120,8 +6216,11 @@ async function chooseForRemoval(
   }
   io.out("");
   candidates.forEach((candidate, index) => io.out(`  ${index + 1}. ${candidate.line}`));
-  if (candidates.length === REMOVE_SEARCH_LIMIT) {
-    io.out(`  (the ${REMOVE_SEARCH_LIMIT} closest — add a word or two to narrow it)`);
+  // TRUNCATION IS THE SEARCH'S OWN ANSWER, not a length compared to a constant
+  // (review n4): a list shortened by the skipped candidates is still a list with
+  // more behind it, and the old check said nothing in exactly that case.
+  if (found.truncated) {
+    io.out(`  (the ${candidates.length} closest — add a word or two to narrow it)`);
   }
   io.out("");
 
@@ -6142,21 +6241,36 @@ async function chooseForRemoval(
 }
 
 /**
+ * Every token of `words` as an id, or null when even one of them is not.
+ *
+ * All or nothing on purpose: a line that is half ids and half words is a line
+ * this console cannot read two ways at once, and guessing which half was meant
+ * is guessing on the one command that cannot take it back.
+ */
+function allIds(words: readonly string[]): readonly string[] | null {
+  if (words.length === 0) return null;
+  if (!words.every(looksLikeMemoryId)) return null;
+  // `1,1` folds and so does this: two of the same id is one memory.
+  return [...new Set(words)];
+}
+
+/**
  * The numbers in an answer, or null when the WHOLE answer cannot be read as
  * numbers in range.
  *
  * Whole, deliberately: `1,99` on a list of three is not "remove 1" with a stray
  * character, it is somebody who has misread the list, and acting on the half
- * that parsed would delete a memory on the strength of a typo. Duplicates fold
- * — `1,1` is one memory — and both separators the owner named work, comma and
- * space.
+ * that parsed would delete a memory on the strength of a typo. The SHAPE is
+ * checked before anything is split (review n3, which found `1,` parsing as
+ * `[1]` — a trailing separator is an unfinished answer, and a docstring that
+ * says "refused whole" has to mean it). Duplicates fold — `1,1` is one memory —
+ * and both separators the owner named work, comma and space.
  */
 function parsePicks(answer: string, count: number): number[] | null {
-  const parts = answer.trim().split(/[\s,]+/).filter((part) => part.length > 0);
-  if (parts.length === 0) return null;
+  const trimmed = answer.trim();
+  if (!/^[0-9]+(?:[ \t,]+[0-9]+)*$/.test(trimmed)) return null;
   const picked: number[] = [];
-  for (const part of parts) {
-    if (!/^[0-9]+$/.test(part)) return null;
+  for (const part of trimmed.split(/[\s,]+/)) {
     const n = Number(part);
     if (n < 1 || n > count) return null;
     if (!picked.includes(n)) picked.push(n);
@@ -6188,18 +6302,27 @@ interface RemovalCandidate {
  * dead-ends. It asks for more hits than it shows for exactly that reason, so the
  * skipping does not quietly shorten the list.
  */
-function searchForRemoval(dir: string, query: string): RemovalCandidate[] {
+function searchForRemoval(
+  dir: string,
+  query: string,
+): { candidates: RemovalCandidate[]; truncated: boolean } {
+  const fetch = REMOVE_SEARCH_LIMIT * 2;
   const store = Store.open({ dir, observer: true });
   try {
     const out: RemovalCandidate[] = [];
-    for (const hit of store.search(query, REMOVE_SEARCH_LIMIT * 2)) {
-      if (out.length === REMOVE_SEARCH_LIMIT) break;
+    const hits = store.search(query, fetch);
+    let truncated = hits.length === fetch;
+    for (const hit of hits) {
+      if (out.length === REMOVE_SEARCH_LIMIT) {
+        truncated = true;
+        break;
+      }
       if (removalRefusal(store, hit.id) !== null) continue;
       const row = store.row(hit.id);
       if (row === undefined) continue;
       out.push({ id: hit.id, line: candidateLine(row) });
     }
-    return out;
+    return { candidates: out, truncated };
   } finally {
     store.close();
   }
@@ -6216,17 +6339,24 @@ function searchForRemoval(dir: string, query: string): RemovalCandidate[] {
 function inspectForRemoval(
   dir: string,
   chosen: readonly string[],
-): { refused: { id: string; reason: RemovalPlan["reason"] } | null; lines: string[] } {
+  planOpts: { crossScopeContent: boolean; echoScanMax?: number },
+): {
+  refused: { id: string; reason: RemovalPlan["reason"] } | null;
+  entries: { line: string; plan: RemovalPlan }[];
+} {
   const store = Store.open({ dir, observer: true });
   try {
-    const lines: string[] = [];
+    const entries: { line: string; plan: RemovalPlan }[] = [];
     for (const id of chosen) {
-      const reason = removalRefusal(store, id);
-      if (reason !== null) return { refused: { id, reason }, lines: [] };
+      // `planRemoval` asks `removalRefusal` first and returns on it, so the
+      // refusal here is the same refusal the picker filtered on — one rule,
+      // asked once more now that the person has had time to pick.
+      const plan = planRemoval(store, id, planOpts);
+      if (!plan.valid) return { refused: { id, reason: plan.reason }, entries: [] };
       const row = store.row(id);
-      lines.push(row === undefined ? id : candidateLine(row));
+      entries.push({ line: row === undefined ? id : candidateLine(row), plan });
     }
-    return { refused: null, lines };
+    return { refused: null, entries };
   } finally {
     store.close();
   }
@@ -6235,11 +6365,19 @@ function inspectForRemoval(
 /**
  * `mem_xxx  fact — what it is about  (2026-09-22)`, and nothing wider.
  *
- * THE JOURNAL SAYS SO (owner ruling 2026-09-04, LAUNCH-STATUS §I14), in the
- * same place and the same word `recall` prints it: a chapter is recallable and
- * is never presented as a memory. The lexical index holds episode rows too, so
- * without this a day's account would come up in the list looking like a fact,
- * and the question under it says "delete this memory for good".
+ * TWO MARKERS, both of them saying what a bare kind would not:
+ *
+ *   - **`[journal]`** — the owner's ruling of 2026-09-04 (LAUNCH-STATUS §I14),
+ *     in the same place and the same word `recall` prints it: a chapter is
+ *     recallable and is never presented as a memory. The lexical index holds
+ *     episode rows, so without it a day's account comes up looking like a fact
+ *     under a question that says "delete this memory for good".
+ *   - **`[confidential]`** — review m1. `export` omits confidential memories by
+ *     default *even for the owner* and makes him pass `--include-confidential`;
+ *     this list may not be the one owner-facing surface that prints one of them
+ *     unmarked. With the marker on, `summaryOf` also stops falling back to the
+ *     body for it: a confidential memory's first line is exactly the string
+ *     that door exists to keep off a screen nobody asked to see it on.
  */
 function candidateLine(row: {
   id: string;
@@ -6247,10 +6385,11 @@ function candidateLine(row: {
   kind: string;
   title: string | null;
   body: string;
+  confidential: number;
   learned_on: string;
 }): string {
-  const journal = row.type === "episode" ? "[journal] " : "";
-  return `${row.id}  ${journal}${row.kind} — ${summaryOf(row)}  (${row.learned_on})`;
+  const marks = `${row.type === "episode" ? "[journal] " : ""}${row.confidential === 1 ? "[confidential] " : ""}`;
+  return `${row.id}  ${marks}${row.kind} — ${summaryOf(row)}  (${row.learned_on})`;
 }
 
 /**
@@ -6258,9 +6397,15 @@ function candidateLine(row: {
  * line and cut to fit, because a candidate list whose rows wrap is a list whose
  * numbers stop lining up. The cut is at a width, not at a word: this is a label
  * for choosing by, and the memory itself is one `counterparts ask --id` away.
+ *
+ * **A CONFIDENTIAL memory never falls back to its body** (review m1): it is
+ * `(untitled)` and the marker beside it says which kind of untitled. The line
+ * is then kind, date and two markers — enough to choose by, since the person
+ * searched the words that found it, and none of the words themselves.
  */
-function summaryOf(row: { title: string | null; body: string }): string {
+function summaryOf(row: { title: string | null; body: string; confidential: number }): string {
   const titled = row.title !== null && row.title.trim().length > 0;
+  if (!titled && row.confidential === 1) return "(untitled)";
   const raw = titled ? row.title ?? "" : (row.body.split("\n").find((line) => line.trim().length > 0) ?? "");
   const one = raw.replace(/\s+/g, " ").trim();
   if (one.length === 0) return "(no words)";

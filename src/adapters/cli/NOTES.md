@@ -1455,13 +1455,22 @@ candidate the plan accepts, because they are the same four lines.
 
 **Three decisions worth the ink.**
 
-- **Which door, decided by `io.prompt`.** `bin/counterparts.ts` binds it only when stdin is
-  a terminal, so `io.prompt === undefined` already WAS the console's answer to "is anyone
-  there" — the one the typed confirmation has refused on since the beginning. Reading
-  `io.tty` here would have been a second answer that could disagree with it. `--confirm`,
-  or no prompt, and the scripted door runs byte for byte what it ran before: the plan, then
-  the id typed back, or the dry run. A test asserts the `--confirm` path asks exactly one
-  question and that it is the old one.
+- **Which door, decided by `isInteractive` — and the first answer was wrong.** The door
+  opened on `io.prompt === undefined`, reasoning that `bin/counterparts.ts` binds the prompt
+  on `process.stdin.isTTY` and that this was therefore already the console's answer to "is
+  anyone there". It is stdin's answer, not the console's, and the adversarial review took it
+  apart on the one command that can least afford it (B1): with **stdout redirected** the
+  question `readline` writes goes into the FILE, so `counterparts remove <id> > log` asked
+  nothing the person could see and deleted the memory on the `y` they were typing for
+  something else; a CI job with a pty got a live delete where it had always got a dry run;
+  and `remove <id> | cat` took the interactive door, which left no way at all to see the dry
+  run that `--strike-by-content-across-scopes`'s own help tells you to look at first. The
+  test is `isInteractive(io, env)` now — the same one `install` and `credentials set`
+  already split on: a prompt, BOTH streams a terminal, `CI` unset. The lesson is small and
+  general: *the destructive command may not use a weaker test for "is anyone there" than
+  the commands that are not.* `--confirm`, and anything that test turns down, runs byte for
+  byte what it ran before — there is a golden test on the scripted door's whole output now,
+  because three `toContain`s could not have caught a reword.
 - **The listing prints titles, and that is not §16 G15.** The contamination scan returns
   ids only because it matches OTHER memories against the doomed body — printing those
   re-leaks the words being erased. This list runs the other way: it is the answer to words
@@ -1481,7 +1490,36 @@ all assert the same pair: nothing on the deny-list, and not one row in the remov
 `requested` is written before anything moves (§16 G10), so an empty record is proof the
 destruction path was never entered rather than entered and turned back.
 
-**Not covered:** the mid-loop arm where the second of two picks fails its re-plan under the
-writing store. It needs a race this suite has no seam for; the sentence it prints is the
-one thing in `removeOne` no test reaches, and it exists because "Nothing has changed" —
-true of a door that removes one memory — is a lie on the second of a picked pair.
+**What the adversarial review changed besides the door.**
+
+- **The sentence over a removal (M1).** The refusal after a re-plan chose its words from a
+  COUNT of what had already gone: `removedSoFar === 0` printed the single-target door's
+  *"Nothing has changed."* — which reads "none gone yet" as "none will be". On a refusal on
+  the FIRST of two picks the console said nothing had changed and then removed the second.
+  The door is passed as a fact now (`"scripted" | "picked"`), the picked form names the id
+  and claims nothing about the rest, and a **tail line** — `1 of 2 removed. The 1 not
+  removed is untouched, and named above.` — is the only sentence in a position to be true
+  about the whole batch. A refusal does not stop the loop: the person confirmed those
+  memories, and the ordinary cause (another session got there first) says nothing about the
+  others. The race is testable without a second process — the console's own answer to the
+  confirm runs a nested `remove --confirm`, which is exactly what another session is, since
+  everything this door holds is closed before the question.
+- **The plan before the yes (M3).** The interactive door showed titles and asked. The
+  person at the terminal is the LESS expert caller and was getting strictly less than the
+  scripted one — sharpest with `--strike-by-content-across-scopes`, which this door honours
+  and which chases a body through every project's buffer on the machine. `printRemovalPlan`
+  is shared now and prints above the question.
+- **Confidential memories (m1).** The list fell back to 64 characters of BODY for an
+  untitled memory. `export` omits confidential memories by default *even for the owner*;
+  this list may not be the one owner-facing surface that prints one unmarked. They are
+  `[confidential]` and `(untitled)` now, kind and date and nothing of the words.
+- **Smaller:** refused and failed are different exit codes again (m2); several ids on the
+  command line are several ids rather than a search string (m3); a trailing space is
+  trimmed by both doors (m4); an uppercase id is not an id, because lowercasing before a
+  lookup would let one typed string become a different row's id (n1); `1,` is refused, the
+  way the "refused whole" docstring always claimed (n3); and the truncation notice is the
+  search's own answer rather than a length compared to a constant (n4).
+
+**Not fixed, deliberately:** the "that looked like an id" hint (n2). There is nothing to
+point at — a string typed at the question is read the same way as one on the command line,
+so the hint would have to name an escape hatch this door does not have.
