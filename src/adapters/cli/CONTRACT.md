@@ -346,8 +346,9 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
 
 ### Esc, and the screens the trial asked for (2026-09-22)
 
-36. **[M] Every prompt this package asks can be CANCELLED, and the ones whose Esc is not
-    already their Enter say so in their own text** (owner, item 8; finding #21 — a
+36. **[M] Every prompt asked through `ui.ts`'s four asking functions can be CANCELLED, and
+    the ones whose Esc is not already their Enter say so in their own text** (owner, item
+    8; finding #21 — a
     typed-phrase prompt with no visible way out is one people answer by closing the
     terminal). On a real terminal `Io.prompt` is a raw-mode reader (`ui.ts#echoPrompt`,
     the hidden reader's own loop, echoing), and a bare ESC — nothing following it within
@@ -357,6 +358,12 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     not a refusal**: it prints "Cancelled. Nothing was …" and exits 0, while the wrong
     phrase still exits non-zero. *Nothing binds that reader off a terminal, so a pipe, a
     test console and CI keep the prompt they had and the bytes they had.*
+    **FOUR PROMPTS ARE NOT COVERED AND ARE NAMED HERE RATHER THAN GLOSSED OVER**:
+    `start-fresh`, `start-fresh --undo`, `remove` and `migrate-cache` compare a typed word
+    themselves in `commands.ts` instead of calling `typed()`. Esc reaches them as a value
+    that matches nothing, so they refuse and change nothing — safe, but the sentence they
+    print is "the confirmation did not match" rather than "Cancelled", and their prompts
+    do not say Esc is there. Owed by whoever next touches those commands.
 
 ## 6. Scars honored
 
