@@ -3139,7 +3139,16 @@ async function hostWiringCommand(
   // standalone `connect` has no such ending, so it says it here — and only when
   // something actually changed, because "restart your sessions" after "already
   // connected, nothing was changed" is advice about nothing.
-  if (command === "connect" && result.outcome === "ok" && result.hooks !== "already") {
+  //
+  // BOTH HALVES COUNT. Hooks already in place and a registration that was
+  // missing is the case where the person has just gained the memory TOOLS, and
+  // those are exactly the half that needs a restart; gating on the hooks alone
+  // left that reader with nothing to do about it.
+  if (
+    command === "connect" &&
+    result.outcome === "ok" &&
+    (result.hooks !== "already" || result.mcp !== "already")
+  ) {
     sessionsNote(ui(io, env), lister);
   }
   return exitFor(result.outcome);

@@ -503,7 +503,7 @@ you said no the first time:
 counterparts connect
 ```
 
-It backs `~/.claude/settings.json` up first and prints the path, adds the five
+It backs `~/.claude/settings.json` up first and says so, adds the five
 hooks **beside** anything already on those events, replaces an entry of its own
 that names a path that has moved, and registers the MCP server by running
 `claude mcp add` — it never writes `~/.claude.json` itself, because Claude Code
