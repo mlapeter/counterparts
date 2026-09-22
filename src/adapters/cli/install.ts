@@ -769,7 +769,13 @@ export interface ParkedSighting {
  * Why this parked directory may not be renamed into place, or null.
  *
  * Every clause is a way for one `rename` to do something nobody asked for, and
- * each of them is checked on the FILESYSTEM rather than on the name.
+ * each of them is checked on the FILESYSTEM rather than on the name — with
+ * `lstat`, never `existsSync`, wherever a link could be the answer.
+ *
+ * ORDER MATTERS HERE. Every clause that could make a READ go somewhere it
+ * should not runs before the read does: the folder's own symlink test and the
+ * home-containment test before anything looks inside, and the `store/` symlink
+ * test before `preRowsMarkersIn` reads a single filename.
  */
 export function parkedRefusal(path: string, home: string): string | null {
   let stat;
@@ -813,26 +819,61 @@ export function parkedRefusal(path: string, home: string): string | null {
       "somebody else is responsible for. Nothing was moved."
     );
   }
+  // AND THE SAME SYMLINK CLAUSE ONE DIRECTORY DOWN, BEFORE ANYTHING READS IT.
+  //
+  // A REAL parked directory holding `store -> ~/.bansai/store` clears every
+  // check above: the folder is not a link, and it is under this home. Then
+  // `preRowsMarkersIn` would `readdir` through the link — a read of v1's live
+  // memory, which CLAUDE.md forbids as flatly as a write — and, finding no
+  // pre-rows names, would let the rename put `~/.counterparts/store` on top of
+  // it. `assertSafeDataDir` is pure string math and follows no links (the F2
+  // review's lesson, stated in `start-fresh.ts`), so nothing downstream would
+  // catch it either. `uninstall.ts#storeRefusal` makes this same check on the
+  // way out; this is the way back in.
+  //
+  // `lstatSync` and not `existsSync`: the latter FOLLOWS the link, which is the
+  // one thing that must not happen here.
+  const storePath = join(path, DEFAULT_STORE_DIR);
+  let storeStat;
+  try {
+    storeStat = lstatSync(storePath);
+  } catch {
+    storeStat = undefined;
+  }
+  if (storeStat === undefined) {
+    return (
+      `refused: ${path} holds no '${DEFAULT_STORE_DIR}' directory, so the memory is not in it — ` +
+      "a store that lived somewhere else was parked under its own name beside itself. Bringing " +
+      "this folder back alone would point the hooks at a store that is not there. Move both by " +
+      "hand if that is what you meant; nothing was moved."
+    );
+  }
+  if (storeStat.isSymbolicLink()) {
+    return (
+      `refused: ${storePath} is a SYMBOLIC LINK. What would come back is a name pointing at ` +
+      "somebody else's directory — the next thing to open the store would open whatever it " +
+      "names, and nothing downstream follows a link to find out. Act on the real directory by " +
+      "hand; nothing was moved, and nothing in it was read."
+    );
+  }
+  if (!storeStat.isDirectory()) {
+    return (
+      `refused: ${storePath} is not a directory, so this is not a parked store. Nothing was moved.`
+    );
+  }
+
   // THE FLOOR, FROM THE FILENAMES ONLY (`preRowsMarkersIn`). A store from
   // before the rows floor is one this build refuses to open by name, so
   // bringing it back would put a directory at `dataDir` that every hook, the
   // worker and the MCP server refuse from the next session start — silently,
   // because a hook that cannot open a store stands down and exits 0.
-  const markers = preRowsMarkersIn(join(path, DEFAULT_STORE_DIR));
+  const markers = preRowsMarkersIn(storePath);
   if (markers.length > 0) {
     return (
       `refused: ${path} holds a store from before the rows floor (${markers.join(", ")}), which ` +
       "this build will not open. Bringing it back would leave every hook standing down with " +
       `nothing on screen to say why. ${PRE_ROWS_READABLE_BY} is the last build that reads one. ` +
       "It is left exactly where it is; nothing was moved."
-    );
-  }
-  if (!existsSync(join(path, DEFAULT_STORE_DIR))) {
-    return (
-      `refused: ${path} holds no '${DEFAULT_STORE_DIR}' directory, so the memory is not in it — ` +
-      "a store that lived somewhere else was parked under its own name beside itself. Bringing " +
-      "this folder back alone would point the hooks at a store that is not there. Move both by " +
-      "hand if that is what you meant; nothing was moved."
     );
   }
   return null;

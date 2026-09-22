@@ -339,6 +339,41 @@ describe("what will not be brought back", () => {
     expect(text(c.asked)).not.toContain("Bring it back");
   });
 
+  /**
+   * THE SAME CLAUSE ONE DIRECTORY DOWN, and the reason it is not redundant: a
+   * REAL parked directory holding `store -> somewhere-else` clears the folder's
+   * own symlink test and the home-containment test. Without this clause
+   * `preRowsMarkersIn` would `readdir` through the link — a read of whatever it
+   * names, which on a real machine is `~/.bansai/store` — and, finding no
+   * pre-rows filenames, would let the rename put `~/.counterparts/store` on top
+   * of somebody else's memory. `assertSafeDataDir` is string math and follows
+   * no links, so nothing downstream would catch it.
+   */
+  test("a SYMLINKED store INSIDE a real parked folder is refused before anything reads it", async () => {
+    const elsewhere = join(home, "not-this-install");
+    mkdirSync(join(elsewhere, "cache"), { recursive: true });
+    writeFileSync(join(elsewhere, "counterparts.sqlite"), "somebody else's memory");
+    const parked = join(home, ".counterparts.parked-2026-09-20");
+    mkdirSync(parked, { recursive: true });
+    symlinkSync(elsewhere, join(parked, "store"));
+    const before = fingerprint(elsewhere);
+
+    const c = terminal(["Mike"]);
+    expect(await install(c.io)).toBe(EXIT.ok);
+    const said = text(c.out);
+    expect(said).toContain("SYMBOLIC LINK");
+    expect(said).toContain("cannot be brought back");
+    // The link is still a link, and what it points at is untouched.
+    expect(lstatSync(join(parked, "store")).isSymbolicLink()).toBe(true);
+    expect(fingerprint(elsewhere)).toEqual(before);
+    // It was never a candidate, so it was never offered.
+    expect(text(c.asked)).not.toContain("Bring it back");
+    // …and `bringParkedBack` refuses it too, which is what guards the rename
+    // itself against a folder that changed between the question and the answer.
+    const r = bringParkedBack(parked, join(home, ".counterparts-elsewhere"), home);
+    expect(r.ok).toBe(false);
+  });
+
   test("a folder with no store in it is refused: the memory was parked separately", async () => {
     const parked = join(home, ".counterparts.parked-2026-09-20");
     mkdirSync(parked, { recursive: true });
