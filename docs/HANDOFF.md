@@ -1,5 +1,38 @@
 # Handoff — resume here
 
+## 2026-09-22, evening — 0.2.0 IS ON NPM; THE REGISTRY UPGRADE WAS RUN; THE OWNER RUNS THE TARBALL STILL
+
+**Published.** The owner ran the 0.2.0 trial from the packed file, said it looked good (his terminal
+paste never arrived), ruled the uninstall spinner out of this round ("skip spinner for now"), and
+published `counterparts@0.2.0` himself from a separate terminal at ~18:46 UTC — the first attempt from
+inside the session stopped at `EOTP`; `npm whoami` had said 401 on the same token, so `whoami` is not
+the test of whether a publish will go through. Registry: `dist.shasum 8343ae3cd88d71d3184ac1b9694da417dc8c1266`,
+201 files — the same shasum `npm publish --dry-run` printed for the trial tarball, so what strangers get
+is byte-for-byte what he tried. Master `f8ee287` is docs-only over the tarball's `31659fe`.
+
+**Finding #15 run, in two throwaway HOMEs (own `BUN_INSTALL`, never his global install):**
+
+| from | command | result |
+|---|---|---|
+| 0.1.0 from the registry | `bun add -g counterparts@latest` | **stayed on 0.1.0** — bun 1.3.10 reused its cached manifest (the registry sends `cache-control: max-age=300`, and the manifest had been fetched minutes earlier, before 0.2.0 existed) |
+| same | `bun add -g --no-cache counterparts@latest` | 0.2.0, `--version` prints `counterparts 0.2.0`, four bins |
+| the trial tarball FILE (his machine's shape) | `bun add -g counterparts@latest` | 0.2.0, `^0.2.0` in the global package.json, no `DependencyLoop` (that error is file-over-registry, not this direction) |
+
+So the documented upgrade holds for anyone whose manifest is older than five minutes, i.e. every
+real user; the stale-manifest window is a test-ordering artefact, not a doc change. **The owner still
+runs the tarball install**; moving to the registry copy is his own command, not a session's:
+`bun add -g counterparts@latest` with every session closed, then restart, `--version`, `doctor`.
+
+**The uninstall wait** (his one ask this round): both arms sit silent while `mcpPreflight` runs
+`claude mcp list`, which health-probes every MCP server he has registered; every call is `spawnSync`,
+so no JS spinner can tick. Options for the next round: a static "Checking Claude Code…" line (trivial);
+animated dots (async `Spawner` across wire/uninstall/commands + nine test files); or a cheaper
+preflight (`mcp get counterparts` / `--version`) that shortens the wait but proves less. Never measure
+`claude mcp list` from a session — it launches our MCP server against his live store.
+
+**Next:** the next round — spinner, #28 Stop-hook text in the terminal, #13 pacing, #26 the two store
+sizes, #8 stores 0.1.0 made, the n2 hint. Housekeeping still owed: ~30 stale worktrees, `review/`.
+
 ## 2026-09-22, night — read this first: THE SECOND 0.2.0 IS ON MASTER, PACKED FOR THE OWNER'S TRIAL, NOT PUBLISHED
 
 **What happened today.** The owner ran the 09-21 trial sheet from a plain terminal; every step
