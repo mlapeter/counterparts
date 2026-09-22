@@ -111,6 +111,215 @@ the code does rather than what he has seen.
 | 11 | The README's install block leads with `curl -fsSL https://bun.sh/install \| bash`, marked "only if you don't have bun", and QUICKSTART §1 says the same. |
 | 12 | `session_end`'s schema lists `handoff`, and a call that sets a handoff with an empty `memories` array is a success that says the handoff was written — not `memories-required`. |
 
+## The 0.2.0 trial (2026-09-22) — what the owner found
+
+He ran `TRIAL-0.2.0.md` from a plain terminal: swap to the tarball → `--help` → `doctor` →
+`uninstall --delete-memories` with a wrong phrase (refused, nothing changed) →
+`uninstall --park` → `install` (wired, both keys skipped). Every step did what the sheet
+said. The doctor he pasted ran on the store 0.1.0 made, before the park. What was rough:
+
+| # | What happened | Whose |
+|---|---|---|
+| 17 | The sheet and QUICKSTART §1 say "run `--help` to check it installed". He wants `doctor` to be the check — it says whether it *works*, not just whether it is on PATH. | owner |
+| 18 | `--help` one-liners are not for a regular user: "Is the background half alive? Worst first, with fixes" (doctor), "Just a store — a second one, or a scratch one" (init — "what does that even mean and when would a user use it?"). | owner |
+| 19 | Doctor's Embedder fix says to hand-edit `claude-code.json` (`Add "embedder": { "enabled": true } … read strictly: that exact shape`). Keys and switches should be commands, never JSON edits. | owner |
+| 20 | Doctor's short descriptions are confusing: "owner: this host encodes" (Stance) named; the worker-internal lines (Sweep, Sleep, Credit, Clock, Fired, Spawn, Journal mode) read the same way. | owner |
+| 21 | `--delete-memories`: once the typed-phrase prompt is up there is no visible way out. Esc / `cancel` / Enter should cancel, and the prompt should say so. (Ctrl-C already cancels — nothing tells you.) | owner |
+| 22 | After `--park`, the undo is a pasted shell one-liner with an `if [ -e … ] … REFUSING … mv … fi` guard. "Doesn't make sense" — the undo should be a command, and its text plain. | owner |
+| 23 | `counterparts --version` prints the help page. There is no version flag. | Claude |
+| 24 | Three ambers for one missing optional key: Embedder off, Credentials "VOYAGE_API_KEY is missing", Vectors "35 with no vector". One optional thing, three problems on screen. | Claude |
+| 25 | `fail  WARNING: this will delete 32 memories` — the `fail` tag in front of a warning that is not a failure. | Claude |
+| 26 | The store was 6.7 MB in the delete plan and 1.4 MB in the park plan a minute later (a checkpoint or the worker finishing between the two runs, most likely). A person would wonder. | Claude |
+| 27 | Small things: `[2/4]` tells a new user to edit `injectionBudgetBytes` in the JSON; `ok  Mike — the thing this memory is about`; "Everywhere:" as the label for the common flags; "Docs: docs/QUICKSTART.md, shipped with the package" points at a folder a new user cannot find; the park report's "which is why this arm does not print a count". | Claude |
+
+## The owner's answers (2026-09-22) — the walk-through, one item at a time; working defaults
+
+Agreed in conversation, item by item, after the trial. **The five rendered screens below are the
+acceptance criteria**: a builder matches them, then keeps the facts the old screen carried.
+Where this section contradicts 2026-09-21 above, this one wins (ruling 1 of 09-21, "after asking
+first", is replaced by item 9 here).
+
+1. **Two checks, two moments.** After `bun add -g`: `counterparts --version` (new) → `counterparts
+   0.2.0`. After `install` and a restart: `counterparts doctor`. Never `--help` as the check.
+2. **Help page** — the page below, verbatim. Everyday / Setup / Your data only; everything else
+   under `counterparts help advanced` (note, fired, init, start-fresh, verify, rebrief,
+   migrate-cache, backfill-claims, repair-dates, repair-merged-beliefs, probe-oq4, and the three
+   global flags `--dir --config --observer`). Header drops "the owner's console" (the install
+   loop's grep and `test/cli.test.ts` follow). The help↔`COMMANDS` test must count `help
+   advanced` as listed.
+3. **Names.** `ask` is the listed spelling of `recall` (recall still dispatches, unlisted).
+   `wire`/`unwire` → `connect`/`disconnect` (they are new in 0.2.0, so no compatibility to keep;
+   internal `wire()` can keep its name). With one host known, `connect` says "Connecting Claude
+   Code…" and goes — no one-item menu; `connect <host>` skips any future menu; `disconnect`
+   mirrors it. The MCP tool stays `recall`; doctor's "recall by meaning" wording stays.
+4. **`dashboard`** (new, Everyday): starts the web view on the configured store — no `--dir` —
+   prints `http://127.0.0.1:4747`, opens the browser (`open` / `xdg-open`), Ctrl-C stops it.
+5. **Bare `counterparts`** on a terminal with nothing set up: "No memory here yet. Set it up now?
+   [Y/n]" → runs install. Set up, or not a terminal: the help page (plus one line, off a TTY).
+   The install loop runs QUICKSTART's commands without a terminal — bare must never block there.
+   (Auto-running install from `bun add -g` is out: no terminal at that step, and bun blocks a
+   package's postinstall by policy — editing settings.json on download is the malware pattern.)
+6. **`credentials`** bare → lists which names are saved / missing (names only, never a value) and
+   the `set` line. `credentials set VOYAGE_API_KEY` then offers "Turn on recall by meaning?" the
+   way install does (`keys.ts#promptForKeys` already asks for a held key; the standalone path
+   does not). Help line: "Add or change your API keys (Anthropic, Voyage)" — not "see".
+7. **`remove`** interactive: bare asks "Memory id, or words to search for:"; an argument that is
+   not an id searches; results numbered; pick one or several (`1,3`); the chosen titles are
+   listed; one confirm; `--confirm` stays for scripts. No "dry run" wording on the help line.
+8. **Every prompt in the package: Esc cancels**, and the prompt says so. An echoing raw-mode
+   reader beside `ui.ts#hiddenPrompt` (bare ESC with nothing following for a moment — arrow keys
+   start with ESC too); scripted-input tests need a path that resolves without the timer. `confirm`:
+   Esc = no. `typed`: Esc or `cancel` or Enter = "Cancelled. Nothing was …". `ask` (the name):
+   Esc aborts the command.
+9. **`install` connects Claude Code by default on a terminal** — backup kept, one `ok` line naming
+   it, `counterparts disconnect` undoes it, `--no-connect` for scripts. Off a TTY the
+   non-interactive arm is unchanged: prints the blocks, edits nothing. Claude Code not on the
+   machine: say so, move on.
+10. **`install` keys, one at a time, y/N first**: "Add an Anthropic key? Optional — … [y/N]"; yes →
+    the link, then the hidden paste; Enter = no. Then Voyage the same. The store step is silent
+    (one line at the end: "Your memory lives at ~/.counterparts"). "Nice to meet you, Mike." /
+    second run "Welcome back, Mike." No step numbers.
+11. **`install` is the undo of `uninstall --park`.** With `~/.counterparts` missing and one or more
+    `~/.counterparts.parked-*` beside it, install asks first: "Found memory set aside on
+    2026-09-22 (7.6 MB). Bring it back, or start blank?" Newest first when there are several; the
+    parked store is NEVER opened (the park arm's rule) — date and size from the filesystem, no
+    memory count; a parked folder on the old floor (`preRowsMarkersIn` reads filenames only) is
+    refused by name with the reason. Bring back = one rename into place, then connect. The guarded
+    `mv` line moves to `help uninstall`. **Adversarial review** (moves a stranger's data).
+12. **Doctor**: a new grade word **`OFF`** (dim) for an optional feature never turned on — a key
+    that WAS here and is gone stays RED (doctor.ts "has this store ever had a working key"). All
+    green internals fold into one `Background` line on a TTY; any red/amber prints in full with
+    its fix; `doctor --all` prints every line as today. `--json` is complete and unfolded (a new
+    `optional: true` field on those findings), not byte-identical. Every fix line is a command;
+    none says to edit JSON (`keys.ts#embedderFixLine` is the one shared sentence).
+13. **`uninstall`** screens below. `fail`-tagged WARNING → plain red WARNING. `~/…` for home paths
+    on screen. Last line: "To remove the program too: bun remove -g counterparts".
+14. **Stop hook verbosity** (#28) is NOT in this round.
+
+Docs follow the code: README, QUICKSTART (§1 check = `--version`; step 2 = bare `counterparts`;
+`ask`, `connect`), and a new `TRIAL-0.2.0.md` — the 09-21 sheet is obsolete. Reviews: item 11,
+item 7, and a short re-check of item 9's non-TTY guard. Then the tail as before: suite on a clean
+detached checkout, tarball from master, scan, his trial, publish on his word, then #15's
+registry upgrade the same day.
+
+### The screens
+
+**Help page**
+
+```
+counterparts — a memory layer for AI
+
+Everyday
+  ask           Ask memory a question
+  status        Memories held and recent activity
+  doctor        Check that everything is working
+  dashboard     Open the dashboard in your browser
+  self-page     The assistant's identity page — who it is, who you are —
+                read at the start of every session
+
+Setup
+  install       First-time setup: your memory, Claude Code, your keys — safe to run again
+  connect       Connect an AI to your memory (Claude Code today; more soon)
+  disconnect    Disconnect an AI
+  credentials   Add or change your API keys (Anthropic, Voyage)
+  scope         Turn memory on or off for a directory
+  uninstall     Remove Counterparts; keeps your memory unless you say otherwise
+
+Your data
+  export        A copy of your memory you can take anywhere, encrypted by default
+  backup        Save a snapshot of your memory to a folder
+  remove        Delete one memory for good
+
+counterparts help <command>   everything a command can do
+counterparts help advanced    maintenance and developer commands
+https://www.npmjs.com/package/counterparts
+```
+
+**Doctor** (fresh store, both keys skipped, everything else fine)
+
+```
+counterparts doctor — 2026-09-22
+
+OFF    Recall by meaning   optional. Recall works on words; a Voyage key lets it match
+                           meaning too.  Turn on: counterparts credentials set VOYAGE_API_KEY
+OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon
+                           get written up anyway.  Turn on: counterparts credentials set ANTHROPIC_API_KEY
+
+GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine
+GREEN  Claude Code         connected: 5 hooks and the memory tools
+GREEN  Background          the nightly worker ran today; nothing failed
+GREEN  Snapshots           last 2026-09-22, 2 kept
+GREEN  Self page           not written yet — still forming
+
+0 red, 0 amber, 2 off, 5 green.   Every line: counterparts doctor --all
+```
+
+**`uninstall --delete-memories`**
+
+```
+counterparts uninstall --delete-memories
+
+This will delete, for good:
+  ~/.counterparts/store             6.7 MB   your memory — 32 memories, 2 journal entries
+  ~/.counterparts/claude-code.json  214 B    the configuration
+  ~/.counterparts/credentials.env   758 B    your API keys
+  ~/.counterparts/scopes.json       460 B    which directories memory is on for
+  ~/.counterparts/snapshots         913 KB   the snapshots
+  and the ~/.counterparts folder itself.
+
+WARNING: nothing can bring these back afterwards.
+         (counterparts uninstall --park sets them aside instead of deleting.)
+
+Type DELETE MEMORIES to go ahead — Esc or "cancel" to stop:
+```
+
+Enter, Esc or `cancel` → `Cancelled. Nothing was deleted.`; any other text → `That was not
+DELETE MEMORIES. Nothing was deleted.` Then the disconnect lines, `Deleted`, and the last line.
+
+**`uninstall --park`**
+
+```
+counterparts uninstall --park
+
+This will set aside (renamed, nothing copied, nothing deleted):
+  ~/.counterparts  →  ~/.counterparts.parked-2026-09-22
+     your memory, configuration, API keys, snapshots — 7.6 MB
+
+Claude Code will be disconnected. Go ahead? [Y/n]   (Esc or n to stop)
+
+Disconnecting Claude Code
+  ok  5 hooks removed from ~/.claude/settings.json (backup: settings.json.counterparts-backup-2026-09-22T13-56-44Z)
+  ok  memory server removed
+      An open Claude Code session keeps working until you close it.
+
+Set aside
+  ok  ~/.counterparts  →  ~/.counterparts.parked-2026-09-22
+
+To bring it back later: counterparts install — it finds this folder and asks.
+To remove the program too: bun remove -g counterparts
+```
+
+**`install`** (first time, on a terminal)
+
+```
+counterparts install
+
+What should this memory call you? Mike
+Nice to meet you, Mike.
+
+Connecting Claude Code…
+  ok  connected — 5 hooks added to ~/.claude/settings.json (backup kept), memory tools registered
+
+Add an Anthropic key? Optional — lets a session that ended too soon get written up anyway. [y/N] y
+  Get one at https://console.anthropic.com/settings/keys
+  Paste it here (hidden):
+  ok  saved
+Add a Voyage key? Optional — lets recall match by meaning, not just words. [y/N] n
+
+Done. Your memory lives at ~/.counterparts.
+Restart Claude Code, then run `counterparts doctor` — it should be all green.
+```
+
 ## For the next round (not part of 0.2.0)
 
 - **#8 is closed for NEW stores only.** Doctor's window is clamped to `store.created`, which
@@ -148,6 +357,16 @@ the code does rather than what he has seen.
   item of the next round, after the 0.2.0 trial.
 
 
+- **#28 — the Stop ask is a wall of text in the user's terminal** (owner, 2026-09-22, with a
+  screenshot). After every turn Claude Code prints `Stop hook error:` followed by the whole
+  nine-line ask (`src/adapters/claude-code/hooks.ts:381–387`) — "error" because the hook exits 2
+  to hand the text to the assistant. The person reads it every time; it is written for the model.
+  Levers: (a) the text — the field-level detail (`updates` is a field, `salience` is a floor,
+  the session id twice) already lives in the tools' own descriptions, so the ask could be two
+  lines; (b) how it is emitted — JSON `decision: "block"` + `reason` instead of stderr + exit 2
+  may render more quietly (untested); (c) pacing, which is #13 below — an ask that fires only
+  when something happened is one the person sees less. Owner: "make the stop hook a lot less
+  verbose". Not part of 0.2.0.
 - **#13 — the Stop ask has no pacing for a session that ends turns often** (found 2026-09-21,
   by the assistant living on the 0.1.0 install during a long coordinating session). The ask for
   memories + a chapter + a handoff arrives every time a turn ends — several times an hour while
