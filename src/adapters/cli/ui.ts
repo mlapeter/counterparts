@@ -22,9 +22,15 @@
  *      to `io.out`, `io.err`, an error message, or a log — a secret that reaches
  *      a console has reached a scrollback buffer.
  *   4. **Nothing proceeds unconfirmed.** With no `io.prompt`, `confirm` is
- *      `false` and `typed` is `false` whatever their default says — the same
- *      stance `Io.prompt`'s own docstring takes. `ask` alone falls back to its
- *      default, because a name is not a consent.
+ *      `false` and `typed` is `"mismatch"` whatever their default says — the
+ *      same stance `Io.prompt`'s own docstring takes. `ask` alone falls back to
+ *      its default, because a name is not a consent.
+ *   5. **Esc cancels, everywhere, and the prompt says so** (owner, 2026-09-22,
+ *      finding #21: "once the typed-phrase prompt is up there is no visible way
+ *      out"). One reader produces one answer — `PROMPT_CANCEL` — and each asking
+ *      function decides what cancelling MEANS for it: `confirm` is no, `typed`
+ *      is `"cancelled"`, `ask` throws, `askHidden` is an empty answer, which is
+ *      already its word for "skip".
  *
  * ── Wrapping and colour are decided separately, on purpose ──────────────────
  *
@@ -226,7 +232,27 @@ export function fold(prefix: string, text: string, width: number, hanging: numbe
 
 // ── asking ──────────────────────────────────────────────────────────────────
 
-export type AbortReason = "interrupt" | "no-hidden-input";
+export type AbortReason = "interrupt" | "no-hidden-input" | "cancelled";
+
+/**
+ * WHAT A CANCELLED READ COMES BACK AS.
+ *
+ * A bare ESC cannot be part of an answer — every reader here drops the control
+ * characters and swallows escape sequences whole — so one raw ESC byte is a
+ * value no typist can produce and no scripted console will ever hold. It
+ * travels back through `Io.prompt`'s ordinary `string` rather than a second
+ * channel, so a console that knows nothing about cancelling (every test
+ * console, every pipe) is unchanged, and each asking function below decides for
+ * itself what cancelling means.
+ */
+export const PROMPT_CANCEL = String.fromCharCode(27);
+
+/** Did this answer come back cancelled? Compare BEFORE trimming: ESC is not
+ *  whitespace, but a caller that lowercases and trims first is one line away
+ *  from a sentinel that no longer matches. */
+export function isCancel(answer: string): boolean {
+  return answer === PROMPT_CANCEL;
+}
 
 /**
  * A question that did not get an answer and must not be treated as one.
@@ -273,18 +299,35 @@ export interface AskOptions {
  * (a pipe, a test with no scripted answers) the default comes back — a name or a
  * budget is a value, not a consent, so falling back is honest here and is not in
  * `confirm`.
+ *
+ * **Esc ABORTS THE COMMAND** rather than taking the default (owner, 2026-09-22,
+ * item 8). A default is what somebody who pressed Enter meant; somebody who
+ * pressed Esc meant to leave, and the callers of this one are mid-install, where
+ * "carry on with the default name" is the opposite of the answer.
  */
 export async function ask(io: Io, question: string, opts: AskOptions = {}): Promise<string> {
   const fallback = opts.default ?? "";
   if (io.prompt === undefined) return fallback;
   const hint = opts.default === undefined || opts.default.length === 0 ? "" : ` [${opts.default}]`;
-  const answer = stripEol(await io.prompt(`${question}${hint} `));
-  return answer.length === 0 ? fallback : answer;
+  const raw = stripEol(await io.prompt(`${question}${hint} `));
+  if (isCancel(raw)) throw new PromptAborted("cancelled", "cancelled.");
+  return raw.length === 0 ? fallback : raw;
 }
 
 export interface ConfirmOptions {
   /** Required: an unanswerable yes/no has to know which way Enter goes. */
   readonly default: boolean;
+  /**
+   * Printed after the tag, with its own parentheses, for a question whose Esc
+   * is worth saying out loud: `Go ahead? [Y/n]   (Esc or n to stop)`.
+   *
+   * OPT-IN, not automatic. On `Add an Anthropic key? [y/N]` Esc, Enter and `n`
+   * all mean the same thing and the hint would be noise on the busiest screen
+   * in the package (the owner's own install screen, 2026-09-22, shows a bare
+   * tag); on a question whose default is YES and whose yes moves somebody's
+   * data, the way out has to be on the line.
+   */
+  readonly hint?: string;
 }
 
 /**
@@ -295,6 +338,9 @@ export interface ConfirmOptions {
  * non-answers is not reading, and a third identical question is a trap rather
  * than a kindness.
  *
+ * **Esc is NO**, whatever the default is, and it is not one of the two attempts:
+ * a person reaching for the way out has answered the question.
+ *
  * **With no `io.prompt` this is `false`, never the default.** Every caller of
  * this function is about to do something to somebody's machine; `Io`'s own
  * docstring already says an absent prompt means a destructive command refuses
@@ -304,8 +350,14 @@ export interface ConfirmOptions {
 export async function confirm(io: Io, question: string, opts: ConfirmOptions): Promise<boolean> {
   if (io.prompt === undefined) return false;
   const tag = opts.default ? "[Y/n]" : "[y/N]";
+  const hint = opts.hint === undefined || opts.hint.length === 0 ? "" : `   ${opts.hint}`;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const raw = stripEol(await io.prompt(`${question} ${tag} `)).trim().toLowerCase();
+    const answer = stripEol(await io.prompt(`${question} ${tag}${hint} `));
+    // BEFORE `trim().toLowerCase()`: ESC survives both today, and a sentinel
+    // that depends on that is a sentinel one edit from silently meaning "the
+    // default".
+    if (isCancel(answer)) return false;
+    const raw = answer.trim().toLowerCase();
     if (raw.length === 0) return opts.default;
     if (raw === "y" || raw === "yes") return true;
     if (raw === "n" || raw === "no") return false;
@@ -314,17 +366,40 @@ export async function confirm(io: Io, question: string, opts: ConfirmOptions): P
   return opts.default;
 }
 
+/** What came back from a typed confirmation. THREE answers, not two: the
+ *  person who stopped and the person who typed the wrong thing are told
+ *  different sentences and get different exit codes. */
+export type TypedAnswer = "typed" | "cancelled" | "mismatch";
+
+/** The word that cancels a typed confirmation, in any case. `DELETE MEMORIES`
+ *  is a phrase you cannot answer by reflex; there has to be one you can. */
+export const CANCEL_WORD = "cancel";
+
 /**
- * The typed confirmation, as `start-fresh` and `remove` already use it: true
- * only when what came back IS the phrase.
+ * The typed confirmation `uninstall --delete-memories` guards itself with:
+ * `"typed"` only when what came back IS the phrase.
  *
  * Case-sensitive, and nothing is trimmed but the trailing end-of-line, so
  * `DELETE MEMORIES ` is not `DELETE MEMORIES`. That is the whole point of asking
  * for a phrase instead of a letter: it cannot be answered by reflex.
+ *
+ * **THREE WAYS OUT, and all three are `"cancelled"`** — Esc, an empty Enter, and
+ * the word `cancel` (owner, 2026-09-22, finding #21: a prompt this loud with no
+ * visible way out is one people answer by closing the terminal). An empty Enter
+ * used to be a mismatch, which told somebody who had decided against it that
+ * they had typed the phrase wrong.
+ *
+ * With no `io.prompt` this is `"mismatch"` — never `"typed"`, which is rule 4.
+ * Every caller checks for a console of its own first, because "there is nobody
+ * here" deserves its own sentence rather than "that was not the phrase".
  */
-export async function typed(io: Io, exactPhrase: string, prompt: string): Promise<boolean> {
-  if (io.prompt === undefined) return false;
-  return stripEol(await io.prompt(prompt)) === exactPhrase;
+export async function typed(io: Io, exactPhrase: string, prompt: string): Promise<TypedAnswer> {
+  if (io.prompt === undefined) return "mismatch";
+  const raw = stripEol(await io.prompt(prompt));
+  if (isCancel(raw)) return "cancelled";
+  const word = raw.trim();
+  if (word.length === 0 || word.toLowerCase() === CANCEL_WORD) return "cancelled";
+  return raw === exactPhrase ? "typed" : "mismatch";
 }
 
 /**
@@ -343,9 +418,16 @@ export async function typed(io: Io, exactPhrase: string, prompt: string): Promis
  * Empty means SKIP and is an ordinary answer: every key this console asks for is
  * optional. The value is returned and nowhere else — not printed, not logged,
  * not put in an error.
+ *
+ * **Esc IS an empty answer here** rather than an abort: this prompt's own word
+ * for "not now" is already Enter-on-empty, and the two gestures mean the same
+ * thing in front of an optional key. Nothing is written either way.
  */
 export async function askHidden(io: Io, question: string): Promise<string> {
-  if (io.promptHidden !== undefined) return stripEol(await io.promptHidden(question));
+  if (io.promptHidden !== undefined) {
+    const value = stripEol(await io.promptHidden(question));
+    return isCancel(value) ? "" : value;
+  }
   if (io.tty?.stdin === true) {
     throw new PromptAborted(
       "no-hidden-input",
@@ -353,10 +435,11 @@ export async function askHidden(io: Io, question: string): Promise<string> {
     );
   }
   if (io.prompt === undefined) return "";
-  return stripEol(await io.prompt(question));
+  const value = stripEol(await io.prompt(question));
+  return isCancel(value) ? "" : value;
 }
 
-// ── the hidden reader itself ────────────────────────────────────────────────
+// ── the readers themselves ──────────────────────────────────────────────────
 
 /** The half of `process.stdin` this needs, as a seam a test can supply. */
 export interface RawInput {
@@ -380,42 +463,71 @@ const DEL = "\u007f";
 const BS = "\b";
 const ESC = String.fromCharCode(27);
 
+/** How long a bare ESC waits to find out whether it was an arrow key. */
+export const ESC_WAIT_MS = 50;
+
+interface RawOptions {
+  /** Write each character back as it is typed. False for a secret. */
+  readonly echo: boolean;
+  /**
+   * Does the end of the stream RESOLVE with what has been typed?
+   *
+   * True for the hidden reader, where an EOF is the same submit Ctrl-D is.
+   * FALSE for the echoing one, and that is review m4 with a second coat of
+   * paint: this reader answers `confirm`, whose Enter-on-empty is a yes on half
+   * the screens in the package, so a stdin that closed under us must not come
+   * back as "they pressed Enter".
+   */
+  readonly endIsSubmit: boolean;
+  /** Overridable so a test does not sit out the real wait. */
+  readonly escMs?: number;
+}
+
 /**
- * Build a `promptHidden` over real streams: raw mode, no echo, no dependency.
+ * The one character loop, in two dresses: `hiddenPrompt` and `echoPrompt`.
  *
- * Exported and NOT yet wired into `bin/counterparts.ts` — this change adds no
- * behaviour to any command. The entry point binds it when the first command
- * needs it.
- *
- * What the character loop has to get right, and why each one is here:
+ * What it has to get right, and why each one is here:
  *
  *   - **Enter in raw mode is `\r`, not `\n`.** A reader waiting for `\n` hangs
  *     on a real terminal forever.
  *   - **A paste arrives as one chunk**, key and newline together, so the loop
  *     is per character and stops at the first end-of-line.
  *   - **Backspace** (`\x7f` and `\b`) must work, or a typo in a 100-character
- *     key can only be fixed by starting the command again.
+ *     key can only be fixed by starting the command again. When it echoes, it
+ *     erases: `\b \b`, which is backspace, overwrite, backspace.
  *   - **`setEncoding` is never called.** It is sticky on `process.stdin`, and
  *     `bin/counterparts.ts` reads the same stream for `credentials set`.
- *   - **The terminal is restored on every exit path** — Enter, Ctrl-C, Ctrl-D,
- *     `end`, `error` — and the listener is detached and the stream paused, or
- *     the process does not exit.
- *   - **An `error` is not a submit.** `end` resolves (an EOF is a submit); a
- *     stream that FAILED halfway through a key aborts, because resolving the
- *     half writes a truncated credential that reads as present.
+ *   - **The terminal is restored on every exit path** — Enter, Esc, Ctrl-C,
+ *     Ctrl-D, `end`, `error` — and the listener is detached and the stream
+ *     paused, or the process does not exit.
+ *   - **An `error` is not a submit.** A stream that FAILED halfway through a key
+ *     aborts, because resolving the half writes a truncated credential that
+ *     reads as present.
  *   - **Ctrl-C works from every state**, escape sequence included.
  *   - Control and escape bytes below `0x20` are DROPPED rather than stored, and
  *     an escape sequence is swallowed whole, so an arrow key does not end up
  *     inside a credential.
+ *   - **A BARE ESC CANCELS** (2026-09-22, item 8) — and it cannot be recognised
+ *     the moment it arrives, because an arrow key starts with the same byte.
+ *     So: an ESC with something after it in the same chunk is the head of a
+ *     sequence and is swallowed as before; an ESC that ENDS a chunk starts a
+ *     short timer, and if nothing has arrived when it fires, the person pressed
+ *     Escape. `ESC_WAIT_MS` is the usual terminal answer to the usual terminal
+ *     ambiguity; the timer is cleared by the next byte and by every exit path,
+ *     so it can neither fire late nor hold the process open.
  */
-export function hiddenPrompt(
+function rawPrompt(
   input: RawInput,
   output: RawOutput,
+  options: RawOptions,
 ): (question: string) => Promise<string> {
+  const escMs = options.escMs ?? ESC_WAIT_MS;
   return (question: string) =>
     new Promise<string>((resolve, reject) => {
       let value = "";
       let settled = false;
+      /** The pending "was that ESC on its own?" timer, or null. */
+      let escTimer: ReturnType<typeof setTimeout> | null = null;
       /**
        * WHERE THE ESCAPE-SEQUENCE READER IS.
        *
@@ -433,6 +545,12 @@ export function hiddenPrompt(
         else if (input.removeListener !== undefined) input.removeListener(event, listener);
       };
 
+      const disarmEsc = (): void => {
+        if (escTimer === null) return;
+        clearTimeout(escTimer);
+        escTimer = null;
+      };
+
       const detach = (): void => {
         drop("data", onData);
         drop("end", onEnd);
@@ -443,6 +561,7 @@ export function hiddenPrompt(
       const finish = (settle: () => void): void => {
         if (settled) return;
         settled = true;
+        disarmEsc();
         detach();
         try {
           if (input.isTTY === true) input.setRawMode?.(false);
@@ -460,11 +579,18 @@ export function hiddenPrompt(
         settle();
       };
 
-      /** End of input. An EOF is a submit — the same answer Ctrl-D gives. */
+      /** End of input. For the hidden reader an EOF is a submit — the same
+       *  answer Ctrl-D gives. For the echoing one it is not an answer at all
+       *  (`RawOptions.endIsSubmit`). */
       function onEnd(): void {
         const answer = value;
         finish(() => {
-          resolve(answer);
+          if (options.endIsSubmit) resolve(answer);
+          else {
+            reject(
+              new PromptAborted("interrupt", "the input ended before the question was answered."),
+            );
+          }
         });
       }
 
@@ -485,6 +611,9 @@ export function hiddenPrompt(
       }
 
       function onData(chunk: unknown): void {
+        // ANYTHING AT ALL ANSWERS THE "WAS THAT ESC ALONE?" QUESTION, so the
+        // timer is cleared before the byte is even looked at.
+        disarmEsc();
         // Decoded here rather than through `setEncoding`, which would be sticky
         // on the shared stream. Keys are ASCII; a multi-byte character split
         // across two chunks is the known and accepted limit.
@@ -522,13 +651,17 @@ export function hiddenPrompt(
             return;
           }
           if (ch === EOT) {
-            const answer = value;
-            finish(() => {
-              resolve(answer);
-            });
+            // Ctrl-D is the end of the input, so it answers the same way the
+            // end of the stream does: a submit for the hidden reader, and not
+            // an answer at all for the echoing one.
+            onEnd();
             return;
           }
           if (ch === DEL || ch === BS) {
+            // ERASE, not just forget: backspace alone moves the cursor left and
+            // leaves the character on the screen, so what is displayed and what
+            // is held part company at the first typo.
+            if (value.length > 0 && options.echo) output.write("\b \b");
             value = value.slice(0, -1);
             continue;
           }
@@ -537,6 +670,20 @@ export function hiddenPrompt(
           const code = ch.codePointAt(0) ?? 0;
           if (code < 0x20) continue;
           value += ch;
+          if (options.echo) output.write(ch);
+        }
+        // AN ESC AT THE END OF A CHUNK IS THE AMBIGUOUS ONE. Mid-chunk it was
+        // already decided above — something followed it, so it was a sequence.
+        // Only a terminal is asked this question: a stream that is not one
+        // delivers whole sequences and has no keyboard behind it to wait for.
+        if (!settled && escape === "esc" && input.isTTY === true && escMs > 0) {
+          escTimer = setTimeout(() => {
+            escTimer = null;
+            if (escape !== "esc") return;
+            finish(() => {
+              resolve(PROMPT_CANCEL);
+            });
+          }, escMs);
         }
       }
 
@@ -552,6 +699,53 @@ export function hiddenPrompt(
       input.on("error", onError);
       input.resume?.();
     });
+}
+
+/**
+ * Build a `promptHidden` over real streams: raw mode, no echo, no dependency.
+ *
+ * Bound in `bin/counterparts.ts` since 2026-09-21, where `credentials set` and
+ * the install's key prompts read through it. Esc comes back as `PROMPT_CANCEL`,
+ * which `askHidden` reads as the skip this prompt already offers.
+ */
+export function hiddenPrompt(
+  input: RawInput,
+  output: RawOutput,
+  escMs?: number,
+): (question: string) => Promise<string> {
+  return rawPrompt(input, output, {
+    echo: false,
+    endIsSubmit: true,
+    ...(escMs === undefined ? {} : { escMs }),
+  });
+}
+
+/**
+ * Build an `Io.prompt` over real streams — the same reader, echoing.
+ *
+ * It replaces `node:readline` at the entry point, and the reason is one word
+ * long: Esc. `readline` hands us a line and nothing else, so a terminal it owns
+ * cannot tell an Escape from an arrow key, and every prompt in the package was
+ * a room with no visible door (owner, 2026-09-22, finding #21). Everything
+ * `readline` was doing for us is thirty lines above: `\r` is Enter, backspace
+ * erases, a paste arrives whole, Ctrl-C aborts, and a stdin that closes under
+ * the question is not an answer to it (review m4 — the bug that ended an
+ * install with exit 0 and no store).
+ *
+ * NOT bound for a pipe, and nothing here should be: it is a raw-mode reader for
+ * a person at a keyboard. Off a terminal `Io.prompt` stays absent and every gate
+ * in this file is false, which is what keeps a scripted run scripted.
+ */
+export function echoPrompt(
+  input: RawInput,
+  output: RawOutput,
+  escMs?: number,
+): (question: string) => Promise<string> {
+  return rawPrompt(input, output, {
+    echo: true,
+    endIsSubmit: false,
+    ...(escMs === undefined ? {} : { escMs }),
+  });
 }
 
 // ── layout ──────────────────────────────────────────────────────────────────
@@ -605,6 +799,16 @@ export interface Ui {
   ok(text: string): void;
   warn(text: string): void;
   fail(text: string): void;
+  /**
+   * `WARNING: …`, the word in red, further lines indented under it.
+   *
+   * NOT `fail`, and that is the owner's finding #25 (2026-09-22): the screen
+   * read `fail  WARNING: this will delete 32 memories`, and a `fail` tag in
+   * front of a warning about what a command is ABOUT to do says something
+   * failed. Nothing has failed; this is the last thing anybody reads before
+   * they decide.
+   */
+  warning(text: string, ...more: readonly string[]): void;
   /** An aside under the line above it: dim, and indented into the gutter. */
   hint(text: string): void;
   /** A doctor-shaped line: the grade in colour, the label in its column, a
@@ -666,6 +870,21 @@ export function ui(io: Io, env: UiEnv, opts: InteractiveOptions = {}): Ui {
 
     fail(text: string): void {
       marked("fail", p.red, text);
+    },
+
+    warning(text: string, ...more: readonly string[]): void {
+      const word = "WARNING:";
+      const cell = `${word} `;
+      const lines = emit(cell, text, cell.length);
+      const first = lines[0] ?? "";
+      io.out(p.red(word) + first.slice(word.length));
+      for (const line of lines.slice(1)) io.out(line);
+      // The lines under it are a continuation of the sentence, so they sit in
+      // the same column the sentence starts in rather than in the mark gutter.
+      const pad = " ".repeat(cell.length);
+      for (const extra of more) {
+        for (const line of emit(pad, extra, cell.length)) io.out(line);
+      }
     },
 
     hint(text: string): void {
