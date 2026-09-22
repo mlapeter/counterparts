@@ -1056,7 +1056,7 @@ export function commandHelp(command: Command): string {
       ? ["This command takes no flags of its own."]
       : [`Flags for ${command}:`, ...own.map(flagLine)]),
     "",
-    "Everywhere:",
+    "Options every command takes:",
     ...COMMON_FLAGS.map(flagLine),
     "",
     ...CONSOLE_FOOTER,
@@ -2912,7 +2912,11 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
     io.out("  from a static registration with no command line to write into.");
     io.out("");
   }
-  io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
+  // `doctor`, not `status --dir`: doctor is the "does it work" check on every
+  // page since 2026-09-22, and it reads the configuration the hooks read.
+  io.out(
+    `  Then restart Claude Code, and check it with: ${BIN.cli} doctor${custom === undefined ? "" : ` --config ${custom}`}`,
+  );
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
   io.out("");
