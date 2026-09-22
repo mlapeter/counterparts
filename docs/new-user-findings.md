@@ -353,6 +353,14 @@ round and is below.
 - **#15 — nobody has run the registry-to-registry upgrade.** QUICKSTART §9 tells people
   `bun add -g counterparts@latest`. It has never been run: there has only ever been one
   published version. Run it the day 0.2.0 is published, from a machine holding 0.1.0.
+  **RUN 2026-09-22, the day 0.2.0 was published**, in a throwaway HOME holding 0.1.0 from the
+  registry: it lands on 0.2.0 — with one caveat that is bun's, not ours. bun 1.3.10 reuses a
+  package manifest it fetched within the registry's `max-age=300`, so a `@latest` run inside
+  five minutes of an earlier fetch resolves to the OLD latest and reports "done" in a millisecond;
+  `--no-cache` or waiting out the window fixes it. No real user upgrades within five minutes of
+  installing, so the doc line stands. Also run from a tarball-file install (the owner's shape):
+  `bun add -g counterparts@latest` replaces it with `^0.2.0` cleanly — the `DependencyLoop` error
+  is file-over-registry only.
 - **A store outside the home directory** refuses `uninstall --park` / `--delete-memories` with no
   way through (uninstall refuses `--dir`). The builder's proposal, not built: accept `--dir` on
   `uninstall` only when it equals the `dataDir` the configuration already names.
