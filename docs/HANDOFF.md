@@ -1,5 +1,82 @@
 # Handoff — resume here
 
+## 2026-09-22, close of the long session — NEXT SESSION IS A ROADMAP CONVERSATION, THEN A COORDINATOR BUILDS
+
+**Read this section, then the two below it (go-public plan; 0.2.0 published), then the docs listed under
+"Read before the conversation".** The owner's ask for the next session, in his words: "take the things we've
+already discussed, and then also do a review of all our recent planning docs etc and have a high level
+discussion of our plan/roadmap, then once that's settled have a session start implementing from the plan as
+coordinator using agents." Conversation first, ELI5, a few items at a time, decisions in the conversation, not
+across many md files ([[owner-communication-preferences]]); the roadmap is written down ONCE it is settled.
+
+**Decided tonight (2026-09-22):**
+- `counterparts@0.2.0` is on npm and the owner runs the registry copy.
+- **Go public**, history included → `docs/launch/go-public-2026-09-22.md` (PR #182; he merges; a fresh
+  session runs Phase A unattended; the flip is his one command; Phase C after; then the site's install block).
+- **The Stop ask is both shorter and rarer** (#28 + #13 are one design item; another instance told him it
+  was starting to ignore the ask — #13's prediction, observed).
+- **Trial the static embedder now, potion-base-8M first**, and decide inclusion from measured results:
+  `docs/research/local-embeddings-2026-09-22.md` (PR #183) has the agent's report and the two 54-line
+  zero-dependency proofs, both run under bun here (0.04 ms per embed; related pairs 0.58/0.42, unrelated
+  0.06/0.09). Trial shape: an `embedder.kind: "static"` beside Voyage; weights (30 MB `model.safetensors` +
+  `vocab.txt`, MIT) in a models dir under the config dir for the trial, sourcing decided later (bundle / download
+  on first use / host on counterparts.ai); run the project's own recall tests and the bench on a seeded store
+  (`tools/demo/seed.ts`, never his live store) lexical-only vs static vs Voyage; **check first that the cache
+  records which embedder produced each vector** — vectors from different models cannot be mixed, and switching
+  means re-embedding. Also check potion's larger retrieval-tuned sibling in the same code path.
+- Keyless direction, leaning (his confirmation pending): next-session write-up (#16) for the Anthropic key,
+  lexical + static for the Voyage key, both keys demoted to upgrades the install never asks about.
+
+**Read before the conversation** (in this order; sizes so the session budgets): this file's 09-21/09-22
+sections; `docs/new-user-findings.md` §"For the next round" (409 lines total); `docs/launch/go-public-2026-09-22.md`
+(103); `docs/research/local-embeddings-2026-09-22.md`; `docs/IMPROVEMENTS.md` (511 — the user-side list of
+what living on it surfaced); the thirteen `src/**/INTERFACE-GAPS.md` (what each module still owes its contract);
+`docs/LAUNCH-STATUS.md` only as history (1,820 lines — skim the open I-numbers, do not re-read); the site's
+own handoff `~/counterparts-site/docs/HANDOFF.md` (the site proper is a separate conversation in that repo);
+and the memory file `runtime-and-distribution-open-question` (bun vs Node, compiled binary — never decided).
+
+**Candidate roadmap items to seed the discussion** (his to order, cut, or add to):
+- A. **Telling people:** go-public Phases A–C → site install block → the Reddit mention. Smallest, first.
+- B. **The quiet round:** Stop ask shorter+rarer; the upgrade notice (server records its version in the session
+  record, prompt hook compares, one `systemMessage` pointing at `/mcp` → Reconnect — untested by us); the
+  uninstall wait (it is `claude mcp list` probing every MCP server; `spawnSync` blocks a JS spinner; static line
+  trivial, dots need an async Spawner across wire/uninstall/commands + nine test files); doctor's `no-credential`
+  fix line names the command; #26 the two store sizes; #8 old-store window; `help` Advanced collapse; the NITs.
+- C. **Keyless by default:** the potion trial → static tier; #16 next-session write-up (its own review — core);
+  keys as upgrades; the install asks one question fewer.
+- D. **Distribution:** bun-only today; Node untested; compiled binary + npm launcher was the 09-16
+  recommendation, never decided. Matters the moment strangers install.
+- E. **Unrestarted-session safety** for a future schema change: the old MCP server holds a store handle opened
+  before any migration, so `SCHEMA_AHEAD` never re-runs; decide the rule before the first schema bump.
+- F. Parked and exploratory: `dashboard/flat` (branch, worktree handoff in
+  `src/adapters/dashboard/web/FLAT-CHANGES.md`; exploratory by ruling); the three-way identity case study
+  (`~/random/three-way/README.md`); a store outside the home directory (uninstall refuses `--dir`).
+
+**Then the coordinator session** builds the first round from the written roadmap the way 09-22 did: Opus
+builders in parallel with file ownership drawn per builder, adversarial reviews on anything that touches a
+store or a person's config, one PR per builder verified on a clean detached checkout (suite, `tsc`, install
+loop where it applies), the owner merges (the classifier refuses `gh pr merge` from a session and, once, a
+plain `git checkout master` — say so and leave the tree where it sits), then rebuild the tarball for his trial
+if the install path changed, publish only on his word, and one restart (or the first real `/mcp` Reconnect test).
+
+**Loose ends:** the trial terminal paste never arrived (ask once); 52 worktrees listed locally, most stale
+(`git worktree remove --force <path>` by hand); unmerged remote branches `dashboard/flat`,
+`design/parallel-run-contract`, `docs/2026-09-18-morning` (go-public Phase A lists them); the tree of
+`~/counterparts` sits on `docs/go-public-plan`.
+
+## 2026-09-22, late night — GO PUBLIC IS PLANNED: `docs/launch/go-public-2026-09-22.md`
+
+The owner decided to make the repository public, history included (the 09-04 ruling stands). Both
+audit scanners were re-run tonight over the tree and the whole 872-commit history: zero true
+positives; the only class to scrub is 55 absolute home paths in docs. The plan is written for a
+fresh session to run **mostly unattended**: Phase A (scrub, prompts out, docs index, README site
+link, PR-body scan, metadata, merged-branch cleanup, one PR) → Phase B (the owner's one command,
+the flip) → Phase C (anonymous re-scan, link check, install walk, then the site's install block).
+The README is current for 0.2.0 (rewritten today) and needs only the site link. Start the fresh
+session on that file. The next product round (Stop ask shorter+rarer, upgrade notice, uninstall
+wait, doctor fix line, keyless write-up, local embeddings — brainstorm in progress) is separate and
+comes after.
+
 ## 2026-09-22, evening — 0.2.0 IS ON NPM; THE REGISTRY UPGRADE WAS RUN; THE OWNER RUNS THE TARBALL STILL
 
 **Published.** The owner ran the 0.2.0 trial from the packed file, said it looked good (his terminal
