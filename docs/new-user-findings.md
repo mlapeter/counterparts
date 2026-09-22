@@ -46,7 +46,7 @@ counterparts install
 5. Ends with a short green summary and one instruction: "Restart Claude Code."
 
 Flags keep the scripted path: `--name`, `--budget` (gets a default of 9000), `--yes`,
-`--no-wire` (prints the blocks as today). Not a terminal → behaves as today, prints, asks
+`--no-connect` (prints the blocks as today). Not a terminal → behaves as today, prints, asks
 nothing. The install loop keeps passing because it runs non-interactive.
 
 ## The work, in five pieces
@@ -98,7 +98,7 @@ the code does rather than what he has seen.
 
 | # | What happens now |
 |---|---|
-| 1 | At a terminal `install` asks `Wire Claude Code now? [Y/n]` and does it — backup first, the five hooks beside anything already there, `claude mcp add` for the server. A pipe, a script, CI and `--no-wire` still print the blocks and change nothing. |
+| 1 | At a terminal `install` asks `Wire Claude Code now? [Y/n]` and does it — backup first, the five hooks beside anything already there, `claude mcp add` for the server. A pipe, a script, CI and `--no-connect` still print the blocks and change nothing. (Superseded 09-22 by item 9: it no longer asks.) |
 | 2 | `credentials set <NAME>` at a terminal asks for the value and reads it back without echoing; Enter skips and writes nothing. A pipe, `--from-env` and CI behave exactly as before. |
 | 3 | `install`'s fourth step asks for the Anthropic key and then the Voyage key, one line each on what it buys and where to get one, hidden input, Enter to skip. A Voyage key offers to turn the embedder on with it. |
 | 4 | `counterparts --help` is one line per command — about forty lines — and `counterparts help <command>` holds the old detail for one command at a time. |
@@ -319,6 +319,26 @@ Add a Voyage key? Optional — lets recall match by meaning, not just words. [y/
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.
 ```
+
+## What the 09-22 round changed
+
+One line per finding above, written 2026-09-22 from the six merged PRs (#170–#175) on
+master, from the code as it renders rather than from what was planned. #28 is not in this
+round and is below.
+
+| # | What happens now |
+|---|---|
+| 17 | Two checks, two moments, and `--help` is neither: `counterparts --version` right after `bun add -g` (it opens no store and reads no configuration), and `counterparts doctor` after the setup and a restart. QUICKSTART §2 and §4 say so, and the install loop's own step greps `^counterparts <n>.<n>` where it used to grep the help header. |
+| 18 | The one-liners are a person's words now — `doctor: Check that everything is working`, and `init` is off the main page altogether: fourteen commands in Everyday / Setup / Your data, and `counterparts help advanced` holds `note`, `fired`, `init`, `start-fresh`, `verify`, `rebrief`, `migrate-cache`, the three repairs, `probe-oq4` and the three global flags. |
+| 19 | Every fix line doctor prints is a command. The embedder's is `Turn on: counterparts credentials set VOYAGE_API_KEY`, and that command really does offer the switch after saving the key. Two fix lines still name a config edit because nothing exists behind them, and they are named in QUICKSTART §12: the snapshots directory, and taking `"observer"` back out. |
+| 20 | `Stance` is `Mode`, and reads `remembering` (or `observer — reads memory, writes nothing`); it only appears under `--all`. The worker-internal lines — Sweep, Sleep, Backfill, Credit, Clock, Spawn, Authorship, Journal mode, Page writer, Fired — fold into one `GREEN  Background  the nightly worker ran today; nothing failed` while they are green, and unfold in full the moment one is not. |
+| 21 | Esc cancels every prompt in the package, through a raw-mode reader that replaces `node:readline` (`readline` hands back a line and cannot tell Escape from an arrow key). The typed-phrase prompt says so in its own text — `Type DELETE MEMORIES to go ahead — Esc or "cancel" to stop:` — and Esc, Enter or `cancel` all print `Cancelled. Nothing was deleted.` and exit 0, where a wrong phrase still refuses. |
+| 22 | The park screen ends `To bring it back later: counterparts install — it finds this folder and asks.` `install` with `~/.counterparts` missing and a parked folder beside it asks first, names its date and size, never opens it, and refuses five shapes by name. The guarded `mv` is still written down — in `counterparts help uninstall`, for anyone doing it by hand. |
+| 23 | `counterparts --version` and `counterparts version` print `counterparts 0.2.0` and exit 0, opening no store and reading no configuration — so they answer even in a shell with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`. |
+| 24 | One missing optional key is one dim line. `Recall by meaning` owns the knob and the Voyage key together; `Credentials` is a factual green line under `--all`; and `Vectors` produces no finding at all while the channel is off, because coverage of something that is not running is not a reading. |
+| 25 | `WARNING:` is a plain red word with its continuation indented under it, never a `fail` tag, and it says the thing the list cannot — `nothing can bring these back afterwards.` The memory count moved onto the store's own line of the plan, where it is a count of something. |
+| 26 | **Not addressed.** The two sizes a minute apart were never chased; a checkpoint or the worker finishing between the two runs is still the likely cause, and nothing in this round would have changed it. |
+| 27 | `[2/4]` and the step numbers are gone (no numbers on the install screen at all); the store step prints no receipts, so there is no `ok  Mike — the thing this memory is about`; `Docs: docs/QUICKSTART.md, shipped with the package` is gone; the park report's "which is why this arm does not print a count" is gone. **`Everywhere` stayed** — it is still the label over `--dir`, `--config` and `--observer` on `help advanced` and on every command's flag page. |
 
 ## For the next round (not part of 0.2.0)
 

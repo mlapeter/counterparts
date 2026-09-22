@@ -42,7 +42,7 @@ else on your machine is read or changed. Four commands land in bun's global bin 
 
 | | |
 |---|---|
-| `counterparts` | your console — status, install, backup, export, removal |
+| `counterparts` | your console — ask, status, doctor, install, backup, export, removal |
 | `counterparts-hook` | the Claude Code hook entry point; one executable, five events |
 | `counterparts-mcp` | the MCP server — `note`, `recall`, `status`, `session_end`, `chapter` |
 | `counterparts-dashboard` | read-only views of what is in the store |
@@ -55,7 +55,7 @@ counterparts --version
 
 It should print `counterparts 0.2.0`. That is the whole check at this point: it
 opens no store and reads no configuration, so it answers "is the program here
-and runnable" and nothing else. `counterparts doctor`, after §2 and a restart of
+and runnable" and nothing else. `counterparts doctor`, after §3 and a restart of
 Claude Code, is the one that says whether it WORKS.
 
 If that says `command not found`, bun said so during the install
@@ -67,46 +67,57 @@ Installing from a clone, or from a tarball somebody sent you: §2a.
 
 ---
 
-## 3. `counterparts install`
+## 3. Set it up
 
 ```
-counterparts install
+counterparts
 ```
 
-At a terminal this is a short conversation — four steps, and nothing in it is compulsory.
-The name and the two keys take Enter as "skip"; the one question that changes anything
-outside `~/.counterparts` — wiring Claude Code — takes `n` for no.
+That is the second step. On a terminal with nothing set up yet, the bare command
+offers to do it — *No memory here yet. Set it up now? [Y/n]* — and a yes runs the
+setup. `counterparts install` asks for the same conversation by name; it is also
+the repair, so running it again is safe and it says `Welcome back` instead.
 
-1. **Your name.** What the memory calls you, and the one thing it is told before it has
-   learned anything. Skip it and the store is made without an identity core.
-2. **Your store.** No question: it creates `~/.counterparts/` — the store itself, a
-   configuration file, and an empty credentials file only you can read — and prints each
-   path. If they are already there it keeps them and says so; nothing is overwritten.
-3. **Claude Code.** It shows what it would add — five hooks in `~/.claude/settings.json`
-   and one MCP server — says it will back that settings file up first, and counts any
-   hooks belonging to other tools that will stay exactly where they are. Then it asks:
-   `Connect Claude Code now? [Y/n]`. Answer `n` and nothing of the host's is touched — the
-   store is made either way, and `counterparts connect` does this part whenever you are
-   ready. §4a is the same two things to apply by hand.
-4. **Keys.** Two optional API keys, one at a time, each with one line on what it buys and
-   a link to where you get one. Typing is hidden; Enter skips. **Skipping both is fine**
-   — §6 is the whole of what you give up, and `counterparts doctor` grades a store that
-   has never had a key amber rather than red.
+It is short, nothing in it is compulsory, and **Esc gets you out of any question**:
 
-It ends by naming your store and its configuration, and by telling you the one thing left
-to do: restart Claude Code.
+- **Your name.** What the memory calls you, and the one thing it is told before it
+  has learned anything. Enter skips it, and then there is no identity core.
+- **Your store.** No question, and since 2026-09-22 no receipts either — it creates
+  `~/.counterparts/`: the store itself, a configuration file, and an empty
+  credentials file only you can read. Anything already there is kept and never
+  overwritten. (If `~/.counterparts` is gone and a parked folder is sitting beside
+  it, that is asked **first**, before your name — §9b.)
+- **Claude Code, connected for you.** `Connecting Claude Code…`, then one `ok` line:
+  five hooks added to `~/.claude/settings.json` **(backup kept)**, memory tools
+  registered. The five go **beside** any hooks belonging to other tools, and the
+  memory server is registered through `claude mcp add`. `counterparts disconnect`
+  takes all of it back out and names the backup file as it goes; `--no-connect`
+  means don't; a machine with no Claude Code on it gets one line and the setup
+  carries on. §4a is the same two things applied by hand.
+- **Keys.** Two optional API keys, one at a time, and each starts as a `[y/N]`
+  question with one line on what it buys — *Add an Anthropic key? Optional — …* —
+  where Enter is no. Only a yes prints the link and then takes the key, typed
+  hidden. **Skipping both is fine**: §6 is the whole of what you give up, and
+  `counterparts doctor` grades a store that has never had a key `OFF` — optional,
+  never turned on — rather than red or amber.
+
+It ends on two lines: where your memory lives, and the one thing left to do —
+restart Claude Code, then run `counterparts doctor`.
 
 **Not at a terminal, it asks nothing.** A pipe, a script or a CI job gets the old
 behaviour: the hooks block and the registration line are printed and nothing of the host's
-is touched. `--no-wire` gets you that at a terminal too, and `--yes` takes the ordinary
-answer to every question. Scripted, the whole thing is one line:
+is touched. `--no-connect` gets you that at a terminal too. Scripted, the whole
+thing is one line:
 
 ```
 counterparts install --budget 9000 --name "Your Name"
 ```
 
 `--budget` is the size ceiling in bytes for the briefing injected at the start of each
-session (§3a). The conversation above writes 9,000 when you do not pass one, and says so.
+session (§3a); the conversation writes 9,000 into a configuration it is creating when you
+do not pass one, and `counterparts help install` is where that is said. `--yes` is kept so
+a scripted caller need not change, and it answers none of the questions above: a name, two
+keys and a parked memory are things only a person can answer.
 
 ---
 
@@ -118,13 +129,18 @@ Restart Claude Code. Then:
 counterparts doctor
 ```
 
-It reads the store your hooks read, writes nothing, and prints one line per finding, worst
-first, each with the fix under it. It exits 1 if anything is red and 0 otherwise.
+It reads the store your hooks read, writes nothing, and prints one line per finding: a
+grade word, a short line of facts, and — where there is anything to do — a fix under it
+that is always a command, never a JSON edit. It exits 1 if anything is red and 0 otherwise.
 
 **Nothing red means it is running.** On a fresh install with no API key you should expect
-a few amber lines — the embedder is off, the credentials file holds no key, nothing has
-been embedded yet. Amber is "you could have more", not "something is broken". §12 is the
-longer reading of `doctor`.
+exactly two dim **OFF** lines — `Recall by meaning` and `Crash write-up`, the two optional
+things you never turned on. OFF is not a fault and there is nothing to repair; amber is
+"worth a look"; only red moves the exit code. On a terminal the worker's internal lines
+fold into one `GREEN  Background` line while they are all green, so the screen is seven
+findings long; one red or amber among them unfolds the lot, in place, with its fix.
+`counterparts doctor --all` prints every line whatever the grades are, and `--json` is
+always complete and never folded. §12 is the longer reading of `doctor`.
 
 Three things about sessions that were already open, because they surprise everybody:
 
@@ -158,18 +174,28 @@ configuration or a credentials file that is already there. §9 has the detail.
 counterparts uninstall
 ```
 
-It takes the Claude Code wiring back out — the five hooks and the MCP registration, and
-only ever the entries that are ours — then tells you where your memory still is, how much
-is in it, and the one line that removes the package itself (`bun remove -g counterparts`;
-a program does not delete itself while it is running). **Your memory is kept** unless you
-say otherwise: `--park` moves `~/.counterparts` aside under a dated name, and
-`--delete-memories` destroys it after listing every path that is about to go and asking you to type
-a phrase. §9b has all three.
+It disconnects Claude Code — the five hooks and the MCP registration, and only ever the
+entries that are ours — then tells you where your memory still is, how much is in it, and
+the one line that removes the package itself (`bun remove -g counterparts`; a program does
+not delete itself while it is running). **Your memory is kept** unless you say otherwise:
+
+- **`--park`** renames the whole of `~/.counterparts` aside to
+  `~/.counterparts.parked-<date>` — one rename, nothing copied, nothing deleted, the store
+  never opened. **The way back is `counterparts install`**: with the folder gone and a
+  parked one beside it, it names that folder's date and size and asks whether to bring it
+  back or start blank.
+- **`--delete-memories`** destroys it, after listing every path that is about to go with
+  its size and what it is, and asking you to type `DELETE MEMORIES` exactly. Esc, Enter or
+  `cancel` stops it — *Cancelled. Nothing was deleted.*
+
+§9b has all three.
 
 An open Claude Code session keeps its hooks until its next turn, and keeps its memory
 server until you close it.
 
-Want a blank memory instead of no memory? That is `counterparts start-fresh`, §9a.
+Want a blank memory instead of no memory? That is `counterparts start-fresh`, §9a — a
+maintenance command now, listed under `counterparts help advanced` rather than on the
+main help page.
 
 ---
 
@@ -313,16 +339,18 @@ registry, §5a). A fresh store has none of them, and `counterparts status` lists
 them either way.
 
 …and then it comes to the two things that belong to Claude Code: the hooks block
-and the MCP registration. **At a terminal it asks, and does them for you** (§3);
-anywhere else — a pipe, a script, a CI job — and with `--no-wire`, it **prints**
-them without applying, exactly as it always did, and opens no file of the host's.
-§4a is what it prints, and how to apply it by hand.
+and the MCP registration. **At a terminal it does them for you** (§3), without
+asking, because connecting is what setting it up means now — `counterparts
+disconnect` is the undo and `--no-connect` is the opt-out. Anywhere else — a pipe,
+a script, a CI job — and with `--no-connect`, it **prints** them without applying,
+exactly as it always did, and opens no file of the host's. §4a is what it prints,
+and how to apply it by hand.
 
 Re-running it is safe: an existing config or credentials file is kept and
 reported, never merged and never rewritten. `--force` is the only way past that.
 
 Flags: `--budget <bytes>` (below), `--name <owner>`, `--embedder` (§6),
-`--dir <store>` (below), `--force`, `--no-wire`, `--yes`.
+`--dir <store>` (below), `--force`, `--no-connect`, `--yes`.
 
 ### Why the store is `~/.counterparts/store` and the config is one level up
 
@@ -417,21 +445,24 @@ rather than compose to a number nobody chose.
 There are two answers to "what if I do not pass one", and which you get depends
 on whether there is a person to tell:
 
-- **The conversation of §3 writes 9,000** when you give no `--budget`, and says
-  so on the line under it, with the file to change when you know your host's
-  real number. It is a working default for somebody installing for the first
-  time, not a constant the system believes in.
-- **Scripted — a pipe, a script, `--no-wire`, CI — nothing is written.** The key
+- **The conversation of §3 writes 9,000** when you give no `--budget` — but only
+  into a configuration it is creating, so a forced re-install cannot rewrite a
+  ceiling you chose. It no longer says so on the screen (2026-09-22: a number
+  that works is worth more to a stranger than a paragraph of homework); the
+  sentence, and the file to change when you know your host's real number, are in
+  `counterparts help install`. It is a working default for somebody installing
+  for the first time, not a constant the system believes in.
+- **Scripted — a pipe, a script, `--no-connect`, CI — nothing is written.** The key
   is left out of the config, the wake is injected unbounded, and an
   `adapter.budget.unreported` event says so.
 
 ---
 
-## 4a. Wiring Claude Code by hand
+## 4a. Connecting Claude Code by hand
 
-For a person who answered `n` at §3's third step, used `--no-wire`, or would
-rather see what is being added. `counterparts install` and `counterparts connect`
-print both of these, filled in.
+For a person who used `--no-connect`, whose machine had no Claude Code on it at
+the time, or who would rather see what is being added. `counterparts install` and
+`counterparts connect` print both of these, filled in.
 
 **The hooks.** Merge into `~/.claude/settings.json` — one script, five events.
 `counterparts install` prints this with your own absolute paths filled in; the
@@ -495,9 +526,9 @@ launched at session start.
 
 ### Or have it done for you
 
-At a terminal, `counterparts install` asks whether to wire Claude Code and does
-it (§3). The same thing, on its own, at any time — to repair wiring, or because
-you said no the first time:
+At a terminal, `counterparts install` does this for you (§3). The same thing, on
+its own, at any time — to repair a connection, or because you used
+`--no-connect`:
 
 ```
 counterparts connect
@@ -525,7 +556,7 @@ your memory is — §9b.)
 
 Hooks start with your next turn in any open session; the memory tools appear
 after you restart Claude Code. An open session keeps its memory server until you
-close it, wired or unwired.
+close it, connected or not.
 
 ---
 
@@ -621,9 +652,15 @@ launch.
 
 **The embed key alone is not enough.** Embedding means sending memory text to a
 third party, so it is a decision, not a capability a stray environment variable
-switches on. Add `"embedder": { "enabled": true }` to `claude-code.json`, or pass
-`--embedder` to `counterparts install`. Absent, no client is built and no socket
-opens whatever keys are lying around.
+switches on. Since 2026-09-22 the decision is a command rather than a JSON edit:
+`counterparts credentials set VOYAGE_API_KEY`, typed at a terminal, saves the key
+and then asks *Turn on recall by meaning now?* — that is the same question
+`counterparts install` puts, and it is what `doctor`'s fix line points at. A pipe,
+`--from-env`, `--stdin` and CI are asked nothing and turn on nothing: an egress is
+not switched on for a script that did not mention it. `--embedder` at install does
+it too, and `"embedder": { "enabled": true }` in `claude-code.json` is what all
+three write. Absent, no client is built and no socket opens whatever keys are
+lying around.
 
 ---
 
@@ -682,9 +719,10 @@ counterparts note "Postgres in dev listens on port 5433, not 5432."
 counterparts ask "which port does postgres use in dev?"
 ```
 
-`note` prints the store it wrote to, then `Remembered mem_… — minted.` `recall`
+`note` prints the store it wrote to, then `Remembered mem_… — minted.` `ask`
 prints the same `Store:` line first, then a header line, the memories it found,
-and what the tier on each one means:
+and what the tier on each one means (`counterparts recall` is the same command
+under its older name, still dispatched but no longer on the help page):
 
 ```
 Store: /Users/<you>/.counterparts/store
@@ -706,9 +744,9 @@ prints the split. One question, one answer out of two candidate memories: that i
 recall discriminating, not a store too small to have a choice.)
 
 These are the same two doors the MCP tools use — `note` captures the words into
-the span buffer and then deposits a draft that claims that span by hash; `recall`
-calls the same deliberate-recall dispatcher — so what you see here is what Claude
-Code will see. `--kind`, `--title` and `--salience` shape a note; `--id <mem_…>`
+the span buffer and then deposits a draft that claims that span by hash; `ask`
+calls the same deliberate-recall dispatcher the `recall` tool does — so what you
+see here is what Claude Code will see. `--kind`, `--title` and `--salience` shape a note; `--id <mem_…>`
 asks for one memory in full instead of asking a question; `--json` prints the
 tool's own payload.
 
@@ -781,10 +819,23 @@ that command does and every flag it takes, and opens nothing.
 counterparts remove mem_b77c9e0e9808 --dir "$HOME/.counterparts/store"
 ```
 
-**A dry run by default.** It prints the plan — every surface it would chase, with
-counts; the ids (never the text) of other memories whose words overlap; and one
-line for the raw capture buffer — then says `Dry run. Nothing has changed.`
-Add `--confirm` to do it, and the command asks you to type the id back before
+**At a terminal it asks** (2026-09-22). With nothing after it, it wants a target:
+`Memory id, or words to search for:`. Words are searched for; the hits are
+numbered, with their kind, their title and their date (a chapter of the journal is
+marked `[journal]`, and a confidential memory shows no words at all); you pick one
+or several — `3`, or `1,3` — and a pick that is not wholly on the list is refused
+whole and asked once more. The chosen memories are listed back, the plan below is
+printed for each, and then one question: `Delete these 2 memories for good? [y/N]`.
+An id on the command line skips the search; a wrong id is told so rather than
+quietly turned into a search. Every way out that is not a removal says `Cancelled.
+Nothing was deleted.` and exits non-zero, so no wrapper reads a cancel as a
+removal.
+
+**Anywhere nobody can be asked it is a dry run** — a pipe, a redirected stdout, a
+CI job. It prints the plan — every surface it would chase, with counts; the ids
+(never the text) of other memories whose words overlap; and one line for the raw
+capture buffer — then says `Dry run. Nothing has changed.` `--confirm` is the
+scripted door: that exact id, and the command asks you to type the id back before
 anything moves. There is no `--force`: removal is the one owner operation with a
 human in the loop.
 
@@ -1036,6 +1087,11 @@ few days of a store are mostly you learning what it does. One command:
 counterparts start-fresh --config ~/.counterparts/claude-code.json
 ```
 
+Since 2026-09-22 this is **maintenance-shelf material**: it is not on
+`counterparts --help`, and `counterparts help advanced` is where it is listed
+("Set this memory aside and start blank; --undo brings it back"). It is still the
+same command, and `counterparts help start-fresh` still prints the whole of it.
+
 **Close every Claude Code session and every dashboard first.** A running session's
 hooks and its MCP server hold the store open by a file handle, and a handle does
 not follow a rename — until they restart, they go on writing into the directory
@@ -1170,9 +1226,9 @@ counterparts uninstall --yes
 
 (Without `--yes` it shows what it is about to do and asks once.)
 
-Takes the Claude Code wiring out — the hooks and the MCP registration — and then
-tells you where your memory still is, how many memories are in it, and the one
-command that removes the package itself:
+Disconnects Claude Code — the hooks and the MCP registration — and then tells you
+where your memory still is, how many memories are in it, and the one command that
+removes the package itself:
 
 ```
 bun remove -g counterparts
@@ -1180,7 +1236,7 @@ bun remove -g counterparts
 
 (A program does not delete itself while it is running.) **Your memory is not
 touched.** `~/.counterparts` stays exactly where it is, and `counterparts connect`
-puts the wiring back whenever you want it.
+puts the connection back whenever you want it.
 
 If you do want the directory gone, say which:
 
@@ -1189,13 +1245,46 @@ counterparts uninstall --park --yes
 ```
 
 moves the whole of `~/.counterparts` aside to `~/.counterparts.parked-<date>` —
-one rename, nothing copied, nothing deleted, and the store is never opened — and
-prints the single `mv` that undoes it.
+one rename, nothing copied, nothing deleted, and the store is never opened. It
+names that destination **before** it asks, and reports the name it actually used
+afterwards, so a `-2` from a second park on the same day is visible rather than
+assumed. The last two lines of the screen are the two things left to know:
 
-`counterparts uninstall --delete-memories` destroys it instead. It counts what is
-about to go first (`WARNING: this will delete 1,204 memories.`) and then asks you
-to type `DELETE MEMORIES` exactly. There is no `--yes` for that one, and it
-cannot be run from a script.
+```
+To bring it back later: counterparts install — it finds this folder and asks.
+To remove the program too: bun remove -g counterparts
+```
+
+**The way back is a command, not a pasted shell line** (2026-09-22, finding #22).
+Run `counterparts install` with `~/.counterparts` missing and one or more
+`~/.counterparts.parked-<date>` beside it, and before anything else it asks:
+*Found memory set aside on 2026-09-22 (7.6 MB). Bring it back, or start blank?*
+Several are listed newest first and picked by number. It never opens the parked
+folder — the date comes from its name and the size from a walk of the filesystem,
+which is why there is no memory count in that question — and it refuses, by name
+and with the reason, a folder that is a symlink, one whose `store/` is a symlink,
+one resolving outside your home, one holding a store on an older floor, and one
+with no `store/` in it at all. Nothing moves until you answer: Enter is not "start
+blank". One caveat worth knowing: `--no-connect` makes the whole console
+non-interactive one level up, so it suppresses this question too — bring a parked
+memory back with a plain `counterparts install`.
+
+By hand it is one rename, guarded so it cannot nest one folder inside another —
+`counterparts help uninstall` prints it, and it is the same shape `start-fresh`
+uses (§9a):
+
+```
+if [ -e ~/.counterparts ]; then echo "REFUSING: ~/.counterparts exists"; \
+else mv ~/.counterparts.parked-<date> ~/.counterparts; fi
+```
+
+`counterparts uninstall --delete-memories` destroys it instead. It lists every
+path with its size and what it is — the count of memories rides on the store's own
+line — then prints a plain red `WARNING: nothing can bring these back afterwards.`
+with the `--park` alternative under it, and asks you to type `DELETE MEMORIES`
+exactly. Esc, Enter or `cancel` stops it (*Cancelled. Nothing was deleted.*, exit
+0); anything else is *That was not DELETE MEMORIES. Nothing was deleted.* and a
+refusal. There is no `--yes` for that one, and it cannot be run from a script.
 
 Both of those refuse while a Counterparts MCP server, worker or dashboard is
 still running — close your Claude Code sessions first — and both name what they
@@ -1220,8 +1309,8 @@ running; that is why `--park` and `--delete-memories` refuse while one is.
 
 ## 10. What is actually verified, and what is not
 
-The scripted version of this page — install, configure, hook, note, recall, the
-MCP round trip, the removal plan, the session write, the scope switch, the wiring
+The scripted version of this page — install, configure, hook, note, ask, the
+MCP round trip, the removal plan, the session write, the scope switch, connecting
 and leaving again — is
 58 checks and runs end to end in two to three seconds.
 
@@ -1278,7 +1367,7 @@ touches. What they establish:
 - `counterparts uninstall --yes` leaves the store where it is, removes the hooks,
   and names `bun remove -g counterparts` as the one thing left to run;
 - `counterparts uninstall --park --yes` either renames the whole directory aside
-  and prints the guarded `mv` that undoes it, or refuses because something of
+  and names `counterparts install` as the way back, or refuses because something of
   ours is running on that machine and says what. Both are correct, and which one
   happens is a fact about the machine rather than about the package.
 
@@ -1287,10 +1376,13 @@ it never runs the real `claude mcp add` — the stub answers, so "Claude Code
 accepted the registration" is not a thing this loop can tell you. And it runs
 non-interactively, so **the install conversation of §3 is not exercised here at
 all**: the questions, the hidden key prompts and the skipping are held by unit
-tests, plus runs on a real pty on 2026-09-21: install answered both ways (wired, and `n`
-with nothing of the host's touched), a name skipped, both keys skipped, the re-run, `wire`
-again, `doctor`, `uninstall`, and `--delete-memories` refusing while a memory server was
-running. A real terminal, on a machine that is not the author's, is still the thing nobody
+tests, plus runs on a real pty on 2026-09-21: install answered both ways (connected, and
+`n` with nothing of the host's touched), a name skipped, both keys skipped, the re-run,
+`connect` again, `doctor`, `uninstall`, and `--delete-memories` refusing while a memory
+server was running. On 2026-09-22 the reader was driven on a real pty again, on its own —
+raw mode really on, backspace, a whole paste, an arrow key leaving nothing behind, a bare
+Esc coming back as a cancel, Ctrl-C rejecting, and the terminal restored on every ending.
+A real terminal, on a machine that is not the author's, is still the thing nobody
 has watched.
 
 **The loop cannot reach the npm registry.** It installs the tarball it packed,
@@ -1423,9 +1515,9 @@ rather than from a script.
 Claude Code prints one line of its own when a session starts and Counterparts has
 found something RED. **On a fresh install there is nothing red, so there is no
 line** — a store that has never had an API key is a supported way to run (§6),
-and as of 2026-09-20 `doctor` grades that amber rather than red. The example
-below is a store that HAD a key and lost it, which is the case the notice was
-built for:
+and as of 2026-09-22 `doctor` grades that `OFF`, which is neither red nor amber.
+The example below is a store that HAD a key and lost it, which is the case the
+notice was built for, and which is still RED:
 
 ```
 SessionStart:startup says: counterparts: Credentials — …/credentials.env holds no key:
@@ -1453,24 +1545,52 @@ observer stance, writes nothing, and never prints a credential value:
 
 ```
 counterparts doctor
+counterparts doctor --all           # every line, folding nothing
 counterparts doctor --json          # the findings as JSON: ids, counts, severities
 ```
 
-Worst first, one line of facts and one line naming the fix. Exit code **1** if
-anything is red, 0 otherwise, so a script can branch on `$?`. What it reads:
+**Four grade words, and the order is red, amber, `OFF`, green.** Red is a part of
+the system that is not running; amber is worth a look; **`OFF` (dim) is an optional
+feature that was never turned on**, which is not a problem and has no fix, only a
+`Turn on:` line; green is fine. Every fix is a command — since 2026-09-22 none of
+them tells you to edit JSON by hand, with two named exceptions below. Exit code
+**1** if anything is red, 0 otherwise, so a script can branch on `$?`; an `OFF`
+line never moves it.
 
-| finding | red when |
+**The screen folds.** On a terminal, while every worker-internal finding is green,
+they collapse into one line — `GREEN  Background  the nightly worker ran today;
+nothing failed`, and that sentence is read rather than assumed (with no run today
+it says so instead). What stays on the screen whatever happens is six headline
+findings: `Recall by meaning`, `Crash write-up`, `Memory`, `Claude Code`,
+`Snapshots`, `Self page`. **One red or amber among the internals unfolds all of
+them**, each in its usual place with its fix, and the `--all` invitation
+disappears because nothing was hidden. A pipe was never folded and still is not,
+and `--json` is always complete, unfolded and in worst-first order. The summary
+line is always the counts — `0 red, 0 amber, 2 off, 5 green.` — followed, when
+something was folded, by `Every line: counterparts doctor --all`.
+
+What it reads:
+
+| finding | grade |
 |---|---|
-| Config | the file the hooks read is missing or will not parse |
-| Store | there is no store where the config points |
-| Embedder | — (amber when `embedder.enabled` is not literally `true`) |
-| Stance | — (amber under `observer`) |
-| Credentials | `ANTHROPIC_API_KEY` is absent from the file (amber for the embed key, or a mode that is not 0600) |
+| Recall by meaning | `OFF` on a store that never turned it on — *optional. Recall works on words; a Voyage key lets it match meaning too.* Amber, not OFF, in the two states where something is actually wrong: the knob on with no `VOYAGE_API_KEY`, and the knob off on a store that HAS embedded |
+| Crash write-up | `OFF` with no `ANTHROPIC_API_KEY` — *optional. An Anthropic key lets a session that ended too soon get written up anyway.* **Red** if a working key was here and is gone, which is the case §12's session-start notice was built for |
+| Memory | red when there is no store where the config points; the line carries the memory count `status` calls Memories |
+| Claude Code | amber when no hook of ours is connected, or the memory server is not registered; the fix is `counterparts connect` |
+| Config | red when the file the hooks read is missing or will not parse |
+| Mode | green `remembering`; amber under `observer` |
+| Credentials | a factual line — the file, its mode, which names are saved. The two keys are graded on their own lines above |
 | Checkout | the checkout the hooks run is not an ancestor of `origin/master`, or has tracked modifications (amber when it is merely behind) |
-| Clock | — (amber when `lastActiveDate` is older than the newest boundary: sessions are ending and the worker is not running) |
-| Sweep / Sleep / Backfill / Credit | the newest `sleep.cycle` did not run, or the backfill embedded nothing twice running |
-| Spawn | the worker has been refused as many times in a row as the escalation threshold |
-| Vectors | — (amber while live memories have no vector) |
+| Clock | amber when `lastActiveDate` is older than the newest boundary: sessions are ending and the worker is not running |
+| Sweep / Sleep / Backfill / Credit | red when the newest `sleep.cycle` did not run, or the backfill embedded nothing twice running |
+| Spawn | red when the worker has been refused as many times in a row as the escalation threshold |
+| Snapshots / Self page / Authorship / Journal mode / Page writer / Fired | facts about the store; the last four fold into `Background` while they are green |
+| Vectors | amber while live memories have no vector — and **no finding at all** while recall-by-meaning is off, because there is nothing to embed and its coverage is not a reading |
+
+The two fix lines that still name a configuration edit are the ones with no
+command behind them: a `snapshots.dir` for a store that is not inside a base
+directory, and taking `"observer"` back out of the config. A fix line naming a
+command that does not exist would be worse.
 
 Two things it does differently from every other command, and both matter. It
 reads the store the **configuration** names (`--dir` overrides it), because the
@@ -1499,7 +1619,21 @@ the prompt appears only when both ends are a terminal and `CI` is unset. It writ
 the configuration names, creating it 0600 or putting it back to 0600, replaces
 that name's line (the template's commented placeholder included) and keeps every
 other line and comment. `credentials list` says which of the two names the file
-holds — names only.
+holds — names only, and since 2026-09-22 a bare `counterparts credentials` says the
+same thing rather than refusing with a usage error:
+
+```
+credentials: /…/credentials.env
+  ANTHROPIC_API_KEY    missing
+  VOYAGE_API_KEY       missing
+
+Add or change one: counterparts credentials set <NAME>
+```
+
+Setting the Voyage key at a terminal also asks *Turn on recall by meaning now?* —
+the same question `install` puts, and the reason `doctor`'s fix line can name a
+command instead of a JSON edit (§6). A pipe, `--from-env`, `--stdin` and CI are
+asked nothing and turn on nothing.
 
 Restarting is not required for the hooks: each is a fresh process and picks the
 file up at the next event. The MCP server reads it once, at launch, so a running

@@ -87,9 +87,18 @@ owner owns the data.
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
 `remove [<id> | <words>]`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
-(2026-09-20), `wire` / `unwire` / `uninstall` (2026-09-21); interactive confirmation; the
+(2026-09-20), `connect` / `disconnect` / `uninstall` (2026-09-21); interactive confirmation; the
 data directory.
-*`wire`, `unwire` and `uninstall` are the first commands here that write a file belonging
+*Amended 2026-09-22: `wire` and `unwire` are spelled `connect` and `disconnect` on the
+command line (owner's answer 3). Neither spelling had ever shipped, so there are no aliases
+— the old words refuse as unknown commands — and the internal `wire()` / `unwire()` /
+`WireInput` keep their names, so every guarantee below that says "wire" is about the
+function and stays true as written. Two more command names moved the same day: `ask` is the
+listed spelling of `recall` (which still dispatches, unlisted, and is still the MCP tool's
+name), and `dashboard` is new. `--version` and a bare `counterparts` are commands now; off
+a terminal the bare console prints the help page and asks nothing, which is what keeps
+`tools/install-loop/run.sh` from blocking on it.*
+*`connect`, `disconnect` and `uninstall` are the first commands here that write a file belonging
 to another program, and `install` at a terminal now calls the first of them. Guarantees
 21–35 are what that costs. Like `start-fresh` they refuse `--dir` in words: what they act
 on is decided by the CONFIGURATION, because that is the file the hooks, the worker and the
@@ -185,7 +194,11 @@ snapshots and exports; the removal record; telemetry by reference.
 11. **[A] Command names, flag shapes, and output formatting are surface** and may change
     without touching a core contract.
 12. **[M] Owner-in-the-loop is a short, named list — currently two items: removal, and
-    `start-fresh`.** Candidates for the list get discussed, never assumed (§14.3).
+    `start-fresh`.** *Amended 2026-09-22: it is four. `uninstall --delete-memories` has no
+    `--yes` and never will — the typed phrase is the whole guard — and `install`'s
+    parked-folder question takes no flag either, because moving somebody's data is not
+    something a flag decides. Both joined for `start-fresh`'s reason rather than removal's:
+    what they move cannot be checked by this process.* Candidates for the list get discussed, never assumed (§14.3).
     Everything else that can be safely autonomous is. *`start-fresh` joined it on
     2026-09-20 for a reason removal does not share: what it moves cannot be checked by
     this process. A session holding the store open by a file handle goes on writing into
@@ -246,7 +259,7 @@ snapshots and exports; the removal record; telemetry by reference.
     because nothing opened it, and the rollback lines *as printed* restore it — still
     refused by name, still readable by the build that wrote it.
 
-### `wire` / `unwire` / `uninstall` — the host's own files (2026-09-21, A)
+### `connect` / `disconnect` / `uninstall` — the host's own files (2026-09-21, A)
 
 *Until this change, guarantee 1 of `install.ts` was "the host's files are only PRINTED".
 That sentence is retired, and the thing replacing it is narrower: the host's files are
@@ -254,10 +267,25 @@ edited **after being asked**, and only ever in the two ways below. `install` at 
 terminal now asks and then wires; through a pipe, in CI, in every test and in
 `tools/install-loop/run.sh`'s scripted steps it prints exactly what it printed before,
 byte for byte, and `--no-wire` gets a terminal the same thing.*
+*Amended 2026-09-22 (owner's answer 9, which replaces answer 1 of 09-21): **`install` at a
+terminal no longer asks — it connects.** The preview and the question are gone from that
+path; what is kept is the backup, the one `ok` line naming it, `counterparts disconnect` as
+the undo and `--no-connect` as the opt-out, and the non-interactive arm unchanged byte for
+byte (`--no-wire` is spelled `--no-connect` now, and it makes the console non-interactive
+one level up, so it also suppresses guarantee 37's question). A machine with no Claude Code
+on it — no `~/.claude` under `hostConfigBase` **and** `claude --version` reporting missing —
+is one line and the install carries on; the probe only spawns when the directory is absent.
+The standalone verb does not ask either: typing it is the yes.*
 
 21. **[M] Nothing is written to `~/.claude/settings.json` without a BACKUP first, and its
     path is printed.** `settings.json.counterparts-backup-<UTC stamp>` beside the file, at
     the file's own mode. No change, no backup: a second `wire` is not an event.
+    *Amended 2026-09-22: the backup is still always taken, but on the CONNECT side its
+    path is no longer on the screen — that line is `… (backup kept)`, part of the one
+    `ok` sentence the owner's screen asks for. The path is printed by `disconnect`, whose
+    reader is the one who may want the file back, and by `--dry-run`. The name is
+    deterministic (`BACKUP_INFIX`, beside the file), so it is findable either way; but
+    "its path is printed" is now true of two of the three arms, not three.*
 22. **[M] Every other key and every other tool's hooks survive, and the merge works on
     the INNER hook entry.** Another tool's entry keeps its position, its `matcher`, its
     `timeout` and every key this package has never heard of; an event we do not use is not
@@ -342,17 +370,28 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
 
 ### What the merge with C and D added (2026-09-21)
 
-34. **[M] The install conversation's fourth step is `keys.ts#promptForKeys`**, called
-    AFTER the configuration and the 0600 credentials file exist — `enableEmbedder` edits a
-    configuration and never creates one. `PromptAborted` propagates out of it by that
+34. **[M] The install conversation asks for the keys through `keys.ts#promptForKeys`**,
+    called AFTER the configuration and the 0600 credentials file exist — `enableEmbedder`
+    edits a configuration and never creates one. `PromptAborted` propagates out of it by that
     module's own argument and is caught HERE: the install says nothing else was changed,
     summarises what is on disk from the FILE rather than from the result it just lost, and
-    exits non-zero.
+    exits non-zero. *Amended 2026-09-22 (owner's answer 10): it is no longer a numbered
+    "fourth step" — the screen has no step numbers — and each key begins as a `[y/N]`
+    question carrying what it buys, where Enter is no; only a yes prints the link and takes
+    the hidden paste. A key already held is asked `… is already saved. Replace it? [y/N]`,
+    default no. `offerEmbedder` was split out of the same function so that
+    `credentials set VOYAGE_API_KEY` at a terminal puts the same question — which is what
+    makes guarantee 35's fix line true of the embedder as well.*
 35. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
     Until the three verbs above existed, the only thing this package could do about a
     missing or stale hook was print a block for the reader to paste; the fix line now names
     the command that does the paste — including for the STALE case, which `wire` repairs in
-    place.
+    place. *Amended 2026-09-22: the command is spelled `counterparts connect`, the Host
+    finding is labelled `Claude Code`, and the rule is now general — **every fix line
+    doctor prints is a command**, never an instruction to edit JSON (owner's answer 12,
+    finding #19). Two exceptions are named rather than glossed over, because no command
+    exists behind them: the snapshots line for a store that is not inside a base directory,
+    and `Mode`'s amber, which asks for `"observer"` to be taken out of the config.*
 
 ### Esc, and the screens the trial asked for (2026-09-22)
 
@@ -374,6 +413,54 @@ byte for byte, and `--no-wire` gets a terminal the same thing.*
     that matches nothing, so they refuse and change nothing — safe, but the sentence they
     print is "the confirmation did not match" rather than "Cancelled", and their prompts
     do not say Esc is there. Owed by whoever next touches those commands.
+    *CLOSED the same day (2026-09-22, PR #175 and PR #170). `start-fresh`,
+    `start-fresh --undo` and `migrate-cache --apply` go through `typed()` now: Esc, an
+    empty Enter or the word `cancel` print "Cancelled. Nothing has changed." and exit 0,
+    while a wrong word still refuses. `remove`'s interactive door catches `PromptAborted`
+    into "Cancelled. Nothing was deleted." — which exits NON-zero on that one command, by
+    its own argument: a wrapper must never read a cancelled removal as a removal. So all
+    four are covered, by two different sentences and two different exit codes, and the
+    difference is deliberate.*
+
+### The two guarantees the 09-22 round added (2026-09-22, E and C)
+
+37. **[M] `install` is the undo of `uninstall --park`, and it NEVER OPENS the folder it
+    brings back.** With the configuration directory absent and one or more
+    `<configDir>.parked-*` beside it, the question comes before everything else — newest
+    first, picked by number, and **nothing moves without a typed answer**: Enter is not
+    "start blank", because a blank start beside a parked folder is a second store the
+    person does not know about. The date comes from the NAME, the size from an `lstat`
+    walk, the floor from `preRowsMarkersIn` (filenames, never an open) — so the question
+    carries no memory count and says why. Five shapes are refused BY NAME, with the reason,
+    and left exactly where they are: the folder is a symlink; its `store/` is a symlink (a
+    real parked folder holding `store -> ~/.bansai/store` cleared every other clause); it
+    resolves outside the home; its store is on an older floor; it holds no `store/` at all.
+    Refused candidates are still listed — a folder nobody mentions is a folder somebody
+    thinks is gone. The move is **one `rename`**, with the destination re-checked by
+    `lstat` immediately before the call rather than at the top of the function (scar §2.13:
+    `existsSync` is false for a dangling symlink, which is still something at that path).
+    Off a TTY there is no question and no rename. *Proved by recording the whole tree's
+    relative names, sizes and mtimes before the run and comparing after, on every path that
+    leaves the folder parked; one-rename-not-a-copy by the directory's `dev:ino`; and
+    `pairedSuffix` (what `--park` writes) is pinned against `parkedNameParts` (what this
+    reads), so a change to either that the other does not follow fails.*
+38. **[M] `doctor` has a fourth grade word, `OFF`, and it is a FLAG ON AMBER rather than a
+    fourth severity.** `Finding.optional` moves three things — the sort (red, amber, off,
+    green, so a real amber never prints below an OFF line), the counts, and the word on the
+    screen. Two states are deliberately NOT off: the knob on with no key (the feature was
+    asked for and cannot run) and the knob off on a store that HAS embedded (something that
+    was running has stopped); and a key that was here and is gone is still RED, exits 1 and
+    still reaches the session-start notice. **`severity` stays three-valued in `--json`** —
+    an OFF finding is `"severity": "amber"` plus `"optional": true` — because everything
+    that switches on a severity sees the three words it always saw; the top-level counts do
+    split, `{ red, amber, off, green }`, since a JSON `amber: 2` under a screen reading
+    `0 amber, 2 off` would be the reading and the layout disagreeing about one store.
+    **`--json` is complete and unfolded, always**, whatever a terminal would have hidden,
+    and the exit code is unchanged: red only. On a terminal, every worker-internal finding
+    being green folds them into one `Background` line whose sentence is READ from the Spawn
+    line's `startsToday` rather than assumed; one red or amber unfolds all of them and the
+    `--all` invitation disappears, because nothing was hidden. The fold is an **allowlist of
+    headline keys**, not a list of what folds, so a line added next month folds by default.
 
 ## 6. Scars honored
 

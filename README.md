@@ -13,29 +13,36 @@ database you can read, back up, or export as Markdown whenever you want.
 ```
 curl -fsSL https://bun.sh/install | bash     # only if you don't have bun
 bun add -g counterparts
-counterparts install
+counterparts
 ```
 
-`counterparts install` is a short conversation, and nothing in it is compulsory:
+Check the middle line landed first: `counterparts --version` prints `counterparts 0.2.0`.
+Then the bare command, with nothing set up, offers to do the rest — *No memory here yet.
+Set it up now? [Y/n]*. `counterparts install` asks for the same conversation by name and is
+also the repair: it is safe to run again. Nothing in it is compulsory:
 
 - **your name** — what the memory calls you; Enter skips it;
-- **whether to wire Claude Code** — it shows exactly what it would add (five hooks and one
-  memory server), backs up your `~/.claude/settings.json` before touching it, and leaves
-  hooks belonging to other tools exactly where they are. Answer `n` and nothing of Claude
-  Code's is touched; your store is made either way and `counterparts wire` does this part
-  whenever you are ready;
-- **two optional API keys**, one at a time, each with one line on what it buys and a link
-  to where you get one. Typing is hidden and Enter skips. **Skipping both is a supported
-  way to run** — what you give up is written down, not glossed over.
+- **Claude Code, connected for you.** It keeps a backup of your `~/.claude/settings.json`
+  and says so, adds five hooks **beside** any hooks belonging to other tools, and registers
+  the memory server. `counterparts disconnect` takes all of that back out and names the
+  backup file; `--no-connect` means don't; no Claude Code on the machine is one line and
+  the install carries on;
+- **two optional API keys**, one at a time. Each is a `[y/N]` question with one line on
+  what it buys — Enter is no — and only a yes shows the link and takes the key, typed
+  hidden. **Skipping both is a supported way to run** — what you give up is written down,
+  not glossed over.
 
-Then **restart Claude Code** (the memory tools arrive when a session starts) and check it:
+Then **restart Claude Code** (the memory tools arrive when a session starts) and check that
+it *works*:
 
 ```
 counterparts doctor
 ```
 
-Nothing red means it is running. Amber is "you could have more" — a key you skipped, an
-embedder that is off — not "something is broken".
+Two checks, two moments: `--version` says the program is there, `doctor` says it is
+running. Green is fine. **OFF** is one of the two optional things you never turned on — a
+dim line, not a fault. Amber is worth a look; red is a part that is not running, and the
+only grade that makes it exit non-zero.
 
 **To remove it:**
 
@@ -43,9 +50,12 @@ embedder that is off — not "something is broken".
 counterparts uninstall
 ```
 
-That takes the Claude Code wiring back out and **keeps your memory**. `--park` moves what
-Counterparts wrote aside under a dated name, `--delete-memories` destroys it after listing and counting what is
-about to go and asking you to type a phrase; neither happens unless you ask for it.
+That disconnects Claude Code, **keeps your memory**, and names the one line that removes
+the package itself. `--park` sets the whole `~/.counterparts` folder aside under a dated
+name in one rename — and `counterparts install` finds it there and offers to bring it
+back. `--delete-memories` destroys it instead, after listing every path with its size and
+asking you to type `DELETE MEMORIES`; Esc, Enter or `cancel` at that prompt stops and says
+nothing was deleted. Neither happens unless you ask for it.
 
 The whole install path, with every flag and every reason:
 [`docs/QUICKSTART.md`](docs/QUICKSTART.md) — §1 to §5 is all of it, and everything below
@@ -88,15 +98,16 @@ environment variable switches on. And the crash-recovery path — the one that r
 a session that ended before the AI could write it up — cannot run; when it does run, it
 sends that captured conversation to a model provider. Both are the only two ways anything
 here leaves your machine, and both are yours to turn on. `counterparts doctor` grades a
-store that has never had a key **amber**, not red, and says on the line what works without
-one — so a fresh keyless install is a clean bill of health and not an alarm.
+store that has never had a key **OFF** — dim, optional, never turned on — rather than red
+or amber, and says on the line what works without one, so a fresh keyless install reads as
+a clean bill of health and not as an alarm.
 
 **It works with no host at all.** `$HOME/.counterparts/store` is the default data dir, so
 this works with nothing set:
 
 ```
 counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
-counterparts recall "what espresso machine is in the kitchen?"
+counterparts ask "what espresso machine is in the kitchen?"
 ```
 
 That works on the very first memory — a store holding one memory answers the question
@@ -172,31 +183,39 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`; `counterparts --help` is one line per command
-and `counterparts help <command>` is the detail. Read-only: `status`, `recall`, `doctor`
-(is the background half alive? — the one troubleshooting command, QUICKSTART §12), `fired`
-(which mechanisms have actually fired, and which have not), `self-page`, and `probe-oq4`
-(the footnote-header probe, recall CONTRACT §7). `verify` is
-a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
-which is why `verify` counts as a write and refuses under `--observer` even without the
-flag. `export` is a read too: it copies the store — as one SQLite file, or, with `--markdown`,
-as a readable tree of one file per memory plus the journal and the self page — encrypted
-under a passphrase or explicitly `--plaintext`, because it refuses to choose for you.
-`--markdown` omits confidential memories unless you pass `--include-confidential`, and says
-how many it left out. The rest write: `install`, `init`, `wire`, `unwire`, `uninstall`,
-`credentials set`, `note`, `backup`, `start-fresh`, `remove` (a dry run
-unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
-`repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
-read-only, and the commands that would write refuse instead.
+**Your console** — `counterparts <command>`. `counterparts --help` is fourteen commands in
+three groups (Everyday, Setup, Your data), one line each; `counterparts help <command>` is
+the detail for one; `counterparts help advanced` is the maintenance and developer half —
+`note`, `fired`, `init`, `start-fresh`, `verify`, `rebrief`, the repairs, `probe-oq4`, and
+the three flags that work everywhere. `counterparts --version` opens nothing.
+Read-only: `ask` (the listed spelling of what the MCP tool still calls `recall`), `status`,
+`doctor` (the one troubleshooting command, QUICKSTART §12), `fired`, `self-page` and
+`probe-oq4` (the footnote-header probe, recall CONTRACT §7). `verify` is a census of the
+search cache against the real state, and `--rebuild` is what rebuilds it — which is why
+`verify` counts as a write and refuses under `--observer` even without the flag. `export`
+is a read too: it copies the store — as one SQLite file, or, with `--markdown`, as a
+readable tree of one file per memory plus the journal and the self page — encrypted under a
+passphrase or explicitly `--plaintext`, because it refuses to choose for you. `--markdown`
+omits confidential memories unless you pass `--include-confidential`, and says how many it
+left out. The rest write: `install`, `init`, `connect`, `disconnect`, `uninstall`,
+`credentials set`, `note`, `backup`, `start-fresh`, `backfill-claims`,
+`repair-merged-beliefs` (a dry run unless you pass `--apply`), `rebrief`, and `remove` —
+which at a terminal asks for an id or for words, numbers what it finds, lets you pick one
+or several, shows the plan and asks once; `--confirm` is the scripted door, and anywhere
+nobody can be asked it prints the plan and changes nothing. Pass
+`--observer` to any of them and the console stands down: everything is read-only, and the
+commands that would write refuse instead.
 
-**The dashboard** — `counterparts-dashboard`, read-only, writing nothing, ever. Five views
-in your terminal: `status` (the brain at a glance), `browse` (memories by strength),
-`stories` (per contested belief, the pressure log as a story), `identity`, and `activity`.
-And a local **web** dashboard: `counterparts-dashboard serve --dir <store> [--port <n>]`,
-bound to 127.0.0.1 only, default port 4747 — an overview, memories, mind, flow and health,
-plus a `/brain` view. The screenshots above come from it. `--dir` is not optional:
-without it, `serve` refuses rather than opening the default store, and names the store
-it would have opened. Pass `--default-store` if you meant the default.
+**The dashboard** — read-only, writing nothing, ever. `counterparts dashboard` starts the
+local **web** dashboard on the store your configuration names — no `--dir` to get right —
+prints `http://127.0.0.1:4747`, opens your browser, and stops on Ctrl-C. Bound to 127.0.0.1
+only, it is where the screenshots above come from: an overview, memories, mind, flow and
+health, plus a `/brain` view. The `counterparts-dashboard` binary is still there for the
+five terminal views — `status` (the brain at a glance), `browse` (memories by strength),
+`stories` (per contested belief, the pressure log as a story), `identity` and `activity` —
+and for `serve --dir <store> [--port <n>]`, where `--dir` is not optional: without it,
+`serve` refuses rather than opening the default store, names the store it would have
+opened, and `--default-store` is how you say you meant it.
 
 ---
 
@@ -212,10 +231,25 @@ grown over those weeks, installed the published package from npm, and started ag
 blank memory — so the *store* he is running is new and the *code* is what has been
 exercised daily for a month.
 
-**The test suite, measured 2026-09-21 on this branch under bun 1.3.10:** `bun test` →
-**2,996 pass, 0 fail, nothing skipped**, around 39,000 assertions across 50 files, 77
-seconds. (The assertion count moves by a few hundred between runs — a few tests assert
-once per row of data they generate — while the pass and fail counts do not.)
+**2026-09-22 — the trial, and the round it produced.** The author took 0.2.0 as a tarball
+into a plain terminal, with no Claude Code session and no help: swap the package, `--help`,
+`doctor`, `uninstall --delete-memories` with the wrong phrase typed on purpose (refused,
+nothing changed), `uninstall --park`, then `install` again. Every step did what the sheet
+in front of him said it would, so what came back was not bugs but **words** — eleven of
+them, written down as findings 17–27 in the repository's new-user-findings page and
+answered one at a time. Six pull requests followed the same day (#170–#175), two of them
+adversarially reviewed by a second agent first — the reviews are comments on PRs #170 and
+#173, not files in this repository — and each review found a blocker: `remove` had been
+deciding "is anybody there" from stdin alone, so a redirected stdout turned a dry run into
+a live deletion; and `install --force` at a terminal silently replaced `claude-code.json`,
+which on the new path could throw away a configuration a park had just handed back. Both
+were fixed before merge.
+
+**The test suite, measured 2026-09-22 on this branch under bun 1.3.10:** `bun test` →
+**3,182 pass, 0 fail, nothing skipped**, around 41,000 assertions across 51 files, 80
+seconds. The install loop runs 58/58. (The assertion count moves by a few hundred between
+runs — a few tests assert once per row of data they generate — while the pass and fail
+counts do not.)
 No test touches a real store, and that is mechanized rather than promised:
 `test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
 directory for the whole run, clears `COUNTERPARTS_DATA_DIR`, and removes the directory on
@@ -225,9 +259,9 @@ exit — so for the length of a test run there is no real home to reach.
 package the way a stranger would — from a tarball it packs itself, into a throwaway home
 directory with no copy of this repository on its PATH — and runs 58 checks in about five
 seconds: the store, the config, the credentials file, the hook fed a real payload, a note
-and a recall on the console and again through the MCP server, the lazy session bind, the
-scope switch, and the host's own files (`wire` merging beside another tool's hooks,
-`unwire` taking only ours back out, `uninstall` leaving the memory alone). It also runs
+and an `ask` on the console and again through the MCP server, the lazy session bind, the
+scope switch, and the host's own files (`connect` merging beside another tool's hooks,
+`disconnect` taking only ours back out, `uninstall` leaving the memory alone). It also runs
 every console command on the QUICKSTART page verbatim, grepping each one out of the page
 first, so a doc edit that changes a command fails the loop.
 **What it cannot do**: reach the npm registry (it installs from disk), run `git clone`,
@@ -277,9 +311,14 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
 2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.
-3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
-   `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
-   Absent that, no client is built and no connection opens whatever keys are lying around.
+3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately.
+   Since 2026-09-22 that is a command rather than a JSON edit: `counterparts credentials
+   set VOYAGE_API_KEY`, typed at a terminal, saves the key and then asks whether to turn
+   recall-by-meaning on with it (`--embedder` at install does the same, and
+   `"embedder": { "enabled": true }` in the configuration is still what both of them
+   write). Absent that, no client is built and no connection opens whatever keys are lying
+   around — which is the point: a pipe, `--from-env` and CI are asked nothing and turn on
+   nothing.
 4. **Removal reaches every surface but one, and names the one.** `remove` chases a memory
    out of the database that holds its words and its earlier versions, out of the links, out
    of the search cache, out of the journal's markdown copy — and, since 2026-09-05, out of
