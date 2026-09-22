@@ -6,20 +6,28 @@
  * New-user findings #4 (2026-09-21), in the owner's words: "running help command
  * after installing to verify is clunky, it spits out a ton of help commands with
  * very verbose summarys, basically a wall of text." `counterparts --help` was 129
- * lines of dense paragraphs, and it is the SECOND thing a stranger types — the
- * "did that install work?" check. A wall of text is a bad answer to that
- * question whatever it says.
+ * lines of dense paragraphs. Splitting it into a short map and a page per command
+ * fixed the wall; the 0.2.0 trial (findings #17, #18) found what was left:
+ * the map was still a list of every command this package has, written in the
+ * builder's words — "Is the background half alive? Worst first, with fixes",
+ * "Just a store — a second one, or a scratch one" ("what does that even mean and
+ * when would a user use it?").
  *
- * ── The split ───────────────────────────────────────────────────────────────
+ * ── The split, as the owner drew it on 2026-09-22 ───────────────────────────
  *
- * Two pages now, and each answers exactly one question:
+ * THREE pages now, and each answers exactly one question:
  *
  *   - **`counterparts --help` / `help` / no arguments** → this file's
- *     `shortHelp()`: one line of what this is, then every command grouped by
- *     what a person came to do, ONE short line each, and where to go for more.
+ *     `shortHelp()`: what this is, then the fourteen commands a person actually
+ *     reaches for, grouped by what they came to do, ONE short line each.
+ *   - **`counterparts help advanced`** → `advancedHelp()`: the maintenance and
+ *     developer shelf, plus the three flags every command takes. A command that
+ *     exists and is written down nowhere is a command nobody can ask for; a
+ *     command on the first page a person will never type is a wall of text.
  *   - **`counterparts help <command>` / `<command> --help`** →
  *     `commands.ts#commandHelp`: that command's blurb, its invocation, the
- *     paragraphs below, and every flag it takes with a sentence each.
+ *     paragraphs below, and every flag it takes with a sentence each. It works
+ *     for EVERY command, listed or not.
  *
  * NOTHING WAS DELETED to make the short page short. Every sentence the old
  * `usage()` carried is either in `COMMAND_BLURB`, in `FLAG_HELP` (so it prints
@@ -27,12 +35,16 @@
  * file exists to hold. `test/help.test.ts` walks a list of phrases out of the
  * old page and asserts each one still prints somewhere a reader can ask for it.
  *
- * ── Two rules for whoever adds a command next ───────────────────────────────
+ * ── Three rules for whoever adds a command next ─────────────────────────────
  *
  *   1. **Every command has a short line here and a page there.**
  *      `test/help.test.ts` walks `COMMANDS` and fails on a command that has
  *      neither, so a command cannot be added without help for it.
- *   2. **The short line is SHORT**: `SHORT_LIMIT` characters of description,
+ *   2. **Every command is accounted for in exactly one of three places**:
+ *      `GROUPS` (the short map), `ADVANCED` (the shelf), or `UNLISTED` — which
+ *      demands a REASON in words for why a dispatched command is on neither
+ *      page. The test holds all four tables to `COMMANDS` in both directions.
+ *   3. **The short line is SHORT**: `SHORT_LIMIT` characters of description,
  *      mechanized by the same test. The long version has a place to live.
  *
  * ── No value import from `commands.ts` ──────────────────────────────────────
@@ -43,14 +55,24 @@
  * to `COMMANDS` lives in the test, where both sides can be named at once.
  */
 
-/** The longest a short line's DESCRIPTION may be. Mechanized in the test. */
-export const SHORT_LIMIT = 60;
+/**
+ * The longest a short line's DESCRIPTION may be. Mechanized in the test.
+ *
+ * It was 60 until 2026-09-22, when the owner wrote the fourteen lines of the
+ * short page himself and the longest of them — `install`'s — came to 73. The
+ * limit is a tripwire against a description growing into a paragraph, not a
+ * layout rule, so it moved to fit the page he wrote rather than the page being
+ * re-wrapped to fit it. `self-page` is the one line he wrote as TWO, and
+ * `SHORT` therefore takes an array where a single line will not do.
+ */
+export const SHORT_LIMIT = 75;
 
-/** Where the description starts, after two spaces of indent and the name.
- *  Wide enough that `backfill-claims` — the longest name that fits — still gets
- *  two spaces after it; `repair-merged-beliefs` does not fit and takes its own
- *  line, the shape the old page already used for it. */
-const NAME_COLUMN = 17;
+/** Where the description starts on the short page, after two spaces of indent
+ *  and the name. Wide enough for `credentials`, the longest name on it. */
+const NAME_COLUMN = 14;
+
+/** The same, for the advanced page, where `repair-merged-beliefs` lives. */
+const ADVANCED_NAME_COLUMN = 24;
 
 /**
  * COMMANDS THIS CONSOLE DOES NOT DISPATCH YET, listed anyway.
@@ -75,42 +97,53 @@ export interface HelpGroup {
  *
  * Not a second copy of `COMMAND_BLURB` — a different job. The blurb is the lede
  * of a page somebody has already asked for and can be a sentence long; this is
- * a row in a list of two dozen, and its whole value is that the eye can cross it
- * without stopping.
+ * a row in a list, and its whole value is that the eye can cross it without
+ * stopping.
+ *
+ * The fourteen lines of `GROUPS` are the owner's own words, 2026-09-22, and
+ * `docs/new-user-findings.md` § "The screens" renders them as the acceptance
+ * criterion — a builder matches that page, then keeps the facts the old one
+ * carried. An entry is an ARRAY only where he wrote two lines.
  */
-export const SHORT: Record<string, string> = {
+export const SHORT: Record<string, string | readonly string[]> = {
   // ── everyday ──
-  status: "What is held, what left, what was removed",
-  doctor: "Is the background half alive? Worst first, with fixes",
-  recall: "Ask memory a question",
-  note: "Remember something, deliberately",
-  "self-page": "The written page every session wakes with",
-  fired: "Which mechanisms have fired, and which have not",
+  ask: "Ask memory a question",
+  status: "Memories held and recent activity",
+  doctor: "Check that everything is working",
+  dashboard: "Open the dashboard in your browser",
+  "self-page": [
+    "The assistant's identity page — who it is, who you are —",
+    "read at the start of every session",
+  ],
   // ── setup ──
-  install: "Cold start: the store, the config, the credentials",
-  wire: "Connect Claude Code to this memory",
-  unwire: "Disconnect Claude Code",
-  uninstall: "Remove Counterparts from this machine; memory is kept",
-  credentials: "Put an API key where the background half reads it",
-  scope: "Which directories this memory is for",
-  init: "Just a store — a second one, or a scratch one",
+  install: "First-time setup: your memory, Claude Code, your keys — safe to run again",
+  connect: "Connect an AI to your memory (Claude Code today; more soon)",
+  disconnect: "Disconnect an AI",
+  credentials: "Add or change your API keys (Anthropic, Voyage)",
+  scope: "Turn memory on or off for a directory",
+  uninstall: "Remove Counterparts; keeps your memory unless you say otherwise",
   // ── your data ──
-  export: "A portable copy, encrypted unless you say otherwise",
-  backup: "A snapshot of the prose and the database",
-  remove: "Delete one memory for good. Dry run unless --confirm",
-  "start-fresh": "Park this store and begin again on a blank one",
-  // ── advanced ──
-  verify: "Census of the cache against canonical state",
-  rebrief: "Re-render and republish the wake bundle now",
-  "migrate-cache": "Convert the cache's vectors to float32, in place",
-  "backfill-claims": "Give unclaimed authored memories the claimed floor",
-  "repair-dates": "Give migrated memories their true learned date",
-  "repair-merged-beliefs": "Put back beliefs the dedup pass archived as duplicates",
-  "probe-oq4": "Footnotes delivered, and how many were expanded later",
-  // `help` is real, dispatched, and printed in the footer rather than in a
-  // group: a list of commands whose last entry is "the command that prints this
-  // list" reads as a joke at the reader's expense.
+  export: "A copy of your memory you can take anywhere, encrypted by default",
+  backup: "Save a snapshot of your memory to a folder",
+  remove: "Delete one memory for good",
+  // ── advanced: the maintenance shelf, in a person's words rather than the
+  //    build's. Finding #18 is exactly this list read by somebody who had just
+  //    installed the package.
+  note: "Remember something on purpose, right now",
+  fired: "Which parts of memory have actually run, and which never have",
+  init: "Make a second, separate memory store — a scratch one",
+  "start-fresh": "Set this memory aside and start blank; --undo brings it back",
+  verify: "Count the search index against what is actually stored",
+  rebrief: "Rebuild what the next session wakes up with, now",
+  "migrate-cache": "Convert the search index to the newer, smaller format",
+  "backfill-claims": "One-off repair: give old memories their default footing",
+  "repair-dates": "One-off repair: give imported memories their real dates",
+  "repair-merged-beliefs": "One-off repair: put back beliefs a cleanup pass filed away",
+  "probe-oq4": "A measurement: which footnotes were opened again later",
+  // ── the three that are on no page, and `UNLISTED` says why ──
   help: "What it does, and every flag it takes",
+  recall: "Ask memory a question",
+  version: "The version of Counterparts you have",
 };
 
 /**
@@ -119,63 +152,125 @@ export const SHORT: Record<string, string> = {
  * "Everyday" is what somebody does with a memory; "Setup" is the half-hour they
  * spend once; "Your data" is every door out of the store, together, because a
  * person who wants to leave should not have to read the whole page to find out
- * they can; "Advanced" is the maintenance shelf, listed in full — a command that
- * exists and is not written down is a command nobody can ask for.
+ * they can.
  */
 export const GROUPS: readonly HelpGroup[] = [
-  { title: "Everyday", commands: ["status", "doctor", "recall", "note", "self-page", "fired"] },
+  { title: "Everyday", commands: ["ask", "status", "doctor", "dashboard", "self-page"] },
   {
     title: "Setup",
-    commands: ["install", "wire", "unwire", "uninstall", "credentials", "scope", "init"],
+    commands: ["install", "connect", "disconnect", "credentials", "scope", "uninstall"],
   },
-  { title: "Your data", commands: ["export", "backup", "remove", "start-fresh"] },
-  {
-    title: "Advanced",
-    commands: [
-      "verify",
-      "rebrief",
-      "migrate-cache",
-      "backfill-claims",
-      "repair-dates",
-      "repair-merged-beliefs",
-      "probe-oq4",
-    ],
-  },
+  { title: "Your data", commands: ["export", "backup", "remove"] },
 ];
 
-/** `  name            description`, with an over-long name on its own line —
- *  the shape the old page already used for `repair-merged-beliefs`. */
-function shortLine(name: string): string[] {
-  const text = SHORT[name] ?? "";
-  if (name.length >= NAME_COLUMN) return [`  ${name}`, `  ${" ".repeat(NAME_COLUMN)}${text}`];
-  return [`  ${name.padEnd(NAME_COLUMN)}${text}`];
-}
+/**
+ * THE MAINTENANCE SHELF — listed in full, one page away.
+ *
+ * These are real, dispatched commands, and every one of them is written down:
+ * a command that exists and is documented nowhere is a command nobody can ask
+ * for. They are not on the first page because the first page is read by
+ * somebody thirty seconds after installing, and none of these is what they
+ * came for. `repair-*` and `backfill-claims` in particular are one-off repairs
+ * for stores migrated out of v1 — there are two of those in the world.
+ */
+export const ADVANCED: readonly string[] = [
+  "note",
+  "fired",
+  "init",
+  "start-fresh",
+  "verify",
+  "rebrief",
+  "migrate-cache",
+  "backfill-claims",
+  "repair-dates",
+  "repair-merged-beliefs",
+  "probe-oq4",
+];
 
 /**
- * The whole console in about forty lines — what `counterparts`, `--help` and
+ * THE COMMANDS ON NEITHER PAGE, each with the reason it is off both.
+ *
+ * A dispatched command that nothing lists is how a console grows a hidden
+ * surface. So the omission is declared, in words, and the test reads this table
+ * as the third of the three places a command may be accounted for — which means
+ * hiding one costs a sentence that a reviewer will see.
+ */
+export const UNLISTED: Record<string, string> = {
+  // A list of commands whose last entry is "the command that prints this list"
+  // reads as a joke at the reader's expense. It is in the footer of both pages.
+  help: "printed in the footer of both pages rather than as a row in a group",
+  // The MCP tool is `recall`, `doctor` says "recall by meaning", and the word is
+  // the right one for what the machinery does. `ask` is the word a PERSON
+  // reaches for, so that is the one on the map; both dispatch, forever.
+  recall: "the unlisted spelling of `ask` — it still dispatches, and always will",
+  // `counterparts --version` is what a person types; `counterparts version` is
+  // the same answer for anybody who types the verb. Neither belongs on a map of
+  // things to do with a memory.
+  version: "reached as `counterparts --version`, which is how anybody asks it",
+};
+
+/** The three flags every command takes, said once, on the advanced page. */
+export const GLOBAL_FLAGS: readonly { readonly flag: string; readonly said: string }[] = [
+  { flag: "--dir <path>", said: "Look at a different memory store than the configured one" },
+  { flag: "--config <path>", said: "Use a different configuration file" },
+  { flag: "--observer", said: "Read only: look at memory and change nothing" },
+];
+
+/** The description of `name`, as the one or two lines it is written as. */
+export function linesOf(name: string): readonly string[] {
+  const said = SHORT[name];
+  if (said === undefined) return [];
+  return typeof said === "string" ? [said] : said;
+}
+
+/** `  name          description`, with an over-long name on its own line and a
+ *  two-line description hanging under the first. */
+function shortLine(name: string, column: number): string[] {
+  const said = linesOf(name);
+  const first = said[0] ?? "";
+  const hanging = " ".repeat(2 + column);
+  const rest = said.slice(1).map((line) => `${hanging}${line}`);
+  if (name.length >= column) return [`  ${name}`, `${hanging}${first}`, ...rest];
+  return [`  ${name.padEnd(column)}${first}`, ...rest];
+}
+
+/** The two lines both pages end on: where the detail is, and where the package
+ *  lives. A stranger who wants more has somewhere to go from either page. */
+const ASK_A_COMMAND = "counterparts help <command>   everything a command can do";
+const ASK_ADVANCED = "counterparts help advanced    maintenance and developer commands";
+const HOME_PAGE = "https://www.npmjs.com/package/counterparts";
+
+/**
+ * The console in about twenty-five lines — what `counterparts`, `--help` and
  * `help` all print.
  *
- * The first line is load-bearing in two places: `tools/install-loop/run.sh`
- * greps it to decide whether the install produced a working console at all, and
- * `test/cli.test.ts` asserts it for both `--help` and a bare invocation. The
- * phrase is "the owner's console".
+ * The first line is load-bearing in one place: `test/cli.test.ts` asserts it for
+ * both `--help` and a bare invocation. It said "the owner's console for a
+ * Counterparts memory store" until 2026-09-22 — a sentence about whose console
+ * this is, to a reader who does not yet know what the thing is. The owner
+ * replaced it with what it IS. `tools/install-loop/run.sh` used to grep the old
+ * phrase as its "did the install work" check and now runs `--version` instead,
+ * which is the question it was actually asking.
  */
 export function shortHelp(): string {
-  const lines: string[] = [
-    "counterparts — the owner's console for a Counterparts memory store.",
-  ];
+  const lines: string[] = ["counterparts — a memory layer for AI"];
   for (const group of GROUPS) {
     lines.push("", group.title);
-    for (const name of group.commands) lines.push(...shortLine(name));
+    for (const name of group.commands) lines.push(...shortLine(name, NAME_COLUMN));
   }
-  lines.push(
-    "",
-    "Everywhere: --dir <path>   --config <path>   --observer",
-    "",
-    `counterparts help <command>   ${SHORT["help"] ?? ""}`,
-    "Docs: docs/QUICKSTART.md, shipped with the package.",
-    "     https://www.npmjs.com/package/counterparts",
-  );
+  lines.push("", ASK_A_COMMAND, ASK_ADVANCED, HOME_PAGE);
+  return lines.join("\n");
+}
+
+/** `counterparts help advanced` — the shelf, and the three flags. */
+export function advancedHelp(): string {
+  const lines: string[] = ["counterparts help advanced — maintenance and developer commands", ""];
+  for (const name of ADVANCED) lines.push(...shortLine(name, ADVANCED_NAME_COLUMN));
+  lines.push("", "Everywhere");
+  for (const { flag, said } of GLOBAL_FLAGS) {
+    lines.push(`  ${flag.padEnd(ADVANCED_NAME_COLUMN)}${said}`);
+  }
+  lines.push("", ASK_A_COMMAND, HOME_PAGE);
   return lines.join("\n");
 }
 
@@ -247,35 +342,73 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "With a mode flag it writes <config dir>/scopes.json; with none it says what",
     "the directory resolves to and which entry decided.",
   ],
+  // `ask` and `recall` are ONE command under two names, so this sentence is on
+  // both pages: whichever a person typed, the other one is the thing they will
+  // meet in somebody else's notes, in `doctor`, or as the MCP tool.
+  ask: [
+    "`counterparts recall` is the same command under its older name — the word",
+    "the memory tools and doctor's \"recall by meaning\" still use. Both dispatch.",
+  ],
+  recall: [
+    "`counterparts ask` is the same command, and it is the listed spelling: this",
+    "one stays because the memory tool, doctor and every note written before",
+    "2026-09-22 call it recall.",
+  ],
+  dashboard: [
+    "It reads the store your CONFIGURATION names — the one the hooks and the",
+    "memory tools open — so it needs no --dir. The page is served on 127.0.0.1",
+    "and nowhere else, in observer mode: it strengthens nothing, deposits",
+    "nothing, and writes no file of its own.",
+  ],
   help: [
     "With no command it prints the short map — the same page `counterparts",
-    "--help` and a bare `counterparts` print. With one, that command's own page:",
-    "`counterparts help doctor` and `counterparts doctor --help` are the same",
-    "page. It opens no store and reads no configuration.",
+    "--help` and a bare `counterparts` print. With `advanced`, the maintenance",
+    "shelf and the three flags every command takes. With a command name, that",
+    "command's own page: `counterparts help doctor` and `counterparts doctor",
+    "--help` are the same page, and it works for every command, listed or not.",
+    "It opens no store and reads no configuration.",
   ],
-  wire: [
-    "It shows what it will add, then backs ~/.claude/settings.json up beside",
-    "itself and says the path. The five hooks go BESIDE anything already on",
-    "those events — another tool's hook keeps its place and every one of its",
-    "own settings — and an entry of ours that names a path that has moved is",
-    "repaired rather than duplicated. A settings file it cannot parse is a",
-    "refusal: it changes nothing and prints the block for you to merge by hand.",
+  version: [
+    // NOT the flag spelled out: `counterparts version` does not TAKE a version
+    // flag (it takes none at all), and `test/cli.test.ts` holds every page to
+    // exactly the flags its own command accepts — a page that shows a flag the
+    // command would refuse is teaching a mistake. The fact still has to be here,
+    // because the flag is how most people will ask, so it is named in words.
+    "The version FLAG on a bare `counterparts` prints the same line, and that is",
+    "how most people ask; this command is for anybody who types the verb. It is",
+    "the check to run straight after installing: it opens no store and reads no",
+    "configuration, so it answers \"is the program here and runnable\" and",
+    "nothing else. `counterparts doctor`, after an install and a restart, is the",
+    "one that says whether it WORKS.",
+  ],
+  connect: [
+    "It backs ~/.claude/settings.json up beside itself before a byte changes,",
+    "and says so; --dry-run shows what would change and changes nothing. The",
+    "five hooks go BESIDE anything already on those events — another tool's",
+    "hook keeps its place and every one of its own settings — and an entry of",
+    "ours that names a path that has moved is repaired rather than duplicated.",
+    "A settings file it cannot parse is a refusal: it changes nothing and",
+    "prints the block for you to merge by hand.",
     "",
     "The MCP server is registered by running `claude mcp add`; it never writes",
     "~/.claude.json itself, because Claude Code owns that file. If `claude` is",
     "not on your PATH the hooks still go in and the line is printed for you.",
     "",
+    "Claude Code is the one host it knows today, so `counterparts connect` and",
+    "`counterparts connect claude-code` are the same thing and any other name",
+    "is refused. It does not ask first: naming the verb is the yes.",
+    "",
     "Hooks start with your next turn in any open session; the memory tools",
     "appear after you restart Claude Code.",
   ],
-  unwire: [
+  disconnect: [
     "It removes only the entries it recognises as its own — another tool's hooks",
     "are never candidates — and runs `claude mcp remove`. It backs the settings",
-    "file up first, exactly as `wire` does. Your memory is not touched, and this",
-    "one works even if the configuration is already gone.",
+    "file up first, exactly as `connect` does. Your memory is not touched, and",
+    "this one works even if the configuration is already gone.",
   ],
   uninstall: [
-    "It unwires the host, then says where your memory still is, how many",
+    "It disconnects the host, then says where your memory still is, how many",
     "memories are in it, and the one command that removes the package:",
     "`bun remove -g counterparts` (a program does not delete itself).",
     "",

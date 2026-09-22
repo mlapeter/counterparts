@@ -184,7 +184,7 @@ async function notes(n: number): Promise<void> {
  */
 async function wireIt(): Promise<void> {
   const c = consoleWith();
-  const code = await run(["wire", "--config", configPath(), "--yes"], {
+  const code = await run(["connect", "--config", configPath()], {
     io: c.io,
     env: ENV,
     home,
@@ -462,7 +462,9 @@ describe("uninstall, plain", () => {
     });
     const c = consoleWith();
     expect(await uninstall(input({ io: c.io, lister: busy }))).toBe("ok");
-    expect(text(c.out)).toContain("keeps its hooks until its next turn");
+    // `unwire`'s closing sentence, in the owner's 2026-09-22 wording — two
+    // clauses about hooks and servers became the one thing a person can act on.
+    expect(text(c.out)).toContain("An open Claude Code session keeps working until you close it.");
   });
 });
 

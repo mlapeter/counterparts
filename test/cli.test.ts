@@ -63,6 +63,7 @@ import {
   COMMAND_FLAGS,
   COMMON_FLAGS,
   CREDENTIALS_FILE,
+  DASHBOARD_DEFAULT_PORT,
   commandHelp,
   EXIT,
   HOOK_SCRIPT,
@@ -84,7 +85,7 @@ import {
   snapshot,
   vacuumInto,
 } from "../src/adapters/cli/index.js";
-import type { Io } from "../src/adapters/cli/index.js";
+import type { DashboardSeam, Io, RunningView } from "../src/adapters/cli/index.js";
 import { ownerRemoval, planRemoval, verifyRemoval } from "../src/adapters/cli/removal.js";
 // The box-2 half of the destruction path. Imported HERE for the same reason
 // `removal.ts` is: this is the directory allowed to reach it, and the
@@ -4068,17 +4069,25 @@ describe("the destruction path is importable from this directory only", () => {
 // ── the console's own shape ─────────────────────────────────────────────────
 
 describe("usage", () => {
-  test("--help is an answered question (exit 0); a bare invocation is a usage error", async () => {
+  test("--help is an answered question, and so is a bare invocation — both exit 0", async () => {
     // Two commands apart in a stranger's first minute, and they used to share
     // the failing code: `counterparts --help` set $? to 1 and any `set -e`
-    // wrapper died on the help text.
+    // wrapper died on the help text. `--help` was fixed then; the BARE call
+    // stayed a usage error, on the reasoning that an invocation naming nothing
+    // is a mistake. On 2026-09-22 the owner gave it a job — it is QUICKSTART's
+    // step 2, the thing a person types straight after installing — so a
+    // documented step that exits 1 is the same `set -e` trap one door along.
     const helped = consoleWith();
     expect(await run(["--help"], { io: helped.io })).toBe(EXIT.ok);
-    expect(text(helped.out)).toContain("the owner's console");
+    expect(text(helped.out)).toContain("counterparts — a memory layer for AI");
 
     const bare = consoleWith();
-    expect(await run([], { io: bare.io })).toBe(EXIT.usage);
-    expect(text(bare.out)).toContain("the owner's console");
+    expect(await run([], { io: bare.io })).toBe(EXIT.ok);
+    expect(text(bare.out)).toContain("counterparts — a memory layer for AI");
+    // Off a terminal — which every test console is — it names the command that
+    // sets it up, and asks nothing. The install loop runs QUICKSTART's commands
+    // with no terminal and this one must never block there.
+    expect(text(bare.out)).toContain("counterparts install");
 
     const perCommand = consoleWith();
     expect(await run(["status", "--help"], { io: perCommand.io })).toBe(EXIT.ok);
@@ -5001,3 +5010,345 @@ function storeHolds(root: string, needle: string): boolean {
     (p) => existsSync(p) && readFileSync(p).toString("latin1").includes(needle),
   );
 }
+
+// ── --version, the bare console, ask, and the dashboard ─────────────────────
+
+/**
+ * The four surfaces the 2026-09-22 round added or re-pointed, and each one is
+ * something a person meets in their first minute.
+ */
+describe("counterparts --version", () => {
+  test("the flag and the verb print the same line, out of the package's own manifest", async () => {
+    const said = `counterparts ${
+      (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as {
+        version: string;
+      }).version
+    }`;
+    const flag = consoleWith();
+    expect(await run(["--version"], { io: flag.io, env: {} })).toBe(EXIT.ok);
+    expect(text(flag.out)).toBe(said);
+    expect(said).toMatch(/^counterparts \d+\.\d+\.\d+$/);
+
+    const verb = consoleWith();
+    expect(await run(["version"], { io: verb.io, env: {} })).toBe(EXIT.ok);
+    expect(text(verb.out)).toBe(said);
+  });
+
+  test("it opens nothing, so a shell with the guard armed still gets an answer", async () => {
+    // The check a person runs straight after `bun add -g`, on a machine that may
+    // have no store at all.
+    const c = consoleWith();
+    expect(
+      await run(["--version"], { io: c.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" } }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("counterparts ");
+    expect(text(c.err)).toBe("");
+  });
+
+  test("`self-page --version <seq>` is untouched: that one carries a value", async () => {
+    // `--version` is declared as a STRING (self-page takes it), so `strict:
+    // false` hands back the boolean `true` only when nothing follows it. The
+    // version flag reads exactly that boolean, and nothing else.
+    const s = store();
+    s.close();
+    const c = consoleWith();
+    // No such version, but the point is that it reached `self-page` at all
+    // rather than printing a version line.
+    await run(["self-page", "--version", "1", "--dir", dir], { io: c.io, env: {} });
+    expect(text(c.out)).not.toContain("counterparts 0.");
+  });
+
+  test("on a command line that names a command, --version is refused like any other typo", async () => {
+    const c = consoleWith();
+    expect(await run(["status", "--version", "--dir", dir], { io: c.io, env: {} })).toBe(
+      EXIT.refused,
+    );
+    expect(text(c.err)).toContain("unknown flag --version");
+  });
+});
+
+describe("a bare `counterparts`", () => {
+  /** A console with a person at it: a terminal, and answers to give. */
+  function terminal(answers: readonly string[]): Console_ {
+    const c = consoleWith(answers.length > 0 ? answers : [""]);
+    return {
+      ...c,
+      io: {
+        ...c.io,
+        tty: { stdin: true, stdout: true },
+        promptHidden: async (): Promise<string> => "",
+      },
+    };
+  }
+
+  test("off a terminal it prints the map and the one line that sets it up, and exits 0", async () => {
+    const c = consoleWith();
+    expect(await run([], { io: c.io, env: {}, home: outside })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("counterparts — a memory layer for AI");
+    expect(text(c.out)).toContain("`counterparts install` does it");
+    // NOTHING WAS ASKED. The install loop runs QUICKSTART's commands with no
+    // terminal, and a question there is a hang that never times out.
+    expect(c.asked).toEqual([]);
+  });
+
+  test("at a terminal with nothing set up it offers to set it up, and 'no' prints the map", async () => {
+    const c = terminal(["n"]);
+    expect(await run([], { io: c.io, env: {}, home: outside })).toBe(EXIT.ok);
+    expect(c.asked[0]).toContain("No memory here yet. Set it up now?");
+    expect(c.asked[0]).toContain("[Y/n]");
+    expect(text(c.out)).toContain("counterparts — a memory layer for AI");
+    // And nothing was created by asking.
+    expect(existsSync(join(outside, ".counterparts"))).toBe(false);
+  });
+
+  test("'yes' runs install — the same command, through the same door", async () => {
+    const c = terminal(["y", "Ada", "n"]);
+    const code = await run([], {
+      io: c.io,
+      env: {},
+      home: outside,
+      spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+      processes: () => ({ looked: true, processes: [] }),
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("counterparts install");
+    expect(existsSync(join(outside, ".counterparts", CONFIG_FILE))).toBe(true);
+  });
+
+  test("at a terminal WITH a configuration there is no question at all", async () => {
+    mkdirSync(join(outside, ".counterparts"), { recursive: true });
+    writeFileSync(join(outside, ".counterparts", CONFIG_FILE), JSON.stringify({ dataDir: dir }));
+    const c = terminal(["y"]);
+    expect(await run([], { io: c.io, env: {}, home: outside })).toBe(EXIT.ok);
+    expect(c.asked).toEqual([]);
+    expect(text(c.out)).toContain("counterparts — a memory layer for AI");
+  });
+
+  test("with the explicit-dir guard armed it asks nothing and stats nothing", async () => {
+    // The guard's whole point is that nothing nobody named gets touched, and
+    // "is there a configuration at the default path" is a question about
+    // exactly that path.
+    const c = terminal(["y"]);
+    expect(
+      await run([], {
+        io: c.io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        home: outside,
+      }),
+    ).toBe(EXIT.ok);
+    expect(c.asked).toEqual([]);
+    expect(text(c.out)).toContain("counterparts — a memory layer for AI");
+  });
+});
+
+describe("ask, and recall under its older name", () => {
+  test("both spellings reach the same command and answer the same question", async () => {
+    store().close();
+    await run(
+      ["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir],
+      { io: consoleWith().io },
+    );
+    const asked = consoleWith();
+    expect(await run(["ask", "what espresso machine?", "--dir", dir], { io: asked.io })).toBe(
+      EXIT.ok,
+    );
+    const recalled = consoleWith();
+    expect(await run(["recall", "what espresso machine?", "--dir", dir], { io: recalled.io })).toBe(
+      EXIT.ok,
+    );
+    expect(text(asked.out)).toBe(text(recalled.out));
+    expect(text(asked.out)).toContain("Rancilio");
+  });
+
+  test("the refusal says back the word the person typed", async () => {
+    const said = consoleWith();
+    expect(await run(["ask", "--dir", dir], { io: said.io })).toBe(EXIT.usage);
+    expect(text(said.err)).toContain("ask takes a question");
+    expect(text(said.err)).toContain('counterparts ask "..."');
+
+    const older = consoleWith();
+    expect(await run(["recall", "--dir", dir], { io: older.io })).toBe(EXIT.usage);
+    expect(text(older.err)).toContain("recall takes a question");
+  });
+
+  test("`ask` is the listed name and both take the same flags", () => {
+    expect(COMMAND_FLAGS["ask"]).toEqual(COMMAND_FLAGS["recall"]);
+    expect(unknownFlag("ask", ["--json"])).toBeNull();
+    expect(unknownFlag("ask", ["--kind", "fact"])).not.toBeNull();
+  });
+});
+
+describe("counterparts dashboard", () => {
+  /** A dashboard that never binds a port. */
+  function seam(port = DASHBOARD_DEFAULT_PORT): {
+    seam: DashboardSeam;
+    started: { dir: string; port: number | undefined }[];
+    opened: string[];
+    stopped: number;
+  } {
+    const started: { dir: string; port: number | undefined }[] = [];
+    const opened: string[] = [];
+    const box = { stopped: 0 };
+    return {
+      started,
+      opened,
+      get stopped(): number {
+        return box.stopped;
+      },
+      seam: {
+        start: async (o): Promise<RunningView> => {
+          started.push({ dir: o.dir, port: o.port });
+          return {
+            url: `http://127.0.0.1:${String(o.port ?? port)}`,
+            dir: o.dir,
+            stop: async (): Promise<void> => {
+              box.stopped += 1;
+            },
+          };
+        },
+        open: (url: string): void => {
+          opened.push(url);
+        },
+        until: async (): Promise<void> => {
+          /* a real run waits for Ctrl-C; a test does not wait at all */
+        },
+      },
+    };
+  }
+
+  /** A configuration naming this test's store, where the hooks would read it. */
+  function configured(): void {
+    store().close();
+    mkdirSync(join(outside, ".counterparts"), { recursive: true });
+    writeFileSync(join(outside, ".counterparts", CONFIG_FILE), JSON.stringify({ dataDir: dir }));
+  }
+
+  test("it opens the CONFIGURED store with no --dir, prints the one line, and opens a browser", async () => {
+    configured();
+    const s = seam();
+    const c = consoleWith();
+    expect(await run(["dashboard"], { io: c.io, env: {}, home: outside, dashboard: s.seam })).toBe(
+      EXIT.ok,
+    );
+    expect(s.started).toEqual([{ dir, port: undefined }]);
+    expect(text(c.out)).toContain("Dashboard: http://127.0.0.1:4747  (Ctrl-C stops it)");
+    // Which store is on that socket is never a guess.
+    expect(text(c.out)).toContain(`reading ${dir}`);
+    expect(s.opened).toEqual(["http://127.0.0.1:4747"]);
+    // Ctrl-C came back: the server was stopped rather than left listening.
+    expect(s.stopped).toBe(1);
+  });
+
+  test("--no-open serves it and opens nothing", async () => {
+    configured();
+    const s = seam();
+    const c = consoleWith();
+    expect(
+      await run(["dashboard", "--no-open"], {
+        io: c.io,
+        env: {},
+        home: outside,
+        dashboard: s.seam,
+      }),
+    ).toBe(EXIT.ok);
+    expect(s.opened).toEqual([]);
+    expect(text(c.out)).toContain("Dashboard: ");
+  });
+
+  test("--dir names another store, and --port another port", async () => {
+    configured();
+    const other = join(outside, "second-store");
+    Store.open({ dir: other }).close();
+    const s = seam();
+    const c = consoleWith();
+    expect(
+      await run(["dashboard", "--dir", other, "--port", "5050", "--no-open"], {
+        io: c.io,
+        env: {},
+        home: outside,
+        dashboard: s.seam,
+      }),
+    ).toBe(EXIT.ok);
+    expect(s.started).toEqual([{ dir: other, port: 5050 }]);
+    expect(text(c.out)).toContain("http://127.0.0.1:5050");
+  });
+
+  test("a port that is not a port is refused, and nothing is opened", async () => {
+    configured();
+    const s = seam();
+    const c = consoleWith();
+    expect(
+      await run(["dashboard", "--port", "haystack"], {
+        io: c.io,
+        env: {},
+        home: outside,
+        dashboard: s.seam,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("is not a port number");
+    expect(s.started).toEqual([]);
+  });
+
+  test("with no configuration it refuses and names the three ways forward", async () => {
+    const s = seam();
+    const c = consoleWith();
+    expect(await run(["dashboard"], { io: c.io, env: {}, home: outside, dashboard: s.seam })).toBe(
+      EXIT.refused,
+    );
+    expect(text(c.err)).toContain("there is no configuration at");
+    expect(text(c.err)).toContain("counterparts install");
+    expect(text(c.err)).toContain("--dir");
+    expect(s.started).toEqual([]);
+  });
+
+  test("a configuration naming a store that is not there says so rather than serving nothing", async () => {
+    mkdirSync(join(outside, ".counterparts"), { recursive: true });
+    writeFileSync(
+      join(outside, ".counterparts", CONFIG_FILE),
+      JSON.stringify({ dataDir: join(outside, "nowhere") }),
+    );
+    const s = seam();
+    const c = consoleWith();
+    expect(await run(["dashboard"], { io: c.io, env: {}, home: outside, dashboard: s.seam })).toBe(
+      EXIT.failed,
+    );
+    expect(text(c.err)).toContain("no store at");
+    expect(s.started).toEqual([]);
+  });
+
+  test("an unnamed configuration is refused while the explicit-dir guard is armed", async () => {
+    const s = seam();
+    const c = consoleWith();
+    expect(
+      await run(["dashboard"], {
+        io: c.io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        home: outside,
+        dashboard: s.seam,
+      }),
+    ).toBe(EXIT.refused);
+    expect(s.started).toEqual([]);
+
+    // …and `--dir` IS a name, so it goes through — the same sentence `doctor`
+    // carries.
+    configured();
+    const named = consoleWith();
+    expect(
+      await run(["dashboard", "--dir", dir, "--no-open"], {
+        io: named.io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        home: outside,
+        dashboard: s.seam,
+      }),
+    ).toBe(EXIT.ok);
+    expect(s.started).toEqual([{ dir, port: undefined }]);
+  });
+
+  test("the default port it names is the server's own", async () => {
+    // Restated rather than imported, so a console that is not serving anything
+    // never pulls the server into its module graph. The two are held together
+    // here instead.
+    const { DEFAULT_PORT } = await import("../src/adapters/dashboard/web/server.js");
+    expect(DASHBOARD_DEFAULT_PORT).toBe(DEFAULT_PORT);
+  });
+});

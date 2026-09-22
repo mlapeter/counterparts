@@ -1,5 +1,10 @@
 /**
- * `counterparts wire` / `counterparts unwire` — the host's two files, edited.
+ * `counterparts connect` / `counterparts disconnect` — the host's two files,
+ * edited. (The functions are still called `wire` and `unwire`: they are the
+ * verbs for what this file DOES to a settings file, and `install` calls the
+ * first of them. The COMMANDS were renamed on 2026-09-22 — "connect" and
+ * "disconnect" are what a person does to an AI — and neither name had ever
+ * shipped, so there is no alias to keep.)
  *
  * **This is the riskiest code in the package, and the reason is one sentence:
  * every other command in this console writes files that belong to us, and this
@@ -11,10 +16,13 @@
  * So the rules below are not style. Each one is a way this could destroy
  * something that is not ours:
  *
- *   1. **BACK UP FIRST, and say the path.** Before a byte changes, the file is
- *      copied to `settings.json.counterparts-backup-<UTC stamp>` beside itself,
- *      at the same mode. The path is printed. A person who does not like what
- *      happened has a file to put back, and knows its name without looking.
+ *   1. **BACK UP FIRST, and say so.** Before a byte changes, the file is copied
+ *      to `settings.json.counterparts-backup-<UTC stamp>` beside itself, at the
+ *      same mode. A person who does not like what happened has a file to put
+ *      back. `connect`'s one line says a backup was KEPT and `disconnect`'s
+ *      names it in full — the asymmetry is the owner's (2026-09-22): the person
+ *      connecting is three lines into their first install and the person
+ *      disconnecting is the one who may want the file back.
  *   2. **EVERY OTHER KEY, AND EVERY OTHER HOOK, SURVIVES.** The merge works on
  *      the INNER hook entry — `hooks[event][i].hooks[j]` — never on the event's
  *      array and never on the `hooks` object. Another tool's entry on
@@ -49,8 +57,11 @@
  * The one thing this file cannot do anything about is said out loud instead:
  * a Claude Code session that is already open. Measured 2026-09-21 — after
  * `settings.json` changes, an open session's hooks fire on its NEXT TURN, and
- * its MCP tools appear only after Claude Code is restarted. So the output says
- * exactly that, and counts the memory servers still running when it cheaply can.
+ * its MCP tools appear only after Claude Code is restarted. `sessionsNote` says
+ * exactly that, and counts the memory servers still running when it cheaply can;
+ * since 2026-09-22 the CALLER prints it, because `install` ends with its own
+ * "restart Claude Code, then run doctor" line and two of them on one screen is
+ * the finding this round is about.
  */
 import {
   chmodSync,
@@ -67,7 +78,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
@@ -133,8 +144,16 @@ export function copyToFreeBackup(target: string, now: number): string {
   throw new Error(`no free backup name beside ${target}`);
 }
 
-/** `~/…` for a path under the home directory — for the SHORT preview only.
- *  Everything this command actually does is reported in full. */
+/**
+ * `~/…` for a path under the home directory.
+ *
+ * It was the preview's alone until 2026-09-22 — "everything this command
+ * actually does is reported in full" — and the owner's answer to finding #27 is
+ * that `/Users/mike/.claude/settings.json` on a screen is a path a person reads
+ * character by character to check it is theirs, and `~/.claude/settings.json` is
+ * one they recognise. So the ok lines use it too, and the backup path, which is
+ * the one thing here somebody may have to type back, is still printed whole.
+ */
 export function tilde(path: string, home: string): string {
   const h = resolve(home);
   return path === h ? "~" : isWithin(h, path) ? `~${path.slice(h.length)}` : path;
@@ -1017,8 +1036,8 @@ function hooksClause(changed: boolean, exists: boolean): string {
 }
 
 /**
- * `counterparts wire` — put the five hooks in the host's settings and register
- * the MCP server.
+ * `counterparts connect` — put the five hooks in the host's settings and
+ * register the memory server.
  *
  * The order is deliberate: the hooks FIRST, because they are the half this
  * package can do by itself and the half that works without a restart; the MCP
@@ -1034,7 +1053,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
   const command = hookCommand(input.custom, input.exe);
 
   if (input.heading !== false) {
-    u.heading("Wiring Claude Code");
+    u.heading("Connecting Claude Code…");
   }
 
   if (sight.refusal !== null) {
@@ -1058,29 +1077,41 @@ export async function wire(input: WireInput): Promise<WireResult> {
 
   // ── nothing to do ─────────────────────────────────────────────────────────
   if (!merged.changed && !mcpNeeded) {
-    u.ok(`already wired — all ${String(HOST_EVENTS.length)} hooks and the MCP server are in place.`);
-    u.hint(`hooks: ${sight.target}`);
-    u.hint(`MCP:   ${mcp.file} (registered as "${MCP_SERVER_NAME}")`);
+    u.ok(
+      `already connected — all ${String(HOST_EVENTS.length)} hooks and the memory tools are in place.`,
+    );
+    u.hint(`hooks: ${tilde(sight.target, home)}`);
+    u.hint(`tools: ${tilde(mcp.file, home)} (registered as "${MCP_SERVER_NAME}")`);
     u.hint("Nothing was changed and no backup was taken.");
     return { outcome: "ok", hooks: "already", mcp: "already", backup: null, mcpConfirmed: false };
   }
 
   // ── say what would change ─────────────────────────────────────────────────
+  //
+  // ONLY WHEN SOMEBODY IS ABOUT TO BE ASKED, or when nothing will happen at all
+  // (2026-09-22, finding #4's sequel). `counterparts connect` does not ask — the
+  // verb is the yes — so narrating the change and then reporting it one line
+  // later is the wall of text this round is about. A dry run is ALL preview, and
+  // a console that will put the question owes the reader what they are agreeing
+  // to.
   const replacing = merged.events.filter((e) => e.change === "replaced");
+  const willAsk = !input.yes && io.prompt !== undefined;
   if (input.dryRun) {
     u.hint("dry run — nothing below has been written.");
   }
-  preview(
-    u,
-    sight,
-    home,
-    hooksClause(merged.changed, sight.exists),
-    mcp.present
-      ? mcp.matches
-        ? "already registered"
-        : "re-registered via `claude mcp add`"
-      : "via `claude mcp add`",
-  );
+  if (input.dryRun || willAsk) {
+    preview(
+      u,
+      sight,
+      home,
+      hooksClause(merged.changed, sight.exists),
+      mcp.present
+        ? mcp.matches
+          ? "already registered"
+          : "re-registered via `claude mcp add`"
+        : "via `claude mcp add`",
+    );
+  }
   for (const e of replacing) {
     u.hint(`${e.event}: replacing a Counterparts hook that names ${e.was ?? "another path"}`);
   }
@@ -1112,15 +1143,15 @@ export async function wire(input: WireInput): Promise<WireResult> {
     if (io.prompt === undefined) {
       io.err(
         "refused: this is not an interactive console, so nothing was asked and nothing was " +
-          "wired. Pass --yes to wire without being asked, or run `counterparts install` at a " +
-          "terminal, where it asks first.",
+          `connected. Run \`${BIN.cli} connect\`, which does not ask, or \`${BIN.cli} install\` ` +
+          "at a terminal, where it asks first.",
       );
       return { outcome: "refused", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
-    const go = await confirm(io, "Wire Claude Code now?", { default: true });
+    const go = await confirm(io, "Connect Claude Code now?", { default: true });
     if (!go) {
-      u.hint("Not wired. Nothing was changed.");
-      u.hint(`You can do it later with: ${BIN.cli} wire`);
+      u.hint("Not connected. Nothing was changed.");
+      u.hint(`You can do it later with: ${BIN.cli} connect`);
       return { outcome: "ok", hooks: "declined", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
   }
@@ -1128,6 +1159,9 @@ export async function wire(input: WireInput): Promise<WireResult> {
   // ── the hooks ─────────────────────────────────────────────────────────────
   let backup: string | null = null;
   let hooksWord: WireResult["hooks"] = "already";
+  /** Where the hooks ended up — the re-read file's target when there was a
+   *  write, and the one already sighted when there was not. */
+  let landedIn = sight.target;
   if (merged.changed) {
     // RE-READ BEFORE WRITING (commands.ts rule 2): between the preview and the
     // answer the file may have changed — another tool's installer, an editor
@@ -1151,19 +1185,36 @@ export async function wire(input: WireInput): Promise<WireResult> {
       return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
     }
     hooksWord = again.events.some((e) => e.change === "replaced") ? "repaired" : "wired";
-    if (backup !== null) u.hint(`backed up: ${backup}`);
-    u.ok(
-      `${String(HOST_EVENTS.length)} hooks ${hooksWord === "repaired" ? "repaired in" : "written to"} ${fresh.target}`,
-    );
-  } else {
-    u.ok(`the ${String(HOST_EVENTS.length)} hooks were already in ${sight.target}; nothing changed.`);
+    landedIn = fresh.target;
   }
 
   // ── the MCP server ────────────────────────────────────────────────────────
+  //
+  // It prints only when something needs saying — `claude` missing, an exit code
+  // nobody expected, a name that had to be taken over. On the ordinary path it
+  // is silent and the ONE line below covers both halves.
   const mcpWord = registerMcp(input, u, mcp);
 
-  // ── the sentence about sessions that are open right now ───────────────────
-  sessionsNote(u, input.lister);
+  // ── ONE LINE FOR THE WHOLE THING (2026-09-22, the owner's install screen) ──
+  //
+  // It was five: `backed up: …`, the hooks, the server, and the two sentences
+  // about open sessions. Every fact in them is still here or still printed by
+  // the arm that needed it — the backup is named by `disconnect`, which is the
+  // command whose reader may want the file back, and the sessions note belongs
+  // to whoever called this (a standalone `connect` prints it; `install` ends
+  // with its own "restart Claude Code" line).
+  const where = tilde(landedIn, home);
+  const verb =
+    hooksWord === "repaired" ? "repaired in" : hooksWord === "wired" ? "added to" : "already in";
+  const kept = backup === null ? "" : " (backup kept)";
+  const tools =
+    mcpWord === "printed"
+      ? null
+      : mcpWord === "already"
+        ? "memory tools already registered"
+        : "memory tools registered";
+  const hooksSaid = `${String(HOST_EVENTS.length)} hooks ${verb} ${where}${kept}`;
+  u.ok(tools === null ? hooksSaid : `connected — ${hooksSaid}, ${tools}`);
   return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup, mcpConfirmed: false };
 }
 
@@ -1184,13 +1235,16 @@ function askClaudeForRegistration(input: WireInput): boolean {
  * registered; already registered at the same store and script; or `claude` is
  * not on this PATH, in which case the line is printed for the person and the
  * command still exits 0 — the hooks are in, and they are the half that works.
+ *
+ * IT SAYS NOTHING ON THE FIRST TWO (2026-09-22). The caller's one `ok` line
+ * carries "memory tools registered", so a second sentence saying the same thing
+ * in the builder's words is the wall of text finding #4 was about. Everything
+ * UNUSUAL still speaks: a name that had to be taken over, a missing `claude`, an
+ * exit code nobody expected.
  */
 function registerMcp(input: WireInput, u: Ui, mcp: McpReading): WireResult["mcp"] {
   const line = mcpCommand(input.store, undefined, input.custom);
-  if (mcp.matches) {
-    u.ok(`the MCP server is already registered as "${MCP_SERVER_NAME}" at this store.`);
-    return "already";
-  }
+  if (mcp.matches) return "already";
   const add = (): SpawnResult => input.spawner(mcpAddArgs(input.store, input.custom, input.exe));
   let res = add();
   if (res.missing) {
@@ -1221,11 +1275,6 @@ function registerMcp(input: WireInput, u: Ui, mcp: McpReading): WireResult["mcp"
     u.hint(`  ${line}`);
     return "printed";
   }
-  u.ok(
-    word === "re-added"
-      ? `the MCP server was re-registered as "${MCP_SERVER_NAME}" at ${input.store}`
-      : `the MCP server is registered as "${MCP_SERVER_NAME}" at ${input.store}`,
-  );
   return word;
 }
 
@@ -1286,7 +1335,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   const named = userSettingsPath(home, env);
   const sight = sightSettings(named, home);
 
-  if (input.heading !== false) u.heading("Unwiring Claude Code");
+  if (input.heading !== false) u.heading("Disconnecting Claude Code");
 
   if (sight.refusal !== null) {
     io.err(sight.refusal);
@@ -1301,7 +1350,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // read that failed is no evidence either way, which is the same stance the
   // removal below takes.
   if (!merged.changed && !mcp.present && !mcp.unreadable) {
-    u.ok("nothing to unwire: no Counterparts hooks and no MCP registration were found.");
+    u.ok("nothing to disconnect: no Counterparts hooks and no memory server were found.");
     // SAID EVEN HERE: a wrapper is exactly the case where "nothing of ours"
     // needs a sentence, because the person can see a hook that mentions us and
     // would otherwise have no account of why it survived.
@@ -1368,9 +1417,14 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
     }
     hooksWord = "removed";
-    if (backup !== null) u.hint(`backed up: ${backup}`);
+    // THE BACKUP IS NAMED HERE, IN FULL, and not on `connect`'s line — the
+    // owner's screens, 2026-09-22. This is the reader who may want their old
+    // settings file back, and a path they have to reconstruct from a sentence
+    // is a path they cannot type. `~/…` for the file, the whole name for the
+    // copy.
     u.ok(
-      `${String(again.events.length)} Counterparts hook${again.events.length === 1 ? "" : "s"} removed from ${fresh.target}`,
+      `${String(again.events.length)} hook${again.events.length === 1 ? "" : "s"} removed from ` +
+        `${tilde(fresh.target, home)}${backup === null ? "" : ` (backup: ${basename(backup)})`}`,
     );
     if (again.foreignKept > 0) {
       u.hint(
@@ -1380,7 +1434,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       );
     }
   } else {
-    u.ok(`no Counterparts hooks were in ${sight.target}.`);
+    u.ok(`no Counterparts hooks were in ${tilde(sight.target, home)}.`);
   }
 
   // THE REMOVE IS ATTEMPTED WHETHER OR NOT OUR READ SAW A REGISTRATION.
@@ -1426,7 +1480,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       mcpWord = "printed";
     }
   } else if (res.code === 0) {
-    u.ok(`the MCP server "${MCP_SERVER_NAME}" is no longer registered.`);
+    u.ok("memory server removed");
     mcpWord = "removed";
     mcpConfirmed = true;
   } else if (notThere || !mcp.present) {
@@ -1442,8 +1496,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     mcpWord = mcpConfirmed ? "absent" : "printed";
   }
 
-  u.hint("An open Claude Code session keeps its hooks until its next turn, and keeps");
-  u.hint("its memory server until you close it.");
+  u.hint("An open Claude Code session keeps working until you close it.");
   return { outcome: "ok", hooks: hooksWord, mcp: mcpWord, backup, mcpConfirmed };
 }
 

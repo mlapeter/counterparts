@@ -276,19 +276,21 @@ for b in counterparts counterparts-hook counterparts-mcp counterparts-dashboard;
 done
 if [ -z "$MISSING" ]; then ok; else no "not installed, or resolved elsewhere:$MISSING"; fi
 
-step "the installed CLI prints its usage and EXITS 0 on --help"
-CMD='counterparts --help'
+step "the installed CLI says which version it is, and EXITS 0"
+CMD='counterparts --version'
 if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$(eval "$CMD" 2>&1)
   CODE=$?
-  # The second command a stranger runs. Exit 1 here kills any `set -e` wrapper
-  # and reads as a failure on the help text.
-  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -q "the owner's console"; then
+  # THE FIRST COMMAND A STRANGER RUNS, and it was `--help` until 2026-09-22:
+  # a wall of text as the answer to "did that install work?" (findings #17,
+  # #23). This one answers it in four words, opens no store and reads no
+  # configuration. Exit 1 here kills any `set -e` wrapper.
+  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -qE '^counterparts [0-9]+\.[0-9]+'; then
     ok
   else
-    no "expected the usage and exit 0, got exit $CODE" "$OUT"
+    no "expected 'counterparts <version>' and exit 0, got exit $CODE" "$OUT"
   fi
 fi
 
@@ -458,7 +460,7 @@ step "the §7 demo DISCRIMINATES: two notes, one question, the right memory"
 # and this step asserts the OTHER note stayed out of the result.
 NOTE_A='counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."'
 NOTE_B='counterparts note "Postgres in dev listens on port 5433, not 5432."'
-RECALL_CMD='counterparts recall "which port does postgres use in dev?"'
+RECALL_CMD='counterparts ask "which port does postgres use in dev?"'
 if ! doc_check "$NOTE_A" || ! doc_check "$NOTE_B" || ! doc_check "$RECALL_CMD"; then
   no "not in QUICKSTART verbatim: $NOTE_A / $NOTE_B / $RECALL_CMD"
 elif ! doc_check 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'; then
@@ -1092,8 +1094,8 @@ backup_count() {
   ls "$HOME/.claude" 2>/dev/null | grep -c 'counterparts-backup' || true
 }
 
-step "counterparts wire merges the five hooks BESIDE another tool's, and backs the file up"
-CMD='counterparts wire --yes'
+step "counterparts connect merges the five hooks BESIDE another tool's, and backs the file up"
+CMD='counterparts connect'
 if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
@@ -1115,27 +1117,27 @@ else
   fi
 fi
 
-step "wiring TWICE changes nothing and takes no second backup"
+step "connecting TWICE changes nothing and takes no second backup"
 BEFORE=$(cksum <"$SETTINGS")
-OUT=$(counterparts wire --yes 2>&1)
+OUT=$(counterparts connect 2>&1)
 AFTER=$(cksum <"$SETTINGS")
 BACKUPS=$(backup_count)
 if [ "$BEFORE" != "$AFTER" ]; then
-  no "a second wire rewrote the settings file" "$OUT"
+  no "a second connect rewrote the settings file" "$OUT"
 elif [ "$BACKUPS" != "1" ]; then
-  no "a second wire took another backup ($BACKUPS beside the file)" "$OUT"
+  no "a second connect took another backup ($BACKUPS beside the file)" "$OUT"
 else
   ok
 fi
 
-step "counterparts unwire removes ONLY ours, and the other tool's hook is untouched"
-CMD='counterparts unwire --yes'
+step "counterparts disconnect removes ONLY ours, and the other tool's hook is untouched"
+CMD='counterparts disconnect'
 if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$(eval "$CMD" 2>&1)
   if grep -q 'bin/hook.ts' "$SETTINGS"; then
-    no "a Counterparts hook survived the unwire" "$(cat "$SETTINGS")"
+    no "a Counterparts hook survived the disconnect" "$(cat "$SETTINGS")"
   elif ! grep -q 'other-tool' "$SETTINGS"; then
     no "the other tool's hook went with ours" "$(cat "$SETTINGS")"
   elif ! grep -q 'mcp remove counterparts' "$CLAUDE_LOG"; then
@@ -1146,8 +1148,8 @@ else
 fi
 
 step "counterparts uninstall leaves the memory where it is, and names what removes the package"
-# Re-wired first, so the plain uninstall has something to take out.
-counterparts wire --yes >/dev/null 2>&1
+# Re-connected first, so the plain uninstall has something to take out.
+counterparts connect >/dev/null 2>&1
 CMD='counterparts uninstall --yes'
 if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"

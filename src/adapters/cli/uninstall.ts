@@ -1046,7 +1046,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
         "start with nothing on screen — which is the same reason the hooks are not left behind " +
         "either. Run the line above, then run this again.",
     );
-    io.err(`The hooks are out; \`${BIN.cli} wire\` puts them back if you want them.`);
+    io.err(`The hooks are out; \`${BIN.cli} connect\` puts them back if you want them.`);
     return "refused";
   }
 
@@ -1159,7 +1159,7 @@ function parkPlan(input: UninstallInput, u: Ui, plan: UninstallPlan): Outcome {
       io.err(`failed to park ${from}: ${String((err as Error).message ?? err)}`);
       io.err(
         done.length === 0
-          ? "Nothing was moved. The wiring has been removed; `counterparts wire` puts it back."
+          ? "Nothing was moved. The wiring has been removed; `counterparts connect` puts it back."
           : "What is listed below HAS moved; nothing else has, and nothing was deleted.",
       );
       for (const d of done) io.err(`  ${d.from} -> ${d.to}`);
