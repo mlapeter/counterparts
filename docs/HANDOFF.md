@@ -1,5 +1,18 @@
 # Handoff — resume here
 
+## 2026-09-22, late night — GO PUBLIC IS PLANNED: `docs/launch/go-public-2026-09-22.md`
+
+The owner decided to make the repository public, history included (the 09-04 ruling stands). Both
+audit scanners were re-run tonight over the tree and the whole 872-commit history: zero true
+positives; the only class to scrub is 55 absolute home paths in docs. The plan is written for a
+fresh session to run **mostly unattended**: Phase A (scrub, prompts out, docs index, README site
+link, PR-body scan, metadata, merged-branch cleanup, one PR) → Phase B (the owner's one command,
+the flip) → Phase C (anonymous re-scan, link check, install walk, then the site's install block).
+The README is current for 0.2.0 (rewritten today) and needs only the site link. Start the fresh
+session on that file. The next product round (Stop ask shorter+rarer, upgrade notice, uninstall
+wait, doctor fix line, keyless write-up, local embeddings — brainstorm in progress) is separate and
+comes after.
+
 ## 2026-09-22, evening — 0.2.0 IS ON NPM; THE REGISTRY UPGRADE WAS RUN; THE OWNER RUNS THE TARBALL STILL
 
 **Published.** The owner ran the 0.2.0 trial from the packed file, said it looked good (his terminal
