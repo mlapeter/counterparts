@@ -995,16 +995,27 @@ describe("layout, a terminal", () => {
     for (const line of c.out) expect(line.length).toBeLessThanOrEqual(50);
   });
 
-  test("the grade word is painted and the column is still six wide", () => {
+  test("the grade word is painted and the columns are doctor's own", () => {
     const c = terminal({ columns: 100 });
     const u = ui(c.io, NO_ENV);
-    u.statusLine("GREEN", "Store", "/tmp/store");
+    u.statusLine("GREEN", "Memory", "/tmp/store");
     const line = c.out[0] ?? "";
     expect(line.startsWith(`${ESC}[32mGREEN${ESC}[0m`)).toBe(true);
-    // Strip the escapes and the line is the plain one, column for column.
+    // Strip the escapes and the line is the plain one, column for column: the
+    // grade in seven, the label in twenty (`doctor.ts`'s `SEVERITY_COLUMN` and
+    // `TITLE_COLUMN`, widened with it on 2026-09-22).
     expect(line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "")).toBe(
-      "GREEN Store       /tmp/store",
+      "GREEN  Memory              /tmp/store",
     );
+  });
+
+  test("OFF is dim, never coloured — nothing is wrong on that line", () => {
+    const c = terminal({ columns: 100 });
+    const u = ui(c.io, NO_ENV);
+    u.statusLine("OFF", "Recall by meaning", "optional. Recall works on words.");
+    expect(c.out[0]?.startsWith(`${ESC}[2mOFF${ESC}[0m`)).toBe(true);
+    expect(c.out[0]).not.toContain(`${ESC}[33m`);
+    expect(c.out[0]).not.toContain(`${ESC}[31m`);
   });
 
   test("AMBER is yellow, RED is red, and the fix line is dim", () => {

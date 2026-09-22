@@ -750,16 +750,21 @@ export function echoPrompt(
 
 // ── layout ──────────────────────────────────────────────────────────────────
 
-export type Grade = "GREEN" | "AMBER" | "RED";
+/** `OFF` is doctor's fourth word: an optional feature nobody turned on. It is
+ *  DIM, never coloured — nothing is wrong, and a warning colour on a line that
+ *  says "this is optional" is the thing findings #24 asked us to stop doing. */
+export type Grade = "GREEN" | "AMBER" | "RED" | "OFF";
 
 /**
  * The two columns `statusLine` lays out in, and they are NOT free numbers:
  * they are `claude-code/doctor.ts`'s `SEVERITY_COLUMN` and `TITLE_COLUMN`, so
  * that a doctor line rendered here is byte-identical to `reportLines`'s when
- * wrapping is off. `test/ui.test.ts` holds the two files to each other.
+ * wrapping is off. `test/ui.test.ts` holds the two files to each other, and
+ * they widened together on 2026-09-22 when the labels became words a person
+ * reads ("Recall by meaning") instead of internal names ("Embedder").
  */
-const GRADE_COLUMN = 6;
-const LABEL_COLUMN = 12;
+const GRADE_COLUMN = 7;
+const LABEL_COLUMN = 20;
 const GUTTER = GRADE_COLUMN + LABEL_COLUMN;
 
 /** The six-space gutter `ok`/`warn`/`fail`/`hint` share, so a run of them reads
@@ -897,7 +902,8 @@ export function ui(io: Io, env: UiEnv, opts: InteractiveOptions = {}): Ui {
       const prefix = `${gradeCell}${labelCell(label)}`;
       const lines = emit(prefix, message, prefix.length);
       const first = lines[0] ?? "";
-      const colour = grade === "GREEN" ? p.green : grade === "AMBER" ? p.yellow : p.red;
+      const colour =
+        grade === "GREEN" ? p.green : grade === "AMBER" ? p.yellow : grade === "OFF" ? p.dim : p.red;
       io.out(colour(grade) + first.slice(grade.length));
       for (const line of lines.slice(1)) io.out(line);
       if (fix === undefined || fix.length === 0) return;

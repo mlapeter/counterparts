@@ -425,7 +425,11 @@ describe("the embedder is a second yes", () => {
     const r = await promptForKeys(f.io, NO_ENV, context(f));
     expect(r.voyage).toBe("set");
     expect(r.embedder).toBe("failed");
-    expect(r.embedderFix).toContain('"embedder": { "enabled": true }');
+    // A COMMAND, NEVER A JSON EDIT (finding #19, 2026-09-22): the one sentence
+    // this console and `doctor` share names `credentials set`, which saves the
+    // key and offers the switch again.
+    expect(r.embedderFix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    expect(r.embedderFix).not.toContain('"enabled": true');
     expect(readFileSync(credsPath, "utf8")).toContain(EMBED_KEY_ENV);
     expect(f.said()).toContain("The key is saved.");
     expect(f.said()).not.toContain(VOYAGE_KEY);
