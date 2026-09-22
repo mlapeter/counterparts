@@ -3297,7 +3297,9 @@ async function offerParkedMemory(
     if (answer === "blank") return blankBeside(u, usable, home);
     chosen = one.path;
   } else {
-    io.out(`Found ${String(usable.length)} memories set aside, newest first:`);
+    // "memory folders", never "memories": in this product a memory is a row,
+    // and "2 memories set aside" read as two rows on the dress rehearsal.
+    io.out(`Found ${String(usable.length)} memory folders set aside, newest first:`);
     for (const [i, one] of usable.entries()) {
       io.out(
         `  ${String(i + 1)}. ${tilde(one.path, home)}  set aside ${one.date}  ${humanDiskBytes(one.bytes)}`,
