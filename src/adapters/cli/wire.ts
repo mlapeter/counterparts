@@ -1036,8 +1036,8 @@ function hooksClause(changed: boolean, exists: boolean): string {
 }
 
 /**
- * `counterparts wire` — put the five hooks in the host's settings and register
- * the MCP server.
+ * `counterparts connect` — put the five hooks in the host's settings and
+ * register the memory server.
  *
  * The order is deliberate: the hooks FIRST, because they are the half this
  * package can do by itself and the half that works without a restart; the MCP
