@@ -412,6 +412,26 @@ describe("doctor — the reading", () => {
     expect(String(crash.data["without"])).toContain("note, session_end, the journal, recall, the wake");
   });
 
+  test("the key that IS there gets a green row of its own, mirroring Recall by meaning", () => {
+    // A feature that says OFF until you turn it on and then says nothing leaves
+    // the person who just added the key with no confirmation on the screen they
+    // were told to check (the coordinator, 2026-09-22). The factual Credentials
+    // line does name it, and that line only prints under `--all`.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const findings = doctorFindings(input());
+    const crash = by(findings, "crash-writeup");
+    expect(crash.severity).toBe("green");
+    expect(crash.optional).toBeUndefined();
+    expect(crash.title).toBe("Crash write-up");
+    expect(crash.detail).toBe("on — a session that ended too soon gets written up anyway");
+    expect(crash.fix).toBe("");
+    // Its twin says the same kind of thing for the same kind of reason.
+    expect(by(findings, "embedder").severity).toBe("green");
+    expect(by(findings, "embedder").detail).toContain("on —");
+  });
+
   test("a missing embed key is ONE OFF line, not three ambers (finding #24)", () => {
     mintStore();
     writeConfig();

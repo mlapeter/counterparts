@@ -1111,21 +1111,34 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     );
   } else {
     out.push(finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data));
-    if (missing.includes(API_KEY_ENV)) {
-      // THE CRASH SWEEP, AS THE THING IT BUYS. No key has ever been used here,
-      // which is a supported way to run — `WITHOUT_A_KEY` is the long form of
-      // that sentence, kept on the factual line's neighbours rather than
-      // printed as a warning on a screen where nothing is wrong.
-      out.push(
-        off(
-          "crash-writeup",
-          CRASH_TITLE,
-          `optional. An Anthropic key lets a session that ended too soon get written up anyway.${shellClause(input, API_KEY_ENV, present)}`,
-          `Turn on: counterparts credentials set ${API_KEY_ENV}`,
-          { ...data, without: WITHOUT_A_KEY },
-        ),
-      );
-    }
+    out.push(
+      missing.includes(API_KEY_ENV)
+        ? // THE CRASH SWEEP, AS THE THING IT BUYS. No key has ever been used
+          // here, which is a supported way to run — `WITHOUT_A_KEY` is the long
+          // form of that sentence, kept on the finding rather than printed as a
+          // warning on a screen where nothing is wrong.
+          off(
+            "crash-writeup",
+            CRASH_TITLE,
+            `optional. An Anthropic key lets a session that ended too soon get written up anyway.${shellClause(input, API_KEY_ENV, present)}`,
+            `Turn on: counterparts credentials set ${API_KEY_ENV}`,
+            { ...data, without: WITHOUT_A_KEY },
+          )
+        : // AND A GREEN ROW WHEN IT IS ON (coordinator, 2026-09-22), mirroring
+          // `Recall by meaning`'s. A feature that says `OFF` until you turn it
+          // on and then says nothing at all leaves the person who just added
+          // the key with no confirmation on the screen they were told to check
+          // — and the factual `Credentials` line, which does carry the name,
+          // only prints under `--all`.
+          finding(
+            "crash-writeup",
+            "green",
+            CRASH_TITLE,
+            "on — a session that ended too soon gets written up anyway",
+            "",
+            data,
+          ),
+    );
   }
 
   // The mode is its own finding: a file that holds both keys and is world

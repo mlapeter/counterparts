@@ -340,6 +340,23 @@ describe("doctor: the folded screen", () => {
     ]);
   });
 
+  test("both keys in place: the two optional lines keep their rows, green, and never fold", () => {
+    // They are headline keys whatever their grade (the coordinator, 2026-09-22):
+    // a person who has just added a key checks this screen for the confirmation.
+    const on = [
+      f("embedder", "green", "Recall by meaning", "on — recall matches meaning as well as words"),
+      f("crash-writeup", "green", "Crash write-up", "on — a session that ended too soon gets written up anyway"),
+      ...HEADLINES.filter((h) => h.key !== "embedder" && h.key !== "crash-writeup"),
+    ];
+    const out = screen([...on, ...internals()]);
+    const said = out.join("\n");
+    expect(said).toContain("GREEN  Recall by meaning   on — recall matches meaning as well as words");
+    expect(said).toContain("GREEN  Crash write-up      on — a session that ended too soon gets written up anyway");
+    expect(said).toContain("GREEN  Background");
+    expect(said).not.toContain("OFF");
+    expect(out[out.length - 1]).toBe("0 red, 0 amber, 7 green.   Every line: counterparts doctor --all");
+  });
+
   test("the Background line is READ, never assumed: no run today says so", () => {
     const quiet = internals([
       { ...f("spawn", "green", "Spawn", "no spawn refusals standing"), data: { startsToday: null } },
