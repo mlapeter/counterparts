@@ -25,14 +25,19 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ADVANCED,
   COMMANDS,
   COMMAND_DETAIL,
   EXIT,
+  GLOBAL_FLAGS,
   GROUPS,
   PENDING_COMMANDS,
   SHORT,
   SHORT_LIMIT,
+  UNLISTED,
+  advancedHelp,
   commandHelp,
+  linesOf,
   run,
   shortHelp,
   usage,
@@ -54,64 +59,120 @@ function consoleWith(): { io: Io; out: string[]; err: string[] } {
 
 const text = (lines: readonly string[]): string => lines.join("\n");
 
-/** Every command listed in a group, in the order the page prints them. */
+/** Every command listed in a group on the SHORT page, in printed order. */
 const LISTED: readonly string[] = GROUPS.flatMap((g) => g.commands);
 
+/** The short page, the advanced page, and the declared omissions — the three
+ *  places a dispatched command may be accounted for, and no fourth. */
+const ACCOUNTED: readonly string[] = [...LISTED, ...ADVANCED, ...Object.keys(UNLISTED)];
+
 describe("the short page", () => {
-  test("it is short, and it still says the words the install loop greps for", () => {
+  test("it is short, and it says what this thing IS", () => {
     const page = shortHelp();
     const lines = page.split("\n");
-    // The loop (`tools/install-loop/run.sh`) decides whether the install
-    // produced a working console at all by grepping this phrase, and
-    // `test/cli.test.ts` asserts it for both `--help` and a bare invocation.
-    expect(lines[0]).toContain("the owner's console");
+    // It said "counterparts — the owner's console for a Counterparts memory
+    // store" until 2026-09-22: a sentence about whose console this is, to a
+    // reader who does not yet know what the thing is. `tools/install-loop/run.sh`
+    // greps `counterparts --version` for its "did the install work" check now,
+    // which is the question it was actually asking.
+    expect(lines[0]).toBe("counterparts — a memory layer for AI");
+    expect(page).not.toContain("the owner's console");
     // A number with room in it, not a target: the point is that it CANNOT grow
-    // back into a wall of text one command at a time. Today it is 39.
-    expect(lines.length).toBeLessThanOrEqual(45);
+    // back into a wall of text one command at a time. Today it is 26.
+    expect(lines.length).toBeLessThanOrEqual(32);
     // `usage()` is the same page — the two names are one thing.
     expect(usage()).toBe(page);
+    // Both ways further in are on it.
+    expect(page).toContain("counterparts help <command>");
+    expect(page).toContain("counterparts help advanced");
   });
 
-  test("every description is one short line", () => {
-    for (const [name, said] of Object.entries(SHORT)) {
-      expect(said.length, name).toBeLessThanOrEqual(SHORT_LIMIT);
-      expect(said.includes("\n"), name).toBe(false);
-      expect(said.trim(), name).toBe(said);
+  test("every description is one short line — or the two the owner wrote", () => {
+    for (const name of Object.keys(SHORT)) {
+      const said = linesOf(name);
+      expect(said.length, name).toBeGreaterThan(0);
+      for (const line of said) {
+        expect(line.length, `${name}: ${line}`).toBeLessThanOrEqual(SHORT_LIMIT);
+        expect(line.includes("\n"), name).toBe(false);
+        expect(line.trim(), name).toBe(line);
+      }
     }
   });
 
-  test("every dispatched command has a short line, and appears on the page", () => {
+  test("every dispatched command has a short line and is accounted for on exactly one page", () => {
+    const advancedPage = advancedHelp();
     const page = shortHelp();
     for (const command of COMMANDS) {
-      expect(SHORT[command], command).toBeString();
-      expect(page, command).toContain(command);
-      // `help` is printed in the footer rather than in a group — a list of
-      // commands whose last entry is "the command that prints this list" reads
-      // as a joke at the reader's expense.
-      if (command !== "help") expect(LISTED, command).toContain(command);
+      expect(SHORT[command], command).toBeDefined();
+      // ONE of the three places, and the reader can find it there.
+      expect(ACCOUNTED, command).toContain(command);
+      if (LISTED.includes(command)) expect(page, command).toContain(command);
+      else if (ADVANCED.includes(command)) expect(advancedPage, command).toContain(command);
+      // …otherwise it is declared unlisted, WITH A REASON. `help` is in the
+      // footer of both pages, `recall` is the older spelling of `ask`, and
+      // `version` is what `counterparts --version` reaches.
+      else expect(UNLISTED[command]?.length ?? 0, command).toBeGreaterThan(10);
     }
   });
 
-  test("a name on the page that is not dispatched yet is one we have declared", () => {
-    // `wire`, `unwire` and `uninstall` are built in parallel and listed here so
-    // the map is the map of the console a person is about to have. The check
+  test("a name on either page that is not dispatched yet is one we have declared", () => {
+    // `wire`, `unwire` and `uninstall` were built in parallel and listed here so
+    // the map was the map of the console a person was about to have. The check
     // runs BOTH ways: a name that has since arrived must come off the list, or
     // "pending" stops meaning anything.
-    for (const name of LISTED) {
+    for (const name of [...LISTED, ...ADVANCED]) {
       if ((COMMANDS as readonly string[]).includes(name)) continue;
       expect(PENDING_COMMANDS, name).toContain(name);
     }
     for (const name of PENDING_COMMANDS) {
-      expect(LISTED, name).toContain(name);
+      expect([...LISTED, ...ADVANCED], name).toContain(name);
       expect(
         (COMMANDS as readonly string[]).includes(name) ? `${name} has landed — take it off PENDING_COMMANDS` : name,
       ).toBe(name);
     }
   });
 
-  test("no command is listed in two groups, and no group is empty", () => {
-    expect(new Set(LISTED).size).toBe(LISTED.length);
+  test("nothing is listed twice, no group is empty, and every omission names a real command", () => {
+    expect(new Set(ACCOUNTED).size).toBe(ACCOUNTED.length);
     for (const group of GROUPS) expect(group.commands.length, group.title).toBeGreaterThan(0);
+    expect(ADVANCED.length).toBeGreaterThan(0);
+    // An omission for a command that does not exist is a stale excuse.
+    for (const name of Object.keys(UNLISTED)) {
+      expect([...COMMANDS, ...PENDING_COMMANDS], name).toContain(name);
+    }
+  });
+});
+
+describe("counterparts help advanced", () => {
+  test("it prints the shelf and the three flags, and exits 0", async () => {
+    const c = consoleWith();
+    expect(await run(["help", "advanced"], { io: c.io, env: {} })).toBe(EXIT.ok);
+    const page = text(c.out);
+    expect(page).toBe(advancedHelp());
+    for (const name of ADVANCED) expect(page, name).toContain(name);
+    for (const { flag } of GLOBAL_FLAGS) expect(page, flag).toContain(flag);
+    expect(GLOBAL_FLAGS.map((f) => f.flag.split(" ")[0])).toEqual([
+      "--dir",
+      "--config",
+      "--observer",
+    ]);
+  });
+
+  test("it opens nothing either, guard armed or not", async () => {
+    const c = consoleWith();
+    expect(
+      await run(["help", "advanced"], {
+        io: c.io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toBe(advancedHelp());
+  });
+
+  test("`advanced` is not a command, so `counterparts advanced` is still unknown", async () => {
+    const c = consoleWith();
+    expect(await run(["advanced"], { io: c.io, env: {} })).toBe(EXIT.usage);
+    expect(text(c.err)).toContain("unknown command: advanced");
   });
 });
 
@@ -161,7 +222,7 @@ describe("counterparts help", () => {
 
   test("its own page does not offer --dir in the synopsis: it opens no store", async () => {
     const page = commandHelp("help");
-    expect(page.split("\n")[2]).toBe("  counterparts help [<command>]");
+    expect(page.split("\n")[2]).toBe("  counterparts help [advanced | <command>]");
     // It is still a common flag, and the page still says so under "Everywhere".
     expect(page).toContain("Everywhere:");
     expect(page).toContain("--dir <value>");

@@ -50,8 +50,13 @@ else on your machine is read or changed. Four commands land in bun's global bin 
 **Check that directory is on your PATH before going on:**
 
 ```
-counterparts --help
+counterparts --version
 ```
+
+It should print `counterparts 0.2.0`. That is the whole check at this point: it
+opens no store and reads no configuration, so it answers "is the program here
+and runnable" and nothing else. `counterparts doctor`, after §2 and a restart of
+Claude Code, is the one that says whether it WORKS.
 
 If that says `command not found`, bun said so during the install
 (`warn: To run "counterparts", add the global bin folder to $PATH`) and the fix is
@@ -80,8 +85,8 @@ outside `~/.counterparts` — wiring Claude Code — takes `n` for no.
 3. **Claude Code.** It shows what it would add — five hooks in `~/.claude/settings.json`
    and one MCP server — says it will back that settings file up first, and counts any
    hooks belonging to other tools that will stay exactly where they are. Then it asks:
-   `Wire Claude Code now? [Y/n]`. Answer `n` and nothing of the host's is touched — the
-   store is made either way, and `counterparts wire` does this part whenever you are
+   `Connect Claude Code now? [Y/n]`. Answer `n` and nothing of the host's is touched — the
+   store is made either way, and `counterparts connect` does this part whenever you are
    ready. §4a is the same two things to apply by hand.
 4. **Keys.** Two optional API keys, one at a time, each with one line on what it buys and
    a link to where you get one. Typing is hidden; Enter skips. **Skipping both is fine**
@@ -283,7 +288,7 @@ This command writes three things that are **yours**:
 **One file holds your memory.** The bodies, their revision history and every
 structured field are rows in `counterparts.sqlite`, so a backup is a file copy
 and a memory can never disagree with its own bookkeeping. You read your memories
-through the dashboard, `counterparts recall`, or by asking — and
+through the dashboard, `counterparts ask`, or by asking — and
 **`counterparts export --out <dir> --markdown --plaintext` writes everything out
 as one readable tree of Markdown files** (confidential memories are left out,
 and the export says how many; `--include-confidential` takes them too). (SQLite
@@ -425,7 +430,7 @@ on whether there is a person to tell:
 ## 4a. Wiring Claude Code by hand
 
 For a person who answered `n` at §3's third step, used `--no-wire`, or would
-rather see what is being added. `counterparts install` and `counterparts wire`
+rather see what is being added. `counterparts install` and `counterparts connect`
 print both of these, filled in.
 
 **The hooks.** Merge into `~/.claude/settings.json` — one script, five events.
@@ -495,7 +500,7 @@ it (§3). The same thing, on its own, at any time — to repair wiring, or becau
 you said no the first time:
 
 ```
-counterparts wire --yes
+counterparts connect
 ```
 
 It backs `~/.claude/settings.json` up first and prints the path, adds the five
@@ -503,14 +508,16 @@ hooks **beside** anything already on those events, replaces an entry of its own
 that names a path that has moved, and registers the MCP server by running
 `claude mcp add` — it never writes `~/.claude.json` itself, because Claude Code
 owns that file. A settings file it cannot parse is a refusal: it changes nothing
-and prints the block for you to merge by hand. Drop `--yes` to be asked first,
-and `--dry-run` says what would change without changing it.
+and prints the block for you to merge by hand. It does not ask first — typing
+the verb is the yes — and `--dry-run` says what would change without changing
+it. Claude Code is the one host it knows today, so `counterparts connect
+claude-code` is the same command and any other name is refused.
 
 To take it all back out again — only the entries it recognises as its own,
 never another tool's:
 
 ```
-counterparts unwire --yes
+counterparts disconnect
 ```
 
 (`counterparts uninstall` does this as its first step, and then tells you where
@@ -672,7 +679,7 @@ This is the product. Three commands, no host, no keys:
 ```
 counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
 counterparts note "Postgres in dev listens on port 5433, not 5432."
-counterparts recall "which port does postgres use in dev?"
+counterparts ask "which port does postgres use in dev?"
 ```
 
 `note` prints the store it wrote to, then `Remembered mem_… — minted.` `recall`
@@ -1172,7 +1179,7 @@ bun remove -g counterparts
 ```
 
 (A program does not delete itself while it is running.) **Your memory is not
-touched.** `~/.counterparts` stays exactly where it is, and `counterparts wire`
+touched.** `~/.counterparts` stays exactly where it is, and `counterparts connect`
 puts the wiring back whenever you want it.
 
 If you do want the directory gone, say which:
@@ -1232,7 +1239,7 @@ repo on its PATH and checks, every time:
   a real host is likeliest to hit and the rest of the loop is blind to;
 - the `SessionStart` hook, fed a real payload on stdin, returns a wake block and
   exits 0, and registers the session under `<dataDir>/sessions/`;
-- `counterparts note` then `counterparts recall` round-trips on the console, and
+- `counterparts note` then `counterparts ask` round-trips on the console, and
   a `note` then `recall` round trip through `counterparts-mcp` over stdio
   JSON-RPC returns the note;
 - **and the one-memory case** (§7): one note in a fresh store, recalled by
@@ -1262,11 +1269,11 @@ paths from. A settings file is seeded with **another tool's hook** first, and
 real binary would edit the machine's own `~/.claude.json`, which this loop never
 touches. What they establish:
 
-- `counterparts wire --yes` writes five hook entries **beside** the other tool's,
+- `counterparts connect` writes five hook entries **beside** the other tool's,
   leaves that hook and every other key in the file exactly as they were, takes
   exactly one backup, and sends the registration out through `claude mcp add`;
-- wiring a second time changes not one byte and takes no second backup;
-- `counterparts unwire --yes` removes only ours — the other tool's hook survives
+- connecting a second time changes not one byte and takes no second backup;
+- `counterparts disconnect` removes only ours — the other tool's hook survives
   — and the deregistration goes out through `claude mcp remove`;
 - `counterparts uninstall --yes` leaves the store where it is, removes the hooks,
   and names `bun remove -g counterparts` as the one thing left to run;

@@ -12,11 +12,16 @@ export {
   COMMAND_BLURB,
   COMMAND_FLAGS,
   COMMON_FLAGS,
+  DASHBOARD_DEFAULT_PORT,
+  KNOWN_HOSTS,
   STORE_PREVIOUS_PARKED_KEY,
   STORE_STARTED_BY_KEY,
   STORE_STARTED_KEY,
   commandHelp,
+  dashboardLine,
+  packageVersion,
   unknownFlag,
+  versionLine,
   EXIT,
   OWNER_OPS,
   openCounterpart,
@@ -24,21 +29,28 @@ export {
   run,
   usage,
 } from "./commands.js";
-export type { Command, Io, RunOptions } from "./commands.js";
+export type { Command, DashboardSeam, Io, RunOptions, RunningView } from "./commands.js";
 
 /**
- * The console's two help pages. `shortHelp` is what `--help`, `help` and a bare
- * invocation print; `commandHelp` (above) is one command's own page. The tables
- * are exported so `test/help.test.ts` can walk them against `COMMANDS` — a
- * command added without help for it fails there.
+ * The console's three help pages. `shortHelp` is what `--help`, `help` and a
+ * bare invocation print; `advancedHelp` is `counterparts help advanced`;
+ * `commandHelp` (above) is one command's own page. The tables are exported so
+ * `test/help.test.ts` can walk them against `COMMANDS` in both directions — a
+ * command added without help for it, or listed on no page and given no reason,
+ * fails there.
  */
 export {
+  ADVANCED,
   COMMAND_DETAIL,
   CONSOLE_FOOTER,
+  GLOBAL_FLAGS,
   GROUPS,
   PENDING_COMMANDS,
   SHORT,
   SHORT_LIMIT,
+  UNLISTED,
+  advancedHelp,
+  linesOf,
   shortHelp,
 } from "./help.js";
 export type { HelpGroup } from "./help.js";

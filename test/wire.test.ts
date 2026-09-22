@@ -56,6 +56,7 @@ import {
   mergeHooks,
   processMark,
   readMcp,
+  sessionsNote,
   settingsBytes,
   sightSettings,
   tilde,
@@ -65,7 +66,7 @@ import {
   writeSettings,
 } from "../src/adapters/cli/wire.js";
 import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adapters/cli/wire.js";
-import { PromptAborted } from "../src/adapters/cli/ui.js";
+import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -607,7 +608,7 @@ describe("wire", () => {
     const result = await wire(input({ io: second.io, spawner: fake.spawner }));
     expect(result.hooks).toBe("already");
     expect(result.mcp).toBe("already");
-    expect(text(second.out)).toContain("already wired");
+    expect(text(second.out)).toContain("already connected");
     expect(hashOf(settingsFile())).toBe(after);
     expect(backups()).toHaveLength(0);
     expect(fake.calls).toEqual([]);
@@ -713,7 +714,10 @@ describe("wire", () => {
     expect(result.outcome).toBe("ok");
     expect(result.mcp).toBe("re-added");
     expect(fake.calls.map((a) => a[1])).toEqual(["add", "remove", "add"]);
-    expect(text(c.out)).toContain("re-registered");
+    // The TAKEOVER is still said out loud; the ordinary "it is registered" line
+    // is not, because the one `ok` below carries it (2026-09-22, finding #4).
+    expect(text(c.out)).toContain("was already registered; replacing it");
+    expect(text(c.out)).toContain("memory tools registered");
   });
 
   test("--dry-run prints the shape and writes nothing", async () => {
@@ -726,12 +730,17 @@ describe("wire", () => {
     expect(text(c.out)).toContain("5 hooks ->");
   });
 
-  test("a console with no prompt and no --yes wires NOTHING and says which flag means yes", async () => {
+  test("a console with no prompt and no answer wires NOTHING and names the command that does", async () => {
+    // `--yes` came OFF `connect` on 2026-09-22 — it does not ask any more, so
+    // there is nothing to skip — and this arm is now only reachable from a
+    // caller that asked for a question on a console that cannot put one
+    // (`install`, off a terminal, is the one). The refusal names the command
+    // whose whole meaning is "do it".
     const c = consoleWith(null);
     const result = await wire(input({ io: c.io, yes: false }));
     expect(result.outcome).toBe("refused");
     expect(existsSync(settingsFile())).toBe(false);
-    expect(text(c.err)).toContain("--yes");
+    expect(text(c.err)).toContain("counterparts connect");
   });
 
   test("a person who answers no gets nothing written, and the command still exits ok", async () => {
@@ -740,17 +749,25 @@ describe("wire", () => {
     expect(result.outcome).toBe("ok");
     expect(result.hooks).toBe("declined");
     expect(existsSync(settingsFile())).toBe(false);
-    expect(c.asked[0]).toContain("Wire Claude Code now?");
+    expect(c.asked[0]).toContain("Connect Claude Code now?");
   });
 
-  test("the sessions sentence is always there, and counts running servers when it can", async () => {
+  test("the sessions sentence belongs to the CALLER now, and counts running servers when it can", async () => {
+    // It used to print from inside `wire()`, which put it in the middle of
+    // `install`'s screen two lines above install's own "restart Claude Code,
+    // then run doctor" (2026-09-22, the owner's install screen). `wire()` is
+    // silent about it; `sessionsNote` is exported and the console prints it
+    // after a standalone `connect`.
     const quiet = consoleWith();
     await wire(input({ io: quiet.io }));
-    expect(text(quiet.out)).toContain("Hooks start with your next turn");
-    expect(text(quiet.out)).toContain("restart Claude Code");
-    expect(text(quiet.out)).not.toContain("sessions are running");
+    expect(text(quiet.out)).not.toContain("Hooks start with your next turn");
 
-    rmSync(join(home, ".claude"), { recursive: true, force: true });
+    const said = consoleWith();
+    sessionsNote(ui(said.io, ENV), noProcesses);
+    expect(text(said.out)).toContain("Hooks start with your next turn");
+    expect(text(said.out)).toContain("restart Claude Code");
+    expect(text(said.out)).not.toContain("sessions are running");
+
     const busy = consoleWith();
     const lister: ProcessLister = () => ({
       looked: true,
@@ -759,7 +776,7 @@ describe("wire", () => {
         { pid: 12, what: "an MCP server", command: "bun run serve.ts" },
       ],
     });
-    await wire(input({ io: busy.io, lister }));
+    sessionsNote(ui(busy.io, ENV), lister);
     expect(text(busy.out)).toContain("2 sessions are running the previous version's memory server");
   });
 
@@ -783,7 +800,7 @@ describe("unwire", () => {
     expect(result.outcome).toBe("ok");
     expect(result.hooks).toBe("none");
     expect(fake.calls).toEqual([]);
-    expect(text(c.out)).toContain("nothing to unwire");
+    expect(text(c.out)).toContain("nothing to disconnect");
   });
 
   test("`claude mcp remove` answering 'not found' is not a failure", async () => {
@@ -828,8 +845,8 @@ describe("unwire", () => {
 
 // ── through the console ─────────────────────────────────────────────────────
 
-describe("`counterparts wire` on the command line", () => {
-  /** An install, so there is a configuration for `wire` to read. */
+describe("`counterparts connect` on the command line", () => {
+  /** An install, so there is a configuration for `connect` to read. */
   async function install(): Promise<void> {
     const c = consoleWith();
     const code = await run(
@@ -839,24 +856,24 @@ describe("`counterparts wire` on the command line", () => {
     expect(code).toBe(EXIT.ok);
   }
 
-  test("with no configuration `wire` refuses and names the command that makes one", async () => {
+  test("with no configuration `connect` refuses and names the command that makes one", async () => {
     const c = consoleWith();
-    const code = await run(["wire", "--config", configPath(), "--yes"], { io: c.io, env: ENV, home });
+    const code = await run(["connect", "--config", configPath()], { io: c.io, env: ENV, home });
     expect(code).toBe(EXIT.refused);
     expect(text(c.err)).toContain("install");
   });
 
-  test("with no configuration `unwire` still works — it only ever takes things out", async () => {
+  test("with no configuration `disconnect` still works — it only ever takes things out", async () => {
     // The person most likely to run this is somebody who deleted
     // `~/.counterparts` by hand and now has five hooks firing at a store that
     // is gone. Refusing them would leave the mess the command exists to clean.
     await install();
-    await run(["wire", "--config", configPath(), "--yes"], { io: consoleWith().io, env: ENV, home });
+    await run(["connect", "--config", configPath()], { io: consoleWith().io, env: ENV, home });
     expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
     rmSync(join(home, ".counterparts"), { recursive: true, force: true });
 
     const c = consoleWith();
-    const code = await run(["unwire", "--config", configPath(), "--yes"], {
+    const code = await run(["disconnect", "--config", configPath()], {
       io: c.io,
       env: ENV,
       home,
@@ -865,47 +882,138 @@ describe("`counterparts wire` on the command line", () => {
     expect(readHost(home, home, ENV).events).toEqual([]);
   });
 
-  test("it refuses --dir in words, and changes nothing", async () => {
+  /**
+   * NEITHER OF THEM ASKS, AND THAT IS THE POINT (2026-09-22, item 3).
+   *
+   * With one host known there is no menu and no confirmation: typing the verb
+   * is the yes. The console passes `yes: true` into `wire()`/`unwire()` — which
+   * still hold a question, for `install` — and `--yes` is not a flag either of
+   * these commands takes any more, because there is nothing left to skip.
+   */
+  test("connect does it without asking, and disconnect undoes it without asking", async () => {
     await install();
-    for (const command of ["wire", "unwire", "uninstall"]) {
+    const on = consoleWith(null);
+    expect(
+      await run(["connect", "--config", configPath()], {
+        io: on.io,
+        env: ENV,
+        home,
+        spawner: spawnerThat(() => OK).spawner,
+        processes: noProcesses,
+      }),
+    ).toBe(EXIT.ok);
+    expect(on.asked).toEqual([]);
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+    expect(text(on.out)).toContain("Connecting Claude Code");
+    expect(text(on.out)).toContain("connected — 5 hooks added to");
+    // The caller's sentence about sessions that are open right now.
+    expect(text(on.out)).toContain("Hooks start with your next turn");
+
+    const off = consoleWith(null);
+    expect(
+      await run(["disconnect", "--config", configPath()], {
+        io: off.io,
+        env: ENV,
+        home,
+        spawner: spawnerThat(() => OK).spawner,
+        processes: noProcesses,
+      }),
+    ).toBe(EXIT.ok);
+    expect(off.asked).toEqual([]);
+    expect(readHost(home, home, ENV).events).toEqual([]);
+    expect(text(off.out)).toContain("Disconnecting Claude Code");
+    expect(text(off.out)).toContain("hooks removed from");
+    expect(text(off.out)).toContain("An open Claude Code session keeps working until you close it.");
+
+    // `--yes` is not a flag either of them takes: nothing is asked.
+    const stale = consoleWith();
+    expect(
+      await run(["connect", "--config", configPath(), "--yes"], { io: stale.io, env: ENV, home }),
+    ).toBe(EXIT.refused);
+    expect(text(stale.err)).toContain("unknown flag --yes");
+  });
+
+  test("the HOST may be named, and a host nobody has is refused with the one we know", async () => {
+    await install();
+    const named = consoleWith(null);
+    expect(
+      await run(["connect", "claude-code", "--config", configPath()], {
+        io: named.io,
+        env: ENV,
+        home,
+        spawner: spawnerThat(() => OK).spawner,
+        processes: noProcesses,
+      }),
+    ).toBe(EXIT.ok);
+    expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+
+    for (const command of ["connect", "disconnect"]) {
       const c = consoleWith();
-      const code = await run([command, "--config", configPath(), "--dir", store(), "--yes"], {
+      const code = await run([command, "cursor", "--config", configPath()], {
         io: c.io,
         env: ENV,
         home,
       });
-      expect(code).toBe(EXIT.refused);
-      expect(text(c.err)).toContain("takes no --dir");
-      expect(text(c.err)).toContain("Nothing has changed.");
+      expect(code, command).toBe(EXIT.refused);
+      expect(text(c.err), command).toContain("does not know a host called 'cursor'");
+      expect(text(c.err), command).toContain("claude-code");
+      expect(text(c.err), command).toContain("Nothing has changed.");
+    }
+  });
+
+  test("the old spellings are gone, and refuse as unknown commands", async () => {
+    // Neither `wire` nor `unwire` ever shipped — 0.1.0 has no such command — so
+    // there is no compatibility to keep and no alias to maintain.
+    for (const gone of ["wire", "unwire"]) {
+      const c = consoleWith();
+      expect(await run([gone, "--config", configPath()], { io: c.io, env: ENV, home }), gone).toBe(
+        EXIT.usage,
+      );
+      expect(text(c.err), gone).toContain(`unknown command: ${gone}`);
+    }
+  });
+
+  test("it refuses --dir in words, and changes nothing", async () => {
+    await install();
+    for (const command of ["connect", "disconnect", "uninstall"]) {
+      const c = consoleWith();
+      const code = await run([command, "--config", configPath(), "--dir", store()], {
+        io: c.io,
+        env: ENV,
+        home,
+      });
+      expect(code, command).toBe(EXIT.refused);
+      expect(text(c.err), command).toContain("takes no --dir");
+      expect(text(c.err), command).toContain("Nothing has changed.");
     }
     expect(existsSync(settingsFile())).toBe(false);
   });
 
   test("an unnamed configuration is refused while the explicit-dir guard is armed", async () => {
     const c = consoleWith();
-    const code = await run(["wire", "--yes"], { io: c.io, env: ENV, home });
+    const code = await run(["connect"], { io: c.io, env: ENV, home });
     expect(code).toBe(EXIT.refused);
   });
 
   test("under observer every one of the three refuses before anything is read", async () => {
     await install();
-    for (const command of ["wire", "unwire", "uninstall"]) {
+    for (const command of ["connect", "disconnect", "uninstall"]) {
       const c = consoleWith();
-      const code = await run([command, "--observer", "--config", configPath(), "--yes"], {
+      const code = await run([command, "--observer", "--config", configPath()], {
         io: c.io,
         env: ENV,
         home,
       });
-      expect(code).toBe(EXIT.refused);
-      expect(text(c.err)).toContain("observer stance");
+      expect(code, command).toBe(EXIT.refused);
+      expect(text(c.err), command).toContain("observer stance");
     }
     expect(existsSync(settingsFile())).toBe(false);
   });
 
-  test("`wire --dry-run` on a real install writes nothing", async () => {
+  test("`connect --dry-run` on a real install writes nothing", async () => {
     await install();
     const c = consoleWith();
-    const code = await run(["wire", "--config", configPath(), "--dry-run"], {
+    const code = await run(["connect", "--config", configPath(), "--dry-run"], {
       io: c.io,
       env: ENV,
       home,
@@ -972,7 +1080,7 @@ describe("install, at a terminal", () => {
     const fake = spawnerThat(() => OK);
     const c = await install([], ["Ada", "y"], fake.spawner);
     expect(c.asked[0]).toContain("What should this memory call you?");
-    expect(c.asked[1]).toContain("Wire Claude Code now?");
+    expect(c.asked[1]).toContain("Connect Claude Code now?");
 
     const said = text(c.out);
     expect(said).toContain("[1/4]");
@@ -1016,7 +1124,7 @@ describe("install, at a terminal", () => {
     expect(again.asked.some((q) => q.includes("call you"))).toBe(false);
     const said = text(again.out);
     expect(said).toContain("store already here, kept");
-    expect(said).toContain("already wired");
+    expect(said).toContain("already connected");
     // Nothing was registered a second time, and no second backup was taken.
     expect(fake.calls).toEqual([]);
     expect(backups()).toHaveLength(0);
@@ -1052,7 +1160,7 @@ describe("install, at a terminal", () => {
     expect(existsSync(settingsFile())).toBe(false);
     expect(fake.calls).toEqual([]);
     const said = text(c.out);
-    expect(said).toContain("counterparts wire");
+    expect(said).toContain("counterparts connect");
     // The store is made either way.
     expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
   });
@@ -1268,7 +1376,7 @@ describe("m8 — an unreadable ~/.claude.json asks the host", () => {
     const c = consoleWith();
     const result = await wire(input({ io: c.io, spawner: fake.spawner }));
     expect(result.mcp).toBe("already");
-    expect(text(c.out)).toContain("already wired");
+    expect(text(c.out)).toContain("already connected");
     expect(fake.calls.map((a) => a.slice(0, 2))).toEqual([["mcp", "get"]]);
   });
 
@@ -1397,25 +1505,12 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
     expect(existsSync(settingsFile())).toBe(false);
   });
 
-  test("at `wire`'s own question: exit is non-zero and nothing is written", async () => {
-    const before = consoleWith();
-    expect(
-      await run(["install", "--config", configPath(), "--budget", "9000", "--no-wire"], {
-        io: before.io,
-        env: ENV,
-        home,
-      }),
-    ).toBe(EXIT.ok);
-    const c = aborting(0);
-    const code = await run(["wire", "--config", configPath()], {
-      io: c.io,
-      env: ENV,
-      home,
-      spawner: spawnerThat(() => OK).spawner,
-      processes: noProcesses,
-    });
-    expect(code).not.toBe(EXIT.ok);
-    expect(text(c.err)).toContain("stopped; nothing else was changed");
-    expect(existsSync(settingsFile())).toBe(false);
-  });
+  /**
+   * `connect` HAS NO QUESTION TO CANCEL any more (2026-09-22, item 3), so the
+   * third case this block used to hold — Ctrl-C at `wire`'s own prompt — is
+   * unreachable through the console. What is still worth proving is that the
+   * command does not ASK at all on a terminal that would have answered, and
+   * that is asserted where the command lives ("`counterparts connect` on the
+   * command line", above).
+   */
 });

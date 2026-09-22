@@ -29,6 +29,8 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -189,7 +191,7 @@ import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./
 // The console's shared manners (2026-09-21). `credentials set` is the first
 // command to use them, and it uses exactly three: is there a person here, read
 // a value without echoing it, and say one marked line back.
-import { ask, askHidden, isInteractive, isPromptAborted, ui } from "./ui.js";
+import { ask, askHidden, confirm, isInteractive, isPromptAborted, ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
 import {
@@ -212,14 +214,14 @@ import {
 import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
-import { realProcessLister, realSpawner, unwire, wire } from "./wire.js";
+import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
 import type { Outcome as WireOutcome, ProcessLister, Spawner, WireInput } from "./wire.js";
 import { uninstall } from "./uninstall.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 // The console's map and the paragraphs the old `usage()` carried. One
 // direction only: `help.ts` imports nothing but types back from this file.
-import { COMMAND_DETAIL, CONSOLE_FOOTER, shortHelp } from "./help.js";
+import { COMMAND_DETAIL, CONSOLE_FOOTER, advancedHelp, shortHelp } from "./help.js";
 // The terminal layouts for the two readings a person checks an install with.
 // Both fall back to today's exact bytes for a console that is not a terminal.
 import { printDoctorReport, printStatusReport } from "./report.js";
@@ -230,8 +232,14 @@ export const COMMANDS = [
   "install",
   // The host's own two files, edited rather than printed (2026-09-21, A). They
   // sit beside `install` because `install` now calls the first of them.
-  "wire",
-  "unwire",
+  //
+  // THEY WERE `wire` / `unwire` FOR ONE UNPUBLISHED WEEK. The owner renamed them
+  // on 2026-09-22: "connect" and "disconnect" are what a person does to an AI,
+  // and "wire" is what an electrician does to a house. Nothing shipped under the
+  // old names — 0.1.0 has neither command — so there is no alias to keep, and
+  // the old spellings are refused as unknown like any other word.
+  "connect",
+  "disconnect",
   // Leaving: the wiring comes out, and the memory stays unless you say
   // otherwise. The owner's ruling is quoted at the top of `uninstall.ts`.
   "uninstall",
@@ -240,6 +248,11 @@ export const COMMANDS = [
   // blank one in its place, nothing deleted and nothing opened (2026-09-20, N1).
   "start-fresh",
   "note",
+  // ONE COMMAND, TWO NAMES, and the reason is in `help.ts#UNLISTED`: `ask` is
+  // the word a person reaches for and is the listed spelling; `recall` is the
+  // word the MCP tool, `doctor` and every note written before 2026-09-22 use,
+  // and it dispatches for good.
+  "ask",
   "recall",
   "export",
   "backup",
@@ -262,6 +275,15 @@ export const COMMANDS = [
   // The written page the wake leads with: read it, write it whole, and read
   // back what it used to say (2026-09-18, S1).
   "self-page",
+  // The owner's window, started on the store the CONFIGURATION names — no
+  // `--dir` to get wrong, and the browser opened for you (2026-09-22, item 4).
+  // `counterparts-dashboard serve` is still there and still refuses an unnamed
+  // store; this is the same server with the question already answered.
+  "dashboard",
+  // "Did that install work?", answered by the program itself rather than by a
+  // page of text (2026-09-22, finding #23 and item 1). `counterparts --version`
+  // printed the whole help page, because there was no version flag at all.
+  "version",
   // The console's own map, as a VERB. `counterparts help doctor` is what a
   // person types; `counterparts doctor --help` was the only way to ask, and
   // nothing said so (2026-09-21, new-user finding 4).
@@ -276,14 +298,17 @@ export const OWNER_OPS: readonly Command[] = [
   // hooks on somebody's editor, take them off again, or rename the directory
   // holding the memory it was pointed at. `uninstall` can delete a store, which
   // would make it the most consequential thing on this list by itself.
-  "wire",
-  "unwire",
+  "connect",
+  "disconnect",
   "uninstall",
   "init",
   // It creates a store and moves one. An instrument does neither.
   "start-fresh",
-  // `note` deposits. `recall` is a pure read and stays off this list, exactly
-  // like `status`: an instrument may look at a memory and may not add to one.
+  // `note` deposits. `ask`/`recall` is a pure read and stays off this list,
+  // exactly like `status`, `dashboard` and `version`: an instrument may look at
+  // a memory and may not add to one. (`dashboard` opens the store through
+  // `Dashboard.open`, which sets observer itself, so a stood-down console and a
+  // standing one see the same page.)
   "note",
   // `export` came OFF this list on 2026-09-20 (F7), and it is the only removal
   // this list has had. An export READS the store and writes outside it — that
@@ -411,6 +436,13 @@ export interface RunOptions {
    */
   spawner?: Spawner;
   processes?: ProcessLister;
+  /**
+   * THE WEB VIEW, for `dashboard` — the same kind of seam as `spawner` above
+   * and for a sharper version of the same reason: a test that let the real one
+   * run would BIND A PORT on the machine running the suite. Real runs never
+   * pass it and get `realDashboard()`, which loads the server module lazily.
+   */
+  dashboard?: DashboardSeam;
 }
 
 /**
@@ -424,6 +456,110 @@ export interface RunOptions {
  */
 export function usage(): string {
   return shortHelp();
+}
+
+/** What `versionLine` says when the package's own manifest is not beside the
+ *  running code. It is deliberately not a number: a check that greps for one
+ *  must fail rather than read a guess as a version. */
+const VERSION_UNKNOWN = "(version unknown — package.json is not beside the running code)";
+
+let readVersion: string | null = null;
+
+/**
+ * THE VERSION, out of the package's OWN `package.json`.
+ *
+ * Read from the running file's URL rather than from a constant, because a
+ * constant is a second place to forget: this has to be the version of the code
+ * that is executing, which is the whole question `counterparts --version`
+ * answers after `bun add -g` (2026-09-22, finding #23). `src/adapters/cli/` is
+ * three directories under the package root in the repository and in the tarball
+ * alike — `package.json#files` ships `src/` whole — so one relative URL is
+ * correct in both.
+ *
+ * It never throws: a manifest that cannot be read is reported in words, because
+ * a console that crashed on "which version are you" would be answering the
+ * question badly in the one place a person is checking whether it runs at all.
+ */
+export function packageVersion(): string {
+  if (readVersion !== null) return readVersion;
+  try {
+    const raw = readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf8");
+    const said = (JSON.parse(raw) as Record<string, unknown>)["version"];
+    readVersion = typeof said === "string" && said.length > 0 ? said : VERSION_UNKNOWN;
+  } catch {
+    readVersion = VERSION_UNKNOWN;
+  }
+  return readVersion;
+}
+
+/** `counterparts 0.2.0` — the whole output of `--version`. */
+export function versionLine(): string {
+  return `${BIN.cli} ${packageVersion()}`;
+}
+
+/**
+ * BARE `counterparts`, which is now a command rather than a mistake.
+ *
+ * It printed the map and exited 1 — "an invocation that named nothing is a usage
+ * error" (cold-stranger review §6.10, which is really about `--help` exiting 0).
+ * On 2026-09-22 the owner gave it a job: it is QUICKSTART's step 2, the thing a
+ * person types straight after installing, and a documented step that exits 1
+ * kills the `&&` chain the §6.10 scar was written about. So every arm here exits
+ * 0.
+ *
+ * Three arms, and only one of them asks:
+ *
+ *   - **A terminal, and nothing set up here** → "No memory here yet. Set it up
+ *     now? [Y/n]". Yes runs `install`; no prints the map.
+ *   - **Not a terminal** → the map, plus one line naming the command that sets
+ *     it up. `tools/install-loop/run.sh` runs QUICKSTART's commands with no
+ *     terminal and this one MUST NOT BLOCK there: `isInteractive` is false for
+ *     a pipe, a CI job and every test console, so the question is never put.
+ *   - **A terminal with an install already** → the map, and no question. There
+ *     is nothing to offer.
+ *
+ * "Set up" is read WITHOUT OPENING ANYTHING: it is the existence of the
+ * configuration file, which is the same file `doctor`, the hooks and the MCP
+ * server resolve. And the explicit-dir guard is asked FIRST — a shell armed with
+ * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` gets the map and no question, because
+ * the whole point of that variable is that nothing nobody named gets touched,
+ * and "is there a config at the default path" is a question about exactly that
+ * path.
+ */
+async function bareConsole(
+  io: Io,
+  env: Record<string, string | undefined>,
+  opts: RunOptions,
+): Promise<number> {
+  const named = resolveConfigPath([], env, opts.home ?? homedir());
+  const unnameable = named.refusal !== null || implicitConfigRefusal(named, env) !== null;
+  const configured = !unnameable && existsSync(named.path);
+  if (isInteractive(io, env) && !unnameable && !configured) {
+    let go: boolean;
+    try {
+      go = await confirm(io, "No memory here yet. Set it up now?", { default: true });
+    } catch (err) {
+      if (!isPromptAborted(err)) throw err;
+      io.err("");
+      io.err("stopped; nothing was changed.");
+      return EXIT.refused;
+    }
+    if (go) {
+      io.out("");
+      // THE SAME COMMAND, through the same door. `install` resolves its own
+      // layout, its own guards and its own interactive arm, and none of that is
+      // worth a second copy here — a bare `counterparts` that answered yes must
+      // be indistinguishable from having typed `counterparts install`.
+      return await run(["install"], opts);
+    }
+    io.out(usage());
+    return EXIT.ok;
+  }
+  io.out(usage());
+  if (!isInteractive(io, env)) {
+    io.out(`Not set up yet? \`${BIN.cli} install\` does it, and it is safe to run again.`);
+  }
+  return EXIT.ok;
 }
 
 interface Parsed {
@@ -463,8 +599,16 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `start-fresh`: it is a COMMON flag, so it parses either way, and these
   // commands refuse it in words rather than ignoring it. The store they name is
   // the one the CONFIGURATION names, because that is the one the hooks open.
-  wire: ["config", "yes", "dry-run"],
-  unwire: ["config", "yes", "dry-run"],
+  //
+  // AND `--yes` IS GONE FROM THE FIRST TWO. It meant "do not put the question",
+  // and as of 2026-09-22 there is no question: `connect` names the host and
+  // goes, because typing the verb IS the yes (owner item 3). A flag that no
+  // longer decides anything is a no-op, and the dashboard's own `--yes` scar
+  // (`dashboard/bin/dashboard.ts`) is about exactly that; neither command has
+  // ever shipped, so nothing in the world passes it. `uninstall` keeps it — it
+  // still asks, and its question is about somebody's memory.
+  connect: ["config", "dry-run"],
+  disconnect: ["config", "dry-run"],
   uninstall: ["config", "yes", "park", "delete-memories", "nothing-is-open"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
@@ -476,6 +620,9 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // it (the `--dirr` scar, pointed at the most dangerous verb here).
   "start-fresh": ["config", "dry-run", "yes", "nothing-is-open", "name", "undo"],
   note: ["kind", "title", "salience"],
+  // Two names, ONE row each and the same one: a flag that worked under `recall`
+  // and not under `ask` would be the rename leaking into behaviour.
+  ask: ["id", "json"],
   recall: ["id", "json"],
   export: [
     "out",
@@ -533,6 +680,14 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // line is a page in shell history, and the same argument that keeps a
   // credential off argv keeps prose that is injected into every session off it.
   "self-page": ["write", "file", "stdin", "reason", "versions", "version", "restore", "clear", "if-version"],
+  // `--config` because the store it opens is the one the CONFIGURATION names —
+  // that is the whole point of the command over `counterparts-dashboard serve`,
+  // which refuses until you name a store. `--dir` still parses (it is common)
+  // and still wins when it is given: it is a NAME, and naming a store is never
+  // the mistake this command's default is there to prevent.
+  dashboard: ["config", "port", "no-open"],
+  // None of its own: it prints one line and opens nothing.
+  version: [],
   // None of its own: it takes a COMMAND NAME, not a flag. `--help` and `--dir`
   // reach it through `COMMON_FLAGS`, and `--dir` is declared everywhere rather
   // than consulted here — this command opens nothing.
@@ -551,16 +706,17 @@ export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
     "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it then asks whether to wire Claude Code and does it; anywhere else — a pipe, a script, a CI job — and with --no-wire it prints the host's hooks block and MCP line and changes nothing of the host's.",
-  wire: "Put the five hooks in the host's settings file and register the MCP server. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse.",
-  unwire:
-    "Take the Counterparts hooks back out of the host's settings file and deregister the MCP server. It removes only what it recognises as ours; another tool's hooks are never candidates.",
+  connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. Claude Code is the one host it knows today.",
+  disconnect:
+    "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
   uninstall:
-    "Leave: unwire Claude Code, then say where your memory still is and how to remove the package. It never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
+    "Leave: disconnect Claude Code, then say where your memory still is and how to remove the package. It never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   "start-fresh":
     "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
-  recall: "Ask memory a question. Read-only.",
+  ask: "Ask memory a question. Read-only.",
+  recall: "Ask memory a question — the same command as `ask`, under its older name. Read-only.",
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
@@ -586,18 +742,28 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
   "self-page":
     "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
+  dashboard:
+    "Open the dashboard in your browser: the web view of the store your configuration names, served on 127.0.0.1 and nowhere else. Ctrl-C stops it. Read-only — it strengthens nothing, deposits nothing, and writes no file of its own.",
+  version: "The version of Counterparts you have. It opens nothing.",
   help:
-    "The console's own map. With no argument, every command in one short line each; with a command name, that command's whole page.",
+    "The console's own map. With no argument, the commands a person reaches for, one short line each; with 'advanced', the maintenance shelf and the three flags every command takes; with a command name, that command's whole page.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
 const COMMAND_ARGS: Partial<Record<Command, string>> = {
   note: ' "<text>"',
+  ask: ' "<question>"',
   recall: ' "<question>"',
   remove: " <id>",
   credentials: " set <NAME> | list",
   scope: " <path|.>",
-  help: " [<command>]",
+  // The host is OPTIONAL and there is one of them: `counterparts connect` and
+  // `counterparts connect claude-code` are the same command, and any other name
+  // is refused with the one it knows. The synopsis says so rather than offering
+  // a menu of one (owner item 3).
+  connect: " [claude-code]",
+  disconnect: " [claude-code]",
+  help: " [advanced | <command>]",
 };
 
 /**
@@ -612,11 +778,13 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
 const NO_DIR_IN_SYNOPSIS: readonly string[] = [
   "start-fresh",
   "help",
+  // It prints one line out of `package.json` and opens nothing at all.
+  "version",
   // The three host-editing verbs refuse it in the same words `start-fresh` does:
   // what they act on is decided by the CONFIGURATION, and a second answer on the
   // command line is how the wrong host file or the wrong directory gets edited.
-  "wire",
-  "unwire",
+  "connect",
+  "disconnect",
   "uninstall",
 ];
 
@@ -709,6 +877,8 @@ const FLAG_HELP: Record<string, string> = {
   list: "print the whole registry, and the file it came from",
   note: "free text recorded beside the entry, for why",
   "no-wire": "do not offer to edit the host at all: print the hooks block and the registration line, and change nothing of theirs",
+  port: "the port to serve the dashboard on (default 4747, or $COUNTERPARTS_DASHBOARD_PORT)",
+  "no-open": "do not open a browser — just print the address and serve it",
   park: "move the whole directory aside under a dated name — one rename, nothing copied, nothing deleted, and the store is never opened",
   "delete-memories":
     "destroy it. It counts what is about to go, says the number, and takes a typed phrase; there is no way to answer it from a script",
@@ -737,6 +907,8 @@ const INSTALL_FLAG_HELP: Record<string, string> = {
  * wrong host file or the wrong directory gets edited.
  */
 const HOST_FLAG_HELP: Record<string, string> = {
+  // `connect` and `disconnect` no longer declare this one — they do not ask.
+  // `uninstall` does, and this is its sentence.
   yes: "do not ask: take the ordinary answer to every question this command would put",
   "nothing-is-open":
     "you are asserting you have closed every session, dashboard and worker. It is the way past a check that could NOT LOOK — no usable `ps` — and never past one that found something",
@@ -782,6 +954,20 @@ const START_FRESH_FLAG_HELP: Record<string, string> = {
 };
 
 /**
+ * THE SENTENCE `dashboard` PRINTS FOR `--dir` INSTEAD OF THE SHARED ONE.
+ *
+ * Everywhere else `--dir`'s default is `$COUNTERPARTS_DATA_DIR`, else
+ * `~/.counterparts/store`. Here it is neither: the whole reason this command
+ * exists beside `counterparts-dashboard serve` — which REFUSES an unnamed store
+ * — is that the question "which store" already has an answer on this machine,
+ * and it is the one the hooks and the memory tools open. Printing the shared
+ * sentence would describe a resolution this command does not use.
+ */
+const DASHBOARD_FLAG_HELP: Record<string, string> = {
+  dir: "a store to look at instead of the one your configuration names",
+};
+
+/**
  * One command's own help page: what it is, how it is invoked, and every flag it
  * takes with a sentence each.
  *
@@ -806,9 +992,11 @@ export function commandHelp(command: Command): string {
         ? START_FRESH_FLAG_HELP
         : command === "install"
           ? INSTALL_FLAG_HELP
-          : command === "wire" || command === "unwire" || command === "uninstall"
-            ? HOST_FLAG_HELP
-            : {};
+          : command === "dashboard"
+            ? DASHBOARD_FLAG_HELP
+            : command === "connect" || command === "disconnect" || command === "uninstall"
+              ? HOST_FLAG_HELP
+              : {};
   const flagLine = (name: string): string => {
     const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
     return `  ${shown.padEnd(20)} ${override[name] ?? FLAG_HELP[name] ?? "(undocumented)"}`;
@@ -846,6 +1034,7 @@ export function commandHelp(command: Command): string {
 const VALUED_FLAGS: readonly string[] = [
   "dir",
   "config",
+  "port",
   "out",
   "reason",
   "passphrase",
@@ -1044,6 +1233,12 @@ export function parse(argv: readonly string[]): Parsed {
       "no-wire": { type: "boolean" },
       park: { type: "boolean" },
       "delete-memories": { type: "boolean" },
+      // `dashboard`'s two. `--port` is a string for the reason every valued flag
+      // here is: a trailing `--port` would otherwise arrive as the boolean
+      // `true` and be read as "no port named", which is the right answer by
+      // accident and the wrong one the moment somebody writes `--port --no-open`.
+      port: { type: "string" },
+      "no-open": { type: "boolean" },
       file: { type: "string" },
       versions: { type: "boolean" },
       version: { type: "string" },
@@ -1095,9 +1290,23 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     io.out(usage());
     return EXIT.ok;
   }
+  // `counterparts --version`, THE FLAG. The verb (`counterparts version`) is a
+  // command like any other and is dispatched below, after the flag check, so a
+  // typo on its line is refused like every other typo. The FLAG cannot wait for
+  // that: `--version` is not a common flag, so on any command line that names a
+  // command it is correctly refused as unknown — and on a line that names none,
+  // `parsed.command` is undefined and the bare-console arm below would answer a
+  // question nobody asked.
+  //
+  // `self-page --version <seq>` is untouched: that one carries a value, so it
+  // parses as a STRING, and this reads only the boolean `strict: false` produces
+  // for a valued flag with nothing after it.
+  if (parsed.command === undefined && parsed.flags["version"] === true) {
+    io.out(versionLine());
+    return EXIT.ok;
+  }
   if (parsed.command === undefined) {
-    io.out(usage());
-    return EXIT.usage;
+    return await bareConsole(io, env, opts);
   }
   if (!(COMMANDS as readonly string[]).includes(parsed.command)) {
     io.err(`unknown command: ${parsed.command}`);
@@ -1125,10 +1334,26 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // armed would otherwise refuse to tell somebody what the commands are. And
   // after `unknownFlag`, so `counterparts help --dirr` is refused like every
   // other typo rather than silently ignored.
+  //
+  // `version` is here for exactly the same reason, one line long: it reads
+  // `package.json` and nothing else, and a shell with the guard armed must not
+  // be refused when it asks which version is installed.
+  if (command === "version") {
+    io.out(versionLine());
+    return EXIT.ok;
+  }
+
   if (command === "help") {
     const asked = parsed.positional[0];
     if (asked === undefined) {
       io.out(usage());
+      return EXIT.ok;
+    }
+    // THE SECOND PAGE, and it is not a command: `advanced` names a SHELF. It is
+    // checked before the command lookup so that a command called `advanced`
+    // could never be added without this line being read (2026-09-22, item 2).
+    if (asked === "advanced") {
+      io.out(advancedHelp());
       return EXIT.ok;
     }
     if ((COMMANDS as readonly string[]).includes(asked)) {
@@ -1191,9 +1416,12 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     // The three host-editing verbs read one to learn which store to name in the
     // registration, whether the hooks have to carry `--config`, and — for
     // `uninstall` — which directory is this install's at all.
-    command === "wire" ||
-    command === "unwire" ||
+    command === "connect" ||
+    command === "disconnect" ||
     command === "uninstall" ||
+    // `dashboard` reads one for the same reason `doctor` does: the store worth
+    // looking at is the one the hooks and the memory tools open.
+    command === "dashboard" ||
     // `start-fresh` READS one to learn which store the hooks open, and then
     // hands the same choice to `install` so the blank store lands where the
     // file already points.
@@ -1260,7 +1488,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // The explicit-dir guard applies by hand, exactly as it does to `install`:
   // the default configuration names the live store and the live base, and
   // `uninstall --park` renames the directory that file sits in.
-  if (command === "wire" || command === "unwire" || command === "uninstall") {
+  if (command === "connect" || command === "disconnect" || command === "uninstall") {
     const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
     if (implicit !== null) {
       io.err(implicit);
@@ -1388,6 +1616,29 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     }
   }
 
+  // `dashboard` resolves its store exactly as `doctor` does, and for the same
+  // reason: the store worth looking at is the one the hooks and the memory tools
+  // open, and a person who has just been told "open the dashboard in your
+  // browser" should not have to learn `--dir` to do it (2026-09-22, item 4).
+  //
+  // `--dir` IS A NAME, so the same sentence `doctor` carries applies here: when
+  // one is given, the configuration beside it is not consulted and the guard has
+  // nothing to refuse.
+  if (command === "dashboard") {
+    const named_ = typeof parsed.flags["dir"] === "string" ? undefined : named;
+    const implicit = named_ === undefined ? null : implicitConfigRefusal(named_, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
+    try {
+      return await dashboardCommand(parsed, io, env, opts, named);
+    } catch (err) {
+      io.err(`dashboard failed: ${describeDirRefusal(err)}`);
+      return EXIT.failed;
+    }
+  }
+
   let dir: string;
   try {
     dir = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : resolveDir(env);
@@ -1417,6 +1668,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
         return await noteCommand(dir, io, parsed);
+      // ONE COMMAND, TWO NAMES — the same function, not a forwarding shim, so
+      // there is no arm where one spelling can behave differently from the other.
+      case "ask":
       case "recall":
         return recallCommand(dir, io, parsed);
       case "verify":
@@ -2487,7 +2741,7 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
   io.out("");
-  io.out(`  Or have it done for you, after it asks: ${BIN.cli} wire`);
+  io.out(`  Or have it done for you: ${BIN.cli} connect`);
 }
 
 // ── install, as a short conversation ────────────────────────────────────────
@@ -2712,7 +2966,7 @@ async function installConversation(
       ? `Claude Code is wired: ${String(HOST_EVENTS.length)} hooks, and the memory tools ${
           wired.mcp === "printed" ? "once you run the line above" : "once you restart it"
         }.`
-      : `Claude Code is NOT wired. Run \`${BIN.cli} wire\` whenever you are ready.`,
+      : `Claude Code is NOT connected. Run \`${BIN.cli} connect\` whenever you are ready.`,
   );
   u.hint(`Restart Claude Code, then check it with \`${BIN.cli} doctor\`.`);
   return EXIT.ok;
@@ -2733,20 +2987,31 @@ function customConfigPath(named: ConfigChoice | undefined, home: string): string
     : undefined;
 }
 
-// ── wire / unwire / uninstall ───────────────────────────────────────────────
+// ── connect / disconnect / uninstall ────────────────────────────────────────
 
 /**
- * The console's half of the three host-editing verbs: refuse `--dir`, resolve
- * which configuration this invocation means, read the store out of it, and hand
- * the rest to `wire.ts` / `uninstall.ts`.
+ * THE HOSTS THIS CONSOLE KNOWS HOW TO CONNECT — one, and the list says so.
+ *
+ * The owner's ruling (2026-09-22, item 3): with one host known, `connect` names
+ * it and goes. A menu of one item is a question whose answer was already on the
+ * screen. The NAME is still accepted — `counterparts connect claude-code` is the
+ * same command — so the day there are two, a script that named its host keeps
+ * working and only the bare form has to learn to ask.
+ */
+export const KNOWN_HOSTS: readonly string[] = ["claude-code"];
+
+/**
+ * The console's half of the three host-editing verbs: refuse `--dir`, refuse a
+ * host nobody has, resolve which configuration this invocation means, read the
+ * store out of it, and hand the rest to `wire.ts` / `uninstall.ts`.
  *
  * Everything that touches a host file is in those modules. This function owns
- * exactly three decisions — which configuration, which store, and how an
- * outcome maps onto an exit code — so that the exit codes stay in the one file
- * that defines them.
+ * exactly four decisions — which host, which configuration, which store, and how
+ * an outcome maps onto an exit code — so that the exit codes stay in the one
+ * file that defines them.
  */
 async function hostWiringCommand(
-  command: "wire" | "unwire" | "uninstall",
+  command: "connect" | "disconnect" | "uninstall",
   parsed: Parsed,
   io: Io,
   env: Record<string, string | undefined>,
@@ -2754,6 +3019,20 @@ async function hostWiringCommand(
   named: ConfigChoice | undefined,
   now: () => number,
 ): Promise<number> {
+  // WHICH HOST, asked before anything is read. A name this console does not
+  // know is a command line that does not mean what it says — and the refusal
+  // NAMES the one it knows, because "unknown host" without a list is the
+  // refusal that teaches nothing (constitution 16).
+  const askedHost = parsed.positional[0];
+  if (command !== "uninstall" && askedHost !== undefined && !KNOWN_HOSTS.includes(askedHost)) {
+    io.err(
+      `refused: '${command}' does not know a host called '${askedHost}'. The one it knows is ` +
+        `${KNOWN_HOSTS.join(", ")} — and \`${BIN.cli} ${command}\` on its own means that one.`,
+    );
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+
   // `--dir` is a COMMON flag, so it parses on every command. Here it would be a
   // second answer to "which install" on commands that edit a stranger's editor
   // configuration and, in one case, rename the directory holding the memory.
@@ -2782,22 +3061,23 @@ async function hostWiringCommand(
     io.err("Nothing has changed.");
     return EXIT.refused;
   }
-  // A MISSING CONFIGURATION STOPS `wire` AND `uninstall`, AND NOT `unwire`.
+  // A MISSING CONFIGURATION STOPS `connect` AND `uninstall`, AND NOT
+  // `disconnect`.
   //
-  // The first two need it: `wire` has to tell the server which store to open,
+  // The first two need it: `connect` has to tell the server which store to open,
   // and `uninstall` has to know which directory this install's is at all. But
-  // `unwire` needs nothing out of it — it takes hooks OUT of the host's settings
-  // and runs one `claude mcp remove` — and the person most likely to be running
-  // it is somebody who deleted `~/.counterparts` by hand and now has five hooks
-  // firing at a store that is gone. Refusing them would leave the mess this
-  // command exists to clean up.
-  if (!present && command !== "unwire") {
+  // `disconnect` needs nothing out of it — it takes hooks OUT of the host's
+  // settings and runs one `claude mcp remove` — and the person most likely to be
+  // running it is somebody who deleted `~/.counterparts` by hand and now has
+  // five hooks firing at a store that is gone. Refusing them would leave the
+  // mess this command exists to clean up.
+  if (!present && command !== "disconnect") {
     io.err(
       `refused: there is no configuration at ${configPath}, so there is no install here to ` +
         `${command === "uninstall" ? "remove" : command}. Run '${BIN.cli} install' first, or name ` +
         `the configuration you mean with ${CONFIG_FLAG} <absolute path>.` +
-        (command === "wire"
-          ? ` (\`${BIN.cli} unwire\` does work without one: it only ever takes things out.)`
+        (command === "connect"
+          ? ` (\`${BIN.cli} disconnect\` does work without one: it only ever takes things out.)`
           : ""),
     );
     return EXIT.refused;
@@ -2840,13 +3120,28 @@ async function hostWiringCommand(
     custom,
     store,
     now: now(),
-    yes: parsed.flags["yes"] === true,
+    // NO QUESTION, AND THE VERB IS THE YES (2026-09-22, item 3). `wire()` and
+    // `unwire()` still hold the question — `install` is their other caller and
+    // it owns when to put one — and these two commands answer it here, at the
+    // call site, because somebody who typed `counterparts connect` has already
+    // said what a "Connect Claude Code now? [Y/n]" would be asking them. That is
+    // also why neither declares `--yes` any more: there is nothing to skip.
+    yes: true,
     dryRun: parsed.flags["dry-run"] === true,
     exe: process.execPath,
     spawner,
     lister,
   };
-  const result = command === "wire" ? await wire(input) : await unwire(input);
+  const result = command === "connect" ? await wire(input) : await unwire(input);
+  // WHAT AN OPEN SESSION DOES NOW, printed by the CALLER (2026-09-22). `wire()`
+  // used to say it itself, which put it in the middle of `install`'s screen two
+  // lines above install's own "restart Claude Code, then run doctor". A
+  // standalone `connect` has no such ending, so it says it here — and only when
+  // something actually changed, because "restart your sessions" after "already
+  // connected, nothing was changed" is advice about nothing.
+  if (command === "connect" && result.outcome === "ok" && result.hooks !== "already") {
+    sessionsNote(ui(io, env), lister);
+  }
   return exitFor(result.outcome);
 }
 
@@ -2854,6 +3149,220 @@ async function hostWiringCommand(
  *  file's `EXIT` back and make the two modules circular. */
 function exitFor(outcome: WireOutcome): number {
   return outcome === "ok" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
+}
+
+// ── dashboard ───────────────────────────────────────────────────────────────
+
+/**
+ * `counterparts dashboard` — the owner's window, on the store this machine is
+ * already using.
+ *
+ * `counterparts-dashboard serve` has existed since 2026-09-04 and REFUSES until
+ * somebody names a store, for a reason that is still right: `serve` with no
+ * `--dir` would have put the default store — the owner's live memory, every
+ * element of it — on a socket because a flag was forgotten. That refusal is a
+ * guard on a command whose author could not know which store was meant.
+ *
+ * This command knows. It reads the CONFIGURATION, the same file the hooks and
+ * the memory tools open, so the question `serve` refuses to guess at has already
+ * been answered on this machine by an install. `--dir` still names another, and
+ * `--config` names another configuration; what is gone is the case where nobody
+ * said anything at all.
+ *
+ * The server itself is not duplicated: `web/server.ts` is imported and started,
+ * and everything it already guarantees — 127.0.0.1 only, a Host-header
+ * allowlist, observer by construction — holds unchanged.
+ */
+
+/** A dashboard that is up, as this console needs to see it. */
+export interface RunningView {
+  readonly url: string;
+  /** The store it opened, resolved — printed, so it is never a guess. */
+  readonly dir: string;
+  stop(): Promise<void>;
+}
+
+/**
+ * THE WEB VIEW AS A SEAM, for the reason `spawner` and `processes` are seams
+ * one screen up: a test that drove the real one would bind a real port on the
+ * machine running the suite, and a suite that binds ports fails in CI, in
+ * parallel with itself, and on a developer who happens to have 4747 open.
+ *
+ * Real runs pass nothing and get `realDashboard()`, which imports the server
+ * module lazily — so a console that never types this word never pulls the HTTP
+ * server into its module graph at all. (Said that way on purpose:
+ * `test/cli.test.ts` greps this whole directory for the names of the network
+ * modules, and the one file in this package that may open a socket is the
+ * dashboard's own server, named in `test/claude-code.test.ts`.)
+ */
+export interface DashboardSeam {
+  start(opts: { readonly dir: string; readonly port?: number }): Promise<RunningView>;
+  /** Open the person's browser. Never throws: a machine with no opener, or a
+   *  desktop that refuses, is not a reason for the dashboard to fail. */
+  open?(url: string): void;
+  /** Resolves when the person stops it. Ctrl-C, in a real run. */
+  until?(): Promise<void>;
+}
+
+/** The default port, restated rather than imported: naming it here costs one
+ *  number and keeps `web/server.ts` out of the module graph of a console that
+ *  is not serving anything. `test/cli.test.ts` holds the two to each other. */
+export const DASHBOARD_DEFAULT_PORT = 4747;
+
+/** The ONE line the owner asked for (2026-09-22, item 4). */
+export function dashboardLine(url: string): string {
+  return `Dashboard: ${url}  (Ctrl-C stops it)`;
+}
+
+async function dashboardCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  opts: RunOptions,
+  named: ConfigChoice | undefined,
+): Promise<number> {
+  const home_ = opts.home ?? homedir();
+  const configPath = named === undefined ? defaultConfigPath(home_) : resolve(named.path);
+
+  // WHICH STORE — `--dir` if it was named, else the one the configuration names.
+  let dir: string;
+  if (typeof parsed.flags["dir"] === "string") {
+    dir = resolve(parsed.flags["dir"]);
+  } else {
+    if (!existsSync(configPath)) {
+      io.err(
+        `refused: there is no configuration at ${configPath}, so there is no store here to ` +
+          `show. Run '${BIN.cli} install' first, name the configuration with ${CONFIG_FLAG} ` +
+          "<absolute path>, or point this at a store yourself with --dir <path>.",
+      );
+      return EXIT.refused;
+    }
+    const host = hostConfigFor(configPath);
+    if (host.reason === "unreadable") {
+      io.err(
+        `refused: ${configPath} is there and will not be understood. This command reads ` +
+          '"dataDir" out of it to know which store to show, and a file it cannot read is a ' +
+          "question it will not answer by guessing. --dir <path> names one directly.",
+      );
+      return EXIT.refused;
+    }
+    dir = host.config.dataDir ?? join(dirname(configPath), DEFAULT_STORE_DIR);
+  }
+
+  if (!storeExists(dir)) {
+    io.err(
+      `no store at ${dir}. Run '${BIN.cli} install' first` +
+        `${typeof parsed.flags["dir"] === "string" ? `, or name another store with --dir` : ""}.`,
+    );
+    return EXIT.failed;
+  }
+
+  // A PORT THAT IS NOT A PORT IS A REFUSAL, not a silent fall back to 4747: a
+  // person who typed one meant it, and a dashboard that ignored it and came up
+  // somewhere else is the `--dirr` silence in a smaller key.
+  const portFlag = parsed.flags["port"];
+  let port: number | undefined;
+  if (typeof portFlag === "string") {
+    const n = Number(portFlag);
+    if (!Number.isInteger(n) || n < 0 || n > 65535) {
+      io.err(`refused: --port ${portFlag} is not a port number (0–65535). Nothing was opened.`);
+      return EXIT.refused;
+    }
+    port = n;
+  }
+
+  const seam = opts.dashboard ?? realDashboard(env);
+  let running: RunningView;
+  try {
+    running = await seam.start({ dir, ...(port === undefined ? {} : { port }) });
+  } catch (err) {
+    if ((err as { code?: string }).code === "EADDRINUSE") {
+      io.err(
+        `Port ${String(port ?? DASHBOARD_DEFAULT_PORT)} is already in use — a dashboard may ` +
+          "already be running. Pass --port <n> to use another one.",
+      );
+      return EXIT.failed;
+    }
+    throw err;
+  }
+
+  io.out(dashboardLine(running.url));
+  // WHICH STORE IS ON THAT SOCKET, said out loud, every time. It is the sentence
+  // `serve` has printed since the day it was written, and the reason has not
+  // changed: a whole memory is being served, and "which one" must never be a
+  // guess (constitution 16).
+  io.out(`reading ${tilde(running.dir, home_)}`);
+  if (parsed.flags["no-open"] !== true) seam.open?.(running.url);
+
+  await (seam.until ?? untilInterrupted)();
+  await running.stop();
+  return EXIT.ok;
+}
+
+/**
+ * The real seam: the server module, loaded only now, and the platform's own
+ * "open this" program.
+ */
+function realDashboard(env: Record<string, string | undefined>): DashboardSeam {
+  return {
+    async start(o): Promise<RunningView> {
+      // LAZY, and the laziness is the point: a `counterparts status` must not
+      // pull an HTTP server into its module graph to print a table.
+      const { startDashboard } = await import("../dashboard/web/server.js");
+      const up = await startDashboard({
+        dir: o.dir,
+        ...(o.port === undefined ? {} : { port: o.port }),
+      });
+      return { url: up.url, dir: up.dir, stop: (): Promise<void> => up.stop() };
+    },
+    open(url: string): void {
+      openInBrowser(url, env);
+    },
+    until: untilInterrupted,
+  };
+}
+
+/**
+ * Hand the address to the desktop, and NEVER FAIL BECAUSE OF IT.
+ *
+ * Detached and with its streams closed, so the opener's own chatter cannot land
+ * in the middle of the dashboard's output and a browser that outlives this
+ * process does not hold it open. Every failure — no such program, a headless
+ * box, a sandbox that refuses to spawn — is silent: the address is already on
+ * the screen, and a person who can read it can paste it.
+ */
+function openInBrowser(url: string, env: Record<string, string | undefined>): void {
+  const opener =
+    process.platform === "darwin" ? "open" : process.platform === "linux" ? "xdg-open" : null;
+  if (opener === null) return;
+  try {
+    const child = spawn(opener, [url], {
+      detached: true,
+      stdio: "ignore",
+      env: env as NodeJS.ProcessEnv,
+    });
+    // An ENOENT arrives as an EVENT, not as a throw, and an unhandled 'error'
+    // on a child process takes the whole console down with it.
+    child.on("error", () => {
+      /* no opener on this machine; the address is on the screen */
+    });
+    child.unref();
+  } catch {
+    /* likewise — this is a courtesy, not a step */
+  }
+}
+
+/** Until Ctrl-C. `once` rather than `on`, so a second interrupt kills the
+ *  process the way an impatient person expects it to. */
+function untilInterrupted(): Promise<void> {
+  return new Promise<void>((done) => {
+    process.once("SIGINT", () => {
+      done();
+    });
+    process.once("SIGTERM", () => {
+      done();
+    });
+  });
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -3939,10 +4448,17 @@ async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number>
 
 /** The deliberate look, in plain lines. Writes nothing. */
 function recallCommand(dir: string, io: Io, parsed: Parsed): number {
+  // THE SPELLING THE PERSON TYPED IS THE SPELLING THEY GET BACK. `ask` is the
+  // listed name and `recall` the older one, and a refusal that answered
+  // `counterparts ask` with "counterparts recall takes a question" would be
+  // teaching a name the page does not list (2026-09-22, item 3).
+  const said = parsed.command === "recall" ? "recall" : "ask";
   const idFlag = typeof parsed.flags["id"] === "string" ? parsed.flags["id"].trim() : "";
   const question = parsed.positional.join(" ").trim();
   if (idFlag.length === 0 && question.length === 0) {
-    io.err('refused: recall takes a question, e.g. counterparts recall "..." — or --id <id>.');
+    io.err(
+      `refused: ${said} takes a question, e.g. ${BIN.cli} ${said} "..." — or --id <id>.`,
+    );
     return EXIT.usage;
   }
   if (idFlag.length > 0 && question.length > 0) {
@@ -3993,7 +4509,7 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
           : `NOTHING CAME BACK — ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} scored and none was close enough to show.`,
       );
       io.out("  Try words the memory itself would use, or ask for it by id:");
-      io.out("  counterparts recall --id <mem_...>");
+      io.out(`  ${BIN.cli} ${said} --id <mem_...>`);
       return EXIT.ok;
     }
     for (const m of result.memories) {
