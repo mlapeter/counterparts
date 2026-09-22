@@ -18,9 +18,10 @@
  *      a PATH or an outcome word — the same bound `claude-code/credentials.ts`
  *      holds on the reading side.
  *   2. **Skipping is always offered and always fine** (the owner, 2026-09-21).
- *      Enter skips; every prompt says so; a skip is an ordinary outcome and
- *      never an error. Both keys are optional and the product says so in its
- *      README: "No API keys are required."
+ *      Since 2026-09-22 the offer is the FIRST thing each key asks — `[y/N]`,
+ *      where Enter is no — and an empty paste after a yes is a skip too. A skip
+ *      is an ordinary outcome and never an error. Both keys are optional and
+ *      the product says so in its README: "No API keys are required."
  *   3. **Embedding is opt-in because it sends text to a third party.** A Voyage
  *      key alone never turns the embedder on. The knob moves only after an
  *      explicit yes, and the edit writes the exact shape `doctor` names —
@@ -53,6 +54,23 @@ export const KEY_LINKS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * THE QUESTION ITSELF, one line, with what the key buys inside it — the shape
+ * the owner settled on 2026-09-22 (item 10): **y/N first**, and the work of
+ * deciding done by the question rather than by a paragraph above it.
+ *
+ * The first version put a heading, the reason, the link and then a hidden
+ * prompt in front of somebody who had not yet said they wanted a key, four
+ * times over for two optional things. `confirm` appends ` [y/N] `, so these are
+ * the sentences and nothing else.
+ */
+export const KEY_QUESTIONS: Readonly<Record<string, string>> = {
+  [API_KEY_ENV]:
+    "Add an Anthropic key? Optional — lets a session that ended too soon get written up anyway.",
+  [EMBED_KEY_ENV]:
+    "Add a Voyage key? Optional — lets recall match by meaning, not just words.",
+};
+
+/**
  * ONE LINE each, and both of them are claims about what the product does, so
  * they are written from `README.md` ("No API keys are required") and
  * QUICKSTART §6 rather than invented here.
@@ -62,6 +80,12 @@ export const KEY_LINKS: Readonly<Record<string, string>> = {
  * sweep: the interpretation of a session that ENDED before the assistant could
  * write it up. And it is an egress: that captured conversation is sent to
  * Anthropic. Both halves, or the sentence is a sales line.
+ *
+ * NOT PRINTED BY THE INSTALL SCREEN ANY MORE (item 10 — the screen is the
+ * question, the link and the outcome). Kept, exported and still the one place
+ * these two sentences are written, because the fact they carry is an EGRESS and
+ * a product that stops saying where text goes has stopped being able to say it.
+ * `help install` / `help credentials` is where they belong now.
  */
 export const KEY_REASONS: Readonly<Record<string, string>> = {
   [API_KEY_ENV]:
@@ -180,41 +204,63 @@ export async function promptForKeys(
   // be offered the thing the key is for. The question is asked for a key that
   // was just typed and for one that was kept; only a knob that is already `true`
   // is left alone, because there is nothing to offer.
-  let embedder: EmbedderOutcome = "not-asked";
-  let embedderFix: string | undefined;
   const haveEmbedKey = voyage === "set" || voyage === "kept";
-  if (haveEmbedKey && ctx.embedderOn === true) {
-    embedder = "already-on";
-  } else if (haveEmbedKey) {
-    u.blank();
-    u.hint("Embedding sends memory text to Voyage. It stays off until you say otherwise.");
-    const yes = await confirm(io, "Turn on recall by meaning now?", { default: true });
-    if (!yes) {
-      embedder = "declined";
-      u.ok(`${EMBED_KEY_ENV} is saved and recall by meaning stays off.`);
-    } else {
-      const edit = enableEmbedder(ctx.configPath);
-      if (edit.ok) {
-        embedder = "enabled";
-        // No full stop after a PATH: a sentence's own punctuation reads as part
-        // of the thing it names, and this line is often copied.
-        u.ok(`recall by meaning is on in ${ctx.configPath}`);
-      } else {
-        embedder = "failed";
-        embedderFix = embedderFixLine(ctx.configPath);
-        u.warn(`could not turn recall by meaning on: ${edit.reason}. The key is saved.`);
-        u.hint(embedderFix);
-      }
-    }
-  }
+  const knob = haveEmbedKey
+    ? await offerEmbedder(io, u, ctx.configPath, ctx.embedderOn === true)
+    : { embedder: "not-asked" as EmbedderOutcome };
 
   return {
     asked: true,
     anthropic,
     voyage,
-    embedder,
-    ...(embedderFix === undefined ? {} : { embedderFix }),
+    ...knob,
   };
+}
+
+/**
+ * "Turn on recall by meaning now?" — the SECOND yes, and the one `credentials
+ * set VOYAGE_API_KEY` needed too.
+ *
+ * Split out of `promptForKeys` on 2026-09-22 (item 6). Doctor's fix line for an
+ * embedder that is off now says `counterparts credentials set VOYAGE_API_KEY`
+ * — a command, never a JSON edit (item 12) — and that sentence is only true if
+ * the standalone command does what the install does. One function, two doors:
+ * the offer cannot come to mean two different things.
+ *
+ * Rule 3 in full: a KEY IS NOT CONSENT. Embedding sends memory text to a third
+ * party, so the knob moves on an explicit yes and on nothing else — and
+ * **`[y/N]`, not `[Y/n]`** (adversarial review M3, 2026-09-22). A bare Enter
+ * had been turning a third-party egress ON, one line under a docstring saying
+ * it could not; and this file now asks the two key questions above it as
+ * `[y/N]`, so the Enter a person has just pressed twice to mean "no" would have
+ * meant "yes, send my memory to Voyage". If the yes is ever to be the easy
+ * answer, the egress has to be in the QUESTION, not in the hint above it.
+ */
+export async function offerEmbedder(
+  io: Io,
+  u: Ui,
+  configPath: string,
+  alreadyOn: boolean,
+): Promise<{ embedder: EmbedderOutcome; embedderFix?: string }> {
+  if (alreadyOn) return { embedder: "already-on" };
+  u.blank();
+  u.hint("Embedding sends memory text to Voyage. It stays off until you say otherwise.");
+  const yes = await confirm(io, "Turn on recall by meaning now?", { default: false });
+  if (!yes) {
+    u.ok(`${EMBED_KEY_ENV} is saved and recall by meaning stays off.`);
+    return { embedder: "declined" };
+  }
+  const edit = enableEmbedder(configPath);
+  if (edit.ok) {
+    // No full stop after a PATH: a sentence's own punctuation reads as part of
+    // the thing it names, and this line is often copied.
+    u.ok(`recall by meaning is on in ${configPath}`);
+    return { embedder: "enabled" };
+  }
+  const embedderFix = embedderFixLine(configPath);
+  u.warn(`could not turn recall by meaning on: ${edit.reason}. The key is saved.`);
+  u.hint(embedderFix);
+  return { embedder: "failed", embedderFix };
 }
 
 /**
@@ -236,7 +282,14 @@ export function embedderFixLine(_configPath: string): string {
   return `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
 }
 
-/** One key: explain, link, read without echo, sanity-check, write. */
+/**
+ * One key: ASK FIRST, then link, then read without echo, sanity-check, write.
+ *
+ * The y/N comes before anything else (item 10). Enter is no, and a no says
+ * nothing further — a person who has just declined an optional thing does not
+ * need a receipt for declining it, and the screen the owner signed off on has
+ * none. Everything after the yes is two indented lines and an outcome word.
+ */
 async function askForKey(
   io: Io,
   env: Record<string, string | undefined>,
@@ -245,30 +298,30 @@ async function askForKey(
 ): Promise<KeyOutcome> {
   const u = ctx.ui;
   const label = name === API_KEY_ENV ? "Anthropic" : "Voyage";
+  const held = ctx.held.includes(name);
 
-  if (ctx.held.includes(name)) {
-    u.blank();
-    const keep = await confirm(io, `${label === "Anthropic" ? "An" : "A"} ${label} key is already saved. Keep it?`, {
-      default: true,
-    });
-    if (keep) return "kept";
-    // A no is a REPLACE, not a delete: the prompt below can still be skipped,
-    // and skipping leaves the key that is there. Nothing in this console
-    // removes a credential — that is `credentials set` with a new value, or the
-    // file, by hand.
-    u.hint("Paste a new one, or press Enter to keep the one that is saved.");
-  } else {
-    u.blank();
-    u.heading(`${label} API key — optional`);
-    u.hint(KEY_REASONS[name] ?? "");
-    u.hint(`Get one: ${KEY_LINKS[name] ?? ""}`);
-  }
+  // A KEY THAT IS ALREADY SAVED IS A DIFFERENT QUESTION, and it is still asked
+  // y/N first, with the default on KEEPING it: the answer that changes nothing
+  // is the one Enter gives. A yes is a REPLACE, never a delete — an empty paste
+  // below leaves the key that is there, and nothing in this console removes a
+  // credential.
+  const question = held
+    ? `${label === "Anthropic" ? "An" : "A"} ${label} key is already saved. Replace it?`
+    : (KEY_QUESTIONS[name] ?? `Add a ${label} key?`);
+  const go = await confirm(io, question, { default: false });
+  if (!go) return held ? "kept" : "skipped";
 
-  const value = await askHidden(io, `${name} (Enter to skip): `);
+  // TWO SPACES, NOT THE SIX-COLUMN GUTTER `ui.hint` uses. These two lines are a
+  // PAIR — the link and the prompt that follows it — and the prompt's indent is
+  // a string this module owns, so the aside above it is written to match rather
+  // than sitting four columns further out than the thing it introduces. (The
+  // screen the owner signed off on indents both by two.)
+  io.out(u.paint.dim(`  Get one at ${KEY_LINKS[name] ?? ""}`));
+  const value = await askHidden(io, "  Paste it here (hidden): ");
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    u.ok(ctx.held.includes(name) ? `${name} is unchanged.` : `skipped — no ${name} was written.`);
-    return ctx.held.includes(name) ? "kept" : "skipped";
+    u.ok(held ? `${name} is unchanged.` : "skipped");
+    return held ? "kept" : "skipped";
   }
 
   // A SPACE IN A KEY IS A PASTE THAT WENT WRONG, and a credential that is
@@ -291,7 +344,11 @@ async function askForKey(
   }
 
   writeCredential(ctx.credentialsPath, name, trimmed);
-  u.ok(`set ${name} in ${ctx.credentialsPath}`);
+  // "saved", not the path: the path is `install`'s own last line, and the
+  // screen the owner signed off on reads `ok  saved`. The FILE is still named
+  // wherever a person needs to find it — `credentials` lists it, and `doctor`
+  // names it in every credential line.
+  u.ok("saved");
   if ((env[name] ?? "").trim().length > 0) {
     // The rule `claude-code/credentials.ts` mechanizes, said where it matters:
     // the file fills gaps, and a process that HAS the variable keeps it.
