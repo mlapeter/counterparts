@@ -513,7 +513,11 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
   // the host configuration, and on a machine with two of them the reading is
   // about whichever one the hooks read.
-  doctor: ["config", "json"],
+  // `--all` unfolds the screen: on a terminal `doctor` folds every green
+  // worker-internal line into one, and this prints them all. Shared with
+  // `fired`, whose `--all` means the same thing — every mechanism, including
+  // the quiet ones.
+  doctor: ["config", "json", "all"],
   // `--stdin` and `--from-env` are the only two ways a value gets in. There is
   // deliberately no `--value`: a flag is argv, argv is shell history, and a
   // credential in shell history is a credential on disk in plaintext forever.
@@ -670,8 +674,11 @@ const FLAG_HELP: Record<string, string> = {
   apply: "actually do it — without this, it is a dry run",
   layout:
     "also print which directories the store keeps and which of them a backup carries",
+  // TRUE OF BOTH COMMANDS THAT TAKE IT, as the table requires: `fired --all`
+  // prints every mechanism including the quiet ones, `doctor --all` prints
+  // every line including the green ones a terminal folds away.
   all:
-    "print every mechanism, including the ones a store this new has had nothing to do with yet",
+    "print every line, including the mechanisms a store this new has had nothing to do with yet",
   config:
     "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
@@ -6477,7 +6484,7 @@ function doctorCommand(
       // that is not a terminal — every test, every pipe, the install loop —
       // still gets `reportLines` verbatim, from inside this call; see
       // `report.ts`, which exists to hold exactly that promise.
-      printDoctorReport(io, env, findings, today);
+      printDoctorReport(io, env, findings, today, { all: parsed.flags["all"] === true });
     }
     return anyRed(findings) ? DOCTOR_RED_EXIT : EXIT.ok;
   } finally {

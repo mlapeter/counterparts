@@ -34,6 +34,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -111,6 +112,25 @@ export interface Finding {
   readonly fix: string;
   /** Ids and counts, for `--json`. Never a credential value, never prose. */
   readonly data: Record<string, string | number | boolean | null>;
+  /**
+   * AN OPTIONAL FEATURE THAT WAS NEVER TURNED ON — printed `OFF`, dim, and
+   * counted apart from the ambers (new-user findings #24, owner's answer 12 of
+   * 2026-09-22). One skipped Voyage key used to produce three ambers on a
+   * fresh install — Embedder off, Credentials missing, Vectors unembedded —
+   * and a screen where nothing is wrong should not carry three warnings.
+   *
+   * IT IS A FLAG ON AMBER, NOT A FOURTH `Severity`, and that is the whole
+   * reason the JSON keeps `severity: "amber"`: every reader that switches on a
+   * severity — the hook's notice, the dashboard, a script of the owner's —
+   * still sees the three words it has always seen, and one that wants the new
+   * distinction reads one new boolean. What DOES move is where the line sorts
+   * and how it is counted, both of which live in this file (`worstFirst`,
+   * `reportLines`, `reportJson`) and nowhere else.
+   *
+   * NEVER on a feature that WAS working and has stopped: that is the red
+   * `keyHistory` exists for, and it is untouched.
+   */
+  readonly optional?: boolean;
 }
 
 /**
@@ -608,6 +628,37 @@ function finding(
 }
 
 /**
+ * An OFF finding: an optional feature nobody has turned on. Amber underneath
+ * (see `Finding.optional`), `OFF` on the screen, and the fix is always the
+ * command that turns the thing on — never a JSON edit (finding #19).
+ */
+function off(
+  key: string,
+  title: string,
+  detail: string,
+  fix: string,
+  data: Record<string, string | number | boolean | null> = {},
+): Finding {
+  return { key, severity: "amber", title, detail, fix, data, optional: true };
+}
+
+/**
+ * A path under the owner's home, written the way he types it (`~/…`).
+ *
+ * The home directory is read here rather than passed in because every caller
+ * already has the same one and threading it would put an environment lookup in
+ * `DoctorInput` for a cosmetic. It is COSMETIC on purpose: only `detail` and
+ * `fix` are folded this way, never `data`, so `--json` keeps the absolute path
+ * a script would act on. A store outside the home is returned unchanged, which
+ * is every test's case — the temp directories the suite makes are not under it.
+ */
+function tilde(path: string): string {
+  const home = homedir();
+  if (home.length === 0 || path === home) return path === home ? "~" : path;
+  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
  * The newest rows of one event name, oldest-first, at most `count` of them —
  * or `unknown`, which is a third answer and not a kind of empty.
  *
@@ -727,13 +778,21 @@ function configFindings(input: DoctorInput): Finding[] {
         { path: input.configPath, reason },
       ),
     );
+    // ONE COUNT, read once and used twice: the sentence and the row say the
+    // same number because it is the same number, and rule 3 of this module —
+    // it is on the hot path, so it is bounded — is kept by not asking twice.
+    const held = input.store === null ? null : memoryCount(input.store);
     out.push(
       input.store === null
-        ? finding("store", "red", "Store", `no store at ${input.dir}`, "Check the path you gave --dir.", {
+        ? finding("store", "red", MEMORY_TITLE, `no store at ${tilde(input.dir)}`, "Check the path you gave --dir.", {
             dir: input.dir,
             exists: false,
           })
-        : finding("store", "green", "Store", input.dir, "", { dir: input.dir, exists: true }),
+        : finding("store", "green", MEMORY_TITLE, memoryDetail(input, held), "", {
+            dir: input.dir,
+            exists: true,
+            memories: held,
+          }),
     );
     return out;
   }
@@ -769,7 +828,7 @@ function configFindings(input: DoctorInput): Finding[] {
   const named = input.config.dataDir;
   if (input.store === null) {
     out.push(
-      finding("store", "red", "Store", `no store at ${input.dir}`, "Run: counterparts install, or name the store with --dir.", {
+      finding("store", "red", MEMORY_TITLE, `no store at ${tilde(input.dir)}`, "Run: counterparts install, or name the store with --dir.", {
         dir: input.dir,
         exists: false,
       }),
@@ -779,46 +838,165 @@ function configFindings(input: DoctorInput): Finding[] {
       finding(
         "store",
         "amber",
-        "Store",
-        `read ${input.dir}, but ${input.configPath} names ${named} — the hooks read the second one`,
+        MEMORY_TITLE,
+        `read ${tilde(input.dir)}, but ${tilde(input.configPath)} names ${tilde(named)} — the hooks read the second one`,
         "Drop --dir (and COUNTERPARTS_DATA_DIR) to read the store the hooks use.",
         { dir: input.dir, named, exists: true },
       ),
     );
   } else {
-    out.push(finding("store", "green", "Store", input.dir, "", { dir: input.dir, exists: true }));
+    // One count, read once — see the `not-read` arm above.
+    const held = memoryCount(input.store);
+    out.push(
+      finding("store", "green", MEMORY_TITLE, memoryDetail(input, held), "", {
+        dir: input.dir,
+        exists: true,
+        memories: held,
+      }),
+    );
   }
 
-  const embedder = input.config.embedder?.enabled === true;
-  out.push(
-    embedder
-      ? finding("embedder", "green", "Embedder", "enabled", "", { enabled: true })
-      : finding(
-          "embedder",
-          "amber",
-          "Embedder",
-          // SAYS WHAT STILL WORKS (2026-09-20, finding 1). "No vectors, no
-          // semantic channel" is true and reads, on day 1, as a broken install.
-          // Lexical recall is a whole working channel, not a degraded mode, and
-          // the line that tells a new user so is the one that stops them going
-          // to buy a key the README says they do not need.
-          "off — recall matches on words, not on meaning. That channel works; what a key adds " +
-            "is finding a memory that says the same thing in different words",
-          `Optional. Add "embedder": { "enabled": true } to ${input.configPath} (read strictly: that exact shape), and set ${EMBED_KEY_ENV}.`,
-          { enabled: false },
-        ),
-  );
-
+  // THE STANCE IS CALLED `Mode` NOW, and it is said in the words a person can
+  // act on rather than in the configuration's (finding #20: "owner: this host
+  // encodes" was named as the line nobody could read). The key and the `data`
+  // are untouched, so every reader of the JSON sees what it always saw.
   if (input.config.observer === true) {
     out.push(
-      finding("stance", "amber", "Stance", "observer: this host reads memory and never writes it", "Remove \"observer\" from the config to encode again.", {
+      finding("stance", "amber", "Mode", "observer — reads memory, writes nothing", "Remove \"observer\" from the config to remember again.", {
         observer: true,
       }),
     );
   } else {
-    out.push(finding("stance", "green", "Stance", "owner: this host encodes", "", { observer: false }));
+    out.push(finding("stance", "green", "Mode", "remembering", "", { observer: false }));
   }
   return out;
+}
+
+/** The column heading the store's own line reads under. It is "Memory" and not
+ *  "Store" because the person reading it did not install a database. */
+const MEMORY_TITLE = "Memory";
+
+/**
+ * HOW MANY MEMORIES THIS STORE HOLDS — the wake preface's own query, which is
+ * the number `status` prints as `Memories:` and says so in its aside.
+ *
+ * ONE `SELECT COUNT(*)` over an indexed filter, never `status`'s walk of every
+ * row: this line is built on the hook's hot path too, and a census that opened
+ * every row would put the whole store between a session and its first word.
+ */
+function memoryCount(store: Store): number | null {
+  try {
+    return store.countMemories({ type: "memory", archived: false });
+  } catch {
+    // A store that will not answer still has a path worth printing, and the
+    // `Store open` line is where an unreadable store is graded.
+    return null;
+  }
+}
+
+/**
+ * `~/.counterparts/store — 32 memories, opens fine`.
+ *
+ * "Opens fine" is the `Store open` reading (`input.open`), said here because
+ * the two facts are one sentence to a person: this is where your memory is,
+ * and it works. The separate `store-open` finding stays — `doctor --all` and
+ * `--json` still carry it, and a store that will NOT open prints its own line
+ * with the code and the repair.
+ */
+function memoryDetail(input: DoctorInput, n: number | null): string {
+  const held = n === null ? "" : ` — ${String(n)} ${n === 1 ? "memory" : "memories"}`;
+  const opens = input.open?.ok === true ? ", opens fine" : "";
+  return `${tilde(input.dir)}${held}${opens}`;
+}
+
+/**
+ * RECALL BY MEANING — the embedder and the Voyage key, as ONE line.
+ *
+ * **The finding (#24, the owner's 0.2.0 trial).** Skipping the optional Voyage
+ * key produced three ambers: `Embedder off`, `Credentials … is missing`, and
+ * `Vectors 35 with no vector`. One optional thing nobody turned on, three
+ * problems on the screen — and the fix line for the first told him to hand-edit
+ * a JSON file (#19). A person reads that as a broken install.
+ *
+ * So the three become one, and its grade is `OFF`: optional, never turned on,
+ * nothing to do. `vectorFindings` returns nothing at all while the embedder is
+ * off (there is nothing to embed), and `credentialFindings` keeps the Voyage
+ * name on its factual line under `--all` instead of grading it.
+ *
+ * THE TWO GRADES THAT ARE NOT `OFF`, and why:
+ *
+ *   - **Switched ON and no key**: the feature was asked for and cannot run, so
+ *     every ask pays for an `embed-failed`. Amber, with the command that fixes
+ *     it.
+ *   - **Switched OFF on a store that HAS embedded**: something that was running
+ *     has stopped. Amber, in the words that line has always used — never `OFF`,
+ *     which claims nobody ever turned it on.
+ */
+function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
+  const enabled = input.config.embedder?.enabled === true;
+  const present = [...input.credentials.loaded, ...input.credentials.skippedPresent];
+  const haveKey = present.includes(EMBED_KEY_ENV);
+  const data = { enabled, key: haveKey, everEmbedded: history.embedded };
+  const turnOn = `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
+  if (enabled && haveKey) {
+    return [finding("embedder", "green", RECALL_TITLE, "on — recall matches meaning as well as words", "", data)];
+  }
+  if (enabled) {
+    return [
+      finding(
+        "embedder",
+        "amber",
+        RECALL_TITLE,
+        `on, but ${EMBED_KEY_ENV} is not saved${shellClause(input, EMBED_KEY_ENV, present)} — so nothing is embedded and every ask pays for the attempt`,
+        `Run: counterparts credentials set ${EMBED_KEY_ENV}`,
+        data,
+      ),
+    ];
+  }
+  if (history.embedded) {
+    // SAYS WHAT STILL WORKS (2026-09-20, finding 1). "No vectors, no semantic
+    // channel" is true and reads as a broken install. Lexical recall is a whole
+    // working channel, not a degraded mode.
+    return [
+      finding(
+        "embedder",
+        "amber",
+        RECALL_TITLE,
+        "off — and this store HAS embedded before, so something that was running has stopped. " +
+          "Recall still matches on words; what is gone is finding a memory that says the same thing in different words",
+        turnOn,
+        data,
+      ),
+    ];
+  }
+  return [
+    off(
+      "embedder",
+      RECALL_TITLE,
+      `optional. Recall works on words; a Voyage key lets it match meaning too.${shellClause(input, EMBED_KEY_ENV, present)}`,
+      turnOn,
+      data,
+    ),
+  ];
+}
+
+const RECALL_TITLE = "Recall by meaning";
+const CRASH_TITLE = "Crash write-up";
+
+/**
+ * The clause for THE NAME THIS FINDING IS ABOUT, and no other: "your shell
+ * exports VOYAGE_API_KEY" hung on a red about `ANTHROPIC_API_KEY` reads as a
+ * non-sequitur and teaches the reader to skip the line.
+ *
+ * It is the sentence that closes I32 on the owner's own machine: his `~/.zshrc`
+ * exports both names, hook processes inherit neither (measured day 0), so "I
+ * have that key" and "the hooks have that key" are two different facts and this
+ * is where they are told apart.
+ */
+function shellClause(input: DoctorInput, name: string, present: readonly string[]): string {
+  return (input.shellNames ?? []).includes(name) && !present.includes(name)
+    ? ` — your shell exports ${name}, and hook processes do not inherit it`
+    : "";
 }
 
 /**
@@ -898,21 +1076,7 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
   const present = [...load.loaded, ...load.skippedPresent];
   const missing = CREDENTIAL_NAMES.filter((n) => !present.includes(n));
   const path = input.credentialsPath ?? "(no credentialsFile in the config)";
-  /**
-   * The clause for THE NAME THIS FINDING IS ABOUT, and no other: "your shell
-   * exports VOYAGE_API_KEY" hung on a red about `ANTHROPIC_API_KEY` reads as a
-   * non-sequitur and teaches the reader to skip the line.
-   *
-   * It is the sentence that closes I32 on the owner's own machine: his
-   * `~/.zshrc` exports both names, hook processes inherit neither (measured day
-   * 0), so "I have that key" and "the hooks have that key" are two different
-   * facts and this is where they are told apart.
-   */
-  const shellClause = (name: string): string =>
-    (input.shellNames ?? []).includes(name) && !present.includes(name)
-      ? ` — your shell exports ${name}, and hook processes do not inherit it`
-      : "";
-  const where = `${path}${load.mode === null ? "" : ` (mode ${load.mode})`}`;
+  const where = `${tilde(path)}${load.mode === null ? "" : ` (mode ${load.mode})`}`;
   const holds = present.length === 0 ? "holds no key" : `holds ${present.join(", ")}`;
   const out: Finding[] = [];
 
@@ -926,44 +1090,54 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     everEmbedded: history.embedded,
   };
 
-  if (missing.includes(API_KEY_ENV)) {
+  // THE FACTUAL LINE, ALWAYS — which file, what mode, which names it holds.
+  // GREEN unless the one red below stands: a name the file does not hold is not
+  // a fault, it is a feature nobody turned on, and the `OFF` line for that
+  // feature says so in the words of the thing it buys. This line keeps the
+  // names, because "which keys are saved" is a question with one answer and
+  // `doctor --all` is where it lives.
+  if (missing.includes(API_KEY_ENV) && history.interpreted) {
     // RED only when the key WORKED here and is now gone — the case this line
-    // was written for. Otherwise amber, and the sentence says what a store with
-    // no key does and what a key would add, rather than reporting a supported
-    // way to run as a fault on the first thing a new user sees.
-    out.push(
-      history.interpreted
-        ? finding(
-            "credentials",
-            "red",
-            "Credentials",
-            `${where} ${holds}: ${API_KEY_ENV} is missing, and this store HAS interpreted before — so something that was running has stopped; the worker now runs the day and encodes nothing${shellClause(API_KEY_ENV)}`,
-            `Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
-            data,
-          )
-        : finding(
-            "credentials",
-            "amber",
-            "Credentials",
-            `${where} ${holds} — no key has ever been used here, which is a supported way to run: ${WITHOUT_A_KEY}. What ${API_KEY_ENV} would add is the crash sweep, which reads a transcript a session never got to write from and turns it into memories${shellClause(API_KEY_ENV)}`,
-            `Optional. Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
-            data,
-          ),
-    );
-  } else if (missing.includes(EMBED_KEY_ENV)) {
+    // was written for, and the one case `OFF` may never swallow.
     out.push(
       finding(
         "credentials",
-        "amber",
+        "red",
         "Credentials",
-        `${where} ${holds}: ${EMBED_KEY_ENV} is missing, so nothing is embedded${shellClause(EMBED_KEY_ENV)}`,
-        `Run: counterparts credentials set ${EMBED_KEY_ENV} (the value on stdin; it is never echoed).`,
+        `${where} ${holds}: ${API_KEY_ENV} is missing, and this store HAS interpreted before — so something that was running has stopped; the worker now runs the day and encodes nothing${shellClause(input, API_KEY_ENV, present)}`,
+        `Run: counterparts credentials set ${API_KEY_ENV}`,
         data,
       ),
     );
   } else {
+    out.push(finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data));
     out.push(
-      finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data),
+      missing.includes(API_KEY_ENV)
+        ? // THE CRASH SWEEP, AS THE THING IT BUYS. No key has ever been used
+          // here, which is a supported way to run — `WITHOUT_A_KEY` is the long
+          // form of that sentence, kept on the finding rather than printed as a
+          // warning on a screen where nothing is wrong.
+          off(
+            "crash-writeup",
+            CRASH_TITLE,
+            `optional. An Anthropic key lets a session that ended too soon get written up anyway.${shellClause(input, API_KEY_ENV, present)}`,
+            `Turn on: counterparts credentials set ${API_KEY_ENV}`,
+            { ...data, without: WITHOUT_A_KEY },
+          )
+        : // AND A GREEN ROW WHEN IT IS ON (coordinator, 2026-09-22), mirroring
+          // `Recall by meaning`'s. A feature that says `OFF` until you turn it
+          // on and then says nothing at all leaves the person who just added
+          // the key with no confirmation on the screen they were told to check
+          // — and the factual `Credentials` line, which does carry the name,
+          // only prints under `--all`.
+          finding(
+            "crash-writeup",
+            "green",
+            CRASH_TITLE,
+            "on — a session that ended too soon gets written up anyway",
+            "",
+            data,
+          ),
     );
   }
 
@@ -977,8 +1151,8 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
         "credentials-mode",
         "amber",
         "Cred mode",
-        `${path} is mode ${load.mode}${load.permissive ? " — group or other can read it" : ""}`,
-        `Run: chmod 600 ${path}`,
+        `${tilde(path)} is mode ${load.mode}${load.permissive ? " — group or other can read it" : ""}`,
+        `Run: chmod 600 ${tilde(path)}`,
         { path, mode: load.mode, permissive: load.permissive },
       ),
     );
@@ -1881,7 +2055,14 @@ function journalFindings(store: Store): Finding[] {
   ];
 }
 
-function vectorFindings(store: Store): Finding[] {
+function vectorFindings(input: DoctorInput, store: Store): Finding[] {
+  // NOTHING TO EMBED, NOTHING TO SAY (finding #24). With the embedder off every
+  // live memory has no vector, so this line reported the whole store as a
+  // shortfall — an amber that cannot be cleared except by buying a key, beside
+  // an `OFF` line that has already said the feature is not on. The coverage of
+  // a channel nobody switched on is not a reading anybody needs; the moment it
+  // IS on, the line comes back and counts.
+  if (input.config.embedder?.enabled !== true) return [];
   const unembedded = store.unembeddedCount();
   const skipped = store.skippedVectorIds().length;
   const detail = `${unembedded} live memories with no vector, ${skipped} skipped after repeated embed failures`;
@@ -1977,7 +2158,7 @@ export function selfPageFindings(store: Store): Finding[] {
         "self-page",
         "green",
         "Self page",
-        "no page written yet — the wake says it is still forming",
+        "not written yet — still forming",
         "",
         { present: false, cleared: false },
       ),
@@ -2231,7 +2412,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       finding(
         "snapshot",
         "amber",
-        "Snapshot",
+        "Snapshots",
         `no daily snapshot is being taken: this store is not inside a base directory, so there is no default place to keep copies${misread}`,
         'Add "snapshots": { "dir": "<an absolute path outside the store>" } to the configuration.',
         data,
@@ -2288,7 +2469,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       finding(
         "snapshot",
         "amber",
-        "Snapshot",
+        "Snapshots",
         `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}`,
         RESTORE_STEPS,
         { ...held, rows: 1 },
@@ -2313,7 +2494,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
         ? finding(
             "snapshot",
             "amber",
-            "Snapshot",
+            "Snapshots",
             `no snapshot has ever been taken here${why}${strange}${misread}`,
             "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
             { ...held, rows: 0 },
@@ -2321,7 +2502,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
         : finding(
             "snapshot",
             "green",
-            "Snapshot",
+            "Snapshots",
             `no snapshot yet — and no boundary has been reached here yet${strange}${misread}`,
             "",
             { ...held, rows: 0 },
@@ -2332,9 +2513,12 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
   // Copies exist. Their own names carry the date, so the line does not depend on
   // a row at all — and when a row disagrees with the directory, it says so.
   const newestDate = (newest ?? "").slice(0, 10);
+  // THE OLDEST COPY IS A `--json` FACT, NOT A SCREEN ONE (2026-09-22). "last
+  // 2026-09-22, 2 kept" answers the question a person has; the oldest date only
+  // matters when the rotation is being reasoned about, and `data.oldest` carries
+  // it for whoever is doing that.
   const detail =
-    `last snapshot ${newestDate}, ${onDisk} kept` +
-    (oldest === null ? "" : `, oldest ${oldest.slice(0, 10)}`) +
+    `last ${newestDate}, ${onDisk} kept` +
     (keep === DEFAULT_KEEP ? "" : ` (keeping ${keep})`) +
     (future === 0 ? "" : `; ${future} dated in the future, holding a slot each`) +
     (rowDated !== null && rowDated > newestDate
@@ -2352,14 +2536,14 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       ? finding(
           "snapshot",
           "amber",
-          "Snapshot",
+          "Snapshots",
           stale ? `${detail} — ${SNAPSHOT_STALE_DAYS} days ago or more` : detail,
           stale
             ? "The copy is taken by the worker after a boundary; read the Spawn line below."
             : RESTORE_STEPS,
           held,
         )
-      : finding("snapshot", "green", "Snapshot", detail, "", held),
+      : finding("snapshot", "green", "Snapshots", detail, "", held),
   ];
 }
 
@@ -2441,43 +2625,50 @@ function hostFindings(reading: HostReading): Finding[] {
       : `no MCP server named "${reading.mcpName}" in ${reading.mcpFile}`;
 
   if (missing.length === 0 && stale.length === 0 && reading.mcp) {
+    // THE ONE LINE THE PERSON CAME FOR: is my assistant joined up to this
+    // memory? It says `connected` because that is the verb the command has
+    // (`counterparts connect`), and it names the two halves — the hooks and the
+    // tools — rather than a file format nobody asked about. `--json` still
+    // carries every event name and every path in `data`.
     return [
       finding(
         "host",
         "green",
-        "Host",
-        `all ${String(total)} hook events are installed and ${mcpClause}`,
+        "Claude Code",
+        `connected: ${String(total)} hooks and the memory tools`,
         "",
         data,
       ),
     ];
   }
-  // THE FIX IS `wire` NOW, NOT `install` (2026-09-21, A). Until this change the
-  // only thing the package could do about a missing hook was PRINT a block, so
-  // the fix line sent a reader to the command that prints it and then asked
-  // them to paste. `counterparts wire` does the paste: it backs the file up,
-  // merges beside whatever else is on those events, and repairs an entry of
-  // ours that names a path that has moved — which is precisely the `stale`
-  // case below. A fix line that names the longer way round is a fix line
-  // somebody follows.
-  const fixes: string[] = [];
-  if (missing.length > 0) {
-    fixes.push(
-      "Run: counterparts wire — it backs up ~/.claude/settings.json, adds the hooks beside anything already there, and registers the MCP server. Then restart the host.",
-    );
-  }
+  // THE FIX IS `connect` NOW, NOT `install` (2026-09-21, A; renamed from `wire`
+  // 2026-09-22). Until that change the only thing the package could do about a
+  // missing hook was PRINT a block, so the fix line sent a reader to the command
+  // that prints it and then asked them to paste. `counterparts connect` does the
+  // paste: it backs the file up, merges beside whatever else is on those events,
+  // and repairs an entry of ours that names a path that has moved — which is
+  // precisely the `stale` case below. A fix line that names the longer way round
+  // is a fix line somebody follows.
+  //
+  // ONE SENTENCE, whatever is wrong: the three cases below were three separate
+  // fix lines that each began "Run: counterparts connect", and a reader with
+  // two of them was told to run the same command twice.
+  const does: string[] = [];
+  if (missing.length > 0) does.push("adds the hooks beside anything already there");
   if (stale.length > 0) {
-    fixes.push(
-      `Run: counterparts wire — it replaces the ${
-        stale.length === 1 ? "stale entry" : "stale entries"
-      } in place with the path this install actually has, backing the file up first. Then restart the host.`,
+    does.push(
+      `replaces the ${stale.length === 1 ? "stale entry" : "stale entries"} with the path this install actually has`,
     );
   }
-  if (!reading.mcp && !reading.mcpUnreadable) {
-    fixes.push(
-      "Run: counterparts wire — it runs the claude mcp add line for you. Then restart the host.",
-    );
-  }
+  if (!reading.mcp && !reading.mcpUnreadable) does.push("registers the memory tools");
+  const fixes =
+    does.length === 0
+      ? []
+      : [
+          `Run: counterparts connect — it backs up ~/.claude/settings.json, ${
+            does.length === 1 ? does[0] : `${does.slice(0, -1).join(", ")} and ${does[does.length - 1] ?? ""}`
+          }. Then restart Claude Code.`,
+        ];
   // STALE FIRST. "GREEN while nothing fires" is the one outcome this line was
   // added to prevent, and a block pointing at a deleted checkout is exactly
   // that: it matches, it is installed, and every session start fails silently.
@@ -2487,30 +2678,76 @@ function hostFindings(reading: HostReading): Finding[] {
       : `${stale.map((s) => s.event).join(", ")} point${stale.length === 1 ? "s" : ""} at ${stale
           .map((s) => s.path)
           .join(", ")}, which is not there`;
-  const installed =
+  const connected =
     missing.length === total
-      ? `no hook of ours is installed on any of the ${String(total)} events`
+      ? `no hook of ours is connected on any of the ${String(total)} events`
       : missing.length > 0
-        ? `installed on ${reading.events.join(", ")} but NOT on ${missing.join(", ")}`
-        : `all ${String(total)} hook events are installed`;
-  const detail = [staleClause, installed, `(${where})`, mcpClause]
+        ? `connected on ${reading.events.join(", ")} but NOT on ${missing.join(", ")}`
+        : `all ${String(total)} hook events are connected`;
+  const detail = [staleClause, connected, `(${where})`, mcpClause]
     .filter((s) => s.length > 0)
     .join("; ")
     .replace("; (", " (");
-  return [finding("host", "amber", "Host", detail, fixes.join(" "), data)];
+  return [finding("host", "amber", "Claude Code", detail, fixes.join(" "), data)];
 }
 
 // ── the reading ─────────────────────────────────────────────────────────────
 
-const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
+const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 3 };
 
-/** Worst first, stable within a severity — the order the report and the notice
+/**
+ * FOUR TIERS, THREE SEVERITIES. `OFF` sits between the ambers and the greens:
+ * it is not a warning (nothing is wrong) and it is not a pass (the feature is
+ * not running), and a real amber — a stale snapshot, a failed phase — must
+ * never print BELOW a line saying an optional extra was never switched on.
+ * The tier is computed here, once, because `reportLines`, `reportJson`, the
+ * terminal renderer and the notice all read their order through this function.
+ */
+export function tierOf(f: Finding): number {
+  return f.severity === "amber" && f.optional === true ? 2 : RANK[f.severity];
+}
+
+/** Worst first, stable within a tier — the order the report and the notice
  *  both read. */
 export function worstFirst(findings: readonly Finding[]): Finding[] {
   return [...findings]
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => RANK[a.f.severity] - RANK[b.f.severity] || a.i - b.i)
+    .sort((a, b) => tierOf(a.f) - tierOf(b.f) || a.i - b.i)
     .map((x) => x.f);
+}
+
+/** The four words a grade is printed as. `OFF` is dim wherever there is
+ *  colour; in plain text it is just the word, which is the point (§2.4 — an
+ *  absence is displayed, never merely un-highlighted). */
+export type GradeWord = "RED" | "AMBER" | "OFF" | "GREEN";
+
+export function gradeWord(f: Finding): GradeWord {
+  return f.severity === "amber" && f.optional === true ? "OFF" : (f.severity.toUpperCase() as GradeWord);
+}
+
+/** How many of each word are in a reading — the summary's own arithmetic, and
+ *  `--json`'s, from one place so the two cannot disagree. */
+export function tally(findings: readonly Finding[]): Record<Lowercase<GradeWord>, number> {
+  const out = { red: 0, amber: 0, off: 0, green: 0 };
+  for (const f of findings) out[gradeWord(f).toLowerCase() as Lowercase<GradeWord>] += 1;
+  return out;
+}
+
+/**
+ * `0 red, 0 amber, 2 off, 5 green.` — the summary, from a tally.
+ *
+ * The `off` term appears only when something IS off: a store with both keys in
+ * place should not be told about a column it has nothing in. "Nothing to fix."
+ * is gone with the owner's answer 12 — the counts are the one line he reads to
+ * the end, and a sentence that replaced them made the two arms of this report
+ * say different things about the same store.
+ */
+export function summaryLine(t: Record<Lowercase<GradeWord>, number>): string {
+  return (
+    `${String(t.red)} red, ${String(t.amber)} amber` +
+    (t.off === 0 ? "" : `, ${String(t.off)} off`) +
+    `, ${String(t.green)} green.`
+  );
 }
 
 /**
@@ -2525,17 +2762,22 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   const now = input.now ?? ((): number => Date.now());
   const deadline = input.budgetMs === undefined ? null : now() + input.budgetMs;
   const unread = input.configReason === "not-read";
+  // TWO BOUNDED READS, before anything else touches the store: whether a key
+  // has ever worked HERE is what decides red from amber — and now `OFF` from
+  // amber — on the lines a new user reads first (finding 1, finding #24).
+  // Cheap enough for the session-start budget: one indexed row, plus a window
+  // of backfill rows.
+  //
+  // NOT WHEN NO CONFIGURATION WAS READ: the credentials file is named by the
+  // configuration, so there is nothing to report on and the Config line above
+  // has already said so.
+  const history = unread ? { interpreted: false, embedded: false } : keyHistory(input.store);
   const out: Finding[] = [
     ...configFindings(input),
-    // TWO BOUNDED READS, before anything else touches the store: whether a key
-    // has ever worked HERE is what decides red from amber on the line a new
-    // user reads first (finding 1). Cheap enough for the session-start budget —
-    // one indexed row, plus a window of backfill rows.
-    //
-    // NOT WHEN NO CONFIGURATION WAS READ: the credentials file is named by the
-    // configuration, so there is nothing to report on and the Config line above
-    // has already said so.
-    ...(unread ? [] : credentialFindings(input, keyHistory(input.store))),
+    // THE TWO OPTIONAL FEATURES, in the order the screen reads them: recall by
+    // meaning first, because it is the one a person is most likely to want.
+    ...(unread ? [] : embedderFindings(input, history)),
+    ...(unread ? [] : credentialFindings(input, history)),
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
@@ -2555,7 +2797,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
     ["journal", () => journalFindings(store)],
-    ["vectors", () => vectorFindings(store)],
+    ["vectors", () => vectorFindings(input, store)],
     // The snapshot policy lives in the configuration, so with none read this
     // line would grade a default nobody chose.
     ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
@@ -2595,42 +2837,81 @@ export function doctorFindings(input: DoctorInput): Finding[] {
 
 // ── rendering ───────────────────────────────────────────────────────────────
 
-const SEVERITY_COLUMN = 6;
-const TITLE_COLUMN = 12;
+/**
+ * The two columns every doctor line lays out in — `ui.ts` holds the same pair
+ * and `test/ui.test.ts` holds the two files to each other.
+ *
+ * WIDENED 2026-09-22 (6/12 → 7/20) because the labels changed. The line a
+ * person came for is now called `Recall by meaning`, which is seventeen
+ * characters, and a title wider than its column pushes its own detail out of
+ * the column every other detail is in. The owner's screen is the measurement:
+ * `OFF` plus four spaces, `Recall by meaning` plus three.
+ */
+const SEVERITY_COLUMN = 7;
+const TITLE_COLUMN = 20;
 
 /** The console's report: a table, worst first, and a fix under anything that is
  *  not green. */
 export function reportLines(findings: readonly Finding[], today: string): string[] {
   const ordered = worstFirst(findings);
-  const reds = ordered.filter((f) => f.severity === "red").length;
-  const ambers = ordered.filter((f) => f.severity === "amber").length;
   const lines = [`counterparts doctor — ${today} (UTC)`, ""];
-  for (const f of ordered) {
-    // A TITLE AS WIDE AS THE COLUMN STILL GETS ITS SPACE (2026-09-20). `padEnd`
-    // is a floor, not a gap: "Journal mode" is exactly `TITLE_COLUMN` long and
-    // printed as `GREEN Journal modewal (busy timeout 5000 ms)`.
-    const title = f.title.length >= TITLE_COLUMN ? `${f.title} ` : f.title.padEnd(TITLE_COLUMN);
-    lines.push(`${f.severity.toUpperCase().padEnd(SEVERITY_COLUMN)}${title}${f.detail}`);
-    if (f.fix.length > 0) lines.push(`${" ".repeat(SEVERITY_COLUMN + TITLE_COLUMN)}fix: ${f.fix}`);
-  }
+  for (const f of ordered) lines.push(...findingLines(f));
   lines.push("");
-  lines.push(
-    reds === 0 && ambers === 0
-      ? "Nothing to fix."
-      : `${reds} red, ${ambers} amber, ${ordered.length - reds - ambers} green.`,
-  );
+  lines.push(summaryLine(tally(ordered)));
   return lines;
 }
 
-/** The `--json` shape: ids, counts, severities. Never a credential value. */
+/** ONE finding, in the two columns both arms of this report lay out in — the
+ *  grade word, the title, the detail, and the fix in the constant gutter. */
+export function findingLines(f: Finding): string[] {
+  // A TITLE AS WIDE AS THE COLUMN STILL GETS ITS SPACE (2026-09-20). `padEnd`
+  // is a floor, not a gap: a title exactly `TITLE_COLUMN` long would otherwise
+  // print as `GREEN Journal modewal (busy timeout 5000 ms)`.
+  const title = f.title.length >= TITLE_COLUMN ? `${f.title} ` : f.title.padEnd(TITLE_COLUMN);
+  const head = `${gradeWord(f).padEnd(SEVERITY_COLUMN)}${title}`;
+  // AN `OFF` LINE HAS NO `fix:`. Nothing is broken, so there is nothing to fix:
+  // the command is an INVITATION and it reads as one sentence with the line
+  // that explains what it buys. Every other grade keeps the fix on its own
+  // line, in the constant gutter, where a person scanning for what to do finds
+  // every one of them in the same column.
+  if (f.optional === true) return [`${head}${f.detail}${f.fix.length === 0 ? "" : `  ${f.fix}`}`];
+  const out = [`${head}${f.detail}`];
+  if (f.fix.length > 0) out.push(`${" ".repeat(SEVERITY_COLUMN + TITLE_COLUMN)}fix: ${f.fix}`);
+  return out;
+}
+
+/**
+ * The `--json` shape: ids, counts, severities. Never a credential value.
+ *
+ * **COMPLETE AND UNFOLDED, always** — the terminal's folded screen is a layout
+ * and this is the reading. Every finding is here whatever the console did with
+ * it, in the same order, with its own grade.
+ *
+ * `severity` STAYS THREE-VALUED and an `OFF` finding carries `optional: true`
+ * beside it (the owner's answer 12, 2026-09-22). A fourth severity would have
+ * moved every reader that switches on the word — the hook's notice, the
+ * dashboard, a script — for a distinction only the screen needs. The counts at
+ * the top do split them, because a top-level `amber: 2` beside a screen reading
+ * `0 amber, 2 off` is exactly the disagreement this module exists to prevent.
+ */
 export function reportJson(findings: readonly Finding[], today: string): Record<string, unknown> {
   const ordered = worstFirst(findings);
+  const t = tally(ordered);
   return {
     date: today,
-    red: ordered.filter((f) => f.severity === "red").length,
-    amber: ordered.filter((f) => f.severity === "amber").length,
-    green: ordered.filter((f) => f.severity === "green").length,
-    findings: ordered.map((f) => ({ key: f.key, severity: f.severity, title: f.title, detail: f.detail, fix: f.fix, data: f.data })),
+    red: t.red,
+    amber: t.amber,
+    off: t.off,
+    green: t.green,
+    findings: ordered.map((f) => ({
+      key: f.key,
+      severity: f.severity,
+      ...(f.optional === true ? { optional: true } : {}),
+      title: f.title,
+      detail: f.detail,
+      fix: f.fix,
+      data: f.data,
+    })),
   };
 }
 

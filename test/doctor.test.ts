@@ -315,6 +315,16 @@ describe("doctor — the reading", () => {
     expect(cred.detail).toContain("encodes nothing");
     expect(cred.fix).toContain(`counterparts credentials set ${API_KEY_ENV}`);
     expect(anyRed(findings)).toBe(true);
+    // AND IT IS NOT `OFF`. The grade added on 2026-09-22 is for a feature that
+    // was never turned on; this one was on and has stopped, which is the whole
+    // distinction `keyHistory` exists to make. No `Crash write-up` line either:
+    // a red about the same key, one line above an invitation to add it, is the
+    // report arguing with itself.
+    expect(cred.optional).toBeUndefined();
+    expect(findings.find((f) => f.key === "crash-writeup")).toBeUndefined();
+    // Nothing on this screen is OFF at all: the embedder is switched ON in this
+    // fixture and its key is missing too, which is a fault and reads as one.
+    expect(findings.filter((f) => f.optional === true)).toEqual([]);
 
     // Worst first, and the notice says the worst thing first.
     expect(findings[0]?.severity).toBe("red");
@@ -324,25 +334,72 @@ describe("doctor — the reading", () => {
     expect(notice?.endsWith("run: counterparts doctor")).toBe(true);
   });
 
-  test("a store that has NEVER had a key is amber, and says what works without one (finding 1)", () => {
+  /**
+   * THE NUMBER ON THE MEMORY LINE IS THE ONE `status` PRINTS — the wake
+   * preface's own count (`countMemories({ type: "memory", archived: false })`),
+   * which is what `status`'s aside says its `Memories:` is. The one way the two
+   * could drift is the journal: episodes are rows, `status` walks them out by
+   * `isJournal`, and this query excludes them by TYPE. So a journal row is in
+   * the fixture on purpose.
+   */
+  test("the Memory line counts memories the way status does — and the journal is not one", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    for (let i = 0; i < 3; i += 1) {
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: `A memory number ${String(i)}, long enough to be one and written today.`,
+        learnedOn: "2026-09-14",
+        source: "authored",
+        title: `Fixture ${String(i)}`,
+      });
+    }
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "A chapter of the journal, which is a row and is not a memory.",
+      learnedOn: "2026-09-14",
+      source: "authored",
+      title: "Chapter",
+    });
+    const f = by(doctorFindings(input({ store: s })), "store");
+    expect(f.detail).toContain("3 memories");
+    expect(f.data["memories"]).toBe(3);
+    // The path, and the `Store open` reading said as one sentence with it.
+    expect(f.detail).toContain(dir);
+    expect(f.detail).not.toContain("opens fine"); // no `open` reading was handed in
+  });
+
+  test("a store that has NEVER had a key reads OFF, and the Credentials line stays factual (finding 1, #24)", () => {
     // README: "No API keys are required." QUICKSTART §6: without the key the
     // worker still runs the day and only skips the crash sweep. `doctor` on a
     // brand-new keyless store printed a red and exited 1, so all three could
     // not be true — and the first thing the product said to a new user was
-    // that their fresh install was broken.
+    // that their fresh install was broken. It then printed an amber, which the
+    // owner's own trial (#24) found was still three warnings for one skipped
+    // optional key. It is one OFF line now.
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const findings = doctorFindings(input());
+    const crash = by(findings, "crash-writeup");
+    expect(crash.title).toBe("Crash write-up");
+    expect(crash.optional).toBe(true);
+    expect(crash.severity).toBe("amber");
+    expect(crash.detail).toContain("optional. An Anthropic key lets a session that ended too soon");
+    // THE FIX IS A COMMAND, and the command is the one that prompts (#2, #19).
+    expect(crash.fix).toBe(`Turn on: counterparts credentials set ${API_KEY_ENV}`);
+    expect(crash.fix).not.toContain(".json");
+
+    // The factual line keeps the file, the mode and the names, and it is green:
+    // a name the file does not hold is a feature nobody turned on, not a fault.
     const cred = by(findings, "credentials");
-    expect(cred.severity).toBe("amber");
-    expect(cred.detail).toContain("no key has ever been used here");
-    expect(cred.detail).toContain("supported way to run");
-    // It says what DOES work, in words a new user can check against the page.
-    expect(cred.detail).toContain("note, session_end, the journal, recall, the wake");
-    // And what a key would add, so the choice is informed rather than nagged.
-    expect(cred.detail).toContain("crash sweep");
-    expect(cred.fix).toContain("Optional.");
+    expect(cred.severity).toBe("green");
+    expect(cred.detail).toContain("holds no key");
+    expect(cred.fix).toBe("");
 
     // NOTHING IS RED, so the command exits 0 and the SessionStart notice — the
     // one line the product gets in the terminal every session — stays quiet.
@@ -351,15 +408,87 @@ describe("doctor — the reading", () => {
 
     // The discriminator is on the row, so a reader can check the verdict.
     expect(cred.data["everInterpreted"]).toBe(false);
+    // What a store with no key still does, kept where a reader can find it.
+    expect(String(crash.data["without"])).toContain("note, session_end, the journal, recall, the wake");
   });
 
-  test("a missing embed key is amber, not red — recall still works, lexically", () => {
+  test("the key that IS there gets a green row of its own, mirroring Recall by meaning", () => {
+    // A feature that says OFF until you turn it on and then says nothing leaves
+    // the person who just added the key with no confirmation on the screen they
+    // were told to check (the coordinator, 2026-09-22). The factual Credentials
+    // line does name it, and that line only prints under `--all`.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const findings = doctorFindings(input());
+    const crash = by(findings, "crash-writeup");
+    expect(crash.severity).toBe("green");
+    expect(crash.optional).toBeUndefined();
+    expect(crash.title).toBe("Crash write-up");
+    expect(crash.detail).toBe("on — a session that ended too soon gets written up anyway");
+    expect(crash.fix).toBe("");
+    // Its twin says the same kind of thing for the same kind of reason.
+    expect(by(findings, "embedder").severity).toBe("green");
+    expect(by(findings, "embedder").detail).toContain("on —");
+  });
+
+  test("a missing embed key is ONE OFF line, not three ambers (finding #24)", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV]);
-    const findings = doctorFindings(input());
-    expect(by(findings, "credentials").severity).toBe("amber");
+    // The knob off AND the key skipped: the state the owner's trial was in.
+    const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
+    // Before: Embedder amber, Credentials amber, Vectors amber. After: one.
+    const off = findings.filter((f) => f.optional === true);
+    expect(off.map((f) => f.key)).toEqual(["embedder"]);
+    expect(by(findings, "embedder").title).toBe("Recall by meaning");
+    expect(by(findings, "embedder").detail).toContain(
+      "optional. Recall works on words; a Voyage key lets it match meaning too.",
+    );
+    expect(by(findings, "embedder").fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    expect(by(findings, "credentials").severity).toBe("green");
+    // NOTHING TO EMBED, NOTHING TO SAY: the coverage line is not a reading while
+    // the channel it measures is switched off.
+    expect(findings.find((f) => f.key === "vectors")).toBeUndefined();
     expect(noticeMessage(findings)).toBe(null);
+    expect(anyRed(findings)).toBe(false);
+  });
+
+  test("the embedder ON with no key is amber — the feature was asked for and cannot run", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV]);
+    const findings = doctorFindings(
+      input({ config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true } } }),
+    );
+    const f = by(findings, "embedder");
+    expect(f.severity).toBe("amber");
+    expect(f.optional).toBeUndefined();
+    expect(f.detail).toContain(`on, but ${EMBED_KEY_ENV} is not saved`);
+    expect(f.fix).toBe(`Run: counterparts credentials set ${EMBED_KEY_ENV}`);
+    // The channel is on, so its coverage IS a reading again.
+    expect(findings.find((v) => v.key === "vectors")).toBeDefined();
+  });
+
+  test("a store that HAS embedded and now has the embedder off is amber, never OFF", () => {
+    // OFF claims nobody ever turned this on. Here somebody did, and it has
+    // stopped — the same rule `keyHistory` keeps for the Anthropic key's red.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: EMBED_BACKFILL_EVENT,
+      day: s.livedDay(),
+      payload: { embedded: 12, failed: 0, remaining: 0, skipped: 0, date: "2026-09-13" },
+    });
+    const f = by(
+      doctorFindings(input({ store: s, config: { dataDir: dir, credentialsFile: credsPath } })),
+      "embedder",
+    );
+    expect(f.severity).toBe("amber");
+    expect(f.optional).toBeUndefined();
+    expect(f.detail).toContain("HAS embedded before");
   });
 
   test("a group- or world-readable credentials file is its own amber finding", () => {
@@ -386,17 +515,21 @@ describe("doctor — the reading", () => {
     expect(rendered).toContain(API_KEY_ENV);
   });
 
-  test("the embedder knob is read literally: anything but true is amber and says why", () => {
+  test("the embedder knob is read literally: anything but true is OFF, and says what still works", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
-    expect(by(findings, "embedder").severity).toBe("amber");
+    const f = by(findings, "embedder");
+    expect(f.optional).toBe(true);
     // It says what the store CAN still do (2026-09-20, finding 1): lexical
     // recall is a working channel, not a degraded mode, and a day-1 line that
     // reads like a broken install is what sends a new user to buy a key.
-    expect(by(findings, "embedder").detail).toContain("matches on words, not on meaning");
-    expect(by(findings, "embedder").fix).toContain("Optional.");
+    expect(f.detail).toContain("Recall works on words");
+    // NEVER A JSON EDIT (#19). The key is saved and the switch offered by one
+    // command, and that command is the whole of the fix line.
+    expect(f.fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    expect(f.fix).not.toContain("enabled");
   });
 
   test("no store at the dir is red, and the store-reading groups are not attempted", () => {
@@ -639,9 +772,13 @@ describe("doctor — the reading", () => {
     });
     const snap = by(doctorFindings(input({ store: s })), "snapshot");
     expect(snap.severity).toBe("green");
-    expect(snap.detail).toContain("last snapshot 2026-09-14");
+    expect(snap.detail).toContain("last 2026-09-14");
     expect(snap.detail).toContain("3 kept");
-    expect(snap.detail).toContain("oldest 2026-09-01");
+    // THE OLDEST IS A `--json` FACT NOW (2026-09-22): the screen answers "when
+    // was the last one and how many are there"; the rotation's other end is
+    // still on the row, for whoever is reasoning about it.
+    expect(snap.detail).not.toContain("oldest");
+    expect(snap.data["oldest"]).toBe("2026-09-01T03-00-00-000Z");
   });
 
   /**
@@ -1301,8 +1438,12 @@ describe("the Host line reads the host's own files", () => {
     expect(host.mcp).toBe(true);
     const finding = by(doctorFindings(input({ host })), "host");
     expect(finding.severity).toBe("green");
-    expect(finding.detail).toContain(`all ${String(HOST_EVENTS.length)} hook events are installed`);
-    expect(finding.detail).toContain(join(root, ".claude.json"));
+    // THE LINE THE PERSON CAME FOR (the owner's screen, 2026-09-22): the label
+    // is the assistant's name and the sentence is "connected", the verb the
+    // command has. Every event name and every path is still in `data`.
+    expect(finding.title).toBe("Claude Code");
+    expect(finding.detail).toBe(`connected: ${String(HOST_EVENTS.length)} hooks and the memory tools`);
+    expect(String(finding.data["mcpFile"])).toBe(join(root, ".claude.json"));
   });
 
   test("nothing installed is AMBER — never red — and says exactly what to run", () => {
@@ -1314,10 +1455,12 @@ describe("the Host line reads the host's own files", () => {
     // Amber, because this reads somebody else's files in a format that is not
     // ours to depend on: a wrong answer must cost a second look, not a panic.
     expect(finding.severity).toBe("amber");
-    expect(finding.detail).toContain("no hook of ours is installed");
-    // `wire`, not `install` (2026-09-21): the fix is the command that DOES the
-    // paste, not the one that prints a block for the reader to paste.
-    expect(finding.fix).toContain("counterparts wire");
+    expect(finding.detail).toContain("no hook of ours is connected");
+    // `connect`, not `install` (2026-09-21, renamed 2026-09-22): the fix is the
+    // command that DOES the paste, not the one that prints a block for the
+    // reader to paste.
+    expect(finding.fix).toContain("counterparts connect");
+    expect(finding.fix).not.toContain("counterparts wire");
     expect(finding.fix).toContain("restart");
     // And it NAMES what it looked at, so a path that has moved is visible to
     // the reader rather than reported as "you did not install it".
@@ -1332,7 +1475,7 @@ describe("the Host line reads the host's own files", () => {
     installHostSteps({ events: ["SessionStart", "Stop"] });
     const finding = by(doctorFindings(input({ host: readHost(root, root, {}) })), "host");
     expect(finding.severity).toBe("amber");
-    expect(finding.detail).toContain("installed on SessionStart, Stop");
+    expect(finding.detail).toContain("connected on SessionStart, Stop");
     expect(finding.detail).toContain("NOT on UserPromptSubmit, SessionEnd, PreCompact");
   });
 
@@ -2132,7 +2275,10 @@ describe("counterparts doctor", () => {
       checkout: onMaster,
     });
     expect(code).toBe(EXIT.ok);
-    expect(c.out.join("\n")).toContain("Nothing to fix.");
+    // THE COUNTS, ALWAYS (the owner's answer 12): "Nothing to fix." is gone.
+    // A screen that reads `0 red, 0 amber, 2 off, 5 green.` on a terminal and a
+    // sentence in a pipe is two reports of one store.
+    expect(c.out[c.out.length - 1]).toMatch(/^0 red, 0 amber, \d+ green\.$/);
   });
 
   /**
@@ -2171,6 +2317,53 @@ describe("counterparts doctor", () => {
     expect(json.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(json.red).toBe(0);
     expect(json.findings.length).toBeGreaterThan(5);
+  });
+
+  /**
+   * `--json` IS THE READING, NEVER THE SCREEN (the owner's answer 12). The
+   * terminal folds thirteen green lines into one and hides nothing else; this
+   * output carries every finding whatever a terminal would have done with it,
+   * because a script that stopped seeing `sweep` on the day a store went quiet
+   * is a script that cannot tell quiet from gone.
+   */
+  test("--json is complete and unfolded, and an OFF finding is amber plus `optional`", async () => {
+    mintStore();
+    // The owner's own trial state: no keys, the embedder knob off.
+    writeConfig({ embedder: undefined });
+    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    installHostSteps();
+    const c = consoleWith();
+    const code = await run(["doctor", `--config=${configPath}`, "--json"], {
+      io: c.io,
+      env: {},
+      home: root,
+      checkout: onMaster,
+    });
+    const json = JSON.parse(c.out.join("\n")) as {
+      red: number;
+      amber: number;
+      off: number;
+      green: number;
+      findings: { key: string; severity: string; optional?: boolean; fix: string }[];
+    };
+    const keys = json.findings.map((f) => f.key);
+    // Every worker-internal line the terminal would have folded away is here.
+    for (const k of ["sweep", "sleep", "backfill", "clock", "spawn", "journal", "stance", "checkout"]) {
+      expect(keys).toContain(k);
+    }
+    // THE TWO OFF FINDINGS: amber underneath, so nothing that switches on a
+    // severity moves; `optional: true` for a reader that wants the new word.
+    const offs = json.findings.filter((f) => f.optional === true);
+    expect(offs.map((f) => f.key)).toEqual(["embedder", "crash-writeup"]);
+    for (const f of offs) expect(f.severity).toBe("amber");
+    // …and the counts at the top split them, so the JSON and the screen cannot
+    // disagree about how many warnings there are.
+    expect(json.off).toBe(2);
+    expect(json.amber).toBe(json.findings.filter((f) => f.severity === "amber" && f.optional !== true).length);
+    expect(json.red + json.amber + json.off + json.green).toBe(json.findings.length);
+    // AN OFF FINDING DOES NOT MOVE THE EXIT CODE: nothing is wrong.
+    expect(json.red).toBe(0);
+    expect(code).toBe(EXIT.ok);
   });
 
   test("it reads the store the CONFIG names, not the one the environment does", async () => {
@@ -2270,7 +2463,7 @@ describe("counterparts doctor", () => {
 
     // THE STORE WAS GRADED. That is the whole point.
     expect(said).toContain(dir);
-    expect(said).toContain("GREEN Store");
+    expect(said).toContain("GREEN  Memory");
     expect(said).toContain("Clock");
 
     // AND THE CONFIGURATION WAS NOT READ — not its dataDir, and above all not

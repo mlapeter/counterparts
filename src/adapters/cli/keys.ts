@@ -217,10 +217,23 @@ export async function promptForKeys(
   };
 }
 
-/** `doctor`'s own sentence for a knob that is off, so the two consoles cannot
- *  say different things about one setting. */
-export function embedderFixLine(configPath: string): string {
-  return `Add "embedder": { "enabled": true } to ${configPath} (read strictly: that exact shape).`;
+/**
+ * `doctor`'s own sentence for a knob that is off, so the two consoles cannot
+ * say different things about one setting.
+ *
+ * **IT IS A COMMAND NOW, NOT A FILE EDIT** (new-user finding #19, 2026-09-22):
+ * it used to name the JSON to add and the file to add it to, which is the one
+ * thing the owner ruled out — "keys and switches should be commands, never JSON
+ * edits". `credentials set VOYAGE_API_KEY` saves the key and then offers the
+ * switch, so this sentence is the whole of what a person has to do.
+ *
+ * `configPath` is still taken and deliberately unused: this is the sentence for
+ * a knob in THAT file, the caller has it to hand, and a signature that stopped
+ * naming it would have to be threaded back through if the wording ever needs
+ * the path again.
+ */
+export function embedderFixLine(_configPath: string): string {
+  return `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
 }
 
 /** One key: explain, link, read without echo, sanity-check, write. */

@@ -7,13 +7,18 @@
  * use color for doctor we should." `doctor` and `status` printed a dense block
  * of long unbroken lines with no spacing and no colour.
  *
- * **PLAIN OUTPUT NEVER CHANGES — not a byte.** A pipe, a test console, a CI
- * job, `tools/install-loop/run.sh`, `--json`: every one of them gets exactly
- * what it got before. That is the property these tests exist for, and it is
- * asserted the only way it can be — by running the same store through a console
- * that says nothing about a terminal and comparing against the function that
- * produced the bytes before (`reportLines`), rather than against a snapshot
- * somebody would eventually re-bless.
+ * **A PIPE GETS THE WHOLE READING.** A pipe, a test console, a CI job,
+ * `tools/install-loop/run.sh`, `--json`: every one of them gets every finding,
+ * from the function that has always produced them (`reportLines`) — never the
+ * terminal's folded screen. That is the property these tests exist for, and it
+ * is asserted the only way it can be: by running the same store through a
+ * console that says nothing about a terminal and comparing against that
+ * function, rather than against a snapshot somebody would eventually re-bless.
+ *
+ * The older form of this rule was "plain output never changes, not a byte". The
+ * owner's answers of 2026-09-22 changed the words on both arms — the labels, the
+ * grades, the summary — so what is held here now is the half that still means
+ * something: complete, ordered, folded by nothing.
  *
  * Hermetic: one temp root per test file, removed at the end. No real store is
  * opened; `COUNTERPARTS_DATA_DIR` is never read, because every run here names
@@ -161,9 +166,31 @@ describe("doctor: plain output never changes", () => {
     // The header and the summary are `reportLines`' own, in its own places.
     expect(c.out[0]).toBe(`counterparts doctor — ${new Date().toISOString().slice(0, 10)} (UTC)`);
     expect(c.out[1]).toBe("");
-    expect(c.out[c.out.length - 1] ?? "").toMatch(/^(Nothing to fix\.|\d+ red, \d+ amber, \d+ green\.)$/);
+    expect(c.out[c.out.length - 1] ?? "").toMatch(/^\d+ red, \d+ amber(, \d+ off)?, \d+ green\.$/);
     // No blank line anywhere in the body: the grouping is the terminal arm's.
     expect(c.out.slice(2, -2).filter((l) => l === "").length).toBe(0);
+    // AND NOTHING IS FOLDED. A pipe gets every line whatever a terminal would
+    // have hidden — the install loop and every grep depend on it.
+    expect(c.out.some((l) => l.includes("Sweep"))).toBe(true);
+    expect(c.out.some((l) => l.startsWith("GREEN  Background"))).toBe(false);
+  });
+
+  test("`--all` changes nothing for a pipe: plain was never folded", async () => {
+    const plain = plainConsole();
+    await run(["doctor", `--config=${configPath}`, `--dir=${dir}`], {
+      io: plain.io,
+      env: {},
+      home: root,
+      checkout: NOT_A_REPO,
+    });
+    const all = plainConsole();
+    await run(["doctor", `--config=${configPath}`, `--dir=${dir}`, "--all"], {
+      io: all.io,
+      env: {},
+      home: root,
+      checkout: NOT_A_REPO,
+    });
+    expect(all.out).toEqual(plain.out);
   });
 });
 
@@ -190,7 +217,7 @@ describe("doctor: the terminal arm", () => {
     expect(c.out.filter((l) => l === "").length).toBeGreaterThanOrEqual(2);
   });
 
-  test("a message longer than the width folds into the gutter, never back to column zero", () => {
+  test("a message longer than the width wraps into the gutter, never back to column zero", () => {
     const wide: Finding = {
       key: "fixture",
       severity: "amber",
@@ -209,10 +236,183 @@ describe("doctor: the terminal arm", () => {
     expect(body.length).toBeGreaterThan(2);
     for (const line of body.slice(1)) {
       // Every continuation starts inside the gutter — `SEVERITY_COLUMN` plus
-      // `TITLE_COLUMN` — so it cannot be mistaken for a new finding.
-      expect(line.startsWith(" ".repeat(18))).toBe(true);
+      // `TITLE_COLUMN`, seven and twenty since the labels became words a person
+      // reads — so it cannot be mistaken for a new finding.
+      expect(line.startsWith(" ".repeat(27))).toBe(true);
     }
     for (const line of bare) expect(line.length).toBeLessThanOrEqual(80);
+  });
+});
+
+/**
+ * THE OWNER'S SCREEN OF 2026-09-22, which is the acceptance criterion for this
+ * round: two optional features nobody turned on, five green lines, and one of
+ * those five standing for the thirteen worker-internal readings underneath it.
+ *
+ * The findings are written out here rather than read off a store on purpose.
+ * `printDoctorReport` is pure over its input — that is the property `report.ts`
+ * exists to keep — so the layout is provable without arranging a store into the
+ * exact state the screen was taken in, and the reading's own tests
+ * (`doctor.test.ts`) are where the findings themselves are earned.
+ */
+describe("doctor: the folded screen", () => {
+  const TODAY_FOLD = "2026-09-22";
+
+  function f(
+    key: string,
+    severity: Finding["severity"],
+    title: string,
+    detail: string,
+    fix = "",
+    extra: Partial<Finding> = {},
+  ): Finding {
+    return { key, severity, title, detail, fix, data: {}, ...extra };
+  }
+
+  /** The headline six, exactly as the screen has them. */
+  const HEADLINES: readonly Finding[] = [
+    f(
+      "embedder",
+      "amber",
+      "Recall by meaning",
+      "optional. Recall works on words; a Voyage key lets it match meaning too.",
+      "Turn on: counterparts credentials set VOYAGE_API_KEY",
+      { optional: true },
+    ),
+    f(
+      "crash-writeup",
+      "amber",
+      "Crash write-up",
+      "optional. An Anthropic key lets a session that ended too soon get written up anyway.",
+      "Turn on: counterparts credentials set ANTHROPIC_API_KEY",
+      { optional: true },
+    ),
+    f("store", "green", "Memory", "~/.counterparts/store — 32 memories, opens fine"),
+    f("host", "green", "Claude Code", "connected: 5 hooks and the memory tools"),
+    f("snapshot", "green", "Snapshots", "last 2026-09-22, 2 kept"),
+    f("self-page", "green", "Self page", "not written yet — still forming"),
+  ];
+
+  /** The worker-internal ones, all green, with the Spawn row saying it ran. */
+  function internals(over: readonly Finding[] = []): Finding[] {
+    const base = [
+      f("config", "green", "Config", "~/.counterparts/claude-code.json — read"),
+      f("credentials", "green", "Credentials", "~/.counterparts/credentials.env (mode 600) holds no key"),
+      f("stance", "green", "Mode", "remembering"),
+      f("checkout", "green", "Checkout", "not a git checkout"),
+      f("store-open", "green", "Store open", "~/.counterparts/store opens as a session opens it"),
+      { ...f("spawn", "green", "Spawn", "no spawn refusals standing; started 1 time today"), data: { startsToday: 1 } },
+      f("clock", "green", "Clock", "lived day 4"),
+      f("sweep", "green", "Sweep", "newest sweep.gate 2026-09-22: reason ran"),
+      f("sleep", "green", "Sleep", "newest sleep.cycle 2026-09-22: reason ran, 0 failed phases"),
+      f("backfill", "green", "Backfill", "newest backfill 2026-09-22: embedded 0"),
+      f("credit", "green", "Credit", "newest recall.credit 2026-09-22"),
+      f("authorship", "green", "Authorship", "since 2026-09-22"),
+      f("journal", "green", "Journal mode", "wal (busy timeout 5000 ms)"),
+      f("page-writer", "green", "Page writer", "session mode"),
+      f("fired", "green", "Fired", "everything that should have fired, fired"),
+    ];
+    const keys = new Set(over.map((o) => o.key));
+    return [...base.filter((b) => !keys.has(b.key)), ...over];
+  }
+
+  /** A 200-column terminal, so the screen is compared without the wrap. */
+  function screen(findings: readonly Finding[], all = false): string[] {
+    const c = ttyConsole(200);
+    printDoctorReport(c.io, { NO_COLOR: "1" }, findings, TODAY_FOLD, { all });
+    return c.out;
+  }
+
+  test("every internal green folds into one Background line — the owner's screen, verbatim", () => {
+    expect(screen([...HEADLINES, ...internals()])).toEqual([
+      "counterparts doctor — 2026-09-22",
+      "",
+      "OFF    Recall by meaning   optional. Recall works on words; a Voyage key lets it match meaning too. Turn on: counterparts credentials set VOYAGE_API_KEY",
+      "OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon get written up anyway. Turn on: counterparts credentials set ANTHROPIC_API_KEY",
+      "",
+      "GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine",
+      "GREEN  Claude Code         connected: 5 hooks and the memory tools",
+      "GREEN  Background          the nightly worker ran today; nothing failed",
+      "GREEN  Snapshots           last 2026-09-22, 2 kept",
+      "GREEN  Self page           not written yet — still forming",
+      "",
+      "0 red, 0 amber, 2 off, 5 green.   Every line: counterparts doctor --all",
+    ]);
+  });
+
+  test("both keys in place: the two optional lines keep their rows, green, and never fold", () => {
+    // They are headline keys whatever their grade (the coordinator, 2026-09-22):
+    // a person who has just added a key checks this screen for the confirmation.
+    const on = [
+      f("embedder", "green", "Recall by meaning", "on — recall matches meaning as well as words"),
+      f("crash-writeup", "green", "Crash write-up", "on — a session that ended too soon gets written up anyway"),
+      ...HEADLINES.filter((h) => h.key !== "embedder" && h.key !== "crash-writeup"),
+    ];
+    const out = screen([...on, ...internals()]);
+    const said = out.join("\n");
+    expect(said).toContain("GREEN  Recall by meaning   on — recall matches meaning as well as words");
+    expect(said).toContain("GREEN  Crash write-up      on — a session that ended too soon gets written up anyway");
+    expect(said).toContain("GREEN  Background");
+    expect(said).not.toContain("OFF");
+    expect(out[out.length - 1]).toBe("0 red, 0 amber, 7 green.   Every line: counterparts doctor --all");
+  });
+
+  test("the Background line is READ, never assumed: no run today says so", () => {
+    const quiet = internals([
+      { ...f("spawn", "green", "Spawn", "no spawn refusals standing"), data: { startsToday: null } },
+    ]);
+    const said = screen([...HEADLINES, ...quiet]).join("\n");
+    expect(said).toContain("GREEN  Background          nothing has failed; the nightly worker has not run today");
+    expect(said).not.toContain("ran today");
+  });
+
+  test("one amber internal unfolds the lot, in its usual place and with its fix", () => {
+    const amber = f(
+      "sweep",
+      "amber",
+      "Sweep",
+      "newest sweep.gate 2026-09-21: reason no-credential",
+      "The sweep stood down; the reason names why.",
+    );
+    const out = screen([...HEADLINES, ...internals([amber])]);
+    const said = out.join("\n");
+    // The amber is at the top, above the OFF lines, with its fix under it.
+    expect(out[2]).toBe("AMBER  Sweep               newest sweep.gate 2026-09-21: reason no-credential");
+    expect(out[3]).toBe(`${" ".repeat(27)}fix: The sweep stood down; the reason names why.`);
+    // And every other internal is back on the screen.
+    expect(said).toContain("GREEN  Sleep");
+    expect(said).toContain("GREEN  Clock");
+    expect(said).not.toContain("Background");
+    // Nothing was hidden, so nothing says how to see more.
+    expect(said).not.toContain("--all");
+    expect(out[out.length - 1]).toBe("0 red, 1 amber, 2 off, 18 green.");
+  });
+
+  test("`--all` prints every line, folding nothing, and drops the invitation", () => {
+    const out = screen([...HEADLINES, ...internals()], true);
+    const said = out.join("\n");
+    expect(said).toContain("GREEN  Sweep");
+    expect(said).toContain("GREEN  Journal mode");
+    expect(said).toContain("GREEN  Mode                remembering");
+    expect(said).not.toContain("Background");
+    expect(said).not.toContain("Every line:");
+    expect(out[out.length - 1]).toBe("0 red, 0 amber, 2 off, 19 green.");
+  });
+
+  test("OFF is dim on a terminal, and the word is there without the colour too", () => {
+    const c = ttyConsole(200);
+    printDoctorReport(c.io, { FORCE_COLOR: "1" }, [...HEADLINES, ...internals()], TODAY_FOLD);
+    const off = c.out.find((l) => l.includes("Recall by meaning")) ?? "";
+    expect(off.startsWith(`${ESC}[2mOFF${ESC}[0m`)).toBe(true);
+    // Never yellow: an optional feature nobody turned on is not a warning.
+    expect(off).not.toContain(`${ESC}[33m`);
+  });
+
+  test("a red still reaches the top, and the reds are counted apart from the offs", () => {
+    const red = f("store-open", "red", "Store open", "will not open", "Restore a snapshot.");
+    const out = screen([...HEADLINES, ...internals([red])]);
+    expect(out[2]?.startsWith("RED    Store open")).toBe(true);
+    expect(out[out.length - 1]).toBe("1 red, 0 amber, 2 off, 18 green.");
   });
 });
 

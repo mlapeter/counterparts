@@ -12,13 +12,19 @@
  *
  * ── The one rule this file exists to hold ───────────────────────────────────
  *
- * **PLAIN OUTPUT NEVER CHANGES.** Not a byte. A pipe, a test console, a CI job,
- * `tools/install-loop/run.sh`, `--json` — every one of them gets exactly what it
- * got before, from exactly the function it got it from (`reportLines`, and the
- * `io.out` sequence `statusCommand` already had). The new layout is reached only
- * when the console has told us it is a terminal (`io.tty`) or that it wants
- * colour anyway (`FORCE_COLOR`), which is `ui.ts`'s existing split between
- * wrapping and colour.
+ * **A PIPE GETS THE WHOLE READING, from the function that has always produced
+ * it.** A pipe, a test console, a CI job, `tools/install-loop/run.sh`, `--json`
+ * — every one of them gets every finding, in worst-first order, out of
+ * `reportLines` (and the `io.out` sequence `statusCommand` already had). The
+ * laid-out arm is reached only when the console has told us it is a terminal
+ * (`io.tty`) or that it wants colour anyway (`FORCE_COLOR`), which is `ui.ts`'s
+ * existing split between wrapping and colour.
+ *
+ * Until 2026-09-22 this rule was stated as "plain output never changes, not a
+ * byte", and it was kept. The owner's answers of that day changed the WORDS —
+ * the labels, the grades, the summary — so what transfers is the half that
+ * still means something: what a script sees is complete, ordered and folded by
+ * nothing. The terminal may hide a line; a pipe may not.
  *
  * That is why both functions take the findings/the view rather than the store:
  * the READING is one thing, computed once, and this file only decides how it is
@@ -35,14 +41,11 @@
  * into column zero where it reads as a new finding.
  */
 
-import type { Finding, Severity } from "../claude-code/doctor.js";
-import { reportLines } from "../claude-code/doctor.js";
+import type { Finding, GradeWord } from "../claude-code/doctor.js";
+import { gradeWord, reportLines, summaryLine, tally, worstFirst } from "../claude-code/doctor.js";
 import type { Io } from "./commands.js";
 import type { Grade, Paint, Ui, UiEnv } from "./ui.js";
 import { fold, ui } from "./ui.js";
-
-/** `Severity` (the reading's word) to `Grade` (the layout's word). */
-const GRADE: Record<Severity, Grade> = { red: "RED", amber: "AMBER", green: "GREEN" };
 
 /**
  * Does this console get the laid-out arm at all?
@@ -57,52 +60,159 @@ function laidOut(u: Ui): boolean {
 }
 
 /** The colour a grade is written in, from the one `Paint` this console has. */
-function painter(p: Paint, severity: Severity): (s: string) => string {
-  return severity === "red" ? p.red : severity === "amber" ? p.yellow : p.green;
+function painter(p: Paint, grade: GradeWord): (s: string) => string {
+  return grade === "RED" ? p.red : grade === "AMBER" ? p.yellow : grade === "OFF" ? p.dim : p.green;
+}
+
+/**
+ * THE LINES THAT KEEP A ROW OF THEIR OWN however green they are — the five
+ * things the owner's screen of 2026-09-22 names, plus the two optional ones.
+ *
+ * It is an ALLOWLIST rather than a list of what folds, and that is deliberate:
+ * the owner's answer named thirteen worker-internal lines, and a fourteenth
+ * added next month would otherwise arrive on a screen that is meant to hold
+ * five. What a person came for is a short list and it changes rarely; what the
+ * background half is made of is a long list and it changes often.
+ *
+ * `store-open` is NOT here: green, it is the `, opens fine` on the Memory line
+ * (`doctor.ts#memoryDetail`); red or amber it prints, like every other
+ * non-green, with its own code and its own repair.
+ */
+const HEADLINE: readonly string[] = ["store", "host", "embedder", "crash-writeup", "snapshot", "self-page"];
+
+/**
+ * The order the GREEN rows read in, once they are folded — not worst-first (they
+ * are all green) but the sentence a person reads: here is your memory, here is
+ * what is joined up to it, the background half ran, and these two are what it
+ * left behind. Anything green and not named here follows in the reading's own
+ * order.
+ */
+/** The key the folded line carries. Not a finding's key — nothing produced it —
+ *  so it is spelled once, here, and collides with none of them. */
+const BACKGROUND_KEY = "background";
+
+const GREEN_ORDER: readonly string[] = ["store", "host", BACKGROUND_KEY, "snapshot", "self-page"];
+
+export interface DoctorLayout {
+  /** `--all`: print every line, folding nothing. */
+  readonly all?: boolean;
+}
+
+/**
+ * THE FOLD (the owner's answer 12, 2026-09-22).
+ *
+ * Thirteen of doctor's lines are readings of the background half — Sweep,
+ * Sleep, Backfill, Credit, Clock, Spawn, Journal mode, Checkout, Page writer,
+ * Fired, Authorship, Mode, Store open. Each is there because a real morning
+ * went wrong and nothing said so, and each is unreadable to the person who has
+ * just installed this: finding #20 is the owner reading "owner: this host
+ * encodes" and asking what it means.
+ *
+ * So when every one of them is green they become one line that says the thing
+ * they collectively prove, and `doctor --all` prints them as they were. The
+ * fold is ALL OR NOTHING: one amber Sweep and every internal line comes back,
+ * because the value of the green ones is being able to see which of them the
+ * amber sits between.
+ */
+function foldable(internals: readonly Finding[]): boolean {
+  return internals.length > 0 && internals.every((f) => f.severity === "green");
+}
+
+/**
+ * What the folded line says, and it is READ rather than assumed.
+ *
+ * "The nightly worker ran today" is false on a store made this morning, and a
+ * diagnostic that says a thing ran when it did not is worse than one that says
+ * nothing. The count comes from the Spawn line's own `startsToday`, which is
+ * the adapter's latched per-date counter.
+ */
+function backgroundLine(internals: readonly Finding[]): Finding {
+  const spawn = internals.find((f) => f.key === "spawn");
+  const started = spawn === undefined ? null : spawn.data["startsToday"];
+  const ran = typeof started === "number" && started > 0;
+  return {
+    key: BACKGROUND_KEY,
+    severity: "green",
+    title: "Background",
+    detail: ran
+      ? "the nightly worker ran today; nothing failed"
+      : "nothing has failed; the nightly worker has not run today",
+    fix: "",
+    data: { folded: internals.length, startsToday: ran ? (started as number) : null },
+  };
+}
+
+/** The green rows in the folded arm's own order. */
+function greenOrder(a: Finding, b: Finding): number {
+  const rank = (f: Finding): number => {
+    const i = GREEN_ORDER.indexOf(f.key);
+    return i === -1 ? GREEN_ORDER.length : i;
+  };
+  return rank(a) - rank(b);
 }
 
 /**
  * `counterparts doctor`, on a terminal.
  *
- * Worst first, unchanged. One blank line between the severities. The grade word
- * in colour and also IN WORDS (the dashboard's scar §2.4 — an absence is
- * displayed, never merely un-highlighted — which is why `statusLine` writes
- * `RED`/`AMBER`/`GREEN` in both arms). The fix dim, on its own line, in the
- * constant gutter. The summary last, coloured by the worst thing in the report.
+ * Worst first, then `OFF`, then the greens. One blank line between the groups.
+ * The grade word in colour and also IN WORDS (the dashboard's scar §2.4 — an
+ * absence is displayed, never merely un-highlighted — which is why `statusLine`
+ * writes the word in both arms). The fix dim, on its own line, in the constant
+ * gutter. The summary last, coloured by the worst thing on the screen, and
+ * counting WHAT IS ON THE SCREEN — a summary that counted twenty lines under a
+ * screen showing seven would be the reading and the layout disagreeing, which
+ * is the one thing this file may not do.
  */
 export function printDoctorReport(
   io: Io,
   env: UiEnv,
   findings: readonly Finding[],
   today: string,
+  layout: DoctorLayout = {},
 ): void {
   const u = ui(io, env);
   if (!laidOut(u)) {
+    // PLAIN IS ALWAYS COMPLETE. A pipe, a test console, CI, the install loop:
+    // every one of them gets every finding, `--all` or not, because a script
+    // that grepped for a line must not stop finding it on the day somebody's
+    // store went quiet enough to fold.
     for (const line of reportLines(findings, today)) io.out(line);
     return;
   }
-  // `reportLines` is the authority on ORDER and on the summary's arithmetic, so
-  // this arm asks it for both rather than sorting and counting a second time.
-  const lines = reportLines(findings, today);
-  const header = lines[0] ?? "";
-  const summary = lines[lines.length - 1] ?? "";
+  const ordered = worstFirst(findings);
+  const internals = ordered.filter((f) => !HEADLINE.includes(f.key));
+  const folded = layout.all !== true && foldable(internals);
+  const rows = folded
+    ? [...ordered.filter((f) => HEADLINE.includes(f.key)), backgroundLine(internals)]
+    : ordered;
 
-  io.out(u.paint.bold(header));
+  io.out(u.paint.bold(`counterparts doctor — ${today}`));
   u.blank();
   let printed = 0;
-  let worst: Severity = "green";
-  for (const severity of ["red", "amber", "green"] as const) {
-    const group = findings.filter((f) => f.severity === severity);
+  let worst: GradeWord = "GREEN";
+  for (const grade of ["RED", "AMBER", "OFF", "GREEN"] as const) {
+    const group = rows.filter((f) => gradeWord(f) === grade);
     if (group.length === 0) continue;
     if (printed > 0) u.blank();
-    if (printed === 0) worst = severity;
+    if (printed === 0) worst = grade;
     printed += 1;
-    // The reading's own order within a severity is the order the findings
-    // arrived in — `worstFirst` is stable, so filtering preserves it exactly.
-    for (const f of group) u.statusLine(GRADE[severity], f.title, f.detail, f.fix);
+    // The reading's own order within a grade is the order the findings arrived
+    // in — `worstFirst` is stable, so filtering preserves it exactly. The one
+    // exception is the folded screen's greens, which read in `GREEN_ORDER`.
+    const lines = grade === "GREEN" && folded ? [...group].sort(greenOrder) : group;
+    for (const f of lines) {
+      // AN `OFF` LINE CARRIES ITS INVITATION IN THE SENTENCE, not under a
+      // `fix:` — `doctor.ts#findingLines` does the same, so the two arms of
+      // this report still say the same words in the same order.
+      if (f.optional === true) u.statusLine(grade as Grade, f.title, `${f.detail}  ${f.fix}`.trimEnd());
+      else u.statusLine(grade as Grade, f.title, f.detail, f.fix);
+    }
   }
   u.blank();
-  io.out(painter(u.paint, worst)(summary));
+  const summary = summaryLine(tally(rows));
+  // THE WAY BACK TO THE WHOLE READING, on the screen that hid some of it.
+  const everyLine = folded ? "   Every line: counterparts doctor --all" : "";
+  io.out(painter(u.paint, worst)(summary) + u.paint.dim(everyLine));
 }
 
 // ── status ──────────────────────────────────────────────────────────────────
