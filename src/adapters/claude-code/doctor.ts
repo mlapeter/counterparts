@@ -778,16 +778,20 @@ function configFindings(input: DoctorInput): Finding[] {
         { path: input.configPath, reason },
       ),
     );
+    // ONE COUNT, read once and used twice: the sentence and the row say the
+    // same number because it is the same number, and rule 3 of this module —
+    // it is on the hot path, so it is bounded — is kept by not asking twice.
+    const held = input.store === null ? null : memoryCount(input.store);
     out.push(
       input.store === null
         ? finding("store", "red", MEMORY_TITLE, `no store at ${tilde(input.dir)}`, "Check the path you gave --dir.", {
             dir: input.dir,
             exists: false,
           })
-        : finding("store", "green", MEMORY_TITLE, memoryDetail(input, input.store), "", {
+        : finding("store", "green", MEMORY_TITLE, memoryDetail(input, held), "", {
             dir: input.dir,
             exists: true,
-            memories: memoryCount(input.store),
+            memories: held,
           }),
     );
     return out;
@@ -841,11 +845,13 @@ function configFindings(input: DoctorInput): Finding[] {
       ),
     );
   } else {
+    // One count, read once — see the `not-read` arm above.
+    const held = memoryCount(input.store);
     out.push(
-      finding("store", "green", MEMORY_TITLE, memoryDetail(input, input.store), "", {
+      finding("store", "green", MEMORY_TITLE, memoryDetail(input, held), "", {
         dir: input.dir,
         exists: true,
-        memories: memoryCount(input.store),
+        memories: held,
       }),
     );
   }
@@ -897,8 +903,7 @@ function memoryCount(store: Store): number | null {
  * `--json` still carry it, and a store that will NOT open prints its own line
  * with the code and the repair.
  */
-function memoryDetail(input: DoctorInput, store: Store): string {
-  const n = memoryCount(store);
+function memoryDetail(input: DoctorInput, n: number | null): string {
   const held = n === null ? "" : ` — ${String(n)} ${n === 1 ? "memory" : "memories"}`;
   const opens = input.open?.ok === true ? ", opens fine" : "";
   return `${tilde(input.dir)}${held}${opens}`;

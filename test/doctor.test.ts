@@ -334,6 +334,45 @@ describe("doctor — the reading", () => {
     expect(notice?.endsWith("run: counterparts doctor")).toBe(true);
   });
 
+  /**
+   * THE NUMBER ON THE MEMORY LINE IS THE ONE `status` PRINTS — the wake
+   * preface's own count (`countMemories({ type: "memory", archived: false })`),
+   * which is what `status`'s aside says its `Memories:` is. The one way the two
+   * could drift is the journal: episodes are rows, `status` walks them out by
+   * `isJournal`, and this query excludes them by TYPE. So a journal row is in
+   * the fixture on purpose.
+   */
+  test("the Memory line counts memories the way status does — and the journal is not one", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    for (let i = 0; i < 3; i += 1) {
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: `A memory number ${String(i)}, long enough to be one and written today.`,
+        learnedOn: "2026-09-14",
+        source: "authored",
+        title: `Fixture ${String(i)}`,
+      });
+    }
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "A chapter of the journal, which is a row and is not a memory.",
+      learnedOn: "2026-09-14",
+      source: "authored",
+      title: "Chapter",
+    });
+    const f = by(doctorFindings(input({ store: s })), "store");
+    expect(f.detail).toContain("3 memories");
+    expect(f.data["memories"]).toBe(3);
+    // The path, and the `Store open` reading said as one sentence with it.
+    expect(f.detail).toContain(dir);
+    expect(f.detail).not.toContain("opens fine"); // no `open` reading was handed in
+  });
+
   test("a store that has NEVER had a key reads OFF, and the Credentials line stays factual (finding 1, #24)", () => {
     // README: "No API keys are required." QUICKSTART §6: without the key the
     // worker still runs the day and only skips the crash sweep. `doctor` on a
