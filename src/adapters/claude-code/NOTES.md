@@ -1326,3 +1326,27 @@ What the build settled, beyond the CONTRACT section:
   one with words still unread in another project (re-review MAJOR-A).
 - **Cost on the wake's path:** one `planRetention` pass per start whose allowance is not
   spent; measured and filed as a residual with its cheap fix (INTERFACE-GAPS §15).
+
+## 2026-09-23 — doctor's keyless lines (roadmap C3)
+
+- **`Recall by meaning` speaks of the local table only.** Off, never embedded: `OFF`,
+  *a local table lets it match meaning too, and nothing leaves this machine*, `Turn on:
+  counterparts install --force --embedder` (`doctor.ts#EMBEDDER_ON_COMMAND`). No line
+  for a knob that is off advises a Voyage key any more; a configuration that names
+  Voyage keeps its old amber for a missing key (frozen, not extended). The static green
+  line names where the weights came from in words (`the counterparts-model-potion
+  package`, `COUNTERPARTS_STATIC_WEIGHTS_DIR`), and with no worker row yet it checks for
+  the table FILE in what `resolveStaticWeights` found — a variable naming an empty folder
+  was green until the first worker row said `NO_WEIGHTS`.
+- **`Raw transcripts`** (`retentionFindings`, remember INTERFACE-GAPS §11): the policy
+  from `remember/`'s `RETENTION_MS` plus the configuration's `snapshots.keep`, then the
+  newest `remember.prune` row in sessions. Amber for `failed > 0`, or a
+  `STARTED`/`LATCH_HELD` row dated before today; green otherwise, including "not run yet".
+  Folds into `Background` while green (not a headline key).
+- **The Config line names the unreadable key** (`DoctorInput.configUnreadableKeys`, from
+  `LoadedConfig.unreadableKeys`; review of #190, MINOR 5): the console passes it; the hook
+  passes nothing (it refuses a bad configuration before it gets here).
+- **`Sweep` and `Crash write-up` were not touched.** On a keyless store that has lived,
+  the amber `Sweep … no-credential` and the `Crash write-up` line name the same command
+  (#188's report); C2 (#192) owns both lines and folds them with its `not-opted-in`
+  reason.

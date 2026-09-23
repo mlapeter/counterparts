@@ -13,11 +13,12 @@
  * weights resolution in this process is pinned by clearing the one env var.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EMBED_BACKFILL_EVENT } from "../src/core/counterpart.js";
+import { RETENTION_EVENT } from "../src/core/remember/index.js";
 import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/static.js";
 import { heldExits, Store, paths } from "../src/core/store/index.js";
 import type { EmbedderIdentity } from "../src/core/store/index.js";
@@ -224,6 +225,142 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     expect(f.detail).toContain("cache v6");
     expect(f.fix).toContain("/mcp");
     expect(f.fix).toContain("Reconnect");
+  });
+});
+
+// ── a fresh keyless install (roadmap C3) ────────────────────────────────────
+
+describe("Recall by meaning on a FRESH static install — no worker row yet", () => {
+  /** A weights folder, with or without the table file in it, named by the one
+   *  variable the hooks read first — so the answer never depends on whether the
+   *  package is installed beside this checkout. */
+  function tableAt(present: boolean): string {
+    const at = join(root, present ? "table" : "empty-table");
+    mkdirSync(at, { recursive: true });
+    if (present) writeFileSync(join(at, "model.safetensors"), "");
+    process.env[STATIC_WEIGHTS_ENV] = at;
+    return at;
+  }
+
+  test("weights where the hooks will look: GREEN, says where they came from, and nothing leaves the machine", () => {
+    writer();
+    opened.splice(0).forEach((s) => s.close());
+    tableAt(true);
+    const f = by(reading(STATIC), "embedder");
+    expect(f.severity).toBe("green");
+    expect(f.optional).toBeUndefined();
+    expect(f.detail).toContain("on — a local table");
+    expect(f.detail).toContain(STATIC_WEIGHTS_ENV);
+    expect(f.detail).toContain("nothing leaves this machine");
+    expect(`${f.detail} ${f.fix}`).not.toContain(EMBED_KEY_ENV);
+  });
+
+  test("a variable naming a folder with NO table in it: AMBER with the fix command, never green", () => {
+    writer();
+    opened.splice(0).forEach((s) => s.close());
+    tableAt(false);
+    const f = by(reading(STATIC), "embedder");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("weights were not found in");
+    expect(f.fix).toContain("bun add -g counterparts-model-potion");
+    expect(`${f.detail} ${f.fix}`).not.toContain(EMBED_KEY_ENV);
+  });
+});
+
+describe("the Config line names the key it could not read (review of #190, MINOR 5)", () => {
+  test("`counterparts doctor --config` on a bad embedder.kind says which key, and what it must be", async () => {
+    const configPath = join(root, "claude-code.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true, kind: "Static" } }));
+    writer();
+    opened.splice(0).forEach((s) => s.close());
+    const out: string[] = [];
+    const code = await run(["doctor", `--config=${configPath}`, "--json"], {
+      io: { out: (l) => out.push(l), err: () => {} },
+      env: {},
+      home: root,
+    });
+    expect(typeof code).toBe("number");
+    const json = JSON.parse(out.join("\n")) as { findings: { key: string; detail: string; data: Record<string, unknown> }[] };
+    const config = json.findings.find((f) => f.key === "config");
+    expect(config?.detail).toContain("unreadable (embedder.kind");
+    expect(config?.detail).toContain('"static" or "voyage"');
+    expect(config?.data["keys"]).toBe("embedder.kind");
+  });
+});
+
+// ── Raw transcripts: retention's own line (remember INTERFACE-GAPS §11) ────
+
+describe("Raw transcripts — what the newest retention pass did", () => {
+  function pruneRow(payload: Record<string, string | number>): void {
+    const s = writer();
+    s.appendEvent({ name: RETENTION_EVENT, day: s.livedDay(), payload });
+    s.close();
+    opened.length = 0;
+  }
+  const counts = { scopes: 2, deleted: 3, keptOwed: 1, keptYoung: 4, keptLive: 2, failed: 0, lines: 10, bytes: 999, retentionDays: 7 };
+
+  test("never run: green, the policy, and 'not run yet' — a young store is not a fault", () => {
+    writer();
+    opened.splice(0).forEach((s) => s.close());
+    const f = by(reading(undefined), "retention");
+    expect(f.severity).toBe("green");
+    expect(f.title).toBe("Raw transcripts");
+    expect(f.detail).toBe("7 days after a session ends (up to 21 counting the daily snapshots) · not run yet");
+  });
+
+  test("a finished pass: green, with what it deleted, kept owed and kept open", () => {
+    pruneRow({ date: "2026-09-22", reason: "PRUNED", ...counts });
+    const f = by(reading(undefined), "retention");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toBe(
+      "7 days after a session ends (up to 21 counting the daily snapshots) · 3 pruned 2026-09-22 · 1 kept until written up · 2 still open",
+    );
+  });
+
+  test("the snapshot count comes from the configuration's keep", () => {
+    pruneRow({ date: "2026-09-22", reason: "NOTHING", ...counts, deleted: 0 });
+    const s = Store.open({ dir, observer: true });
+    opened.push(s);
+    const f = by(
+      doctorFindings({
+        configPath: join(root, "claude-code.json"),
+        configReason: "loaded",
+        config: { dataDir: dir, credentialsFile: credsPath, snapshots: { keep: 3 } },
+        dir,
+        credentials: loadCredentials(credsPath, {}),
+        credentialsPath: credsPath,
+        store: s,
+        today: "2026-09-23",
+        refusals: {},
+      }),
+      "retention",
+    );
+    expect(f.detail).toContain("(up to 10 counting the daily snapshots)");
+  });
+
+  test("a pass that could not delete something: amber, with a command", () => {
+    pruneRow({ date: "2026-09-22", reason: "IO_FAILED", ...counts, failed: 2 });
+    const f = by(reading(undefined), "retention");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("2 could not be deleted");
+    expect(f.fix).toContain("ls -ld");
+  });
+
+  test("STARTED or LATCH_HELD from a day before today: amber — a pass that never finished", () => {
+    for (const reason of ["STARTED", "LATCH_HELD"]) {
+      rmSync(dir, { recursive: true, force: true });
+      pruneRow({ date: "2026-09-21", reason, ...counts, deleted: 0 });
+      const f = by(reading(undefined), "retention");
+      expect(f.severity, reason).toBe("amber");
+      expect(f.detail, reason).toContain("the pass on 2026-09-21 started and did not finish");
+    }
+  });
+
+  test("STARTED today: green — a pass is under way", () => {
+    pruneRow({ date: "2026-09-23", reason: "STARTED", ...counts, deleted: 0 });
+    const f = by(reading(undefined), "retention");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("a pass started today");
   });
 });
 

@@ -90,9 +90,12 @@ import {
   resolveSnapshotsDir,
 } from "../snapshots.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, pageWriterMode } from "./config.js";
-import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
+import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
-import { SpanBuffer } from "../../core/remember/index.js";
+// Retention's own reading and its own week, so the Raw transcripts line cannot
+// promise a different number from the job that does the deleting. READ-ONLY:
+// `remember/index.ts` re-exports the plan and the readers, never the deleter.
+import { SpanBuffer, TUNABLES as REMEMBER_TUNABLES, lastRetentionRun } from "../../core/remember/index.js";
 import {
   awaitingWriteUp,
   progressKey,
@@ -186,6 +189,14 @@ export interface DoctorInput {
    * a configuration then says so instead of grading a file nobody read.
    */
   readonly configReason: "loaded" | "absent" | "unreadable" | "not-read" | null;
+  /**
+   * The keys `loadConfig` named when it could not read the file
+   * (`LoadedConfig.unreadableKeys` — today `embedder`, `embedder.enabled`,
+   * `embedder.kind`). Printed on the Config line so a person can fix the one
+   * key without reading the loader (review of #190, MINOR 5). Absent: the
+   * reader could not name one, or the caller did not pass it.
+   */
+  readonly configUnreadableKeys?: readonly string[];
   readonly config: AdapterConfig;
   /** The store this reading actually read. */
   readonly dir: string;
@@ -772,6 +783,22 @@ function budgetTruncatedPhases(p: Record<string, unknown>): string[] {
   return out;
 }
 
+/** ` (embedder.kind is not one it knows)`-shaped: the keys the loader named, or
+ *  nothing when it named none. */
+function unreadableClause(keys: readonly string[] | undefined): string {
+  if (keys === undefined || keys.length === 0) return "";
+  const known = keys.map((k) =>
+    k === "embedder.kind"
+      ? 'embedder.kind — it must be "static" or "voyage"'
+      : k === "embedder.enabled"
+        ? "embedder.enabled — it must be true or false"
+        : k === "embedder"
+          ? "embedder — it must be an object"
+          : k,
+  );
+  return ` (${known.join("; ")})`;
+}
+
 /** The config file itself: the one the hooks read, and whether it was readable. */
 function configFindings(input: DoctorInput): Finding[] {
   const out: Finding[] = [];
@@ -815,11 +842,17 @@ function configFindings(input: DoctorInput): Finding[] {
         "config",
         "red",
         "Config",
-        `${input.configPath} — ${reason === "absent" ? "no such file" : "unreadable, so every entry point stands down to observer"}`,
+        `${input.configPath} — ${reason === "absent" ? "no such file" : `unreadable${unreadableClause(input.configUnreadableKeys)}, so every entry point stands down to observer`}`,
         reason === "absent"
           ? "Run: counterparts install (or point --config at the file you meant)."
           : "Fix the JSON, or restore it from claude-code.json.bak beside it.",
-        { path: input.configPath, reason },
+        {
+          path: input.configPath,
+          reason,
+          ...(reason === "unreadable" && (input.configUnreadableKeys ?? []).length > 0
+            ? { keys: (input.configUnreadableKeys ?? []).join(",") }
+            : {}),
+        },
       ),
     );
   } else {
@@ -950,7 +983,12 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
   const present = [...input.credentials.loaded, ...input.credentials.skippedPresent];
   const haveKey = present.includes(EMBED_KEY_ENV);
   const data = { enabled, key: haveKey, everEmbedded: history.embedded };
-  const turnOn = `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
+  // THE LOCAL TABLE IS WHAT "TURN ON" MEANS NOW (roadmap C3): Voyage is frozen,
+  // so no fix line on this finding advises a Voyage key for a knob that is
+  // off. `install --embedder` keeps the kind a configuration already names
+  // (`install.ts#resolveEmbedderBlock`), so the same command is right for a
+  // store that ran Voyage and stopped.
+  const turnOn = `Turn on: ${EMBEDDER_ON_COMMAND}`;
   // THE STORE'S OWN VERDICT FIRST (review of #190, MAJOR 4): a hold or a newer
   // build's cache turns the channel off whatever the configuration says, and
   // it is read DURABLY — this handle is an observer and reconciles nothing.
@@ -995,7 +1033,7 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
     off(
       "embedder",
       RECALL_TITLE,
-      `optional. Recall works on words; a Voyage key lets it match meaning too.${shellClause(input, EMBED_KEY_ENV, present)}`,
+      "optional. Recall works on words; a local table lets it match meaning too, and nothing leaves this machine.",
       turnOn,
       data,
     ),
@@ -1003,6 +1041,25 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
 }
 
 const RECALL_TITLE = "Recall by meaning";
+
+/**
+ * THE COMMAND THAT TURNS RECALL BY MEANING ON for a configuration that exists
+ * (roadmap C3). `install` writes the block only when it creates the file, so an
+ * existing one — every 0.2.0 install, the owner's included — needs `--force`
+ * to be rewritten, and `--force` carries every other key forward
+ * (`commands.ts#carryForward`) and never replaces a credentials file that holds
+ * a key. One sentence, printed by doctor and quoted by QUICKSTART.
+ */
+export const EMBEDDER_ON_COMMAND = "counterparts install --force --embedder";
+
+/** Where a static table's weights came from, in words (`resolveStaticWeights`'
+ *  `source`, or the worker row's `weights`). */
+function weightsFrom(source: string): string {
+  if (source === "package") return `the ${STATIC_WEIGHTS_PACKAGE} package`;
+  if (source === "env") return STATIC_WEIGHTS_ENV;
+  if (source === "option") return "a directory named by the caller";
+  return source;
+}
 const CRASH_TITLE = "Crash write-up";
 
 /**
@@ -1079,18 +1136,23 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       "embedder",
       "green",
       RECALL_TITLE,
-      `on — a local table (${str(row, "model") ?? "static"}, weights from the ${String(str(row, "weights"))}); nothing leaves this machine`,
+      `on — a local table (${str(row, "model") ?? "static"}, weights from ${weightsFrom(String(str(row, "weights")))}); nothing leaves this machine`,
       "",
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
   const found = resolveStaticWeights();
-  if (found === null) {
+  // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
+  // naming an empty or wrong folder is found by name and holds nothing, and a
+  // green here would last until the first worker row said NO_WEIGHTS.
+  if (found === null || !existsSync(join(found.dir, MODEL_FILE))) {
     return finding(
       "embedder",
       "amber",
       RECALL_TITLE,
-      "on (a local table), but its weights were not found — nothing will be embedded; recall still matches on words",
+      found === null
+        ? "on (a local table), but its weights were not found — nothing will be embedded; recall still matches on words"
+        : `on (a local table), but its weights were not found in ${tilde(found.dir)} (named by ${weightsFrom(found.source)}) — nothing will be embedded; recall still matches on words`,
       install,
       { ...data, kind: "static", weights: null },
     );
@@ -1099,7 +1161,7 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
     "embedder",
     "green",
     RECALL_TITLE,
-    `on — a local table, weights found (${found.source}); the next boundary's worker confirms what the hooks see`,
+    `on — a local table (weights from ${weightsFrom(found.source)}); nothing leaves this machine (the hooks confirm it when a session ends)`,
     "",
     { ...data, kind: "static", weights: found.source },
   );
@@ -1293,6 +1355,82 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     );
   }
   return out;
+}
+
+/**
+ * RAW TRANSCRIPTS — how long the captured conversation is kept, and what the
+ * newest retention pass did (remember INTERFACE-GAPS §11; roadmap B3).
+ *
+ * The first clause is the POLICY, worded so it does not over-promise (PR #189
+ * review m4, m5): the text lives in the store for a week after a session ends,
+ * and each daily snapshot holds a copy of whatever was there that day, so the
+ * last copy is gone only after the snapshots rotate past it too. Both numbers
+ * are read — the week from `remember/`'s tunable, the snapshots from the
+ * configuration's `keep` — never retyped.
+ *
+ * The rest is the newest `remember.prune` row, in sessions. Grades:
+ *
+ *   - **green** with no row at all: a store the worker has not reached yet
+ *     has nothing to prune, and that is not a fault;
+ *   - **amber** when the newest pass could not delete something (`failed`), or
+ *     when it is a `STARTED` / `LATCH_HELD` row from a day before today — a
+ *     pass that took its latch and never wrote its result;
+ *   - **green** otherwise, `STARTED` today included (a pass is under way).
+ *
+ * "kept until written up" is a session that still owes its write-up (B3's
+ * predicate); it is kept until the next session in its project writes it up.
+ */
+function retentionFindings(input: DoctorInput, store: Store): Finding[] {
+  const TITLE = "Raw transcripts";
+  const days = Math.round(REMEMBER_TUNABLES.RETENTION_MS / 86_400_000);
+  const keep = keepOf(input.config.snapshots?.keep);
+  const policy = `${String(days)} days after a session ends (up to ${String(days + keep)} counting the daily snapshots)`;
+  const run = lastRetentionRun(store);
+  const base = { retentionDays: days, snapshotKeep: keep };
+  if (run === null) {
+    return [finding("retention", "green", TITLE, `${policy} · not run yet`, "", { ...base, ran: false })];
+  }
+  const data = {
+    ...base,
+    ran: true,
+    date: run.date,
+    reason: run.reason,
+    deleted: run.deleted,
+    keptOwed: run.keptOwed,
+    keptYoung: run.keptYoung,
+    keptLive: run.keptLive,
+    failed: run.failed,
+  };
+  const unfinished = run.reason === "STARTED" || run.reason === "LATCH_HELD";
+  if (unfinished && run.date < input.today) {
+    return [
+      finding(
+        "retention",
+        "amber",
+        TITLE,
+        `${policy} · the pass on ${run.date} started and did not finish, and none has run since`,
+        "Nothing is deleted without a finished pass. It runs again when a session ends; to watch it: counterparts doctor --all",
+        data,
+      ),
+    ];
+  }
+  if (unfinished) {
+    return [finding("retention", "green", TITLE, `${policy} · a pass started today`, "", data)];
+  }
+  const counts = `${String(run.deleted)} pruned ${run.date} · ${String(run.keptOwed)} kept until written up · ${String(run.keptLive)} still open`;
+  if (run.failed > 0) {
+    return [
+      finding(
+        "retention",
+        "amber",
+        TITLE,
+        `${policy} · ${counts} · ${String(run.failed)} could not be deleted`,
+        `The next pass tries again. Check the folder is writable: ls -ld ${tilde(input.dir)}/spans`,
+        data,
+      ),
+    ];
+  }
+  return [finding("retention", "green", TITLE, `${policy} · ${counts}`, "", data)];
 }
 
 /** The two clocks, and the gap that IS I32's signature. */
@@ -3078,6 +3216,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
       : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
+    // B3's week: one bounded read of the newest `remember.prune` row. Folds into
+    // `Background` while green.
+    ["retention", () => retentionFindings(input, store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

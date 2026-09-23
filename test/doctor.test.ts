@@ -76,6 +76,7 @@ import {
   reportLines,
 } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding, GitRunner } from "../src/adapters/claude-code/index.js";
+import { EMBEDDER_ON_COMMAND } from "../src/adapters/claude-code/doctor.js";
 import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import {
   EXIT,
@@ -452,10 +453,14 @@ describe("doctor — the reading", () => {
     const off = findings.filter((f) => f.optional === true);
     expect(off.map((f) => f.key)).toEqual(["embedder"]);
     expect(by(findings, "embedder").title).toBe("Recall by meaning");
+    // KEYLESS (roadmap C3): the local table is what "turn on" means now, and
+    // a Voyage key is never the advice for a knob that is off.
     expect(by(findings, "embedder").detail).toContain(
-      "optional. Recall works on words; a Voyage key lets it match meaning too.",
+      "optional. Recall works on words; a local table lets it match meaning too, and nothing leaves this machine.",
     );
-    expect(by(findings, "embedder").fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    expect(by(findings, "embedder").fix).toBe("Turn on: counterparts install --force --embedder");
+    expect(by(findings, "embedder").fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
+    expect(`${by(findings, "embedder").detail} ${by(findings, "embedder").fix}`).not.toContain("Voyage");
     expect(by(findings, "credentials").severity).toBe("green");
     // NOTHING TO EMBED, NOTHING TO SAY: the coverage line is not a reading while
     // the channel it measures is switched off.
@@ -536,10 +541,12 @@ describe("doctor — the reading", () => {
     // recall is a working channel, not a degraded mode, and a day-1 line that
     // reads like a broken install is what sends a new user to buy a key.
     expect(f.detail).toContain("Recall works on words");
-    // NEVER A JSON EDIT (#19). The key is saved and the switch offered by one
-    // command, and that command is the whole of the fix line.
-    expect(f.fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    // NEVER A JSON EDIT (#19): one command, and it is the whole of the fix
+    // line. Since 2026-09-23 it turns on the local table (a Voyage key saved
+    // here changes nothing: Voyage is frozen, roadmap C3).
+    expect(f.fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
     expect(f.fix).not.toContain("enabled");
+    expect(f.fix).not.toContain(EMBED_KEY_ENV);
   });
 
   test("no store at the dir is red, and the store-reading groups are not attempted", () => {
