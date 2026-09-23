@@ -1777,6 +1777,8 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
   real 0.1.0 tarball (`NPM_CONFIG_REGISTRY`), which bun honours for global installs.
 - **Doctor's green order** now puts `embedder` and the crash write-up right after
   `Claude Code` (`report.ts#GREEN_ORDER`): a fresh terminal install has recall by meaning
-  on, and its line belongs beside what it depends on. `HEADLINE`/`GREEN_ORDER` list both
-  `crash-writeup` (today's key) and `crash-write-up` (#192's), so the line stays on the
-  screen whichever lands first.
+  on, and its line belongs beside what it depends on. They listed both `crash-writeup`
+  and #192's `crash-write-up` until #192 merged; after the rebase the old
+  `credentialFindings` `crash-writeup` finding is retired (review of #195, MINOR 6: on
+  the merged tree it printed an OFF "add a key" line beside #192's green `next session`),
+  and only `crash-write-up` is listed.

@@ -269,24 +269,23 @@ describe("doctor: the folded screen", () => {
     return { key, severity, title, detail, fix, data: {}, ...extra };
   }
 
-  /** The headline six, exactly as the screen has them. */
+  /**
+   * The headline six. Since the keyless round (roadmap C, 2026-09-23) the crash
+   * write-up is #192's `crash-write-up` line — green `next session` with no
+   * key — and recall by meaning is OFF only when the configuration switched it
+   * off, which is the one OFF line this screen keeps so the grade order is
+   * still exercised.
+   */
   const HEADLINES: readonly Finding[] = [
     f(
       "embedder",
       "amber",
       "Recall by meaning",
-      "optional. Recall works on words; a Voyage key lets it match meaning too.",
-      "Turn on: counterparts credentials set VOYAGE_API_KEY",
+      "switched off in the configuration. Recall works on words.",
+      "Turn on: counterparts install --force --embedder",
       { optional: true },
     ),
-    f(
-      "crash-writeup",
-      "amber",
-      "Crash write-up",
-      "optional. An Anthropic key lets a session that ended too soon get written up anyway.",
-      "Turn on: counterparts credentials set ANTHROPIC_API_KEY",
-      { optional: true },
-    ),
+    f("crash-write-up", "green", "Crash write-up", "next session"),
     f("store", "green", "Memory", "~/.counterparts/store — 32 memories, opens fine"),
     f("host", "green", "Claude Code", "connected: 5 hooks and the memory tools"),
     f("snapshot", "green", "Snapshots", "last 2026-09-22, 2 kept"),
@@ -327,31 +326,34 @@ describe("doctor: the folded screen", () => {
     expect(screen([...HEADLINES, ...internals()])).toEqual([
       "counterparts doctor — 2026-09-22",
       "",
-      "OFF    Recall by meaning   optional. Recall works on words; a Voyage key lets it match meaning too. Turn on: counterparts credentials set VOYAGE_API_KEY",
-      "OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon get written up anyway. Turn on: counterparts credentials set ANTHROPIC_API_KEY",
+      "OFF    Recall by meaning   switched off in the configuration. Recall works on words. Turn on: counterparts install --force --embedder",
       "",
       "GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine",
       "GREEN  Claude Code         connected: 5 hooks and the memory tools",
+      "GREEN  Crash write-up      next session",
       "GREEN  Background          the nightly worker ran today; nothing failed",
       "GREEN  Snapshots           last 2026-09-22, 2 kept",
       "GREEN  Self page           not written yet — still forming",
       "",
-      "0 red, 0 amber, 2 off, 5 green.   Every line: counterparts doctor --all",
+      "0 red, 0 amber, 1 off, 6 green.   Every line: counterparts doctor --all",
     ]);
   });
 
-  test("both keys in place: the two optional lines keep their rows, green, and never fold", () => {
+  test("both optional lines ON: they keep their rows, green, right after Claude Code, and never fold", () => {
     // They are headline keys whatever their grade (the coordinator, 2026-09-22):
-    // a person who has just added a key checks this screen for the confirmation.
+    // a person who has just turned one on checks this screen for the confirmation.
     const on = [
-      f("embedder", "green", "Recall by meaning", "on — recall matches meaning as well as words"),
-      f("crash-writeup", "green", "Crash write-up", "on — a session that ended too soon gets written up anyway"),
-      ...HEADLINES.filter((h) => h.key !== "embedder" && h.key !== "crash-writeup"),
+      f("embedder", "green", "Recall by meaning", "on — a local table (potion-base-8M); nothing leaves this machine"),
+      f("crash-write-up", "green", "Crash write-up", "on (API)"),
+      ...HEADLINES.filter((h) => h.key !== "embedder" && h.key !== "crash-write-up"),
     ];
     const out = screen([...on, ...internals()]);
     const said = out.join("\n");
-    expect(said).toContain("GREEN  Recall by meaning   on — recall matches meaning as well as words");
-    expect(said).toContain("GREEN  Crash write-up      on — a session that ended too soon gets written up anyway");
+    expect(said).toContain("GREEN  Recall by meaning   on — a local table (potion-base-8M); nothing leaves this machine");
+    expect(said).toContain("GREEN  Crash write-up      on (API)");
+    expect(out.indexOf("GREEN  Claude Code         connected: 5 hooks and the memory tools")).toBeLessThan(
+      out.findIndex((l) => l.startsWith("GREEN  Recall by meaning")),
+    );
     expect(said).toContain("GREEN  Background");
     expect(said).not.toContain("OFF");
     expect(out[out.length - 1]).toBe("0 red, 0 amber, 7 green.   Every line: counterparts doctor --all");
@@ -385,7 +387,7 @@ describe("doctor: the folded screen", () => {
     expect(said).not.toContain("Background");
     // Nothing was hidden, so nothing says how to see more.
     expect(said).not.toContain("--all");
-    expect(out[out.length - 1]).toBe("0 red, 1 amber, 2 off, 18 green.");
+    expect(out[out.length - 1]).toBe("0 red, 1 amber, 1 off, 19 green.");
   });
 
   test("`--all` prints every line, folding nothing, and drops the invitation", () => {
@@ -396,7 +398,7 @@ describe("doctor: the folded screen", () => {
     expect(said).toContain("GREEN  Mode                remembering");
     expect(said).not.toContain("Background");
     expect(said).not.toContain("Every line:");
-    expect(out[out.length - 1]).toBe("0 red, 0 amber, 2 off, 19 green.");
+    expect(out[out.length - 1]).toBe("0 red, 0 amber, 1 off, 20 green.");
   });
 
   test("OFF is dim on a terminal, and the word is there without the colour too", () => {
@@ -412,7 +414,7 @@ describe("doctor: the folded screen", () => {
     const red = f("store-open", "red", "Store open", "will not open", "Restore a snapshot.");
     const out = screen([...HEADLINES, ...internals([red])]);
     expect(out[2]?.startsWith("RED    Store open")).toBe(true);
-    expect(out[out.length - 1]).toBe("1 red, 0 amber, 2 off, 18 green.");
+    expect(out[out.length - 1]).toBe("1 red, 0 amber, 1 off, 19 green.");
   });
 });
 

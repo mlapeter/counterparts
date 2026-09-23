@@ -239,9 +239,9 @@ https://www.npmjs.com/package/counterparts
 
 *Keyless round, 2026-09-23 (roadmap C3): recall by meaning is the local table, ON — written
 by a terminal install, and assumed for any configuration with no `embedder` block unless a
-Voyage key is saved — so on a fresh install that line reads green; `Crash write-up` is being
-reworded by C2 (the next session writes an ended session up; the key becomes an opt-in), and
-this screen shows it as it was until that lands. `OFF Recall by meaning` is now only for a
+Voyage key is saved — so on a fresh install that line reads green; and since #192
+`Crash write-up` is green `next session` with no key (the next session in that project writes
+an ended session up; the API is an opt-in), its old OFF line retired. `OFF Recall by meaning` is now only for a
 configuration that says `{ "enabled": false }` (or a 0.2.0 one beside a saved Voyage key):
 `switched off in the configuration. Recall works on words; the local table lets it match
 meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.
@@ -251,18 +251,16 @@ kind the block records; only a Voyage setup that is already ON is kept as Voyage
 ```
 counterparts doctor — 2026-09-23
 
-OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon
-                           get written up anyway.  Turn on: counterparts credentials set ANTHROPIC_API_KEY
-
 GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine
 GREEN  Claude Code         connected: 5 hooks and the memory tools
 GREEN  Recall by meaning   on — a local table (potion-base-8M, weights from the
                            counterparts-model-potion package); nothing leaves this machine
+GREEN  Crash write-up      next session
 GREEN  Background          the nightly worker ran today; nothing failed
 GREEN  Snapshots           last 2026-09-23, 2 kept
 GREEN  Self page           not written yet — still forming
 
-0 red, 0 amber, 1 off, 6 green.   Every line: counterparts doctor --all
+0 red, 0 amber, 0 off, 7 green.   Every line: counterparts doctor --all
 ```
 
 **`uninstall --delete-memories`**

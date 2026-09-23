@@ -79,16 +79,13 @@ function painter(p: Paint, grade: GradeWord): (s: string) => string {
  * non-green, with its own code and its own repair.
  */
 //
-// BOTH SPELLINGS OF THE CRASH WRITE-UP'S KEY (roadmap C2/C3, 2026-09-23): today's
-// line is `crash-writeup` (`doctor.ts#credentialFindings`), and C2's rework of it
-// (#192) names its finding `crash-write-up`. Listing both keeps that line on the
-// screen whichever lands first; the one that no longer exists afterwards costs
-// nothing and can go in the next pass over this file.
+// The crash write-up's line is #192's `crash-write-up` (`doctor.ts#
+// crashWriteUpFindings`). The older `crash-writeup` finding is retired (review of
+// #195, MINOR 6), so it is not listed.
 const HEADLINE: readonly string[] = [
   "store",
   "host",
   "embedder",
-  "crash-writeup",
   "crash-write-up",
   "snapshot",
   "self-page",
@@ -113,7 +110,6 @@ const GREEN_ORDER: readonly string[] = [
   "store",
   "host",
   "embedder",
-  "crash-writeup",
   "crash-write-up",
   BACKGROUND_KEY,
   "snapshot",

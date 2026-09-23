@@ -384,26 +384,22 @@ describe("doctor — the reading", () => {
     expect(f.detail).not.toContain("opens fine"); // no `open` reading was handed in
   });
 
-  test("a store that has NEVER had a key reads OFF, and the Credentials line stays factual (finding 1, #24)", () => {
-    // README: "No API keys are required." QUICKSTART §6: without the key the
-    // worker still runs the day and only skips the crash sweep. `doctor` on a
-    // brand-new keyless store printed a red and exited 1, so all three could
-    // not be true — and the first thing the product said to a new user was
-    // that their fresh install was broken. It then printed an amber, which the
-    // owner's own trial (#24) found was still three warnings for one skipped
-    // optional key. It is one OFF line now.
+  test("a store that has NEVER had a key: the Credentials line stays factual, and nothing about the key is red or OFF (finding 1, #24)", () => {
+    // README: "No API keys are required." `doctor` on a brand-new keyless store
+    // once printed a red and exited 1, then an amber, then (#24) one OFF line.
+    // Since #192 a session that ended before it was written up is written up by
+    // the NEXT session in its project, with no key, so the crash write-up's
+    // line is #192's green `next session` — and the old `crash-writeup` OFF
+    // finding, whose advice was the key, is retired (review of #195, MINOR 6).
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const findings = doctorFindings(input());
-    const crash = by(findings, "crash-writeup");
+    expect(findings.find((f) => f.key === "crash-writeup")).toBeUndefined();
+    const crash = by(findings, "crash-write-up");
     expect(crash.title).toBe("Crash write-up");
-    expect(crash.optional).toBe(true);
-    expect(crash.severity).toBe("amber");
-    expect(crash.detail).toContain("optional. An Anthropic key lets a session that ended too soon");
-    // THE FIX IS A COMMAND, and the command is the one that prompts (#2, #19).
-    expect(crash.fix).toBe(`Turn on: counterparts credentials set ${API_KEY_ENV}`);
-    expect(crash.fix).not.toContain(".json");
+    expect(crash.severity).toBe("green");
+    expect(crash.detail).toContain("next session");
 
     // The factual line keeps the file, the mode and the names, and it is green:
     // a name the file does not hold is a feature nobody turned on, not a fault.
@@ -416,31 +412,25 @@ describe("doctor — the reading", () => {
     // one line the product gets in the terminal every session — stays quiet.
     expect(anyRed(findings)).toBe(false);
     expect(noticeMessage(findings)).toBe(null);
-
     // The discriminator is on the row, so a reader can check the verdict.
     expect(cred.data["everInterpreted"]).toBe(false);
-    // What a store with no key still does, kept where a reader can find it.
-    expect(String(crash.data["without"])).toContain("note, session_end, the journal, recall, the wake");
   });
 
-  test("the key that IS there gets a green row of its own, mirroring Recall by meaning", () => {
-    // A feature that says OFF until you turn it on and then says nothing leaves
-    // the person who just added the key with no confirmation on the screen they
-    // were told to check (the coordinator, 2026-09-22). The factual Credentials
-    // line does name it, and that line only prints under `--all`.
+  test("a saved Anthropic key alone changes nothing on the crash write-up line; the API opt-in does", () => {
+    // The key is not the consent (#192, C3): `crashWriteUp: "api"` is.
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const findings = doctorFindings(input());
-    const crash = by(findings, "crash-writeup");
-    expect(crash.severity).toBe("green");
-    expect(crash.optional).toBeUndefined();
-    expect(crash.title).toBe("Crash write-up");
-    expect(crash.detail).toBe("on — a session that ended too soon gets written up anyway");
-    expect(crash.fix).toBe("");
-    // Its twin says the same kind of thing for the same kind of reason.
-    expect(by(findings, "embedder").severity).toBe("green");
-    expect(by(findings, "embedder").detail).toContain("on —");
+    const keyOnly = by(doctorFindings(input()), "crash-write-up");
+    expect(keyOnly.severity).toBe("green");
+    expect(keyOnly.detail).toContain("next session");
+    const optedIn = by(
+      doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath, crashWriteUp: "api" } })),
+      "crash-write-up",
+    );
+    expect(optedIn.severity).toBe("green");
+    expect(optedIn.detail).toContain("on (API)");
+    expect(doctorFindings(input()).find((f) => f.key === "crash-writeup")).toBeUndefined();
   });
 
   test("a missing embed key is ONE OFF line, not three ambers (finding #24)", () => {
@@ -2423,14 +2413,15 @@ describe("counterparts doctor", () => {
     for (const k of ["sweep", "sleep", "backfill", "clock", "spawn", "journal", "stance", "checkout"]) {
       expect(keys).toContain(k);
     }
-    // THE TWO OFF FINDINGS: amber underneath, so nothing that switches on a
+    // THE OFF FINDING: amber underneath, so nothing that switches on a
     // severity moves; `optional: true` for a reader that wants the new word.
+    // (One now: the crash write-up is #192's green `next session` line.)
     const offs = json.findings.filter((f) => f.optional === true);
-    expect(offs.map((f) => f.key)).toEqual(["embedder", "crash-writeup"]);
+    expect(offs.map((f) => f.key)).toEqual(["embedder"]);
     for (const f of offs) expect(f.severity).toBe("amber");
     // …and the counts at the top split them, so the JSON and the screen cannot
     // disagree about how many warnings there are.
-    expect(json.off).toBe(2);
+    expect(json.off).toBe(1);
     expect(json.amber).toBe(json.findings.filter((f) => f.severity === "amber" && f.optional !== true).length);
     expect(json.red + json.amber + json.off + json.green).toBe(json.findings.length);
     // AN OFF FINDING DOES NOT MOVE THE EXIT CODE: nothing is wrong.

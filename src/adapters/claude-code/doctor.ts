@@ -1087,7 +1087,6 @@ function weightsFrom(source: string): string {
   if (source === "option") return "a directory named by the caller";
   return source;
 }
-const CRASH_TITLE = "Crash write-up";
 
 /**
  * A HOLD, or a cache from a newer build — the two states in which the store
@@ -1284,11 +1283,6 @@ export function keyHistory(store: Store | null): KeyHistory {
 /** How many backfill rows the "has a key ever worked here" read looks at. */
 const KEY_HISTORY_ROWS = 200;
 
-/** What a store with no key still does, in one sentence a new user can act on. */
-const WITHOUT_A_KEY =
-  "everything you and the assistant write by hand still lands — note, session_end, the journal, " +
-  "recall, the wake";
-
 /**
  * The credentials, BY NAME. The red is I32's own signature: no interpreter key
  * means the worker runs the day and interprets nothing — but see `keyHistory`
@@ -1335,34 +1329,14 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     );
   } else {
     out.push(finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data));
-    out.push(
-      missing.includes(API_KEY_ENV)
-        ? // THE CRASH SWEEP, AS THE THING IT BUYS. No key has ever been used
-          // here, which is a supported way to run — `WITHOUT_A_KEY` is the long
-          // form of that sentence, kept on the finding rather than printed as a
-          // warning on a screen where nothing is wrong.
-          off(
-            "crash-writeup",
-            CRASH_TITLE,
-            `optional. An Anthropic key lets a session that ended too soon get written up anyway.${shellClause(input, API_KEY_ENV, present)}`,
-            `Turn on: counterparts credentials set ${API_KEY_ENV}`,
-            { ...data, without: WITHOUT_A_KEY },
-          )
-        : // AND A GREEN ROW WHEN IT IS ON (coordinator, 2026-09-22), mirroring
-          // `Recall by meaning`'s. A feature that says `OFF` until you turn it
-          // on and then says nothing at all leaves the person who just added
-          // the key with no confirmation on the screen they were told to check
-          // — and the factual `Credentials` line, which does carry the name,
-          // only prints under `--all`.
-          finding(
-            "crash-writeup",
-            "green",
-            CRASH_TITLE,
-            "on — a session that ended too soon gets written up anyway",
-            "",
-            data,
-          ),
-    );
+    // NO CRASH WRITE-UP LINE HERE ANY MORE (review of #195, MINOR 6). This used
+    // to add `crash-writeup` — OFF with "an Anthropic key lets a session … get
+    // written up anyway", green once a key was saved. Since #192 a session
+    // that ended before it was written up is written up by the NEXT session in
+    // its project with no key at all, and the API is an opt-in
+    // (`crashWriteUp: "api"`), so that line's advice was the one C2 retired and
+    // it stood beside #192's own `crash-write-up` line saying the opposite.
+    // `crashWriteUpFindings` is the one line now.
   }
 
   // The mode is its own finding: a file that holds both keys and is world
