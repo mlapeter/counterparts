@@ -822,6 +822,27 @@ export const NARRATORS = {
         "The chapter itself is safe — it is a row in the database, and that is the copy everything reads. " +
         "Run counterparts doctor; its Journal copy line says what is standing.",
     ),
+  // ── the raw capture, let go after a week ──────────────────────────────────
+  "remember.prune": (t) => {
+    const reason = s(t, "reason") ?? "";
+    const date = s(t, "date") ?? "that day";
+    if (reason === "STARTED") {
+      return calm(`A pass over the raw transcripts started for ${date}; its result is the next line for that date.`);
+    }
+    if (reason === "LATCH_HELD") {
+      return amber(
+        `A pass over the raw transcripts for ${date} was already holding its latch and never wrote a result — it may have died. Nothing is deleted without a finished pass. Run counterparts doctor; its Raw transcripts line says what is standing.`,
+      );
+    }
+    const deleted = n(t, "deleted") ?? 0;
+    const owed = n(t, "keptOwed") ?? 0;
+    const failed = n(t, "failed") ?? 0;
+    const text =
+      `The raw transcript of ${String(deleted)} session${deleted === 1 ? "" : "s"} older than a week was let go` +
+      (owed === 0 ? "." : `; ${String(owed)} ${owed === 1 ? "is" : "are"} kept until written up.`) +
+      (failed === 0 ? "" : ` ${String(failed)} could not be deleted and will be tried again.`);
+    return failed === 0 ? calm(text) : amber(text);
+  },
   "store.export": (t) => {
     const omitted = n(t, "omittedConfidential") ?? 0;
     return notable(
@@ -926,6 +947,8 @@ export const REF_KIND = {
   // An export is about the whole store; its counts are in the payload, and its
   // target deliberately is not (§5 G10).
   "store.export": "none",
+  // Retention is about the raw capture as a whole; its counts are sessions.
+  "remember.prune": "none",
   // The sweep's wake row describes the RUN's prompt, and carries no id at all —
   // counts, a flag and a reason, and deliberately not one line of the self.
   "sweep.wake": "none",

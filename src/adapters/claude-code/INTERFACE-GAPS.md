@@ -631,7 +631,21 @@ Filed here rather than guessed at: the exact steps the owner has to run by hand 
 PR that landed this, and until one of those runs happens, `session` mode is the one that is
 known to work.
 
-## 13. The "nightly" writer is not nightly anywhere west of UTC (2026-09-20, S2 review)
+## 13. The "nightly" writer is not nightly anywhere west of UTC (2026-09-20, S2 review) — CLOSED for the mechanism 2026-09-23 (#189)
+
+**Closed for the mechanism by #189 (roadmap B3, the owner's ruling of 2026-09-23).** The
+writer's night is now decided on the machine's LOCAL calendar — `core/self/calendar.ts`
+and `self/writer.ts#pageWriterNight`, one function shared by `Self`, host mode and
+doctor's Page writer line — so from US Pacific the night rolls over at local midnight,
+not at 5 p.m. East of UTC the night waits for its UTC date to close
+(`pageWriterAbout`: `min(local yesterday, UTC yesterday)`), because of what remains below.
+
+**What remains:** `learned_on` — the provenance date the writer selects a day's memories
+by — is still stamped in UTC by `store/`, like every other provenance date
+(`store/index.ts#dateOf`). So the night a person lives and the date its memories are filed
+under can still differ by the hours between local and UTC midnight. The fix, if the owner
+wants one, is the same as below: one per-owner zone, read wherever a day is decided — not
+a second clock. The text below is the gap as filed.
 
 `store.today()` is `new Date().toISOString().slice(0, 10)` — UTC, like every other date in
 this store, by the decision `store/index.ts#dateOf` records. The page writer keys its night

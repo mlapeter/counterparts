@@ -785,6 +785,17 @@ export const MECHANISMS: readonly Mechanism[] = [
     since: "2026-09-18",
   },
   {
+    // Raw-transcript retention (B3). One row per date, whatever the pass came
+    // to — `PRUNED`, `NOTHING`, `IO_FAILED`, or `STARTED` / `LATCH_HELD` for a
+    // pass that has not written its result — so a row is evidence the pass RAN;
+    // what it found is doctor's `Raw transcripts` line.
+    id: "retention",
+    label: "the raw transcript of a session that owes nothing was let go a week after it ended",
+    module: "remember/retention.ts (run by the worker)",
+    evidence: { kind: "event", names: ["remember.prune"] },
+    since: "2026-09-23",
+  },
+  {
     id: "backup",
     label: "the store was backed up BY HAND, from the console",
     module: "cli/commands.ts",

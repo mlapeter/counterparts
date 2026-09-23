@@ -234,9 +234,17 @@ function main(argv: readonly string[]): number {
     // takes them from there rather than from a second copy — the same
     // one-recognizer-list rule `FOREIGN_MARKERS` follows. Without probes this
     // direction would print 0/0, which reads clean when it means unmeasured.
-    // The probe unit is a LINE, and the Stop ask now carries the session
-    // id on two of its lines (`hooks.ts#stopAsk`): those lines are
-    // session-specific and will not match, the rest are the recognizer.
+    // The probe unit is a LINE, and the Stop ask carries the session id on
+    // its lines (`hooks.ts#stopAsk`): those lines are session-specific and
+    // will not match.
+    //
+    // STALE SINCE #186 (2026-09-23), AND LEFT STALE ON PURPOSE. The ask is two
+    // lines now and BOTH carry the session id, so this probe recognizes
+    // nothing and the v2->v1 direction reads 0/0 — unmeasured, which the
+    // comment above says reads clean. Not fixed: this meter belongs to the
+    // parallel run, which ended when bansai's hooks were switched off
+    // (2026-09-21). A revived meter would need the day's real session ids to
+    // build per-session probes.
     v2Ritual: [stopAsk("<session>", 1)],
   });
 

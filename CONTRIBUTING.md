@@ -52,7 +52,9 @@ which installs the package into a throwaway home directory and checks it end to 
 - Keep each pull request small: one change.
 - Include tests. A bug fix comes with a test that fails without the fix.
 - Say what changed and how you checked it.
-- The package has no runtime dependencies. If a change adds one, say why.
+- The package has one runtime dependency, and it is data only: `counterparts-model-potion`,
+  the local embedding table recall by meaning runs on (no code, no install scripts). If a
+  change adds another, say why.
 
 ## License
 

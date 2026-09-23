@@ -85,6 +85,9 @@ import {
   HANDOFF_SHOWN_EVENT,
   HANDOFF_WRITTEN_EVENT,
 } from "../../core/handoff/index.js";
+// Raw-transcript retention's one row (2026-09-23, B3), from `remember/` itself.
+// The index re-exports the NAME and the readers, never the deleter.
+import { RETENTION_EVENT } from "../../core/remember/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -172,7 +175,8 @@ export type DurableEventName =
   | typeof PROSPECTIVE_REFUSED_EVENT
   | typeof JOURNAL_COPY_WRITTEN_EVENT
   | typeof JOURNAL_COPY_FAILED_EVENT
-  | typeof STORE_EXPORT_EVENT;
+  | typeof STORE_EXPORT_EVENT
+  | typeof RETENTION_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -263,6 +267,10 @@ export const DURABLE_EVENTS = {
   "journal.copy.written": "a chapter's markdown copy was written beside the store, so the diary is readable in any editor (which episode, which file, how big)",
   "journal.copy.failed": "a chapter's markdown copy could not be written (which episode, and the reason code) — the chapter itself is safe in the database",
   "store.export": "the owner exported the store by hand (which kind of export, how many rows went, how many confidential ones were left out)",
+  // Raw-transcript retention (2026-09-23, B3). One row per date; `STARTED` goes
+  // in when the pass takes its latch and `LATCH_HELD` when a later worker finds
+  // the latch taken with no row, so a pass that died is never a silence.
+  "remember.prune": "the week-old raw transcript of sessions that owe nothing was deleted (sessions deleted, kept because they still owe a write-up, kept because they are under a week old or still open, and any that failed — or STARTED / LATCH_HELD for a pass that has not finished)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(
