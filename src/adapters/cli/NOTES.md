@@ -1724,11 +1724,23 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
   shell's.
 - **The terminal default applies only to a configuration being CREATED**, for the same
   reason the ceiling default does (review B1 of 2026-09-22): an injected value on a forced
-  re-install would count as "supplied" and beat the carry-forward. So a 0.2.0 install —
-  the owner's included — is not switched on by a re-run; `doctor` names
-  `counterparts install --force --embedder`, which carries every other key forward.
+  re-install would count as "supplied" and beat the carry-forward. *Superseded for the
+  0.2.0 case the same day:* an absent block now reads as the table ON at runtime unless a
+  Voyage key is saved (CONTRACT 41, `config.ts#resolveEmbedder`), so the owner's config
+  and every other 0.2.0 install need no step. `install --force --embedder` is the way
+  back after `--no-embedder`, and the fix for a 0.2.0 setup beside a saved Voyage key.
   **A lighter `embedder on|off` command would be kinder than `--force`**; not built,
   because it adds a command to the owner's help page.
+- **The default lives beside the reader, not in it.** `loadConfig(raw)` never sees the
+  credentials file — it is named BY the configuration — so each process applies
+  `withEmbedderDefault(config, voyageKeySaved)` after `loadCredentials`. Four seams
+  (hook, worker, server, console), each one line; doctor re-resolves. Deciding inside
+  `openEmbedder` from `process.env` was rejected: the owner's shell exports the key and
+  the hooks inherit no shell, so an env rule could put the hooks on the table and the
+  server off it.
+- **A first Voyage key would have switched the default off.** `credentials set
+  VOYAGE_API_KEY` into a block-less configuration now writes the static block first
+  (`pinLocalTable`) and says so, on both arms.
 - **"Found" means the table FILE**, in install and in doctor's no-row path: a
   `COUNTERPARTS_STATIC_WEIGHTS_DIR` naming an empty folder resolves by name and holds
   nothing. Tests pin the answer with that variable (a folder with or without

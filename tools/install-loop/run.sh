@@ -710,9 +710,14 @@ recall: $RECALLED
 $(cat "$WORK/mcp2.err")"
 fi
 
-step "recall says out loud that it ran without an embedder"
-# The no-key mode is a documented mode, not a silent one: recall names it.
-if printf '%s' "$RECALLED" | grep -q '"semantic":"embedder-off"'; then ok; else no "recall did not report the embedder as off" "$RECALLED"; fi
+step "recall embeds the question with the local table the package installed"
+# KEYLESS BY DEFAULT (roadmap C3, 2026-09-23). The scripted install writes no
+# embedder block, and an absent block reads as the local table when no Voyage
+# key is saved (config.ts#resolveEmbedder). So the server embeds the question
+# itself, with the weights package the global install pulled in as the one
+# dependency — the keyless semantic channel, end to end, from an install. The
+# field used to read `embedder-off` here; `in-line` is the channel running.
+if printf '%s' "$RECALLED" | grep -q '"semantic":"in-line"'; then ok; else no "recall did not embed the question with the local table" "$RECALLED"; fi
 
 step "session_end binds LAZILY through the hooks' registry and writes the day"
 # THE FIFTH HOST BEHAVIOUR, and the only one nobody had exercised outside the

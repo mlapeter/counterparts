@@ -1196,8 +1196,9 @@ describe("install, at a terminal", () => {
 
   /**
    * A RE-RUN KEEPS THE FILE IT FINDS (install rule 2): a 0.2.0 configuration
-   * with no `embedder` block is not rewritten by a terminal re-run — doctor's
-   * `Turn on:` line names the command that does it, `--force --embedder`.
+   * with no `embedder` block is not rewritten by a terminal re-run. It does not
+   * need to be: an absent block reads as the local table at runtime
+   * (`config.ts#resolveEmbedder`).
    */
   test("a re-run over a configuration with no embedder block leaves it exactly as it was", async () => {
     mkdirSync(dirname(configPath()), { recursive: true });

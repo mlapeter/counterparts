@@ -714,6 +714,10 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "memories without a vector were given one by the background worker",
     module: "bin/runner.ts, store/cache.ts",
     evidence: { kind: "event", names: ["adapter.embed.backfill"] },
+    // The identity check (#190) is a state TRANSITION of the same vectors — a
+    // reset, a hold, a release — not a mechanism that fires on a schedule, so
+    // this row speaks for it rather than grading it on its own.
+    covers: ["store.embedder.reconciled"],
   },
   {
     id: "semantic-lag",

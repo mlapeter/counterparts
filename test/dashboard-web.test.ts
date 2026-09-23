@@ -733,6 +733,28 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     }
   });
 
+  test("store.embedder.reconciled narrates: a reset calm, a hold amber, on the store node", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-web-reconciled-"));
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "reset", from: null, to: "potion-base-8M@256", dropped: 4 } });
+      c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "held", recorded: "voyage-3.5@1024", configured: "potion-base-8M@256", rows: 12 } });
+      const rows = c.store.eventLog({ name: "store.embedder.reconciled", limit: 10 });
+      expect(rows.length).toBe(2);
+      const reset = narrate(c.store, rows[0]!);
+      expect(reset.tone).toBe("calm");
+      expect(reset.text).toContain("potion-base-8M@256");
+      const held = narrate(c.store, rows[1]!);
+      expect(held.tone).toBe("amber");
+      expect(held.text).toContain("12 vectors");
+      expect(REF_KIND["store.embedder.reconciled"]).toBe("none");
+      expect(nodeOf("store.embedder.reconciled")).toBe("store");
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a recall decision resolves its refs BY TYPE — a session id is not a memory", () => {
     const d = open(richDir);
     try {

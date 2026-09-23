@@ -146,7 +146,7 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, embedderKind, loadConfig } from "../claude-code/config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, embedderKind, loadConfig, withEmbedderDefault } from "../claude-code/config.js";
 // The local table's locator, for install's one check that the weights the new
 // configuration asks for are where the hooks will look.
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
@@ -192,7 +192,7 @@ import type { InstallLayout, ParkedSighting } from "./install.js";
 // puts a secret on disk — and the one upgrade a key offers (`credentials set
 // ANTHROPIC_API_KEY`). It imports only a TYPE from here, the way `ui.ts` does,
 // so this import is not half of a cycle.
-import { offerCrashWriteUp, voyageKeyLine, writeCredential } from "./keys.js";
+import { offerCrashWriteUp, pinLocalTable, voyageKeyLine, writeCredential } from "./keys.js";
 // `removalRefusal` is step 1 of a plan on its own — the console's picker asks it
 // of every search hit before it offers one, and of every pick before it asks the
 // one question. It is an extraction from `planRemoval`, never a second rule.
@@ -836,8 +836,8 @@ const FLAG_HELP: Record<string, string> = {
   // The local table only (roadmap C3): Voyage is frozen, and nothing on this
   // line can turn it on. A configuration that already names it keeps it.
   embedder:
-    "turn on recall by meaning — the local table that ships with the package, where nothing leaves this machine (a configuration that already names Voyage keeps it); on by default for a new install at a terminal",
-  "no-embedder": "leave recall by meaning off: recall matches on words alone",
+    "turn recall by meaning on — the local table that ships with the package, where nothing leaves this machine (a configuration that already names Voyage keeps it). It is on by default; this is how to turn it back on after --no-embedder",
+  "no-embedder": "switch recall by meaning off: recall matches on words alone",
   force: "overwrite configuration this command already wrote once",
   kind: "self, person, entity, skill, place or fact",
   title: "a title for the memory, instead of one taken from its first line",
@@ -2683,8 +2683,10 @@ function installCommand(
   // arm passes `defaultEmbedder` so a configuration it CREATES has it on
   // without a question (the table sends nothing anywhere, so there is no
   // egress to consent to). Nothing said → nothing written, and a forced
-  // re-install carries the old block forward untouched. Both flags at once is
-  // a line that contradicts itself, and it is refused before anything exists.
+  // re-install carries the old block forward untouched — and a file with no
+  // block reads as the table ON at runtime anyway, unless a Voyage key is saved
+  // (`config.ts#resolveEmbedder`). Both flags at once is a line that
+  // contradicts itself, and it is refused before anything exists.
   const embedderOn = parsed.flags["embedder"] === true;
   const embedderOff = parsed.flags["no-embedder"] === true;
   if (embedderOn && embedderOff) {
@@ -7841,8 +7843,13 @@ function hostConfigFor(path: string): {
     return { config: { observer: true }, reason: "unreadable" };
   }
   const load = loadConfig(raw);
+  // THE EMBEDDER DEFAULT the hooks, the worker and the server apply
+  // (`config.ts#resolveEmbedder`): an absent block is the local table unless the
+  // credentials FILE holds a Voyage key. Names only, against a scratch
+  // environment (`credentialsHeld`), so this console's shell never decides it.
+  const voyageKeySaved = credentialsHeld(credentialsPathFor(path, load.config)).includes(EMBED_KEY_ENV);
   return {
-    config: load.config,
+    config: withEmbedderDefault(load.config, voyageKeySaved),
     reason: load.reason,
     ...(load.unreadableKeys === undefined ? {} : { unreadableKeys: load.unreadableKeys }),
   };
@@ -8186,7 +8193,18 @@ async function credentialsCommand(
     return EXIT.refused;
   }
 
+  // WHETHER THE FILE HELD A VOYAGE KEY BEFORE THIS WRITE — names only — so a
+  // first Voyage key cannot silently switch the local-table default off
+  // (`keys.ts#pinLocalTable`, below).
+  const voyageHeldBefore = credentialsHeld(path).includes(EMBED_KEY_ENV);
   writeCredential(path, name, value);
+  const pinned = name === EMBED_KEY_ENV ? pinLocalTable(configPath, voyageHeldBefore) : "not-needed";
+  const pinLine =
+    pinned === "pinned"
+      ? `Recall by meaning stays on the local table: written into ${configPath}, because a saved Voyage key would otherwise switch that default off.`
+      : pinned === "not-needed"
+        ? null
+        : `Could not write the local table into ${configPath} (${pinned.failed}); with a Voyage key saved, recall by meaning is off until: counterparts install --force --embedder`;
   // The NAME and the PATH, never the value — and for the typed arm the same
   // sentence through `ui`, so it reads as one line of a conversation rather
   // than as a script's receipt. Every non-interactive caller keeps the exact
@@ -8197,13 +8215,17 @@ async function credentialsCommand(
     // turns nothing on any more, and a person who just saved one is owed the
     // sentence that says so — on both arms: a script that sets the key and
     // expects the paid embedder is exactly the reader who needs it.
-    if (name === EMBED_KEY_ENV) io.out(voyageKeyLine(config));
+    if (name === EMBED_KEY_ENV) {
+      io.out(voyageKeyLine(config));
+      if (pinLine !== null) io.out(pinLine);
+    }
     return EXIT.ok;
   }
   const u = ui(io, env);
   u.ok(`set ${name} in ${path}`);
   if (name === EMBED_KEY_ENV) {
     u.hint(voyageKeyLine(config));
+    if (pinLine !== null) u.hint(pinLine);
     return EXIT.ok;
   }
 

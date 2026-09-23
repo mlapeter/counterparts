@@ -35,7 +35,7 @@ import {
 } from "../../scopes.js";
 import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { canonicalScope, readSession } from "../../sessions.js";
-import { loadConfig } from "../config.js";
+import { EMBED_KEY_ENV, loadConfig, withEmbedderDefault } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
 import type { CredentialLoad } from "../credentials.js";
@@ -200,8 +200,11 @@ export function hostConfig(
   // `reason` travels out so the caller can tell "we understood this" from "we
   // stood down because we did not" — the difference matters only for a config
   // somebody NAMED (`namedUnreadableRefusal`).
+  // THE EMBEDDER DEFAULT (config.ts#resolveEmbedder): an absent block is the
+  // local table unless the credentials FILE holds a Voyage key.
+  const voyageKeySaved = [...credentials.loaded, ...credentials.skippedPresent].includes(EMBED_KEY_ENV);
   return {
-    config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() },
+    config: withEmbedderDefault({ ...loaded, dataDir: loaded.dataDir ?? dataDir() }, voyageKeySaved),
     credentials,
     reason: load.reason,
     stopAskShape: stopAskShapeOf(raw),

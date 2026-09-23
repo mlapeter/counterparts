@@ -843,6 +843,33 @@ export const NARRATORS = {
       (failed === 0 ? "" : ` ${String(failed)} could not be deleted and will be tried again.`);
     return failed === 0 ? calm(text) : amber(text);
   },
+  // ── which model my vectors belong to ─────────────────────────────────────
+  "store.embedder.reconciled": (t) => {
+    const kind = s(t, "kind") ?? "";
+    if (kind === "reset") {
+      return calm(
+        `My stored vectors were made by another model, so ${String(n(t, "dropped") ?? 0)} were let go and ` +
+          `filled again with ${s(t, "to") ?? "the new one"}.`,
+      );
+    }
+    if (kind === "held") {
+      return amber(
+        `${String(n(t, "rows") ?? 0)} vectors a paid model made (${s(t, "recorded") ?? "an older build"}) are being held rather than thrown away, ` +
+          `so nothing is matched by meaning until somebody chooses. Run counterparts doctor; its Recall by meaning line names the ways out.`,
+      );
+    }
+    if (kind === "tagged") {
+      return calm(`${String(n(t, "adopted") ?? 0)} older vectors were adopted under ${s(t, "tag") ?? "this model"}.`);
+    }
+    if (kind === "match") return calm(`The hold on my vectors was released; they are ${s(t, "tag") ?? "this model"}'s again.`);
+    if (kind === "deferred") {
+      return calm(`Which model my vectors belong to was not decided at this open (${s(t, "reason") ?? "no reason recorded"}); the next open decides it.`);
+    }
+    if (kind === "dropped") {
+      return calm(`A rebuild of my search index let ${String(n(t, "dropped") ?? 0)} vectors go; the backfill fills them again.`);
+    }
+    return calm("Which model my stored vectors belong to was checked and recorded.");
+  },
   "store.export": (t) => {
     const omitted = n(t, "omittedConfidential") ?? 0;
     return notable(
@@ -949,6 +976,8 @@ export const REF_KIND = {
   "store.export": "none",
   // Retention is about the raw capture as a whole; its counts are sessions.
   "remember.prune": "none",
+  // The identity check is about the whole vector cache, not one memory.
+  "store.embedder.reconciled": "none",
   // The sweep's wake row describes the RUN's prompt, and carries no id at all —
   // counts, a flag and a reason, and deliberately not one line of the self.
   "sweep.wake": "none",

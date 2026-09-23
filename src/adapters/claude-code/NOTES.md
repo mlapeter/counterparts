@@ -1329,10 +1329,18 @@ What the build settled, beyond the CONTRACT section:
 
 ## 2026-09-23 — doctor's keyless lines (roadmap C3)
 
-- **`Recall by meaning` speaks of the local table only.** Off, never embedded: `OFF`,
-  *a local table lets it match meaning too, and nothing leaves this machine*, `Turn on:
-  counterparts install --force --embedder` (`doctor.ts#EMBEDDER_ON_COMMAND`). No line
-  for a knob that is off advises a Voyage key any more; a configuration that names
+- **An absent `embedder` block is the local table, ON** (coordinator's ruling,
+  2026-09-23) — unless the credentials FILE holds a Voyage key, which keeps a 0.2.0 setup
+  as it was. `config.ts#resolveEmbedder` / `withEmbedderDefault`, applied after the
+  credentials load by `bin/hook.ts#hostConfig`, `bin/runner.ts#runnerConfig`,
+  `mcp/bin/serve.ts#questionEmbedder` and the console; doctor re-resolves from its own
+  `config` + `credentials`. `loadConfig` stays pure — it never sees the credentials file.
+- **`Recall by meaning` speaks of the local table only.** `OFF` is now only for an
+  explicit `{ "enabled": false }` (*switched off in the configuration…*) or a block-less
+  configuration beside a saved Voyage key (*not switched on: a Voyage key is saved here
+  and this configuration names no embedder…*); both say `Turn on: counterparts install
+  --force --embedder` (`doctor.ts#EMBEDDER_ON_COMMAND`). No line for a knob that is off
+  advises a Voyage key any more; a configuration that names
   Voyage keeps its old amber for a missing key (frozen, not extended). The static green
   line names where the weights came from in words (`the counterparts-model-potion
   package`, `COUNTERPARTS_STATIC_WEIGHTS_DIR`), and with no worker row yet it checks for

@@ -362,9 +362,38 @@ describe("counterparts credentials set, typed at a terminal", () => {
     expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
     expect(readFileSync(credsPath, "utf8")).toContain(`${EMBED_KEY_ENV}=${VOYAGE_KEY}`);
     expect(f.asked).toEqual([]);
-    expect(configBody()["embedder"]).toBeUndefined();
     expect(f.said()).toContain("Nothing turns on");
     expect(f.said()).not.toContain(VOYAGE_KEY);
+  });
+
+  /**
+   * …AND TURNS NOTHING OFF (config.ts#resolveEmbedder). An absent block is the
+   * local table unless the credentials file holds a Voyage key, so a FIRST key
+   * saved into a configuration with no block would switch recall by meaning
+   * off on the next process. The block the default stood for is written first,
+   * and the screen says so.
+   */
+  test("a first Voyage key into a configuration with NO block writes the local table, so nothing switches off", async () => {
+    writeConfig();
+    const f = terminal({ hidden: [VOYAGE_KEY] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(configBody()["embedder"]).toEqual({ enabled: true, kind: "static" });
+    expect(f.said()).toContain("Recall by meaning stays on the local table");
+  });
+
+  test("a Voyage key the file ALREADY held, or a block that is there, is left as it was", async () => {
+    writeConfig();
+    writeFileSync(credsPath, `${EMBED_KEY_ENV}=pa-old-key-0123\n`, { mode: 0o600 });
+    const f = terminal({ hidden: [VOYAGE_KEY] });
+    expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(configBody()["embedder"]).toBeUndefined();
+    expect(f.said()).not.toContain("stays on the local table");
+
+    writeConfig({ embedder: { enabled: false } });
+    rmSync(credsPath, { force: true });
+    const g = terminal({ hidden: [VOYAGE_KEY] });
+    expect(await set(g, EMBED_KEY_ENV)).toBe(EXIT.ok);
+    expect(configBody()["embedder"]).toEqual({ enabled: false });
   });
 
   test("a typed VOYAGE_API_KEY on a configuration that names Voyage is told it is used", async () => {
@@ -425,8 +454,13 @@ describe("counterparts credentials set, typed at a terminal", () => {
     });
     expect(code).toBe(EXIT.ok);
     expect(f.asked).toEqual([]);
-    expect(f.out).toEqual([`set ${EMBED_KEY_ENV} in ${credsPath}`, voyageKeyLine({})]);
-    expect(configBody()["embedder"]).toBeUndefined();
+    expect(f.out[0]).toBe(`set ${EMBED_KEY_ENV} in ${credsPath}`);
+    expect(f.out[1]).toBe(voyageKeyLine({}));
+    // A script is told the one config edit too — the local table written in, so
+    // the saved key does not switch the default off.
+    expect(f.out[2]).toContain("Recall by meaning stays on the local table");
+    expect(f.out).toHaveLength(3);
+    expect(configBody()["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
   test("an existing file's other lines survive a typed set", async () => {

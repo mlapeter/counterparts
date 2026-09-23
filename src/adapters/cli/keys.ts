@@ -149,6 +149,38 @@ export function voyageKeyLine(config: AdapterConfig): string {
     : `Nothing turns on with ${EMBED_KEY_ENV}: recall by meaning runs on a local table by default, and Voyage stays only where a configuration already names it.`;
 }
 
+/**
+ * KEEP THE LOCAL TABLE ON WHEN A VOYAGE KEY ARRIVES (roadmap C3).
+ *
+ * An absent `embedder` block reads as the local table, ON — unless the
+ * credentials file holds a Voyage key (`config.ts#resolveEmbedder`), which is
+ * how a 0.2.0 setup that saved a key and never switched the paid embedder on
+ * is kept as it was. The rule has one edge a person could fall off: saving a
+ * Voyage key into a configuration with no block would switch recall by meaning
+ * OFF, silently, on the next process. So before that can happen the block the
+ * default stood for is WRITTEN — `{ enabled: true, kind: "static" }` — and the
+ * caller says so. Not when the file already held a Voyage key (nothing
+ * changes), not when a block is there (it is the person's), not for an
+ * observer's configuration, and never creating a file.
+ */
+export function pinLocalTable(
+  configPath: string,
+  voyageKeyHeldBefore: boolean,
+): "pinned" | "not-needed" | { failed: string } {
+  if (voyageKeyHeldBefore) return "not-needed";
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch {
+    return "not-needed";
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return "not-needed";
+  const rec = raw as Record<string, unknown>;
+  if (rec["embedder"] !== undefined || rec["observer"] === true) return "not-needed";
+  const edit = setConfigKeys(configPath, { embedder: { enabled: true, kind: "static" } });
+  return edit.ok ? "pinned" : { failed: edit.reason };
+}
+
 // ── the configuration edit ──────────────────────────────────────────────────
 
 export type ConfigEdit = { ok: true } | { ok: false; reason: string };

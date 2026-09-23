@@ -45,7 +45,7 @@ import {
   readScopes,
   scopesPath,
 } from "../../scopes.js";
-import { loadConfig } from "../../claude-code/config.js";
+import { EMBED_KEY_ENV, loadConfig, withEmbedderDefault } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
 import type { CredentialLoad } from "../../claude-code/credentials.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
@@ -191,8 +191,13 @@ export function questionEmbedder(
     raw = undefined;
   }
   const load = loadConfig(raw);
-  const config = load.config;
-  const credentials = loadCredentials(config.credentialsFile, env);
+  const credentials = loadCredentials(load.config.credentialsFile, env);
+  // THE EMBEDDER DEFAULT (config.ts#resolveEmbedder): the rule the hook and the
+  // worker apply, so the server embeds a question with the table they use.
+  const config = withEmbedderDefault(
+    load.config,
+    [...credentials.loaded, ...credentials.skippedPresent].includes(EMBED_KEY_ENV),
+  );
   return {
     reason: load.reason,
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is

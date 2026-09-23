@@ -39,7 +39,7 @@ To set it up from a script, with no questions:
 counterparts install --budget 9000 --name "Your Name"
 ```
 
-Add `--embedder` to turn on search by meaning, which a script setup leaves off.
+Search by meaning is on for a script setup too; add `--no-embedder` to leave it off.
 
 ## Check it
 
@@ -117,8 +117,10 @@ bun add -g counterparts@latest
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
-If you set it up before search by meaning was built in, `counterparts doctor` shows it as
-OFF. To turn it on (your name and other settings are kept):
+If you set it up before search by meaning was built in, it turns on by itself after the
+upgrade. (If you saved a Voyage key back then, it stays off; `counterparts doctor` says so.)
+To turn it on after switching it off, or beside a saved Voyage key (your name and other
+settings are kept):
 
 ```
 counterparts install --force --embedder

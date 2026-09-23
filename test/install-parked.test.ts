@@ -704,6 +704,8 @@ describe("install and the embedder block: the local table, and a kind is never f
     }
   }
 
+  // The FILE carries no block; at runtime an absent block reads as the local
+  // table unless a Voyage key is saved (test/embedder-default.test.ts).
   test("a scripted install with no flag writes NO embedder block — the scripted arm's bytes do not move", async () => {
     expect(await install(piped().io, ["--budget", "9000", "--name", "Ada"])).toBe(EXIT.ok);
     expect(read()["embedder"]).toBeUndefined();

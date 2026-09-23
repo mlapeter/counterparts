@@ -249,7 +249,13 @@ export interface AdapterConfig {
   /** One knob per seat (scar §2.15b). Two seats, two knobs, two providers. */
   readonly models?: { readonly interpret?: ModelSeat; readonly embed?: ModelSeat };
   /**
-   * THE EGRESS KNOB, and it defaults to OFF.
+   * THE EGRESS KNOB, and it defaulted to OFF — until the local table.
+   *
+   * *Amended 2026-09-23 (roadmap C3): an ABSENT block now reads as the local
+   * table, on, unless the credentials file holds a Voyage key
+   * (`resolveEmbedder`, applied by each entry point after its credentials
+   * load). What follows is why absent meant off while the only embedder sent
+   * text to a third party — and it still describes the paid seat.*
    *
    * Embedding means sending the text of a memory to a third party. v2's
    * "no-silent-egress" rescope (2026-08-25) is the reason this is a decision the
@@ -943,4 +949,67 @@ export function embedderState(
  */
 export function embedderKind(config: AdapterConfig): EmbedderKind {
   return config.embedder?.kind ?? "voyage";
+}
+
+/** Where an effective embedder block came from (`resolveEmbedder`). */
+export type EmbedderSource =
+  /** The configuration names one — on or off, either kind. Used as written. */
+  | "explicit"
+  /** No block, no Voyage key saved: the local table, switched on. */
+  | "default-static"
+  /** No block, and the credentials file holds `VOYAGE_API_KEY`: off, as 0.2.0 read it. */
+  | "absent-voyage-key"
+  /** No block, and the configuration is an observer's: nothing is assumed. */
+  | "absent-observer";
+
+/** The local table, switched on — the block an absent one reads as. */
+export const DEFAULT_EMBEDDER: { readonly enabled: true; readonly kind: "static" } = {
+  enabled: true,
+  kind: "static",
+};
+
+/**
+ * THE RUNTIME DEFAULT FOR AN ABSENT `embedder` BLOCK (roadmap C3, coordinator's
+ * ruling 2026-09-23).
+ *
+ * Absent used to mean OFF, for a privacy reason: the only embedder was a paid
+ * third party, and a key in the environment must never start shipping memory
+ * text anywhere. The local table has no egress, so that reason is gone — and a
+ * 0.2.0 configuration (every one written before this, the owner's included)
+ * has no block at all. So an absent block now reads as the local table, ON:
+ *
+ *   - **A block the file writes is used exactly as written** (`explicit`),
+ *     `{ "enabled": false }` included — that is how somebody says no.
+ *   - **No block, no Voyage key saved** → `{ enabled: true, kind: "static" }`.
+ *   - **No block, and the credentials FILE holds `VOYAGE_API_KEY`** → nothing,
+ *     as before: a 0.2.0 install that saved a Voyage key and never switched the
+ *     paid embedder on made a decision, and this does not second-guess it.
+ *     Doctor says so, and names the command that turns the table on.
+ *   - **An observer** gets nothing assumed — it opens no embedder anyway, and
+ *     an unreadable configuration resolves to one.
+ *
+ * WHY IT SITS BESIDE `loadConfig` AND NOT INSIDE IT. The decision needs the
+ * credentials FILE, and the file is named BY the configuration: every entry
+ * point runs `loadConfig` → `loadCredentials(config.credentialsFile)` → this.
+ * It takes a boolean rather than a `CredentialLoad` because `credentials.ts`
+ * imports from this module. "Saved" means THE FILE holds it (`loaded` or
+ * `skippedPresent`), never `process.env`: a hook inherits no shell, and a rule
+ * that read the environment could leave the hooks on the table and the MCP
+ * server off it on one machine. `loadConfig` stays strict and pure.
+ */
+export function resolveEmbedder(
+  config: AdapterConfig,
+  voyageKeySaved: boolean,
+): { block: { enabled: boolean; kind?: EmbedderKind } | undefined; source: EmbedderSource } {
+  if (config.embedder !== undefined) return { block: config.embedder, source: "explicit" };
+  if (config.observer === true) return { block: undefined, source: "absent-observer" };
+  if (voyageKeySaved) return { block: undefined, source: "absent-voyage-key" };
+  return { block: { ...DEFAULT_EMBEDDER }, source: "default-static" };
+}
+
+/** The configuration with its effective embedder block — `resolveEmbedder`,
+ *  applied. What each entry point hands on after loading its credentials. */
+export function withEmbedderDefault(config: AdapterConfig, voyageKeySaved: boolean): AdapterConfig {
+  const { block, source } = resolveEmbedder(config, voyageKeySaved);
+  return source === "explicit" || block === undefined ? config : { ...config, embedder: block };
 }

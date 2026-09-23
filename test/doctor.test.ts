@@ -447,8 +447,11 @@ describe("doctor — the reading", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV]);
-    // The knob off AND the key skipped: the state the owner's trial was in.
-    const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
+    // The knob OFF and the key skipped. Since 2026-09-23 an ABSENT block is the
+    // local table (config.ts#resolveEmbedder), so "off" is an explicit block.
+    const findings = doctorFindings(
+      input({ config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+    );
     // Before: Embedder amber, Credentials amber, Vectors amber. After: one.
     const off = findings.filter((f) => f.optional === true);
     expect(off.map((f) => f.key)).toEqual(["embedder"]);
@@ -456,7 +459,7 @@ describe("doctor — the reading", () => {
     // KEYLESS (roadmap C3): the local table is what "turn on" means now, and
     // a Voyage key is never the advice for a knob that is off.
     expect(by(findings, "embedder").detail).toContain(
-      "optional. Recall works on words; a local table lets it match meaning too, and nothing leaves this machine.",
+      "switched off in the configuration. Recall works on words; the local table lets it match meaning too, and nothing leaves this machine.",
     );
     expect(by(findings, "embedder").fix).toBe("Turn on: counterparts install --force --embedder");
     expect(by(findings, "embedder").fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
@@ -498,7 +501,9 @@ describe("doctor — the reading", () => {
       payload: { embedded: 12, failed: 0, remaining: 0, skipped: 0, date: "2026-09-13" },
     });
     const f = by(
-      doctorFindings(input({ store: s, config: { dataDir: dir, credentialsFile: credsPath } })),
+      doctorFindings(
+        input({ store: s, config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+      ),
       "embedder",
     );
     expect(f.severity).toBe("amber");
@@ -2358,8 +2363,9 @@ describe("counterparts doctor", () => {
    */
   test("--json is complete and unfolded, and an OFF finding is amber plus `optional`", async () => {
     mintStore();
-    // The owner's own trial state: no keys, the embedder knob off.
-    writeConfig({ embedder: undefined });
+    // No keys, and the embedder knob OFF — written, because since 2026-09-23 an
+    // absent block reads as the local table (config.ts#resolveEmbedder).
+    writeConfig({ embedder: { enabled: false } });
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     installHostSteps();
     const c = consoleWith();

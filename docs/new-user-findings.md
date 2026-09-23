@@ -237,11 +237,13 @@ https://www.npmjs.com/package/counterparts
 
 **Doctor** (fresh store, both keys skipped, everything else fine)
 
-*Keyless round, 2026-09-23 (roadmap C3): a terminal install now turns recall by meaning on
-with the local table, so on a fresh install that line reads green; `Crash write-up` is being
+*Keyless round, 2026-09-23 (roadmap C3): recall by meaning is the local table, ON — written
+by a terminal install, and assumed for any configuration with no `embedder` block unless a
+Voyage key is saved — so on a fresh install that line reads green; `Crash write-up` is being
 reworded by C2 (the next session writes an ended session up; the key becomes an opt-in), and
-this screen shows it as it was until that lands. The 09-22 screen's `OFF Recall by meaning`
-line, for reference, now reads: `optional. Recall works on words; a local table lets it match
+this screen shows it as it was until that lands. `OFF Recall by meaning` is now only for a
+configuration that says `{ "enabled": false }` (or a 0.2.0 one beside a saved Voyage key):
+`switched off in the configuration. Recall works on words; the local table lets it match
 meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.*
 
 ```

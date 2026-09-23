@@ -89,7 +89,17 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, pageWriterMode } from "./config.js";
+import {
+  API_KEY_ENV,
+  EMBED_KEY_ENV,
+  TUNABLES,
+  crashWriteUpMode,
+  embedderKind,
+  pageWriterMode,
+  resolveEmbedder,
+  withEmbedderDefault,
+} from "./config.js";
+import type { EmbedderSource } from "./config.js";
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
 // Retention's own reading and its own week, so the Raw transcripts line cannot
@@ -978,11 +988,11 @@ function memoryDetail(input: DoctorInput, n: number | null): string {
  *     has stopped. Amber, in the words that line has always used — never `OFF`,
  *     which claims nobody ever turned it on.
  */
-function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
+function embedderFindings(input: DoctorInput, history: KeyHistory, source: EmbedderSource): Finding[] {
   const enabled = input.config.embedder?.enabled === true;
   const present = [...input.credentials.loaded, ...input.credentials.skippedPresent];
   const haveKey = present.includes(EMBED_KEY_ENV);
-  const data = { enabled, key: haveKey, everEmbedded: history.embedded };
+  const data = { enabled, key: haveKey, everEmbedded: history.embedded, source };
   // THE LOCAL TABLE IS WHAT "TURN ON" MEANS NOW (roadmap C3): Voyage is frozen,
   // so no fix line on this finding advises a Voyage key for a knob that is
   // off. `install --embedder` keeps the kind a configuration already names
@@ -1029,11 +1039,27 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
       ),
     ];
   }
+  // NO BLOCK, AND A VOYAGE KEY SAVED (config.ts#resolveEmbedder): the one case
+  // where an absent block is NOT the local table. Said as what it is — a 0.2.0
+  // setup kept as it was — and the same command turns the table on
+  // (`resolveEmbedderBlock` writes `"static"` for a configuration with no block).
+  if (source === "absent-voyage-key") {
+    return [
+      off(
+        "embedder",
+        RECALL_TITLE,
+        "not switched on: a Voyage key is saved here and this configuration names no embedder, so the local table " +
+          "was not assumed. Recall works on words; the table lets it match meaning too, and nothing leaves this machine.",
+        turnOn,
+        data,
+      ),
+    ];
+  }
   return [
     off(
       "embedder",
       RECALL_TITLE,
-      "optional. Recall works on words; a local table lets it match meaning too, and nothing leaves this machine.",
+      "switched off in the configuration. Recall works on words; the local table lets it match meaning too, and nothing leaves this machine.",
       turnOn,
       data,
     ),
@@ -3178,11 +3204,19 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   // configuration, so there is nothing to report on and the Config line above
   // has already said so.
   const history = unread ? { interpreted: false, embedded: false } : keyHistory(input.store);
+  // THE EMBEDDER THE HOOKS WILL ACTUALLY RUN (config.ts#resolveEmbedder): an
+  // absent block is the local table unless the credentials FILE holds a Voyage
+  // key. Resolved HERE, from this reading's own inputs, so the lines agree with
+  // the hooks whether or not the caller already applied the default — and not
+  // at all when no configuration was read.
+  const voyageKeySaved = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(EMBED_KEY_ENV);
+  const embedderSource = unread ? "explicit" : resolveEmbedder(input.config, voyageKeySaved).source;
+  if (!unread) input = { ...input, config: withEmbedderDefault(input.config, voyageKeySaved) };
   const out: Finding[] = [
     ...configFindings(input),
     // THE TWO OPTIONAL FEATURES, in the order the screen reads them: recall by
     // meaning first, because it is the one a person is most likely to want.
-    ...(unread ? [] : embedderFindings(input, history)),
+    ...(unread ? [] : embedderFindings(input, history, embedderSource)),
     ...(unread ? [] : credentialFindings(input, history)),
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.

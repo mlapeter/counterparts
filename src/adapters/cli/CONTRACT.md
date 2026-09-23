@@ -513,8 +513,9 @@ The standalone verb does not ask either: typing it is the yes.*
     are upgrades (roadmap C; ROADMAP §"Amendments": static is primary, Voyage is FROZEN).
     On a terminal a configuration being CREATED gets `"embedder": { "enabled": true,
     "kind": "static" }` without a question — the table sends nothing anywhere, so there is
-    no egress to consent to; `--no-embedder` says no. Off a terminal nothing is switched on
-    unless `--embedder` is on the line, so the scripted arm's bytes do not move. **A kind is
+    no egress to consent to; `--no-embedder` says no. Off a terminal no block is written
+    unless a flag is on the line, so the scripted arm's bytes do not move — and an absent
+    block reads as the table ON at runtime (guarantee 41). **A kind is
     never flipped** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4): a kind the
     replaced file names is kept, on or off; a kind-less 0.2.0 block beside a saved
     `VOYAGE_API_KEY` stays kind-less (absent `kind` is how 0.2.0 says Voyage); everything
@@ -522,7 +523,9 @@ The standalone verb does not ask either: typing it is the yes.*
     only ever carried from the file being replaced. A re-run keeps
     the file it finds (rule 2); `install --force --embedder` is the command that turns the
     table on for an existing configuration, and it is the one `doctor`'s `Turn on:` line
-    names. `--embedder` with `--no-embedder` is refused before anything is written. When
+    names — for a configuration that says `{ "enabled": false }`, or a 0.2.0 one beside a
+    saved Voyage key (guarantee 41). `--embedder` with `--no-embedder` is refused before
+    anything is written. When
     the configuration asks for the table and it is not where the hooks will look
     (`resolveStaticWeights` + the table file), the conversation says so with the fix and
     its last line stops promising all green.
@@ -536,7 +539,24 @@ The standalone verb does not ask either: typing it is the yes.*
     configuration names Voyage (the key is used; Voyage is deprecated) or not (nothing turns
     on; the local table is the default) — on the piped arm too, after the receipt line,
     because a script that sets the key expecting the paid embedder is exactly the reader
-    who needs it. A pipe, `--from-env`, `--stdin` and CI are asked nothing.
+    who needs it. A pipe, `--from-env`, `--stdin` and CI are asked nothing. **Saving a
+    FIRST Voyage key into a configuration with no `embedder` block writes the block the
+    default stood for** — `{ "enabled": true, "kind": "static" }` (`keys.ts#pinLocalTable`)
+    — and says so, because under guarantee 41 that key would otherwise switch recall by
+    meaning off on the next process.
+41. **[M] An absent `embedder` block is the local table, ON — unless the credentials FILE
+    holds `VOYAGE_API_KEY`** (coordinator's ruling 2026-09-23; `claude-code/config.ts#
+    resolveEmbedder`). The privacy reason absent meant off was the paid seat; the table
+    has no egress, and every 0.2.0 configuration has no block, so this is what switches
+    those installs on without a step. A block the file writes is used exactly as written,
+    `{ "enabled": false }` included. With no block and a saved Voyage key, nothing is
+    assumed (the 0.2.0 reading) and `doctor` says so, naming `install --force --embedder`.
+    "Saved" is the FILE (`loaded` or `skippedPresent`), never a process's environment. It
+    is applied by every process that builds a configuration — the hook (`bin/hook.ts#
+    hostConfig`), the worker (`bin/runner.ts#runnerConfig`), the MCP server
+    (`mcp/bin/serve.ts#questionEmbedder`), this console (`hostConfigFor`) — and doctor
+    re-resolves from its own inputs. `loadConfig` itself stays strict and pure: the rule
+    needs the credentials file, which the configuration names.
 
 ## 6. Scars honored
 
