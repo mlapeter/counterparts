@@ -159,7 +159,7 @@ Deploys to the live store, each on the owner's word, one batch at a time so a re
 
 ## 6. What must not happen
 
-- Nobody works in `/Users/mlapeter/counterparts` (it is the live runtime). All work is in
+- Nobody works in `~/counterparts` (it is the live runtime). All work is in
   `.claude/worktrees/`; use absolute paths, `git -C`, or subshells.
 - `~/.bansai` and `~/.claude-engram` are never touched. `~/.counterparts` is read only by doctor, the fired
   view, and `sqlite3 -readonly <path>` count queries (plain `-readonly`, WITHOUT `?immutable=1`: once F1 is

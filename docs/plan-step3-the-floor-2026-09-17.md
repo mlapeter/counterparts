@@ -2,7 +2,7 @@
 
 *Saved from a read-only planning agent (Opus), 2026-09-17. A PLAN for the owner to read, not a ruling: nothing here is built, and every choice in it is a recommendation. Decisions it designs to are the working defaults in `docs/storage-spec-2026-09-16.md` §15, which are "for now".*
 
-*Read-only planning pass. Code base: `/Users/mlapeter/counterparts/.claude/worktrees/step1-trial` (master + the unmerged step-1 batch, HEAD `7234a98`). No files were written; the plan is below in full.*
+*Read-only planning pass. Code base: `~/counterparts/.claude/worktrees/step1-trial` (master + the unmerged step-1 batch, HEAD `7234a98`). No files were written; the plan is below in full.*
 
 ---
 

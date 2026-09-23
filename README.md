@@ -8,6 +8,8 @@ work the assistant writes down what it *learned*, in the first person, and that
 interpretation is what gets kept. It all stays on your machine, in one small SQLite
 database you can read, back up, or export as Markdown whenever you want.
 
+The project's site is [counterparts.ai](https://counterparts.ai).
+
 ## Install
 
 ```
@@ -392,10 +394,10 @@ not the code."** A lesson travels forward as a test that has to pass, never as c
 
 **MIT.** See `LICENSE`. Copyright (c) 2026 Mike LaPeter.
 
-**Not open to contributions yet.** There is no contributor agreement and no process, and
-it would be dishonest to invite pull requests into a codebase that is still changing
-week to week. Issues and questions are welcome. When contributions open, this section will
-say so.
+**Contributions are welcome.** [`CONTRIBUTING.md`](CONTRIBUTING.md) is one page: how to run
+the suite, the two safety rules, and what a pull request needs. For anything that touches a
+memory store or someone's configuration, open an issue first. Issues and questions are
+welcome too.
 
 ## Read next
 
@@ -403,3 +405,6 @@ say so.
 - [`docs/ELI5.md`](docs/ELI5.md) — the whole system in plain words, in one page.
 - [`CONSTITUTION.md`](CONSTITUTION.md) — the only page with standing authority.
 - [`docs/module-map.md`](docs/module-map.md) — the technical map, module by module.
+- [`docs/README.md`](docs/README.md) — what each document in `docs/` is.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to send a change.
+- [counterparts.ai](https://counterparts.ai) — the project's site.

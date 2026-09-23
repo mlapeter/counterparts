@@ -1,6 +1,6 @@
 # Finding 12 diagnosis — why the crash fallback out-wrote the author 4.5 : 1
 
-Read-only. Code read at `/Users/mlapeter/counterparts/.claude/worktrees/storage-spec`
+Read-only. Code read at `~/counterparts/.claude/worktrees/storage-spec`
 (HEAD `54e419d`, branch `docs/storage-spec-2026-09-17`). Store read only as
 `sqlite3 -readonly "file:$HOME/.counterparts/store/operational.sqlite?immutable=1"`.
 No memory body text was read or quoted; counts, kinds, sources, days, scopes, session
@@ -214,20 +214,20 @@ select origin_scope, source, count(distinct origin_session), count(*) from memor
 
 | scope | fallback | authored |
 |---|---|---|
-| `/Users/mlapeter/counterparts` | 360 | 78 |
-| `/Users/mlapeter/counterparts/.claude/worktrees/coord-docs` | **279** | **0** |
-| `/Users/mlapeter/random` | 176 | 45 |
-| `/Users/mlapeter` | 61 | 0 |
-| `/Users/mlapeter/.counterparts/store` | 0 | 60 |
-| `/Users/mlapeter/counterparts/.claude/worktrees/agent-ad930289c8793d360` | 19 | 0 |
+| `~/counterparts` | 360 | 78 |
+| `~/counterparts/.claude/worktrees/coord-docs` | **279** | **0** |
+| `~/random` | 176 | 45 |
+| `~` | 61 | 0 |
+| `~/.counterparts/store` | 0 | 60 |
+| `~/counterparts/.claude/worktrees/agent-ad930289c8793d360` | 19 | 0 |
 | a `~/random` subdirectory (name withheld) | 15 | 0 |
 | four bookkeeping scopes (names withheld) | 22 | 10 |
-| `/Users/mlapeter/bansai` | 4 | 0 |
-| `/Users/mlapeter/counterparts-parallel-run/…/probe-project` | 2 | 0 |
+| `~/bansai` | 4 | 0 |
+| `~/counterparts-parallel-run/…/probe-project` | 2 | 0 |
 
 The two worktree scopes account for **298 fallback and 0 authored**. Their session ids
 (`a8e0b78f`, `d3c84833`, `bfc78e11`) are the *same* ids that authored memories in
-`/Users/mlapeter/counterparts` — one session, several scopes, one `session-end` row.
+`~/counterparts` — one session, several scopes, one `session-end` row.
 
 ---
 
@@ -376,9 +376,9 @@ states plainly that compaction alone does not make a session crashed
 
 The two agent-worktree scopes wrote **298 fallback and 0 authored** (see §2). But the session ids
 involved (`a8e0b78f`, `d3c84833`, `bfc78e11`) are the *same ids* that authored memories in
-`/Users/mlapeter/counterparts`, and all three fall in buckets A and B — sessions swept because
+`~/counterparts`, and all three fall in buckets A and B — sessions swept because
 they went quiet, not because they were a kind of session that cannot answer. So the worktree
-clustering is a symptom of (c), not independent evidence of (d). `/Users/mlapeter` (61 fallback,
+clustering is a symptom of (c), not independent evidence of (d). `~` (61 fallback,
 0 authored) and a `~/random` subdirectory (name withheld) (15 / 0) are the same shape.
 
 What *is* independently true: a scope only ever receives authored memories if a session was asked
@@ -421,16 +421,16 @@ That id matches no captured span, so **such a deposit marks nothing covered**.
 select learned_on, origin_scope, count(*) from memories
  where birth_day>=184 and archived=0 and type='memory'
    and source='authored' and origin_session='mcp' group by 1,2;
--- 2026-09-03  /Users/mlapeter/.counterparts/store   5
--- 2026-09-04  /Users/mlapeter/.counterparts/store  55
--- 2026-09-10  /Users/mlapeter/counterparts          3
--- 2026-09-10  /Users/mlapeter/random                7
--- 2026-09-11  /Users/mlapeter/random                1
+-- 2026-09-03  ~/.counterparts/store   5
+-- 2026-09-04  ~/.counterparts/store  55
+-- 2026-09-10  ~/counterparts          3
+-- 2026-09-10  ~/random                7
+-- 2026-09-11  ~/random                1
 ```
 
 **71 of the 193 authored memories (37 %) carry `origin_session = 'mcp'`** — including 60 of the
 87 authored on 09-03/09-04 (69 %). Those 60 also landed in scope
-`/Users/mlapeter/.counterparts/store`, a directory that holds no captured spans and never received
+`~/.counterparts/store`, a directory that holds no captured spans and never received
 a sweep. So on the two days when the sweep was still the primary path, most of what the author
 wrote could not take a single span off the sweep's pile, and the sweep went on to paraphrase the
 same stretches. *Inference, not measurement*: the store records no link between a swept memory and

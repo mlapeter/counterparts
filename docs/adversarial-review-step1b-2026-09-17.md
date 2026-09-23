@@ -1,10 +1,10 @@
 # Adversarial re-review — the step-1 batch's redesign and fixes
 
 Reviewer: third adversarial pass, 2026-09-17. Read-only on the repo. Code:
-`/Users/mlapeter/counterparts/.claude/worktrees/step1-trial`, branch `batch/step1-2026-09-17`,
+`~/counterparts/.claude/worktrees/step1-trial`, branch `batch/step1-2026-09-17`,
 HEAD `2bb904b`. All probes hermetic (fresh temp data dirs, `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`),
 under
-`/private/tmp/claude-501/-Users-mlapeter-counterparts/4ebf5615-350d-449b-80e7-173622c4bc2d/scratchpad/adversarial3/`.
+`<scratchpad>/adversarial3/`.
 I re-ran the whole suite myself: **2211 pass / 0 fail**.
 
 ---

@@ -528,7 +528,7 @@ against throwaway stores under the session scratchpad, so every "old code vs new
 result is two real processes on one real file, not a simulation. All probe scripts are
 prefixed `f1-review-` and stay local. `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` was exported in
 every shell. `~/.counterparts`, `~/.bansai` and `~/.claude-engram` were never touched, and
-neither was `/Users/mlapeter/counterparts`.
+neither was `~/counterparts`.
 
 Two actions were refused by the permission classifier and not retried: a backgrounded
 `bun test` writing its log to the scratchpad, and two compound shell commands the

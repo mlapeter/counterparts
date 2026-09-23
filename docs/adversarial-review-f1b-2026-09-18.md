@@ -227,7 +227,7 @@ The procedure from the first review stands. Three amendments:
 Same scratch worktree at the branch head, a second detached at `origin/master` re-added for
 the cross-build subprocess runs and removed afterwards. All probes hermetic under the
 session scratchpad, prefixed `f1-review-`. `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` exported
-throughout. Nothing was pushed, commented or deployed; `/Users/mlapeter/counterparts` and
+throughout. Nothing was pushed, commented or deployed; `~/counterparts` and
 the live stores were never touched. One probe of mine failed on its own bug (I passed
 `doctorFindings` an input without a config) and was replaced by a narrower one that
 exercises the same mechanism; no permission refusals in this pass.

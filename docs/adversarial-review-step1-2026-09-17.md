@@ -2,7 +2,7 @@
 
 Reviewer: second adversarial pass, 2026-09-17. Read-only on the repo; all probes hermetic
 (temp dirs, `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`). Scratch tests under
-`/private/tmp/claude-501/-Users-mlapeter-counterparts/4ebf5615-350d-449b-80e7-173622c4bc2d/scratchpad/adversarial2/`.
+`<scratchpad>/adversarial2/`.
 
 ---
 

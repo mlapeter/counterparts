@@ -295,19 +295,19 @@ you. Anything else is a hook, a worker, an MCP server or a dashboard still runni
 **I ran this** on the real machine (a process listing only — no store was read):
 
 ```
-22292 bun run /Users/mlapeter/counterparts/src/adapters/mcp/bin/serve.ts --owner
-24806 bun run /Users/mlapeter/counterparts/src/adapters/mcp/bin/serve.ts --owner
-79472 bun run /Users/mlapeter/counterparts/src/adapters/mcp/bin/serve.ts --owner
-57365 bun run src/adapters/dashboard/bin/dashboard.ts serve --dir /Users/mlapeter/.counterparts/store --port 4747
-98153 bun run src/adapters/dashboard/bin/dashboard.ts serve --dir /Users/mlapeter/.counterparts/store --port 4767
-49260 tail -n 0 -f /Users/mlapeter/counterparts-replay-runs/opus5-as-shipped-2026-08-26/run.log
-56369 node /Users/mlapeter/counterparts-site-wt/node_modules/.bin/next dev -p 3111
+22292 bun run ~/counterparts/src/adapters/mcp/bin/serve.ts --owner
+24806 bun run ~/counterparts/src/adapters/mcp/bin/serve.ts --owner
+79472 bun run ~/counterparts/src/adapters/mcp/bin/serve.ts --owner
+57365 bun run src/adapters/dashboard/bin/dashboard.ts serve --dir ~/.counterparts/store --port 4747
+98153 bun run src/adapters/dashboard/bin/dashboard.ts serve --dir ~/.counterparts/store --port 4767
+49260 tail -n 0 -f ~/counterparts-replay-runs/opus5-as-shipped-2026-08-26/run.log
+56369 node ~/counterparts-site-wt/node_modules/.bin/next dev -p 3111
 ```
 
 `pgrep -f` matches the whole argv, so the last two are unrelated processes that merely have
 the string in a path. A check that cries wolf on a `tail` and a `next dev` is one he will
 learn to wave through — on the day the three MCP servers and **two dashboards holding
-`/Users/mlapeter/.counterparts/store` open** are the thing that matters. Suggest: "ignore
+`~/.counterparts/store` open** are the thing that matters. Suggest: "ignore
 lines that are not `serve.ts`, `hook.ts`, `runner.ts` or `dashboard.ts`", and name the
 dashboards explicitly.
 
@@ -382,10 +382,10 @@ memories` is 0, and `recall` returns nothing), but worth knowing before an expor
   as it was.
 - **`--dry-run`** changed nothing at all, in the store or beside it.
 - **The `counterparts` on his `PATH` IS the shared checkout,** so the deploy does move it:
-  `command -v counterparts` → `/Users/mlapeter/.bun/bin/counterparts` →
+  `command -v counterparts` → `~/.bun/bin/counterparts` →
   `../install/global/node_modules/counterparts/src/adapters/cli/bin/counterparts.ts`, and
   `~/.bun/install/global/node_modules/counterparts` is a symlink to
-  `/Users/mlapeter/counterparts`. (Symlink targets only; I read nothing inside the checkout.)
+  `~/counterparts`. (Symlink targets only; I read nothing inside the checkout.)
   This is what makes the cut-over order below work.
 - **Refusals, each leaving the ground untouched:** `dataDir` inside `.bansai` (by name);
   a `dataDir` symlink whose realpath is inside `.claude-engram` (caught on the resolved
