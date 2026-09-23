@@ -1151,7 +1151,7 @@ describe("the surfaces that report it", () => {
   test("doctor is GREEN on a night that had nothing to say, and says so in words", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.recordPageWriterRun({ about, mode: "host", outcome: "nothing-to-say" });
     const f = pageWriterFindings(c.store, config())[0];
     expect(f?.severity).toBe("green");
@@ -1163,7 +1163,7 @@ describe("the surfaces that report it", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     c.recordPageWriterRun({
-      about: pageWriterAbout(c.store.today()),
+      about: pageWriterNight(c.store).about,
       mode: "host",
       outcome: "failed",
       detail: "watchdog",
@@ -1188,7 +1188,8 @@ describe("the surfaces that report it", () => {
   test("doctor goes AMBER when a night has been OWED for days with nothing delivered — the failure with no row behind it", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const today = c.store.today();
+    // The night doctor reads is the mechanism's own (LOCAL, `pageWriterNight`).
+    const { today } = pageWriterNight(c.store);
     // It ran, four days ago, and has been silently deferred ever since — which
     // is what an ask that will not fit the host's ceiling looks like from here.
     c.store.appendEvent({
@@ -1206,18 +1207,21 @@ describe("the surfaces that report it", () => {
     expect(f?.detail).toContain("is owed");
     expect(f?.detail).toContain("nothing has been delivered for 4 days");
     expect(f?.fix).toContain("injectionBudgetBytes");
-    expect(f?.data["owedFor"]).toBe(pageWriterAbout(today));
+    expect(f?.data["owedFor"]).toBe(pageWriterNight(c.store).about);
   });
 
   test("...and stays GREEN when last night is simply owed and today has not been given its turn", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const today = c.store.today();
+    // The night doctor reads is the mechanism's own (LOCAL, `pageWriterNight`);
+    // the run that settled is the one BEFORE it — which east of UTC, while the
+    // night is held to a closed UTC date, is three local days back, not two.
+    const { today, about } = pageWriterNight(c.store);
     c.store.appendEvent({
       name: SELF_PAGE_WRITER_EVENT,
       day: c.store.livedDay(),
       payload: {
-        about: dayBefore(today, 2),
+        about: dayBefore(about, 1),
         on: dayBefore(today, 1),
         mode: "session",
         outcome: "revised",
@@ -1230,7 +1234,8 @@ describe("the surfaces that report it", () => {
 
   test("an abandoned `started` claim reads as FAILED, not as a quiet night", () => {
     const c = counterpart();
-    const today = c.store.today();
+    // The night doctor reads is the mechanism's own (LOCAL, `pageWriterNight`).
+    const { today } = pageWriterNight(c.store);
     const about = pageWriterAbout(today);
     c.store.appendEvent({
       name: SELF_PAGE_WRITER_EVENT,

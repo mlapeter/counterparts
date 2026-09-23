@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import { pageWriterFindings } from "../src/adapters/claude-code/index.js";
 import {
   Self,
   calendarDate,
@@ -273,3 +274,118 @@ describe("the page writer's night turns over at LOCAL midnight", () => {
     expect(self.pageWriterDue({ mode: "session", today: "2026-09-20" }).about).toBe("2026-09-19");
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The boundaries the PR #189 review asked for, and its two repros (M2, m7)
+// ═══════════════════════════════════════════════════════════════════════════
+/** Run `fn` with the MACHINE's zone pinned (`TZ`), for the one reader that takes
+ *  no zone of its own — doctor — and restore it after, whatever happens. */
+function inZone<T>(zone: string, fn: () => T): T {
+  const prior = process.env["TZ"];
+  process.env["TZ"] = zone;
+  try {
+    return fn();
+  } finally {
+    if (prior === undefined) delete process.env["TZ"];
+    else process.env["TZ"] = prior;
+  }
+}
+
+describe("the boundaries, by the clock", () => {
+  function memoryOn(store: Store, learnedOn: string): void {
+    store.put({ type: "memory", kind: "fact", body: `Something that happened on ${learnedOn}.`, learnedOn });
+  }
+
+  test("UTC−7 at 23:30 (Los Angeles, PDT): still the 18th — the cap's day and the night are the local ones", () => {
+    const t = clocked("2026-09-19T06:30:00Z");
+    const self = new Self({ store: t.store, zone: "America/Los_Angeles" });
+    expect(t.store.today()).toBe("2026-09-19");
+    expect(self.calendarToday()).toBe("2026-09-18");
+    expect(pageWriterNight(t.store, "America/Los_Angeles")).toEqual({ today: "2026-09-18", about: "2026-09-17" });
+    self.openChapter("s1", SUBSTANCE);
+    expect(self.episodeState("s1").asksDay).toBe("2026-09-18");
+  });
+
+  test("UTC+9 at 08:00 (Tokyo): the local 19th is still being filed under in UTC, so the night is the 18th until 09:00", () => {
+    const t = clocked("2026-09-19T23:00:00Z"); // 08:00 JST on the 20th
+    expect(pageWriterNight(t.store, "Asia/Tokyo")).toEqual({ today: "2026-09-20", about: "2026-09-18" });
+    t.set("2026-09-20T00:00:00Z"); // 09:00 JST: UTC's 19th has closed
+    expect(pageWriterNight(t.store, "Asia/Tokyo")).toEqual({ today: "2026-09-20", about: "2026-09-19" });
+  });
+
+  test("00:10 local: the allowance spent at 23:50 is back, and the night just ended is owed", () => {
+    const t = clocked("2026-09-19T04:50:00Z"); // 23:50 CDT on the 18th
+    memoryOn(t.store, "2026-09-18");
+    const self = new Self({ store: t.store, tunables: { MAX_ASKS_PER_SESSION: 1 }, zone: "America/Chicago" });
+    expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
+    expect(self.openChapter("s1", { turns: 30, bytes: 30_000 }, 4).verdict.reason).toBe("session-ask-cap");
+    t.set("2026-09-19T05:10:00Z"); // 00:10 CDT on the 19th
+    expect(self.openChapter("s1", { turns: 50, bytes: 50_000 }, 4).asked).toBe(true);
+    expect(self.pageWriterDue({ mode: "session" })).toEqual({ due: true, about: "2026-09-18", attempt: 1 });
+  });
+
+  test("the DST days: a 25-hour day and a 23-hour day are each ONE calendar day", () => {
+    // Fall back, 2026-11-01 in Chicago: 00:30 CDT and 23:30 CST are the same date.
+    expect(calendarDate(Date.parse("2026-11-01T05:30:00Z"), "America/Chicago")).toBe("2026-11-01");
+    expect(calendarDate(Date.parse("2026-11-02T05:30:00Z"), "America/Chicago")).toBe("2026-11-01");
+    expect(calendarDate(Date.parse("2026-11-02T06:10:00Z"), "America/Chicago")).toBe("2026-11-02");
+    // Spring forward, 2026-03-08: 01:30 CST and 03:30 CDT are the same date.
+    expect(calendarDate(Date.parse("2026-03-08T07:30:00Z"), "America/Chicago")).toBe("2026-03-08");
+    expect(calendarDate(Date.parse("2026-03-08T08:30:00Z"), "America/Chicago")).toBe("2026-03-08");
+
+    // And the cap is charged once across the whole 25-hour day.
+    const t = clocked("2026-11-01T05:30:00Z");
+    const self = new Self({ store: t.store, tunables: { MAX_ASKS_PER_SESSION: 1 }, zone: "America/Chicago" });
+    expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
+    t.set("2026-11-02T05:30:00Z"); // 23:30 CST, still the 1st
+    expect(self.openChapter("s1", { turns: 30, bytes: 30_000 }, 4).verdict.reason).toBe("session-ask-cap");
+    t.set("2026-11-02T06:10:00Z"); // 00:10 CST on the 2nd
+    expect(self.openChapter("s1", { turns: 50, bytes: 50_000 }, 4).asked).toBe(true);
+    expect(pageWriterNight(t.store, "America/Chicago")).toEqual({ today: "2026-11-02", about: "2026-11-01" });
+  });
+
+  test("m7, EAST of UTC: a night whose claim's day has ended is SETTLED, and is not asked about again", () => {
+    const t = clocked("2026-09-19T06:00:00Z"); // 15:00 JST on the 19th
+    memoryOn(t.store, "2026-09-18");
+    memoryOn(t.store, "2026-09-19");
+    const self = new Self({ store: t.store, zone: "Asia/Tokyo" });
+    expect(self.pageWriterDue({ mode: "session" })).toEqual({ due: true, about: "2026-09-18", attempt: 1 });
+    self.recordPageWriterRun({ about: "2026-09-18", mode: "session", outcome: "asked" });
+
+    t.set("2026-09-19T16:00:00Z"); // 01:00 JST on the 20th — the night is still held to the 18th
+    const status = self.pageWriterStatus("2026-09-18");
+    expect({ outcome: status.outcome, derived: status.derived }).toEqual({ outcome: "nothing-to-say", derived: true });
+    expect(self.pageWriterClaimOpen("2026-09-18")).toBe(false);
+    // The three readings agree: settled, closed, and NOT asked again.
+    const due = self.pageWriterDue({ mode: "session" });
+    expect(due).toEqual({ due: false, about: "2026-09-18", reason: "already-claimed" });
+
+    t.set("2026-09-20T00:30:00Z"); // 09:30 JST — UTC's 19th has closed, and it is owed
+    expect(self.pageWriterDue({ mode: "session" })).toEqual({ due: true, about: "2026-09-19", attempt: 1 });
+  });
+
+  test("M2, doctor: the evening in Chicago reads the claim as in flight and the SAME night as owed — what Self says", () => {
+    inZone("America/Chicago", () => {
+      let at = Date.parse("2026-09-18T15:00:00Z"); // 10:00 CDT on the 18th
+      const c = Counterpart.open({ dir, owner: true, now: () => at });
+      open.push(c);
+      for (const d of ["2026-09-16", "2026-09-17", "2026-09-18"]) memoryOn(c.store, d);
+      expect(c.pageWriterDue({ mode: "session" }).about).toBe("2026-09-17");
+      c.recordPageWriterRun({ about: "2026-09-17", mode: "session", outcome: "asked" });
+
+      at = Date.parse("2026-09-19T01:30:00Z"); // 20:30 CDT on the 18th — UTC has turned
+      expect(c.pageWriterDue({ mode: "session" })).toEqual({ due: true, about: "2026-09-17", attempt: 2 });
+      expect(c.pageWriterStatus("2026-09-17").outcome).toBe("asked");
+      expect(c.pageWriterClaimOpen("2026-09-17")).toBe(true);
+
+      const f = pageWriterFindings(c.store, { dataDir: dir, owner: true })[0];
+      expect(f?.detail).toContain("last ran for 2026-09-17 on 2026-09-18 — asked");
+      expect(f?.detail).not.toContain("derived");
+      expect(f?.detail).toContain("2026-09-17 is owed");
+      expect(f?.detail).not.toContain("2026-09-18 is owed");
+      expect(f?.data["owedFor"]).toBe("2026-09-17");
+      expect(f?.data["staleFor"]).toBe(0);
+    });
+  });
+});
+

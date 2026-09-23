@@ -443,6 +443,18 @@ export function pageWriterDue(
   ) {
     return no("already-claimed");
   }
+  // ...AND NEITHER DOES A CLAIM WHOSE DAY HAS ENDED — it closes the night. That
+  // is what `pageWriterStatus` already reads it as (`nothing-to-say`, derived)
+  // and why `pageWriterClaimOpen` says false, so the three readings agree (PR
+  // #189 review, m7). It only ever bites EAST of UTC: there the night is held
+  // to a UTC date (`pageWriterNight`), so the same `about` can outlive the
+  // local day the claim was made on, and without this it was asked again the
+  // next morning after its status already read settled. West of UTC `about`
+  // moves with the local day, so a claim from an earlier day is always about
+  // an earlier night and this never fires.
+  if (runs.some((r) => r.outcome === "asked" && r.on !== "" && r.on < opts.today)) {
+    return no("already-claimed");
+  }
   const asked = runs.filter((r) => r.outcome === "asked").length;
   if (asked >= Math.max(1, opts.asksPerDay)) return no("asks-spent");
   // A DAY WITH NOTHING IN IT CANNOT MOVE THE PAGE, and asking about one costs a
