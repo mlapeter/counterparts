@@ -1656,6 +1656,10 @@ Measured on throwaway stores, bun 1.3.10, macOS (Apple's SQLite 3.39.5):
    park plan a minute later was sized after that fold. (Whether `claude mcp list` ends the
    server exactly that way is not measured: a session never runs it, because it would
    start our server against the owner's live store. The shape and the numbers match.)
+   Why the server's exit folds the log when a plain `Store.close()` (point 1) does not —
+   it closes through the same `counterpart.close()` at end of input — is observed, not
+   explained here. The fix does not depend on the why, only on the WHEN, and the when is
+   pinned: between the first plan's sizing and the second's.
 
 **The fix.** Both arms now take their sizes at the same point — after the pre-flight,
 right before the plan is printed (`uninstall.ts#remeasured`, `lstat` and `readdir` only, so

@@ -101,9 +101,12 @@ describe("the short page", () => {
     // acceptance criteria"), and the help page is the first of them. A change
     // to this page is a change to that screen: make it there too, on his word.
     const doc = readFileSync(join(import.meta.dir, "..", "docs", "new-user-findings.md"), "utf8");
-    const at = doc.indexOf("**Help page**");
+    // Anchored on the heading AND its fence: "**Help page**" also opens item 2
+    // of the owner's answers, a hundred lines above the screen itself.
+    const anchor = "**Help page**\n\n```\n";
+    const at = doc.indexOf(anchor);
     expect(at).toBeGreaterThan(0);
-    const start = doc.indexOf("```\n", at) + 4;
+    const start = at + anchor.length;
     const end = doc.indexOf("\n```", start);
     expect(shortHelp()).toBe(doc.slice(start, end));
   });
