@@ -76,6 +76,38 @@ export const LAG_REPLY_BYTES = 800;
 /** How many unembedded memories one worker run may pay for. CAL. */
 export const BACKFILL_LIMIT = 64;
 
+/**
+ * The same bound for the STATIC table, which pays nothing and needs no
+ * network: one worker run may embed this many. It is a bound at all only
+ * because each `embedOne` is its own box-3 commit (`synchronous = FULL`), and a
+ * detached worker shares that file with the next hook. CAL: measured
+ * 2026-09-23 (`docs/research/static-embedder-trial-2026-09-23.md`).
+ */
+export const STATIC_BACKFILL_LIMIT = 1000;
+
+/**
+ * Does THIS embedder need the Voyage credential? Only the paid seat does; the
+ * static table computes locally. An injected embedder that predates the field
+ * is the paid shape.
+ */
+function credentialMissing(embedder: LiveEmbedder, hasCredential: boolean): boolean {
+  return embedder.needsCredential !== false && !hasCredential;
+}
+
+/**
+ * Has the store taken the vector channel away from this handle? `held` (box 3
+ * holds another PAID model's vectors, awaiting the owner's confirm) and
+ * `cache-ahead` (box 3 is a newer build's) both withdraw the store's embedder
+ * and answer every ranking with nothing (store CONTRACT, cache v5). Anything
+ * this worker embedded then could never land and never be ranked — so it must
+ * not embed at all: for the paid seat that is a silent paid call every run,
+ * reported as a row of failures with no code (I33's unreadable shape).
+ */
+function vectorsWithdrawn(counterpart: Counterpart): string | null {
+  const kind = counterpart.store.embedderVerdict.kind;
+  return kind === "held" || kind === "cache-ahead" ? kind : null;
+}
+
 export interface LagReport {
   readonly reason: SemanticReason;
   readonly stored: boolean;
@@ -103,20 +135,26 @@ export async function laggedSemantic(input: {
   sessionId: string;
   scope: string;
   embedder: LiveEmbedder | null;
-  /** Present ⇒ a credential answered. Its VALUE is never read here. */
+  /** Present ⇒ a credential answered. Its VALUE is never read here, and an
+   *  embedder that needs none (the static table) is not asked about it. */
   hasCredential: boolean;
   onEvent?: Emit;
 }): Promise<LagReport> {
   const { counterpart, sessionId, scope } = input;
   const emit = input.onEvent ?? ((): void => {});
-  const note = (reason: SemanticReason, vector: number[] | null, bytes: number): LagReport => {
+  const note = (
+    reason: SemanticReason,
+    vector: number[] | null,
+    bytes: number,
+    detail: Record<string, string> = {},
+  ): LagReport => {
     const out = counterpart.noteSessionSemantic({
       sessionId,
       reason,
       vector,
       model: input.embedder?.model ?? null,
     });
-    emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes });
+    emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes, ...detail });
     // Durable through `noteAdapterEvent`, the ONE seam an adapter may write the
     // event log through — so tomorrow's coverage watch can count the turns whose
     // cue never got computed, and why, after this process is gone.
@@ -128,13 +166,24 @@ export async function laggedSemantic(input: {
         stored: out.stored,
         turn: out.turn,
         bytes,
+        ...detail,
       });
     }
     return { reason: out.reason, stored: out.stored, hits: out.hits, bytes };
   };
 
   if (input.embedder === null) return note("embedder-off", null, 0);
-  if (!input.hasCredential) return note("no-credentials", null, 0);
+  // Asked for and not here (a static table whose weights were not found): the
+  // code rides beside the reason, durably.
+  if (input.embedder.unavailable !== undefined) {
+    return note("embed-failed", null, 0, { unavailable: input.embedder.unavailable });
+  }
+  // Before the credential and before any text: a withdrawn channel is not worth
+  // one call. `embed-failed` is the closest word recall's closed vocabulary has;
+  // `withdrawn` names the store's verdict beside it, durably.
+  const withdrawn = vectorsWithdrawn(counterpart);
+  if (withdrawn !== null) return note("embed-failed", null, 0, { withdrawn });
+  if (credentialMissing(input.embedder, input.hasCredential)) return note("no-credentials", null, 0);
 
   const text = lagText(counterpart, sessionId, scope);
   if (text.length === 0) return note("no-text", null, 0);
@@ -193,7 +242,31 @@ export interface BackfillReport {
    *  a coverage watch reads; `skipped` is the other half of the same sum. */
   readonly remaining: number;
   readonly attempted: number;
-  readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer";
+  /**
+   * `vectors-withdrawn`: the store took the vector channel away at open (a HELD
+   * paid-model mismatch, or a cache from a newer build) — nothing was embedded,
+   * nothing was paid for, and `codes` names which verdict.
+   * `embedder-unavailable`: an embedder was asked for and could not be built
+   * (a static table whose weights were not found) — `codes` names the refusal.
+   */
+  readonly reason:
+    | "ran"
+    | "embedder-off"
+    | "no-credentials"
+    | "nothing-missing"
+    | "observer"
+    | "vectors-withdrawn"
+    | "embedder-unavailable";
+  /**
+   * WHICH EMBEDDER this row is about (`static` | `voyage`, null when none) and,
+   * for the static table, which rule found its weights. Durable, so doctor can
+   * say what the WORKER'S process saw — the environment a hook inherits is not
+   * the console's (I32).
+   */
+  readonly kind: string | null;
+  readonly weights: string | null;
+  /** The embedder's model name (content-derived for the static table). */
+  readonly model: string | null;
   /**
    * WHY the failures failed: the distinct `code[:status]` pairs of this run,
    * joined by commas, or `""` when nothing failed.
@@ -237,13 +310,16 @@ export interface BackfillReport {
 export async function backfillVectors(input: {
   counterpart: Counterpart;
   embedder: LiveEmbedder | null;
+  /** Present ⇒ a Voyage credential answered. Ignored for an embedder that needs none. */
   hasCredential: boolean;
+  /** Defaults to `BACKFILL_LIMIT` for the paid seat, `STATIC_BACKFILL_LIMIT` for the table. */
   limit?: number;
   onEvent?: Emit;
 }): Promise<BackfillReport> {
   const { counterpart } = input;
   const emit = input.onEvent ?? ((): void => {});
-  const limit = input.limit ?? BACKFILL_LIMIT;
+  const limit =
+    input.limit ?? (input.embedder?.needsCredential === false ? STATIC_BACKFILL_LIMIT : BACKFILL_LIMIT);
   const store = counterpart.store;
 
   const done = (
@@ -270,6 +346,9 @@ export async function backfillVectors(input: {
       reason,
       codes,
       skipped,
+      kind: input.embedder === null ? null : (input.embedder.kind ?? "voyage"),
+      weights: input.embedder?.weights ?? null,
+      model: input.embedder === null || input.embedder.unavailable !== undefined ? null : input.embedder.model,
     };
     emit("vectors.backfill", { ...report });
     if (!counterpart.observer) {
@@ -282,7 +361,12 @@ export async function backfillVectors(input: {
 
   if (counterpart.observer) return done("observer", 0, 0, 0);
   if (input.embedder === null) return done("embedder-off", 0, 0, 0);
-  if (!input.hasCredential) return done("no-credentials", 0, 0, 0);
+  if (input.embedder.unavailable !== undefined) {
+    return done("embedder-unavailable", 0, 0, 0, input.embedder.unavailable);
+  }
+  const withdrawn = vectorsWithdrawn(counterpart);
+  if (withdrawn !== null) return done("vectors-withdrawn", 0, 0, 0, withdrawn);
+  if (credentialMissing(input.embedder, input.hasCredential)) return done("no-credentials", 0, 0, 0);
 
   const ids = store.missingVectors(limit);
   if (ids.length === 0) return done("nothing-missing", 0, 0, 0);
@@ -326,7 +410,12 @@ export async function backfillVectors(input: {
   // fill that mixed an isolated 400 with a 500 elsewhere still charges the 500's
   // victims — strictly better than charging every failure, and the residue is
   // bounded by a run that saw poison at all. It is named in INTERFACE-GAPS.
-  const itemBlamed = itemAttributable(input.embedder);
+  //
+  // A LOCAL deterministic embedder (the static table) has only one way to miss:
+  // the text itself has no token it knows. Its null today is its null tomorrow,
+  // so every miss is the item's — without this, one emoji-only memory would be
+  // offered to every run forever and `remaining` would never reach zero.
+  const itemBlamed = itemAttributable(input.embedder) || input.embedder.needsCredential === false;
   // ONE read of the counters, not one per id — the same bargain `missingVectors`
   // makes two levels down.
   let counters: Map<string, string>;
@@ -345,15 +434,23 @@ export async function backfillVectors(input: {
   // needs, because a skipped id is never offered again and so cannot clear
   // itself. Staged here and written as ONE transaction below.
   const moves: [string, string][] = [];
+  const refusals = new Set<string>();
   for (const id of wanted) {
     let landed = false;
+    // The FILE refused the vector (held, ahead, or now another identity's —
+    // `Store.embedOne`'s `refused`): a fact about the store, never about the
+    // item, so it never moves the item's give-up counter.
+    let refused: string | undefined;
     try {
-      landed = store.embedOne(id).vector;
+      const got = store.embedOne(id);
+      landed = got.vector;
+      refused = got.refused;
     } catch {
       landed = false;
     }
     if (landed) embedded += 1;
     else failed += 1;
+    if (refused !== undefined) refusals.add(`refused:${refused}`);
     const key = `${EMBED_FAILED_PREFIX}${id}`;
     const now = Number(counters.get(key) ?? "0");
     if (landed) {
@@ -361,12 +458,13 @@ export async function backfillVectors(input: {
       // allowlist, and a zero reads identically everywhere it is consulted.
       // Nothing is written for the healthy case, which is every id on a good day.
       if (now !== 0) moves.push([key, "0"]);
-    } else if (itemBlamed) {
+    } else if (itemBlamed && refused === undefined) {
       moves.push([key, String(now + 1)]);
     }
   }
   writeCounters(counterpart, store, moves, emit);
-  return done("ran", embedded, failed, wanted.length, codes);
+  const named = [codes, ...refusals].filter((c) => c.length > 0).join(",");
+  return done("ran", embedded, failed, wanted.length, named);
 }
 
 /** Did the last fill blame any ONE INPUT? Only then may a counter climb. */

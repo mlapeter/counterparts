@@ -136,6 +136,16 @@ permanently dark semantic channel, and the only sign is `semanticSource` staying
 become a choice rather than a constraint. Not built: constitution line 15, and one
 measured failure is not yet a case for an index.
 
+**Addendum 2026-09-23 (roadmap C1) — the static tier needs no worker for its writes.**
+With `embedder.kind: "static"`, the store's sync `embed` COMPUTES (a local table,
+~0.03 ms a text), so every memory gets its vector at write time in whatever process
+writes, and the lagged cue needs no key. What is still worker-only for this tier: the
+lagged cue itself (the hook does not embed the turn — `hooks.ts`'s to change, and at
+0.03 ms it now could). The MCP server's `note` no longer writes vectorless under the
+static table: `openServer` now hands the server's store the embedder's sync face and
+identity (mcp INTERFACE-GAPS §7's option 1, taken in #190 — that page still describes
+the gap as open and is its owner's to close).
+
 ## 7. Box 3 is 278 MB and 65% of it is JSON punctuation — NAMED, not fixed here
 
 **Owner:** `store/` (box 3).
@@ -161,3 +171,51 @@ than a number that quietly gets worse. Related and cheap: the same 278 MB is wha
 FIRST recall in a fresh hook process cost ~800 ms of page-cache warming (`BUDGET_MS`'s day-0
 recalibration).
 
+## 8. The semantic fusion is calibrated for ONE embedder's cosine scale — OPEN (2026-09-23)
+
+**Owner:** `recall/` (`tunables.ts`: `SEMANTIC_SEED_FLOOR`, `SEMANTIC_WEIGHT`, `SEMANTIC_TOP_M`).
+**Needed:** a semantic hit's contribution that means the same thing whichever model
+produced the cosine — measured on BOTH recall paths, because they use the channel
+differently.
+**Had:** `SEMANTIC_SEED_FLOOR = 0.45` and `SEMANTIC_WEIGHT = 1.0`, chosen when Voyage was
+the only embedder. A static table's cosines sit lower and closer together (potion-base-8M:
+related pairs 0.42–0.58; on the seeded bench the mean best-relevant cosine 0.430 against
+the mean best-irrelevant 0.432, and only 12 of 40 queries' best relevant clears 0.45).
+Measured on the C1 bench (`tools/bench/embedder-trial.ts`, 30 paraphrase + 10 lexical
+queries, a seeded store, 5 reseeds):
+
+- **Raw channel:** potion's own ranking is strong — paraphrase MRR 0.404 against
+  lexical-only's 0.169 through recall.
+- **Deliberate path** (the MCP `recall` tool: the question's own vector, in line). At the
+  shipped values potion is near-inert: the same MRR (0.169) and the same 6/30 paraphrase
+  targets delivered as lexical-only — but not identical: lexical-set items per turn move
+  2.90 → 2.80 (static-retrieval: 2.70). At floor 0.15 / weight 6: **11/30** delivered,
+  10/10 lexical kept, +0.13 items per turn, **~7 rank slips, 0 deliveries lost** (six
+  undelivered paraphrase targets and one lexical target 3→4, still delivered). At floor
+  0 one delivery is lost.
+- **Per-turn path** (the hook: the turn is never embedded while it is answered; the
+  worker's rank of the previous exchange is the next turn's lagged cue). Simulated as
+  question → worker rank → a follow-up that names no topic. At the shipped values: 9/30
+  paraphrase targets delivered within two turns, identical to lexical-only. The lag adds
+  less than the in-line vector does: +1 (10/30) at floor 0.25–0.15 / weight 3–6, **+3
+  (12/30) at floor 0 / weight 6**, 0 lost on this arm, items per turn 5.26 → 5.13.
+  **That is the lag's CEILING, not its cost:** the arm embeds only the question (the real
+  lag text is the prompt plus up to 800 bytes of the reply), and its turn 2 is one
+  follow-up that stays on the question's topic. What a floor-0 lag does to a turn that
+  CHANGES topic — the lag then carries the previous subject into it — is **unmeasured,
+  not zero**.
+
+**Caveats that travel with these numbers** (the write-up's, repeated here because this
+is where a calibration will be read from): one synthetic persona, 161 memories, 40
+queries written by the builder; the paraphrase set was written to avoid the target's
+words, which is the case the channel exists for and so flatters it; the per-turn arm is
+the ceiling described above; per-query ranks are over the activation ranking, and the
+gate's relative bar decides delivery.
+
+**The shape of the fix:** per-identity tunables — the cache tag (`store.embedderVerdict`,
+`cache_meta.embedder`) now names the model, so the floor/weight can be looked up by it
+rather than being one pair for every model — and very likely per-path ones, since the
+deliberate path loses a delivery at floor 0 and the per-turn path's floor-0 cost on a
+topic change is unknown. Not built here: the numbers are `recall/`'s to own, and this is a
+first measurement, not a calibration (the recall-bench's labelled real prompts on a store
+copy, with a topic-changing per-turn arm, should decide).

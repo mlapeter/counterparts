@@ -64,11 +64,13 @@
  *
  * There is no SDK and no dependency: `fetch` is the runtime's.
  */
-import type { Embedder } from "../../core/store/index.js";
+import { StaticEmbedderError, loadStaticModel, resolveStaticWeights } from "../../core/embed/static.js";
+import type { StaticModel } from "../../core/embed/static.js";
+import type { Embedder, EmbedderIdentity } from "../../core/store/index.js";
 import { hashText } from "../../core/store/index.js";
 
-import { EMBED_KEY_ENV, TUNABLES, VOYAGE_ENDPOINT, embedSeat } from "./config.js";
-import type { AdapterConfig } from "./config.js";
+import { EMBED_KEY_ENV, EMBED_MODEL_DIMS, TUNABLES, VOYAGE_ENDPOINT, embedSeat, embedderKind } from "./config.js";
+import type { AdapterConfig, EmbedderKind } from "./config.js";
 import type { FetchLike } from "./interpret-client.js";
 
 /** Every way this client refuses, by name. A refusal is never a silent empty. */
@@ -452,7 +454,36 @@ async function callOnce(ctx: AttemptContext, input: readonly string[]): Promise<
 export interface LiveEmbedder {
   /** The seat's pinned id — the generation this cache holds. */
   readonly model: string;
-  /** The sync face `Store.open({ embed })` takes. Cache only; never a socket. */
+  /**
+   * Which embedder this is. Absent reads as `"voyage"` (an injected test
+   * embedder built before the field existed is the paid shape).
+   */
+  readonly kind?: EmbedderKind;
+  /**
+   * Does this embedder need `VOYAGE_API_KEY` to produce a vector? The static
+   * table does not (`false`), and `vectors.ts` must not record
+   * `no-credentials` for an embedder that never asks for one. Absent = true.
+   */
+  readonly needsCredential?: boolean;
+  /**
+   * Set when this embedder was ASKED FOR and could not be built — today, a
+   * static table whose weights were not found or would not load (`NO_WEIGHTS`,
+   * `MISSING_FILE`, `HASH_MISMATCH`, …). Such an embedder answers every ask
+   * with null, carries no identity (so the store never reconciles against it),
+   * and the worker's backfill writes the code into its DURABLE row
+   * (`reason: "embedder-unavailable"`) — which is how a refusal that happened
+   * inside a hook process, whose `onEvent` goes nowhere, reaches doctor.
+   */
+  readonly unavailable?: string;
+  /** For the static table: which rule found the weights (`option`, `env`, `package`). */
+  readonly weights?: "option" | "env" | "package";
+  /**
+   * The sync face `Store.open({ embed })` takes. For the paid seat: cache only,
+   * never a socket. For the static table: it COMPUTES, in-process — which is
+   * what puts a vector on every memory at write time, in whatever process
+   * writes (roadmap C1 step 4). Either way it carries its `identity`, and the
+   * store checks that against box 3's tag once, at open.
+   */
   readonly embed: Embedder;
   /** Fetch (or serve) one vector. Returns null on any refusal — never throws. */
   vector(text: string): Promise<number[] | null>;
@@ -501,17 +532,29 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
 
   const keyOf = (text: string): string => `${model}\0${hashText(text)}`;
 
-  const embed: Embedder = (text: string): number[] | null => {
-    const hit = cache.get(keyOf(text));
-    if (hit === undefined) {
-      misses += 1;
-      // Content-by-reference: the HASH of the text that missed, never the text.
-      emit("embed.cache.miss", { hash: hashText(text), model });
-      return null;
-    }
-    hits += 1;
-    return hit;
-  };
+  // The paid seat's identity: its pinned id — which is what the store compares
+  // — and its output width when this package knows it (`EMBED_MODEL_DIMS`; we
+  // never send `output_dimension`, so it is the model's default), which decides
+  // only whether untagged rows may be ADOPTED. An id nobody listed has
+  // `dim: null`, and untagged rows are held rather than adopted under it
+  // (review of #190, MINOR 1). `external`: box 3 never drops these rows at
+  // open, and never refills them inline — the backfill is the paid path.
+  // (The seat is FROZEN as of 2026-09-23: deprecated, kept, not extended.)
+  const identity: EmbedderIdentity = { model, dim: EMBED_MODEL_DIMS[model] ?? null, rebuild: "external" };
+  const embed: Embedder = Object.assign(
+    (text: string): number[] | null => {
+      const hit = cache.get(keyOf(text));
+      if (hit === undefined) {
+        misses += 1;
+        // Content-by-reference: the HASH of the text that missed, never the text.
+        emit("embed.cache.miss", { hash: hashText(text), model });
+        return null;
+      }
+      hits += 1;
+      return hit;
+    },
+    { identity },
+  );
 
   const fill = async (texts: readonly string[]): Promise<number> => {
     // Per fill, not cumulative: the caller asks "what went wrong THIS run".
@@ -573,6 +616,8 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
 
   return {
     model,
+    kind: "voyage",
+    needsCredential: true,
     embed,
     async vector(text: string): Promise<number[] | null> {
       if (text.length === 0) return null;
@@ -608,10 +653,131 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
  */
 export function openEmbedder(
   config: AdapterConfig,
-  opts: Omit<LiveEmbedderOptions, "config"> = {},
+  opts: Omit<LiveEmbedderOptions, "config"> & StaticEmbedderOptions = {},
 ): LiveEmbedder | null {
   if (config.embedder?.enabled !== true) return null;
-  // An instrument opens no sockets (docs/observer-mode.md, scar E7).
+  // An instrument opens no sockets (docs/observer-mode.md, scar E7) — and
+  // computes no vectors either: an observer's store takes no embedder at all.
   if (config.observer === true) return null;
-  return createEmbedder({ config, ...opts });
+  if (embedderKind(config) === "static") return openStaticEmbedder(opts);
+  const { weightsDir: _weightsDir, env: _env, ...live } = opts;
+  return createEmbedder({ config, ...live });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The static tier: the same seat, filled by a local table
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface StaticEmbedderOptions {
+  /** An explicit weights directory; else `COUNTERPARTS_STATIC_WEIGHTS_DIR`, else the package. */
+  weightsDir?: string;
+  /** The environment the weights directory is resolved from. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  onEvent?: EmitFn;
+}
+
+/**
+ * The static table behind the SAME `LiveEmbedder` seat the paid client fills,
+ * so every composition root that already wires `embedder.embed` into the store
+ * and `embedder` into the novelty seam wires this one too, with no change.
+ *
+ * The difference that matters: its sync `embed` COMPUTES. `Store.put` calls it
+ * at write time, so a memory gets its vector in the process that wrote it —
+ * hook, worker, console — and the semantic channel is never dark for want of
+ * a worker run (recall INTERFACE-GAPS §6's residue, for this tier). The
+ * worker's backfill still runs, for rows written by a process that had no
+ * embedder (the MCP server's `note` today, mcp INTERFACE-GAPS §7).
+ *
+ * `vector()` and `warm()` never touch a network and never throw; there is no
+ * cache, because there is nothing to save by keeping one.
+ */
+export function createStaticEmbedder(
+  model: StaticModel,
+  opts: { onEvent?: EmitFn; weights?: "option" | "env" | "package" } = {},
+): LiveEmbedder {
+  const emit = opts.onEvent ?? ((): void => {});
+  let hits = 0;
+  let misses = 0;
+  const identity: EmbedderIdentity = { model: model.model, dim: model.dim, rebuild: "inline" };
+  const compute = (text: string): number[] | null => {
+    const vec = model.embed(text);
+    if (vec === null) {
+      misses += 1;
+      // A text with no known token (empty, all symbols, an unknown script) — a
+      // counted miss, never a zero vector. The hash, never the text.
+      emit("embed.static.empty", { hash: hashText(text), model: model.model });
+    } else hits += 1;
+    return vec;
+  };
+  const embed: Embedder = Object.assign(compute, { identity });
+  return {
+    model: model.model,
+    kind: "static",
+    needsCredential: false,
+    ...(opts.weights === undefined ? {} : { weights: opts.weights }),
+    embed,
+    vector: async (text: string): Promise<number[] | null> => (text.length === 0 ? null : compute(text)),
+    // Nothing to fetch ahead of time: the sync face computes when the store
+    // asks, so warming would compute every vector twice. Reports how many of
+    // the texts are non-empty — the ones the store's ask can answer.
+    warm: async (texts: readonly string[]): Promise<number> => texts.filter((t) => t.length > 0).length,
+    stats: (): EmbedderStats => ({ hits, misses, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
+  };
+}
+
+/**
+ * The static table that was asked for and is not here: every ask answers null,
+ * no identity (the store never reconciles against it, so nothing in box 3 is
+ * touched), and `unavailable` carries the refusal's code to the worker's
+ * durable backfill row. Lexical recall is untouched.
+ */
+export function unavailableStaticEmbedder(code: string): LiveEmbedder {
+  const embed: Embedder = (): number[] | null => null;
+  return {
+    model: "static",
+    kind: "static",
+    needsCredential: false,
+    unavailable: code,
+    embed,
+    vector: async (): Promise<number[] | null> => null,
+    warm: async (): Promise<number> => 0,
+    stats: (): EmbedderStats => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
+  };
+}
+
+/**
+ * Load the table and wrap it — or, when it cannot, say so by NAME twice: an
+ * `embed.refused` event for whoever listens, and an UNAVAILABLE embedder whose
+ * code the worker writes durably (review of #190, MAJOR 3: a hook's `onEvent`
+ * goes nowhere, so the event alone reached no one). A missing table is not an
+ * error worth a failed hook: the brain runs lexical-only, exactly as it did
+ * before.
+ */
+export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedder {
+  const emit = opts.onEvent ?? ((): void => {});
+  const found = resolveStaticWeights({
+    ...(opts.weightsDir === undefined ? {} : { dir: opts.weightsDir }),
+    ...(opts.env === undefined ? {} : { env: opts.env }),
+  });
+  if (found === null) {
+    emit("embed.refused", { code: "NO_WEIGHTS", kind: "static" });
+    return unavailableStaticEmbedder("NO_WEIGHTS");
+  }
+  try {
+    const model = loadStaticModel({ dir: found.dir });
+    emit("embed.static.loaded", {
+      model: model.model,
+      dim: model.dim,
+      source: found.source,
+      ms: Math.round(model.loadMs),
+    });
+    return createStaticEmbedder(model, {
+      weights: found.source,
+      ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
+    });
+  } catch (err) {
+    const code = err instanceof StaticEmbedderError ? err.code : "LOAD_FAILED";
+    emit("embed.refused", { code, kind: "static", source: found.source });
+    return unavailableStaticEmbedder(code);
+  }
 }

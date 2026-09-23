@@ -1115,3 +1115,193 @@ table box 3 already publishes costs nothing to keep here.
 transaction — refusing by throwing, so a refused write stages nothing. The store decides
 nothing with it; the MCP server installs the schema re-read there, because its deposits can
 `await` an embedder between the tool's entry check and their writes. `null` removes it.
+
+## 2026-09-23 — cache v5: the vectors carry their model's name (roadmap C1)
+
+**Why now.** Two embedders exist (the paid Voyage seat and the local potion table), and
+switching between them is an ordinary act — so "a vector's generation is part of its
+identity" (`embed-client.ts` §2.15) had to become something box 3 enforces rather than
+something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` and
+`embedderRebuild = inline|external`; the table's shape is unchanged.
+
+**The rules, and why each is where it is** (`cache.ts#reconcileEmbedder`):
+
+*(Rules as amended by the adversarial review — see "later" below for what changed.)*
+
+- **At open only**, by a process with an identified embedder, never under observer. The
+  steady state is a lock-free read (a match; or a paid seat of unknown width meeting an
+  empty untagged table, which has nothing to decide); anything that writes re-reads and
+  decides inside one IMMEDIATE transaction, so two processes opening at once agree.
+- **Recorded rows a STATIC table's, another identity configured → drop and refill at
+  open.** They cost nothing to recompute. The TAG goes down first, so a process that
+  dies part-way leaves rows that all match their tag.
+- **Recorded rows PAID → HELD, whatever is configured** — a second paid model or the
+  static table alike. Dropping paid vectors is the owner's decision, never an open's.
+  The hold is DURABLE (`cache_meta.embedderHeld`), so every handle on the file — the MCP
+  server's, the dashboard's, the console's — neither writes vectors nor ranks against
+  them. The ways out (`heldExits`): put the configuration back (released at the next
+  open), or `counterparts verify --rebuild --drop-vectors --dir <store>`.
+- **Legacy (untagged) rows**: a paid seat adopts them only when every row has the seat's
+  KNOWN width (`EMBED_MODEL_DIMS`); a static table drops and refills them only when every
+  row has the table's own width (they are a static table's rows whose tag was lost);
+  anything else is held.
+- **The v4→v5 migration keeps a tag it finds on a cache stamped below 5 when every row
+  still has the tag's width**, and erases it otherwise (see mixed builds, below).
+- **The tag follows the writes**: the first vector a process writes under a registered
+  identity re-tags when `<model>@<dim>` differs from what it last saw (memoized per
+  handle, so once per process). A paid seat's width is learned this way.
+- `resetCache({ keepEmbeddings })` keeps the tag with the vectors (it used to drop
+  `cache_meta` whole, which would have left untagged rows for the next static open to
+  drop). The scan skips rows whose width differs from the query's: `cosine` reads a
+  common prefix, so a 1,024-d query against a 256-d row used to produce a number.
+
+**Held means no paid call can be wasted on it — where this change reaches.** The
+worker's two jobs (`adapters/claude-code/vectors.ts`) read `embedderVerdict` first and do
+nothing under `held` or `cache-ahead` (backfill reason `vectors-withdrawn`, the lag cue
+`embed-failed` with `withdrawn` beside it). Two callers outside this change still ASK
+the paid seat for a vector under a hold: the novelty seam at deposit (`counterpart.ts`'s
+`vectors.vector`) and the MCP server's deliberate question (`server.ts#embedQuestion`).
+Neither can USE it any more — the hold is durable, and the server's store now reconciles
+with the configured identity (`mcp/index.ts#openServer`), so its `nearestTo` answers
+nothing — but the call is paid for. Both are one-line checks of `store.embedderVerdict`,
+filed for their owners.
+
+**A cache from a newer build is left as found** (found by roadmap E while building the
+every-call schema check): `openCache` used to stamp any version it did not recognize down
+to its own. Now an ahead cache is returned for reading only — no DDL, no stamp, no
+reconcile — the verdict is `cache-ahead` (event `cache.schema.ahead`), vectors are neither
+written nor ranked, lexical reads and writes go on (its tables are the plain ones every
+version has had), and `rebuildCache` refuses `SCHEMA_AHEAD`, box 2's code.
+
+**The inline refill, measured** (bun 1.3.10, M3 Pro, potion-base-8M, ~1.2 KB bodies):
+1,000 memories in 118 ms, 5,000 in 563 ms (~0.11 ms each: read, embed, insert, in
+500-row transactions). `REFILL_BUDGET_MS = 1500` therefore covers ~13K memories at
+open; a larger store is finished by the worker's backfill, whose static bound (1,000
+per run, one `embedOne` commit each) measured 200–233 ms.
+
+**This file's index.ts footprint**, named because the builder's brief listed only
+`cache.ts`: `Embedder` became an interface with an optional `identity`; the constructor
+runs the check and the refill; `nearestTo`/`neighbourVectors` answer nothing while held or
+ahead; `embedderVerdict` is public. There was no way to check an identity "at open" from
+`cache.ts` alone — the constructor is the open, and the refill needs box 2's rows.
+
+### 2026-09-23, later — what the adversarial review of #190 changed
+
+- **BLOCKER 1 — the open took box 3's write lock every time for a vectorless paid
+  store.** A paid seat of unknown width has nothing to tag until its first vector, so the
+  "fresh" arm wrote a `DELETE` inside `BEGIN IMMEDIATE` on every open — and waited, then
+  threw `database is locked`, behind any other box-3 writer (measured 5,258 ms). That
+  arm now returns from the read. Tested with a second connection holding the lock.
+- **MAJOR 1 — the hold was per handle.** A store opened with no identity (the MCP
+  server's shape) read `none` and ranked a new model's question against the old model's
+  rows (measured: 3 hits). The hold is now a `cache_meta` row every open reads, and the
+  MCP server's store is opened with the embedder's identity.
+- **MAJOR 2 — a static configuration dropped paid vectors at open** (16,000 of them,
+  measured, with only an in-process event to show for it). Recorded paid rows are now
+  held whatever is configured, and every transition (reset, new hold, adoption, release)
+  writes `store.embedder.reconciled` to box 2's event log from INSIDE the store — the
+  hook's composition root passes no `onEvent`.
+- **MINOR 3 — a new identity starts the skip list over**: `embed.failed.<id>` counters
+  are not keyed by identity, so a reset clears them before the inline refill.
+
+**Mixed builds** (MINOR 2). Any older build — a 0.2.0 process, an unrestarted MCP server,
+a dev checkout — stamps box 3 back to v4 when it opens it. The next v5 open migrates it
+up again and looks at the tag: if every row still has the tag's width, nothing foreign
+was written and the tag is KEPT (no needless refill); if an older build wrote rows of
+another width (it can only have written paid ones), the tag is erased and the rows are
+judged as legacy — a static table refills rows of its own width and holds anything else,
+a paid seat adopts only its own known width. So under mixed builds a static store at
+worst refills (free), and a paid store at worst holds (never drops).
+
+**Two policies for one condition, and which wins** (MINOR 7). #187 makes the MCP server
+refuse EVERY tool while either box is ahead of its code; this change lets any other
+handle on an ahead cache keep reading and writing the lexical tables (vectors off by
+name). For the server, #187's policy takes precedence — its gate runs before any tool
+touches the store — and the lexical-continue behaviour applies only to non-server
+handles (hooks on a mixed install, the console, the dashboard). Both read "ahead" through
+ONE predicate, `schemaAhead` (a plain integer above the code; `"6-beta"` is not ahead),
+exported from here for #187 to import in place of its local copy.
+
+**Release timing** (MINOR 7). If this and #187 ship in one release, the PREVIOUS
+release's MCP server — still running in a session nobody restarted — has neither #187's
+gate nor this change's width filter in `nearest`. A person who switched to the static
+table during that session would have that server rank 1,024-wide Voyage questions
+against 256-wide static rows by their common prefix until the session restarts. The
+update notice (#187) is the remedy; it is named here because no code in this release can
+reach a process that is already running the old one.
+
+### 2026-09-23, re-review of #190 — the file is asked on every write and every ranking
+
+- **MAJOR A — a long-lived handle wrote under an identity it checked only at launch.**
+  Handing the MCP server's store the embedder (MAJOR 1's fix) let a session-long server
+  file a 256-wide static vector under `voyage-3-large@1024` after a hook reset the store
+  — the memory then "had" a vector, `missingVectors` skipped it, `nearest` skipped it by
+  width, and it left semantic recall silently. Same-width pairs (potion vs a retrained
+  table; full-width static-retrieval vs Voyage) ranked across two models outright. Now
+  every vector write (`admitVector`, inside the write's own transaction) and every
+  ranking (`Store.rankable` → `searchRefusal`) reads the file's claim — tag, hold, stamp:
+  one primary-key read, #187's per-call pattern — and compares it with the handle's own
+  identity. On a mismatch no vector is written (a revised memory's stale vector is
+  deleted with it, so the owning identity's backfill fills it), nothing is ranked, and
+  a `cache.vector.refused` event names the site and the reason (`held`, `cache-ahead`,
+  `identity-changed`). A backfill does not count such a refusal against the item.
+- **What an identity compares.** The model always; the width only for an inline table
+  (a 256-wide slice of a 1,024-wide table is another space). A paid seat's width is its
+  provider's, pinned by its model id: `EMBED_MODEL_DIMS` decides only whether untagged
+  rows may be adopted, and the tag records what the vectors measured. A file a paid seat
+  TAKES (fresh, or reset) is tagged with the model alone until its first vector, so a
+  process still running under the old identity sees at once that the file is no longer
+  its own.
+- **The one write a fresh store needs can lose the lock** (NIT 1): a decision that meets
+  another writer past the 5 s busy timeout now becomes `deferred` — nothing written, the
+  embedder withdrawn for that open, a durable row, and the next open decides again. A
+  lost lock costs the tag, never the open.
+- **The drop-vectors exit writes a durable row** (NIT 2): `rebuildCache` records what a
+  plain rebuild dropped and the hold it ended (`kind: "dropped", by: "rebuildCache"`), so
+  all five transitions leave a row in box 2.
+- **The exits a hold names are the ones that exist** (MINOR B; `heldExits`). Untagged
+  rows (a 0.2.0 store opened under the static table) have no recorded model to go back
+  to: the free exit is `embedder.kind` back to `"voyage"`, which adopts them at the seat's
+  known width. A recorded model: put `models.embed` back to it. The drop
+  (`verify --rebuild --drop-vectors`) is the other exit either way, and for a paid seat
+  it is a paid re-embed of every memory.
+- **The non-default `models.embed` upgrade case, stated** (MINOR B(2)). A 0.2.0 store
+  whose owner hand-set `models.embed` to an id this package does not list
+  (`voyage-context-3`, `voyage-law-2`, …) holds 1,024-wide untagged rows that NOTHING in
+  this release will adopt: the seat's width is unknown, so adoption is refused, and the
+  configuration already IS the model that wrote them, so "put it back" is not an exit.
+  The only way out today re-pays for every embedding. `models.embed` is undocumented and
+  `configObject` never writes it, so only a hand-edited configuration gets here. The
+  fixes, not built: list the id in `EMBED_MODEL_DIMS`, or an explicit "adopt these rows"
+  command for rows the owner vouches for (C3's `migrate-cache`). Re-loosening the width
+  check is not one — a keyed 0.2.0 process can leave single-width untagged rows of a
+  different model than the one configured now.
+- **Residual (the re-review's NIT 3).** static-retrieval-mrl-en-v1 at FULL width is 1,024,
+  the paid seat's width: a 0.2.0 process with a key writing Voyage rows into such a store
+  keeps the static tag through the stamp-down (the widths agree). Reachable only through
+  `COUNTERPARTS_STATIC_WEIGHTS_DIR` pointed at that table unsliced; the package ships
+  potion (256). Named, not handled.
+
+**Release note: 0.2.0 ignores `embedder.kind`.** A configuration that says
+`{"enabled": true, "kind": "static"}`, read by any 0.2.0 process — an unrestarted MCP
+server, a machine not yet upgraded — with a Voyage key saved, still embeds with Voyage:
+memory text still goes to Voyage until every process runs this release. Whoever writes
+the release notes for the static tier should say so.
+
+**Owner decision, 2026-09-23 (night): the static tier is the PRIMARY embedder; the Voyage
+seat is FROZEN — deprecated, not removed.** Its code stays, and so does everything in
+this module that protects vectors it already paid for (the paid-rows hold, adoption at
+its known width, `external` identities). No new Voyage behaviour is to be written; a
+future finding that would need some is documented here instead.
+
+**Two per-write checks, composed (after #187 merged).** #187's one-slot `guardWrites` —
+the MCP server's schema re-read — runs in `assertWritable`, before any transaction, and
+refuses the WHOLE write by throwing (`SCHEMA_AHEAD`, `refusedBy: "mcp-write-guard"`).
+#190's identity check (`admitVector`) is not in that slot: it runs inside the vector's
+own transaction in box 3, because it is the store's own cache and the check has to be
+atomic with the vector it admits, and it refuses only the VECTOR (the words still land).
+They never compete for the slot, and both fire in one server
+(`static-wiring.test.ts` › "the two per-write checks compose…"). The server now imports
+the store's single `schemaAhead` (re-exported from `server.ts` for its readers); its local
+copy is gone.
+

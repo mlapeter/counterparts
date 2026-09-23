@@ -91,7 +91,22 @@ ended up with canonical state spread across a prose store plus half a dozen side
      (measured; `NOTES.md`). "Reconstructible" is honest for the text index and partly
      dishonest for the vectors: those cost a paid network call each, which is why
      `rebuildCache({ keepVectors })` and `counterparts migrate-cache` exist rather than a
-     rebuild.
+     rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
+     `cache_meta.embedder = <model>@<dim>` beside `embedderRebuild = inline|external` — and
+     `Store.open` checks that tag against the configured embedder's identity ONCE, at open
+     (`cache.ts#reconcileEmbedder`, verdict on `Store.embedderVerdict`): a match touches
+     nothing and takes no lock; no embedder touches nothing; a static table's rows under
+     another identity are dropped and refilled inline, batched and time-bounded; **paid
+     rows are never dropped at open** — any other identity configured HOLDS them, durably
+     (`cache_meta.embedderHeld`), so no handle on the file ranks or writes vectors until
+     the configuration goes back or `verify --rebuild --drop-vectors` drops them. Every
+     transition writes a durable `store.embedder.reconciled` row. A cache written by a
+     NEWER build is left exactly as found: its version is never stamped down, the vector
+     channel is off by name (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`. Every
+     vector write and every ranking re-reads the file's claim against the handle's own
+     identity, so a handle open all session never files or ranks under another model's
+     tag. *(2026-09-23: the local static table is the primary embedder; the paid Voyage
+     seat is FROZEN — deprecated, kept, and its paid-rows hold kept with it.)*
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them

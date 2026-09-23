@@ -188,7 +188,16 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
 **Guarantees** — **[M]** mechanized · **[A]** advisory:
 
 1. **[M]** No generative model call on the hot path, asserted by a test that enumerates call
-   sites. An embedding lookup is permitted and must degrade to lexical-only.
+   sites. An embedding lookup is permitted and must degrade to lexical-only. *(2026-09-23:
+   the embedding may now come from a local static table — `core/embed/static.ts`, no
+   network — and the vectors it is compared against carry their model's name, checked at
+   store open, held durably on a mismatch, and re-read against the handle's own identity
+   on EVERY ranking and every vector write — so no handle on this release's code takes a
+   cosine across two models or files a vector under another model's tag, however long it
+   has been open (test: `embedder-identity.test.ts` › "MAJOR A of the re-review"). A
+   previous release's unrestarted MCP server can until it is restarted: store NOTES,
+   "Release timing"). The fusion's floor and weight are still one
+   pair calibrated for Voyage: INTERFACE-GAPS §8.)*
 2. **[M]** A latency-budget abort has zero side effects: nothing injected, nothing buffered,
    no telemetry, no fire budget spent.
 3. **[M]** Build and record are separate steps.
