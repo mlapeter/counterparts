@@ -176,6 +176,24 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(parseTranscript(jsonl([typedEntry(ask)])).turns[0]?.source).toBe("conversation");
   });
 
+  test("the JSON shape's return frame is UNMEASURED, so any hook frame in front of our ask is still ritual", () => {
+    // The docs call a blocking decision a "hook error"; `Stop hook error` is
+    // also a HOST_FRAMES opener, which on its own would make the block
+    // `injected` — kept in capture. The own-ask check runs first.
+    const ask = stopAsk("s1", 1);
+    for (const framed of [
+      `Stop hook error: ${ask}`,
+      `Stop hook error:\n["/usr/local/bin/bun" run "/opt/counterparts/src/adapters/claude-code/bin/hook.ts"]: ${ask}`,
+      `Stop hook blocking error:\n- ${ask}`,
+    ]) {
+      expect(parseTranscript(jsonl([metaEntry(framed)])).turns[0]?.source).toBe("ritual");
+      expect(parseTranscript(jsonl([bareEntry(framed)])).turns[0]?.source).toBe("ritual");
+    }
+    // A hand-back that merely QUOTES the ask is a hand-back.
+    const quoting = `${HANDBACK_TEXT}\nThe ask read: ${ask}`;
+    expect(parseTranscript(jsonl([handbackEntry(quoting)])).turns[0]?.source).toBe("injected");
+  });
+
   test("a v1 marker is still FOREIGN on an isMeta entry — the refusals come before the metadata", () => {
     const theirs = "Stop hook feedback:\n- [bansai] Before this session closes, what did you learn?";
     expect(parseTranscript(jsonl([metaEntry(theirs)])).turns[0]?.source).toBe("foreign");

@@ -137,9 +137,10 @@ owner's (measured 2026-09-04, `fix/transcript-peer-speakers`):
   classified `injected` as the conservative reading of a shape not yet measured.
 - **`Stop hook feedback: …`** — the host returning a blocking Stop hook's stderr to the
   model. It carries **this adapter's own asks**, so it is `ritual` and enters nothing
-  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first. A
-  host-written block (below) that opens with the ask's own first words
-  (`transcript.ts#STOP_ASK_OPENER`) is `ritual` too, whichever emission shape carried it.
+  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first. Any
+  line the person did not type (below) that opens with the ask's own first words, bare or
+  behind any `<Event> hook <word>:` frame (`transcript.ts#OWN_ASK`), is `ritual` too —
+  the JSON shape's return frame is unmeasured, and this keeps it out of capture either way.
 
 **And who wrote a user-role line is read from the entry's own metadata first** (B1,
 2026-09-23; shapes measured on 2.1.28x, table in `NOTES.md`): `origin.kind: "human"` is the

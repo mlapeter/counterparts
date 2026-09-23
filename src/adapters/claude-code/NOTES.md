@@ -1119,6 +1119,15 @@ So the JSON shape may show the person their one line AND the model's two lines a
 warning. Nobody can tell from here — `claude -p` draws no banner — which is why the owner
 looks.
 
+**How the JSON `reason` comes back into the transcript is unmeasured too.** The stderr
+shape's return is measured (`Stop hook feedback:\n["<command>"]: <ask>` on an `isMeta`
+entry, `ritual`). The docs say the two route "the same way", but if the JSON one were
+framed `Stop hook error: …` it would match a `HOST_FRAMES` opener and be `injected` —
+kept in capture, our own wording encoded as experience (G11). So any line the person did
+not type that opens with the ask's first words, bare or behind any `<Event> hook <word>:`
+frame, is `ritual` (`transcript.ts#OWN_ASK`). After the owner's look, a session can
+confirm it: the Stop boundary row's `excluded` count should include the returned ask.
+
 **The recipe (one turn each; after this round's restart):**
 
 1. The switch is a top-level key in the `claude-code.json` the hooks read (the one
@@ -1128,7 +1137,10 @@ looks.
    the first ask in a single turn, e.g. *"Write a 2,500-word short story about a
    lighthouse keeper."* (The first ask fires at ≥6 turns and ≥4,000 bytes, or at
    ≥12,000 bytes alone; a 2,500-word reply is about 14,000.)
-3. When the reply ends, look at the terminal under it. **One line or two?** You should see
+3. When the reply ends, look at the terminal under it. (The host does not promise the
+   final reply is in the transcript file at Stop time on every version; if nothing
+   shows after the story, send `thanks` and look under that reply instead.)
+   **One line or two?** You should see
    `Counterparts: asking the assistant to write up this session's memories.` The question
    is whether a `Stop hook` warning/error line carrying the two-line ask
    (`Counterparts, before this session closes: 1) …`) shows as well.

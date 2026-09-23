@@ -291,11 +291,23 @@ export function entryAuthor(entry: Record<string, unknown>, role: "user" | "assi
  * same way — measured for stderr only, as `Stop hook feedback:` on an
  * `isMeta` entry. Should the JSON route ever be written WITHOUT that prefix,
  * the metadata rule would call the block `injected` and our own wording would
- * enter capture (CONTRACT §5 G11). So a HOST-written block that opens with the
- * ask's own first words is `ritual` too. Host-written only: the person quoting
- * the ask back is conversation.
+ * enter capture (CONTRACT §5 G11). So a block the person did not type that
+ * opens with the ask's own first words — bare, or behind a hook frame (`OWN_ASK`)
+ * — is `ritual` too. The person quoting the ask back is conversation.
  */
 export const STOP_ASK_OPENER = "Counterparts, before this session closes:";
+
+/**
+ * The opener, bare or behind whatever frame the host puts in front of a hook's
+ * blocking message: `<Event> hook <word>:`, an optional bullet, an optional
+ * `["<command>"]: `. Measured for one frame only (`Stop hook feedback:\n["…"]: `);
+ * how a JSON `reason` comes back is NOT measured, and the docs call a block a
+ * "hook error", so the frame word is left open rather than guessed. Anchored at
+ * the start, so a hand-back that merely QUOTES the ask stays `injected`.
+ */
+const OWN_ASK = new RegExp(
+  `^(?:[A-Z][A-Za-z]+ hook [A-Za-z ]+:\\s*(?:-\\s*)?(?:\\[[^\\n]*?\\]:\\s*)?)?${STOP_ASK_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+);
 
 /**
  * One deliberate-recall tool call, as evidence for reference resolution
@@ -408,8 +420,10 @@ function pieceOf(text: string, role: "user" | "assistant", author: EntryAuthor):
   // read as `injected` would ENTER capture, which is G11 broken by a step that
   // was only meant to keep it out of pacing.
   if (source === "foreign" || source === "ritual") return { text, source };
+  // Our own ask coming home in a frame nobody has measured yet (the JSON
+  // shape's) — for any line the person did not type.
+  if (author !== "human" && OWN_ASK.test(text.trimStart())) return { text, source: "ritual" };
   if (author === "host") {
-    if (text.trimStart().startsWith(STOP_ASK_OPENER)) return { text, source: "ritual" };
     // Kept in capture — a hand-back or a notification is real experience — and
     // out of pacing, because nobody in this session typed it. The peer rewrite
     // still applies, so a wrapper is labelled rather than read as the owner.
