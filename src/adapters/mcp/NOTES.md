@@ -230,3 +230,299 @@ already false on master: `handoff` has been in `SESSION_END.inputSchema` since E
 (`d6eea0a`), `toolDefinitions()` publishes `spec.inputSchema` unfiltered, and
 `test/handoff.test.ts` asserts it. `memories` stays `required` in the schema: a
 handoff-only call sends `memories: []`, which that requirement already permits.
+
+## 2026-09-23 — the unrestarted server: the schema gate, the launch record, the notice (roadmap E)
+
+**The hazard.** The host starts this server once per session and keeps it; the hooks are
+fresh processes at every event. After an upgrade the hooks run the new build and this
+server keeps the one it loaded (LAUNCH-STATUS I36). If the new build bumps a schema, the
+first hook to open the store migrates it — and `SCHEMA_AHEAD`, which is decided at OPEN,
+never runs here again, because this process opened the store before the migration and
+still holds the handle. Nothing had bumped a schema since the floor, so nothing had hit
+this yet; the owner's rule (2026-09-23) was to decide it before the first bump.
+
+**THE RELEASE CONSTRAINT — read this before shipping E (#187 review, MAJOR-1).** Everything
+below protects the upgrade AFTER the one that installs it. A server started on 0.2.0 has no
+gate and writes no launch record, so on the upgrade that brings E it neither refuses nor
+records itself. The stamp below makes the hook say so once, but a pre-E server keeps
+running its old code until the session reconnects — and if the same release bumps a schema
+(the roadmap's C1 plans a cache v5 in that round), that old code meets the migrated store
+first. So: **the 0.3.0 upgrade instruction is: quit every Claude Code session before
+installing.** (Or `/mcp` → Reconnect each one straight after; quitting is the one that
+cannot be half-done.) From the release after that, the gate and the notice cover it.
+
+**The rule, built (`server.ts#schemaGate`).** Every tool call re-reads box 2's
+`meta.schemaVersion` and box 3's `cache_meta.schemaVersion` on the handles this process
+already holds (`Store.schemaVersions()`, two primary-key reads, statements prepared once).
+Either one AHEAD of the code this process loaded refuses EVERY tool — `scope` and `status`
+included, before the scope gate, the stand-down, or any argument is looked at — with one
+sentence, `STALE_SERVER_REFUSAL`, which ends in the same remedy as the hook's notice.
+`recall` asks a second time after its one `await` (the question's embedding, a network
+round-trip), so a migration that commits during that wait is not recalled past — it was
+the review's MAJOR-3: with a real embedder the window was the embed latency, and the
+stale server wrote its `mcp.recall` row into the migrated store. A stamp that cannot be
+read at all (a table another build dropped) refuses under `schema-unreadable`; a store
+LOCKED past the busy timeout (`db.ts#isLocked`, the hooks' own test) refuses under
+`store-busy` with a retry, not a reconnect that would not fix it. Behind, absent or
+non-numeric is NOT refused: an older store is the hooks' to migrate, as before. (The
+comparison is a local `schemaAhead` in `server.ts`; #190 exports a strict one from the
+store, and when it merges this should import that instead — a TODO marks the spot.) No refusal
+writes — its event goes to this process's ring and the host's `onEvent`, never to the
+store — and `test/schema-gate.test.ts` proves that from a SEPARATE connection: row counts
+in every table of both files, the `events` table, `PRAGMA data_version` (which moves when
+any other connection commits), every host-state file under the data dir, and the scope
+registry `scope` would have written. The same calls on a current store each do their work
+(the control), so the census can see a write.
+
+It SEES the other process's migration because neither read runs inside a transaction:
+each statement starts a fresh read on the connection and reads what was last committed,
+WAL or not.
+
+**Cost, measured** (bun 1.3.10, Apple M3 Pro, a store of 2,000 memories, 20,000 reads):
+**mean 3.3 µs, p99 4.7–5.3 µs** per call for both stamps together; **mean 7.7–9.1 µs**
+when another connection has just committed (the WAL index is re-read); the first call,
+which prepares the two statements, **85–111 µs**, once per process. Two to three orders of
+magnitude under the millisecond the ruling allowed. The suite asserts the mean stays
+under 1 ms over 5,000 reads — generous on purpose, so a loaded machine cannot make it
+flaky.
+
+**The launch record (decision 1, and where it had to bend).** The ruling said the server
+writes its version "into the live-session record at launch". It cannot: at launch this
+process does not know its session — the host registers it from a static configuration and
+passes none (`bin/serve.ts`'s header), and the lazy bind happens at the first Stop ask it
+answers. So the server writes its OWN record into the live-session registry instead:
+`<dataDir>/sessions/mcp-server@<pid>.json` = `{ pid, hostPid, scope, startedAt, build:
+{ version, storeSchema, cacheSchema } }` (`server.ts#recordLaunch`, called once by
+`bin/serve.ts`; removed at a clean exit). `version` is `package.json#version` read beside the
+code; the two schema numbers are the constants this process loaded. The `@` keeps the file
+out of `isSessionId`'s alphabet, so no session id and no model-supplied claim can name it.
+Two kinds of server write none: an observer, and — the review's MAJOR-2 — a server
+launched in a directory set `off` or `paused`, whose own refusal there says "nothing is
+recorded or read here" (and whose hooks return before they could ask anyway).
+
+A HEARTBEAT pins the record to the process rather than to a pid (MINOR-3): an unref'd
+timer touches the file every `SERVER_HEARTBEAT_MS` (a minute), and a record is believed
+only while its pid runs AND its mtime is inside `SERVER_STALE_MS` (ten minutes)
+(`sessions.ts#serverBelieved`). A pid the OS hands to a stranger after a hard kill stops
+counting within ten minutes, and `pruneSessions` (SessionStart) removes it then. A server
+whose record was pruned while its laptop slept writes it again at its next beat; the beat
+never creates a directory.
+
+**The stamp (MAJOR-1's code half).** When a session OPENS — SessionStart at `startup`,
+`resume`, `clear` or `fork`, never `compact`, which is the same session and the same server
+carrying on — the hook merges `opened: { build, hookPpid }` into the session record
+(`sessions.ts#stampSessionOpened`). `clear` and `fork` are stamped too, beyond the review's
+`startup|resume`, because an unstamped `/clear` behind a non-`exec` shell would tell a
+session with a CURRENT server it was out of date; the cost is one case — a pre-E server
+whose session is cleared before its first prompt after the upgrade — which the old session
+id's first prompt has normally already told. A session record WITHOUT `opened` therefore
+means "opened before any build stamped it", and the notice reads that (below). `hookPpid`
+is also how a person checks the host match (the recipe, step 2).
+
+**The notice (`sessions.ts#decideUpdateNotice`).** The UserPromptSubmit hook runs the
+INSTALLED build every turn. In order: (1) the believed servers in this session's scope
+whose `hostPid` is the hook's own parent — the same host process, so exactly this session's
+server — decide when there are any; (2) otherwise a session with no `opened` stamp is due,
+once — its server was started before E and may record nothing about itself; (3) otherwise
+every believed server in the scope, and ANY stale one makes it due. Deciding writes
+nothing; the mark is the other half (`markUpdateNoticeShown`), and `bin/hook.ts` orders the
+two: decide, build the turn's output with the line in it, and only if that output really
+carries it, mark the session record `updateNoticeShown: true` — then print, and print the
+line only if the mark landed. So it is shown once per session; a mark that will not write
+is silence rather than a notice every turn; and a line the output could not carry is never
+marked as shown. No session record → nothing (nowhere to mark). It never throws. A
+downgrade — the server NEWER than what is installed — says `Counterparts was changed to an
+older version. Run /mcp and Reconnect to load it.` instead of "was updated". Fallback (3)
+can speak once to a session whose own server is current while a second session in the
+same directory runs an old one; the advice is harmless, and it never stays silent about
+this session's. `/clear` gives a new session id on the same server process, so a stale
+server is announced once per `/clear` — accepted.
+
+**Every mark merges into the record's RAW JSON** (`mergeIntoRecord`, MINOR-1), never
+through `parseRecord`'s whitelist: the hooks' `recordSession` rewrites a record whole, which
+is right for the newest code, but a write from a process on an older build — the
+unrestarted MCP server above all — would erase every field a newer hook had added. That is
+this notice's mark, SessionStart's stamp, and #186's `markNothingNew`, which the MCP server
+itself writes at `session_end` and which was converted when this branch was rebased onto it.
+A mark written this way keeps fields it does not know.
+
+It runs **every turn, ~0.3 ms** — one `readdir` of `sessions/`, the session record, the
+server records, a stat and a signal-0 per server; with a current server it never speaks, so
+it is paid all session long — which departs from `pruneSessions`' "one `readdir` per
+session, never per turn". Measured: **mean 0.26–0.31 ms, p99 0.4–0.56 ms** per turn
+against a 601-entry `sessions/` with two live servers (bun 1.3.10, M3 Pro), inside a
+UserPromptSubmit budget of 1,200 ms. `package.json#version` is read once per process by
+`sessions.ts#installedVersion`, a second copy of `cli/commands.ts#packageVersion` kept
+because an adapter leaf may not import the console.
+
+**Where its decisions can be seen (MINOR-2).** The hook process lives for one event, so its
+ring dies with it. On a turn that had something to decide — due, shown, mark-failed,
+dropped, failed — `bin/hook.ts` copies the rows to stderr, the host's debug log:
+`[counterparts] adapter.update.notice: {"reason":"due","matchedBy":"host","servers":1,"hookPpid":…}`.
+A durable row would be a new `AdapterDurableEventName`, a core change this build did not
+own. `test/hook-standdown.test.ts` proves the host match through the real process (the
+hook's parent is the test process, as the host is in production when it `exec`s its hooks).
+
+**The terminal (`bin/hook.ts`).** The adapter's doors are `ClaudeCodeAdapter#updateNotice`,
+`#markUpdateNotice` and `#stampOpened`, beside `userPromptSubmit`; `bin/hook.ts` asks at
+`user-prompt-submit` the way it asks `notice()` at `session-start`, and `hostDelivery` prints
+the line as a top-level `systemMessage` — the channel the owner's probe of 2026-09-11
+measured displaying at both events (`SAYS_SO_HOOKS`); the host's reference lists
+`systemMessage` as a field every event accepts ("Warning message shown to the user"). The
+turn's recall rides whole in `hookSpecificOutput.additionalContext` (`hookEventName:
+"UserPromptSubmit"`); a turn with no recall prints the `systemMessage` alone; a prompt with
+no notice prints exactly what it printed before. The size rule is SessionStart's: over
+`ENVELOPE_MAX_CHARS` the recall wins, the plain recall is printed, the notice is dropped
+with an `adapter.notice.dropped` row — and, because the mark follows the envelope, it is not
+marked, so the next turn tries again. (The host measures each JSON field against its cap
+separately, so measuring the whole envelope is stricter than it needs to be — harmless at
+the default 2,048-byte per-turn recall.)
+
+**Does a snapshot precede a migration? No — checked, not built.** The migration runs in
+`operational.ts#openOperational`, inside `Store`'s constructor, so the first process to OPEN
+the store on the new build migrates it — and that is a hook (SessionStart or the first
+prompt), not the worker. The automatic snapshot (`adapters/snapshots.ts#runSnapshot`, the
+doctor's Snapshots line) runs only in the worker (`claude-code/bin/runner.ts`), in its
+`finally`, after `Counterpart.open` has already opened — and so migrated — the store, and at
+most once a day. So the newest pre-migration copy is whichever daily snapshot was taken
+before the upgrade: yesterday's, or today's if a worker already ran today. `SCHEMA_AHEAD`
+stays one-way, and rollback past a bump is that copy.
+
+**Residuals, named rather than fixed.**
+
+- **One synchronous call wide, not zero.** A migration that commits between the gate's read
+  and a tool's own write is not caught — for every tool but `recall` that is the few
+  microseconds of synchronous code between them (no other tool awaits), and `recall`
+  re-reads after its await. A migration takes the write lock, so the old write serializes
+  after it and lands in the new schema — harmless for the additive migrations
+  `ADDED_COLUMNS` makes, not for a destructive one.
+- **A store that is MOVED or REPLACED is invisible to the handle.** `counterparts
+  start-fresh` renames the store directory: the old server's handles follow the parked
+  inode, the gate passes (the parked stamp never moves), and its writes land in the parked
+  store; its launch record moves into the parked `sessions/` too, so the notice cannot fire
+  either. A future build that replaced the database file would do the same. `start-fresh`'s
+  own liveness read (`cli/start-fresh.ts#readLiveness`) skips `mcp-server@*.json`, because
+  a server record has no `lastBoundaryAt` — yet a believed server record is the one sign of
+  an open session that stays true while it is idle. Filed in INTERFACE-GAPS §10.
+- **A server the host kills outright leaves its record.** It stops being believed when its
+  pid dies or its heartbeat goes stale (ten minutes), and is pruned at the next
+  SessionStart. Inside those ten minutes a reused pid could cost one needless notice per
+  session in that directory.
+- **`cache.ts#openCache` stamps an AHEAD cache backwards** instead of refusing it (it
+  re-runs the DDL on any version that differs). The unrestarted server never reopens, so
+  this is not the gate's hole — it is a downgrade's. `cache.ts` belongs to another build;
+  filed in INTERFACE-GAPS §10.
+
+### Reconnect — a recipe for the owner, run once (nobody has run `/mcp` → Reconnect yet)
+
+Everything here lives under one throwaway directory, `$T`. It never names
+`~/.counterparts`, `~/.counterparts/claude-code.json` or the user-scoped `counterparts`
+server, and it writes nothing outside `$T`. Run it after this round's build is what
+`counterparts --version` reports (the installed `counterparts-hook` and `counterparts-mcp`
+are what it starts) — an install from before this change prints no notice at step 4.
+
+**1. A throwaway store, configuration, project, hooks and server.**
+
+```sh
+export COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1
+T="$(mktemp -d /tmp/cp-reconnect.XXXXXX)"
+mkdir -p "$T/project/.claude" "$T/cp/store" "$T/claude-home"
+printf '{ "dataDir": "%s", "owner": true }\n' "$T/cp/store" > "$T/cp/claude-code.json"
+HOOK="$(command -v counterparts-hook)"; MCP="$(command -v counterparts-mcp)"
+cat > "$T/project/.claude/settings.json" <<JSON
+{ "hooks": {
+  "SessionStart":     [{ "hooks": [{ "type": "command", "command": "\"$HOOK\" --config \"$T/cp/claude-code.json\"" }] }],
+  "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "\"$HOOK\" --config \"$T/cp/claude-code.json\"" }] }],
+  "Stop":             [{ "hooks": [{ "type": "command", "command": "\"$HOOK\" --config \"$T/cp/claude-code.json\"" }] }]
+} }
+JSON
+cat > "$T/mcp.json" <<JSON
+{ "mcpServers": { "counterparts-trial": {
+  "type": "stdio", "command": "$MCP",
+  "args": ["--dir", "$T/cp/store", "--config", "$T/cp/claude-code.json"],
+  "env": { "COUNTERPARTS_REQUIRE_EXPLICIT_DIR": "1" }
+} } }
+JSON
+```
+
+**2. Start a session that reads none of your own configuration.** `CLAUDE_CONFIG_DIR`
+moves the host's user-level files (so your user hooks and your user-scoped `counterparts`
+server are not read); `--strict-mcp-config` loads only the trial server. Both are what the
+host's docs say; neither has been tried here. If the relocated config dir asks you to log
+in, that is expected. There is no second route: every other way of starting a session in
+`$T/project` runs your own user-level hooks against your live store. If logging in there
+is not acceptable, stop here and say so.
+
+```sh
+cd "$T/project" && CLAUDE_CONFIG_DIR="$T/claude-home" claude --strict-mcp-config --mcp-config "$T/mcp.json"
+```
+
+Accept the trust prompt. SessionStart may ask the first-launch scope question for this
+directory; answer it or ignore it. Send `hello`, then in another terminal (same `$T`):
+
+```sh
+ls "$T/cp/store/sessions/"                      # <session-id>.json and mcp-server@<pid>.json
+cat "$T/cp/store/sessions/"mcp-server@*.json    # pid, hostPid, scope, build {version, storeSchema, cacheSchema}
+for f in "$T/cp/store/sessions/"mcp-server@*.json; do p="${f##*@}"; ps -o pid,ppid,command -p "${p%.json}"; done
+grep -o '"opened":{[^}]*}[^}]*}' "$T/cp/store/sessions/"[!m]*.json   # the session's stamp: build, hookPpid
+```
+
+There should be exactly ONE `mcp-server@…` file; two means an earlier server's record was
+left behind (look at which pid `ps` still finds). `build.version` should equal `counterparts
+--version`, and `hostPid` should be the `claude` process. **Write down whether the session's
+`opened.hookPpid` equals the server's `hostPid`:** equal means this host `exec`s its hooks
+and the notice matches this session's own server exactly; different means it matches by
+directory (still correct for one session; it can speak once for a sibling's server).
+
+*If `/mcp` (step 5) offers no Reconnect for a server loaded with `--mcp-config`* — the
+host's docs do not say it does — register the trial server at PROJECT scope instead and
+start without the two flags: from inside `$T/project`, `CLAUDE_CONFIG_DIR="$T/claude-home"
+claude mcp add -s project counterparts-trial -e COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 --
+"$MCP" --dir "$T/cp/store" --config "$T/cp/claude-code.json"` (it writes
+`$T/project/.mcp.json`, which dies with `$T`), then `CLAUDE_CONFIG_DIR="$T/claude-home"
+claude` and approve the project server when asked.
+
+**3. Pretend the install moved on.** The server wrote its record at launch and only
+touches its mtime after that (the heartbeat); the hook compares it with the installed
+build every turn. Make the record say an older version:
+
+```sh
+F="$(ls "$T/cp/store/sessions/"mcp-server@*.json)"; OLD_PID="${F##*@}"; OLD_PID="${OLD_PID%.json}"
+sed -i '' 's/"version":"[^"]*"/"version":"0.0.0"/' "$F"
+```
+
+**4. The notice.** Send any prompt. Expected: ONE line in the terminal, the host's prefix
+and then `Counterparts was updated. Run /mcp and Reconnect to load it.` (This rests on the
+owner's own probe of 2026-09-11, which is why `bin/hook.ts#SAYS_SO_HOOKS` names that
+event; the host's reference lists `systemMessage` for every event. If nothing shows, that
+is the finding to write down.) Send two more prompts: nothing more. The session record now
+carries `"updateNoticeShown":true` (`cat "$T/cp/store/sessions/"<session-id>.json`).
+
+**5. Reconnect.** `/mcp` → `counterparts-trial` → Reconnect. Then:
+
+```sh
+ls "$T/cp/store/sessions/"            # a NEW mcp-server@<pid>.json; the old one gone (a clean exit removes it)
+ps -p "$OLD_PID" || echo "old server gone"
+cat "$T/cp/store/sessions/"mcp-server@*.json   # version back to the installed one
+```
+
+and ask the session to call the trial server's `status` tool: it should answer. Worth
+writing down: whether the old pid was gone, and whether its record was removed (a clean
+exit) or left behind (the host killed it; it stops being believed within ten minutes and
+SessionStart prunes it).
+
+**6. Optional — the gate itself, live.** Pretend a newer build migrated the store:
+
+```sh
+DB="$T/cp/store/counterparts.sqlite"
+V="$(sqlite3 "$DB" "SELECT value FROM meta WHERE key = 'schemaVersion'")"
+sqlite3 "$DB" "UPDATE meta SET value = '99' WHERE key = 'schemaVersion'"
+```
+
+Ask the session to call `status`: it should refuse with `Counterparts was updated and this
+server is still running the old version, so this tool did nothing. Run /mcp and Reconnect
+to load it.` The hooks now refuse to open the store too (`SCHEMA_AHEAD` at open, the red
+"memory is OFF" line), because nothing newer actually exists — put the stamp back before
+anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaVersion'"`.
+
+**7. Clean up.** Quit the session; `rm -rf "$T"`. Nothing outside it was written.

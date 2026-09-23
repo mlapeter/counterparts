@@ -43,7 +43,7 @@ import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
-import type { Db } from "./db.js";
+import type { Db, Statement } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -397,6 +397,23 @@ export interface EventInput {
   payload?: Record<string, unknown> | null;
 }
 
+/**
+ * THE TWO SCHEMA STAMPS AS THEY STAND ON DISK RIGHT NOW — box 2's
+ * `meta.schemaVersion` and box 3's `cache_meta.schemaVersion`, each exactly as
+ * written (a string), or null when the row is not there.
+ *
+ * Read by `Store.schemaVersions()`, which exists for ONE caller shape: a process
+ * that opened this store long ago and has to ask, before it touches anything,
+ * whether a newer build has migrated it since. That is the MCP server — the one
+ * long-lived process a host starts once per session and never restarts on its
+ * own (the MCP adapter's schema gate; LAUNCH-STATUS I36). The core names no
+ * adapter, so the pointer is in words.
+ */
+export interface SchemaVersions {
+  readonly store: string | null;
+  readonly cache: string | null;
+}
+
 export interface RankingRow {
   id: string;
   strength: number;
@@ -730,6 +747,39 @@ export class Store {
   close(): void {
     this.ops.close();
     this.cache.close();
+  }
+
+  /** Prepared once, on first use; see `schemaVersions`. */
+  private schemaReads: { store: Statement; cache: Statement } | undefined;
+
+  /**
+   * THE SCHEMA STAMPS ON DISK NOW, read fresh on this store's own two
+   * connections — two primary-key lookups, no transaction, no write, and
+   * nothing that changes under observer.
+   *
+   * `SCHEMA_AHEAD` is decided ONCE, at open (`operational.ts#openOperational`),
+   * and that is right for every process that opens a store and closes it again
+   * within one event. It is not enough for one that stays open: a hook running
+   * newer code can migrate the file underneath it, and nothing on the handle it
+   * already holds would say so. This is how such a process asks.
+   *
+   * It SEES the other process's migration because neither read runs inside a
+   * transaction: each one starts a fresh read on the connection and so reads
+   * whatever was last committed, WAL or not. Prepared once and kept, so the
+   * steady-state cost is two statement steps (measured, ~3 µs — the MCP
+   * adapter's NOTES). It may THROW — a table another build dropped, a
+   * disk that went away — and the caller decides what that means; the only
+   * caller today refuses its tool rather than guess.
+   */
+  schemaVersions(): SchemaVersions {
+    this.schemaReads ??= {
+      store: this.ops.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'"),
+      cache: this.cache.prepare("SELECT value FROM cache_meta WHERE key = 'schemaVersion'"),
+    };
+    return {
+      store: this.schemaReads.store.get<{ value: string }>()?.value ?? null,
+      cache: this.schemaReads.cache.get<{ value: string }>()?.value ?? null,
+    };
   }
 
   // ── the seam ───────────────────────────────────────────────────────────────

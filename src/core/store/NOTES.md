@@ -1090,3 +1090,22 @@ test dates a store's beginning the way it dates everything else.
 **Every store made before this is simply without it**, and every reader has to treat the
 absence as UNKNOWN rather than as "today". `doctor` does: no evidence, no clamp, the
 sentence it always printed.
+
+## 2026-09-23 — `Store.schemaVersions()`: the stamps, asked again by a process that stayed open
+
+`SCHEMA_AHEAD` is decided once, at open (`openOperational`), which is right for every
+process that opens a store and closes it within one event. The MCP server is the one that
+does not: the host keeps it for the whole session, and a hook on a newer build can migrate
+the store under it. `schemaVersions()` is how it asks — `meta.schemaVersion` on box 2 and
+`cache_meta.schemaVersion` on box 3, each as written (a string) or null, on the store's own
+two connections. Two primary-key reads, prepared once, no transaction and no write, so it
+behaves identically under observer; it may throw (a dropped table), and the caller decides
+what that means. Outside a transaction each read sees what another process last committed,
+WAL or not — which is the whole reason it works on a handle opened before the migration.
+Measured at ~3 µs a call (`adapters/mcp/NOTES.md`, 2026-09-23). The rule that uses it —
+every tool refuses when either stamp is ahead of the code — is the adapter's
+(`adapters/mcp/CONTRACT.md` §5 G14); nothing here refuses.
+
+It reads box 3's meta table from `index.ts` rather than through a `cache.ts` export on
+purpose: that file had another owner in the same round, and a read-only query against a
+table box 3 already publishes costs nothing to keep here.

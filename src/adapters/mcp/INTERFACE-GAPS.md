@@ -269,3 +269,42 @@ still credits nothing, because `Store.resolve` follows the forwarding address in
 then refuses the archived row. It is the same gap one level down and out of G50's scope;
 `expandIds` already pairs `perId` with `memories`, so recording per-id resolutions there is
 a small, separate change when someone wants it.
+
+## 10. The update notice needs `claude-code/bin/hook.ts` to print it — CLOSED 2026-09-23
+
+**What was missing.** Roadmap E's notice is decided by
+`adapters/sessions.ts#decideUpdateNotice` and marked by `#markUpdateNoticeShown`, reached
+through `ClaudeCodeAdapter#updateNotice` / `#markUpdateNotice`. The one channel the owner's
+terminal shows is a top-level `systemMessage` in the hook's JSON stdout, and `bin/hook.ts`
+built that envelope for `session-start` only. That file was outside this build's first
+ownership, so the notice was filed here rather than printed.
+
+**Closed the same day, on the coordinator's word.** `bin/hook.ts#main` asks the adapter at
+`user-prompt-submit` and marks only once the envelope is known to carry the line (shown only
+if the mark landed); `hostDelivery` builds the envelope for `user-prompt-submit`
+(`hookEventName: "UserPromptSubmit"`, the recall as `additionalContext`, the systemMessage
+alone when there is no recall) under SessionStart's size rule. Proof:
+`test/schema-gate.test.ts` "hostDelivery at a prompt" and `test/hook-standdown.test.ts` "a
+stale MCP server in this directory". `test/doctor.test.ts`'s "user-prompt-submit NEVER emits
+JSON" was narrowed to what stays true: never without a notice, and never the doctor's.
+
+**Also filed from this build, for the modules that own them.**
+
+- **`store/cache.ts#openCache` stamps an AHEAD cache backwards.** It re-runs the DDL and
+  rewrites `cache_meta.schemaVersion` whenever the stamp DIFFERS, so a build opening a cache
+  a newer build wrote writes the older number over it instead of refusing, the way
+  `operational.ts` refuses `SCHEMA_AHEAD`. Not this server's hole (it never reopens) — a
+  downgrade's. The fix is the same `> CACHE_SCHEMA_VERSION` refusal box 2 has, or a
+  deliberate "box 3 is rebuildable, reset it" if that is the ruling.
+- **`cli/start-fresh.ts#readLiveness` cannot see an idle MCP server.** It counts a session
+  record as a sign of an open session only while its `lastBoundaryAt` is recent, and it
+  skips `sessions/mcp-server@*.json` (no `lastBoundaryAt`). A believed server record
+  (`sessions.ts#serverBelieved`: pid running, heartbeat fresh) is the one sign of an open
+  session that stays true while it is idle — and the one `start-fresh` most needs, because
+  renaming the store leaves that server writing into the parked store with a gate that
+  passes (NOTES, residuals). Reading those records there is the console's change.
+- **No snapshot precedes a migration** (NOTES, 2026-09-23): the first open on a new build
+  migrates, and that is a hook, while the automatic snapshot runs only in the worker, after
+  its own open, once a day. If a pre-migration copy is wanted, the place is the writer path
+  of `openOperational`, just before the migrate transaction — a store decision, not this
+  adapter's.

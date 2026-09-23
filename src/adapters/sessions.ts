@@ -16,6 +16,11 @@
  * been checked. Losing the whole directory costs a lazy bind and nothing else,
  * which is why `store/paths.ts` classifies it `backup: false`.
  *
+ * **The MCP server leaves one note of its own here** (2026-09-23):
+ * `mcp-server@<pid>.json`, the build it was launched with, so the
+ * UserPromptSubmit hook — which runs the INSTALLED build every turn — can tell
+ * a session its server is out of date (`decideUpdateNotice`, at the bottom).
+ *
  * **Where it lives.** `<dataDir>/sessions/<id>.json`, because the data dir is the
  * one path both sides already agree on — the hooks resolve it in
  * `claude-code/bin/hook.ts`, the server in `Counterpart.open`.
@@ -45,9 +50,13 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../core/store/index.js";
 
 /** The one directory name. Classified in `store/paths.ts` LAYOUT. */
 export const SESSIONS_DIR = "sessions";
@@ -132,6 +141,30 @@ export interface SessionRecord {
    * `askedScope`.
    */
   readonly wakeChecked?: boolean;
+  /**
+   * TRUE once this session has been told that the MCP server it is talking to
+   * runs an older build than the one installed (`decideUpdateNotice` below,
+   * 2026-09-23). One-way, like `askedScope`: the notice is shown once per
+   * session and never every turn, and this mark is how a fresh hook process
+   * knows it already was. Still host state, still no content.
+   */
+  readonly updateNoticeShown?: boolean;
+  /**
+   * WHAT THE HOOK THAT SAW THIS SESSION OPEN WAS RUNNING (2026-09-23, roadmap
+   * E): the installed build, and that hook's parent process. Written once by
+   * SessionStart when the session OPENS (startup, resume, clear, fork — never a
+   * compaction, which is the same session carrying on), carried forward like
+   * `config`.
+   *
+   * Its ABSENCE is the point: a session with no `opened` began before any
+   * build could stamp one, so its MCP server may be one that records nothing
+   * about itself — and the update notice speaks once rather than stay silent
+   * about the one server it cannot see (`decideUpdateNotice`). `hookPpid` is
+   * how a person checks the host match: on a host that `exec`s its hooks it is
+   * the host itself, the same pid an MCP server it started records as
+   * `hostPid`. Still host state, still no content.
+   */
+  readonly opened?: SessionOpened;
   /**
    * THE DATE THIS SESSION WAS ASKED TO WRITE ITS PAGE ABOUT (2026-09-20, S2),
    * `YYYY-MM-DD`, in the fallback `session` mode of the nightly page writer.
@@ -287,6 +320,8 @@ export function recordSession(
     wakeSentinel?: string;
     /** Set once, when the delivery check has left its row. One-way. */
     wakeChecked?: boolean;
+    /** Set once, when the update notice has been shown. One-way. */
+    updateNoticeShown?: boolean;
     /** The date the nightly page writer asked this session to write about
      *  (S2). Carried forward like `config`; the newest answer wins. */
     pageWriterFor?: string;
@@ -334,6 +369,15 @@ export function recordSession(
     // checked, and the flag is what stops the transcript being re-read at every
     // turn for the rest of the session.
     ...(input.wakeChecked === true || prior?.wakeChecked === true ? { wakeChecked: true } : {}),
+    // One-way, like `askedScope`: a session that has been told has been told,
+    // and a later phase written by a process that knows nothing about the
+    // notice must not un-tell it — or it would come back at the next turn.
+    ...(input.updateNoticeShown === true || prior?.updateNoticeShown === true
+      ? { updateNoticeShown: true }
+      : {}),
+    // Carried, never set here: only SessionStart's stamp writes it
+    // (`stampSessionOpened`), and a later phase must not erase it.
+    ...(prior?.opened !== undefined ? { opened: prior.opened } : {}),
     // Carried like `config` rather than one-way, because it names a DATE: a
     // session that lives across midnight and is asked again gets the new date,
     // and a phase written by a process that knows nothing about the writer
@@ -380,17 +424,24 @@ function writeRecord(dataDir: string, path: string, record: SessionRecord): Sess
  * with pruning, and the honest answer is `null`, not a record with no start.
  */
 export function markNothingNew(dataDir: string, sessionId: string, at: number = Date.now()): SessionRecord | null {
-  const path = sessionPath(dataDir, sessionId);
-  if (path === null || !Number.isFinite(at)) return null;
-  const prior = readSession(dataDir, sessionId);
-  if (prior === null) return null;
-  return writeRecord(dataDir, path, { ...prior, nothingNewAt: at });
+  if (sessionPath(dataDir, sessionId) === null || !Number.isFinite(at)) return null;
+  // Into the RAW JSON (`mergeIntoRecord`), not a rewrite from the parsed
+  // record: the caller is the MCP server — the long-lived process, and so the
+  // one most likely to run an older build than the hooks that wrote this
+  // record — and its whitelist would erase whatever a newer hook added (#187
+  // review, MINOR-1).
+  return mergeIntoRecord(dataDir, sessionId, { nothingNewAt: at }) ? readSession(dataDir, sessionId) : null;
 }
 
 /**
  * Drop records nobody can claim any more. Called from SessionStart only — one
  * `readdir` per session, never per turn, and never on the SessionEnd path that
  * shares a 1.5 s budget with every other hook on that event.
+ *
+ * Session records and the notes beside them go by AGE; an MCP server's launch
+ * record goes by LIVENESS instead (`serverBelieved`), because what it describes
+ * is a process, and a process is either running or not whatever the calendar
+ * says.
  */
 export function pruneSessions(
   dataDir: string,
@@ -402,6 +453,20 @@ export function pruneSessions(
     for (const name of readdirSync(sessionsDir(dataDir))) {
       const full = join(sessionsDir(dataDir), name);
       try {
+        // A SERVER RECORD is kept for exactly as long as its server is
+        // believed alive — its pid running AND its heartbeat fresh
+        // (`serverBelieved`) — whatever its age: a session left open for a week
+        // still has a server the notice must be able to find. A pid the OS
+        // handed to some other process after a hard kill stops being believed
+        // once the heartbeat goes stale, and a live server whose record went
+        // this way writes it again at its next beat.
+        const serverPid = serverPidOf(name);
+        if (serverPid !== null) {
+          if (serverBelieved(serverPid, statSync(full).mtimeMs, Date.now())) continue;
+          rmSync(full, { force: true });
+          removed += 1;
+          continue;
+        }
         if (now - statSync(full).mtimeMs <= maxAgeMs) continue;
         rmSync(full, { force: true });
         removed += 1;
@@ -413,6 +478,498 @@ export function pruneSessions(
     return removed;
   }
   return removed;
+}
+
+// ── the MCP server's launch record, and the update notice (2026-09-23) ──────
+//
+// A host starts the MCP server ONCE per session and keeps it; the hooks are
+// fresh processes at every event. So after an upgrade the hooks run the new
+// build and the server keeps the one it loaded (LAUNCH-STATUS I36). The server
+// cannot put its build into the SESSION's record at launch — it does not know
+// which session it serves until the lazy bind, at the first Stop ask it answers
+// (`mcp/server.ts`, refusal 1) — so it leaves its OWN record here, beside the
+// session records, and the UserPromptSubmit hook, which does know its session,
+// finds it by scope.
+
+/**
+ * WHAT A PROCESS WAS BUILT FROM: the package version and the two schema
+ * versions its code reads and writes. Two processes sharing one store with
+ * different stamps are exactly the pair the notice and the MCP schema gate are
+ * about.
+ */
+export interface BuildStamp {
+  /** `package.json#version`, or null when the manifest could not be read. */
+  readonly version: string | null;
+  /** Box 2's `SCHEMA_VERSION` in the code this process loaded. */
+  readonly storeSchema: number;
+  /** Box 3's `CACHE_SCHEMA_VERSION` in the code this process loaded. */
+  readonly cacheSchema: number;
+}
+
+let manifestVersion: string | null | undefined;
+
+/**
+ * The package version, from the `package.json` beside this code — the same
+ * relative step in the repository and in the installed tarball
+ * (`package.json#files` ships `src/` whole). Read once per process and never
+ * thrown: a manifest that cannot be read is a null, and a null is never
+ * evidence of a change (`sameBuild`).
+ */
+export function installedVersion(): string | null {
+  if (manifestVersion !== undefined) return manifestVersion;
+  try {
+    const raw = readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8");
+    const said = (JSON.parse(raw) as Record<string, unknown>)["version"];
+    manifestVersion = typeof said === "string" && said.length > 0 ? said : null;
+  } catch {
+    manifestVersion = null;
+  }
+  return manifestVersion;
+}
+
+/**
+ * The build THIS process is running. Both sides call this one function — the
+ * server at launch, the hook every turn — so the two stamps cannot differ in
+ * shape, only in value.
+ */
+export function installedBuild(): BuildStamp {
+  return {
+    version: installedVersion(),
+    storeSchema: SCHEMA_VERSION,
+    cacheSchema: CACHE_SCHEMA_VERSION,
+  };
+}
+
+/** Same build, as far as either side can tell. An unreadable version on either
+ *  side is not a mismatch; the two schema numbers always are. */
+export function sameBuild(a: BuildStamp, b: BuildStamp): boolean {
+  const versionMoved = a.version !== null && b.version !== null && a.version !== b.version;
+  return !versionMoved && a.storeSchema === b.storeSchema && a.cacheSchema === b.cacheSchema;
+}
+
+/**
+ * The remedy, spelled once: the notice ends with it and so does the MCP
+ * schema gate's refusal (`mcp/server.ts#STALE_SERVER_REFUSAL`).
+ */
+export const RECONNECT_REMEDY = "Run /mcp and Reconnect to load it.";
+
+/** The owner's words (2026-09-23), shown once per session, never every turn. */
+export const UPDATE_NOTICE = `Counterparts was updated. ${RECONNECT_REMEDY}`;
+
+/**
+ * The same line for the other direction — the INSTALLED build is older than
+ * the server's, which is a downgrade or a rollback. `sameBuild` cannot tell
+ * the two apart; `serverIsNewer` can, and "was updated" would be untrue.
+ */
+export const CHANGED_NOTICE = `Counterparts was changed to an older version. ${RECONNECT_REMEDY}`;
+
+/** A plain `x.y.z` compare; anything else is "not newer". */
+function versionNewer(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return false;
+  const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(a);
+  const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(b);
+  if (pa === null || pb === null) return false;
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(pa[i]) - Number(pb[i]);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+/** Is `server` a NEWER build than `installed` — a downgrade, seen from here? */
+export function serverIsNewer(server: BuildStamp, installed: BuildStamp): boolean {
+  return (
+    server.storeSchema > installed.storeSchema ||
+    server.cacheSchema > installed.cacheSchema ||
+    versionNewer(server.version, installed.version)
+  );
+}
+
+/**
+ * What SessionStart stamps on a session that OPENS (`SessionRecord.opened`).
+ */
+export interface SessionOpened {
+  readonly build: BuildStamp;
+  /** The stamping hook's parent process — the host, on a host that `exec`s
+   *  its hooks. Compare with a server record's `hostPid`. */
+  readonly hookPpid: number;
+}
+
+function parseBuild(raw: unknown): BuildStamp | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  const version = b["version"] ?? null;
+  const storeSchema = b["storeSchema"];
+  const cacheSchema = b["cacheSchema"];
+  if (version !== null && typeof version !== "string") return null;
+  if (typeof storeSchema !== "number" || !Number.isInteger(storeSchema)) return null;
+  if (typeof cacheSchema !== "number" || !Number.isInteger(cacheSchema)) return null;
+  return { version, storeSchema, cacheSchema };
+}
+
+function parseOpened(raw: unknown): SessionOpened | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const build = parseBuild(o["build"]);
+  const hookPpid = o["hookPpid"];
+  if (build === null || typeof hookPpid !== "number" || !Number.isSafeInteger(hookPpid)) return null;
+  return { build, hookPpid };
+}
+
+/**
+ * MERGE FIELDS INTO A SESSION RECORD AS IT IS ON DISK — the raw JSON, never the
+ * parsed record.
+ *
+ * `recordSession` rewrites a record whole from `parseRecord`'s whitelist, which
+ * is right for the hooks: they are always the newest code, so their whitelist
+ * is the newest one. A write from anywhere else must not do that — a process
+ * running an older build (the unrestarted MCP server above all) would erase
+ * every field a newer hook had added. So a mark is a merge into the object as
+ * found: known and unknown fields alike survive it. Only a file that parses as
+ * a session record is written; nothing is created. Atomic; never throws.
+ */
+function mergeIntoRecord(dataDir: string, sessionId: string, fields: Record<string, unknown>): boolean {
+  const path = sessionPath(dataDir, sessionId);
+  if (path === null) return false;
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (parseRecord(raw) === null) return false;
+    const merged = { ...(raw as Record<string, unknown>), ...fields };
+    const tmp = `${path}.${String(process.pid)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(merged)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * SessionStart's stamp, on a session that OPENS: the installed build and the
+ * hook's parent pid (`SessionRecord.opened`). Merged into the record the same
+ * event just wrote; never creates one. Never throws.
+ */
+export function stampSessionOpened(dataDir: string, sessionId: string, opened: SessionOpened): boolean {
+  return mergeIntoRecord(dataDir, sessionId, { opened });
+}
+
+/**
+ * One running MCP server, as it described itself at launch. Host state, no
+ * content: two process ids, a directory, a time and three version numbers.
+ */
+export interface ServerRecord {
+  readonly pid: number;
+  /**
+   * The server's PARENT at launch — the host process that started it. A hook
+   * whose own parent is the same process belongs to the same host instance,
+   * and so to the session this server serves; that is the exact match. When
+   * the host ran the hook through a shell that did not `exec`, the parents
+   * differ and the scope is the match instead (`decideUpdateNotice`).
+   */
+  readonly hostPid: number;
+  /** The server's scope, canonical — the same string its lazy bind compares. */
+  readonly scope: string;
+  readonly startedAt: number;
+  readonly build: BuildStamp;
+}
+
+/** A server record as read, with the file's mtime — its last heartbeat. */
+export type ServerRecordRead = ServerRecord & { readonly refreshedAt: number };
+
+/**
+ * **CAL.** How often a running server touches its record
+ * (`mcp/server.ts#recordLaunch`), and how old a record may be and still be
+ * believed. The pair is what pins a record to the PROCESS that wrote it, not
+ * just to a pid: after a hard kill the OS may hand the pid to anything, and
+ * `pidAlive` alone would then believe the record — kept by `pruneSessions` and
+ * compared by every new session in that directory — for as long as the
+ * stranger ran. Ten beats of slack, so a laptop that slept does not lose its
+ * servers for more than one beat after waking (the server writes its record
+ * again if it was pruned meanwhile).
+ */
+export const SERVER_HEARTBEAT_MS = 60_000;
+export const SERVER_STALE_MS = 10 * SERVER_HEARTBEAT_MS;
+
+/** Pid running AND heartbeat fresh. */
+export function serverBelieved(pid: number, refreshedAt: number, now: number, alive: (pid: number) => boolean = pidAlive): boolean {
+  return now - refreshedAt <= SERVER_STALE_MS && alive(pid);
+}
+
+/**
+ * `sessions/mcp-server@<pid>.json`. The `@` is deliberate: it is outside
+ * `isSessionId`'s alphabet, so no session id — and no string a model passes to
+ * `session_end` — can ever name this file.
+ */
+const SERVER_RECORD_PREFIX = "mcp-server@";
+
+export function serverRecordPath(dataDir: string, pid: number): string | null {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  return join(sessionsDir(dataDir), `${SERVER_RECORD_PREFIX}${String(pid)}.json`);
+}
+
+/** The pid a directory entry names, when it is a server record; else null. */
+function serverPidOf(name: string): number | null {
+  if (!name.startsWith(SERVER_RECORD_PREFIX) || !name.endsWith(".json")) return null;
+  const digits = name.slice(SERVER_RECORD_PREFIX.length, -".json".length);
+  if (!/^[1-9][0-9]*$/.test(digits)) return null;
+  const pid = Number(digits);
+  return Number.isSafeInteger(pid) ? pid : null;
+}
+
+/**
+ * Is that process still running? Signal 0 delivers nothing and only asks.
+ * `EPERM` is a process that exists and is somebody else's — alive.
+ */
+export function pidAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as { code?: unknown } | null)?.code === "EPERM";
+  }
+}
+
+function writeServerRecord(path: string, record: ServerRecord): boolean {
+  try {
+    const tmp = `${path}.${String(process.pid)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Leave the launch record. Atomic like `recordSession`, and never throws: a
+ * server whose record did not land costs this session its notice and nothing
+ * else.
+ */
+export function recordServerLaunch(
+  dataDir: string,
+  input: {
+    scope: string;
+    build: BuildStamp;
+    pid?: number;
+    hostPid?: number;
+    at?: number;
+  },
+): ServerRecord | null {
+  const pid = input.pid ?? process.pid;
+  const path = serverRecordPath(dataDir, pid);
+  if (path === null) return null;
+  const record: ServerRecord = {
+    pid,
+    hostPid: input.hostPid ?? process.ppid,
+    scope: canonicalScope(input.scope),
+    startedAt: input.at ?? Date.now(),
+    build: input.build,
+  };
+  try {
+    mkdirSync(sessionsDir(dataDir), { recursive: true });
+  } catch {
+    return null;
+  }
+  return writeServerRecord(path, record) ? record : null;
+}
+
+/**
+ * THE HEARTBEAT: touch the record, or write it again if a SessionStart pruned
+ * it while this process was asleep. Never creates a directory — a data dir
+ * that went away (a test's temp dir, a store moved aside) is not recreated by
+ * a timer. Never throws.
+ */
+export function refreshServerLaunch(dataDir: string, record: ServerRecord, now: number = Date.now()): boolean {
+  const path = serverRecordPath(dataDir, record.pid);
+  if (path === null) return false;
+  try {
+    const at = new Date(now);
+    utimesSync(path, at, at);
+    return true;
+  } catch {
+    try {
+      if (!statSync(sessionsDir(dataDir)).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    return writeServerRecord(path, record);
+  }
+}
+
+/** Take the record away at a clean exit. Best-effort: a server the host
+ *  killed outright leaves its file, which stops being believed when its pid
+ *  dies or its heartbeat goes stale, and is pruned at the next SessionStart. */
+export function forgetServerLaunch(dataDir: string, pid: number = process.pid): void {
+  const path = serverRecordPath(dataDir, pid);
+  if (path === null) return;
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    /* nothing to say about a file that will not go */
+  }
+}
+
+/** Every server record that parses, believed or not. Never throws. */
+export function readServerRecords(dataDir: string): ServerRecordRead[] {
+  const out: ServerRecordRead[] = [];
+  let names: string[];
+  try {
+    names = readdirSync(sessionsDir(dataDir));
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    const pid = serverPidOf(name);
+    if (pid === null) continue;
+    try {
+      const full = join(sessionsDir(dataDir), name);
+      const rec = parseServerRecord(JSON.parse(readFileSync(full, "utf8")));
+      if (rec !== null && rec.pid === pid) out.push({ ...rec, refreshedAt: statSync(full).mtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+function parseServerRecord(raw: unknown): ServerRecord | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const pid = rec["pid"];
+  const hostPid = rec["hostPid"];
+  const scope = rec["scope"];
+  const startedAt = rec["startedAt"];
+  const build = parseBuild(rec["build"]);
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid)) return null;
+  if (typeof hostPid !== "number" || !Number.isSafeInteger(hostPid)) return null;
+  if (typeof scope !== "string" || scope.length === 0) return null;
+  if (typeof startedAt !== "number") return null;
+  if (build === null) return null;
+  return { pid, hostPid, scope, startedAt, build };
+}
+
+/** Why the notice is, or is not, due this turn — for the hook's stderr line. */
+export type UpdateNoticeReason =
+  /** No session record: there is nowhere to mark "shown", so nothing is due
+   *  rather than something said every turn. */
+  | "no-record"
+  | "already-shown"
+  /** No live server in this session's scope, and the session was stamped when
+   *  it opened — so its server, if it has one, is one that records itself. */
+  | "no-server"
+  | "current"
+  /** A server this session may be talking to runs another build — or the
+   *  session opened before any build stamped it (`matchedBy: "unstamped"`). */
+  | "due"
+  /** Anything that threw. The turn goes on exactly as it would have. */
+  | "failed";
+
+export interface UpdateNoticeDecision {
+  /** The line to show, or null. Non-null exactly when `reason` is `due`. */
+  readonly message: string | null;
+  readonly reason: UpdateNoticeReason;
+  /**
+   * What decided it: `host` — the servers this hook's own host process
+   * started; `unstamped` — none of those, and the session opened before any
+   * build stamped it; `scope` — every live server in the scope.
+   */
+  readonly matchedBy: "host" | "unstamped" | "scope" | null;
+  readonly servers: number;
+  /** The hook parent the host match was tried against. */
+  readonly hookPpid: number;
+}
+
+/**
+ * IS "Counterparts was updated" DUE THIS TURN? — decided by a hook running the
+ * INSTALLED build, which is the whole point: it is the one process that knows
+ * what "current" is. It WRITES NOTHING; `markUpdateNoticeShown` is the other
+ * half, and the caller marks only once the line is actually on its way.
+ *
+ * In order:
+ *
+ *   1. The believed servers (`serverBelieved`) in this session's scope that
+ *      THIS hook's host started (`hostPid` = the hook's parent) are the exact
+ *      answer when there are any: due if any runs another build.
+ *   2. Otherwise, a session that OPENED before any build stamped it
+ *      (`SessionRecord.opened` absent) is due, once: its server was started
+ *      then too, and may be one that records nothing about itself — the case
+ *      of the upgrade that installs this code (MAJOR-1 of #187's review).
+ *   3. Otherwise every believed server in the scope, and ANY stale one makes
+ *      it due. This can speak once to a session whose own server is current
+ *      while a second session in the same directory runs an old one; the
+ *      advice is harmless, and it never stays silent about this session's.
+ *
+ * A downgrade gets `CHANGED_NOTICE` rather than "was updated". Never throws;
+ * `failed` is a reason like any other.
+ */
+export function decideUpdateNotice(
+  dataDir: string,
+  input: {
+    sessionId: string;
+    installed: BuildStamp;
+    /** This hook's parent process. Defaults to `process.ppid`. */
+    hostPid?: number;
+    /** Injected so a test can say which pids are running. */
+    alive?: (pid: number) => boolean;
+    now?: number;
+  },
+): UpdateNoticeDecision {
+  const hookPpid = input.hostPid ?? process.ppid;
+  const quiet = (
+    reason: UpdateNoticeReason,
+    matchedBy: UpdateNoticeDecision["matchedBy"] = null,
+    servers = 0,
+  ): UpdateNoticeDecision => ({ message: null, reason, matchedBy, servers, hookPpid });
+  const due = (
+    compared: readonly ServerRecord[],
+    matchedBy: NonNullable<UpdateNoticeDecision["matchedBy"]>,
+  ): UpdateNoticeDecision => ({
+    message: compared.some((s) => serverIsNewer(s.build, input.installed)) ? CHANGED_NOTICE : UPDATE_NOTICE,
+    reason: "due",
+    matchedBy,
+    servers: compared.length,
+    hookPpid,
+  });
+  try {
+    const record = readSession(dataDir, input.sessionId);
+    if (record === null) return quiet("no-record");
+    if (record.updateNoticeShown === true) return quiet("already-shown");
+    const now = input.now ?? Date.now();
+    const alive = input.alive ?? pidAlive;
+    const live = readServerRecords(dataDir).filter(
+      (s) => sameScope(s.scope, record.scope) && serverBelieved(s.pid, s.refreshedAt, now, alive),
+    );
+    const own = live.filter((s) => s.hostPid === hookPpid);
+    if (own.length > 0) {
+      return own.every((s) => sameBuild(s.build, input.installed)) ? quiet("current", "host", own.length) : due(own, "host");
+    }
+    if (record.opened === undefined) return due([], "unstamped");
+    if (live.length === 0) return quiet("no-server");
+    return live.every((s) => sameBuild(s.build, input.installed)) ? quiet("current", "scope", live.length) : due(live, "scope");
+  } catch {
+    return quiet("failed");
+  }
+}
+
+/**
+ * THE ONCE-PER-SESSION MARK. The caller writes it when the line is on its way
+ * and SHOWS the line only if this returns true — so a mark that will not write
+ * is silence rather than a notice every turn (the owner asked for a notice, not
+ * a nag), and a line that could not be carried is never marked as shown.
+ *
+ * A merge into the record's raw JSON (`mergeIntoRecord`), so it moves no clock
+ * and erases no field it does not know. No record, no mark. Never throws.
+ */
+export function markUpdateNoticeShown(dataDir: string, sessionId: string): boolean {
+  try {
+    const record = readSession(dataDir, sessionId);
+    if (record === null) return false;
+    if (record.updateNoticeShown === true) return true;
+    return mergeIntoRecord(dataDir, sessionId, { updateNoticeShown: true });
+  } catch {
+    return false;
+  }
 }
 
 function parseRecord(raw: unknown): SessionRecord | null {
@@ -447,6 +1004,15 @@ function parseRecord(raw: unknown): SessionRecord | null {
       ? { wakeSentinel: rec["wakeSentinel"] }
       : {}),
     ...(rec["wakeChecked"] === true ? { wakeChecked: true } : {}),
+    // Optional for the same reason as `askedScope`, and its absence means
+    // exactly "not told yet".
+    ...(rec["updateNoticeShown"] === true ? { updateNoticeShown: true } : {}),
+    // Optional, and its absence is the answer the notice reads: "opened before
+    // any build stamped it". A malformed one reads as absent.
+    ...((): { opened?: SessionOpened } => {
+      const opened = parseOpened(rec["opened"]);
+      return opened === null ? {} : { opened };
+    })(),
     // Optional for the same reason, and read as a DATE rather than a flag: a
     // value that is not a date is no mark at all, so a hand-edited record
     // cannot talk the MCP server into writing `by: "writer"`.

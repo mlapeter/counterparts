@@ -2235,9 +2235,13 @@ describe("hostDelivery — the notice's channel", () => {
     expect(out.dropped).toBe(null);
   });
 
-  test("user-prompt-submit NEVER emits JSON, notice or no notice", () => {
-    const out = hostDelivery("user-prompt-submit", { injection: "recall", ask: null }, {}, "a notice");
-    expect(out.stdout).toBe("recall");
+  test("user-prompt-submit never emits JSON WITHOUT a notice, and the doctor's is never handed to it", () => {
+    // The doctor notice is asked at session start only (`bin/hook.ts`): a
+    // warning, not a nag. The ONE line a prompt carries is roadmap E's update
+    // notice, once per session (2026-09-23) — `test/schema-gate.test.ts`
+    // "hostDelivery at a prompt" pins that envelope.
+    expect(hostDelivery("user-prompt-submit", { injection: "recall", ask: null }, {}).stdout).toBe("recall");
+    expect(hostDelivery("user-prompt-submit", { injection: "recall", ask: null }, {}, null).stdout).toBe("recall");
   });
 
   test("Stop keeps its blocking channel, and the notice never rides it", () => {

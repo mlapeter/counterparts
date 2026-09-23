@@ -61,6 +61,7 @@ import {
 } from "../src/adapters/claude-code/standdown.js";
 import type { StandDownMark } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
+import { UPDATE_NOTICE, installedBuild, readSession, recordServerLaunch } from "../src/adapters/sessions.js";
 import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
 import { makeBodyUnreadable } from "./store-fixture.js";
 
@@ -763,6 +764,72 @@ describe("a hook on a working store", () => {
     runHook("SessionStart", "h1-fixed-session");
     runHook("UserPromptSubmit", "h1-fixed-session");
     expect(existsSync(join(store, "sessions", "h1-fixed-session.standdown.json"))).toBe(false);
+  });
+
+  /**
+   * ROADMAP E, END TO END (2026-09-23): a live MCP server in this session's
+   * directory recorded an OLDER build at its launch, and the real hook process
+   * — the installed build — says so in the terminal, once. The "server" is this
+   * test process: its pid is alive, which is all the hook checks.
+   */
+  test("a stale MCP server in this directory: the notice once, as a systemMessage, then quiet", () => {
+    runHook("SessionStart", "h1-update-session");
+    const build = { ...installedBuild(), version: "0.0.1" };
+    recordServerLaunch(store, { scope: work, build, pid: process.pid, hostPid: 1 });
+    const first = runHook("UserPromptSubmit", "h1-update-session");
+    expect(first.code).toBe(0);
+    expect(systemMessage(first)).toBe(UPDATE_NOTICE);
+    expect(readSession(store, "h1-update-session")?.updateNoticeShown).toBe(true);
+    for (let turn = 0; turn < 2; turn++) {
+      const later = runHook("UserPromptSubmit", "h1-update-session");
+      expect(later.code).toBe(0);
+      expect(later.stdout).toBe("");
+    }
+    // A NEW session in the same directory is told too — once, its own.
+    runHook("SessionStart", "h1-update-other");
+    expect(systemMessage(runHook("UserPromptSubmit", "h1-update-other"))).toBe(UPDATE_NOTICE);
+  });
+
+  test("the HOST match, through the real process: the hook's parent is the host, and the stamp says so", () => {
+    // spawnSync runs the hook with no shell, so its parent is THIS process —
+    // exactly the host a server this process started would record.
+    runHook("SessionStart", "h1-host-session");
+    expect(readSession(store, "h1-host-session")?.opened?.hookPpid).toBe(process.pid);
+    // This host's server is current; a stranger's in the same directory is not.
+    recordServerLaunch(store, { scope: work, build: installedBuild(), pid: process.pid, hostPid: process.pid });
+    recordServerLaunch(store, { scope: work, build: { ...installedBuild(), version: "0.0.1" }, pid: process.ppid, hostPid: 1 });
+    const quiet = runHook("UserPromptSubmit", "h1-host-session");
+    expect(quiet.stdout).toBe("");
+    expect(quiet.stderr).not.toContain("adapter.update.notice");
+    // Now this host's own server is the stale one: told, and the debug log
+    // says it was the host match that decided.
+    recordServerLaunch(store, { scope: work, build: { ...installedBuild(), version: "0.0.1" }, pid: process.pid, hostPid: process.pid });
+    const told = runHook("UserPromptSubmit", "h1-host-session");
+    expect(systemMessage(told)).toBe(UPDATE_NOTICE);
+    expect(told.stderr).toContain('"matchedBy":"host"');
+    expect(told.stderr).toContain('"reason":"shown"');
+  });
+
+  test("a session that opened before the stamp existed is told once, and a compaction does not stamp it", () => {
+    runHook("SessionStart", "h1-prestamp-session");
+    // What a session that began on the previous build looks like: no `opened`.
+    const path = join(store, "sessions", "h1-prestamp-session.json");
+    const { opened: _dropped, ...rest } = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify(rest));
+    runHook("SessionStart", "h1-prestamp-session", { source: "compact" });
+    expect(readSession(store, "h1-prestamp-session")?.opened).toBeUndefined();
+    const told = runHook("UserPromptSubmit", "h1-prestamp-session");
+    expect(systemMessage(told)).toBe(UPDATE_NOTICE);
+    expect(told.stderr).toContain('"matchedBy":"unstamped"');
+    expect(runHook("UserPromptSubmit", "h1-prestamp-session").stdout).toBe("");
+  });
+
+  test("a current MCP server: nothing, and nothing marked", () => {
+    runHook("SessionStart", "h1-current-session");
+    recordServerLaunch(store, { scope: work, build: installedBuild(), pid: process.pid, hostPid: 1 });
+    const run = runHook("UserPromptSubmit", "h1-current-session");
+    expect(run.stdout).toBe("");
+    expect(readSession(store, "h1-current-session")?.updateNoticeShown).toBeUndefined();
   });
 });
 
