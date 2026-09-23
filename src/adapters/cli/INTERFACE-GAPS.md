@@ -348,3 +348,21 @@ Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 
 
 **What is already bounded:** the DATABASE export streams through `VACUUM INTO`
 and holds one file, so the ordinary export is unaffected by any of this.
+
+## 13. A clean `close()` does not fold the write-ahead log — OPEN 2026-09-23 (#26)
+
+`store/db.ts#openDb` prepares a new statement on every `get`/`run`/`all` and never
+finalizes one, so when a `Store` closes, bun's `close()` finds statements still open and
+skips SQLite's last-connection checkpoint-and-truncate. The `-wal` stays on disk at its
+high-water size — measured: 300 rows written, a clean close, a 2.19 MB log before and
+after the process exited — until some later connection happens to fold it (the MCP
+server a `claude mcp list` health check starts did, on a throwaway store: 3.8 MB to 0).
+Nothing is lost; the next writer reuses the log. What it costs is a store whose size on
+disk depends on which program touched it last — finding #26, where `uninstall` showed
+6.7 MB and then 1.4 MB a minute apart. `uninstall` now measures after its own pre-flight
+and says how much of the number is log (NOTES, 2026-09-23), which is this module's half.
+
+**The ask**, against `store/` (not built here): finalize statements — or cache them per
+SQL string and finalize the cache in `close()` — so a clean close is a real close. Worth
+measuring the hooks' per-turn cost before and after, since they open and close the store
+on every turn.
