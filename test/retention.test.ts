@@ -608,7 +608,7 @@ describe("the re-review's residuals (R1, R5, R7, R8)", () => {
     expect(planRetention(b.c.spans, sources(b.c))[0]?.verdict).toBe("kept-owed");
     expect(b.c.spans.writeUps(SCOPE)).toEqual([]);
     // The one accepted shape, and the record carries the fixed word.
-    expect(WRITE_UP_BY).toEqual(["next-session", "owner"]);
+    expect(WRITE_UP_BY).toEqual(["next-session", "owner", "api"]);
     expect(recordWriteUp(b.c.spans, { scope: SCOPE, session: "owes", by: "next-session" })).toBe("RECORDED");
     expect(b.c.spans.writeUps(SCOPE).map((w) => w.by)).toEqual(["next-session"]);
   });

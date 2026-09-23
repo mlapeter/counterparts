@@ -789,8 +789,11 @@ export interface SweepEntry {
  * skipped the sweep on purpose still owes the record, with the reason on it.
  */
 export interface SweepSkipped {
-  /** Why the caller did not sweep. One name, and it lands on the gate row. */
-  readonly skipped: "no-credential";
+  /** Why the caller did not sweep. One name, and it lands on the gate row.
+   *  `not-opted-in` (roadmap C2, 2026-09-23): the sweep is an opt-in upgrade,
+   *  and the owner has not opted in — whatever key is present. The next
+   *  session in a crashed session's project writes it up instead. */
+  readonly skipped: "no-credential" | "not-opted-in";
 }
 
 export interface SessionEndInput {

@@ -1858,7 +1858,10 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
       scopes: rows[0]?.["scopes"],
       otherRefusals: rows[0]?.["otherRefusals"],
       date: rows[0]?.["date"],
-    }).toEqual({ reason: "no-credential", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
+    // `not-opted-in` since C2: the sweep is an opt-in upgrade, and this worker's
+    // owner did not opt in. Opted in with no key is `no-credential`
+    // (`test/write-up.test.ts`).
+    }).toEqual({ reason: "not-opted-in", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
   });
 
   test("a sessionEnd that THROWS leaves a durable adapter.runner.failed row (I32)", async () => {

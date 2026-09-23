@@ -1270,30 +1270,41 @@ not changed.
 
 What the build settled, beyond the CONTRACT section:
 
-- **The host cap decided the part size, not the owner's 24 KB.** Hook output past 10,000
-  characters becomes a preview of the WAKE (first in stdout), so the write-up block is
-  measured against `WRITE_UP_HOST_OUTPUT_CHARS` as well as the reported budget, after
-  composing, and a start that cannot fit a 1 KB part defers. Numbers and the way out:
-  INTERFACE-GAPS §15.
-- **The part size is fixed at the first hand-over** and kept in `adapter.writeup.progress`
-  (one meta key; an entry is removed when its session is marked). A variable size would
-  use each start's room better but "part k of N" would change N between starts.
-- **Least recently handed over first.** Oldest-first alone let one session nobody wrote
-  up — ignored, or with nothing in it worth keeping, since an empty batch is refused —
+- **A pointer, because of the host cap** (owner's choice between INTERFACE-GAPS §15's two
+  options). The first build carried the words beside the wake, sized to the room; on a
+  mature store there was none. Now the hook points and the MCP door serves.
+- **The pointer is held to the host's cap, not the reported budget.** The budget is the
+  wake's composition target; 9,500 of the host's 10,000 characters is what the host
+  enforces. The cost is one named case: a red doctor notice can be crowded out of the
+  envelope on a morning that also carries a pointer (§15).
+- **The part size is a constant** (`WRITE_UP_PART_BYTES`, 24 KB, in `sessions.ts` because
+  both the hook and the door cut parts), kept per session in `adapter.writeup.progress` so
+  a change to the constant cannot renumber a write-up in flight.
+- **Least recently pointed at first.** Oldest-first alone let one session nobody wrote up
   stand in front of every other session in the project for ever.
-- **The door requires the hook's mark** (`writeUpFor` on the writing session's registry
-  record), the `pageWriterFor` pattern: a model cannot close a debt by naming an owed
-  session it never read.
+- **The door requires the hook's pointer to fetch, and the fetch's mark to answer**
+  (`writeUpPointer`, then `writeUpFor`), the `pageWriterFor` pattern twice over: a model
+  cannot read an owed session it was not pointed at, nor close one it never read.
 - **"Ended" uses the bind's own window** (`SESSION_TTL_MS`, 4 h), because a crash leaves
   no end on this host; a session idle past 4 h in another terminal of the same project can
-  be handed over while its terminal is still open. What it said since its last answer is
+  be pointed at while its terminal is still open. What it said since its last answer is
   what the next session sees (covered words are marked), and if it comes back its new
   words make it owe again.
 - **The host evidence moved** from `bin/runner.ts` to `adapters/sessions.ts`
-  (`hostSessionEvidence`, `writeUpSources`), so the retention pass, the ask and the door
-  read one set of facts; the runner keeps `retentionHost` as an alias.
+  (`hostSessionEvidence`, `writeUpSources`), so the retention pass, the pointer, the door
+  and the sweep's marks read one set of facts; the runner keeps `retentionHost` as an
+  alias.
+- **The sweep's marks** (`bin/runner.ts#sweepAware`): the worker wraps the interpreter it
+  hands the sweep. A written-up session's spans in a chunk of their own are retired with
+  no call — which removes their words from the buffer when the sweep claims them rather
+  than seven days after the mark, the same thing the sweep does to spans that were all
+  authored. In a mixed chunk only the transcript tail of the prompt is re-rendered (core
+  prefixes the wake and cards to it); if the tail is not where it should be the chunk goes
+  through unchanged — a possible duplicate, never a loss. "Finished" is read off the
+  buffer after the sweep: none of the session's words left live or claimed.
 - **Cost on the wake's path:** one `planRetention` pass over every scope's span files and
   up to 90 days of `adapter.ask` rows, only after the cheap checks (observer, already
-  asked this session, day's allowance spent) pass. Measured on a seeded temp store: 150
-  sessions of ~24 KB each (1,200 ask rows) — the plan 9 ms, the whole SessionStart 17 ms;
-  400 sessions of ~80 KB (3,200 ask rows) — 30 ms and 50 ms.
+  pointed this session, day's allowance spent) pass. Measured on a seeded temp store (the
+  first build, which also cut the parts): 150 sessions of ~24 KB each (1,200 ask rows) —
+  the plan 9 ms, the whole SessionStart 17 ms; 400 sessions of ~80 KB (3,200 ask rows) —
+  30 ms and 50 ms.

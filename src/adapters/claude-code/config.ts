@@ -177,23 +177,13 @@ export const TUNABLES = {
   EMBED_BATCH_SIZE: 128,
   /**
    * THE NEXT-SESSION WRITE-UP (roadmap C2, owner 2026-09-23). How many sessions
-   * may be handed an ended session's words in one calendar day (local time,
-   * `self/calendar.ts`). A sibling of the page writer's
+   * may be pointed at an ended session's words in one calendar day (local
+   * time, `self/calendar.ts`). A sibling of the page writer's
    * `PAGE_WRITER_ASKS_PER_DAY` and the same number: the owner's ruling is that
    * the write-up SHARES the day's allowance rather than growing a pacer of its
    * own — and nothing here is at the Stop, where §13 G3's one pacer lives.
    */
   WRITE_UP_ASKS_PER_DAY: 2,
-  /** The most captured words one session start carries: the owner's ~24 KB.
-   *  On this host it is never reached — see `WRITE_UP_HOST_OUTPUT_CHARS`. */
-  WRITE_UP_MAX_BYTES: 24 * 1024,
-  /**
-   * The least a part may carry and still be handed over. A start whose room
-   * would fix the part size below this DEFERS instead: a 600-byte part would
-   * turn one crashed afternoon into a hundred session starts, each spending the
-   * block's own furniture to deliver a sentence.
-   */
-  WRITE_UP_MIN_BYTES: 1024,
   /**
    * The host's cap on a hook's whole output, in characters, less the margin
    * `bin/hook.ts#ENVELOPE_MAX_CHARS` keeps for JSON escaping. The host's own
@@ -201,10 +191,8 @@ export const TUNABLES = {
    * and plain stdout, are capped at 10,000 characters. Output that exceeds this
    * limit is saved to a file and replaced with a preview and file path." Past
    * it, what the session would read is a preview — of the WAKE — so the
-   * write-up block is sized so the wake, every ask and itself stay under this,
-   * whatever `injectionBudgetBytes` says. It is why the owner's ~24 KB cannot
-   * ride beside a wake on this host: the most any start can carry is what this
-   * leaves after the wake.
+   * write-up pointer is measured so the wake, every ask and itself stay under
+   * this. It is also why the words themselves travel through the MCP door.
    */
   WRITE_UP_HOST_OUTPUT_CHARS: 9_500,
   // The Stop ask's pacing is NOT here any more, and that is the point: it was a

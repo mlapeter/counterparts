@@ -206,27 +206,37 @@ actually wrote (chapter), the written self page or the version a write to it pro
 16. **[M] `session_end` with `writeUp` is the next-session write-up's door** (roadmap C2,
     2026-09-23; `write-up.ts#writeUpDoor`). A FIELD, not a sibling tool: the call is
     diverted after the bind and before anything else reads it, so it never writes a
-    handoff and never marks "nothing new", and it shares with an ordinary `session_end`
-    only the bind (the WRITING session is this one, guarantee 10) and the road each entry
-    takes (`server.ts#depositEntries`, extracted rather than copied: gate battery,
-    redaction, authored channel, per-entry isolation) — so the memories are recorded under
-    the writing session, never the ended one. It accepts an ended session id only when
-    `sessions.ts#writeUpStanding` — the same function the SessionStart ask filters with —
-    says it ended in this project and B3's predicate says it owes, AND the writing
-    session's registry record carries the hook's `writeUpFor` mark for it (the one piece
-    of evidence the model cannot write). Refused, each by name, writing nothing:
-    `handoff-not-accepted`, `unknown-session`, `live-session` (this session's own id
-    included), `other-project`, `already-written-up`, `owes-nothing` (with `why`:
-    below-threshold, answered, no-text), `not-asked`, `wrong-part`,
-    `part-already-written`, `memories-required`, `empty-batch` — an empty batch is not a
-    write-up — and `nothing-landed` (every entry refused; a duplicate counts as landed).
-    A part short of the last advances the progress; the LAST part marks the ended session
-    written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`, `by:
-    "next-session"`, in every scope holding its words), which starts its seven-day
-    retention clock. This file is the seam's one importer outside `remember/`
-    (`test/cli.test.ts` pins it). A mark that did not land is `marked: false`: the
-    session still owes, and the next start hands the last part over again so the door
-    can finish without depositing twice.
+    handoff and never marks the writing session "nothing new", and it shares with an
+    ordinary `session_end` only the bind (the WRITING session is this one, guarantee 10)
+    and the road each entry takes (`server.ts#depositEntries`, extracted rather than
+    copied: gate battery, redaction, authored channel, per-entry isolation) — so the
+    memories are recorded under the writing session, never the ended one. Two calls:
+    **FETCH** (`writeUp`, no `memories`) returns the next unwritten part of the ended
+    session's captured words — what was said to it and what it jotted, never its replies —
+    up to `WRITE_UP_PART_BYTES` (~24 KB), and records it as handed to this session
+    (`writeUpFor`, merged into the registry record's raw JSON); fetching again before
+    answering hands back the same part, and a session that has answered its part is not
+    handed the next (that is a later start's). **ANSWER** (`writeUp` with `memories`)
+    deposits for the part last fetched; an EMPTY batch is a real answer here too — nothing
+    worth keeping — and closes the part without minting. The last part's answer marks the
+    ended session written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`,
+    `by: "next-session"`, in every scope holding its words), which starts its seven-day
+    retention clock; how it was answered (`memories` / `nothing-new`) is recorded on the
+    writing session's record. It accepts an ended id only when
+    `sessions.ts#writeUpStanding` — the same function the SessionStart pointer filters
+    with — says it ended in this project and B3's predicate says it owes, and only for the
+    session the hook POINTED this one at (`writeUpPointer`, evidence the model cannot
+    write). Refused, each by name, writing nothing: `handoff-not-accepted`,
+    `unknown-session`, `live-session` (this session's own id included), `other-project`,
+    `already-written-up`, `owes-nothing` (with `why`: below-threshold, answered, no-text),
+    `not-asked` (a fetch it was not pointed at, an answer before a fetch), `wrong-part`,
+    `part-already-written`, `memories-required` (present and not a list),
+    `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
+    landed) and `io-failed` (the fetch could not record the hand-over, so hands nothing).
+    This file is one of the seam's two importers outside `remember/` (`test/cli.test.ts`
+    pins it; the other is the worker's API sweep, which marks `by: "api"`). A mark that did
+    not land is `marked: false`: the session still owes, and the next start points at it
+    again so the answer can finish without depositing twice.
 
 ### The residual risk of the lazy bind, named
 

@@ -360,7 +360,7 @@ const SESSION_END: ToolSpec = {
     "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
-    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up block handed you.",
+    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
     "Do NOT summarize the conversation; a transcript is not a memory. Write what was LEARNED.",
   ],
   privileges: [
@@ -429,7 +429,7 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "`writeUp` writes up a session that ended here before it was written up, and ONLY the one a session-start block handed THIS session: its memories are recorded as this session's, through the same road as every entry, and when the last part comes back the ended session is marked written up. A live session, an unknown one, one from another project, one that owes nothing or is already written up, one you were not handed, and an EMPTY batch are each refused by name, and nothing is written.",
+        "`writeUp` writes up a session that ended here before it was written up, and ONLY the one a session-start pointer named for THIS session. With no `memories` it returns that session's next part (what was said to it, up to ~24 KB); with `memories` it answers the part you fetched — recorded as this session's, through the same road as every entry, and `[]` is a real answer (nothing worth keeping). When the last part comes back the ended session is marked written up. A live session, an unknown one, one from another project, one that owes nothing or is already written up, and one you were not pointed at are each refused by name, and nothing is written.",
       mechanizedBy:
         "src/adapters/mcp/write-up.ts#writeUpDoor -> src/adapters/sessions.ts#writeUpStanding -> src/core/remember/write-up-seam.ts#recordWriteUp",
     },
@@ -450,12 +450,12 @@ const SESSION_END: ToolSpec = {
       writeUp: {
         type: "string",
         description:
-          "Only when a session-start write-up block handed you an ENDED session's words: that session's id. `session` stays THIS session's id, and the memories are this session's, written from those words. Not with `handoff`, and never with an empty `memories`.",
+          "Only when a session-start write-up pointer named an ENDED session: that session's id. Send it with NO `memories` first — the result is the next part of what was said to it — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id, and the memories are this session's. Not with `handoff`.",
       },
       part: {
         type: "integer",
         minimum: 1,
-        description: "With `writeUp`: the part number the block named. Optional; it must match if sent.",
+        description: "With `writeUp` and `memories`: the part number the fetch returned. Optional; it must match if sent.",
       },
       memories: {
         type: "array",
@@ -506,6 +506,9 @@ const SESSION_END: ToolSpec = {
         },
       },
     },
+    // `memories` stays required in the published schema: the write-up fetch is
+    // the one call that leaves it out, and it is named in `writeUp`'s own
+    // description. A caller who sent neither still hears `memories-required`.
     required: ["memories"],
     additionalProperties: false,
   },

@@ -1361,7 +1361,7 @@ describe("the update notice is fail-open", () => {
 
 // ── the next-session write-up rides beside the wake and can never cost it (C2) ──
 
-describe("the write-up ask never costs the wake", () => {
+describe("the write-up pointer never costs the wake", () => {
   /** A session in `work` that talked, was asked, never answered, and ended —
    *  so the next SessionStart there is handed its words. */
   function owedSessionInWork(): void {
@@ -1386,14 +1386,16 @@ describe("the write-up ask never costs the wake", () => {
     }
   }
 
-  test("a real hook process: the healthy wake, byte for byte, THEN the write-up block", () => {
+  test("a real hook process: the healthy wake, byte for byte, THEN the write-up pointer", () => {
     owedSessionInWork();
     const run = runHook("SessionStart", "h1-next-session");
     expect(run.code).toBe(0);
     expect(run.stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
     const tail = run.stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
     expect(tail.startsWith(`\n\n${WRITE_UP_OPEN}`)).toBe(true);
-    expect(tail).toContain("The relief valve is seated");
+    expect(tail).toContain("The oldest is ended-owing");
+    // A pointer: the words come from the MCP door, never beside the wake.
+    expect(tail).not.toContain("The relief valve is seated");
     expect(run.stdout.length).toBeLessThan(10_000);
   });
 

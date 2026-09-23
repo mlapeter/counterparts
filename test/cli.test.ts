@@ -4665,11 +4665,14 @@ describe("the destruction path is importable from this directory only", () => {
     full.endsWith(join("core", "remember", "retention.ts"));
   const RETENTION_ALLOWED = (full: string): boolean =>
     full.endsWith(join("adapters", "claude-code", "bin", "runner.ts"));
-  /** `remember/` itself (the grantor), and the ONE path the next-session
-   *  write-up's door (roadmap C2) lives at — built 2026-09-23. */
+  /** `remember/` itself (the grantor), and the TWO paths that may mark a
+   *  session written up (roadmap C2, built 2026-09-23): the next-session
+   *  write-up's door, and the worker whose opt-in API sweep marks a crashed
+   *  session it has finished with (`by: "api"`). */
   const WRITE_UP_C2_DOOR = join("adapters", "mcp", "write-up.ts");
+  const WRITE_UP_SWEEP = join("adapters", "claude-code", "bin", "runner.ts");
   const WRITE_UP_ALLOWED = (full: string): boolean =>
-    full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR);
+    full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR) || full.endsWith(WRITE_UP_SWEEP);
 
   test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
     // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
@@ -4716,9 +4719,10 @@ describe("the destruction path is importable from this directory only", () => {
     // `adapters/mcp/write-up.ts`, which does not exist yet.
     const { offenders, allowedHits } = seamImporters(SRC, "write-up-seam.js", WRITE_UP_ALLOWED);
     expect(offenders).toEqual([]);
-    // NOT VACUOUS: the grantor imports it, and so does the door.
+    // NOT VACUOUS: the grantor imports it, and so do the door and the sweep.
     expect(allowedHits.some((f) => f.endsWith(join("core", "remember", "spans.ts")))).toBe(true);
     expect(allowedHits.some((f) => f.endsWith(WRITE_UP_C2_DOOR))).toBe(true);
+    expect(allowedHits.some((f) => f.endsWith(WRITE_UP_SWEEP))).toBe(true);
     const index = readFileSync(join(SRC, "core", "remember", "index.ts"), "utf8");
     expect(/["']\.\/write-up-seam\.js["']/.test(index)).toBe(false);
     const exported = Object.keys(await import("../src/core/remember/index.js"));

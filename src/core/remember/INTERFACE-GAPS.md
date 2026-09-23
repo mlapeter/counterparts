@@ -237,29 +237,24 @@ or for as long as it waits to be written up.`
 
 
 
-## 13. The API sweep can write up a session the next session already wrote up
+## 13. The API sweep can write up a session the next session already wrote up — CLOSED 2026-09-23 (C2)
 
-**Owner:** `remember/spans.ts#crashedSessions` / `fallback.ts`. Filed 2026-09-23 (C2).
-**Have:** a write-up mark (`writeups.jsonl`) that the next-session door sets. The sweep's
-crash predicate reads boundaries and coverage and never that file. With the sweep off by
-default nothing reaches this; with `crashWriteUp: "api"` the SessionStart ask leaves
-crashed sessions to the sweep, so the two do not overlap either. What is left: a store
-that was written up by the next session and THEN switched to the API sweep inside the
-seven days re-sweeps that session's uncovered words, minting near-duplicates of what the
-next session wrote. **Ask:** `crashedPending` skips a session with a write-up mark at or
-after its last capture.
+**Owner:** was `remember/spans.ts#crashedSessions` / `fallback.ts`. Closed without
+touching either: the worker hands the sweep an interpreter that reads the write-up marks
+(`claude-code/bin/runner.ts#sweepAware`). A session already marked written up is not read
+again — a chunk of only such sessions is retired with no model call, and in a mixed chunk
+their words are marked already-authored — and a crashed session the sweep has finished
+with, consumed or QUARANTINED, is marked written up `by: "api"` (added to
+`write-up-seam.ts#WRITE_UP_BY`), so a quarantined crash no longer owes for ever. A
+session whose spans were put back for a retry is not marked. What would still be cleaner
+here: `crashedPending` skipping a written-up session itself, so its spans are not claimed
+at all and keep their seven days (today they are retired when the sweep claims them).
 
-The same seam, the other way round: with `crashWriteUp: "api"` the SessionStart ask
-leaves every session without a normal end to the sweep, and the sweep sets no write-up
-mark. A swept session's words are consumed, so it stops owing — but one whose spans the
-sweep QUARANTINED still holds text, still owes, is never handed to a next session, and
-counts in doctor's `Crash write-up` line (amber after 3 days) until the owner acts.
+## 14. The sweep's gate row has one reason for a deliberate skip — CLOSED 2026-09-23 (C2)
 
-## 14. The sweep's gate row has one reason for a deliberate skip
-
-**Owner:** `core/counterpart.ts#SweepSkipped` (not `remember/`, filed here beside the
-sweep). Filed 2026-09-23 (C2). The sweep is opt-in now, and a worker whose owner did not
-opt in — key present or not — can only say `reason: "no-credential"` on its gate row,
-because that is the only skip reason core accepts. **Ask:** a second reason
-(`"not-opted-in"`), so the row says which it was; doctor's `Sweep` line then stops
-telling a keyless store to add a key (see `claude-code/INTERFACE-GAPS`).
+`core/counterpart.ts#SweepSkipped` now has a second reason, `"not-opted-in"`, which the
+worker writes when the owner has not opted into the API sweep (whatever key is present);
+`"no-credential"` is left for opted in with no key. Doctor's `Sweep` line reads
+`not-opted-in` — and a pre-C2 `no-credential` with the knob absent — as green `next
+session`. Not taught here: the dashboard's narrator (`dashboard/web/narrate.ts`) has a
+sentence for `no-credential` and none yet for `not-opted-in`.

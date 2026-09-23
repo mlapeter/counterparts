@@ -387,7 +387,7 @@ What each needs, and what a week-old deletion of a session that owes nothing cos
 | Reader | What it reads | Needs | After retention |
 |---|---|---|---|
 | The crash-fallback sweep (`fallback.ts`, via `Counterpart#sweepFallback` in the worker) | `buffer.jsonl`, `jots.jsonl`, claims — CRASHED sessions only | a crashed session's uncovered text until it is swept (12 h silence) | Unaffected in practice. A crashed session the pacer asked about, or one whose substance reached the first-ask threshold, OWES and is kept however old; a short one goes after a week — six and a half days after the sweep could first have read it. |
-| The next-session write-up (roadmap C2, built 2026-09-23: `claude-code/hooks.ts#deliverWriteUpAsk`, `mcp/write-up.ts`) | an owed session's conversation and jot spans, quarantine and claims — never its assistant turns — plus coverage marks | everything a session that owes still holds | It reads this predicate (through `adapters/sessions.ts#writeUpPlan`, the retention pass's own sources), so nothing it needs can age out. |
+| The next-session write-up (roadmap C2, built 2026-09-23: `claude-code/hooks.ts#deliverWriteUpAsk` points, `mcp/write-up.ts` serves and marks) | an owed session's conversation and jot spans, quarantine and claims — never its assistant turns — plus coverage marks | everything a session that owes still holds | It reads this predicate (through `adapters/sessions.ts#writeUpPlan`, the retention pass's own sources), so nothing it needs can age out. |
 | The lagged semantic cue (`claude-code/vectors.ts`) | `spans()` and `assistantSpans()` filtered to the session that just spoke | that session's last turn | The session that just spoke had a boundary a moment ago, so its clock is minutes old: it is kept by the CAPTURE clock, which reads the buffer alone. (The first version of this table said "a live session is always younger than a week"; that was false for a session idle past a week — review m10. A session the host's registry still holds open is kept too, but only while the registry keeps the record, which is the same week — re-review R8 — so that is an extra guard, not this row's.) |
 | The Stop's coverage report (`hooks.ts#askAtStop` → `coverageReport`) | counts over the scope's buffer | counts for the `adapter.ask` row | The counts now describe what is HELD — a week, what is owed, what is open — not everything ever captured. |
 | Deposit intake (`proposals.ts#submitProposal`) and `claimCoverage` | the depositing session's spans | the session that is depositing | It is active, so its clock is fresh. |
@@ -536,12 +536,13 @@ per session across every scope of the store.
   Every session that owes keeps its text indefinitely: every asked session whose terminal
   was closed without a SessionEnd (item 2), and every `session_end` whose entries were all
   refused (item 13). By design for now; doctor's line and export's say so.
-  **C2 (2026-09-23) is the way out**: the next session in that project is handed the words
-  and the door marks the session once its last part comes back. What stays owed for ever
-  is a session whose project is never reopened, and one nobody writes anything from —
-  an empty batch is not a write-up (owner's ruling), so a session with nothing worth
-  keeping in it keeps its text until the owner marks it (`WRITE_UP_BY` has `"owner"`; no
-  console command sets it yet).
+  **C2 (2026-09-23) is the way out**: the next session in that project is pointed at it,
+  fetches the words, and the door marks the session once its last part comes back
+  answered — with memories, or with an empty batch, which is a real answer there too. The
+  opt-in API sweep marks the crashed sessions it finishes with (`by: "api"`), quarantined
+  ones included. What stays owed for ever is a session whose project is never reopened
+  (doctor's `Crash write-up` line counts them); the owner can close one by hand only once
+  a console command sets `by: "owner"` (filed, not built).
 - **m9 — the crash fallback's outgoing prompt is raw.** `fallback.ts` sends the claimed
   transcript to the interpreter as captured; only the vector text is redacted. Pre-existing,
   filed in `encode/INTERFACE-GAPS` §3; with the key-based sweep becoming opt-in (C2) it

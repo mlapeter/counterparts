@@ -600,52 +600,63 @@ documented route, spec §16), which is why `session` is the default.
 
 ### The next-session write-up (C2, 2026-09-23 — true for now)
 
-**[M] A session that ended owing a write-up is handed to the next session that starts in
-its project.** "Owes" is B3's predicate and nothing else (`remember/owes.ts#owesWriteUp`,
+**[M] A session that ended owing a write-up is written up by the next session that starts
+in its project.** "Owes" is B3's predicate and nothing else (`remember/owes.ts#owesWriteUp`,
 read across every scope through `adapters/sessions.ts#writeUpPlan`, the same sources the
 retention pass reads): a short session, or one that answered and ended normally, is never
-asked about. "Ended" is the registry's: an end, or no boundary for `SESSION_TTL_MS` (the
-MCP bind's window — a crash has no end on this host), or no record at all (the registry
+named. "Ended" is the registry's: an end, or no boundary for `SESSION_TTL_MS` (the MCP
+bind's window — a crash has no end on this host), or no record at all (the registry
 forgets a record a week after its last write; a debt outlives that). "In its project" is
 the registry record's scope, or, once the record is gone, the scope its words are filed
-under. The SessionStart hook puts ONE part of ONE such session's captured words — what was
-said to it and what it jotted, never its own replies — in `HookResult.ask`, after
-whichever other ask took the field (the first-launch question or the page writer's), in
-the page writer's register ("context, not an instruction"). Sessions never handed over go
-first, then the least recently handed, oldest first among equals, so one session nobody
-writes up cannot stand in front of the rest.
+under. Sessions never pointed at go first, then the least recently pointed at or fetched,
+oldest first among equals, so one session nobody writes up cannot stand in front of the
+rest.
 
-**[M] The part is sized to the room, and the host's cap is the ceiling that binds.** The
-part size is fixed the first time a session is handed over — `min(WRITE_UP_MAX_BYTES
-(24 KB), budget − wake − other ask − block, WRITE_UP_HOST_OUTPUT_CHARS (9,500) − the
-same)` — so "part k of N" means the same N at every start; a start whose room would fix it
-below `WRITE_UP_MIN_BYTES` (1 KB), or whose composed block does not fit, DEFERS and claims
-nothing. The owner's ~24 KB is never reached on this host: its 10,000-character cap on a
-hook's whole output turns anything longer into a preview of the wake. Measured: a
-fresh-store wake (~470 B) leaves a ~7.7 KB part; a 3 KB wake ~5.2 KB; a 6 KB wake ~2.2 KB;
-a wake above ~7.2 KB under a 9,000-byte budget defers every start.
+**[M] SessionStart carries a POINTER, not the words** (owner's choice of 2026-09-23,
+INTERFACE-GAPS §15 option (b)). ~400 bytes in `HookResult.ask`, after whichever other ask
+took the field, in the page writer's register ("context, not an instruction"): how many
+sessions here are waiting, the oldest one's id, date and size ("part k of N" when it is
+long), and the call that fetches it — `session_end` with `writeUp` and no memories. The
+words come back from the MCP door (`mcp/CONTRACT` guarantee 16), at most
+`WRITE_UP_PART_BYTES` (~24 KB) per session, because an MCP result is not under the host's
+10,000-character cap on a hook's output and the wake is. The pointer is measured against
+that cap (`WRITE_UP_HOST_OUTPUT_CHARS`, 9,500), NOT the reported budget: the budget is
+what the wake is composed to, and a pointer held to it would be deferred on every mature
+store — the owner's wakes run 8.8–9.0 KB of 9,000. Past the cap it DEFERS and claims
+nothing.
 
-**[M] One ask per session, a daily allowance, and the marks come before the words.**
-`WRITE_UP_ASKS_PER_DAY` (2, the page writer's number) per calendar day in local time; a
-compaction re-firing SessionStart asks nothing. Before the block is handed over, the part
-size, count and hand-over time go into one meta key (`adapter.writeup.progress`, removed
-when the session is marked), then the live session's registry record gets `writeUpFor:
-{session, part}` — the door's only evidence that this session holds those words. A mark
-that will not land hands nothing over. Never under observer; never in a directory set
-`off` (the entry point returns before anything opens). The whole body is fail-open: a
-throw costs the write-up and never the wake or the other ask (asserted byte for byte).
+**[M] Once per session, and the day's allowance.** A compaction re-firing SessionStart
+points at nothing (`writeUpPointer` on the session's registry record, which is also the
+door's evidence that this session may fetch that session's words at all). At most
+`WRITE_UP_ASKS_PER_DAY` (2, the page writer's number) pointers per calendar day in local
+time. Before the pointer is handed over, the part size, count and hand-over time go into
+one meta key (`adapter.writeup.progress`, removed when the session is marked), then the
+registry mark, then the day's count; a mark that will not land hands nothing over. Never
+under observer; never in a directory set `off` (the entry point returns before anything
+opens). The whole body is fail-open: a throw costs the pointer and never the wake or the
+other ask (asserted byte for byte).
 
-**[M] The API sweep is opt-in.** `crashWriteUp: "api"` (strict; absent is
-`next-session`) AND the key: then the worker's sweep runs as before, and the SessionStart
-ask leaves sessions with no normal end to it (`config.ts#apiSweepOn`, one predicate for
-both). Otherwise the sweep builds no interpreter and writes its gate row with core's one
-skip reason, `no-credential`; `runner.done` says `sweep: next-session | no-key | api`.
+**[M] The API sweep is opt-in, and it and the write-up know each other.**
+`crashWriteUp: "api"` (strict; absent is `next-session`) AND the key: then the worker's
+sweep runs, and the pointer leaves sessions with no normal end to it
+(`config.ts#apiSweepOn`, one predicate for both). The worker hands the sweep an
+interpreter that knows the write-up marks (`bin/runner.ts#sweepAware`): a session already
+marked written up is not read again (a chunk of only such sessions is retired with no
+model call; in a mixed chunk their words are marked already-authored), and a session the
+sweep has finished with — consumed, or quarantined after the retry bound — is marked
+written up `by: "api"`, so a quarantined crash no longer stays owed. A session put back
+for a retry is not marked. Not opted in, the sweep builds no interpreter and its gate row
+says `not-opted-in`; opted in with no key, `no-credential`; `runner.done` says `sweep:
+next-session | no-key | api`.
 
-**[M] Doctor's `Crash write-up` line.** `next session` green by default; `on (API)` with
-the knob and the key in the credentials file; amber with the knob and no key, and amber
-when a session has waited past `WRITE_UP_WAIT_DAYS` (3) — counted across every project
-from B3's plan minus what the registry holds running. Never red. Not in the session-start
-reading (it is never red, and it reads every scope's words).
+**[M] Doctor: `Crash write-up`, and the `Sweep` line knows the knob.** `Crash write-up`:
+`next session` green by default; `on (API)` with the knob and the key in the credentials
+file; amber with the knob and no key (its fix is the command), and amber when a session
+has waited past `WRITE_UP_WAIT_DAYS` (3) — counted across every project from B3's plan
+minus what the registry holds running. Never red; not in the session-start reading.
+`Sweep`: `not-opted-in` — and a pre-C2 `no-credential` when the knob is absent — is green
+`next session`; opted in with no key is amber and points at the `Crash write-up` line
+rather than naming the same command twice.
 
 ## 6. Scars honored
 

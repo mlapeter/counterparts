@@ -64,6 +64,7 @@ import type {
   HeldSession,
   HostSessionEvidence,
   RetentionSources,
+  Span,
   SpanBuffer,
 } from "../core/remember/index.js";
 import { episodeFacts } from "../core/self/index.js";
@@ -220,32 +221,38 @@ export interface SessionRecord {
    */
   readonly nothingNewAt?: number;
   /**
-   * WHICH ENDED SESSION, AND WHICH PART OF IT, THIS SESSION WAS HANDED TO WRITE
-   * UP (roadmap C2, 2026-09-23) — written by the SessionStart hook at the moment
-   * it puts that part's captured words beside the wake.
-   *
-   * Two jobs, the `pageWriterFor` pair exactly:
-   *
-   *   - it stops the same session being handed a write-up twice — a compaction
-   *     re-firing SessionStart asks nothing;
-   *   - it is the ONLY evidence the MCP door (`mcp/write-up.ts`) accepts that
-   *     this session holds that part's words at all. A model that names some
-   *     other ended session — one it never read — is refused `not-asked`: only
-   *     the hook writes this, and the model cannot.
-   *
-   * Carried forward like `config`, newest wins. Still host state, still no
-   * content: an id and a number.
+   * THE ENDED SESSION THE SESSIONSTART HOOK POINTED THIS SESSION AT (roadmap
+   * C2, 2026-09-23) — written by the hook at the moment it puts the write-up
+   * pointer beside the wake. It stops a compaction re-firing SessionStart from
+   * pointing again, and it is the MCP door's evidence that this session may
+   * FETCH that session's words at all: only the hook writes it, and the model
+   * cannot. Carried forward like `config`. Still host state: an id.
+   */
+  readonly writeUpPointer?: string;
+  /**
+   * THE PART OF AN ENDED SESSION THIS SESSION FETCHED, and how it answered —
+   * written by the MCP door (`mcp/write-up.ts`) into the record's raw JSON when
+   * a part is handed over, and again when its answer comes back. A session
+   * that fetched nothing cannot write a part up (`not-asked`), and one that has
+   * answered its part is not handed another: the rest comes at later starts.
+   * Carried forward like `config`. Still host state: an id, a number, a word.
    */
   readonly writeUpFor?: WriteUpFor;
 }
 
-/** The part of an ended session the SessionStart hook handed a live one. */
+/** The part of an ended session the MCP door handed a live one. */
 export interface WriteUpFor {
   /** The ENDED session whose words were handed over. */
   readonly session: string;
   /** Which part, from 1. */
   readonly part: number;
+  /** How the part came back: memories, or "nothing worth keeping" (an empty
+   *  batch, which is a real answer on this door too). Absent: not yet. */
+  readonly answer?: WriteUpAnswer;
 }
+
+export const WRITE_UP_ANSWERS = ["memories", "nothing-new"] as const;
+export type WriteUpAnswer = (typeof WRITE_UP_ANSWERS)[number];
 
 /**
  * One path segment, and nothing that could climb out of it. This host's ids are
@@ -368,9 +375,9 @@ export function recordSession(
     /** When `session_end` last answered "nothing new" (B1). Carried forward
      *  like `config`; the newest answer wins. */
     nothingNewAt?: number;
-    /** The ended session and part the SessionStart hook handed this one to
-     *  write up (C2). Carried forward like `config`; the newest answer wins. */
-    writeUpFor?: WriteUpFor;
+    /** The ended session the SessionStart hook pointed this one at (C2).
+     *  Carried forward like `config`; the newest answer wins. */
+    writeUpPointer?: string;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -446,14 +453,16 @@ export function recordSession(
       : prior?.nothingNewAt !== undefined
         ? { nothingNewAt: prior.nothingNewAt }
         : {}),
-    // Carried like `config`, and it MUST be: the MCP door reads it after the
-    // session has gone on to Stop several times, and every Stop rewrites this
-    // record whole (C2).
-    ...(input.writeUpFor !== undefined && parseWriteUpFor(input.writeUpFor) !== null
-      ? { writeUpFor: { session: input.writeUpFor.session, part: input.writeUpFor.part } }
-      : prior?.writeUpFor !== undefined
-        ? { writeUpFor: prior.writeUpFor }
+    // Both carried like `config`, and they MUST be: the MCP door reads them
+    // after the session has gone on to Stop several times, and every Stop
+    // rewrites this record whole (C2). Only the hook writes the pointer; only
+    // the door writes `writeUpFor`, into the raw JSON (`markWriteUpFetched`).
+    ...(input.writeUpPointer !== undefined && isSessionId(input.writeUpPointer)
+      ? { writeUpPointer: input.writeUpPointer }
+      : prior?.writeUpPointer !== undefined
+        ? { writeUpPointer: prior.writeUpPointer }
         : {}),
+    ...(prior?.writeUpFor !== undefined ? { writeUpFor: prior.writeUpFor } : {}),
   };
 
   return writeRecord(dataDir, path, record);
@@ -1110,6 +1119,7 @@ function parseRecord(raw: unknown): SessionRecord | null {
       : {}),
     // Optional for the same reason; a malformed one is no mark at all, so a
     // hand-edited record cannot talk the MCP door into accepting a write-up.
+    ...(isSessionId(rec["writeUpPointer"]) ? { writeUpPointer: rec["writeUpPointer"] } : {}),
     ...((): { writeUpFor?: WriteUpFor } => {
       const writeUpFor = parseWriteUpFor(rec["writeUpFor"]);
       return writeUpFor === null ? {} : { writeUpFor };
@@ -1126,7 +1136,28 @@ function parseWriteUpFor(raw: unknown): WriteUpFor | null {
   const part = w["part"];
   if (!isSessionId(session)) return null;
   if (typeof part !== "number" || !Number.isSafeInteger(part) || part < 1) return null;
-  return { session, part };
+  const answer = w["answer"];
+  return (WRITE_UP_ANSWERS as readonly unknown[]).includes(answer)
+    ? { session, part, answer: answer as WriteUpAnswer }
+    : { session, part };
+}
+
+/**
+ * THE DOOR'S MARK on the WRITING session's record (C2): which part of which
+ * ended session it was handed, and — once it comes back — how it was answered.
+ * Into the RAW JSON (`mergeIntoRecord`), like every mark a process other than
+ * the hooks writes, so a field a newer hook added survives it. Never creates a
+ * record: the writing session is bound, so its record exists. Never throws.
+ */
+export function markWriteUpFetched(dataDir: string, sessionId: string, writeUpFor: WriteUpFor): boolean {
+  if (parseWriteUpFor(writeUpFor) === null) return false;
+  return mergeIntoRecord(dataDir, sessionId, {
+    writeUpFor: {
+      session: writeUpFor.session,
+      part: writeUpFor.part,
+      ...(writeUpFor.answer === undefined ? {} : { answer: writeUpFor.answer }),
+    },
+  });
 }
 
 // ── the next-session write-up (roadmap C2, 2026-09-23) ──────────────────────
@@ -1386,28 +1417,131 @@ export function owedWriteUps(
 }
 
 /**
- * HOW FAR A WRITE-UP HAS GOT, per ended session: the part size chosen when it
- * was first handed over (fixed, so "part k of N" means the same thing at every
- * start), how many parts that made, and how many have been written. ONE meta
- * key in box 2, not one per session — nothing mows meta, and an entry is
- * REMOVED when its session is marked written up, so the map holds only the
- * write-ups in flight.
+ * THE MOST OF AN ENDED SESSION'S WORDS ONE FETCH RETURNS — the owner's ~24 KB
+ * per session start (2026-09-23). An MCP result is not under the hook's
+ * 10,000-character cap, which is why the words travel that way and the
+ * SessionStart block is only a pointer. Fixed, so "part k of N" is the same N
+ * at every start.
+ */
+export const WRITE_UP_PART_BYTES = 24 * 1024;
+/** What marks words the ended session had already handed back itself. */
+export const WRITE_UP_KEPT_MARK = "[already written up by that session]";
+/** What marks a note the ended session jotted, rather than something said. */
+export const WRITE_UP_JOT_MARK = "[a note it jotted]";
+const WRITE_UP_SEPARATOR = "\n\n---\n\n";
+
+/** One piece of an ended session's captured words, in the order they came. */
+export interface WriteUpEntry {
+  readonly text: string;
+  /** The ended session handed this back itself (a coverage mark). */
+  readonly kept: boolean;
+  readonly jot: boolean;
+}
+
+/**
+ * THE WORDS AN ENDED SESSION LEFT, as `remember/owes.ts` counts them captured:
+ * what was said to it and what it jotted, wherever the buffer holds them — the
+ * live streams, quarantine, a claim in flight — in every scope the session
+ * filed words under, deduplicated and in the order they came. NEVER the
+ * assistant's own turns: nothing writes a session up from those (B3), and the
+ * API sweep never read them either. Read-only.
+ */
+export function writeUpEntries(spans: SpanBuffer, held: Pick<HeldSession, "session" | "scopes">): WriteUpEntry[] {
+  const seen = new Set<string>();
+  const found: { span: Span; kept: boolean }[] = [];
+  for (const scope of held.scopes) {
+    const covered = spans.coveredHashes(scope);
+    const said = [
+      ...spans.spans(scope),
+      ...spans.quarantined(scope).filter((x) => x.kind !== "assistant"),
+      ...spans.claimedSpans(scope).filter((x) => x.kind !== "assistant"),
+    ];
+    for (const span of said) {
+      if (span.session !== held.session || typeof span.text !== "string" || span.text.trim().length === 0) continue;
+      if (seen.has(span.hash)) continue;
+      seen.add(span.hash);
+      found.push({ span, kept: covered.has(span.hash) });
+    }
+  }
+  found.sort((a, b) => (a.span.at !== b.span.at ? a.span.at - b.span.at : a.span.from - b.span.from));
+  return found.map(({ span, kept }) => ({ text: span.text, kept, jot: span.kind === "jot" }));
+}
+
+/**
+ * THE PARTS, at `chunkBytes` of words each. Whole entries where they fit; an
+ * entry longer than a part is cut at a character, never inside one. Pure and
+ * deterministic, so the same entries and the same size are the same parts at
+ * every call — the hook counts them for the pointer, the door serves them.
+ */
+export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: number): string[] {
+  const size = Math.max(1, Math.floor(chunkBytes));
+  const sep = Buffer.byteLength(WRITE_UP_SEPARATOR, "utf8");
+  const parts: string[] = [];
+  let cur = "";
+  let curBytes = 0;
+  const flush = (): void => {
+    if (cur.length > 0) parts.push(cur);
+    cur = "";
+    curBytes = 0;
+  };
+  for (const entry of entries) {
+    const rendered =
+      (entry.kept ? `${WRITE_UP_KEPT_MARK}\n` : "") + (entry.jot ? `${WRITE_UP_JOT_MARK} ` : "") + entry.text;
+    const bytes = Buffer.byteLength(rendered, "utf8");
+    if (cur.length > 0 && curBytes + sep + bytes <= size) {
+      cur += WRITE_UP_SEPARATOR + rendered;
+      curBytes += sep + bytes;
+      continue;
+    }
+    flush();
+    if (bytes <= size) {
+      cur = rendered;
+      curBytes = bytes;
+      continue;
+    }
+    // Longer than a part on its own: cut it, by code point.
+    let slice = "";
+    let sliceBytes = 0;
+    for (const ch of rendered) {
+      const b = Buffer.byteLength(ch, "utf8");
+      if (sliceBytes + b > size && slice.length > 0) {
+        parts.push(slice);
+        slice = "";
+        sliceBytes = 0;
+      }
+      slice += ch;
+      sliceBytes += b;
+    }
+    cur = slice;
+    curBytes = sliceBytes;
+  }
+  flush();
+  return parts;
+}
+
+/**
+ * HOW FAR A WRITE-UP HAS GOT, per ended session: the part size it was cut at
+ * (fixed at the first pointer, so "part k of N" means the same thing at every
+ * start), how many parts that made, how many have come back, and when it was
+ * last pointed at or fetched. ONE meta key in box 2, not one per session —
+ * nothing mows meta, and an entry is REMOVED when its session is marked
+ * written up, so the map holds only the write-ups in flight.
  *
- * Written by the hook (when it hands a part over) and by the MCP door (when a
- * part comes back). Not locked: two processes writing it within the same
- * millisecond can lose one update, and the cost is bounded to one part handed
- * over a second time.
+ * Written by the hook (when it points at a session) and by the MCP door (when
+ * a part is fetched, and when it comes back). Not locked: two processes writing
+ * it within the same millisecond can lose one update, and the cost is bounded
+ * to one part handed over a second time.
  */
 export const WRITE_UP_PROGRESS_KEY = "adapter.writeup.progress";
 
 export interface WriteUpProgress {
-  /** Bytes of captured words per part, fixed at the first ask. */
+  /** Bytes of captured words per part, fixed at the first pointer. */
   readonly chunk: number;
-  /** How many parts that makes, as of the newest ask. */
+  /** How many parts that makes, as of the newest pointer or fetch. */
   readonly parts: number;
   /** How many parts have come back written. */
   readonly done: number;
-  /** When a part of it was last handed over, epoch ms — what keeps one
+  /** When it was last pointed at or fetched, epoch ms — what keeps one
    *  session nobody writes up from standing in front of every other. */
   readonly handedAt: number;
 }

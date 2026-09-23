@@ -3033,6 +3033,10 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     rmSync(made, { recursive: true, force: true });
   });
 
+  // THE SWEEP IS OPT-IN since C2 (2026-09-23): the two tests below are about an
+  // owner who opted in (`crashWriteUp: "api"`); the one after them is everyone else.
+  const OPTED_IN = { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true }, crashWriteUp: "api" } as const;
+
   test("Sweep: `no-credential` with a key present NOW is green, and says which fact it is reading", () => {
     mintStore();
     writeConfig();
@@ -3043,7 +3047,7 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
       day: s.livedDay(),
       payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
     });
-    const f = by(doctorFindings(input({ store: s })), "sweep");
+    const f = by(doctorFindings(input({ store: s, config: { ...OPTED_IN, dataDir: dir, credentialsFile: credsPath } })), "sweep");
     expect(f.severity).toBe("green");
     expect(f.detail).toContain("reason no-credential");
     expect(f.detail).toContain(`that sweep ran before ${API_KEY_ENV} was added`);
@@ -3053,10 +3057,9 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     expect(f.data["answered"]).toBe(true);
   });
 
-  test("Sweep: `no-credential` with NO key is the amber it always was — and its fix is the command", () => {
-    // 2026-09-23, from the 0.2.0 trial: "every fix a command". The one reason
-    // whose remedy is a single command names it; the others keep pointing at
-    // the row (the next test), because what fixes them depends on the door.
+  test("Sweep: opted in with NO key is amber — and the command is the Crash write-up line's, not said twice", () => {
+    // 2026-09-23, from the 0.2.0 trial: "every fix a command" — and since C2,
+    // one line per command: the `Crash write-up` line names it.
     mintStore();
     writeConfig();
     writeCredentials([EMBED_KEY_ENV]);
@@ -3066,10 +3069,38 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
       day: s.livedDay(),
       payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
     });
-    const f = by(doctorFindings(input({ store: s })), "sweep");
+    const findings = doctorFindings(input({ store: s, config: { ...OPTED_IN, dataDir: dir, credentialsFile: credsPath } }));
+    const f = by(findings, "sweep");
     expect(f.severity).toBe("amber");
-    expect(f.fix).toBe(`Run: counterparts credentials set ${API_KEY_ENV}`);
     expect(f.detail).not.toContain("was added");
+    const crash = by(findings, "crash-write-up");
+    expect(crash.severity).toBe("amber");
+    expect(crash.fix).toBe(`Run: counterparts credentials set ${API_KEY_ENV}`);
+    expect(f.fix).not.toContain("credentials set");
+  });
+
+  test("Sweep: NOT opted in is green `next session` — whether the row says `not-opted-in` or a pre-C2 `no-credential`", () => {
+    mintStore();
+    writeConfig();
+    for (const keys of [[EMBED_KEY_ENV], [API_KEY_ENV, EMBED_KEY_ENV]]) {
+      writeCredentials(keys);
+      for (const reason of ["not-opted-in", "no-credential"]) {
+        const s = store();
+        s.appendEvent({
+          name: SWEEP_GATE_EVENT,
+          day: s.livedDay(),
+          payload: { reason, ran: 0, scopes: 0, date: "2026-09-14" },
+        });
+        const findings = doctorFindings(input({ store: s }));
+        const f = by(findings, "sweep");
+        expect({ reason, severity: f.severity, fix: f.fix }).toEqual({ reason, severity: "green", fix: "" });
+        expect(f.detail).toContain("next session");
+        // Neither line points at a command.
+        expect(by(findings, "crash-write-up").fix).toBe("");
+        s.close();
+        stores.splice(stores.indexOf(s), 1);
+      }
+    }
   });
 
   test("Sweep: every OTHER stand-down reason is untouched by the key", () => {

@@ -580,15 +580,23 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
   and `TOOL_NAMES` is pinned exactly. The per-entry deposit loop was EXTRACTED
   (`depositEntries`) rather than copied, so a write-up's entries cannot take a different
   road from an answer's.
+- **The fetch leaves `memories` out, and the published schema still marks it required** —
+  the precedent is the handoff-only answer, which the server accepts without it too. The
+  `writeUp` field's own description says to send no memories first, and a model that sends
+  `memories: []` before fetching is refused `not-asked` with "fetch it first" rather than
+  having its empty list read as an answer.
+- **The words ride in the JSON result** (`text`, beside `part`, `of` and `next`), not under
+  the hook's 10,000-character cap — the reason the SessionStart block became a pointer.
 - **An unrestarted pre-C2 server ignores `writeUp`.** Its `session_end` drops the unknown
-  field and deposits the memories as the WRITING session's ordinary answer; the ended
-  session is not marked, so the next start hands it over again. The build-mismatch notice
-  (roadmap E) is what tells the person to reconnect; nothing here can.
-- **Duplicates count as landed.** A batch whose every entry is `duplicate-content` says
-  what the store already holds, so the part advances; a batch the gate refused entirely
-  (`nothing-landed`) does not.
+  field; a fetch reads as `memories-required`, and an answer deposits the memories as the
+  WRITING session's ordinary answer without marking the ended one, which is then pointed
+  at again. The build-mismatch notice (roadmap E) is what tells the person to reconnect.
+- **Duplicates count as landed**, and an empty batch is a real answer (owner, 2026-09-23):
+  a batch whose every entry is `duplicate-content` says what the store already holds, and
+  `[]` says nothing in the part was worth keeping. Only a non-empty batch the gate refused
+  entirely (`nothing-landed`) leaves the part open.
 - **A write-up's memories are the WRITING session's, and B3 reads them that way.** They
   are accepted `session-end` proposals under the live session's id, so if that session
   had already been asked at a Stop, `owes.ts` counts them as its answer to that ask. The
-  block arrives at SessionStart, before any Stop ask, so the ordinary order is the
+  pointer arrives at SessionStart, before any Stop ask, so the ordinary order is the
   harmless one; the other order is named, not guarded.

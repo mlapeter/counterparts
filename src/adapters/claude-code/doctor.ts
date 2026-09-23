@@ -1377,10 +1377,30 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(
       API_KEY_ENV,
     );
-    const answered = reason === "no-credential" && keyNow;
+    /**
+     * THE SWEEP IS AN OPT-IN UPGRADE (roadmap C2, 2026-09-23). A worker whose
+     * owner has not opted in writes `not-opted-in`, and a row from a build
+     * before C2 wrote `no-credential` for the same keyless day — both are the
+     * ordinary state now, GREEN, with the next session writing crashed sessions
+     * up. Opted in with no key is the one case with something to do, and the
+     * `Crash write-up` line names the command, so this line points there
+     * rather than naming it twice.
+     */
+    const optedIn = crashWriteUpMode(input.config) === "api";
+    const notOptedIn = reason === "not-opted-in" || (reason === "no-credential" && !optedIn);
+    const answered = reason === "no-credential" && optedIn && keyNow;
     out.push(
       reason === "ran"
         ? finding("sweep", "green", "Sweep", detail, "", { reason, ran: num(p, "ran"), date: rowDate(sweep) })
+        : notOptedIn
+          ? finding(
+              "sweep",
+              "green",
+              "Sweep",
+              `${detail} — next session: the API sweep is not opted in, and a session that ended unwritten is written up by the next session in its project`,
+              "",
+              { reason, ran: num(p, "ran"), date: rowDate(sweep), optedIn: false },
+            )
         : answered
           ? finding(
               "sweep",
@@ -1395,12 +1415,11 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
               "amber",
               "Sweep",
               detail,
-              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial). The
-              // one stand-down whose remedy is a single command says the
-              // command; every other reason still points at the row, because
-              // what fixes it depends on which door it names.
+              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial) — and
+              // ONE line per command (C2): opted in with no key, the `Crash
+              // write-up` line carries the command, so this one points at it.
               reason === "no-credential"
-                ? `Run: counterparts credentials set ${API_KEY_ENV}`
+                ? "Opted into the API sweep with no key: the Crash write-up line says what to run."
                 : "The sweep stood down; the reason names why.",
               {
                 reason,

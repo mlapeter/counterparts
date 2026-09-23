@@ -66,15 +66,30 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
-import { RETENTION_EVENT, retentionRow, retentionRuns } from "../../../core/remember/index.js";
-import type { HostSessionEvidence, RetentionReport } from "../../../core/remember/index.js";
+import {
+  ALREADY_AUTHORED_MARK,
+  RETENTION_EVENT,
+  renderForSweep,
+  retentionRow,
+  retentionRuns,
+} from "../../../core/remember/index.js";
+import type {
+  HostSessionEvidence,
+  InterpretFn,
+  RetentionReport,
+  SweepChunk,
+} from "../../../core/remember/index.js";
+// THE WRITE-UP MARK, by path — the API sweep marks a crashed session it has
+// finished with (C2). `test/cli.test.ts` pins this file as one of its two
+// importers outside `remember/`, beside the MCP door.
+import { recordWriteUp } from "../../../core/remember/write-up-seam.js";
 // THE DELETING HALF, by path, and from this file alone (PR #189 review, B1):
 // `remember/index.ts` does not re-export it, and `test/cli.test.ts` pins every
 // importer — nothing that holds a `Counterpart` can reach it.
 import { pruneRetention } from "../../../core/remember/retention.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
-import { hostSessionEvidence, writeUpSources } from "../../sessions.js";
+import { hostSessionEvidence, writeUpPlan, writeUpSources } from "../../sessions.js";
 
 import {
   configLine,
@@ -381,11 +396,12 @@ export async function runOnce(input: {
   // an opt-in upgrade now: it runs only when `crashWriteUp` says `"api"` AND
   // the key is present (`config.ts#apiSweepOn`). Otherwise a session that ended
   // before it was written up is written up by the next session in its project,
-  // at SessionStart, and this step does nothing. The gate row still lands with
-  // the one reason core names for a deliberate skip (`SweepSkipped`,
-  // `"no-credential"`): no credential this worker may SPEND — evidence beats
-  // silence (I32). `runner.sweep` below says which of the two it was.
+  // and this step does nothing — and says which of the two it was on the gate
+  // row (I32: evidence beats silence): `not-opted-in` when the owner has not
+  // opted in, whatever key is present; `no-credential` when he has and there
+  // is no key.
   const sweepOn = apiSweepOn(config, env);
+  const optedIn = crashWriteUpMode(config) === "api";
 
   // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could
   // record anything. The `sweep.gate` row carries it; so must every failure row,
@@ -441,21 +457,29 @@ export async function runOnce(input: {
     // something that cannot read them, and the claim would have to be restored.
     // The boundary is told "skipped, and why" instead, and everything that does
     // not need a model still runs.
+    // THE SWEEP AND THE WRITE-UP KNOW EACH OTHER (C2): a session already
+    // marked written up is not read again, and a session the sweep has
+    // finished with is marked (`sweepAware`, `markSwept`).
+    const aware = sweepOn ? sweepAware(counterpart, emit) : null;
     const report = await counterpart.sessionEnd({
       date: today,
       at: today,
-      sweep: sweepOn
-        ? {
-            interpret: interpretClient({
-              config,
-              ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-              ...(input.today === undefined ? {} : { today: input.today }),
-              ...(input.signal === undefined ? {} : { signal: input.signal }),
-              onEvent: emit,
-            }),
-          }
-        : { skipped: "no-credential" },
+      sweep:
+        aware !== null
+          ? {
+              interpret: aware.wrap(
+                interpretClient({
+                  config,
+                  ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+                  ...(input.today === undefined ? {} : { today: input.today }),
+                  ...(input.signal === undefined ? {} : { signal: input.signal }),
+                  onEvent: emit,
+                }),
+              ),
+            }
+          : { skipped: optedIn ? "no-credential" : "not-opted-in" },
     });
+    if (aware !== null) aware.markSwept();
     const swept = report.sweeps.reduce((n, s) => n + s.spansSwept, 0);
     const minted = report.sweeps.reduce((n, s) => n + s.proposals, 0);
     emit("runner.done", {
@@ -471,7 +495,7 @@ export async function runOnce(input: {
       interpret: hasInterpretCredential,
       // `api` — opted in and keyed, so the sweep ran its gate; `next-session` —
       // not opted in, whatever the key; `no-key` — opted in with no key.
-      sweep: sweepOn ? "api" : crashWriteUpMode(config) === "api" ? "no-key" : "next-session",
+      sweep: sweepOn ? "api" : optedIn ? "no-key" : "next-session",
     });
     result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null, retention: null };
   } catch (err) {
@@ -548,6 +572,107 @@ export async function runOnce(input: {
     counterpart.close();
   }
   return { ...result, snapshot: snapshotReport, retention: retentionReport };
+}
+
+/**
+ * THE API SWEEP, TOLD WHAT THE WRITE-UP HAS DONE — and telling it back
+ * (roadmap C2, owner 2026-09-23).
+ *
+ * The sweep is `core/`'s and it decides what is crashed by boundaries alone;
+ * it has never read a write-up mark. So the worker stands between it and the
+ * model, at the one seam it owns — the interpreter it hands in:
+ *
+ *   - **A session already marked written up is not read again.** A chunk made
+ *     only of such sessions returns "nothing here" without a model call — the
+ *     sweep's own EMPTY, so those spans are retired the way it retires spans
+ *     that were all authored — and in a mixed chunk their words are marked
+ *     `ALREADY_AUTHORED_MARK`, which takes away the permission to write them
+ *     twice without taking away the sight of them (§4.1 G4). The prompt keeps
+ *     whatever core prefixed to it; only its transcript tail is re-rendered,
+ *     and if that tail is not where it should be the chunk goes through as it
+ *     came — a possible duplicate, never a loss.
+ *   - **A session the sweep has finished with is marked written up**, `by:
+ *     "api"`, in every scope it read: finished means none of its words are
+ *     left in the live buffer or a claim — consumed, or QUARANTINED after the
+ *     retry bound. Without the mark a quarantined session held text, owed a
+ *     write-up for ever, and the next-session pointer would never name it
+ *     (with the sweep on, crashed sessions are the sweep's). A session whose
+ *     spans were put back for a retry is not finished, and is not marked.
+ *
+ * Built once per run, before `sessionEnd`; never throws.
+ */
+export function sweepAware(
+  counterpart: Counterpart,
+  emit: (name: string, data: Record<string, string | number | boolean | null>) => void,
+): { wrap(interpret: InterpretFn): InterpretFn; markSwept(): number } {
+  const writtenUp = new Set<string>();
+  try {
+    const t = counterpart.self.tunables;
+    for (const h of writeUpPlan({
+      store: counterpart.store,
+      spans: counterpart.spans,
+      firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+    })) {
+      if (h.facts.writtenUp) writtenUp.add(h.session);
+    }
+  } catch (err) {
+    emit("runner.sweep.plan.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+  }
+  /** session → the scopes its words were read from, this run. */
+  const read = new Map<string, Set<string>>();
+  return {
+    wrap(interpret: InterpretFn): InterpretFn {
+      return async (chunk: SweepChunk) => {
+        for (const span of chunk.spans) {
+          if (writtenUp.has(span.session)) continue;
+          const scopes = read.get(span.session) ?? new Set<string>();
+          scopes.add(span.scope);
+          read.set(span.session, scopes);
+        }
+        const done = chunk.spans.filter((span) => writtenUp.has(span.session)).length;
+        if (done === 0) return interpret(chunk);
+        if (done === chunk.spans.length) {
+          emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: false });
+          return { proposals: [], stopReason: "end_turn" };
+        }
+        const tail = renderForSweep(chunk.marked);
+        if (!chunk.prompt.endsWith(tail)) {
+          emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: true, reshaped: false });
+          return interpret(chunk);
+        }
+        const marked = chunk.marked.map((m) =>
+          m.mark === null && writtenUp.has(m.span.session) ? { ...m, mark: ALREADY_AUTHORED_MARK } : m,
+        );
+        emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: true, reshaped: true });
+        return interpret({
+          ...chunk,
+          marked,
+          prompt: chunk.prompt.slice(0, chunk.prompt.length - tail.length) + renderForSweep(marked),
+        });
+      };
+    },
+    markSwept(): number {
+      let marked = 0;
+      for (const [session, scopes] of read) {
+        try {
+          const spans = counterpart.spans;
+          const left = [...scopes].some(
+            (scope) =>
+              spans.spans(scope).some((s) => s.session === session) ||
+              spans.claimedSpans(scope).some((s) => s.session === session && s.kind !== "assistant"),
+          );
+          if (left) continue;
+          for (const scope of scopes) {
+            if (recordWriteUp(spans, { scope, session, by: "api" }) === "RECORDED") marked += 1;
+          }
+        } catch (err) {
+          emit("runner.sweep.mark.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+        }
+      }
+      if (read.size > 0) emit("runner.sweep.marked", { sessions: read.size, marked });
+      return marked;
+    },
+  };
 }
 
 /**
