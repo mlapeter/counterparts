@@ -431,3 +431,44 @@ describe("`\"embedder\": null` is an unreadable configuration, never a throw (re
     }
   });
 });
+
+describe("the two per-write checks compose in one MCP server: #187's schema guard and #190's identity check", () => {
+  test("an identity change refuses the VECTOR (words still land); a schema stamped ahead refuses the WHOLE write", async () => {
+    const e = openStaticEmbedder({ weightsDir: weights });
+    const server = openServer({ dir, session: "s-both", scope: "/scope/one", owner: true, embedder: e });
+    opened.push({ close: () => server.counterpart.close() });
+    const store = server.counterpart.store;
+    store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+
+    // 1. #190's check, inside the vector's own transaction: a hook takes the file for another identity.
+    const other = Object.assign((): number[] | null => [1, 0, 0, 0], {
+      identity: { model: "another-static", dim: 4, rebuild: "inline" as const },
+    });
+    Store.open({ dir, embed: other }).close();
+    const noted = await server.call("note", { text: "The survey resumes after the flood on the river." });
+    expect(noted.structuredContent["stored"]).toBe(true); // #187's guard let the write through
+    const id = noted.structuredContent["id"] as string;
+    expect(store.events("cache.vector.refused").some((ev) => ev.ref === id && ev.data?.["reason"] === "identity-changed")).toBe(true);
+
+    // 2. #187's guard, before any transaction: box 2's stamp moves ahead under the server.
+    const before = store.list({ archived: false }).length;
+    const db2 = openDb(paths.operational(dir));
+    const stamp = db2.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schemaVersion'")?.value ?? "0";
+    db2.run("UPDATE meta SET value = ? WHERE key = 'schemaVersion'", String(Number(stamp) + 1));
+    db2.close();
+    let code: string | null = null;
+    let by: unknown = null;
+    try {
+      store.put({ type: "memory", kind: "fact", body: "A write the guard must refuse." });
+    } catch (err) {
+      code = (err as { code?: string }).code ?? "OTHER";
+      by = (err as { detail?: Record<string, unknown> }).detail?.["refusedBy"];
+    }
+    expect(code).toBe("SCHEMA_AHEAD");
+    expect(by).toBe("mcp-write-guard");
+    expect(store.list({ archived: false }).length).toBe(before);
+    // And the tool itself refuses at entry, by name.
+    const refused = await server.call("note", { text: "Refused before anything is touched." });
+    expect(JSON.stringify(refused.structuredContent)).toContain("schema-ahead");
+  });
+});

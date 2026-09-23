@@ -1293,3 +1293,15 @@ seat is FROZEN — deprecated, not removed.** Its code stays, and so does everyt
 this module that protects vectors it already paid for (the paid-rows hold, adoption at
 its known width, `external` identities). No new Voyage behaviour is to be written; a
 future finding that would need some is documented here instead.
+
+**Two per-write checks, composed (after #187 merged).** #187's one-slot `guardWrites` —
+the MCP server's schema re-read — runs in `assertWritable`, before any transaction, and
+refuses the WHOLE write by throwing (`SCHEMA_AHEAD`, `refusedBy: "mcp-write-guard"`).
+#190's identity check (`admitVector`) is not in that slot: it runs inside the vector's
+own transaction in box 3, because it is the store's own cache and the check has to be
+atomic with the vector it admits, and it refuses only the VECTOR (the words still land).
+They never compete for the slot, and both fire in one server
+(`static-wiring.test.ts` › "the two per-write checks compose…"). The server now imports
+the store's single `schemaAhead` (re-exported from `server.ts` for its readers); its local
+copy is gone.
+

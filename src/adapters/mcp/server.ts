@@ -47,7 +47,7 @@ import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
-import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION, StoreError } from "../../core/store/index.js";
+import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION, StoreError, schemaAhead } from "../../core/store/index.js";
 import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
@@ -129,13 +129,11 @@ export const STORE_BUSY_REFUSAL =
 /**
  * Is a stamp read off the disk AHEAD of the code? Only a plain integer above it
  * is. Absent, behind, or not a number all read as "not ahead" — today's
- * behaviour, in which an older store is the hooks' to migrate.
+ * behaviour, in which an older store is the hooks' to migrate. ONE definition,
+ * the store's (`core/store/cache.ts#schemaAhead`, #190), re-exported here for
+ * this module's readers.
  */
-// TODO(#190): import the store's strict `schemaAhead` once #190 merges, and drop this copy.
-export function schemaAhead(found: string | null, code: number): boolean {
-  if (found === null || !/^[0-9]+$/.test(found)) return false;
-  return Number.parseInt(found, 10) > code;
-}
+export { schemaAhead } from "../../core/store/index.js";
 
 /** What reading the two stamps said: fine, or one of the three refusals. */
 type SchemaVerdict =
