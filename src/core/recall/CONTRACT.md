@@ -197,8 +197,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    has been open (test: `embedder-identity.test.ts` › "MAJOR A of the re-review"). A
    previous release's unrestarted MCP server can until it is restarted: store NOTES,
    "Release timing"). The fusion's floor and weight are chosen per embedder identity and
-   per path (`SEMANTIC_BY_IDENTITY`, looked up from the identity the store records), with
-   the old pair as the default: INTERFACE-GAPS §8, closed.)*
+   per path (`SEMANTIC_BY_IDENTITY`, looked up from the identity the store records, read
+   fresh per activation), with the old pair as the default; a lagged row ranked under another
+   model than the store records is dropped (`other-model`): INTERFACE-GAPS §8, closed.)*
 2. **[M]** A latency-budget abort has zero side effects: nothing injected, nothing buffered,
    no telemetry, no fire budget spent.
 3. **[M]** Build and record are separate steps.
@@ -230,8 +231,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
     abort writes nothing at all, which is guarantee 2 unchanged.
 16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
-    vocabulary (`none`, `lagged`, `in-line`, `stale`, `unreadable`, and the worker's four
-    named failures). Measured 2026-09-04: both live paths built their turn without a
+    vocabulary (`none`, `lagged`, `in-line`, `stale`, `other-model`, `unreadable`, and the
+    worker's four named failures; `other-model`, 2026-09-23: a lag row ranked under another
+    embedder than box 3 records now). Measured 2026-09-04: both live paths built their turn without a
     vector, so `semanticUsed: false` was written on every real turn and said nothing about
     why — "did not fire" and "was never asked" are different records (scar §2.4). The
     source is NOT in the durable surface set (`RECALL_DECISION_FIELDS`), because moving

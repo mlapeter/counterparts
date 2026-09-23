@@ -213,26 +213,45 @@ the ceiling described above; per-query ranks are over the activation ranking, an
 gate's relative bar decides delivery.
 
 **Closed by per-identity, per-path tunables** (`SEMANTIC_BY_IDENTITY`, `tunables.ts`;
-looked up in `activate.ts` from the identity the store RECORDS — `recordedIdentity` — and
-by the path: `vector` → inline, `hits` → lagged; anything unlisted gets 0.45 / 1.0):
+looked up in `activate.ts` from the identity box 3 records, READ FRESH at every activation
+— `recordedIdentity` → `Store.rankingIdentity()`, the file's tag when this handle may rank
+against it — and by the path: `vector` → inline, `hits` → lagged; anything unlisted gets
+0.45 / 1.0):
 
 | identity | inline (deliberate) | lagged (per-turn) |
 |---|---|---|
-| `potion-base-8M@256` | floor 0.15, weight 6 | floor 0.08, weight 2 |
+| `potion-base-8M@256` | floor 0.15, weight 6 | floor 0.05, weight 1 |
 | `voyage-3-large` | 0.45 / 1.0 (unmeasured, frozen) | 0.45 / 1.0 |
 
 **The per-turn floor-0 cost is now MEASURED, not guessed** — a topic-changing arm (turn 1
-query i, its lag, turn 2 a query j about something else): at weight 1 nothing; weight 2,
-one stale intrusion over 40 pairs; weight 4, two; **weight 6, one of j's targets lost and
-~4 stale**; weight 8, one lost and 6 stale. The weight costs more than the floor, which is
-why the lagged pair is 0.08 / 2 (on topic 10/30 vs lexical-only's 8.4–8.6, and on a topic
-change 0 lost, 0 stale) while the deliberate pair is 0.15 / 6 (11/30 vs 6, 0 deliveries
-lost, ~7 rank slips, lexical 10/10). Every number, both grids and the confirmation run:
+query i, its lag, turn 2 a query j about something else), counting j's targets lost and the
+stale items the lag ADDED (turn-2 deliveries among i's lagged hits, not about j, that
+lexical-only did not deliver anyway), over 40 pairs: weight 1, 0 lost and 1.2 added;
+weight 2, 0 and 4.8; weight 4, 0 and 11.8; **weight 6, one lost and 25.8 added**; weight 8,
+one lost and 39.4. The weight costs far more than the floor, which is why the lagged pair
+is 0.05 / 1 (on topic 9.8/30 vs lexical-only's 8.4–9.0; on a topic change 0 lost, 1.2
+added) while the deliberate pair is 0.15 / 6 (11/30 vs 6, 0 deliveries lost, 7–8 rank
+slips, lexical 10/10). Every number, the grid and the confirmation run:
 `docs/research/static-embedder-trial-2026-09-23.md`, "the retune".
 
-**Still owed, and named there:** the caveats above stand (one synthetic persona, builder
-queries, a lag embedded from the question alone); the recall-bench's labelled real
-prompts on a store copy should re-earn both pairs. The identity is the handle's
-open-time snapshot — safe because the store's per-ranking claim check returns no hits
-when the file's tag has moved (#190, MAJOR A), but a per-query read would need a `Store`
-method.
+**The two holes the review of #193 found, and how they are closed:**
+- *A lagged row is never RANKED, so the store's per-ranking claim check never saw it:* a
+  row ranked under one table and read after the store was reset to another would have
+  scaled that table's cosines by the new table's pair for a turn. `loadSessionSemantic`
+  now answers `other-model` (no hits) when the row's model differs from the one the file
+  records now.
+- *A `deferred` open (a lost lock) knew no identity and ran the defaults for the handle's
+  life* — the MCP server's whole session, if its open lost the lock. The identity is now
+  read from the file per activation, so the handle gets the pair of the vectors it ranks.
+  (This took one read-only `Store` method, `rankingIdentity()`.)
+
+**Still owed, and named in the write-up:**
+- **Transfer to a live-sized store.** The semantic contribution is absolute (at most
+  `weight`) while the cue channel and the gate's floors are in cue units,
+  `floorUnit(N) = log((N+1)/2)` — ≈ 4.4 at the bench's 161 memories, ≈ 6.9 at 2,000, ≈ 9.0
+  at 17,000 — so weight 6 counts roughly 1.5–2× less against the floors on a live-sized
+  store. The recall-bench's labelled real prompts, on a store copy, should re-earn both pairs.
+- One synthetic persona and builder-written queries; a lag embedded from the question
+  alone; one topic-change partner per query.
+- The MCP `recall` tool builds rather than records, so its pair rides `BuildOutput.semantic`
+  but reaches no telemetry ring until `server.ts` logs it.
