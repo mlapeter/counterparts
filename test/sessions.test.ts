@@ -40,6 +40,7 @@ import {
   SESSION_PRUNE_MS,
   SESSION_TTL_MS,
   canonicalScope,
+  installedBuild,
   isLive,
   isSessionId,
   pruneSessions,
@@ -70,6 +71,8 @@ function saltedKey(handle: string): string {
 }
 
 
+/** A record as `recordSession` CREATES it — which, since roadmap E, includes
+ *  the stamp of the build that created it (`opened`, #187 re-review N1). */
 function record(over: Partial<SessionRecord> = {}): SessionRecord {
   return {
     sessionId: "s1",
@@ -77,6 +80,7 @@ function record(over: Partial<SessionRecord> = {}): SessionRecord {
     startedAt: T0,
     lastBoundaryAt: T0,
     endedAt: null,
+    opened: { build: installedBuild(), hookPpid: process.ppid },
     ...over,
   };
 }

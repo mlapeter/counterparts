@@ -804,6 +804,31 @@ export class Store {
       this.emit("store.observer.standdown", undefined, { site });
       throw new StoreError("OBSERVER_REFUSED", { site });
     }
+    // The caller's own check, when it installed one (`guardWrites`): AFTER the
+    // stance, so an instrument's refusal stays the observer's, and BEFORE any
+    // transaction, so a write it refuses has staged nothing.
+    this.writeGuard?.(site);
+  }
+
+  /** The one slot `guardWrites` fills. */
+  private writeGuard: ((site: string) => void) | null = null;
+
+  /**
+   * A CHECK RUN BEFORE EVERY WRITE THIS STORE MAKES — every `WRITE_METHODS` site
+   * and the owner-op seam's, through `assertWritable`, after the stance check
+   * and before the transaction. It refuses by THROWING; whatever it throws is
+   * what the writer sees, and nothing has been staged.
+   *
+   * It exists for the one long-lived caller (2026-09-23, roadmap E, #187
+   * re-review N5): the MCP server holds this store for a whole session while
+   * the hooks, on a newer build, may migrate it. Its tools check the schema
+   * stamps on entry, but a deposit can `await` (the embedder, at write time)
+   * between that check and its writes; the guard re-reads the stamps at the
+   * moment each write happens (`schemaVersions`, ~3 µs). One slot; null
+   * removes it. The store itself decides nothing with it.
+   */
+  guardWrites(check: ((site: string) => void) | null): void {
+    this.writeGuard = check;
   }
 
   private emit(

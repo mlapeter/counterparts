@@ -151,15 +151,17 @@ export interface SessionRecord {
   readonly updateNoticeShown?: boolean;
   /**
    * WHAT THE HOOK THAT SAW THIS SESSION OPEN WAS RUNNING (2026-09-23, roadmap
-   * E): the installed build, and that hook's parent process. Written once by
+   * E): the installed build, and that hook's parent process. Written by
+   * whichever hook CREATES the record (`recordSession`), refreshed by
    * SessionStart when the session OPENS (startup, resume, clear, fork — never a
    * compaction, which is the same session carrying on), carried forward like
    * `config`.
    *
-   * Its ABSENCE is the point: a session with no `opened` began before any
-   * build could stamp one, so its MCP server may be one that records nothing
-   * about itself — and the update notice speaks once rather than stay silent
-   * about the one server it cannot see (`decideUpdateNotice`). `hookPpid` is
+   * Its ABSENCE is the point: every record this build creates carries one, so
+   * a record without one was written by a build before E — its MCP server may
+   * be one that records nothing about itself, and the update notice speaks
+   * once rather than stay silent about the one server it cannot see
+   * (`decideUpdateNotice`). `hookPpid` is
    * how a person checks the host match: on a host that `exec`s its hooks it is
    * the host itself, the same pid an MCP server it started records as
    * `hostPid`. Still host state, still no content.
@@ -375,9 +377,17 @@ export function recordSession(
     ...(input.updateNoticeShown === true || prior?.updateNoticeShown === true
       ? { updateNoticeShown: true }
       : {}),
-    // Carried, never set here: only SessionStart's stamp writes it
-    // (`stampSessionOpened`), and a later phase must not erase it.
-    ...(prior?.opened !== undefined ? { opened: prior.opened } : {}),
+    // STAMPED WHEN THIS CREATES THE RECORD, carried otherwise (#187 re-review,
+    // N1). Whatever phase creates a record — SessionStart, a Stop, the seal,
+    // SessionEnd — it is a hook on THIS build that created it, so the record
+    // carries this build: "no stamp" then means exactly one thing, a record a
+    // build before E wrote, and the update notice may read it that way. A
+    // session opening refreshes it (`stampSessionOpened`).
+    ...(prior?.opened !== undefined
+      ? { opened: prior.opened }
+      : prior === null
+        ? { opened: { build: installedBuild(), hookPpid: process.ppid } }
+        : {}),
     // Carried like `config` rather than one-way, because it names a DATE: a
     // session that lives across midnight and is asked again gets the new date,
     // and a phase written by a process that knows nothing about the writer
@@ -462,7 +472,7 @@ export function pruneSessions(
         // this way writes it again at its next beat.
         const serverPid = serverPidOf(name);
         if (serverPid !== null) {
-          if (serverBelieved(serverPid, statSync(full).mtimeMs, Date.now())) continue;
+          if (serverBelieved(serverPid, statSync(full).mtimeMs, now)) continue;
           rmSync(full, { force: true });
           removed += 1;
           continue;
@@ -627,14 +637,33 @@ function parseOpened(raw: unknown): SessionOpened | null {
  * every field a newer hook had added. So a mark is a merge into the object as
  * found: known and unknown fields alike survive it. Only a file that parses as
  * a session record is written; nothing is created. Atomic; never throws.
+ *
+ * **NOT LOCKED, and that is accepted.** Every writer of a session record — the
+ * hooks' `recordSession`, these marks, the MCP server's `markNothingNew` — is
+ * a read-modify-write with an atomic rename at the end and no lock around it.
+ * Two writers that interleave (a Stop rewriting the record while the server
+ * marks `nothingNewAt`, a prompt marking `updateNoticeShown` in the same
+ * instant) can lose the field the slower one did not read. The consequence is
+ * bounded to that one field: an update notice shown a second time, a
+ * `nothingNewAt` missing from one answer, a stamp missing until the next
+ * open. The hook events of one session are sequential and the server's writes
+ * follow a Stop, so the window is a coincidence of two processes within
+ * milliseconds — the same class every field in this record has lived with
+ * since the registry was written (#187 review, MINOR-1).
  */
-function mergeIntoRecord(dataDir: string, sessionId: string, fields: Record<string, unknown>): boolean {
+function mergeIntoRecord(
+  dataDir: string,
+  sessionId: string,
+  fields: Record<string, unknown>,
+  drop: readonly string[] = [],
+): boolean {
   const path = sessionPath(dataDir, sessionId);
   if (path === null) return false;
   try {
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (parseRecord(raw) === null) return false;
-    const merged = { ...(raw as Record<string, unknown>), ...fields };
+    const merged: Record<string, unknown> = { ...(raw as Record<string, unknown>), ...fields };
+    for (const key of drop) delete merged[key];
     const tmp = `${path}.${String(process.pid)}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(merged)}\n`, { encoding: "utf8", mode: 0o600 });
     renameSync(tmp, path);
@@ -648,9 +677,15 @@ function mergeIntoRecord(dataDir: string, sessionId: string, fields: Record<stri
  * SessionStart's stamp, on a session that OPENS: the installed build and the
  * hook's parent pid (`SessionRecord.opened`). Merged into the record the same
  * event just wrote; never creates one. Never throws.
+ *
+ * It also CLEARS `updateNoticeShown` (#187 re-review, N3): an open is often a
+ * new host process and so a new MCP server — a session `--resume`d onto a
+ * fresh host has not been told about THAT server, and the mark from the last
+ * one must not keep it silent. An in-process `/resume` keeps its server, so a
+ * stale one there is announced once more — the same accepted cost as `/clear`.
  */
 export function stampSessionOpened(dataDir: string, sessionId: string, opened: SessionOpened): boolean {
-  return mergeIntoRecord(dataDir, sessionId, { opened });
+  return mergeIntoRecord(dataDir, sessionId, { opened }, ["updateNoticeShown"]);
 }
 
 /**

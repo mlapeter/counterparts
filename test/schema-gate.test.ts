@@ -33,7 +33,8 @@ import {
 } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 import type { Db } from "../src/core/store/db.js";
-import { TOOL_NAMES, openServer } from "../src/adapters/mcp/index.js";
+import { McpServer as McpServerClass, TOOL_NAMES, openServer } from "../src/adapters/mcp/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import {
   SCHEMA_UNREADABLE_REFUSAL,
@@ -359,6 +360,67 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
     expect(after["ops.memories"]).toBe(before["ops.memories"]);
   });
 
+  /**
+   * N5: `note` and `session_end` also wait before they write — the gate's
+   * embedding at write time, once per `session_end` entry — whenever the
+   * server's counterpart has a live embedder. The store's write guard re-reads
+   * the stamps at each write, so a migration that lands in that wait refuses
+   * the write and the call, and nothing more is written.
+   */
+  for (const tool of ["note", "session_end"] as const) {
+    test(`${tool}: a migration during the embedder's wait refuses every write after it`, async () => {
+      const ops = outside(paths.operational(dir));
+      let cacheDb: Db | null = null;
+      let atBump: Record<string, number | string> | null = null;
+      let calls = 0;
+      const counterpart = Counterpart.open({
+        dir,
+        owner: true,
+        vectors: {
+          vector: (): Promise<number[] | null> => {
+            calls += 1;
+            if (atBump === null) {
+              ops.run("UPDATE meta SET value = ? WHERE key = 'schemaVersion'", String(SCHEMA_VERSION + 1));
+              cacheDb ??= outside(paths.cache(dir));
+              atBump = census(ops, cacheDb);
+            }
+            return Promise.resolve([0.1, 0.2, 0.3]);
+          },
+          warm: (): Promise<unknown> => Promise.resolve(null),
+        },
+      });
+      open.push(counterpart);
+      const s = new McpServerClass({ counterpart, session: SESSION, scope: projectDir, owner: true, scopesFile: join(scopesDir, "scopes.json") });
+      for (const body of ["The garage door opener needs a new battery soon.", "The library closes early on Sundays now."]) {
+        counterpart.store.put({ type: "memory", kind: "fact", body });
+      }
+      if (tool === "session_end") recordSession(dir, { sessionId: SESSION, scope: projectDir, phase: "start" });
+      const args =
+        tool === "note"
+          ? { text: "The reservoir loop is four miles and takes forty minutes at an easy pace." }
+          : {
+              session: SESSION,
+              memories: [
+                { content: "Decided the notice shows once per session, never every turn." },
+                { content: "The heartbeat re-reads the scope setting at every tick." },
+              ],
+            };
+      const r = await s.call(tool, args);
+      expect(calls).toBeGreaterThan(0);
+      expect({ reason: r.structuredContent["reason"], tool: r.structuredContent["tool"] }).toEqual({
+        reason: "schema-ahead",
+        tool,
+      });
+      // Nothing written after the migration landed — no memory, no event.
+      expect(atBump).not.toBeNull();
+      const after = census(ops, cacheDb ?? outside(paths.cache(dir)));
+      expect(after["ops.memories"]).toBe((atBump as unknown as Record<string, number>)["ops.memories"]);
+      expect(after["ops.events"]).toBe((atBump as unknown as Record<string, number>)["ops.events"]);
+      expect(after["ops.events.maxRowid"]).toBe((atBump as unknown as Record<string, number>)["ops.events.maxRowid"]);
+      expect(s.events("mcp.schema.ahead").some((e) => e.data?.["at"] === "write")).toBe(true);
+    });
+  }
+
   test("schemaAhead: only a plain integer above the code is ahead", () => {
     expect(schemaAhead(String(SCHEMA_VERSION + 1), SCHEMA_VERSION)).toBe(true);
     expect(schemaAhead(String(SCHEMA_VERSION), SCHEMA_VERSION)).toBe(false);
@@ -440,6 +502,43 @@ describe("the server's launch record", () => {
     on.forgetLaunch();
   });
 
+  test("the heartbeat follows the scope: switched off, the record goes and is not touched; on again, it comes back (N2)", async () => {
+    const s = server();
+    open.push({ close: () => s.forgetLaunch() });
+    expect(s.recordLaunch({ pid: 424250, heartbeatMs: 20 })).not.toBeNull();
+    const path = serverRecordPath(dir, 424250) ?? "";
+    const first = readFileSync(path, "utf8");
+    await s.call("scope", { mode: "off" });
+    await Bun.sleep(80);
+    expect(existsSync(path)).toBe(false);
+    await s.call("scope", { mode: "pause" });
+    await Bun.sleep(60);
+    expect(existsSync(path)).toBe(false);
+    await s.call("scope", { mode: "on" });
+    await Bun.sleep(80);
+    // The same record that went — identity fixed at launch.
+    expect(readFileSync(path, "utf8")).toBe(first);
+    expect(s.events("mcp.launch.scope").map((e) => e.data?.["recorded"])).toEqual([false, true]);
+  });
+
+  test("a server launched in an off directory records itself once the directory is switched on (N2)", async () => {
+    const first = server();
+    await first.call("scope", { mode: "off" });
+    const s = server();
+    open.push({ close: () => s.forgetLaunch() });
+    expect(s.recordLaunch({ pid: 424251, heartbeatMs: 20 })).toBeNull();
+    await Bun.sleep(60);
+    const path = serverRecordPath(dir, 424251) ?? "";
+    expect(existsSync(path)).toBe(false);
+    await first.call("scope", { mode: "on" });
+    // The hooks make `sessions/` in a directory that is on; a beat never does.
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    await Bun.sleep(80);
+    expect(existsSync(path)).toBe(true);
+    s.forgetLaunch();
+    expect(existsSync(path)).toBe(false);
+  });
+
   test("the heartbeat touches the record, rewrites one a prune removed, and never makes a directory", async () => {
     const s = server();
     const rec = s.recordLaunch({ pid: 424246, heartbeatMs: 20 });
@@ -476,10 +575,21 @@ const STALE: BuildStamp = { version: "0.0.1", storeSchema: SCHEMA_VERSION, cache
 const ALL_ALIVE = (): boolean => true;
 
 /** A session as SessionStart leaves it on this build: recorded, and stamped
- *  (`opened`) — unless `stamped: false`, a session that opened before E. */
+ *  (`opened`) — unless `stamped: false`, which writes the record the way a
+ *  build before E did, by hand: this build's `recordSession` stamps whatever
+ *  record it creates. */
 function liveSession(id = "s1", scope = projectDir, stamped = true): void {
+  if (!stamped) {
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    const at = Date.now();
+    writeFileSync(
+      sessionPath(dir, id) ?? "",
+      `${JSON.stringify({ sessionId: id, scope: canonicalScope(scope), startedAt: at, lastBoundaryAt: at, endedAt: null })}\n`,
+    );
+    return;
+  }
   recordSession(dir, { sessionId: id, scope, phase: "start", at: Date.now() });
-  if (stamped) stampSessionOpened(dir, id, { build: installedBuild(), hookPpid: 3 });
+  stampSessionOpened(dir, id, { build: installedBuild(), hookPpid: 3 });
 }
 
 /** One turn of the hook's rule, as `bin/hook.ts` runs it: decide, then mark,
@@ -689,6 +799,32 @@ describe("the update notice", () => {
     expect(readSession(dir, "s1")?.opened).toEqual({ build: installedBuild(), hookPpid: 3 });
   });
 
+  test("a record THIS build creates at any phase carries the stamp, so it is never read as pre-E (N1)", () => {
+    for (const phase of ["boundary", "end", "start"] as const) {
+      const id = `created-${phase}`;
+      recordSession(dir, { sessionId: id, scope: projectDir, phase });
+      expect(readSession(dir, id)?.opened).toEqual({ build: installedBuild(), hookPpid: process.ppid });
+      const d = decideUpdateNotice(dir, { sessionId: id, installed: installedBuild(), alive: ALL_ALIVE });
+      expect({ id, message: d.message, reason: d.reason }).toEqual({ id, message: null, reason: "no-server" });
+    }
+  });
+
+  test("a new open clears the mark, so a session resumed onto a new server is told about THAT one (N3)", () => {
+    liveSession();
+    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: 9951, hostPid: 111 });
+    expect(turnOf("s1", 111)).toBe(UPDATE_NOTICE);
+    expect(turnOf("s1", 111)).toBeNull();
+    // Resumed on a fresh host: its SessionStart stamps, and its new server is
+    // stale too.
+    forgetServerLaunch(dir, 9951);
+    recordSession(dir, { sessionId: "s1", scope: projectDir, phase: "start" });
+    expect(readSession(dir, "s1")?.updateNoticeShown).toBe(true);
+    stampSessionOpened(dir, "s1", { build: installedBuild(), hookPpid: 222 });
+    expect(readSession(dir, "s1")?.updateNoticeShown).toBeUndefined();
+    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: 9952, hostPid: 222 });
+    expect(turnOf("s1", 222)).toBe(UPDATE_NOTICE);
+  });
+
   test("marking does not refresh the session's liveness clock", () => {
     recordSession(dir, { sessionId: "s1", scope: projectDir, phase: "start", at: 1_000 });
     recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: 9601, hostPid: 1 });
@@ -793,7 +929,7 @@ describe("hostDelivery at a prompt — the update notice's channel", () => {
 });
 
 describe("pruning server records", () => {
-  test("a dead server's record goes whatever its age; a live one stays whatever its age", () => {
+  test("a server record stays while its pid runs and its heartbeat is fresh, and goes otherwise", () => {
     mkdirSync(sessionsDir(dir), { recursive: true });
     recordServerLaunch(dir, { scope: projectDir, build: installedBuild(), pid: process.pid, hostPid: 1 });
     // A pid that is not running: well above any live pid on an idle test box,
@@ -801,14 +937,13 @@ describe("pruning server records", () => {
     let deadPid = 4_000_000;
     while (pidAlive(deadPid)) deadPid += 1;
     recordServerLaunch(dir, { scope: projectDir, build: installedBuild(), pid: deadPid, hostPid: 1 });
-    // Far in the future, so the AGE rule alone would keep everything.
-    const removed = pruneSessions(dir, 0);
+    // Judged at NOW: the dead one goes, the live one with a fresh heartbeat stays.
+    const removed = pruneSessions(dir, Date.now());
     expect(removed).toBe(1);
     expect(readServerRecords(dir).map((r) => r.pid)).toEqual([process.pid]);
-    // And in the far future the live one still stays.
-    pruneSessions(dir, Date.now() + 365 * 24 * 60 * 60 * 1000);
-    expect(readServerRecords(dir).map((r) => r.pid)).toEqual([process.pid]);
-    forgetServerLaunch(dir, process.pid);
+    // The same live pid, judged a day later with no beat since: stale, gone —
+    // `pruneSessions` reads its own clock, not the wall's.
+    pruneSessions(dir, Date.now() + 24 * 60 * 60 * 1000);
     expect(readServerRecords(dir)).toEqual([]);
   });
 

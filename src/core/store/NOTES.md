@@ -1109,3 +1109,9 @@ every tool refuses when either stamp is ahead of the code — is the adapter's
 It reads box 3's meta table from `index.ts` rather than through a `cache.ts` export on
 purpose: that file had another owner in the same round, and a read-only query against a
 table box 3 already publishes costs nothing to keep here.
+
+**The write guard (`Store.guardWrites`, 2026-09-23, #187 re-review N5).** One slot: a check
+`assertWritable` runs before every write this store makes — after the stance, before the
+transaction — refusing by throwing, so a refused write stages nothing. The store decides
+nothing with it; the MCP server installs the schema re-read there, because its deposits can
+`await` an embedder between the tool's entry check and their writes. `null` removes it.

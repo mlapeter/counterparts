@@ -753,21 +753,18 @@ async function runHook(
     // other route to the owner; the registry line second, because it also has
     // stderr. A line that does not fit is left out, never the wake.
     //
-    // AND THE UPDATE NOTICE AT A PROMPT (roadmap E, 2026-09-23): once per
-    // session, when the MCP server this session talks to runs an older build
-    // than this installed one. It is MARKED only once it is certainly leaving —
-    // after the envelope is known to carry it — and SHOWN only if the mark
-    // landed, so it never repeats and is never marked-but-lost. A turn whose
-    // recall leaves no room drops it, marks nothing, and tries again next turn.
-    const update = name === "user-prompt-submit" ? adapter.updateNotice(input) : null;
-    const notices = name === "session-start" ? [adapter.notice(input), trouble] : update;
-    let delivery = hostDelivery(name, result, payload, notices, stopAskShape);
-    if (update !== null && delivery.dropped === null && !adapter.markUpdateNotice(input)) {
-      delivery = hostDelivery(name, result, payload, null, stopAskShape);
-    }
-    // A SESSION THAT OPENS is stamped with the build that saw it open — never a
-    // compaction, which is the same session and the same server carrying on.
-    if (opensASession(payload)) adapter.stampOpened(input);
+    // AND THE UPDATE NOTICE AT A PROMPT (roadmap E, 2026-09-23), fail-open
+    // (`deliverTurn`): once per session, when the MCP server this session talks
+    // to runs an older build than this installed one.
+    const delivery = deliverTurn(
+      name,
+      result,
+      payload,
+      name === "session-start" ? [adapter.notice(input), trouble] : null,
+      stopAskShape,
+      adapter,
+      input,
+    );
     // A notice the envelope could not carry leaves a row rather than nothing:
     // "the terminal said nothing" and "there was nothing to say" are different
     // facts about the same morning (scar §2.4).
@@ -780,6 +777,12 @@ async function runHook(
       said.wroteStdout = true;
     }
     if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
+    process.exitCode = delivery.exitCode;
+    // EVERYTHING BELOW IS AFTER THE WRITE, on purpose (#187 re-review, N4): the
+    // wake and the turn's recall are already out, so nothing here can cost
+    // them. A SESSION THAT OPENS is stamped with the build that saw it open —
+    // never a compaction, which is the same session and server carrying on.
+    stampWhenOpened(payload, () => adapter.stampOpened(input));
     // The update notice's decisions, where a person can find them (the host's
     // debug log): its ring rows die with this process otherwise. Written only
     // on a turn that had something to decide — due, shown, dropped, failed.
@@ -788,9 +791,64 @@ async function runHook(
         process.stderr.write(`[counterparts] ${e.name}: ${JSON.stringify(e.data)}\n`);
       }
     }
-    process.exitCode = delivery.exitCode;
   } finally {
     adapter.counterpart.close();
+  }
+}
+
+/** The two adapter doors `deliverTurn` needs — structural, so a test can
+ *  hand it doors that throw. */
+export interface UpdateNoticeDoors {
+  updateNotice(input: HookInput): string | null;
+  markUpdateNotice(input: HookInput): boolean;
+}
+
+/**
+ * THIS EVENT'S OUTPUT, WITH THE UPDATE NOTICE FOLDED IN FAIL-OPEN (roadmap E;
+ * #187 re-review, N4).
+ *
+ * The plain delivery is computed first and is the answer whenever anything
+ * about the notice goes wrong: a door that throws, a mark that will not land.
+ * The notice is MARKED only once it is certainly leaving — after the envelope
+ * is known to carry it — and SHOWN only if the mark landed, so it never repeats
+ * and is never marked-but-lost; a turn whose recall leaves no room drops it,
+ * marks nothing, and tries again next turn. Every event but
+ * `user-prompt-submit` is exactly `hostDelivery`.
+ */
+export function deliverTurn(
+  name: HookName,
+  result: { injection: string | null; ask: string | null },
+  payload: Record<string, unknown>,
+  sessionStartNotices: readonly (string | null)[] | null,
+  stopAskShape: StopAskShape,
+  doors: UpdateNoticeDoors,
+  input: HookInput,
+): Delivery {
+  const plain = hostDelivery(name, result, payload, sessionStartNotices, stopAskShape);
+  if (name !== "user-prompt-submit") return plain;
+  try {
+    const update = doors.updateNotice(input);
+    if (update === null) return plain;
+    const carried = hostDelivery(name, result, payload, update, stopAskShape);
+    if (carried.dropped !== null) return carried;
+    return doors.markUpdateNotice(input) ? carried : plain;
+  } catch {
+    return plain;
+  }
+}
+
+/**
+ * SessionStart's stamp on a session that OPENS, and nothing else: run AFTER the
+ * wake is written (`main`), and swallowed if it throws — the stamp is
+ * bookkeeping for the update notice, and a failed one costs that notice its
+ * precision, never the wake (#187 re-review, N4).
+ */
+export function stampWhenOpened(payload: Record<string, unknown>, stamp: () => unknown): void {
+  if (!opensASession(payload)) return;
+  try {
+    stamp();
+  } catch {
+    /* bookkeeping; see above */
   }
 }
 
@@ -847,9 +905,11 @@ export function hostDelivery(
   /**
    * The owner-facing line(s), or null: SessionStart's doctor notice and
    * registry line, UserPromptSubmit's update notice (roadmap E); every other
-   * event ignores it. A LIST is a priority order (review M1): each is added
-   * only while the envelope still fits, so a lower line can never cost a
-   * higher one its place.
+   * event ignores it. At SessionStart a LIST is a priority order (review M1):
+   * each is added only while the envelope still fits, so a lower line can never
+   * cost a higher one its place. At a prompt the lines are ALL OR NOTHING —
+   * joined into one `systemMessage`, or all dropped — which is what lets
+   * `deliverTurn` mark only an envelope that carried them; today there is one.
    */
   notice: string | null | readonly (string | null)[] = null,
   /** How a due Stop ask leaves (`STOP_ASK_SHAPE_KEY`). Ignored off Stop. */
@@ -895,7 +955,8 @@ export function hostDelivery(
     // `systemMessage` alone rather than an empty context field. A prompt with
     // no notice prints what it always has — plain text, or nothing. More than
     // one line would be JOINED into the one `systemMessage` an object carries,
-    // never one replacing another; today the update notice is the only one.
+    // never one replacing another, and dropped all together or not at all —
+    // not SessionStart's priority order; today the update notice is the only one.
     if (name === "user-prompt-submit" && notices.length > 0) {
       const message = notices.join("\n");
       const envelope = JSON.stringify({

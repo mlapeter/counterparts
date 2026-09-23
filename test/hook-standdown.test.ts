@@ -41,7 +41,7 @@ import { join, resolve } from "node:path";
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
-import { reachesTheOwner } from "../src/adapters/claude-code/bin/hook.js";
+import { deliverTurn, reachesTheOwner, stampWhenOpened } from "../src/adapters/claude-code/bin/hook.js";
 import {
   BUSY_SESSION_START_MESSAGE,
   BUSY_TURN_MESSAGE,
@@ -824,6 +824,33 @@ describe("a hook on a working store", () => {
     expect(runHook("UserPromptSubmit", "h1-prestamp-session").stdout).toBe("");
   });
 
+  /**
+   * THE RE-REVIEW'S N1 REPRO, which used to print a false "was updated": the
+   * directory is off when the session opens (so SessionStart writes nothing and
+   * the server records nothing), it is switched on mid-session, and the first
+   * record is created by a STOP. That record is this build's, so it carries
+   * this build's stamp — and with nothing stale anywhere, nothing is said.
+   */
+  test("off at open, on mid-session, record first created at a Stop: NO notice", () => {
+    const registry = scopesPath(configPath);
+    const setMode = (mode: "off" | "on"): void => {
+      writeFileSync(
+        registry,
+        `${JSON.stringify({ version: 1, scopes: { [canonicalScopePath(work)]: { mode, since: "2026-09-23T00:00:00.000Z" } } }, null, 2)}\n`,
+        "utf8",
+      );
+    };
+    setMode("off");
+    expect(runHook("SessionStart", "h1-flip-session").stdout).toBe("");
+    expect(existsSync(join(store, "sessions", "h1-flip-session.json"))).toBe(false);
+    setMode("on");
+    expect(runHook("Stop", "h1-flip-session").code).toBe(0);
+    expect(readSession(store, "h1-flip-session")?.opened?.build).toEqual(installedBuild());
+    const prompt = runHook("UserPromptSubmit", "h1-flip-session");
+    expect(systemMessage(prompt)).toBeNull();
+    expect(prompt.stderr).not.toContain("adapter.update.notice");
+  });
+
   test("a current MCP server: nothing, and nothing marked", () => {
     runHook("SessionStart", "h1-current-session");
     recordServerLaunch(store, { scope: work, build: installedBuild(), pid: process.pid, hostPid: 1 });
@@ -1263,5 +1290,67 @@ describe("doctor reads the open, not just the directory", () => {
   test("no reading, no finding — which is the session-start notice's case", () => {
     const findings = doctorFindings(doctorInput());
     expect(findings.find((f) => f.key === "store-open")).toBeUndefined();
+  });
+});
+
+
+// ── the update notice can never cost the wake or the recall (#187 re-review, N4) ──
+
+describe("the update notice is fail-open", () => {
+  const throwing = {
+    updateNotice: (): string | null => {
+      throw new Error("forced-update-throw");
+    },
+    markUpdateNotice: (): boolean => {
+      throw new Error("forced-mark-throw");
+    },
+  };
+  const input = { sessionId: "n4", scope: "/tmp/n4" };
+
+  test("a throwing door at SessionStart: the wake prints byte for byte", () => {
+    expect(HEALTHY_SESSION_START_STDOUT.length).toBeGreaterThan(400);
+    const d = deliverTurn(
+      "session-start",
+      { injection: HEALTHY_SESSION_START_STDOUT, ask: null },
+      {},
+      [null, null],
+      "json",
+      throwing,
+      input,
+    );
+    expect(d.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+  });
+
+  test("a throwing decision or mark at a prompt: the recall prints, without the notice", () => {
+    const recall = "<counterparts-recall>the reservoir loop</counterparts-recall>";
+    const due = { updateNotice: (): string | null => "a notice", markUpdateNotice: throwing.markUpdateNotice };
+    for (const doors of [throwing, due]) {
+      const d = deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", doors, input);
+      expect(d.stdout).toBe(recall);
+    }
+    // And a mark that simply does not land is the same plain recall.
+    const unmarked = { updateNotice: (): string | null => "a notice", markUpdateNotice: (): boolean => false };
+    expect(deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", unmarked, input).stdout).toBe(recall);
+  });
+
+  test("a throwing stamp is swallowed, and it runs only on a session that opens", () => {
+    let calls = 0;
+    const stamp = (): never => {
+      calls += 1;
+      throw new Error("forced-stamp-throw");
+    };
+    expect(() => stampWhenOpened({ hook_event_name: "SessionStart", source: "startup" }, stamp)).not.toThrow();
+    stampWhenOpened({ hook_event_name: "SessionStart", source: "compact" }, stamp);
+    stampWhenOpened({ hook_event_name: "UserPromptSubmit" }, stamp);
+    expect(calls).toBe(1);
+  });
+
+  test("main writes the output BEFORE it stamps", () => {
+    const source = readFileSync(HOOK_SCRIPT, "utf8");
+    const main = source.slice(source.indexOf("async function runHook"));
+    const write = main.indexOf("process.stdout.write(delivery.stdout)");
+    const stamped = main.indexOf("stampWhenOpened(payload");
+    expect(write).toBeGreaterThan(0);
+    expect(stamped).toBeGreaterThan(write);
   });
 });

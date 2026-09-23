@@ -257,10 +257,20 @@ already holds (`Store.schemaVersions()`, two primary-key reads, statements prepa
 Either one AHEAD of the code this process loaded refuses EVERY tool — `scope` and `status`
 included, before the scope gate, the stand-down, or any argument is looked at — with one
 sentence, `STALE_SERVER_REFUSAL`, which ends in the same remedy as the hook's notice.
-`recall` asks a second time after its one `await` (the question's embedding, a network
-round-trip), so a migration that commits during that wait is not recalled past — it was
-the review's MAJOR-3: with a real embedder the window was the embed latency, and the
-stale server wrote its `mcp.recall` row into the migrated store. A stamp that cannot be
+**And at every write.** Three tools can WAIT between that entry check and their writes:
+`recall` embeds its question in line (the review's MAJOR-3: with a real embedder the window
+was the embed latency, and the stale server wrote its `mcp.recall` row into the migrated
+store), and `note` and `session_end` embed at write time — `session_end` once per entry, in
+a loop — whenever this server's counterpart has a live embedder (the re-review's N5; today
+`openServer` hands it none, so those awaits settle as microtasks, but that is an accident of
+wiring, not a rule). So the server installs a WRITE GUARD on its store
+(`Store.guardWrites`): before every write the store makes for this server — every
+`WRITE_METHODS` site, after the stance check and before the transaction — the same two
+stamps are read again (~3 µs a write), and a stale one throws there, stages nothing, and
+turns the whole call into the same refusal (`at: "write"` on the ring row). `recall` also
+asks straight after its await, so the read and the handle log are skipped too. Entries a
+`session_end` wrote BEFORE the migration landed stay: they went into the old schema before
+the migration, which carried them. A stamp that cannot be
 read at all (a table another build dropped) refuses under `schema-unreadable`; a store
 LOCKED past the busy timeout (`db.ts#isLocked`, the hooks' own test) refuses under
 `store-busy` with a retry, not a reconnect that would not fix it. Behind, absent or
@@ -296,9 +306,13 @@ answers. So the server writes its OWN record into the live-session registry inst
 `bin/serve.ts`; removed at a clean exit). `version` is `package.json#version` read beside the
 code; the two schema numbers are the constants this process loaded. The `@` keeps the file
 out of `isSessionId`'s alphabet, so no session id and no model-supplied claim can name it.
-Two kinds of server write none: an observer, and — the review's MAJOR-2 — a server
-launched in a directory set `off` or `paused`, whose own refusal there says "nothing is
-recorded or read here" (and whose hooks return before they could ask anyway).
+Two kinds of server write none: an observer, and — the review's MAJOR-2 — a server whose
+directory is set `off` or `paused`, whose own refusal there says "nothing is recorded or
+read here" (and whose hooks return before they could ask anyway). That is followed for the
+server's whole life, not only at launch (the re-review's N2): each heartbeat re-reads the
+setting, takes the record away when the directory goes off and writes it back — the same
+record, identity fixed at launch — when it comes on, including for a server that was
+launched off.
 
 A HEARTBEAT pins the record to the process rather than to a pid (MINOR-3): an unref'd
 timer touches the file every `SERVER_HEARTBEAT_MS` (a minute), and a record is believed
@@ -308,16 +322,25 @@ counting within ten minutes, and `pruneSessions` (SessionStart) removes it then.
 whose record was pruned while its laptop slept writes it again at its next beat; the beat
 never creates a directory.
 
-**The stamp (MAJOR-1's code half).** When a session OPENS — SessionStart at `startup`,
-`resume`, `clear` or `fork`, never `compact`, which is the same session and the same server
-carrying on — the hook merges `opened: { build, hookPpid }` into the session record
-(`sessions.ts#stampSessionOpened`). `clear` and `fork` are stamped too, beyond the review's
+**The stamp (MAJOR-1's code half).** Every session record a hook on this build CREATES —
+at SessionStart, a Stop, the seal, SessionEnd — carries `opened: { build, hookPpid }`
+(`recordSession`, when there was no record before). That is what makes "no stamp" mean one
+thing only, a record a build before E wrote; the first cut stamped at SessionStart alone,
+and a record first created at a Stop (a directory switched on mid-session, a SessionStart
+that stood down) read as pre-E and printed a false "was updated" — the re-review's N1,
+now a test through the real hook processes. When a session OPENS — SessionStart at
+`startup`, `resume`, `clear` or `fork`, never `compact`, which is the same session and the
+same server carrying on — the hook refreshes the stamp (`sessions.ts#stampSessionOpened`),
+AFTER the wake is written, and the refresh CLEARS `updateNoticeShown` (N3): an open is
+often a new host and so a new server, and a session `--resume`d onto a fresh host must be
+told about THAT server. `clear` and `fork` are stamped too, beyond the review's
 `startup|resume`, because an unstamped `/clear` behind a non-`exec` shell would tell a
 session with a CURRENT server it was out of date; the cost is one case — a pre-E server
 whose session is cleared before its first prompt after the upgrade — which the old session
-id's first prompt has normally already told. A session record WITHOUT `opened` therefore
-means "opened before any build stamped it", and the notice reads that (below). `hookPpid`
-is also how a person checks the host match (the recipe, step 2).
+id's first prompt has normally already told. An in-process `/resume` keeps its server, so a
+stale one there is announced once more — the same accepted cost as `/clear`. A session
+record WITHOUT `opened` therefore means "written by a build before E", and the notice reads
+that (below). `hookPpid` is also how a person checks the host match (the recipe, step 2).
 
 **The notice (`sessions.ts#decideUpdateNotice`).** The UserPromptSubmit hook runs the
 INSTALLED build every turn. In order: (1) the believed servers in this session's scope
@@ -345,6 +368,15 @@ unrestarted MCP server above all — would erase every field a newer hook had ad
 this notice's mark, SessionStart's stamp, and #186's `markNothingNew`, which the MCP server
 itself writes at `session_end` and which was converted when this branch was rebased onto it.
 A mark written this way keeps fields it does not know.
+
+**The registry is not locked, and that is accepted** (the rest of MINOR-1). Every writer of
+a session record — the hooks' `recordSession`, these marks, the server's `markNothingNew` —
+is a read-modify-write with an atomic rename and no lock. Two that interleave can lose the
+one field the slower did not read: an update notice shown a second time, a `nothingNewAt`
+missing from one answer, a stamp missing until the session next opens. The events of one
+session are sequential and the server's writes follow a Stop, so it takes two processes
+within milliseconds of each other; every field in the record has lived with that since the
+registry was written. The note is in `sessions.ts#mergeIntoRecord` too.
 
 It runs **every turn, ~0.3 ms** — one `readdir` of `sessions/`, the session record, the
 server records, a stat and a signal-0 per server; with a current server it never speaks, so
@@ -374,7 +406,17 @@ turn's recall rides whole in `hookSpecificOutput.additionalContext` (`hookEventN
 no notice prints exactly what it printed before. The size rule is SessionStart's: over
 `ENVELOPE_MAX_CHARS` the recall wins, the plain recall is printed, the notice is dropped
 with an `adapter.notice.dropped` row — and, because the mark follows the envelope, it is not
-marked, so the next turn tries again. (The host measures each JSON field against its cap
+marked, so the next turn tries again. At a prompt the lines are ALL OR NOTHING — joined into
+the one `systemMessage`, or all dropped; SessionStart's priority order is SessionStart's
+alone — which is what lets the mark follow "the envelope carried it". Today there is one.
+
+**Fail-open by construction, not only by each callee's own `try`** (the re-review's N4).
+`bin/hook.ts#deliverTurn` computes the plain output first and returns it whenever anything
+about the notice goes wrong — a door that throws, a mark that will not land — and the
+SessionStart stamp runs AFTER the output is written (`stampWhenOpened`, swallowed if it
+throws). Forced throws in all three doors leave the 474-byte healthy wake and a turn's
+recall printing byte for byte (`test/hook-standdown.test.ts`, "the update notice is
+fail-open"), and a structural test pins "written, then stamped" in `runHook`. (The host measures each JSON field against its cap
 separately, so measuring the whole envelope is stricter than it needs to be — harmless at
 the default 2,048-byte per-turn recall.)
 
@@ -390,17 +432,20 @@ stays one-way, and rollback past a bump is that copy.
 
 **Residuals, named rather than fixed.**
 
-- **One synchronous call wide, not zero.** A migration that commits between the gate's read
-  and a tool's own write is not caught — for every tool but `recall` that is the few
-  microseconds of synchronous code between them (no other tool awaits), and `recall`
-  re-reads after its await. A migration takes the write lock, so the old write serializes
-  after it and lands in the new schema — harmless for the additive migrations
-  `ADDED_COLUMNS` makes, not for a destructive one.
+- **Microseconds wide, not zero.** The write guard reads the stamps just before a write's
+  transaction opens, not inside it; a migration that commits in those microseconds is not
+  caught. A migration takes the write lock, so the old write serializes after it and lands
+  in the new schema — harmless for the additive migrations `ADDED_COLUMNS` makes, not for a
+  destructive one. Host-state FILES a tool writes (the span buffer, the handle log) are not
+  store writes and are not guarded; the entry check covers them.
 - **A store that is MOVED or REPLACED is invisible to the handle.** `counterparts
   start-fresh` renames the store directory: the old server's handles follow the parked
   inode, the gate passes (the parked stamp never moves), and its writes land in the parked
-  store; its launch record moves into the parked `sessions/` too, so the notice cannot fire
-  either. A future build that replaced the database file would do the same. `start-fresh`'s
+  store. Its launch record moves into the parked `sessions/` with the directory — and then
+  the next heartbeat writes it again at the ORIGINAL path, in the fresh store's `sessions/`
+  once that exists, so the fresh store shows a live server of the same build, which is
+  true and harmless (the re-review's NIT). A future build that replaced the database file
+  would do the same. `start-fresh`'s
   own liveness read (`cli/start-fresh.ts#readLiveness`) skips `mcp-server@*.json`, because
   a server record has no `lastBoundaryAt` — yet a believed server record is the one sign of
   an open session that stays true while it is idle. Filed in INTERFACE-GAPS §10.

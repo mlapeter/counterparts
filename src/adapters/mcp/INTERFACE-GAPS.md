@@ -302,7 +302,9 @@ JSON" was narrowed to what stays true: never without a notice, and never the doc
   (`sessions.ts#serverBelieved`: pid running, heartbeat fresh) is the one sign of an open
   session that stays true while it is idle — and the one `start-fresh` most needs, because
   renaming the store leaves that server writing into the parked store with a gate that
-  passes (NOTES, residuals). Reading those records there is the console's change.
+  passes (NOTES, residuals). The record WILL be there to read: the server's heartbeat
+  writes it again in the fresh store's `sessions/` within a minute. Reading those records
+  there is the console's change.
 - **No snapshot precedes a migration** (NOTES, 2026-09-23): the first open on a new build
   migrates, and that is a hook, while the automatic snapshot runs only in the worker, after
   its own open, once a day. If a pre-migration copy is wanted, the place is the writer path
