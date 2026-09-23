@@ -93,6 +93,7 @@ import {
   indexDoc,
   nearest,
   nearestVectors,
+  cacheAhead,
   openCache,
   reconcileEmbedder,
   resetCache,
@@ -578,6 +579,8 @@ function verdictData(v: EmbedderVerdict): Record<string, string | number | boole
       return { kind: v.kind, from: v.from, to: v.to, dropped: v.dropped };
     case "held":
       return { kind: v.kind, recorded: v.recorded, configured: v.configured, rows: v.rows };
+    case "cache-ahead":
+      return { kind: v.kind, found: v.found, expected: v.expected };
   }
 }
 
@@ -644,7 +647,9 @@ export class Store {
    * What the at-open identity check found (cache v5). `none` when this process
    * configured no identified embedder. `held` means box 3 holds another paid
    * model's vectors and this handle neither writes vectors nor ranks against
-   * them until the owner confirms the drop.
+   * them until the owner confirms the drop. `cache-ahead` means box 3 was
+   * written by a newer build: the same two refusals, and the version is left
+   * as found.
    */
   readonly embedderVerdict: EmbedderVerdict;
   /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
@@ -746,11 +751,22 @@ export class Store {
     // are. A HELD mismatch (two paid identities) takes the embedder away from
     // this handle for writes, so a new model's vectors are never filed beside
     // an old model's under one tag.
+    //
+    // A cache from a NEWER build is checked first and wins over everything:
+    // no reconcile (it could drop rows or write a tag), no vectors written, no
+    // ranking — whatever this process configured. Named, never silent.
     const identity = this.observer ? undefined : opts.embed?.identity;
+    const ahead = cacheAhead(this.cache);
     this.embedderVerdict =
-      identity === undefined ? { kind: "none" } : reconcileEmbedder(this.cache, identity);
-    if (this.embedderVerdict.kind === "held") this.embed = undefined;
-    if (this.embedderVerdict.kind !== "none" && this.embedderVerdict.kind !== "match") {
+      ahead !== null
+        ? { kind: "cache-ahead", found: ahead.found, expected: ahead.expected }
+        : identity === undefined
+          ? { kind: "none" }
+          : reconcileEmbedder(this.cache, identity);
+    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") this.embed = undefined;
+    if (this.embedderVerdict.kind === "cache-ahead") {
+      this.emit("cache.schema.ahead", undefined, verdictData(this.embedderVerdict));
+    } else if (this.embedderVerdict.kind !== "none" && this.embedderVerdict.kind !== "match") {
       this.emit("cache.embedder.reconciled", undefined, verdictData(this.embedderVerdict));
     }
     // THE DAY THIS STORE BEGAN (`STORE_CREATED_KEY`, new-user finding 8). Only
@@ -2224,8 +2240,10 @@ export class Store {
 
   nearestTo(vec: readonly number[], limit = 10): Hit[] {
     // A held mismatch ranks nothing: the rows are another model's, and a
-    // cosine across two models is a number that means nothing (§2.15).
-    if (this.embedderVerdict.kind === "held") return [];
+    // cosine across two models is a number that means nothing (§2.15). A cache
+    // from a newer build ranks nothing either: its vectors are not this
+    // build's to interpret.
+    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") return [];
     return nearest(this.cache, vec, limit);
   }
 
@@ -2240,7 +2258,7 @@ export class Store {
    * number, which is the whole point of asking it this way.
    */
   neighbourVectors(vec: readonly number[], limit = 10): number[][] {
-    if (this.embedderVerdict.kind === "held") return [];
+    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") return [];
     return nearestVectors(this.cache, vec, limit);
   }
 

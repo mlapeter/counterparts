@@ -9,6 +9,7 @@
  */
 import type { Db, SqlValue } from "./db.js";
 import { openDb } from "./db.js";
+import { StoreError } from "./errors.js";
 
 /**
  * Bumped to 2 (2026-08-25, SEAMS item J): the `ranking` table joins box 3.
@@ -194,25 +195,51 @@ export function backfillLengths(db: Db): number {
   return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_lens")?.n ?? 0;
 }
 
+/**
+ * The schema version box 3 says it is, or null for a fresh file (no table, no
+ * row). A read; nothing is created. E's every-call check reads the same key.
+ */
+export function cacheSchemaVersion(db: Db): string | null {
+  try {
+    return db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'")?.value ?? null;
+  } catch {
+    return null; // table absent: fresh cache
+  }
+}
+
+/**
+ * Is this cache from a NEWER build? Then this build must not stamp it, migrate
+ * it, drop from it or write vectors into it — only read what it can.
+ */
+export function cacheAhead(db: Db): { found: string; expected: number } | null {
+  const found = cacheSchemaVersion(db);
+  if (found === null) return null;
+  const n = Number.parseInt(found, 10);
+  return Number.isFinite(n) && n > CACHE_SCHEMA_VERSION ? { found, expected: CACHE_SCHEMA_VERSION } : null;
+}
+
 export function openCache(path: string): Db {
   // WAL here whatever the stance, unlike box 2: the dashboard and the worker read
   // and write this file at the same time, its sidecars live inside `cache/` where
   // nothing classifies them, and box 3 is DECLARED rebuildable — the same reason
   // the constructor lets an instrument materialize this directory at all.
   const db = openDb(path, { wal: true });
+  // A CACHE FROM A NEWER BUILD IS LEFT EXACTLY AS IT IS (2026-09-23, found by
+  // roadmap E). Before v5 this function stamped whatever version it found back
+  // DOWN to its own — so an old MCP server opened after an upgrade rewrote the
+  // new build's `schemaVersion`, and the every-call "schema ahead" refusal that
+  // exists to stop that server could never see what it was looking for. Box 2
+  // refuses an ahead store outright (`SCHEMA_AHEAD`); box 3 is rebuildable and
+  // its lexical tables are plain, so the handle is returned for READING, and
+  // the `Store` built on it turns the vector channel off by name
+  // (`EmbedderVerdict` "cache-ahead") and refuses a rebuild.
+  if (cacheAhead(db) !== null) return db;
   // Idempotent open: write the version row only when it differs. An observer
   // constructing a Store over an up-to-date cache must not churn a byte — the
   // dashboard build measured exactly that churn and filed it (its gap §1).
   // A fresh or outdated cache still initializes (box 3 is rebuildable, and an
   // absent cache is not canonical state), but the steady state is read-only.
-  const existing = (() => {
-    try {
-      const row = db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'");
-      return row?.value ?? null;
-    } catch {
-      return null; // table absent: fresh cache
-    }
-  })();
+  const existing = cacheSchemaVersion(db);
   if (existing !== String(CACHE_SCHEMA_VERSION)) {
     db.transaction(() => {
       for (const sql of DDL) db.exec(sql);
@@ -341,7 +368,14 @@ export type EmbedderVerdict =
    * tagged. The caller must not write vectors into this table or rank against
    * it until the owner confirms the drop (`counterparts migrate-cache`, C3).
    */
-  | { readonly kind: "held"; readonly recorded: string | null; readonly configured: string; readonly rows: number };
+  | { readonly kind: "held"; readonly recorded: string | null; readonly configured: string; readonly rows: number }
+  /**
+   * Box 3 was written by a NEWER build (`cacheAhead`). The identity check did
+   * not run, nothing was written, and — exactly as under `held` — this handle
+   * neither writes vectors nor ranks against them. The lexical index is still
+   * read and written: its tables are the plain ones every version has had.
+   */
+  | { readonly kind: "cache-ahead"; readonly found: string; readonly expected: number };
 
 /** Per open database: the identity this process writes vectors under. */
 const writerIdentity = new WeakMap<Db, EmbedderIdentity>();
@@ -459,6 +493,10 @@ function noteVectorWrite(db: Db, dim: number): void {
  * rather than read out and rewritten, so nothing has to fit in memory.
  */
 export function resetCache(db: Db, opts: { keepEmbeddings?: boolean } = {}): void {
+  // A rebuild re-stamps the version, so on a newer build's cache it would be a
+  // downgrade by another name. Refused by the same code box 2 uses.
+  const ahead = cacheAhead(db);
+  if (ahead !== null) throw new StoreError("SCHEMA_AHEAD", { box: "cache", expected: ahead.expected, found: ahead.found });
   const keep = opts.keepEmbeddings === true;
   const drop = keep ? TABLES.filter((t) => t !== "embeddings") : TABLES;
   forgetAvgDocLen(db);

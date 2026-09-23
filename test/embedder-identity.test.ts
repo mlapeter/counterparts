@@ -9,6 +9,7 @@
  *   - no embedder configured      → nothing touched
  *   - mismatch, static configured → dropped and rebuilt inline, re-tagged
  *   - mismatch, paid → paid       → HELD: nothing dropped, nothing ranked, nothing written
+ *   - a cache from a NEWER build  → left as found (version, rows, tag); vectors off by name
  *
  * Hermetic: every store is a fresh temp dir, and every embedder is a
  * deterministic stub carrying an identity — no table, no network.
@@ -354,5 +355,60 @@ describe("the v4 → v5 migration, and the rest of box 3's lifecycle", () => {
     s.put(mem("three"));
     const hits = s.nearestTo(vec("three", 4, "plain"), 10);
     expect(hits).toHaveLength(1);
+  });
+});
+
+describe("a cache from a NEWER build is left exactly as it is (roadmap E's rule)", () => {
+  function stampVersion(v: string): void {
+    const db = openDb(paths.cache(dir));
+    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", v);
+    db.close();
+  }
+
+  test("v6 opened by v5 code: version still 6, no row dropped, the vector channel off by name, lexical still works", () => {
+    const [first] = seed(embedder(STATIC_A, 4));
+    stampVersion("6");
+    const beforeRows = rows();
+    const beforeMeta = meta();
+
+    // Even a MISMATCHED static embedder — which would otherwise drop and
+    // rebuild every vector — touches nothing here.
+    const s = store(embedder(STATIC_B, 4));
+    expect(s.embedderVerdict).toEqual({ kind: "cache-ahead", found: "6", expected: CACHE_SCHEMA_VERSION });
+    expect(s.events("cache.schema.ahead")[0]?.data).toEqual({ kind: "cache-ahead", found: "6", expected: 5 });
+    expect(s.nearestTo(vec("cold brew ratios", 4, "static-a"), 3)).toEqual([]);
+    expect(s.neighbourVectors(vec("cold brew ratios", 4, "static-a"), 3)).toEqual([]);
+    // Lexical: still read, and a new memory is still findable.
+    expect(s.search("brew", 5).map((h) => h.id)).toContain(first ?? "");
+    const fresh = s.put(mem("a kettle descaling schedule"));
+    expect(s.search("descaling", 5).map((h) => h.id)).toContain(fresh);
+    expect(s.embedOne(fresh).vector).toBe(false);
+    // A rebuild would re-stamp the version: refused by the code box 2 uses.
+    let code: string | null = null;
+    try {
+      s.rebuildCache();
+    } catch (err) {
+      code = (err as { code?: string }).code ?? "OTHER";
+    }
+    expect(code).toBe("SCHEMA_AHEAD");
+    closeAll();
+
+    expect(meta()["schemaVersion"]).toBe("6");
+    expect(meta()[EMBEDDER_META_KEY]).toBe(beforeMeta[EMBEDDER_META_KEY]);
+    expect(rows()).toEqual(beforeRows);
+  });
+
+  test("openCache alone never stamps a newer version down", () => {
+    seed(undefined);
+    stampVersion("7");
+    openCache(paths.cache(dir)).close();
+    expect(meta()["schemaVersion"]).toBe("7");
+  });
+
+  test("an OLDER cache is still migrated up, as before", () => {
+    seed(undefined);
+    stampVersion("4");
+    openCache(paths.cache(dir)).close();
+    expect(meta()["schemaVersion"]).toBe(String(CACHE_SCHEMA_VERSION));
   });
 });
