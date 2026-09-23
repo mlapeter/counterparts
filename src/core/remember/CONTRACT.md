@@ -242,8 +242,9 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     chapter that caught up with the ask count, a `session_end` memory, a handoff, a
     "nothing new" mark) or it has no normal end after its last capture in any scope or the
     host's registry; and it has not been marked written up since. A short session owes
-    nothing. A session that owes, or that the host's registry holds open, is kept however
-    old; one that owes nothing loses every text line — its turns, jots, the assistant's
+    nothing. A session that owes is kept however old, and one the host's registry still
+    holds open is kept for as long as the registry keeps its record; one that owes nothing
+    loses every text line — its turns, jots, the assistant's
     replies, quarantine, claims — 7 days after the latest thing known about it. The
     deletion goes through the strike (G14) naming whole sessions, recorded
     `by: "retention"` with counts only, from the background worker alone
@@ -251,7 +252,10 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     behind an `O_EXCL` latch, before the day's snapshot, leaving one `remember.prune` row
     (`deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`). Cursors, boundaries,
     coverage, proposals and the ledgers are not text and are kept. Raw text therefore lives
-    up to 7 days in the store and up to 21 counting the 14 daily snapshots.
+    up to 7 days in the store and up to 21 counting the 14 daily snapshots. The only way
+    out of owing — the write-up mark — is a grant behind a pinned seam
+    (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
+    no text, and a run is visible from the moment it holds its date (`STARTED`).
 
 ## 6. Scars honored
 

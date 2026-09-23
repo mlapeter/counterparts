@@ -388,7 +388,7 @@ What each needs, and what a week-old deletion of a session that owes nothing cos
 |---|---|---|---|
 | The crash-fallback sweep (`fallback.ts`, via `Counterpart#sweepFallback` in the worker) | `buffer.jsonl`, `jots.jsonl`, claims — CRASHED sessions only | a crashed session's uncovered text until it is swept (12 h silence) | Unaffected in practice. A crashed session the pacer asked about, or one whose substance reached the first-ask threshold, OWES and is kept however old; a short one goes after a week — six and a half days after the sweep could first have read it. |
 | The next-session write-up (roadmap C2, not built) | a session's captured text | everything a session that owes still holds | This IS the predicate it will read; nothing it needs can age out. |
-| The lagged semantic cue (`claude-code/vectors.ts`) | `spans()` and `assistantSpans()` filtered to the session that just spoke | that session's last turn | The session that just spoke had a boundary a moment ago, so its clock is minutes old. (The first version of this table said "a live session is always younger than a week"; that was false for an idle one — review m10 — and is now enforced differently: a session the host's registry holds open is never deleted.) |
+| The lagged semantic cue (`claude-code/vectors.ts`) | `spans()` and `assistantSpans()` filtered to the session that just spoke | that session's last turn | The session that just spoke had a boundary a moment ago, so its clock is minutes old: it is kept by the CAPTURE clock, which reads the buffer alone. (The first version of this table said "a live session is always younger than a week"; that was false for a session idle past a week — review m10. A session the host's registry still holds open is kept too, but only while the registry keeps the record, which is the same week — re-review R8 — so that is an extra guard, not this row's.) |
 | The Stop's coverage report (`hooks.ts#askAtStop` → `coverageReport`) | counts over the scope's buffer | counts for the `adapter.ask` row | The counts now describe what is HELD — a week, what is owed, what is open — not everything ever captured. |
 | Deposit intake (`proposals.ts#submitProposal`) and `claimCoverage` | the depositing session's spans | the session that is depositing | It is active, so its clock is fresh. |
 | Dedup layer 2 (`seenHashes`) at capture and jot | every stream's hashes + claims + the consumed ledger | to refuse an exact repeat | A session's own re-read is refused by its CURSOR, which retention keeps. The deleted spans' hashes are LEDGERED, so an identical later utterance is refused while they stay in the ledger and admitted after they are trimmed out (review n3). |
@@ -446,11 +446,17 @@ per session across every scope of the store.
    Counting them as captured text would make it owe for ever. They are DELETED with the
    session, though — they are the fastest-growing file.
 
-6. **A session the host's registry holds OPEN is never deleted** (review m10). "Open" is
-   a record with no end — wider than the registry's own four-hour `isLive`, on purpose —
-   and a record that exists but will not read counts as open. The registry forgets a
-   record 7 days after its last write (`pruneSessions`, at a SessionStart), after which
-   the ordinary rule applies. Reported as `keptLive`.
+6. **A session the host's registry holds OPEN is kept while it does** (review m10;
+   corrected by re-review R8, which found the first wording — "never deleted" —
+   overstated). "Open" is a record with no end — wider than the registry's own four-hour
+   `isLive`, on purpose — and a record that exists but will not read counts as open. The
+   registry forgets a record 7 days after its last write (`pruneSessions`, at a
+   SessionStart): the SAME week as the retention clock, so `keptLive` is an extra guard
+   for the window where the registry still remembers, not the protection a recently
+   active session relies on. That protection is the capture clock (`kept-young`), which
+   reads the buffer and nothing the registry keeps; a test holds it with the registry
+   record already pruned. Keeping registry records past the retention week would make
+   `keptLive` real, and is `adapters/sessions.ts`'s to decide.
 
 7. **The clock** is the latest thing known about the session anywhere: its last capture
    or boundary in any scope, its write-up mark, its registry end.
@@ -458,6 +464,12 @@ per session across every scope of the store.
 8. **Every failure to read a fact moves toward KEEPING**: an unreadable pacer state is
    asked, an unreadable log is no answers, an unreadable registry record is open, a host
    that throws is open.
+
+8b. **Substance is counted in UTF-8 BYTES** (re-review R5), the pacer's own unit
+   (`hooks.ts#substanceOf`). The first version summed `text.length` — UTF-16 code units —
+   which under-counts a non-Latin script up to threefold: eight turns of Japanese that the
+   pacer would have asked about read as short, and were deleted after a week when the
+   final ask had stood down.
 
 ### How it deletes, and who may make it
 
@@ -487,6 +499,26 @@ per session across every scope of the store.
     `mergeOrphans` — which exists only on a store with a key, where `consume()` already
     trims the same ledger the same way. So the change is small, but it is not nothing.
 
+11b. **The way OUT of owing is a grant, not a method** (re-review R1). A write-up mark
+    ends a session's debt, so its text goes 7 days later: a deletion on a fuse. It was a
+    public `SpanBuffer#recordWriteUp` — reachable through `Counterpart.spans`, taking any
+    scope (and creating it), any session and free text for `by`. It is now
+    `write-up-seam.ts#recordWriteUp`, a WeakMap grant from the buffer's constructor like
+    the strike's, and `test/cli.test.ts` pins its importers to `remember/` and the one
+    path the next-session write-up's door (C2) will live at, `adapters/mcp/write-up.ts`.
+    It refuses by name: a `by` outside `WRITE_UP_BY` (`next-session`, `owner`), a scope
+    not already in `scopes.json` (it has no `ensureScope` at all), and a session with no
+    text in that scope. All three pins now see single quotes, `import()` and `require()`
+    (N1), and a test proves each one catches a stray importer in every spelling.
+
+11c. **A run is visible from the moment it holds the latch** (re-review R7). The worker
+    writes a `STARTED` row as soon as `pruneRetention` takes the date's latch, before it
+    plans; the result row follows. A run the watchdog kills halfway therefore leaves
+    `STARTED` as the date's newest row — "started, did not finish" — rather than a date
+    that is spent and silent. And a later worker that finds the latch held with NO row at
+    all for the date (a run that died between the two) writes one `LATCH_HELD` row. The
+    sessions a dead run did not reach are due again the next date.
+
 12. **Claims count, and are struck.** Text held only in a claim file (a sweep in flight, or
     a crashed run's orphan) counts as captured, so nothing in flight can make a session look
     empty; a doomed session's lines are struck from claim files too.
@@ -515,6 +547,11 @@ per session across every scope of the store.
 - **n2 — unbound MCP jots share one session id** (`"mcp"`, `server.ts`). Retention judges
   them as one session whose clock is the newest unbound jot in the store, so old unbound
   jots stay as long as any unbound jot is under a week old. Harmless (toward keeping).
+- **The raw capture's words are said honestly to the owner** (re-review R9):
+  `cli/removal.ts` used to print "nothing prunes the buffer today" beside the echoes of
+  a removed memory; it now says retention deletes them 7 days after the session ends,
+  unless the session is still waiting to be written up, and that the daily snapshots keep
+  a copy up to 14 days longer.
 - **The first run on a long-lived store** deletes its whole backlog of sessions that owe
   nothing and are more than a week old, in one pass. On the owner's store, started fresh
   on 2026-09-21, nothing is older than a week before 2026-09-28.

@@ -165,6 +165,43 @@ line 13: decisions are defaults).
     QUOTED placeholder is recognised as a placeholder too — without that, the widened
     fence let this family re-redact the AWS family's own `KEY="[REDACTED:…]"`.
 
+20. **The re-review's residuals (PR #189, R2–R4, R6, R10), and the trades they cost**
+    (2026-09-23).
+    - **Every copy, as a literal** (R2). Propagation now replaces every LITERAL
+      occurrence of a caught value, fenced only by "no letter, digit or `+` either side",
+      so a copy glued on by `=`, `/`, `?`, `&`, `:` or `@` (`export SK=S1`, `?sk=S1&`,
+      `s3://bucket/S1/obj`) is taken; the run-match it replaces never saw those. And
+      beside a key id, a token straight after `identifier=` (`key=S`, `sk=S`) is the
+      pair's first copy. Values travel only if `propagatable`: eight characters or more,
+      no whitespace, and a digit, both cases, or a symbol other than `-_.` — so
+      `secret: "production"` does not take every "production" in the text with it.
+      Propagation now covers every NAMED family, not only AWS (R4).
+    - **Hard-coded fallbacks** (R3): the AWS name may be followed by `, "…"`, `|| "…"` or
+      `?? "…"` (`os.getenv("…", "S")`, `process.env.X || "S"`). The generic catch-all takes
+      `||` and `??` but NOT the `, "…"` form: with names as common as `token`, it matched
+      every JSON array of strings and every `"family":"…-key","count"` telemetry row, found
+      the first time the store-walk test ran. So `os.getenv("DB_PASSWORD", "x")` is caught
+      only if its value is caught some other way.
+    - **More names** (R4): passwords get their own pattern — four characters are enough,
+      and `,` / `;` may be inside one; `pgpassword` and `secret_key_base` are keywords; a
+      case-SENSITIVE pattern takes camelCase (`dbPassword`, `apiToken`, `webhookSecret`) and
+      SCREAMING prefixes glued to PASSWORD (`MYSQLPASSWORD`). A bare camelCase `Key` is
+      not a keyword (`primaryKey`, `sortKey`, `cacheKey`).
+    - **Settings, not secrets** (R6), in code (`isSetting`) rather than a lookahead: a
+      boolean or null word; a number — EXCEPT six digits or more under a password-shaped
+      name, which is a PIN (a deliberate difference from "purely numeric is a setting":
+      `input_token = 123456` stays, `DB_PASSWORD=12345678` is redacted); unquoted, a code
+      reference whose first identifier has no digit (`self._refresh`,
+      `settings.DB_PASSWORD`, `Optional[str]`, `os.environ["X"]`); unquoted after a `:`, a
+      type name (`str`, `SecretStr`, a CamelCase word of letters only). The trade: a
+      password that is itself a digit-free dotted word (`my.pass.word`) or, after `:`, a
+      two-part CamelCase word (`HunterTwo`) is read as code and left alone.
+    - **Letters-only secrets** (R10): the named form also takes exactly 40 mixed-case
+      letters — the ~1 in 4,000 AWS secrets with no digit, `/` or `+`. A prose word after
+      the name is never 40 letters.
+    - **Left**: a 40-character RELATIVE path beside a key id (`src/…`, review N2) is still
+      redacted — over-redaction, the safe direction.
+
 ## Calibration status (scar §2.8, guarantee 13)
 
 Every threshold in `tunables.ts` carries the v1 measurement it inherits and a

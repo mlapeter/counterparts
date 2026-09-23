@@ -203,7 +203,8 @@ system keeps.
 **Needed:** the retention job writes one durable `remember.prune` row per date
 (`owes.ts#RETENTION_EVENT`, payload `retentionRow`: `date`, `reason`, `scopes`,
 `deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`, `lines`, `bytes`,
-`retentionDays`; no `ref`; counts are SESSIONS).
+`retentionDays`; no `ref`; counts are SESSIONS; `reason` is `PRUNED`, `NOTHING`,
+`IO_FAILED`, or — for a run that has not finished — `STARTED` / `LATCH_HELD`).
 **Have:** the row is written, and nothing that renders the log knows its name. The totality
 tests do not fail — they walk the registry, not the log — so the row is invisible rather
 than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union and the
@@ -220,8 +221,9 @@ than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union 
 row as numbers. The line it was built for, worded so it does not over-promise (PR #189
 review m4, m5): `Raw transcripts  7 days after a session ends (up to 21 counting the daily
 snapshots) · <deleted> pruned <date> · <keptOwed> kept until written up · <keptLive> still
-open` — green; amber only when `failed > 0`; "not run yet" on a store the worker has not
-reached, which is not a fault. Until the next-session write-up (C2) exists, "kept until
+open` — green; amber when `failed > 0`, and amber when the newest row is `STARTED` or
+`LATCH_HELD` on a date before today ("the pass on <date> started and did not finish");
+"not run yet" on a store the worker has not reached, which is not a fault. Until the next-session write-up (C2) exists, "kept until
 written up" means kept indefinitely, and the line should not imply otherwise.
 
 ## 12. `export` still says nothing about `spans/`
