@@ -243,10 +243,13 @@ or for as long as it waits to be written up.`
 touching either: the worker hands the sweep an interpreter that reads the write-up marks
 (`claude-code/bin/runner.ts#sweepAware`). A session already marked written up is not read
 again — a chunk of only such sessions is retired with no model call, and in a mixed chunk
-their words are marked already-authored — and a crashed session the sweep has finished
-with, consumed or QUARANTINED, is marked written up `by: "api"` (added to
-`write-up-seam.ts#WRITE_UP_BY`), so a quarantined crash no longer owes for ever. A
-session whose spans were put back for a retry is not marked. What would still be cleaner
+their words are marked already-authored — and a crashed session every one of whose
+words was read and came back ok is marked written up `by: "api"` (added to
+`write-up-seam.ts#WRITE_UP_BY`). A session with words left in QUARANTINE is NOT marked
+(PR #192 review, MAJOR 5: quarantine is what the sweep failed to read — a revoked key for
+three days quarantines everything); it stays owed and the next-session pointer offers it
+(`adapters/sessions.ts#sweepOwns` hands it back once only quarantine is left). A session
+whose spans were put back for a retry is not marked either. What would still be cleaner
 here: `crashedPending` skipping a written-up session itself, so its spans are not claimed
 at all and keep their seven days (today they are retired when the sweep claims them).
 
@@ -258,3 +261,17 @@ worker writes when the owner has not opted into the API sweep (whatever key is p
 `not-opted-in` — and a pre-C2 `no-credential` with the knob absent — as green `next
 session`. Not taught here: the dashboard's narrator (`dashboard/web/narrate.ts`) has a
 sentence for `no-credential` and none yet for `not-opted-in`.
+
+## 15. A deposit cannot say whose words it covers
+
+**Owner:** `remember/proposals.ts#submitProposal` (and `core/counterpart.ts#deposit`'s
+`DepositContext`). Filed 2026-09-23 (C2, PR #192 review MAJOR 4). `submitProposal` claims
+coverage for `ctx.session` — the depositing session — which is right for an answer to
+one's own Stop ask and wrong for the next-session write-up, where the depositor is the
+WRITER and the words written about are another session's. The MCP door works around it by
+shadowing `SpanBuffer#claimCoverage` on the instance for the length of its deposits
+(`adapters/mcp/write-up.ts#withoutWriterCoverage`) and claiming the ENDED session's words
+itself when its last part comes back. **Ask:** an optional `coverSession` (or
+`claimCoverage: false`) on `SubmitContext` / `DepositContext`, so a deposit can claim
+against the ended session's spans, part by part, while `origin_session` stays the writer
+— and the shadowing goes.

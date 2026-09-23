@@ -592,12 +592,12 @@ export async function runOnce(input: {
  *     and if that tail is not where it should be the chunk goes through as it
  *     came — a possible duplicate, never a loss.
  *   - **A session the sweep has finished with is marked written up**, `by:
- *     "api"`, in every scope it read: finished means none of its words are
- *     left in the live buffer or a claim — consumed, or QUARANTINED after the
- *     retry bound. Without the mark a quarantined session held text, owed a
- *     write-up for ever, and the next-session pointer would never name it
- *     (with the sweep on, crashed sessions are the sweep's). A session whose
- *     spans were put back for a retry is not finished, and is not marked.
+ *     "api"`, in every scope it read: finished means every one of its words
+ *     was read and came back ok — none left in the live buffer, a claim, or
+ *     QUARANTINE. A quarantined session is NOT marked (PR #192 review, MAJOR
+ *     5): the sweep failed to read it, and the next-session pointer offers it
+ *     instead (`sessions.ts#sweepOwns` hands it back once only quarantine is
+ *     left). A session whose spans were put back for a retry is not marked.
  *
  * Built once per run, before `sessionEnd`; never throws.
  */
@@ -656,10 +656,18 @@ export function sweepAware(
       for (const [session, scopes] of read) {
         try {
           const spans = counterpart.spans;
+          // FINISHED means every word was READ AND CAME BACK OK — consumed. A
+          // word still live, in a claim, or in QUARANTINE was not: quarantine
+          // is where the sweep puts what it failed to read for three days
+          // running (a revoked key, an outage), and marking that "written up"
+          // would delete it a week later with nothing minted (PR #192 review,
+          // MAJOR 5). A quarantined session stays owed and is offered to the
+          // next session in its project instead (`sessions.ts#sweepOwns`).
           const left = [...scopes].some(
             (scope) =>
               spans.spans(scope).some((s) => s.session === session) ||
-              spans.claimedSpans(scope).some((s) => s.session === session && s.kind !== "assistant"),
+              spans.claimedSpans(scope).some((s) => s.session === session && s.kind !== "assistant") ||
+              spans.quarantined(scope).some((s) => s.session === session && s.kind !== "assistant"),
           );
           if (left) continue;
           for (const scope of scopes) {

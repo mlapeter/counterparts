@@ -4709,14 +4709,15 @@ describe("the destruction path is importable from this directory only", () => {
     expect(exported).not.toContain("strikeSpans");
   });
 
-  test("the WRITE-UP mark is reached from remember/ and the future C2 door only, and no index re-exports it", async () => {
+  test("the WRITE-UP mark is reached from remember/, the C2 door and the worker's sweep only, and no index re-exports it", async () => {
     // `remember/write-up-seam.ts#recordWriteUp` ends a session's debt, which
     // makes its text deletable 7 days later — a deletion on a fuse. It was a
     // public `SpanBuffer` method, so everything holding a `Counterpart` could
     // light it (PR #189 re-review, R1). Now it is a grant, like the strike:
-    // `remember/spans.ts` hands it over, and the only other file that may import
-    // it is the next-session write-up's door (roadmap C2) at
-    // `adapters/mcp/write-up.ts`, which does not exist yet.
+    // `remember/spans.ts` hands it over, and the only other files that may
+    // import it are the next-session write-up's door (roadmap C2,
+    // `adapters/mcp/write-up.ts`) and the worker whose opt-in API sweep marks
+    // what it swept (`adapters/claude-code/bin/runner.ts`, `by: "api"`).
     const { offenders, allowedHits } = seamImporters(SRC, "write-up-seam.js", WRITE_UP_ALLOWED);
     expect(offenders).toEqual([]);
     // NOT VACUOUS: the grantor imports it, and so do the door and the sweep.

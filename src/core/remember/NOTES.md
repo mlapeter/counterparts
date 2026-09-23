@@ -539,8 +539,8 @@ per session across every scope of the store.
   **C2 (2026-09-23) is the way out**: the next session in that project is pointed at it,
   fetches the words, and the door marks the session once its last part comes back
   answered — with memories, or with an empty batch, which is a real answer there too. The
-  opt-in API sweep marks the crashed sessions it finishes with (`by: "api"`), quarantined
-  ones included. What stays owed for ever is a session whose project is never reopened
+  opt-in API sweep marks the crashed sessions it finishes with (`by: "api"`) — only when
+  every word came back ok; a quarantined one stays owed and is offered to a next session. What stays owed for ever is a session whose project is never reopened
   (doctor's `Crash write-up` line counts them); the owner can close one by hand only once
   a console command sets `by: "owner"` (filed, not built).
 - **m9 — the crash fallback's outgoing prompt is raw.** `fallback.ts` sends the claimed

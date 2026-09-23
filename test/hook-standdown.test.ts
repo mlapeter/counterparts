@@ -1393,7 +1393,7 @@ describe("the write-up pointer never costs the wake", () => {
     expect(run.stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
     const tail = run.stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
     expect(tail.startsWith(`\n\n${WRITE_UP_OPEN}`)).toBe(true);
-    expect(tail).toContain("The oldest is ended-owing");
+    expect(tail).toContain("writeUp: ended-owing");
     // A pointer: the words come from the MCP door, never beside the wake.
     expect(tail).not.toContain("The relief valve is seated");
     expect(run.stdout.length).toBeLessThan(10_000);

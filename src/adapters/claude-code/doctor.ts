@@ -93,7 +93,7 @@ import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, p
 import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
 import { SpanBuffer } from "../../core/remember/index.js";
-import { awaitingWriteUp, writeUpPlan } from "../sessions.js";
+import { awaitingWriteUp, readWriteUpPointer, writeUpPlan } from "../sessions.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -3128,18 +3128,21 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
   let waiting: number | null = null;
   let stale = 0;
   try {
+    // READ-ONLY by construction: an observer buffer writes nothing, and it
+    // is B3's own reader (`planRetention`) that opens the files.
+    const spans = new SpanBuffer({ dir: store.dir, observer: true, now: () => now });
     const plan = writeUpPlan({
       store,
-      // READ-ONLY by construction: an observer buffer writes nothing, and it
-      // is B3's own reader (`planRetention`) that opens the files.
-      spans: new SpanBuffer({ dir: store.dir, observer: true, now: () => now }),
+      spans,
       firstAsk: {
         turns: SELF_TUNABLES.FIRST_ASK_TURNS,
         bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
         soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
       },
     });
-    const owed = awaitingWriteUp(plan, store.dir, now);
+    // The same eligibility the pointer uses — so a crashed session the API
+    // sweep will still read is not counted as waiting on a next session (m4).
+    const owed = awaitingWriteUp(plan, store.dir, now, { sweep: api ? spans : null });
     waiting = owed.length;
     stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
   } catch {
@@ -3152,7 +3155,27 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
         ? ""
         : ` — ${String(waiting)} session${waiting === 1 ? "" : "s"} awaiting a write-up` +
           (stale === 0 ? "" : `, ${String(stale)} older than ${String(WRITE_UP_WAIT_DAYS)} days`);
-  const data = { mode, api, waiting, stale };
+  const pointer = readWriteUpPointer(store);
+  const data = {
+    mode,
+    api,
+    waiting,
+    stale,
+    pointer: pointer?.outcome ?? null,
+    pointerDate: pointer?.date ?? null,
+  };
+  if (input.config.crashWriteUpIgnored !== undefined) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who} — ${input.config.crashWriteUpIgnored}${count}`,
+        `Set "crashWriteUp" in ${tilde(input.configPath)} to "api" or "next-session", or remove it.`,
+        data,
+      ),
+    ];
+  }
   if (mode === "api" && !keyNow) {
     return [
       finding(
@@ -3165,6 +3188,27 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
       ),
     ];
   }
+  // THE POINTER IS NOT GETTING OUT (PR #192 review, MAJOR 1 and m4): opening a
+  // session there would only defer again, so the advice says why and by how much.
+  if (pointer !== null && pointer.outcome === "deferred" && (waiting ?? 0) > 0) {
+    const short = Math.max(0, pointer.need - pointer.room);
+    const why =
+      pointer.reason === "host-cap"
+        ? `the pointer did not fit on ${pointer.date}: it needs ${String(pointer.need)} bytes and the wake left ${String(Math.max(0, pointer.room))} under the host's 10,000-character cap (${String(short)} short)`
+        : `the pointer could not be recorded on ${pointer.date} (${pointer.reason ?? "unknown"})`;
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count} — ${why}`,
+        pointer.reason === "host-cap"
+          ? `The wake is too full: lower "injectionBudgetBytes" in ${tilde(input.configPath)} by ${String(short)} or more.`
+          : "The session registry under the store could not be written; read the Store line.",
+        data,
+      ),
+    ];
+  }
   if (stale > 0) {
     return [
       finding(
@@ -3172,7 +3216,7 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
         "amber",
         "Crash write-up",
         `${who}${count}`,
-        "Open a session in the project each one ended in: its start hands the words over. A project never reopened is never written up.",
+        "Open a session in the project each one ended in: its start points at the oldest. A project never reopened is never written up.",
         data,
       ),
     ];

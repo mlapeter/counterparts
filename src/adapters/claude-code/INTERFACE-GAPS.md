@@ -699,20 +699,34 @@ furniture, under the 9,000-byte budget `install` writes:
 
 The owner's measured wakes run 8.8–9.0 KB.
 
-**Option (b), taken by the owner 2026-09-23:** SessionStart carries a ~400-byte POINTER,
-measured against the host's cap only, and the MCP door serves the words — `session_end`
-with `writeUp` and no memories returns the next part, up to ~24 KB — because an MCP result
-is not under the hook cap. Built in C2; it reaches a 9,038-byte wake (tested).
+**Option (b), taken by the owner 2026-09-23:** SessionStart carries a POINTER — 411–428
+bytes with the host's 36-character ids, naming the ended session once — measured against
+the host's plain-stdout cap (10,000) and not the reported budget, and the MCP door serves
+the words: `session_end` with `writeUp` and no memories returns the next part, up to
+~24 KB, because an MCP result is not under the hook cap. Built in C2; with host ids it
+reaches a 9,038-byte wake (tested) and defers only past a ~9,570-byte one. A deferral is a
+durable meta row (`adapter.writeup.pointer`) that doctor's `Crash write-up` line reads and
+explains in bytes.
 
 **Option (a), still filed as the alternative, and still the page writer's problem:** the
 wake reserves room for the session-start asks (`core/`'s composition budget). The page
 writer's block carries its day's memories inline and is held to the reported budget, so
 on the owner's store it defers every morning by the same arithmetic.
 
-**Named cost of (b):** on a red morning with a full wake, the pointer can push the
-envelope past `ENVELOPE_MAX_CHARS` and the doctor notice is the part dropped (the wake
-wins, as always; `adapter.notice.dropped` records it). Bounded: at most two starts a day
-carry a pointer, and the notice returns at the next start.
+**Named cost of (b):** on a red morning with a wake of roughly 8.4–8.95 KB, the pointer
+can push the envelope past `ENVELOPE_MAX_CHARS` and the doctor notice is the part dropped
+(the wake wins, as always; `adapter.notice.dropped` records it). At a full 9 KB wake the
+notice is dropped with or without it. Bounded: at most two starts a day carry a pointer,
+and the notice returns at the next start.
+
+**Residual cost (PR #192 review, n1):** the eligibility plan (`writeUpPlan`: every
+scope's span files and up to 90 days of `adapter.ask` rows) runs at EVERY session start
+whose allowance is not spent — and when nothing is owed, the allowance is never spent.
+Measured by the review on 400 held sessions (1.6 MB of spans, 20k ask rows): ~43 ms per
+start, 2 ms with the allowance spent. Acceptable now; it scales with the store. The cheap
+fix, not built: skip the scan when nothing has changed since the last plan (a meta stamp
+of the newest boundary/write-up/answer time the plan saw, compared before scanning), and
+treat a plan that found nothing owed as spending the day's check.
 
 ## 16. For C3: the opt-in is `crashWriteUp: "api"` (2026-09-23, C2)
 

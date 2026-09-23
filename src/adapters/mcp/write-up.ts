@@ -8,9 +8,11 @@
  * naming the ended session, beside the ordinary `session` (the live one, bound
  * exactly as every `session_end` is):
  *
- *   - **FETCH** — `writeUp` and NO `memories`: the next unwritten part of that
- *     session's captured words, up to `WRITE_UP_PART_BYTES` (~24 KB), and the
- *     part is recorded as handed to THIS session (`writeUpFor` on its record).
+ *   - **FETCH** — `writeUp` and NO `memories` (or `memories: []` before any
+ *     fetch is on record — a host that honours a schema's `required` sends
+ *     that, PR #192 review m2): the next unwritten part of that session's
+ *     captured words IN THIS PROJECT, up to `WRITE_UP_PART_BYTES` (~24 KB), and
+ *     the part is recorded as handed to THIS session (`writeUpFor`).
  *     The words travel here rather than beside the wake because an MCP result
  *     is not under the host's 10,000-character cap on a hook's output
  *     (`claude-code/INTERFACE-GAPS` §15). One part per session: a session that
@@ -24,7 +26,15 @@
  *     LAST part's answer marks the ended session written up through B3's seam,
  *     `by: "next-session"`, which starts its seven-day retention clock; how it
  *     was answered (`memories` / `nothing-new`) is recorded on the writing
- *     session's record.
+ *     session's record. A write-up's memories claim NO coverage of the
+ *     writer's own words (MAJOR 4); the last part's answer marks the ENDED
+ *     session's words here as kept instead.
+ *
+ * **One project's words at a time** (MAJOR 6). A session that left words under
+ * two projects is written up in each by a session there: a writer here is
+ * served, and closes, only the words filed here. The session is marked written
+ * up — which B3 reads for the whole session — only when the last project's
+ * share comes back; until then the finished shares wait (`waiting`).
  *
  * **A field, not a sibling tool,** and the field can be made safe: the call is
  * diverted HERE before `session_end` reads anything else, so a write-up never
@@ -51,7 +61,7 @@
  *   - `owes-nothing` — B3's predicate says it owes nothing (`why`:
  *     below-threshold, answered, no-text);
  *   - `not-asked` — a fetch for a session the hook did not point this one at,
- *     or an answer from a session that fetched nothing of it;
+ *     or memories from a session that fetched nothing of it;
  *   - `wrong-part` — an answer naming a part other than the one fetched;
  *   - `part-already-written` — the part this session fetched already came back
  *     (the next one comes at a later start);
@@ -66,17 +76,21 @@
  * would refuse.
  */
 import type { Counterpart } from "../../core/counterpart.js";
+import type { SpanBuffer } from "../../core/remember/index.js";
 // THE MARK, by path — `remember/index.ts` does not re-export it (PR #189
 // re-review, R1), and `test/cli.test.ts` pins who may import it.
 import { WRITE_UP_BY, recordWriteUp } from "../../core/remember/write-up-seam.js";
 import type { WriteUpReason } from "../../core/remember/write-up-seam.js";
+import { calendarDate } from "../../core/self/index.js";
 import {
   WRITE_UP_KEPT_MARK,
   WRITE_UP_PART_BYTES,
   isSessionId,
   markWriteUpFetched,
+  progressKey,
   readSession,
   readWriteUpProgress,
+  sameScope,
   saveWriteUpProgress,
   writeUpEntries,
   writeUpParts,
@@ -84,7 +98,7 @@ import {
   writeUpStanding,
 } from "../sessions.js";
 import type { WriteUpAnswer, WriteUpProgress } from "../sessions.js";
-import { calendarDate } from "../../core/self/index.js";
+import type { HeldSession } from "../../core/remember/index.js";
 
 /** Every way the door refuses. */
 export const WRITE_UP_REFUSALS = [
@@ -131,7 +145,7 @@ export interface WriteUpDoorInput {
 
 export interface WriteUpOutcome {
   /** A refusal's name, or what the call did. */
-  readonly reason: WriteUpRefusal | "part" | "part-written" | "written-up";
+  readonly reason: WriteUpRefusal | "part" | "part-written" | "written-up" | "written-up-here";
   readonly isError: boolean;
   /** The tool result's body. On a fetch it carries the part's words; every
    *  other body is ids, counts and reasons. */
@@ -143,6 +157,18 @@ const refused = (reason: WriteUpRefusal, detail: Record<string, unknown> = {}): 
   isError: true,
   body: { stored: false, writeUp: true, reason, ...detail },
 });
+
+const NO_DEPOSITS: WriteUpDeposits = { outcomes: [], deposited: 0, duplicates: 0 };
+
+/** Everything one call works from, read once. */
+interface Standing {
+  readonly held: HeldSession;
+  /** The buffer's own spelling of this project's scope. */
+  readonly here: string;
+  readonly key: string;
+  readonly progress: WriteUpProgress | undefined;
+  readonly all: Readonly<Record<string, WriteUpProgress>>;
+}
 
 /**
  * THE DOOR. Never throws on a refusal; a throw from the store is the caller's
@@ -167,67 +193,101 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
     spans: counterpart.spans,
     firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
   });
-  const standing = writeUpStanding(plan, input.registryDir, ended, input.scope, input.now);
+  const all = readWriteUpProgress(counterpart.store);
+  const standing = writeUpStanding(plan, input.registryDir, ended, input.scope, input.now, { progress: all });
   if (standing.status === "owes-nothing") return refused("owes-nothing", { writeUp: ended, why: standing.why });
   if (standing.status !== "owed") return refused(standing.status, { writeUp: ended });
-  const held = standing.held;
+  const key = progressKey(ended, standing.here);
+  const st: Standing = { held: standing.held, here: standing.here, key, progress: all[key], all };
+
   const record = readSession(input.registryDir, input.session);
-  const progress = readWriteUpProgress(counterpart.store)[ended];
-
-  // ── FETCH ────────────────────────────────────────────────────────────────
-  if (args["memories"] === undefined) {
-    // POINTED AT THIS SESSION, by the hook — evidence the model cannot write.
-    // Without it, any live session could read any owed session's words.
-    if (record?.writeUpPointer !== ended) return refused("not-asked", { writeUp: ended });
-    const mine = record.writeUpFor?.session === ended ? record.writeUpFor : undefined;
-    if (mine?.answer !== undefined) {
-      return refused("part-already-written", {
-        writeUp: ended,
-        part: mine.part,
-        detail: "This session has written up its part. The next part is handed over at a later session start here.",
-      });
-    }
-    const chunk = progress?.chunk ?? WRITE_UP_PART_BYTES;
-    const parts = writeUpParts(writeUpEntries(counterpart.spans, held), chunk);
-    if (parts.length === 0) return refused("owes-nothing", { writeUp: ended, why: "no-text" });
-    // The same part again when this session fetched and has not answered;
-    // otherwise the next one not yet written.
-    const part = mine?.part ?? Math.min((progress?.done ?? 0) + 1, parts.length);
-    const next: WriteUpProgress = {
-      chunk,
-      parts: parts.length,
-      done: Math.min(progress?.done ?? 0, parts.length),
-      handedAt: input.now,
-    };
-    if (!saveWriteUpProgress(counterpart.store, ended, next)) return refused("io-failed", { writeUp: ended });
-    if (!markWriteUpFetched(input.registryDir, input.session, { session: ended, part })) {
-      return refused("io-failed", { writeUp: ended, detail: "The part could not be recorded as handed to this session." });
-    }
-    return {
-      reason: "part",
-      isError: false,
-      body: {
-        writeUp: true,
-        reason: "part",
-        session: input.session,
-        ended,
-        endedOn: calendarDate(held.clockFrom),
-        part,
-        of: parts.length,
-        next:
-          `Hand back what is worth keeping from this part with session_end: session: ${input.session}, ` +
-          `writeUp: ${ended}, part: ${String(part)}, memories: [...] — in your own words, as this session's. ` +
-          `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} it handed back itself.` +
-          (part < parts.length ? " The rest comes at later session starts here." : ""),
-        // What was said to that session, and what it jotted. Never its replies.
-        text: parts[part - 1] as string,
-      },
-    };
-  }
-
-  // ── ANSWER ───────────────────────────────────────────────────────────────
   const mine = record?.writeUpFor?.session === ended ? record.writeUpFor : undefined;
-  if (mine === undefined || progress === undefined) {
+  const raw = args["memories"];
+  // A FETCH is no `memories` — or an empty list before any fetch is on record
+  // (m2): a host that honours `required` sends `[]`, and with nothing fetched
+  // there is nothing yet that `[]` could be the answer to.
+  const fetching = raw === undefined || (Array.isArray(raw) && raw.length === 0 && mine === undefined);
+  if (fetching) return handOver(input, ended, st, record?.writeUpPointer, mine);
+  return takeBack(input, ended, st, mine, raw);
+}
+
+// ── FETCH ───────────────────────────────────────────────────────────────────
+
+async function handOver(
+  input: WriteUpDoorInput,
+  ended: string,
+  st: Standing,
+  pointer: string | undefined,
+  mine: { part: number; answer?: WriteUpAnswer } | undefined,
+): Promise<WriteUpOutcome> {
+  const { counterpart } = input;
+  // POINTED AT THIS SESSION, by the hook — evidence the model cannot write.
+  // Without it, any live session could read any owed session's words.
+  if (pointer !== ended) return refused("not-asked", { writeUp: ended });
+  // EVERY PART HERE CAME BACK AND THE MARK DID NOT LAND (an IO failure): this
+  // fetch finishes it, whoever answered — nothing deposited twice (MAJOR 2).
+  const p = st.progress;
+  if (p !== undefined && p.done >= p.parts && p.waiting !== true) {
+    return finish(input, ended, st, p.parts, p.answer ?? "memories", NO_DEPOSITS, true);
+  }
+  if (mine?.answer !== undefined) {
+    return refused("part-already-written", {
+      writeUp: ended,
+      part: mine.part,
+      detail: "This session has written up its part. The next part is handed over at a later session start here.",
+    });
+  }
+  const chunk = p?.chunk ?? WRITE_UP_PART_BYTES;
+  const parts = writeUpParts(writeUpEntries(counterpart.spans, { session: ended, scopes: [st.here] }), chunk);
+  if (parts.length === 0) return refused("owes-nothing", { writeUp: ended, why: "no-text" });
+  // The same part again when this session fetched and has not answered;
+  // otherwise the next one not yet written.
+  const part = mine?.part ?? Math.min((p?.done ?? 0) + 1, parts.length);
+  const next: WriteUpProgress = {
+    ...(p ?? {}),
+    chunk,
+    parts: parts.length,
+    done: Math.min(p?.done ?? 0, parts.length),
+    handedAt: input.now,
+  };
+  if (!saveWriteUpProgress(counterpart.store, st.key, next)) return refused("io-failed", { writeUp: ended });
+  if (!markWriteUpFetched(input.registryDir, input.session, { session: ended, part })) {
+    return refused("io-failed", { writeUp: ended, detail: "The part could not be recorded as handed to this session." });
+  }
+  return {
+    reason: "part",
+    isError: false,
+    body: {
+      writeUp: true,
+      reason: "part",
+      session: input.session,
+      ended,
+      endedOn: calendarDate(st.held.clockFrom),
+      part,
+      of: parts.length,
+      next:
+        `Hand back what is worth keeping from this part with session_end: session: ${input.session}, ` +
+        `writeUp: ${ended}, part: ${String(part)}, memories: [...] — in your own words, as this session's. ` +
+        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} it handed back itself.` +
+        (part < parts.length ? " The rest comes at later session starts here." : ""),
+      // What was said to that session here, and what it jotted. Never its replies.
+      text: parts[part - 1] as string,
+    },
+  };
+}
+
+// ── ANSWER ──────────────────────────────────────────────────────────────────
+
+async function takeBack(
+  input: WriteUpDoorInput,
+  ended: string,
+  st: Standing,
+  mine: { part: number; answer?: WriteUpAnswer } | undefined,
+  raw: unknown,
+): Promise<WriteUpOutcome> {
+  const { counterpart, args } = input;
+  const p = st.progress;
+  if (mine === undefined || p === undefined) {
     return refused("not-asked", { writeUp: ended, detail: "Fetch it first: the same call with no memories returns its words." });
   }
   const part = mine.part;
@@ -237,25 +297,21 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
   if (claimed !== undefined && claimed !== part) {
     return refused("wrong-part", { writeUp: ended, part, detail: `This session was handed part ${String(part)}.` });
   }
-  const final = part >= progress.parts;
+  const final = part >= p.parts;
 
-  // THE ONE RETRY THAT WRITES NO MEMORIES: every part came back, and the mark
-  // did not land last time (an IO failure). This session's answer already
-  // landed; depositing it twice is what the progress record exists to prevent.
-  if (progress.done >= part) {
-    if (!final || mine.answer === undefined) {
-      return refused("part-already-written", { writeUp: ended, part, of: progress.parts });
-    }
-    return finish(input, held.scopes, ended, part, progress, mine.answer, { outcomes: [], deposited: 0, duplicates: 0 }, true);
+  if (p.done >= part) {
+    // THE LAST PART CAME BACK AND ITS MARK DID NOT LAND: any session holding a
+    // fetch of it finishes it, depositing nothing (MAJOR 2).
+    if (final && p.waiting !== true) return finish(input, ended, st, part, p.answer ?? mine.answer ?? "memories", NO_DEPOSITS, true);
+    return refused("part-already-written", { writeUp: ended, part, of: p.parts });
   }
 
-  const raw = args["memories"];
   if (!Array.isArray(raw)) return refused("memories-required", { writeUp: ended, part });
   // NOTHING WORTH KEEPING IS A REAL ANSWER HERE TOO (owner, 2026-09-23): the
   // part is closed without minting, and on the last part the session is marked.
-  const answer: WriteUpAnswer = raw.length === 0 ? "nothing-new" : "memories";
-  const deposits = raw.length === 0 ? { outcomes: [], deposited: 0, duplicates: 0 } : await input.deposit(raw);
-  if (answer === "memories" && deposits.deposited === 0 && deposits.duplicates === 0) {
+  const said2: WriteUpAnswer = raw.length === 0 ? "nothing-new" : "memories";
+  const deposits = raw.length === 0 ? NO_DEPOSITS : await withoutWriterCoverage(counterpart.spans, () => input.deposit(raw));
+  if (said2 === "memories" && deposits.deposited === 0 && deposits.duplicates === 0) {
     return {
       reason: "nothing-landed",
       isError: true,
@@ -272,20 +328,20 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
       },
     };
   }
-  const answered = markWriteUpFetched(input.registryDir, input.session, { session: ended, part, answer });
+  const answered = markWriteUpFetched(input.registryDir, input.session, { session: ended, part, answer: said2 });
   if (!final) {
-    const advanced = saveWriteUpProgress(counterpart.store, ended, { ...progress, done: part });
+    const advanced = saveWriteUpProgress(counterpart.store, st.key, { ...p, done: part });
     return {
       reason: "part-written",
       isError: false,
       body: {
         writeUp: true,
         reason: "part-written",
-        answer,
+        answer: said2,
         session: input.session,
         ended,
         part,
-        of: progress.parts,
+        of: p.parts,
         entries: raw.length,
         deposited: deposits.deposited,
         refused: raw.length - deposits.deposited,
@@ -296,57 +352,123 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
       },
     };
   }
-  return finish(input, held.scopes, ended, part, progress, answer, deposits, false);
+  return finish(input, ended, st, part, said2, deposits, false);
 }
 
 /**
- * THE LAST PART CAME BACK: mark the ended session written up, in every scope
- * that holds its words, through the seam — `by: "next-session"`, so B3's
- * seven-day clock starts. A mark that did not land leaves the session owed; the
- * next start here points at it again, the fetch hands the last part over, and
- * the answer retries the mark without depositing twice.
+ * A WRITE-UP'S MEMORIES CLAIM NO COVERAGE OF THE WRITER'S OWN WORDS (PR #192
+ * review, MAJOR 4). `session_end`'s road claims, for every accepted entry, the
+ * depositing session's uncovered spans (`remember/proposals.ts#submitProposal`
+ * → `SpanBuffer#claimCoverage`): right for an answer to one's own Stop ask,
+ * wrong here, where the depositor is the WRITER and the words written about
+ * are another session's — its own early turns would read as already written up
+ * to whoever writes it up later, and the API sweep would skip them.
+ *
+ * Core has no seam for "deposit without claiming" (filed: remember
+ * `INTERFACE-GAPS` §15), so for the length of the write-up's deposits the
+ * claim is shadowed on this buffer with one that claims nothing, and put back
+ * in `finally`. Safe in this process because the MCP stdio loop handles one
+ * call at a time (`mcp/stdio.ts`, `await server.handle`): nothing else can
+ * deposit while it is shadowed. The ENDED session's words are marked kept by
+ * `finish` instead, once its last part here has come back.
+ */
+async function withoutWriterCoverage<T>(spans: SpanBuffer, run: () => Promise<T>): Promise<T> {
+  const target = spans as unknown as Record<string, unknown>;
+  const hadOwn = Object.prototype.hasOwnProperty.call(target, "claimCoverage");
+  const prior = target["claimCoverage"];
+  target["claimCoverage"] = (): [] => [];
+  try {
+    return await run();
+  } finally {
+    if (hadOwn) target["claimCoverage"] = prior;
+    else delete target["claimCoverage"];
+  }
+}
+
+/**
+ * THE LAST PART HERE CAME BACK.
+ *
+ * The ended session's words HERE are marked kept (coverage, under the writer's
+ * name as the proposal), so a later reader — a next session if it resumes and
+ * owes again, the API sweep — sees them as already written up. Then:
+ *
+ *   - if it still holds unwritten words in ANOTHER project, this project's
+ *     share WAITS (`written-up-here`): B3 reads a write-up mark for the whole
+ *     session, so marking now would start the other project's clock on words
+ *     nobody there has read (MAJOR 6);
+ *   - otherwise it is marked written up through the seam, here only,
+ *     `by: "next-session"`, and B3's seven-day clock starts. A mark that did not
+ *     land leaves the session owed; the next start here points at it again and
+ *     the FETCH finishes it — whoever it is — without depositing twice.
  */
 function finish(
   input: WriteUpDoorInput,
-  scopes: readonly string[],
   ended: string,
+  st: Standing,
   part: number,
-  progress: WriteUpProgress,
-  answer: WriteUpAnswer,
+  said: WriteUpAnswer,
   deposits: WriteUpDeposits,
   retry: boolean,
 ): WriteUpOutcome {
-  const reasons: WriteUpReason[] = [];
-  for (const scope of scopes) {
-    reasons.push(recordWriteUp(input.counterpart.spans, { scope, session: ended, by: BY }));
+  const spans = input.counterpart.spans;
+  try {
+    spans.claimCoverage({ scope: st.here, session: ended, proposalId: `writeup:${input.session}` });
+  } catch {
+    /* a kept mark that did not land costs a later reader a duplicate, never words */
   }
-  const marked = reasons.includes("RECORDED");
-  if (marked) saveWriteUpProgress(input.counterpart.store, ended, null);
-  else saveWriteUpProgress(input.counterpart.store, ended, { ...progress, done: part });
+  const elsewhere = st.held.scopes.filter(
+    (scope) =>
+      !sameScope(scope, st.here) &&
+      writeUpEntries(spans, { session: ended, scopes: [scope] }).length > 0 &&
+      !(() => {
+        const q = st.all[progressKey(ended, scope)];
+        return q !== undefined && q.done >= q.parts && q.waiting === true;
+      })(),
+  );
+  const base = st.progress ?? { chunk: WRITE_UP_PART_BYTES, parts: part, done: 0, handedAt: input.now };
   const entries = deposits.outcomes.length;
+  const common = {
+    writeUp: true,
+    answer: said,
+    session: input.session,
+    ended,
+    part,
+    of: base.parts,
+    entries,
+    deposited: deposits.deposited,
+    refused: entries - deposits.deposited,
+    outcomes: deposits.outcomes,
+  };
+  if (elsewhere.length > 0) {
+    saveWriteUpProgress(input.counterpart.store, st.key, { ...base, done: part, answer: said, waiting: true });
+    return {
+      reason: "written-up-here",
+      isError: false,
+      body: {
+        ...common,
+        reason: "written-up-here",
+        marked: false,
+        // Words it left in other projects wait for a session there.
+        elsewhere: elsewhere.length,
+      },
+    };
+  }
+  const reasons: WriteUpReason[] = [recordWriteUp(spans, { scope: st.here, session: ended, by: BY })];
+  const marked = reasons.includes("RECORDED");
+  if (marked) saveWriteUpProgress(input.counterpart.store, st.key, null, { allOf: ended });
+  else saveWriteUpProgress(input.counterpart.store, st.key, { ...base, done: part, answer: said });
   return {
     reason: "written-up",
     isError: !marked,
     body: {
-      writeUp: true,
+      ...common,
       reason: "written-up",
-      // `memories`, or `nothing-new`: why the session is marked written up,
-      // also on the writing session's registry record (`writeUpFor.answer`).
-      answer,
-      session: input.session,
-      ended,
-      part,
-      of: progress.parts,
-      entries,
-      deposited: deposits.deposited,
-      refused: entries - deposits.deposited,
-      outcomes: deposits.outcomes,
       // Whether the ended session is now marked written up. `false` is an IO
       // failure: what landed stands, the session still owes, and the next
-      // start here points at it again so this can finish.
+      // start here points at it again so the fetch can finish it.
       marked,
       ...(marked ? {} : { markReasons: [...new Set(reasons)] }),
-      ...(retry ? { detail: "This part's answer landed on an earlier call; this one only recorded the write-up." } : {}),
+      ...(retry ? { detail: "The last part's answer landed on an earlier call; this one only recorded the write-up." } : {}),
     },
   };
 }

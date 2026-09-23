@@ -1375,7 +1375,10 @@ export class McpServer {
     // WRITING session is this one, bound exactly as always) and before anything
     // else reads the call: a write-up never writes a handoff and never marks
     // "nothing new". Everything it does and refuses is `write-up.ts`'s.
-    if (args["writeUp"] !== undefined) return this.writeUpField(args);
+    // ONLY A NON-EMPTY STRING diverts (PR #192 review, m1): a host or model that
+    // sends unused optional fields as `null` or `""` must not have every
+    // ordinary answer refused as a write-up of nobody.
+    if (typeof args["writeUp"] === "string" && args["writeUp"].length > 0) return this.writeUpField(args);
 
     // THE HANDOFF FIRST, and before the memories check on purpose (E1). It is a
     // FIELD on this call and not one of the entries, so a dump whose `memories`

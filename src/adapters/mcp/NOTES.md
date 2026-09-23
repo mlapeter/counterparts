@@ -580,17 +580,28 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
   and `TOOL_NAMES` is pinned exactly. The per-entry deposit loop was EXTRACTED
   (`depositEntries`) rather than copied, so a write-up's entries cannot take a different
   road from an answer's.
-- **The fetch leaves `memories` out, and the published schema still marks it required** —
-  the precedent is the handoff-only answer, which the server accepts without it too. The
-  `writeUp` field's own description says to send no memories first, and a model that sends
-  `memories: []` before fetching is refused `not-asked` with "fetch it first" rather than
-  having its empty list read as an answer.
+- **The fetch leaves `memories` out, so the published schema no longer requires it**
+  (PR #192 review, m2). The server still refuses a call that lands neither memories nor a
+  handoff (`memories-required`), and on the write-up path `memories: []` with no fetch on
+  record is read AS the fetch — so a host or model that sends the required-looking field
+  anyway still gets the words. **Unmeasured on the real host:** no live session has yet
+  shown whether Claude Code's model leaves `memories` out, sends `[]`, or both; either
+  works, and the first real write-up is the measurement.
+- **The writer's own coverage is shadowed during the write-up's deposits**
+  (`write-up.ts#withoutWriterCoverage`, MAJOR 4). Core has no "deposit without claiming"
+  seam, so the buffer's `claimCoverage` is replaced on the instance with one that claims
+  nothing for the length of the deposits and put back in `finally`. Safe here because the
+  stdio loop handles one call at a time (`stdio.ts`, `await server.handle`). The clean
+  seam is filed (remember `INTERFACE-GAPS` §15).
 - **The words ride in the JSON result** (`text`, beside `part`, `of` and `next`), not under
   the hook's 10,000-character cap — the reason the SessionStart block became a pointer.
 - **An unrestarted pre-C2 server ignores `writeUp`.** Its `session_end` drops the unknown
   field; a fetch reads as `memories-required`, and an answer deposits the memories as the
   WRITING session's ordinary answer without marking the ended one, which is then pointed
   at again. The build-mismatch notice (roadmap E) is what tells the person to reconnect.
+- **The owner's removal of a write-up's memory finds no source words.** Its proposal
+  claims no coverage (above), so removal's echo walk has nothing to follow into the ended
+  session's spans; those age out with the session's own seven days.
 - **Duplicates count as landed**, and an empty batch is a real answer (owner, 2026-09-23):
   a batch whose every entry is `duplicate-content` says what the store already holds, and
   `[]` says nothing in the part was worth keeping. Only a non-empty batch the gate refused

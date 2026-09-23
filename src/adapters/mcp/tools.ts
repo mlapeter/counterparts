@@ -450,7 +450,7 @@ const SESSION_END: ToolSpec = {
       writeUp: {
         type: "string",
         description:
-          "Only when a session-start write-up pointer named an ENDED session: that session's id. Send it with NO `memories` first — the result is the next part of what was said to it — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id, and the memories are this session's. Not with `handoff`.",
+          "Only when a session-start write-up pointer named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id, and the memories are this session's. Not with `handoff`.",
       },
       part: {
         type: "integer",
@@ -506,10 +506,13 @@ const SESSION_END: ToolSpec = {
         },
       },
     },
-    // `memories` stays required in the published schema: the write-up fetch is
-    // the one call that leaves it out, and it is named in `writeUp`'s own
-    // description. A caller who sent neither still hears `memories-required`.
-    required: ["memories"],
+    // `memories` is NOT required in the published schema (PR #192 review, m2):
+    // the write-up fetch leaves it out, and a host that honours `required`
+    // would otherwise never let a model make that call. The server enforces it
+    // where it matters — a call that lands no handoff and sends no memories is
+    // refused `memories-required` — and `memories: []` with no fetch on record
+    // is read as the fetch.
+    required: [],
     additionalProperties: false,
   },
 };

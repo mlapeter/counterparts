@@ -1273,23 +1273,33 @@ What the build settled, beyond the CONTRACT section:
 - **A pointer, because of the host cap** (owner's choice between INTERFACE-GAPS §15's two
   options). The first build carried the words beside the wake, sized to the room; on a
   mature store there was none. Now the hook points and the MCP door serves.
-- **The pointer is held to the host's cap, not the reported budget.** The budget is the
-  wake's composition target; 9,500 of the host's 10,000 characters is what the host
-  enforces. The cost is one named case: a red doctor notice can be crowded out of the
-  envelope on a morning that also carries a pointer (§15).
+- **The pointer is held to the host's plain-stdout cap, not the reported budget** — and
+  names the ended id once (PR #192 review, MAJOR 1: the first pointer named it three times
+  and, at 537 bytes with host ids, deferred beside the owner's own wake). With no notice
+  the hook prints plain text, so the JSON escaping margin does not apply; with one,
+  `hostDelivery` drops the notice before the envelope overflows.
 - **The part size is a constant** (`WRITE_UP_PART_BYTES`, 24 KB, in `sessions.ts` because
-  both the hook and the door cut parts), kept per session in `adapter.writeup.progress` so
-  a change to the constant cannot renumber a write-up in flight.
+  both the hook and the door cut parts), kept per session and project in
+  `adapter.writeup.progress` so a change to the constant cannot renumber a write-up in
+  flight.
 - **Least recently pointed at first.** Oldest-first alone let one session nobody wrote up
   stand in front of every other session in the project for ever.
 - **The door requires the hook's pointer to fetch, and the fetch's mark to answer**
   (`writeUpPointer`, then `writeUpFor`), the `pageWriterFor` pattern twice over: a model
   cannot read an owed session it was not pointed at, nor close one it never read.
-- **"Ended" uses the bind's own window** (`SESSION_TTL_MS`, 4 h), because a crash leaves
-  no end on this host; a session idle past 4 h in another terminal of the same project can
-  be pointed at while its terminal is still open. What it said since its last answer is
-  what the next session sees (covered words are marked), and if it comes back its new
-  words make it owe again.
+- **"Ended" is the sweep's 12 hours, not the bind's 4** (MAJOR 3), and a registry-open
+  session that answered its last ask is never pointed at: the review's repro was a
+  terminal left open over a long lunch, written up by another session, then re-served in
+  full when it resumed.
+- **A write-up claims no coverage of the writer's own words** (MAJOR 4; the door's
+  `withoutWriterCoverage`) and marks the ENDED session's words here as kept when its last
+  part here comes back — so a later reader of either session sees the truth.
+- **One project's words at a time** (MAJOR 6). The progress key is the ended session AND
+  the project; a session with words in two projects is marked written up only when both
+  shares have come back, because B3 reads a write-up mark for the whole session.
+- **A failed final mark is finished by the next fetch** (MAJOR 2), whoever makes it,
+  depositing nothing — the first build let only the session that answered retry, so the
+  session owed for ever.
 - **The host evidence moved** from `bin/runner.ts` to `adapters/sessions.ts`
   (`hostSessionEvidence`, `writeUpSources`), so the retention pass, the pointer, the door
   and the sweep's marks read one set of facts; the runner keeps `retentionHost` as an
@@ -1301,10 +1311,7 @@ What the build settled, beyond the CONTRACT section:
   authored. In a mixed chunk only the transcript tail of the prompt is re-rendered (core
   prefixes the wake and cards to it); if the tail is not where it should be the chunk goes
   through unchanged — a possible duplicate, never a loss. "Finished" is read off the
-  buffer after the sweep: none of the session's words left live or claimed.
-- **Cost on the wake's path:** one `planRetention` pass over every scope's span files and
-  up to 90 days of `adapter.ask` rows, only after the cheap checks (observer, already
-  pointed this session, day's allowance spent) pass. Measured on a seeded temp store (the
-  first build, which also cut the parts): 150 sessions of ~24 KB each (1,200 ask rows) —
-  the plan 9 ms, the whole SessionStart 17 ms; 400 sessions of ~80 KB (3,200 ask rows) —
-  30 ms and 50 ms.
+  buffer after the sweep: none of the session's words left live, claimed, or
+  quarantined — a quarantined session is NOT marked (MAJOR 5).
+- **Cost on the wake's path:** one `planRetention` pass per start whose allowance is not
+  spent; measured and filed as a residual with its cheap fix (INTERFACE-GAPS §15).

@@ -185,16 +185,19 @@ export const TUNABLES = {
    */
   WRITE_UP_ASKS_PER_DAY: 2,
   /**
-   * The host's cap on a hook's whole output, in characters, less the margin
-   * `bin/hook.ts#ENVELOPE_MAX_CHARS` keeps for JSON escaping. The host's own
+   * The host's cap on a hook's whole output, in characters. The host's own
    * words: "Hook output strings, including `additionalContext`, `systemMessage`,
    * and plain stdout, are capped at 10,000 characters. Output that exceeds this
    * limit is saved to a file and replaced with a preview and file path." Past
    * it, what the session would read is a preview — of the WAKE — so the
    * write-up pointer is measured so the wake, every ask and itself stay under
-   * this. It is also why the words themselves travel through the MCP door.
+   * this. With no owner notice the hook prints PLAIN text, so there is no JSON
+   * escaping to leave room for (PR #192 review, MAJOR 1); with one,
+   * `bin/hook.ts#hostDelivery` drops the notice before it lets the envelope
+   * pass `ENVELOPE_MAX_CHARS`. It is also why the words themselves travel
+   * through the MCP door.
    */
-  WRITE_UP_HOST_OUTPUT_CHARS: 9_500,
+  WRITE_UP_HOST_OUTPUT_CHARS: 10_000,
   // The Stop ask's pacing is NOT here any more, and that is the point: it was a
   // second pacer beside `self/`'s, and two pacers on one blocked moment is how
   // 13 owner turns drew about a dozen asks (2026-09-04). The one pair lives in
@@ -382,10 +385,17 @@ export interface AdapterConfig {
    * leaves crashed sessions to it and writes up only the ones that ended
    * normally without an answer, which the sweep never touched.
    *
-   * Read STRICTLY, like the egress knob: anything but the two words stands the
-   * configuration down to observer rather than guessing which of them was meant.
+   * Read LENIENTLY toward the safe word (PR #192 review, m3): anything but the
+   * two words reads as `next-session` — memory stays on and nothing leaves the
+   * machine — and `crashWriteUpIgnored` names what was ignored, which doctor's
+   * `Crash write-up` line prints. A typo can never resolve to `"api"`, because
+   * the allowlist is exact; strictness bought nothing but a store stood down
+   * to observer for one misspelling, the `pageWriter` block's argument again.
    */
   readonly crashWriteUp?: CrashWriteUpMode;
+  /** What `crashWriteUp` held that was not one of its two words, phrased for a
+   *  person. A REPORT, not a stance: the knob read as `next-session`. */
+  readonly crashWriteUpIgnored?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
@@ -453,6 +463,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
     pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number; ignored?: string[] };
     crashWriteUp?: CrashWriteUpMode;
+    crashWriteUpIgnored?: string;
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -568,14 +579,14 @@ export function loadConfig(raw: unknown): LoadedConfig {
   }
   const crashWriteUp = rec["crashWriteUp"];
   if (crashWriteUp !== undefined) {
-    // STRICT, beside the egress knob and for its reason: `"api"` sends a
-    // person's words to a third party. An exact-string allowlist, and anything
-    // else — a typo, a boolean, `"API"` — takes the whole configuration to
-    // observer below rather than resolving to either word.
+    // LENIENT TOWARD THE SAFE WORD (m3). An exact-string allowlist, so nothing
+    // but `"api"` itself can turn the egress on; anything else — a typo, a
+    // boolean, `"API"` — reads as the default and is NAMED, never a reason to
+    // stand the whole configuration down. Nothing here sets `unreadable`.
     if (typeof crashWriteUp === "string" && (CRASH_WRITE_UP_MODES as readonly string[]).includes(crashWriteUp)) {
       out.crashWriteUp = crashWriteUp as CrashWriteUpMode;
     } else {
-      unreadable = true;
+      out.crashWriteUpIgnored = `crashWriteUp was ${JSON.stringify(crashWriteUp)}, which is neither "api" nor "next-session"; using next-session`;
     }
   }
   const parallel = rec["parallel"];
