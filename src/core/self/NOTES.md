@@ -1109,8 +1109,18 @@ and `test/local-day.test.ts` pins `America/Chicago`, `UTC` and `Asia/Tokyo` expl
 the older writer tests now read the night through `pageWriterNight` instead of
 recomputing it from UTC, so the whole suite passes under any `TZ`.
 
-**Owed elsewhere (not this module's files).** `doctor.ts#pageWriterFindings` still takes
-`dateOf(store.now())` — UTC — so between local and UTC midnight its "owed for" can name a
-different night from the one the mechanism is working on. The one-line fix is
-`const { today, about } = pageWriterNight(store);` in place of its two lines.
+**Doctor reads the same night** (PR #189 review, M2). `doctor.ts#pageWriterFindings` took
+`dateOf(store.now())` — UTC — and compared a claim's local `on` with it, so every Pacific
+evening it called an in-flight claim "nothing-to-say (derived)" and named the wrong night
+as owed. It now reads `pageWriterNight(store)` and passes that `about` to
+`pageWriterDue`, the one function the writer's own header says all three readers share.
+
+**An ended claim closes its night** (review m7). East of UTC the night is held to a UTC
+date across local midnight, so the same `about` could outlive the local day its claim was
+made on: `pageWriterStatus` then read it `nothing-to-say` and `pageWriterClaimOpen`
+false, while `pageWriterDue` offered the night again. `pageWriterDue` now treats an
+`asked` claim whose `on` is before today as closing the night, so the three agree. West
+of UTC `about` moves with the local day, so this never fires there. Boundary cases —
+UTC−7 at 23:30, UTC+9 at 08:00, 00:10 local, both DST days, and the review's two repros —
+are in `test/local-day.test.ts`.
 

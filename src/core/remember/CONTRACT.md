@@ -233,19 +233,25 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     and belongs to no single memory. It records counts and never a hash or a word
     (§16 G9). One window is NAMED rather than closed: a worker already holding a claim in
     memory finishes its arc (NOTES §14).
-15. **[M] Raw transcript is kept 7 days after a session ends, unless it owes a write-up**
-    (owner's ruling 2026-09-23; `retention.ts`, NOTES §16). ONE predicate decides what is
-    owed — `owesWriteUp`: the session still holds captured text, the pacer found
-    substance in it (an ask was committed), and either no answer was recorded (a chapter,
-    a `session_end` memory, a handoff) or it ended without a normal end; and it has not
-    been marked written up since. A short session the pacer never asked about owes
-    nothing. A session that owes is kept however old; one that owes nothing loses every
-    text line — its turns, jots, the assistant's replies, quarantine — 7 days after the
-    later of its last activity and its write-up mark. The deletion goes through the
-    strike (G14) naming whole sessions, recorded `by: "retention"` with counts only; the
-    worker runs it once per date, before the day's snapshot, and leaves one
-    `remember.prune` row (`deleted`, `keptOwed`, `keptYoung`, `failed`). Cursors,
-    boundaries, coverage, proposals and the ledgers are not text and are kept.
+15. **[M] Raw transcript is kept 7 days after a session ends, unless it owes a write-up
+    or the host still holds it open** (owner's ruling 2026-09-23; `owes.ts`,
+    `retention.ts`, NOTES §16). ONE predicate decides what is owed — `owesWriteUp`, judged
+    once per session across every scope: the session still holds captured text; the pacer
+    found substance in it (an ask was committed, or its substance reached the first-ask
+    threshold with no ask on record); and either no answer came AFTER ITS LAST ASK (a
+    chapter that caught up with the ask count, a `session_end` memory, a handoff, a
+    "nothing new" mark) or it has no normal end after its last capture in any scope or the
+    host's registry; and it has not been marked written up since. A short session owes
+    nothing. A session that owes, or that the host's registry holds open, is kept however
+    old; one that owes nothing loses every text line — its turns, jots, the assistant's
+    replies, quarantine, claims — 7 days after the latest thing known about it. The
+    deletion goes through the strike (G14) naming whole sessions, recorded
+    `by: "retention"` with counts only, from the background worker alone
+    (`remember/index.ts` does not export it; a test pins its one importer), once per date
+    behind an `O_EXCL` latch, before the day's snapshot, leaving one `remember.prune` row
+    (`deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`). Cursors, boundaries,
+    coverage, proposals and the ledgers are not text and are kept. Raw text therefore lives
+    up to 7 days in the store and up to 21 counting the 14 daily snapshots.
 
 ## 6. Scars honored
 

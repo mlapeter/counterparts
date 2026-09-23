@@ -79,7 +79,8 @@ is already being fixed at its root.
 
 **Fixed in `core/encode/secrets.ts`, where every entrance gets it at once** (encode NOTES,
 item 18): a new `aws-secret-access-key` family catches the secret under its own name and
-within 200 characters of its key id, either way round, by context and shape together. The
+within 200 characters of its key id, either way round, by context and shape together —
+and, since the PR #189 review, every copy of a caught value wherever it stands. The
 review's own sentence now stores as `[REDACTED:aws-access-key-id] and the secret
 [REDACTED:aws-secret-access-key]`, and `test/secrets-aws.test.ts` proves it through the
 handoff field of `session_end` beside every other door. A handoff an older build stored

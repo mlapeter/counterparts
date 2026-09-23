@@ -125,23 +125,45 @@ line 13: decisions are defaults).
     stays distinguishable from a broken hook (scar E7, observer-mode G5/G6).
 
 18. **The AWS SECRET access key is caught by context, never by shape alone** (2026-09-23,
-    handoff INTERFACE-GAPS §6). The key id has a prefix (`AKIA…`) and always had a family;
-    the 40-character secret beside it has none — it is base64's alphabet, and that shape
-    alone also matches a 40-character CamelCase identifier or a path. The 09-20 review
-    measured the consequence: id redacted, secret stored verbatim, in a handoff and, by the
-    same battery, the journal and the self page. `aws-secret-access-key` is three patterns
-    under one family name: (a) the value under its own NAME — `aws_secret_access_key`,
-    `AWS_SECRET_ACCESS_KEY`, `"SecretAccessKey"`, `aws configure`'s prompt — keeping the
-    name; (b) a 40-character token within 200 characters AFTER the key id; (c) the same
-    BEFORE it. (b) and (c) anchor on the id's PLACEHOLDER, which the key-id family has
-    written by then, so text an older build half-redacted is finished by a re-scan; and the
-    token must carry both cases, which a 40-hex git SHA, a lowercase slug and an all-caps
-    constant never do (a random 40-character base64 string lacks one about once in a
-    billion). A bare 40-character token with no name and no id nearby is LEFT ALONE: a
-    declared non-goal, because the false positives are ordinary technical prose.
-    `assigned-credential` could not have caught (a): its `\b` fails before `secret` and
-    `access` when an underscore precedes them (`aws_secret…`). Proved in
-    `test/secrets-aws.test.ts`, including every entrance.
+    handoff INTERFACE-GAPS §6; hardened by the PR #189 review). The key id has a prefix
+    (`AKIA…`) and always had a family; the 40-character secret beside it has none — it is
+    base64's alphabet, and that shape alone also matches a CamelCase identifier or a path.
+    The 09-20 review measured the consequence: id redacted, secret stored verbatim, in a
+    handoff and, by the same battery, the journal and the self page.
+    `aws-secret-access-key` is three patterns under one family name:
+    (a) the value under its own NAME — `aws_secret_access_key`, `AWS_SECRET_ACCESS_KEY`,
+    `"SecretAccessKey"`, `aws configure`'s prompt, and the four forms with no `=` (review
+    M4): `aws configure set aws_secret_access_key …`, a Dockerfile `ENV …`,
+    `os.environ["…"] = "…"`, XML `<SecretAccessKey>…`. The value must carry a digit, `/`
+    or `+` as well as a letter, so a prose word after the name is not taken (review m8);
+    (b) a fenced, mixed-case 40-character token within 200 characters AFTER a key id; (c)
+    the same BEFORE one. (b) and (c) anchor on the id's PLACEHOLDER — so text an older
+    build half-redacted is finished by a re-scan — through a LOOKBEHIND and a LOOKAHEAD,
+    not inside the match: the first version consumed its anchor, so one id redacted one
+    token and a repeated secret, an old and a new one, or two ids followed by two secrets
+    left the second verbatim (review M3). And every value any of the three captures is
+    then redacted EVERYWHERE else it stands, in one linear pass over the text's maximal
+    base64 runs (`propagate`): one verbatim copy further down is the whole leak.
+    Near a key id, two kinds of PATH are left alone (review m8): a run straight after `~`
+    or `.`, and one that starts at a well-known absolute root (`/Users/`, `/home/`, …). A
+    bare leading `/` is NOT excluded — one real secret in 64 begins with one, and the cost
+    of the other error is a redacted path. A bare 40-character token with no name and no
+    id nearby is LEFT ALONE: a declared non-goal. Proved in `test/secrets-aws.test.ts`,
+    including every entrance.
+
+19. **The catch-all's fence was the ROOT cause, and is fixed for every name** (2026-09-23,
+    PR #189 review M5). `assigned-credential` began with `\b`, and an underscore is a word
+    character, so it never fired inside a snake_case name: `DB_PASSWORD=…`, `JWT_SECRET=…`,
+    `AWS_SESSION_TOKEN=…`, `HF_TOKEN=…` were stored verbatim through every entrance. It is
+    fenced now by "no letter or digit before" (`(?<![A-Za-z0-9])`), the JSON form's closing
+    quote may sit before the `:`, and `session_token` joins the list. The TRAILING `\b`
+    stays and is the false-positive guard: a name must END in the keyword, so
+    `MAX_TOKENS`, `TOKEN_URL`, `SECRET_ROTATION_DAYS` and `PASSWORD_MIN_LENGTH` never match.
+    A value that is a small integer (five digits or fewer), a boolean or a null word is a
+    setting, not a credential, and is left alone; six digits or more under a
+    password-shaped name is still redacted, because a numeric password is a password. A
+    QUOTED placeholder is recognised as a placeholder too — without that, the widened
+    fence let this family re-redact the AWS family's own `KEY="[REDACTED:…]"`.
 
 ## Calibration status (scar §2.8, guarantee 13)
 

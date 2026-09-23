@@ -320,8 +320,9 @@ proposals and their archive; render and delivery telemetry.
 19. **[M]** **THE NIGHTLY PAGE WRITER RUNS ON THE CALENDAR, AT MOST ONCE, AND IS NOT A
     SECOND PACER** (`writer.ts`, S2, 2026-09-20 — true for now). A run is ABOUT one
     calendar date, always yesterday, and never chases a backlog. Since 2026-09-23 the
-    night turns over at LOCAL midnight (`writer.ts#pageWriterNight`), held back only
-    east of UTC until the provenance date it reads has closed (NOTES §22). It is keyed to the
+    night turns over at LOCAL midnight (`writer.ts#pageWriterNight`, which doctor reads
+    too), held back only east of UTC until the provenance date it reads has closed, and a
+    claim whose day has ended closes its night (NOTES §22). It is keyed to the
     calendar and not the lived day for I32's reason: the lived clock advances inside the
     cycle the detached worker runs, and a nightly mechanism keyed to a clock the night
     itself advances can miss every night and look on time. **The first durable row for a

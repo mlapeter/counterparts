@@ -201,8 +201,9 @@ system keeps.
 
 **Owner:** `adapters/dashboard/` and `adapters/fired.ts` — NOT this module. Filed 2026-09-23.
 **Needed:** the retention job writes one durable `remember.prune` row per date
-(`retention.ts#RETENTION_EVENT`, payload `retentionRow`: `date`, `reason`, `scopes`,
-`deleted`, `keptOwed`, `keptYoung`, `failed`, `lines`, `bytes`, `retentionDays`; no `ref`).
+(`owes.ts#RETENTION_EVENT`, payload `retentionRow`: `date`, `reason`, `scopes`,
+`deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`, `lines`, `bytes`,
+`retentionDays`; no `ref`; counts are SESSIONS).
 **Have:** the row is written, and nothing that renders the log knows its name. The totality
 tests do not fail — they walk the registry, not the log — so the row is invisible rather
 than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union and the
@@ -215,15 +216,18 @@ than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union 
 ## 11. Doctor does not show it yet
 
 **Owner:** `adapters/claude-code/doctor.ts`. Filed 2026-09-23.
-**Have:** `lastRetentionRun(store)` returns the newest row as numbers. The line it was
-built for: `Raw transcripts  kept 7 days · <deleted> sessions pruned <date> · <keptOwed>
-awaiting a write-up` — green; amber only when `failed > 0`; "not run yet" on a store the
-worker has not reached, which is not a fault.
+**Have:** `lastRetentionRun(store)` (exported from `remember/index.ts`) returns the newest
+row as numbers. The line it was built for, worded so it does not over-promise (PR #189
+review m4, m5): `Raw transcripts  7 days after a session ends (up to 21 counting the daily
+snapshots) · <deleted> pruned <date> · <keptOwed> kept until written up · <keptLive> still
+open` — green; amber only when `failed > 0`; "not run yet" on a store the worker has not
+reached, which is not a fault. Until the next-session write-up (C2) exists, "kept until
+written up" means kept indefinitely, and the line should not imply otherwise.
 
 ## 12. `export` still says nothing about `spans/`
 
 **Owner:** `adapters/cli/` (LAUNCH-STATUS §I3). Filed again 2026-09-23 with the words
 retention makes true: after the export's `Kind:` line, one line —
-`Not included: spans/ — the raw captured conversation, kept at most 7 days after a session
-ends (longer only while it waits to be written up).`
+`Not included: spans/ — the raw captured conversation, kept 7 days after a session ends,
+or for as long as it waits to be written up.`
 
