@@ -1736,8 +1736,10 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
 
     // The worker runs, and the interpreter is a tripwire: any model call fails
     // this test. Nothing has crashed — every session's last boundary is seconds old.
+    // THE API SWEEP IS OPT-IN since C2 (`crashWriteUp: "api"` AND the key):
+    // this test is about the sweep's gate, so it opts in.
     const quiet = await runOnce({
-      config: config(),
+      config: config({ crashWriteUp: "api" }),
       today: "2026-01-02",
       date: "2026-01-02",
       fetch: async () => {
@@ -1754,7 +1756,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     // crashed; the one that ended normally is not, and is not read.
     goQuiet();
     const swept = await runOnce({
-      config: config(),
+      config: config({ crashWriteUp: "api" }),
       today: "2026-01-03",
       date: "2026-01-03",
       fetch: async () =>
@@ -1789,7 +1791,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
 
     const events: string[] = [];
     const report = await runOnce({
-      config: config(),
+      config: config({ crashWriteUp: "api" }),
       today: "2026-01-02",
       date: "2026-01-02",
       fetch: async () =>
@@ -1856,7 +1858,10 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
       scopes: rows[0]?.["scopes"],
       otherRefusals: rows[0]?.["otherRefusals"],
       date: rows[0]?.["date"],
-    }).toEqual({ reason: "no-credential", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
+    // `not-opted-in` since C2: the sweep is an opt-in upgrade, and this worker's
+    // owner did not opt in. Opted in with no key is `no-credential`
+    // (`test/write-up.test.ts`).
+    }).toEqual({ reason: "not-opted-in", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
   });
 
   test("a sessionEnd that THROWS leaves a durable adapter.runner.failed row (I32)", async () => {
@@ -3157,7 +3162,7 @@ describe("novelty stops being null — the authored door measures prediction err
 
     const embedded: string[][] = [];
     const report = await runOnce({
-      config: config({ embedder: { enabled: true } }),
+      config: config({ embedder: { enabled: true }, crashWriteUp: "api" }),
       today: "2026-01-02",
       date: "2026-01-02",
       // ONE fake for the whole worker; it answers by endpoint, which is how a

@@ -1265,3 +1265,64 @@ stderr copy for the log.
 as v2's ritual probe, one line per probe. Both lines now carry the session id, so the
 meter would find no session-free line to recognise. The parallel run is retired; noted,
 not changed.
+
+## The next-session write-up (C2, 2026-09-23)
+
+What the build settled, beyond the CONTRACT section:
+
+- **A pointer, because of the host cap** (owner's choice between INTERFACE-GAPS §15's two
+  options). The first build carried the words beside the wake, sized to the room; on a
+  mature store there was none. Now the hook points and the MCP door serves.
+- **The pointer is held to the host's plain-stdout cap, not the reported budget** — and
+  names the ended id once (PR #192 review, MAJOR 1: the first pointer named it three times
+  and, at 537 bytes with host ids, deferred beside the owner's own wake). With no notice
+  the hook prints plain text, so the JSON escaping margin does not apply; with one,
+  `hostDelivery` drops the notice before the envelope overflows.
+- **The part size is a constant** (`WRITE_UP_PART_BYTES`, 24 KB, in `sessions.ts` because
+  both the hook and the door cut parts), kept per session and project in
+  `adapter.writeup.progress` so a change to the constant cannot renumber a write-up in
+  flight.
+- **Least recently pointed at first.** Oldest-first alone let one session nobody wrote up
+  stand in front of every other session in the project for ever.
+- **The door requires the hook's pointer to fetch, and the fetch's mark to answer**
+  (`writeUpPointer`, then `writeUpFor`), the `pageWriterFor` pattern twice over: a model
+  cannot read an owed session it was not pointed at, nor close one it never read.
+- **"Ended" is the sweep's 12 hours, not the bind's 4** (MAJOR 3), and a registry-open
+  session that answered its last ask is never pointed at: the review's repro was a
+  terminal left open over a long lunch, written up by another session, then re-served in
+  full when it resumed.
+- **A write-up claims no coverage of the writer's own words** (MAJOR 4; core's
+  `SessionEndDepositContext.cover` seam, built for it) and marks the ENDED session's words here as
+  kept when its last part here comes back — so a later reader of either session sees the
+  truth.
+- **One project's words at a time** (MAJOR 6). The progress key is the ended session AND
+  the project; a session with words in two projects is marked written up only when both
+  shares have come back, because B3 reads a write-up mark for the whole session.
+- **A failed final mark is finished by the next fetch** (MAJOR 2), whoever makes it,
+  depositing nothing — the first build let only the session that answered retry, so the
+  session owed for ever. The retry keys on the progress record's `answer` (set only when
+  the last part came back), never on a part count, and the pointer freezes the count once
+  `answer` is set: the words by then read as kept, and their marks can lengthen the text
+  past a part boundary (re-review m-B).
+- **Progress is pruned at the pointer** (re-review NIT): entries whose session the plan no
+  longer holds as owing — marked by the API sweep, answered after a resume, a share left
+  waiting when another project's mark landed — go before the next session is pointed.
+- **The kept mark reads `[already written up]`**, because since the `cover` seam it also
+  lands on words an earlier NEXT-SESSION write-up covered, not only on the session's own
+  answers.
+- **The host evidence moved** from `bin/runner.ts` to `adapters/sessions.ts`
+  (`hostSessionEvidence`, `writeUpSources`), so the retention pass, the pointer, the door
+  and the sweep's marks read one set of facts; the runner keeps `retentionHost` as an
+  alias.
+- **The sweep's marks** (`bin/runner.ts#sweepAware`): the worker wraps the interpreter it
+  hands the sweep. A written-up session's spans in a chunk of their own are retired with
+  no call — which removes their words from the buffer when the sweep claims them rather
+  than seven days after the mark, the same thing the sweep does to spans that were all
+  authored. In a mixed chunk only the transcript tail of the prompt is re-rendered (core
+  prefixes the wake and cards to it); if the tail is not where it should be the chunk goes
+  through unchanged — a possible duplicate, never a loss. "Finished" is read off the
+  buffer after the sweep: none of the session's words left live, claimed, or
+  quarantined, in ANY project — a quarantined session is NOT marked (MAJOR 5), and nor is
+  one with words still unread in another project (re-review MAJOR-A).
+- **Cost on the wake's path:** one `planRetention` pass per start whose allowance is not
+  spent; measured and filed as a residual with its cheap fix (INTERFACE-GAPS §15).

@@ -224,7 +224,9 @@ snapshots) · <deleted> pruned <date> · <keptOwed> kept until written up · <ke
 open` — green; amber when `failed > 0`, and amber when the newest row is `STARTED` or
 `LATCH_HELD` on a date before today ("the pass on <date> started and did not finish");
 "not run yet" on a store the worker has not reached, which is not a fault. Until the next-session write-up (C2) exists, "kept until
-written up" means kept indefinitely, and the line should not imply otherwise.
+written up" means kept indefinitely, and the line should not imply otherwise. (C2 landed
+2026-09-23 with its own line, `Crash write-up`, which counts the sessions awaiting one
+from the plan; "kept until written up" is now true for every project that is reopened.)
 
 ## 12. `export` still says nothing about `spans/`
 
@@ -233,3 +235,50 @@ retention makes true: after the export's `Kind:` line, one line —
 `Not included: spans/ — the raw captured conversation, kept 7 days after a session ends,
 or for as long as it waits to be written up.`
 
+
+
+## 13. The API sweep can write up a session the next session already wrote up — CLOSED 2026-09-23 (C2)
+
+**Owner:** was `remember/spans.ts#crashedSessions` / `fallback.ts`. Closed without
+touching either: the worker hands the sweep an interpreter that reads the write-up marks
+(`claude-code/bin/runner.ts#sweepAware`). A session already marked written up is not read
+again — a chunk of only such sessions is retired with no model call, and in a mixed chunk
+their words are marked already-authored — and a crashed session every one of whose
+words was read and came back ok is marked written up `by: "api"` (added to
+`write-up-seam.ts#WRITE_UP_BY`). A session with words left in QUARANTINE is NOT marked
+(PR #192 review, MAJOR 5: quarantine is what the sweep failed to read — a revoked key for
+three days quarantines everything); it stays owed and the next-session pointer offers it
+(`adapters/sessions.ts#sweepOwns` hands it back once only quarantine is left). A session
+whose spans were put back for a retry is not marked either. What would still be cleaner
+here: `crashedPending` skipping a written-up session itself, so its spans are not claimed
+at all and keep their seven days (today they are retired when the sweep claims them).
+
+## 14. The sweep's gate row has one reason for a deliberate skip — CLOSED 2026-09-23 (C2)
+
+`core/counterpart.ts#SweepSkipped` now has a second reason, `"not-opted-in"`, which the
+worker writes when the owner has not opted into the API sweep (whatever key is present);
+`"no-credential"` is left for opted in with no key. Doctor's `Sweep` line reads
+`not-opted-in` — and a pre-C2 `no-credential` with the knob absent — as green `next
+session`. Not taught here: the dashboard's narrator (`dashboard/web/narrate.ts`) has a
+sentence for `no-credential` and none yet for `not-opted-in`.
+
+## 15. A deposit cannot say whose words it covers — CLOSED 2026-09-23 (C2)
+
+**Built:** `SubmitContext.cover` (`remember/proposals.ts`), passed through
+`SessionEndDepositContext.cover` (`core/counterpart.ts#submitSessionEnd` → `deposit`; not
+`submitJot`): absent is the depositor's own
+spans (unchanged), `{ session }` another session's in the same scope, `false` none — the
+proposal and the memory stay the depositor's. The next-session write-up's door passes
+`false` on an earlier part and the ended session on the last; the instance-level
+shadowing of `SpanBuffer#claimCoverage` it replaced is gone (NOTES §17).
+
+## 16. `HeldSession` does not say when a session last answered, or last spoke
+
+**Owner:** `remember/owes.ts#planRetention`. Filed 2026-09-23 (C2 re-review m-E).
+`planRetention` computes the time of every answer it counts (proposal times, handoff rows,
+the "nothing new" mark) and every capture, and hands out only `facts` and `clockFrom`.
+The next-session write-up needs one comparison it cannot make without re-deriving
+"answered": whether a session that answered its last ask captured words AFTER that answer
+(claude-code `INTERFACE-GAPS` §17). **Ask:** add `lastCaptureAt` and `lastAnswerAt` to
+`HeldSession` — for a chapter-only answer, which carries no time, the last ask's time as a
+lower bound — so the rule is one predicate on the plan's own facts.

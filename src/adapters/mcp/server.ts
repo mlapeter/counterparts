@@ -97,6 +97,7 @@ import type { Id, Request, Response } from "./protocol.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
+import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
 
 export const SERVER_NAME = "counterparts";
@@ -1370,6 +1371,15 @@ export class McpServer {
     const bound = this.requireBoundSession(args["session"], "session_end");
     if (bound !== null) return bound;
 
+    // THE WRITE-UP DOOR (roadmap C2) — diverted HERE, after the bind (the
+    // WRITING session is this one, bound exactly as always) and before anything
+    // else reads the call: a write-up never writes a handoff and never marks
+    // "nothing new". Everything it does and refuses is `write-up.ts`'s.
+    // ONLY A NON-EMPTY STRING diverts (PR #192 review, m1): a host or model that
+    // sends unused optional fields as `null` or `""` must not have every
+    // ordinary answer refused as a write-up of nobody.
+    if (typeof args["writeUp"] === "string" && args["writeUp"].length > 0) return this.writeUpField(args);
+
     // THE HANDOFF FIRST, and before the memories check on purpose (E1). It is a
     // FIELD on this call and not one of the entries, so a dump whose `memories`
     // array is malformed must not also throw away the one line telling the next
@@ -1395,8 +1405,9 @@ export class McpServer {
     //     stands and the handoff's own outcome rides out on it.
     //   - Neither — no handoff and no memories → `memories-required`, as
     //     before. So is a `memories` that is not an array: a caller who sent the
-    //     wrong TYPE wants to be told, and the field is still `required` in the
-    //     published schema.
+    //     wrong TYPE wants to be told. (The published schema no longer marks
+    //     `memories` required — the write-up fetch leaves it out, PR #192 m2 —
+    //     so this refusal is where the rule is enforced.)
     //
     // AND A FOURTH, 2026-09-23 (B1, owner's decision 4): `memories: []` is
     // "nothing new" WHATEVER happened to the handoff — accepted, minting
@@ -1458,6 +1469,40 @@ export class McpServer {
         ...(handoff === null ? {} : { handoff }),
       });
     }
+    const { outcomes, deposited, entries } = await this.depositEntries(raw, session);
+    this.emit("mcp.session_end", session, {
+      entries: entries.length,
+      deposited,
+      refused: entries.length - deposited,
+      handoff: handoff === null ? false : handoff["written"] === true,
+    });
+    return this.result(
+      {
+        session,
+        entries: entries.length,
+        deposited,
+        refused: entries.length - deposited,
+        outcomes,
+        ...(handoff === null ? {} : { handoff }),
+      },
+      deposited === 0,
+    );
+  }
+
+  /**
+   * THE ROAD EVERY `session_end` ENTRY TAKES — a write-up's included (C2):
+   * one draft per item, the gate battery through `submitSessionEnd`, and
+   * per-entry isolation (scar E1). Extracted, not changed, so the write-up
+   * door's memories cannot take a different road from an ordinary answer's —
+   * except WHOSE words they cover, which the door says (`cover`).
+   */
+  private async depositEntries(
+    raw: readonly unknown[],
+    session: string,
+    /** Whose words the entries cover (`SessionEndDepositContext.cover`). Absent: this
+     *  session's own — every caller but the write-up door. */
+    cover?: false | { readonly session: string },
+  ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
     const entries: Record<string, unknown>[] = [];
     for (const item of raw) {
       if (item === null || typeof item !== "object" || Array.isArray(item)) {
@@ -1480,12 +1525,14 @@ export class McpServer {
 
     const outcomes: Record<string, unknown>[] = [];
     let deposited = 0;
+    let duplicates = 0;
     for (const draft of entries) {
       let result: DepositResult;
       try {
         result = await this.counterpart.submitSessionEnd(draft, {
           session,
           scope: this.scope,
+          ...(cover === undefined ? {} : { cover }),
         });
       } catch (err) {
         // Isolation, not a lost dump: this entry failed, the rest still run.
@@ -1493,6 +1540,7 @@ export class McpServer {
         continue;
       }
       if (result.deposited) deposited += 1;
+      if (result.reason === "duplicate-content") duplicates += 1;
       // A refusal names what to fix. `malformed` alone sent the author back to
       // guess (IMPROVEMENTS U11: a kind outside the enum came back as a bare
       // "malformed"); intake's own reason rides out, and an unknown kind lists
@@ -1507,23 +1555,37 @@ export class McpServer {
         ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
       });
     }
-    this.emit("mcp.session_end", session, {
-      entries: entries.length,
-      deposited,
-      refused: entries.length - deposited,
-      handoff: handoff === null ? false : handoff["written"] === true,
+    return { outcomes, deposited, duplicates, entries };
+  }
+
+  /**
+   * `session_end` with `writeUp` — the next-session write-up's door (C2). The
+   * decisions are `write-up.ts#writeUpDoor`'s; this only binds it to this
+   * server's store, scope, registry and bound session, and renders the answer.
+   */
+  private async writeUpField(args: Record<string, unknown>): Promise<ToolResult> {
+    const session = this.session as string;
+    const out = await writeUpDoor({
+      counterpart: this.counterpart,
+      registryDir: this.registryDir,
+      scope: this.scope,
+      session,
+      now: this.nowFn(),
+      args,
+      deposit: (raw, cover) => this.depositEntries(raw, session, cover),
     });
-    return this.result(
-      {
-        session,
-        entries: entries.length,
-        deposited,
-        refused: entries.length - deposited,
-        outcomes,
-        ...(handoff === null ? {} : { handoff }),
-      },
-      deposited === 0,
-    );
+    const body = out.body;
+    this.emit("mcp.write_up", typeof args["writeUp"] === "string" ? args["writeUp"] : undefined, {
+      reason: out.reason,
+      part: typeof body["part"] === "number" ? body["part"] : null,
+      of: typeof body["of"] === "number" ? body["of"] : null,
+      deposited: typeof body["deposited"] === "number" ? body["deposited"] : 0,
+      marked: typeof body["marked"] === "boolean" ? body["marked"] : null,
+    });
+    if (out.isError && body["stored"] === false && out.reason !== "nothing-landed") {
+      this.emit("mcp.refused", undefined, { tool: "session_end", reason: out.reason });
+    }
+    return this.result(body, out.isError);
   }
 
   /**

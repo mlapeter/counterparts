@@ -73,20 +73,31 @@ import {
   decideUpdateNotice,
   installedBuild,
   markUpdateNoticeShown,
+  owedWriteUps,
+  progressKey,
   pruneSessions,
+  pruneWriteUpProgress,
   readSession,
+  readWriteUpProgress,
   recordSession,
+  saveWriteUpPointer,
+  saveWriteUpProgress,
   stampSessionOpened,
+  WRITE_UP_PART_BYTES,
+  writeUpEntries,
+  writeUpParts,
+  writeUpPlan,
 } from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
 import {
   SELF_PAGE_WRITER_EVENT,
   SELF_TUNABLES,
+  calendarDate,
   writerInstruction,
   writerInstructionOverhead,
 } from "../../core/self/index.js";
-import { capabilities, interpretSeat, pageWriterMode } from "./config.js";
+import { apiSweepOn, capabilities, interpretSeat, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
@@ -342,6 +353,80 @@ export const ASK_SEPARATOR_BYTES = 2;
  */
 export const SCOPE_PATIENCE_DEFERRALS = 1;
 
+/**
+ * THE NEXT-SESSION WRITE-UP'S POINTER (roadmap C2, owner 2026-09-23).
+ *
+ * A session that ended before it was written up — `remember/owes.ts#owesWriteUp`
+ * says it owes, defined once by B3 — is written up by the NEXT session that
+ * starts in its project. This hook does not carry its words: it puts a short
+ * POINTER beside the wake in `HookResult.ask` (how many sessions here are
+ * waiting, the oldest one's id, date and size, and the call that fetches it),
+ * and the words come back through the MCP door (`mcp/write-up.ts`):
+ * `session_end` with `writeUp` and no memories returns the next part, up to
+ * ~24 KB; the same call with memories — or `[]`, "nothing worth keeping" —
+ * answers it. Nothing leaves the machine beyond what Claude Code already sees;
+ * the write-up is in the model's voice. The API sweep is the opt-in upgrade.
+ *
+ * **Why a pointer (owner's choice, 2026-09-23, option (b) of INTERFACE-GAPS
+ * §15).** The host caps a hook's whole output at 10,000 characters and turns
+ * anything longer into a preview — of the WAKE, which comes first. On a store
+ * whose wake fills its budget there was no room for the words; an MCP result
+ * is not under that cap. The pointer names the ended session ONCE and this
+ * session once: ~410 bytes with the host's 36-character ids (measured).
+ *
+ * **Measured against the host's plain-stdout cap, not the reported budget**
+ * (PR #192 review, MAJOR 1). The budget is what the WAKE is composed to; with no
+ * owner notice `bin/hook.ts#hostDelivery` prints the wake and the asks as PLAIN
+ * text, which the host caps at 10,000 characters with no JSON escaping to allow
+ * for (bytes ≥ characters, so a byte count under the cap is a character count
+ * under it). With a notice, `hostDelivery`'s own rule drops the notice when the
+ * envelope would not fit — the wake and its asks win, as always. A pointer that
+ * does not fit DEFERS, claims nothing, and says so durably
+ * (`sessions.ts#WRITE_UP_POINTER_KEY`), which doctor reads. The count is BYTES
+ * against a cap in characters — accepted (PR #192 re-review, NIT): it is the
+ * safe direction, and it defers early only for a multi-byte wake over ~9,575
+ * bytes, which is already past the 9,000-byte budget `install` writes.
+ *
+ * **Once per session, and the day's allowance.** A compaction re-firing
+ * SessionStart points at nothing; at most `WRITE_UP_ASKS_PER_DAY` sessions a
+ * calendar day (local time) are pointed. It MAY COINCIDE with the page writer's
+ * ask or the first-launch question — the roadmap's reading of §13 G3, which is
+ * about the blocked Stop: both are carried, the other first. Never under
+ * observer, never in a directory set `off` (the entry point returns before
+ * anything opens).
+ */
+export const WRITE_UP_OPEN = "<counterparts-write-up>";
+export const WRITE_UP_CLOSE = "</counterparts-write-up>";
+/** The door, named the way the other asks name their tools. */
+export const WRITE_UP_TOOL = "counterparts session_end";
+/** Today's pointer count, beside the spawn tally in box 2's meta: two fixed
+ *  keys, the date and the count, so nothing grows without a sweep. */
+export const WRITE_UP_ASK_DATE_KEY = "adapter.writeup.asks.date";
+export const WRITE_UP_ASK_COUNT_KEY = "adapter.writeup.asks.count";
+
+/** THE POINTER the model reads — short, because the words come from the door,
+ *  and naming the ended session once. */
+export function writeUpPointer(input: {
+  waiting: number;
+  ended: string;
+  endedOn: string;
+  bytes: number;
+  part: number;
+  of: number;
+  live: string;
+}): string {
+  const some =
+    input.waiting === 1
+      ? "An earlier session here ended before it was written up"
+      : `${String(input.waiting)} earlier sessions here ended before they were written up`;
+  const size = input.bytes < 1024 ? "under 1 KB" : `~${String(Math.round(input.bytes / 1024))} KB`;
+  const part = input.of <= 1 ? "" : `, part ${String(input.part)} of ${String(input.of)}`;
+  return [
+    WRITE_UP_OPEN,
+    `${some}; the oldest, from ${input.endedOn}, left ${size} of what was said to it${part}. To write it up, call ${WRITE_UP_TOOL} with session: ${input.live}, writeUp: ${input.ended} and no memories to get the words, then again with the memories worth keeping (or memories: []).`,
+    WRITE_UP_CLOSE,
+  ].join("\n");
+}
 /**
  * THE ONE STOP ASK — v2's front door and its journal, in one text.
  *
@@ -662,6 +747,13 @@ export class ClaudeCodeAdapter {
       const chosen =
         ask.length > 0 ? ask : this.deliverPageWriterAsk(input, woke.bytes, budget, false);
       if (ask.length > 0) this.deliverPageWriterAsk(input, woke.bytes, budget, true);
+      // THE WRITE-UP POINTER RIDES AFTER WHICHEVER ASK TOOK THE FIELD, never
+      // instead of it (C2): it may coincide with either, it is measured against
+      // the room BOTH of them left, and it is fail-open by construction — a
+      // throw inside it costs the pointer and never the wake or the other ask.
+      const chosenBytes = chosen.length === 0 ? 0 : Buffer.byteLength(`\n\n${chosen}`, "utf8");
+      const writeUp = this.deliverWriteUpAsk(input, woke.bytes + chosenBytes);
+      const asks = [chosen, writeUp].filter((a) => a.length > 0).join("\n\n");
       return {
         ...out,
         ok: woke.ok,
@@ -669,7 +761,7 @@ export class ClaudeCodeAdapter {
         injection: woke.text,
         bytes: woke.bytes,
         sentinel: woke.sentinel,
-        ask: chosen.length === 0 ? null : chosen,
+        ask: asks.length === 0 ? null : asks,
       };
     });
   }
@@ -949,6 +1041,149 @@ export class ClaudeCodeAdapter {
       this.emit("adapter.page.writer.failed", {
         code: err instanceof Error ? err.name : "UNKNOWN",
       });
+      return "";
+    }
+  }
+
+  /**
+   * THE NEXT-SESSION WRITE-UP'S POINTER (C2) — find the session in this project
+   * that ended owing a write-up and was pointed at least recently (oldest first
+   * among equals), and point this session at it. Returns the block, or the empty
+   * string.
+   *
+   * `spent` is the bytes the wake and any other ask already take, separators
+   * included. **The whole body is fail-open**: a pointer that cannot be
+   * composed costs the pointer and never the wake (§1 G7).
+   *
+   * The marks come before the words, the page writer's order: the progress
+   * entry (so the rotation moves on even if nobody fetches), then this
+   * session's `writeUpPointer` — the door's evidence that this session may
+   * fetch that session's words — then the day's count and the durable outcome.
+   * A mark that will not land hands nothing over.
+   */
+  private deliverWriteUpAsk(input: HookInput, spent: number): string {
+    try {
+      // Never under observer: an instrument asks nobody to write into a store
+      // it may not write, and has no registry mark to remember that it did.
+      if (this.observer) return "";
+      if (input.sessionId.length === 0) return "";
+      const store = this.counterpart.store;
+      const dir = store.dir;
+      // ONE PER SESSION. A compaction re-fires SessionStart, and the record
+      // carries the mark forward (`sessions.ts#recordSession`).
+      const record = readSession(dir, input.sessionId);
+      if (record?.writeUpPointer !== undefined) return "";
+      // THE DAY'S ALLOWANCE, before anything is read — a spent day costs two
+      // meta reads and nothing else.
+      const today = this.counterpart.self.calendarToday();
+      const spentToday =
+        store.getMeta(WRITE_UP_ASK_DATE_KEY) === today ? Number(store.getMeta(WRITE_UP_ASK_COUNT_KEY) ?? "0") : 0;
+      if (spentToday >= TUNABLES.WRITE_UP_ASKS_PER_DAY) {
+        this.emit("adapter.writeup.skipped", { reason: "asks-spent", today: spentToday });
+        return "";
+      }
+      const now = this.nowFn();
+      const t = this.counterpart.self.tunables;
+      const plan = writeUpPlan({
+        store,
+        spans: this.counterpart.spans,
+        firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+      });
+      // Entries whose session stopped owing some other way go first.
+      pruneWriteUpProgress(store, plan);
+      const inFlight = readWriteUpProgress(store);
+      const owed = owedWriteUps(plan, dir, input.scope, now, {
+        exclude: input.sessionId,
+        // With the API sweep on, a crashed session it will still read is the sweep's.
+        sweep: apiSweepOn(this.config, process.env) ? this.counterpart.spans : null,
+        progress: inFlight,
+      });
+      const first = owed[0];
+      if (first === undefined) return "";
+      const { held, here } = first;
+      // THIS PROJECT'S WORDS ONLY (MAJOR 6).
+      const entries = writeUpEntries(this.counterpart.spans, { session: held.session, scopes: [here] });
+      if (entries.length === 0) return "";
+      const key = progressKey(held.session, here);
+      const progress = inFlight[key];
+      const chunk = progress?.chunk ?? WRITE_UP_PART_BYTES;
+      // ONCE THE LAST PART HAS COME BACK (`answer` set, the mark still to
+      // land), the count is frozen: the words now read as kept, their marks
+      // lengthen the text, and a recount could find a part that was never
+      // served (re-review, m-B). The fetch finishes the mark.
+      const finished = progress !== undefined && progress.answer !== undefined;
+      const cut = finished ? [] : writeUpParts(entries, chunk);
+      if (!finished && cut.length === 0) return "";
+      const partsCount = finished ? progress.parts : cut.length;
+      const done = finished ? progress.parts : Math.min(progress?.done ?? 0, partsCount);
+      const text = writeUpPointer({
+        waiting: owed.length,
+        ended: held.session,
+        endedOn: calendarDate(held.clockFrom),
+        bytes: cut.slice(done).reduce((n, p) => n + Buffer.byteLength(p, "utf8"), 0),
+        part: Math.min(done + 1, partsCount),
+        of: partsCount,
+        live: input.sessionId,
+      });
+      const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+      const room = TUNABLES.WRITE_UP_HOST_OUTPUT_CHARS - spent;
+      const outcome = (o: "pointed" | "deferred", reason?: string): void => {
+        saveWriteUpPointer(store, {
+          at: now,
+          date: today,
+          outcome: o,
+          ...(reason === undefined ? {} : { reason }),
+          need: bytes,
+          room,
+        });
+      };
+      if (bytes > room) {
+        // DEFERRED, never truncated: nothing is claimed, so the next start in
+        // this project is pointed instead — and the deferral is DURABLE, so
+        // doctor can say the wake is too full and by how much.
+        this.emit("adapter.writeup.deferred", { reason: "host-cap", need: bytes, room });
+        outcome("deferred", "host-cap");
+        return "";
+      }
+      const saved = saveWriteUpProgress(store, key, {
+        ...(progress ?? {}),
+        chunk,
+        parts: partsCount,
+        done,
+        handedAt: now,
+      });
+      const marked =
+        saved &&
+        recordSession(dir, {
+          sessionId: input.sessionId,
+          scope: input.scope,
+          phase: "start",
+          at: now,
+          writeUpPointer: held.session,
+          ...(this.configPath === undefined || this.configPath.length === 0 ? {} : { config: this.configPath }),
+        }) !== null;
+      if (!marked) {
+        this.emit("adapter.writeup.deferred", { reason: "mark-unwritten", need: bytes, room });
+        outcome("deferred", "mark-unwritten");
+        return "";
+      }
+      try {
+        if (store.getMeta(WRITE_UP_ASK_DATE_KEY) !== today) store.setMeta(WRITE_UP_ASK_DATE_KEY, today);
+        store.setMeta(WRITE_UP_ASK_COUNT_KEY, String(spentToday + 1));
+      } catch {
+        /* a lost count is never a lost hook (§5 G2) */
+      }
+      outcome("pointed");
+      this.emit("adapter.writeup.ask", {
+        ended: held.session,
+        part: Math.min(done + 1, partsCount),
+        of: partsCount,
+        bytes,
+        owed: owed.length,
+      });
+      return text;
+    } catch (err) {
+      this.emit("adapter.writeup.failed", { code: codeOf(err) });
       return "";
     }
   }

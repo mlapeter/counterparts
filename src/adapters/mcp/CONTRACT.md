@@ -82,7 +82,8 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 **Inputs** — MCP tool calls:
 `note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
-`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?)` whose
+`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?,
+writeUp?, part?)` whose
 entries take the same optional dimensions — `handoff` (2026-09-20, E1) is a FIELD on the
 call and never one of the entries: it is this directory's working context, filed by
 `core/handoff/`, never a memory, and it is written before the `memories` check so a dump
@@ -202,6 +203,47 @@ actually wrote (chapter), the written self page or the version a write to it pro
     record and nothing else. The UserPromptSubmit hook
     compares it with the installed build and says "Counterparts was updated" once per
     session, as a `systemMessage` (`sessions.ts#decideUpdateNotice`, `claude-code/bin/hook.ts`).
+16. **[M] `session_end` with `writeUp` is the next-session write-up's door** (roadmap C2,
+    2026-09-23; `write-up.ts#writeUpDoor`). A FIELD, not a sibling tool, diverted only on
+    a non-empty string (`null` and `""` are an ordinary answer, PR #192 review m1) after
+    the bind and before anything else reads the call, so it never writes a handoff and
+    never marks the writing session "nothing new". It shares with an ordinary
+    `session_end` only the bind (the WRITING session is this one, guarantee 10) and the
+    road each entry takes (`server.ts#depositEntries`, extracted rather than copied: gate
+    battery, redaction, authored channel, per-entry isolation) — so the memories are
+    recorded under the writing session, never the ended one — except WHOSE words they
+    cover, which the door says through core's `SessionEndDepositContext.cover`: none on an earlier
+    part, the ENDED session's on the last, and never the writer's own (MAJOR 4). Two calls:
+    **FETCH** (`writeUp`, no `memories` — or `memories: []` with no fetch on record, m2;
+    `memories` is not in the schema's `required`) returns the next unwritten part of the
+    ended session's captured words IN THIS PROJECT — what was said to it and what it
+    jotted, never its replies — up to `WRITE_UP_PART_BYTES` (~24 KB), and records it as
+    handed to this session (`writeUpFor`, merged into the registry record's raw JSON);
+    fetching again before answering hands back the same part, and a session that has
+    answered its part is not handed the next (that is a later start's). **ANSWER**
+    (`writeUp` with `memories`) deposits for the part last fetched; an EMPTY batch is a
+    real answer — nothing worth keeping — and closes the part without minting. The last
+    part's answer marks the ended session's words here as kept (coverage), then marks it
+    written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`, `by:
+    "next-session"`, in this project's scope), which starts its seven-day retention clock
+    — unless it still holds unwritten words in ANOTHER project, when this project's share
+    waits (`written-up-here`) for that project's writer (MAJOR 6). How it was answered
+    (`memories` / `nothing-new`) is recorded on the writing session's record and in the
+    progress. It accepts an ended id only when `sessions.ts#writeUpStanding` — the same
+    function the SessionStart pointer filters with — says it ended (12 h of silence, not
+    4) in this project, owes, and is not open-and-answered, and only for the session the
+    hook POINTED this one at (`writeUpPointer`, evidence the model cannot write).
+    Refused, each by name, writing nothing: `handoff-not-accepted`, `unknown-session`,
+    `live-session` (this session's own id included), `other-project`,
+    `already-written-up`, `owes-nothing` (with `why`: below-threshold, answered, no-text),
+    `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
+    `part-already-written`, `memories-required` (present and not a list),
+    `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
+    landed) and `io-failed` (the fetch could not record the hand-over, so hands nothing).
+    A mark that did not land is `marked: false`: the session still owes, and the next
+    fetch of it — by any session — finishes the mark without depositing (MAJOR 2). This
+    file is one of the seam's two importers outside `remember/` (`test/cli.test.ts` pins
+    it; the other is the worker's API sweep, which marks `by: "api"`).
 
 ### The residual risk of the lazy bind, named
 

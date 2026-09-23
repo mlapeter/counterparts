@@ -185,6 +185,15 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
    swept again — so a permanently-failing span cannot bill one model call per boundary
    forever. Retried, then set aside; never silently dropped (NOTES §13).
 5. **[M] The engine claims coverage, never the author** — the author cannot see the buffer.
+   By default a deposit covers the DEPOSITING session's own uncovered spans. One caller may
+   say otherwise, through the engine and never through the draft: `SubmitContext.cover`
+   (`SessionEndDepositContext.cover` on `Counterpart#submitSessionEnd` — never on
+   `submitJot`, whose words are always its own) — `{ session }` covers another session's
+   uncovered spans in the scope, `false` covers none — while the proposal, its record and
+   the memory stay the depositor's (roadmap C2, 2026-09-23). Its one caller is the
+   next-session write-up's door: `false` on an earlier part, the ENDED session on the last,
+   so a writer's own words are never marked written up by a write-up (PR #192 review,
+   MAJOR 4).
 6. **[M] A rejected proposal claims no coverage.**
 7. **[M] Coverage marks never enter gated text.**
 8. **[M] Observer sessions capture nothing, ask for nothing, and write nothing** — checked
@@ -255,7 +264,16 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     up to 7 days in the store and up to 21 counting the 14 daily snapshots. The only way
     out of owing — the write-up mark — is a grant behind a pinned seam
     (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
-    no text, and a run is visible from the moment it holds its date (`STARTED`).
+    no text, and a run is visible from the moment it holds its date (`STARTED`). Its two
+    callers outside this module (roadmap C2, 2026-09-23; `test/cli.test.ts` pins both):
+    the next-session write-up's door (`adapters/mcp/write-up.ts`), which marks
+    `by: "next-session"` when the last part of an owed session's words, fetched by the
+    session the SessionStart hook pointed at it, comes back answered — memories, or
+    nothing worth keeping; and the worker's opt-in API sweep (`claude-code/bin/runner.ts`),
+    which marks `by: "api"` a crashed session only when every one of its words, in every
+    project it left words in, was read and came back ok — never one with words left in
+    quarantine, which stays owed and is offered to the next session (PR #192 reviews,
+    MAJOR 5 and MAJOR-A).
 
 ## 6. Scars honored
 

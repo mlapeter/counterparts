@@ -731,6 +731,18 @@ export interface DepositContext {
   ownSpanHash?: string | null;
 }
 
+/**
+ * `submitSessionEnd`'s context — and ONLY its (PR #192 re-review, NIT): a jot is
+ * always its own session's words, so `submitJot` takes the plain
+ * `DepositContext` and drops `cover` even from a caller that sends it.
+ */
+export interface SessionEndDepositContext extends DepositContext {
+  /** Whose uncovered spans the deposit claims — `remember/proposals.ts#
+   *  SubmitContext.cover`. Absent: the depositing session's own (every caller
+   *  but the next-session write-up's door). */
+  cover?: false | { readonly session: string };
+}
+
 export type DepositReason =
   | "minted"
   | "observer"
@@ -789,8 +801,11 @@ export interface SweepEntry {
  * skipped the sweep on purpose still owes the record, with the reason on it.
  */
 export interface SweepSkipped {
-  /** Why the caller did not sweep. One name, and it lands on the gate row. */
-  readonly skipped: "no-credential";
+  /** Why the caller did not sweep. One name, and it lands on the gate row.
+   *  `not-opted-in` (roadmap C2, 2026-09-23): the sweep is an opt-in upgrade,
+   *  and the owner has not opted in — whatever key is present. The next
+   *  session in a crashed session's project writes it up instead. */
+  readonly skipped: "no-credential" | "not-opted-in";
 }
 
 export interface SessionEndInput {
@@ -2140,13 +2155,19 @@ export class Counterpart {
   // ── the authored front door ────────────────────────────────────────────────
 
   /** The experiencer's end-of-session dump. Channel: `authored` (SEAMS N). */
-  async submitSessionEnd(draft: unknown, ctx: DepositContext): Promise<DepositResult> {
+  async submitSessionEnd(draft: unknown, ctx: SessionEndDepositContext): Promise<DepositResult> {
     return this.deposit(draft, "session-end", ctx);
   }
 
-  /** An in-the-moment deliberate deposit. Channel: `authored`. */
+  /** An in-the-moment deliberate deposit. Channel: `authored`. Always covers
+   *  its own session's words: `cover` is not taken here, and is dropped if a
+   *  caller outside TypeScript sends it. */
   async submitJot(draft: unknown, ctx: DepositContext): Promise<DepositResult> {
-    return this.deposit(draft, "jot", ctx);
+    return this.deposit(draft, "jot", {
+      session: ctx.session,
+      scope: ctx.scope,
+      ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
+    });
   }
 
   // ── episodes ───────────────────────────────────────────────────────────────
@@ -3437,7 +3458,7 @@ export class Counterpart {
   private async deposit(
     draft: unknown,
     source: ProposalSource,
-    ctx: DepositContext,
+    ctx: SessionEndDepositContext,
   ): Promise<DepositResult> {
     const none = (reason: DepositReason, gate: string | null = null): DepositResult => ({
       deposited: false,
@@ -3455,6 +3476,7 @@ export class Counterpart {
       source,
       gate: batteryGate(this.vectors),
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
+      ...(ctx.cover === undefined ? {} : { cover: ctx.cover }),
       resolveUpdates: (declared, content) => this.resolveUpdatesFor(ctx.scope, declared, content),
     });
 

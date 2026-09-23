@@ -89,9 +89,19 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, embedderKind, pageWriterMode } from "./config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, pageWriterMode } from "./config.js";
 import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
+import { SpanBuffer } from "../../core/remember/index.js";
+import {
+  awaitingWriteUp,
+  progressKey,
+  readWriteUpPointer,
+  readWriteUpProgress,
+  sameScope,
+  writeUpEntries,
+  writeUpPlan,
+} from "../sessions.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -1375,10 +1385,30 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(
       API_KEY_ENV,
     );
-    const answered = reason === "no-credential" && keyNow;
+    /**
+     * THE SWEEP IS AN OPT-IN UPGRADE (roadmap C2, 2026-09-23). A worker whose
+     * owner has not opted in writes `not-opted-in`, and a row from a build
+     * before C2 wrote `no-credential` for the same keyless day — both are the
+     * ordinary state now, GREEN, with the next session writing crashed sessions
+     * up. Opted in with no key is the one case with something to do, and the
+     * `Crash write-up` line names the command, so this line points there
+     * rather than naming it twice.
+     */
+    const optedIn = crashWriteUpMode(input.config) === "api";
+    const notOptedIn = reason === "not-opted-in" || (reason === "no-credential" && !optedIn);
+    const answered = reason === "no-credential" && optedIn && keyNow;
     out.push(
       reason === "ran"
         ? finding("sweep", "green", "Sweep", detail, "", { reason, ran: num(p, "ran"), date: rowDate(sweep) })
+        : notOptedIn
+          ? finding(
+              "sweep",
+              "green",
+              "Sweep",
+              `${detail} — next session: the API sweep is not opted in, and a session that ended unwritten is written up by the next session in its project`,
+              "",
+              { reason, ran: num(p, "ran"), date: rowDate(sweep), optedIn: false },
+            )
         : answered
           ? finding(
               "sweep",
@@ -1393,12 +1423,11 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
               "amber",
               "Sweep",
               detail,
-              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial). The
-              // one stand-down whose remedy is a single command says the
-              // command; every other reason still points at the row, because
-              // what fixes it depends on which door it names.
+              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial) — and
+              // ONE line per command (C2): opted in with no key, the `Crash
+              // write-up` line carries the command, so this one points at it.
               reason === "no-credential"
-                ? `Run: counterparts credentials set ${API_KEY_ENV}`
+                ? "Opted into the API sweep with no key: the Crash write-up line says what to run."
                 : "The sweep stood down; the reason names why.",
               {
                 reason,
@@ -3042,6 +3071,11 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
     ["self-page", () => selfPageFindings(store)],
     ["page-writer", () => pageWriterFindings(store, input.config)],
+    // C2's one line. Not in the session-start reading: it is never red, which
+    // is all that notice prints, and it reads every scope's captured words.
+    ...(unread || input.budgetMs !== undefined
+      ? []
+      : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
@@ -3075,6 +3109,166 @@ export function doctorFindings(input: DoctorInput): Finding[] {
 }
 
 // ── rendering ───────────────────────────────────────────────────────────────
+
+/** How long a session may wait for its write-up before this line turns amber. */
+export const WRITE_UP_WAIT_DAYS = 3;
+
+/**
+ * CRASH WRITE-UP (roadmap C2, owner 2026-09-23) — who writes up a session that
+ * ended before it was written up, and how many are waiting.
+ *
+ * `next session` (green) is the keyless default: the next session that starts
+ * in that project is handed the words. `on (API)` is the opt-in sweep, and it
+ * needs the key the credentials FILE holds (the rule every line here keeps: a
+ * hook inherits no shell). The count is B3's (`remember/owes.ts`, through
+ * `sessions.ts#awaitingWriteUp`), over every project in the store, minus what
+ * the registry holds running; AMBER only when one has waited past
+ * `WRITE_UP_WAIT_DAYS` — a project never reopened is never written up, and this
+ * is where that shows. Never red: nothing is lost while a session waits, which
+ * is what the wait is for.
+ */
+function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
+  const mode = crashWriteUpMode(input.config);
+  const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(API_KEY_ENV);
+  const api = mode === "api" && keyNow;
+  const who = api ? "on (API)" : "next session";
+  const now = store.now();
+  let waiting: number | null = null;
+  let stale = 0;
+  /** Sessions FINISHED in one project and waiting on words they left in
+   *  another (the door's `written-up-here`), stale ones first. */
+  const shares: { session: string; here: string; elsewhere: string[]; stale: boolean }[] = [];
+  try {
+    // READ-ONLY by construction: an observer buffer writes nothing, and it
+    // is B3's own reader (`planRetention`) that opens the files.
+    const spans = new SpanBuffer({ dir: store.dir, observer: true, now: () => now });
+    const plan = writeUpPlan({
+      store,
+      spans,
+      firstAsk: {
+        turns: SELF_TUNABLES.FIRST_ASK_TURNS,
+        bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
+        soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+      },
+    });
+    // The same eligibility the pointer uses — so a crashed session the API
+    // sweep will still read is not counted as waiting on a next session (m4).
+    const owed = awaitingWriteUp(plan, store.dir, now, { sweep: api ? spans : null });
+    waiting = owed.length;
+    stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
+    const progress = readWriteUpProgress(store);
+    for (const [key, p] of Object.entries(progress)) {
+      if (p.waiting !== true) continue;
+      const bar = key.indexOf("|");
+      const session = key.slice(0, bar);
+      const here = key.slice(bar + 1);
+      const h = plan.find((x) => x.session === session);
+      if (h === undefined || !h.owes) continue;
+      const elsewhere = h.scopes.filter(
+        (scope) =>
+          !sameScope(scope, here) &&
+          progress[progressKey(session, scope)]?.waiting !== true &&
+          writeUpEntries(spans, { session, scopes: [scope] }).length > 0,
+      );
+      if (elsewhere.length === 0) continue;
+      shares.push({ session, here, elsewhere, stale: now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000 });
+    }
+    shares.sort((a, b) => Number(b.stale) - Number(a.stale));
+  } catch {
+    waiting = null;
+  }
+  const count =
+    waiting === null
+      ? " (could not count the sessions waiting)"
+      : waiting === 0
+        ? ""
+        : ` — ${String(waiting)} session${waiting === 1 ? "" : "s"} awaiting a write-up` +
+          (stale === 0 ? "" : `, ${String(stale)} older than ${String(WRITE_UP_WAIT_DAYS)} days`);
+  const pointer = readWriteUpPointer(store);
+  const data = {
+    mode,
+    api,
+    waiting,
+    stale,
+    pointer: pointer?.outcome ?? null,
+    pointerDate: pointer?.date ?? null,
+  };
+  if (input.config.crashWriteUpIgnored !== undefined) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who} — ${input.config.crashWriteUpIgnored}${count}`,
+        `Set "crashWriteUp" in ${tilde(input.configPath)} to "api" or "next-session", or remove it.`,
+        data,
+      ),
+    ];
+  }
+  if (mode === "api" && !keyNow) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `next session — "crashWriteUp": "api" is set, and ${API_KEY_ENV} is not in the credentials file${count}`,
+        `Run: counterparts credentials set ${API_KEY_ENV}`,
+        data,
+      ),
+    ];
+  }
+  // THE POINTER IS NOT GETTING OUT (PR #192 review, MAJOR 1 and m4): opening a
+  // session there would only defer again, so the advice says why and by how much.
+  if (pointer !== null && pointer.outcome === "deferred" && (waiting ?? 0) > 0) {
+    const short = Math.max(0, pointer.need - pointer.room);
+    const why =
+      pointer.reason === "host-cap"
+        ? `the pointer did not fit on ${pointer.date}: it needs ${String(pointer.need)} bytes and the wake left ${String(Math.max(0, pointer.room))} under the host's 10,000-character cap (${String(short)} short)`
+        : `the pointer could not be recorded on ${pointer.date} (${pointer.reason ?? "unknown"})`;
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count} — ${why}`,
+        pointer.reason === "host-cap"
+          ? `The wake is too full: lower "injectionBudgetBytes" in ${tilde(input.configPath)} by ${String(short)} or more.`
+          : "The session registry under the store could not be written; read the Store line.",
+        data,
+      ),
+    ];
+  }
+  // A SHARE WAITING ON ANOTHER PROJECT (re-review, m-C): name the project, and
+  // say the session is finished here — opening a session HERE does nothing.
+  const share = shares.find((x) => x.stale);
+  if (share !== undefined) {
+    const where = share.elsewhere.map((x) => tilde(x)).join(", ");
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count} — session ${share.session} is finished in ${tilde(share.here)} and waiting on words it left in ${where}` +
+          (shares.length > 1 ? ` (${String(shares.length)} such sessions)` : ""),
+        `Open a session in ${where}: its start points at the rest. A directory set off never will, and there is no command yet to close a session by hand.`,
+        { ...data, sharesWaiting: shares.length },
+      ),
+    ];
+  }
+  if (stale > 0) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count}`,
+        "Open a session in the project each one ended in: its start points at the oldest. A project never reopened is never written up.",
+        data,
+      ),
+    ];
+  }
+  return [finding("crash-write-up", "green", "Crash write-up", `${who}${count}`, "", data)];
+}
 
 /**
  * The two columns every doctor line lays out in — `ui.ts` holds the same pair

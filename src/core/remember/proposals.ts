@@ -360,6 +360,19 @@ export interface SubmitContext {
   /** Injected `updates:` resolver — see `updates.ts`. Absent means no resolution
    *  is attempted and the declaration rides unresolved. */
   resolveUpdates?: (declared: string, content: string) => Promise<UpdatesResolution> | UpdatesResolution;
+  /**
+   * WHOSE WORDS THIS DEPOSIT COVERS (roadmap C2, 2026-09-23; PR #192 review,
+   * MAJOR 4). Absent — today's behaviour, and every caller's but one — the
+   * depositing session's own uncovered spans, which is right for an answer to
+   * one's own Stop ask. `{ session }` claims ANOTHER session's uncovered spans
+   * in this scope instead; `false` claims none. The proposal, its record and the
+   * memory it mints stay `ctx.session`'s either way: this moves the coverage
+   * claim and nothing else. Its one caller is the next-session write-up's door
+   * (the MCP adapter's), whose depositor is the WRITER and whose words
+   * are an ENDED session's — before this seam existed its memories claimed the
+   * writer's own early turns as already written up.
+   */
+  cover?: false | { readonly session: string };
 }
 
 /** A proposal record as persisted (the content-idempotency ledger). */
@@ -521,12 +534,18 @@ export async function submitProposal(
     ownSpanHash: own?.hash ?? null,
   };
 
-  const coverage = buffer.claimCoverage({
-    scope: ctx.scope,
-    session: ctx.session,
-    proposalId: proposal.id,
-    ownSpanHash: proposal.ownSpanHash,
-  });
+  // WHOSE words: the depositor's by default, another session's or none when
+  // the caller says so (`SubmitContext.cover`). The own span is only ever the
+  // depositor's, so it rides only on the default claim.
+  const coverage =
+    ctx.cover === false
+      ? []
+      : buffer.claimCoverage({
+          scope: ctx.scope,
+          session: ctx.cover === undefined ? ctx.session : ctx.cover.session,
+          proposalId: proposal.id,
+          ownSpanHash: ctx.cover === undefined ? proposal.ownSpanHash : null,
+        });
   proposal.covers = coverage.map((c) => c.spanHash);
 
   const record: ProposalRecord = {

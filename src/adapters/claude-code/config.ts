@@ -175,6 +175,29 @@ export const TUNABLES = {
    *  leaves every sibling chunk's vectors standing (scar E1). v1 used the same
    *  128. */
   EMBED_BATCH_SIZE: 128,
+  /**
+   * THE NEXT-SESSION WRITE-UP (roadmap C2, owner 2026-09-23). How many sessions
+   * may be pointed at an ended session's words in one calendar day (local
+   * time, `self/calendar.ts`). A sibling of the page writer's
+   * `PAGE_WRITER_ASKS_PER_DAY` and the same number: the owner's ruling is that
+   * the write-up SHARES the day's allowance rather than growing a pacer of its
+   * own — and nothing here is at the Stop, where §13 G3's one pacer lives.
+   */
+  WRITE_UP_ASKS_PER_DAY: 2,
+  /**
+   * The host's cap on a hook's whole output, in characters. The host's own
+   * words: "Hook output strings, including `additionalContext`, `systemMessage`,
+   * and plain stdout, are capped at 10,000 characters. Output that exceeds this
+   * limit is saved to a file and replaced with a preview and file path." Past
+   * it, what the session would read is a preview — of the WAKE — so the
+   * write-up pointer is measured so the wake, every ask and itself stay under
+   * this. With no owner notice the hook prints PLAIN text, so there is no JSON
+   * escaping to leave room for (PR #192 review, MAJOR 1); with one,
+   * `bin/hook.ts#hostDelivery` drops the notice before it lets the envelope
+   * pass `ENVELOPE_MAX_CHARS`. It is also why the words themselves travel
+   * through the MCP door.
+   */
+  WRITE_UP_HOST_OUTPUT_CHARS: 10_000,
   // The Stop ask's pacing is NOT here any more, and that is the point: it was a
   // second pacer beside `self/`'s, and two pacers on one blocked moment is how
   // 13 owner turns drew about a dozen asks (2026-09-04). The one pair lives in
@@ -343,12 +366,61 @@ export interface AdapterConfig {
      *  front of somebody. */
     readonly ignored?: readonly string[];
   };
+  /**
+   * WHO WRITES UP A SESSION THAT ENDED BEFORE IT WAS WRITTEN UP (roadmap C2,
+   * owner 2026-09-23), and it defaults to the NEXT SESSION in that project.
+   *
+   * Absent (or `"next-session"`) — the keyless default: the SessionStart hook
+   * hands the next session in that directory the ended session's words, beside
+   * its wake, and the assistant writes them up in its own voice through the MCP
+   * door. Nothing leaves the machine beyond what Claude Code already sees.
+   *
+   * `"api"` — the opt-in upgrade: the detached worker's crash-fallback sweep
+   * sends a CRASHED session's captured words to the Anthropic API
+   * (`ANTHROPIC_API_KEY`), as every build before C2 did whenever the key was
+   * present. It runs only when this says `"api"` AND the key is there; a key
+   * alone no longer switches it on, because a key exported for some other tool
+   * must never be what starts shipping this store's words anywhere — the
+   * egress knob's rule (`embedder`). With the sweep on, the next-session ask
+   * leaves crashed sessions to it and writes up only the ones that ended
+   * normally without an answer, which the sweep never touched.
+   *
+   * Read LENIENTLY toward the safe word (PR #192 review, m3): anything but the
+   * two words reads as `next-session` — memory stays on and nothing leaves the
+   * machine — and `crashWriteUpIgnored` names what was ignored, which doctor's
+   * `Crash write-up` line prints. A typo can never resolve to `"api"`, because
+   * the allowlist is exact; strictness bought nothing but a store stood down
+   * to observer for one misspelling, the `pageWriter` block's argument again.
+   */
+  readonly crashWriteUp?: CrashWriteUpMode;
+  /** What `crashWriteUp` held that was not one of its two words, phrased for a
+   *  person. A REPORT, not a stance: the knob read as `next-session`. */
+  readonly crashWriteUpIgnored?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
   readonly observer?: boolean;
   /** The identity core's name is the OWNER's; there is no default. */
   readonly identity?: { readonly name: string; readonly aliases?: readonly string[] };
+}
+
+/** The two values `crashWriteUp` may hold. Absent is `next-session`. */
+export const CRASH_WRITE_UP_MODES = ["next-session", "api"] as const;
+export type CrashWriteUpMode = (typeof CRASH_WRITE_UP_MODES)[number];
+
+/** Who writes up a session that ended unwritten, by the configuration alone. */
+export function crashWriteUpMode(config: AdapterConfig): CrashWriteUpMode {
+  return config.crashWriteUp ?? "next-session";
+}
+
+/**
+ * IS THE API SWEEP ON — opted in AND the key present, by PRESENCE only (the
+ * value is never read here). The worker asks this before it builds an
+ * interpreter; the SessionStart ask asks it to leave crashed sessions to the
+ * sweep. One predicate, so the two can never both write one session.
+ */
+export function apiSweepOn(config: AdapterConfig, env: NodeJS.ProcessEnv = process.env): boolean {
+  return crashWriteUpMode(config) === "api" && (env[API_KEY_ENV] ?? "").trim().length > 0;
 }
 
 export interface LoadedConfig {
@@ -390,6 +462,8 @@ export function loadConfig(raw: unknown): LoadedConfig {
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
     pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number; ignored?: string[] };
+    crashWriteUp?: CrashWriteUpMode;
+    crashWriteUpIgnored?: string;
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -501,6 +575,18 @@ export function loadConfig(raw: unknown): LoadedConfig {
       badKeys.push("embedder.kind");
     } else {
       out.embedder = { enabled: e["enabled"], ...(kind === undefined ? {} : { kind: kind as EmbedderKind }) };
+    }
+  }
+  const crashWriteUp = rec["crashWriteUp"];
+  if (crashWriteUp !== undefined) {
+    // LENIENT TOWARD THE SAFE WORD (m3). An exact-string allowlist, so nothing
+    // but `"api"` itself can turn the egress on; anything else — a typo, a
+    // boolean, `"API"` — reads as the default and is NAMED, never a reason to
+    // stand the whole configuration down. Nothing here sets `unreadable`.
+    if (typeof crashWriteUp === "string" && (CRASH_WRITE_UP_MODES as readonly string[]).includes(crashWriteUp)) {
+      out.crashWriteUp = crashWriteUp as CrashWriteUpMode;
+    } else {
+      out.crashWriteUpIgnored = `crashWriteUp was ${JSON.stringify(crashWriteUp)}, which is neither "api" nor "next-session"; using next-session`;
     }
   }
   const parallel = rec["parallel"];

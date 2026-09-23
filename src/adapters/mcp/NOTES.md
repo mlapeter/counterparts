@@ -571,3 +571,44 @@ to load it.` The hooks now refuse to open the store too (`SCHEMA_AHEAD` at open,
 anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaVersion'"`.
 
 **7. Clean up.** Quit the session; `rm -rf "$T"`. Nothing outside it was written.
+
+## The write-up door (C2, 2026-09-23)
+
+- **A field, not a tool.** `session_end` with `writeUp` is diverted to `write-up.ts` after
+  the bind and before the handoff and the nothing-new mark are looked at. A sibling tool
+  would have been a new approval for anyone who allowlisted the server's tools one by one,
+  and `TOOL_NAMES` is pinned exactly. The per-entry deposit loop was EXTRACTED
+  (`depositEntries`) rather than copied, so a write-up's entries cannot take a different
+  road from an answer's.
+- **The fetch leaves `memories` out, so the published schema no longer requires it**
+  (PR #192 review, m2). The server still refuses a call that lands neither memories nor a
+  handoff (`memories-required`), and on the write-up path `memories: []` with no fetch on
+  record is read AS the fetch — so a host or model that sends the required-looking field
+  anyway still gets the words. **Unmeasured on the real host:** no live session has yet
+  shown whether Claude Code's model leaves `memories` out, sends `[]`, or both; either
+  works, and the first real write-up is the measurement.
+- **Whose words a write-up's memories cover is core's to say** (`SessionEndDepositContext.cover`,
+  MAJOR 4). The door passes `false` on an earlier part — nothing covered, or parts not yet
+  served would read as kept — and the ENDED session on the last part in a project, so the
+  memories claim its words there under their own proposal ids and never the writer's own.
+  `finish` then claims whatever is left of the ended session's words here (all of them
+  after an empty last answer) under `writeup:<writer>`.
+- **The words ride in the JSON result** (`text`, beside `part`, `of` and `next`), not under
+  the hook's 10,000-character cap — the reason the SessionStart block became a pointer.
+- **An unrestarted pre-C2 server ignores `writeUp`.** Its `session_end` drops the unknown
+  field; a fetch reads as `memories-required`, and an answer deposits the memories as the
+  WRITING session's ordinary answer without marking the ended one, which is then pointed
+  at again. The build-mismatch notice (roadmap E) is what tells the person to reconnect.
+- **The owner's removal of a write-up's memory** follows its coverage like any other: a
+  memory from the LAST part in a project covers the ended session's words there, so
+  removal's echo walk finds them; a memory from an earlier part covers nothing, and those
+  words age out with the ended session's own seven days.
+- **Duplicates count as landed**, and an empty batch is a real answer (owner, 2026-09-23):
+  a batch whose every entry is `duplicate-content` says what the store already holds, and
+  `[]` says nothing in the part was worth keeping. Only a non-empty batch the gate refused
+  entirely (`nothing-landed`) leaves the part open.
+- **A write-up's memories are the WRITING session's, and B3 reads them that way.** They
+  are accepted `session-end` proposals under the live session's id, so if that session
+  had already been asked at a Stop, `owes.ts` counts them as its answer to that ask. The
+  pointer arrives at SessionStart, before any Stop ask, so the ordinary order is the
+  harmless one; the other order is named, not guarded.
