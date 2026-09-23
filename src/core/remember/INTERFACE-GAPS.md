@@ -249,6 +249,12 @@ seven days re-sweeps that session's uncovered words, minting near-duplicates of 
 next session wrote. **Ask:** `crashedPending` skips a session with a write-up mark at or
 after its last capture.
 
+The same seam, the other way round: with `crashWriteUp: "api"` the SessionStart ask
+leaves every session without a normal end to the sweep, and the sweep sets no write-up
+mark. A swept session's words are consumed, so it stops owing — but one whose spans the
+sweep QUARANTINED still holds text, still owes, is never handed to a next session, and
+counts in doctor's `Crash write-up` line (amber after 3 days) until the owner acts.
+
 ## 14. The sweep's gate row has one reason for a deliberate skip
 
 **Owner:** `core/counterpart.ts#SweepSkipped` (not `remember/`, filed here beside the
