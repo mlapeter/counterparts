@@ -463,7 +463,15 @@ What each needs, and what a week-old deletion of a session that owes nothing cos
 11. **Counts are per (scope, session).** A session id that captured under two scopes is
     judged in each — the same per-scope rule the sweep has (CONTRACT open question 6).
 
-12. **`keptOwed` includes LIVE sessions** that have been asked and not yet answered —
+12. **A `session_end` whose every entry was refused is not an answer.** All entries
+    `DUPLICATE_CONTENT`, or all stopped by the gate battery, leave no ACCEPTED proposal
+    record and no other durable row naming the session, so it reads `answered: false`.
+    That is the direction that keeps text — but on a keyless store such a session owes
+    until the next-session write-up (C2) takes it, and C2 will then ask a later session
+    to write up something its author already tried to. Named, not fixed: the fix is a
+    durable row for a refused `session_end`, which is the MCP server's to write.
+
+13. **`keptOwed` includes LIVE sessions** that have been asked and not yet answered —
     they owe, right now. It is the honest count of "what the predicate says is owed", and
     a doctor line that wants only ENDED sessions can subtract the young ones.
 

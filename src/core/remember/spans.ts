@@ -835,8 +835,10 @@ export class SpanBuffer {
     return new Map([...days.entries()].map(([hash, set]) => [hash, set.size]));
   }
 
-  /** Spans the sweep gave up on, in full. Nothing is ever dropped: this file is
-   *  the owner's copy, readable in any editor (constitution line 16). */
+  /** Spans the sweep gave up on, in full. The sweep never drops them: this file
+   *  is the owner's copy, readable in any editor (constitution line 16), until
+   *  RETENTION ages a line out — 7 days after its session ended, and only when
+   *  that session owes no write-up (`retention.ts`). */
   quarantined(scope: string): Span[] {
     return this.readSpans(this.path(scope, "quarantine.jsonl"));
   }
