@@ -4666,8 +4666,7 @@ describe("the destruction path is importable from this directory only", () => {
   const RETENTION_ALLOWED = (full: string): boolean =>
     full.endsWith(join("adapters", "claude-code", "bin", "runner.ts"));
   /** `remember/` itself (the grantor), and the ONE path the next-session
-   *  write-up's door (roadmap C2) will live at. That file does not exist yet;
-   *  C2 puts its door there, or changes this line on purpose. */
+   *  write-up's door (roadmap C2) lives at — built 2026-09-23. */
   const WRITE_UP_C2_DOOR = join("adapters", "mcp", "write-up.ts");
   const WRITE_UP_ALLOWED = (full: string): boolean =>
     full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR);
@@ -4717,8 +4716,9 @@ describe("the destruction path is importable from this directory only", () => {
     // `adapters/mcp/write-up.ts`, which does not exist yet.
     const { offenders, allowedHits } = seamImporters(SRC, "write-up-seam.js", WRITE_UP_ALLOWED);
     expect(offenders).toEqual([]);
-    // NOT VACUOUS: the grantor imports it.
+    // NOT VACUOUS: the grantor imports it, and so does the door.
     expect(allowedHits.some((f) => f.endsWith(join("core", "remember", "spans.ts")))).toBe(true);
+    expect(allowedHits.some((f) => f.endsWith(WRITE_UP_C2_DOOR))).toBe(true);
     const index = readFileSync(join(SRC, "core", "remember", "index.ts"), "utf8");
     expect(/["']\.\/write-up-seam\.js["']/.test(index)).toBe(false);
     const exported = Object.keys(await import("../src/core/remember/index.js"));

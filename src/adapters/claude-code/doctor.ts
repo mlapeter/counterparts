@@ -89,9 +89,11 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, embedderKind, pageWriterMode } from "./config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, pageWriterMode } from "./config.js";
 import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
+import { SpanBuffer } from "../../core/remember/index.js";
+import { awaitingWriteUp, writeUpPlan } from "../sessions.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -3042,6 +3044,11 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
     ["self-page", () => selfPageFindings(store)],
     ["page-writer", () => pageWriterFindings(store, input.config)],
+    // C2's one line. Not in the session-start reading: it is never red, which
+    // is all that notice prints, and it reads every scope's captured words.
+    ...(unread || input.budgetMs !== undefined
+      ? []
+      : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
@@ -3075,6 +3082,84 @@ export function doctorFindings(input: DoctorInput): Finding[] {
 }
 
 // ── rendering ───────────────────────────────────────────────────────────────
+
+/** How long a session may wait for its write-up before this line turns amber. */
+export const WRITE_UP_WAIT_DAYS = 3;
+
+/**
+ * CRASH WRITE-UP (roadmap C2, owner 2026-09-23) — who writes up a session that
+ * ended before it was written up, and how many are waiting.
+ *
+ * `next session` (green) is the keyless default: the next session that starts
+ * in that project is handed the words. `on (API)` is the opt-in sweep, and it
+ * needs the key the credentials FILE holds (the rule every line here keeps: a
+ * hook inherits no shell). The count is B3's (`remember/owes.ts`, through
+ * `sessions.ts#awaitingWriteUp`), over every project in the store, minus what
+ * the registry holds running; AMBER only when one has waited past
+ * `WRITE_UP_WAIT_DAYS` — a project never reopened is never written up, and this
+ * is where that shows. Never red: nothing is lost while a session waits, which
+ * is what the wait is for.
+ */
+function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
+  const mode = crashWriteUpMode(input.config);
+  const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(API_KEY_ENV);
+  const api = mode === "api" && keyNow;
+  const who = api ? "on (API)" : "next session";
+  const now = store.now();
+  let waiting: number | null = null;
+  let stale = 0;
+  try {
+    const plan = writeUpPlan({
+      store,
+      // READ-ONLY by construction: an observer buffer writes nothing, and it
+      // is B3's own reader (`planRetention`) that opens the files.
+      spans: new SpanBuffer({ dir: store.dir, observer: true, now: () => now }),
+      firstAsk: {
+        turns: SELF_TUNABLES.FIRST_ASK_TURNS,
+        bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
+        soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+      },
+    });
+    const owed = awaitingWriteUp(plan, store.dir, now);
+    waiting = owed.length;
+    stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
+  } catch {
+    waiting = null;
+  }
+  const count =
+    waiting === null
+      ? " (could not count the sessions waiting)"
+      : waiting === 0
+        ? ""
+        : ` — ${String(waiting)} session${waiting === 1 ? "" : "s"} awaiting a write-up` +
+          (stale === 0 ? "" : `, ${String(stale)} older than ${String(WRITE_UP_WAIT_DAYS)} days`);
+  const data = { mode, api, waiting, stale };
+  if (mode === "api" && !keyNow) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `next session — "crashWriteUp": "api" is set, and ${API_KEY_ENV} is not in the credentials file${count}`,
+        `Run: counterparts credentials set ${API_KEY_ENV}`,
+        data,
+      ),
+    ];
+  }
+  if (stale > 0) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count}`,
+        "Open a session in the project each one ended in: its start hands the words over. A project never reopened is never written up.",
+        data,
+      ),
+    ];
+  }
+  return [finding("crash-write-up", "green", "Crash write-up", `${who}${count}`, "", data)];
+}
 
 /**
  * The two columns every doctor line lays out in — `ui.ts` holds the same pair

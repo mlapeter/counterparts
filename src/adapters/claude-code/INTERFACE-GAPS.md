@@ -682,3 +682,44 @@ by uuid (`source_uuid` → the later entry, if the link holds; unmeasured) or by
 entry-uuid cursor rather than an index, which is `remember/`'s to offer); (2) the dedupe
 rule, measured; (3) a fixture with one queued prompt that is later duplicated and one that
 is not, pacing as one and two turns respectively.
+
+## 15. On a mature store there is no room at SessionStart for the write-up — or the page writer (2026-09-23, C2)
+
+**Measured, not guessed.** The next-session write-up rides beside the wake in
+`HookResult.ask` (the page writer's pattern) and must fit BOTH the reported budget and the
+host's 10,000-character cap on a hook's whole output (`WRITE_UP_HOST_OUTPUT_CHARS` keeps
+500 characters of margin). Its own furniture — what the block says, the door's fields,
+"part k of N" — is ~800 bytes. So the part a start can carry, under the 9,000-byte budget
+`install` writes:
+
+| wake | part |
+|---|---|
+| ~470 B (fresh store) | ~7.7 KB |
+| 3 KB | ~5.2 KB |
+| 6 KB | ~2.2 KB |
+| ≥ ~7.2 KB | none — deferred at every start |
+
+The owner's measured wakes run 8.8–9.0 KB, so on his store the write-up (and the page
+writer's block, by the same arithmetic) is deferred at every start; the owner's ~24 KB is
+unreachable on this host at any wake size. Nothing is lost — B3 keeps an owed session's
+words, and doctor's `Crash write-up` line counts the sessions waiting and turns amber at 3
+days — but nothing is written up either. **Two ways out, neither this builder's to pick:**
+(a) the wake reserves room for the session-start asks (`core/`'s composition budget);
+(b) the block becomes a ~300-byte pointer and the door serves the part — `session_end`
+with `writeUp` and no `memories` answering with part k's words, up to the ~24 KB the owner
+chose, since an MCP result is not under the hook cap. (b) keeps the words out of any file
+and inside what Claude Code already sees; it changes "the captured text included" to "the
+captured text one call away", which is the owner's call.
+
+## 16. For C3: the opt-in is `crashWriteUp: "api"`, and doctor's `Sweep` line does not know it yet (2026-09-23, C2)
+
+`credentials set ANTHROPIC_API_KEY` should offer to write `"crashWriteUp": "api"` into
+`claude-code.json` (strict: `"api"` or `"next-session"`, anything else stands the config
+down to observer; absent is `next-session`). The API sweep runs only with both the knob
+and the key (`config.ts#apiSweepOn`). Until core's gate row can say `not-opted-in`
+(`remember/INTERFACE-GAPS` §14), every keyless or not-opted-in worker writes
+`sweep.gate reason: "no-credential"`, and doctor's existing `Sweep` line reads that as
+AMBER "Run: counterparts credentials set ANTHROPIC_API_KEY" — or, with a key present and
+no opt-in, GREEN "the next session boundary will use it", which is no longer true. The
+`Crash write-up` line (C2's one line) is the truthful reading; the `Sweep` line wants to
+read `crashWriteUp` too.

@@ -571,3 +571,19 @@ to load it.` The hooks now refuse to open the store too (`SCHEMA_AHEAD` at open,
 anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaVersion'"`.
 
 **7. Clean up.** Quit the session; `rm -rf "$T"`. Nothing outside it was written.
+
+## The write-up door (C2, 2026-09-23)
+
+- **A field, not a tool.** `session_end` with `writeUp` is diverted to `write-up.ts` after
+  the bind and before the handoff and the nothing-new mark are looked at. A sibling tool
+  would have been a new approval for anyone who allowlisted the server's tools one by one,
+  and `TOOL_NAMES` is pinned exactly. The per-entry deposit loop was EXTRACTED
+  (`depositEntries`) rather than copied, so a write-up's entries cannot take a different
+  road from an answer's.
+- **An unrestarted pre-C2 server ignores `writeUp`.** Its `session_end` drops the unknown
+  field and deposits the memories as the WRITING session's ordinary answer; the ended
+  session is not marked, so the next start hands it over again. The build-mismatch notice
+  (roadmap E) is what tells the person to reconnect; nothing here can.
+- **Duplicates count as landed.** A batch whose every entry is `duplicate-content` says
+  what the store already holds, so the part advances; a batch the gate refused entirely
+  (`nothing-landed`) does not.

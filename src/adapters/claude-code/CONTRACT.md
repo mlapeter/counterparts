@@ -598,6 +598,55 @@ Everything above about host mode is proved against a stub executable. What a rea
 has to answer is keychain access from a background process (`claude setup-token` is the
 documented route, spec §16), which is why `session` is the default.
 
+### The next-session write-up (C2, 2026-09-23 — true for now)
+
+**[M] A session that ended owing a write-up is handed to the next session that starts in
+its project.** "Owes" is B3's predicate and nothing else (`remember/owes.ts#owesWriteUp`,
+read across every scope through `adapters/sessions.ts#writeUpPlan`, the same sources the
+retention pass reads): a short session, or one that answered and ended normally, is never
+asked about. "Ended" is the registry's: an end, or no boundary for `SESSION_TTL_MS` (the
+MCP bind's window — a crash has no end on this host), or no record at all (the registry
+forgets a record a week after its last write; a debt outlives that). "In its project" is
+the registry record's scope, or, once the record is gone, the scope its words are filed
+under. The SessionStart hook puts ONE part of ONE such session's captured words — what was
+said to it and what it jotted, never its own replies — in `HookResult.ask`, after
+whichever other ask took the field (the first-launch question or the page writer's), in
+the page writer's register ("context, not an instruction"). Sessions never handed over go
+first, then the least recently handed, oldest first among equals, so one session nobody
+writes up cannot stand in front of the rest.
+
+**[M] The part is sized to the room, and the host's cap is the ceiling that binds.** The
+part size is fixed the first time a session is handed over — `min(WRITE_UP_MAX_BYTES
+(24 KB), budget − wake − other ask − block, WRITE_UP_HOST_OUTPUT_CHARS (9,500) − the
+same)` — so "part k of N" means the same N at every start; a start whose room would fix it
+below `WRITE_UP_MIN_BYTES` (1 KB), or whose composed block does not fit, DEFERS and claims
+nothing. The owner's ~24 KB is never reached on this host: its 10,000-character cap on a
+hook's whole output turns anything longer into a preview of the wake. Measured: a
+fresh-store wake (~470 B) leaves a ~7.7 KB part; a 3 KB wake ~5.2 KB; a 6 KB wake ~2.2 KB;
+a wake above ~7.2 KB under a 9,000-byte budget defers every start.
+
+**[M] One ask per session, a daily allowance, and the marks come before the words.**
+`WRITE_UP_ASKS_PER_DAY` (2, the page writer's number) per calendar day in local time; a
+compaction re-firing SessionStart asks nothing. Before the block is handed over, the part
+size, count and hand-over time go into one meta key (`adapter.writeup.progress`, removed
+when the session is marked), then the live session's registry record gets `writeUpFor:
+{session, part}` — the door's only evidence that this session holds those words. A mark
+that will not land hands nothing over. Never under observer; never in a directory set
+`off` (the entry point returns before anything opens). The whole body is fail-open: a
+throw costs the write-up and never the wake or the other ask (asserted byte for byte).
+
+**[M] The API sweep is opt-in.** `crashWriteUp: "api"` (strict; absent is
+`next-session`) AND the key: then the worker's sweep runs as before, and the SessionStart
+ask leaves sessions with no normal end to it (`config.ts#apiSweepOn`, one predicate for
+both). Otherwise the sweep builds no interpreter and writes its gate row with core's one
+skip reason, `no-credential`; `runner.done` says `sweep: next-session | no-key | api`.
+
+**[M] Doctor's `Crash write-up` line.** `next session` green by default; `on (API)` with
+the knob and the key in the credentials file; amber with the knob and no key, and amber
+when a session has waited past `WRITE_UP_WAIT_DAYS` (3) — counted across every project
+from B3's plan minus what the registry holds running. Never red. Not in the session-start
+reading (it is never red, and it reads every scope's words).
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

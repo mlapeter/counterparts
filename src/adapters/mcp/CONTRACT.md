@@ -82,7 +82,8 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 **Inputs** — MCP tool calls:
 `note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
-`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?)` whose
+`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?,
+writeUp?, part?)` whose
 entries take the same optional dimensions — `handoff` (2026-09-20, E1) is a FIELD on the
 call and never one of the entries: it is this directory's working context, filed by
 `core/handoff/`, never a memory, and it is written before the `memories` check so a dump
@@ -202,6 +203,30 @@ actually wrote (chapter), the written self page or the version a write to it pro
     record and nothing else. The UserPromptSubmit hook
     compares it with the installed build and says "Counterparts was updated" once per
     session, as a `systemMessage` (`sessions.ts#decideUpdateNotice`, `claude-code/bin/hook.ts`).
+16. **[M] `session_end` with `writeUp` is the next-session write-up's door** (roadmap C2,
+    2026-09-23; `write-up.ts#writeUpDoor`). A FIELD, not a sibling tool: the call is
+    diverted after the bind and before anything else reads it, so it never writes a
+    handoff and never marks "nothing new", and it shares with an ordinary `session_end`
+    only the bind (the WRITING session is this one, guarantee 10) and the road each entry
+    takes (`server.ts#depositEntries`, extracted rather than copied: gate battery,
+    redaction, authored channel, per-entry isolation) — so the memories are recorded under
+    the writing session, never the ended one. It accepts an ended session id only when
+    `sessions.ts#writeUpStanding` — the same function the SessionStart ask filters with —
+    says it ended in this project and B3's predicate says it owes, AND the writing
+    session's registry record carries the hook's `writeUpFor` mark for it (the one piece
+    of evidence the model cannot write). Refused, each by name, writing nothing:
+    `handoff-not-accepted`, `unknown-session`, `live-session` (this session's own id
+    included), `other-project`, `already-written-up`, `owes-nothing` (with `why`:
+    below-threshold, answered, no-text), `not-asked`, `wrong-part`,
+    `part-already-written`, `memories-required`, `empty-batch` — an empty batch is not a
+    write-up — and `nothing-landed` (every entry refused; a duplicate counts as landed).
+    A part short of the last advances the progress; the LAST part marks the ended session
+    written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`, `by:
+    "next-session"`, in every scope holding its words), which starts its seven-day
+    retention clock. This file is the seam's one importer outside `remember/`
+    (`test/cli.test.ts` pins it). A mark that did not land is `marked: false`: the
+    session still owes, and the next start hands the last part over again so the door
+    can finish without depositing twice.
 
 ### The residual risk of the lazy bind, named
 

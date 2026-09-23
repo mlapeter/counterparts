@@ -360,7 +360,7 @@ const SESSION_END: ToolSpec = {
     "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
-    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else.",
+    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up block handed you.",
     "Do NOT summarize the conversation; a transcript is not a memory. Write what was LEARNED.",
   ],
   privileges: [
@@ -427,6 +427,12 @@ const SESSION_END: ToolSpec = {
       mechanizedBy:
         "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew",
     },
+    {
+      claim:
+        "`writeUp` writes up a session that ended here before it was written up, and ONLY the one a session-start block handed THIS session: its memories are recorded as this session's, through the same road as every entry, and when the last part comes back the ended session is marked written up. A live session, an unknown one, one from another project, one that owes nothing or is already written up, one you were not handed, and an EMPTY batch are each refused by name, and nothing is written.",
+      mechanizedBy:
+        "src/adapters/mcp/write-up.ts#writeUpDoor -> src/adapters/sessions.ts#writeUpStanding -> src/core/remember/write-up-seam.ts#recordWriteUp",
+    },
   ],
   inputSchema: {
     type: "object",
@@ -440,6 +446,16 @@ const SESSION_END: ToolSpec = {
         type: "string",
         description:
           "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two, and lead with the sentence you want the next session to read first — that first line is what it sees. It can expand the rest by id; the pointer stops showing after about two weeks of use. Setting it REPLACES whatever handoff this directory had. Send it EMPTY (\"\") to retire the pointer when the work here is finished — that is the only way to clear a stale one. Leaving the field out leaves the previous one standing.",
+      },
+      writeUp: {
+        type: "string",
+        description:
+          "Only when a session-start write-up block handed you an ENDED session's words: that session's id. `session` stays THIS session's id, and the memories are this session's, written from those words. Not with `handoff`, and never with an empty `memories`.",
+      },
+      part: {
+        type: "integer",
+        minimum: 1,
+        description: "With `writeUp`: the part number the block named. Optional; it must match if sent.",
       },
       memories: {
         type: "array",

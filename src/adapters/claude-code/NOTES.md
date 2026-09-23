@@ -1265,3 +1265,33 @@ stderr copy for the log.
 as v2's ritual probe, one line per probe. Both lines now carry the session id, so the
 meter would find no session-free line to recognise. The parallel run is retired; noted,
 not changed.
+
+## The next-session write-up (C2, 2026-09-23)
+
+What the build settled, beyond the CONTRACT section:
+
+- **The host cap decided the part size, not the owner's 24 KB.** Hook output past 10,000
+  characters becomes a preview of the WAKE (first in stdout), so the write-up block is
+  measured against `WRITE_UP_HOST_OUTPUT_CHARS` as well as the reported budget, after
+  composing, and a start that cannot fit a 1 KB part defers. Numbers and the way out:
+  INTERFACE-GAPS §15.
+- **The part size is fixed at the first hand-over** and kept in `adapter.writeup.progress`
+  (one meta key; an entry is removed when its session is marked). A variable size would
+  use each start's room better but "part k of N" would change N between starts.
+- **Least recently handed over first.** Oldest-first alone let one session nobody wrote
+  up — ignored, or with nothing in it worth keeping, since an empty batch is refused —
+  stand in front of every other session in the project for ever.
+- **The door requires the hook's mark** (`writeUpFor` on the writing session's registry
+  record), the `pageWriterFor` pattern: a model cannot close a debt by naming an owed
+  session it never read.
+- **"Ended" uses the bind's own window** (`SESSION_TTL_MS`, 4 h), because a crash leaves
+  no end on this host; a session idle past 4 h in another terminal of the same project can
+  be handed over while its terminal is still open. What it said since its last answer is
+  what the next session sees (covered words are marked), and if it comes back its new
+  words make it owe again.
+- **The host evidence moved** from `bin/runner.ts` to `adapters/sessions.ts`
+  (`hostSessionEvidence`, `writeUpSources`), so the retention pass, the ask and the door
+  read one set of facts; the runner keeps `retentionHost` as an alias.
+- **Cost on the wake's path:** one `planRetention` pass over every scope's span files and
+  up to 90 days of `adapter.ask` rows, only after the cheap checks (observer, already
+  asked this session, day's allowance spent) pass. Not measured on a large store here.

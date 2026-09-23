@@ -41,7 +41,10 @@ import { join, resolve } from "node:path";
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
-import { deliverTurn, reachesTheOwner, stampWhenOpened } from "../src/adapters/claude-code/bin/hook.js";
+import { deliverTurn, hostDelivery, reachesTheOwner, stampWhenOpened } from "../src/adapters/claude-code/bin/hook.js";
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import { WRITE_UP_OPEN } from "../src/adapters/claude-code/hooks.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import {
   BUSY_SESSION_START_MESSAGE,
   BUSY_TURN_MESSAGE,
@@ -61,7 +64,7 @@ import {
 } from "../src/adapters/claude-code/standdown.js";
 import type { StandDownMark } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
-import { UPDATE_NOTICE, installedBuild, readSession, recordServerLaunch } from "../src/adapters/sessions.js";
+import { UPDATE_NOTICE, canonicalScope, installedBuild, readSession, recordServerLaunch, recordSession } from "../src/adapters/sessions.js";
 import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
 import { makeBodyUnreadable } from "./store-fixture.js";
 
@@ -1352,5 +1355,64 @@ describe("the update notice is fail-open", () => {
     const stamped = main.indexOf("stampWhenOpened(payload");
     expect(write).toBeGreaterThan(0);
     expect(stamped).toBeGreaterThan(write);
+  });
+});
+
+
+// ── the next-session write-up rides beside the wake and can never cost it (C2) ──
+
+describe("the write-up ask never costs the wake", () => {
+  /** A session in `work` that talked, was asked, never answered, and ended —
+   *  so the next SessionStart there is handed its words. */
+  function owedSessionInWork(): void {
+    const scope = canonicalScope(work);
+    const c = Counterpart.open({ dir: store, owner: true });
+    try {
+      recordSession(store, { sessionId: "ended-owing", scope, phase: "start", at: Date.now() - 86_400_000 });
+      c.captureSpans({
+        session: "ended-owing",
+        scope,
+        turns: [
+          { role: "user", text: "The relief valve is seated before the reservoir loop is pressurised, every time." },
+          { role: "assistant", text: "Understood." },
+        ],
+      });
+      expect(c.episodeAsk("ended-owing", { turns: 9, bytes: 6_000 }).asked).toBe(true);
+      c.boundary({ session: "ended-owing", scope, kind: "stop" });
+      c.boundary({ session: "ended-owing", scope, kind: "session-end" });
+      recordSession(store, { sessionId: "ended-owing", scope, phase: "end", at: Date.now() - 86_000_000 });
+    } finally {
+      c.close();
+    }
+  }
+
+  test("a real hook process: the healthy wake, byte for byte, THEN the write-up block", () => {
+    owedSessionInWork();
+    const run = runHook("SessionStart", "h1-next-session");
+    expect(run.code).toBe(0);
+    expect(run.stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
+    const tail = run.stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
+    expect(tail.startsWith(`\n\n${WRITE_UP_OPEN}`)).toBe(true);
+    expect(tail).toContain("The relief valve is seated");
+    expect(run.stdout.length).toBeLessThan(10_000);
+  });
+
+  test("a THROW inside the write-up: what the host prints is the healthy wake, byte for byte", () => {
+    owedSessionInWork();
+    const a = openAdapter(
+      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
+    );
+    try {
+      (a.counterpart.spans as unknown as { scopes: () => string[] }).scopes = () => {
+        throw new Error("forced-write-up-throw");
+      };
+      const out = a.sessionStart({ sessionId: "h1-thrown", scope: canonicalScope(work) });
+      expect(a.events("adapter.writeup.failed").length).toBe(1);
+      const d = hostDelivery("session-start", { injection: out.injection, ask: out.ask }, {}, [null, null]);
+      expect(d.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+    } finally {
+      a.counterpart.close();
+    }
   });
 });

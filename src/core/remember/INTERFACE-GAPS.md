@@ -224,7 +224,9 @@ snapshots) · <deleted> pruned <date> · <keptOwed> kept until written up · <ke
 open` — green; amber when `failed > 0`, and amber when the newest row is `STARTED` or
 `LATCH_HELD` on a date before today ("the pass on <date> started and did not finish");
 "not run yet" on a store the worker has not reached, which is not a fault. Until the next-session write-up (C2) exists, "kept until
-written up" means kept indefinitely, and the line should not imply otherwise.
+written up" means kept indefinitely, and the line should not imply otherwise. (C2 landed
+2026-09-23 with its own line, `Crash write-up`, which counts the sessions awaiting one
+from the plan; "kept until written up" is now true for every project that is reopened.)
 
 ## 12. `export` still says nothing about `spans/`
 
@@ -233,3 +235,25 @@ retention makes true: after the export's `Kind:` line, one line —
 `Not included: spans/ — the raw captured conversation, kept 7 days after a session ends,
 or for as long as it waits to be written up.`
 
+
+
+## 13. The API sweep can write up a session the next session already wrote up
+
+**Owner:** `remember/spans.ts#crashedSessions` / `fallback.ts`. Filed 2026-09-23 (C2).
+**Have:** a write-up mark (`writeups.jsonl`) that the next-session door sets. The sweep's
+crash predicate reads boundaries and coverage and never that file. With the sweep off by
+default nothing reaches this; with `crashWriteUp: "api"` the SessionStart ask leaves
+crashed sessions to the sweep, so the two do not overlap either. What is left: a store
+that was written up by the next session and THEN switched to the API sweep inside the
+seven days re-sweeps that session's uncovered words, minting near-duplicates of what the
+next session wrote. **Ask:** `crashedPending` skips a session with a write-up mark at or
+after its last capture.
+
+## 14. The sweep's gate row has one reason for a deliberate skip
+
+**Owner:** `core/counterpart.ts#SweepSkipped` (not `remember/`, filed here beside the
+sweep). Filed 2026-09-23 (C2). The sweep is opt-in now, and a worker whose owner did not
+opt in — key present or not — can only say `reason: "no-credential"` on its gate row,
+because that is the only skip reason core accepts. **Ask:** a second reason
+(`"not-opted-in"`), so the row says which it was; doctor's `Sweep` line then stops
+telling a keyless store to add a key (see `claude-code/INTERFACE-GAPS`).

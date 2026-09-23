@@ -255,7 +255,11 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     up to 7 days in the store and up to 21 counting the 14 daily snapshots. The only way
     out of owing — the write-up mark — is a grant behind a pinned seam
     (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
-    no text, and a run is visible from the moment it holds its date (`STARTED`).
+    no text, and a run is visible from the moment it holds its date (`STARTED`). Its one
+    caller outside this module is the next-session write-up's door
+    (`adapters/mcp/write-up.ts`, roadmap C2, 2026-09-23), which marks `by: "next-session"`
+    only when the last part of an owed session's words, handed to that session by the
+    SessionStart hook, has come back as memories.
 
 ## 6. Scars honored
 

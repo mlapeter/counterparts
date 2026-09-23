@@ -43,6 +43,7 @@
  *      filesystem, so the rename is a rename.
  */
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -56,7 +57,18 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ADAPTER_ASK_EVENT } from "../core/counterpart.js";
+import { NO_HOST_EVIDENCE, planRetention, retentionSources } from "../core/remember/index.js";
+import type {
+  FirstAskThreshold,
+  HeldSession,
+  HostSessionEvidence,
+  RetentionSources,
+  SpanBuffer,
+} from "../core/remember/index.js";
+import { episodeFacts } from "../core/self/index.js";
 import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../core/store/index.js";
+import type { Store } from "../core/store/index.js";
 
 /** The one directory name. Classified in `store/paths.ts` LAYOUT. */
 export const SESSIONS_DIR = "sessions";
@@ -207,6 +219,32 @@ export interface SessionRecord {
    * Still host state, still no content: a number.
    */
   readonly nothingNewAt?: number;
+  /**
+   * WHICH ENDED SESSION, AND WHICH PART OF IT, THIS SESSION WAS HANDED TO WRITE
+   * UP (roadmap C2, 2026-09-23) — written by the SessionStart hook at the moment
+   * it puts that part's captured words beside the wake.
+   *
+   * Two jobs, the `pageWriterFor` pair exactly:
+   *
+   *   - it stops the same session being handed a write-up twice — a compaction
+   *     re-firing SessionStart asks nothing;
+   *   - it is the ONLY evidence the MCP door (`mcp/write-up.ts`) accepts that
+   *     this session holds that part's words at all. A model that names some
+   *     other ended session — one it never read — is refused `not-asked`: only
+   *     the hook writes this, and the model cannot.
+   *
+   * Carried forward like `config`, newest wins. Still host state, still no
+   * content: an id and a number.
+   */
+  readonly writeUpFor?: WriteUpFor;
+}
+
+/** The part of an ended session the SessionStart hook handed a live one. */
+export interface WriteUpFor {
+  /** The ENDED session whose words were handed over. */
+  readonly session: string;
+  /** Which part, from 1. */
+  readonly part: number;
 }
 
 /**
@@ -330,6 +368,9 @@ export function recordSession(
     /** When `session_end` last answered "nothing new" (B1). Carried forward
      *  like `config`; the newest answer wins. */
     nothingNewAt?: number;
+    /** The ended session and part the SessionStart hook handed this one to
+     *  write up (C2). Carried forward like `config`; the newest answer wins. */
+    writeUpFor?: WriteUpFor;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -404,6 +445,14 @@ export function recordSession(
       ? { nothingNewAt: input.nothingNewAt }
       : prior?.nothingNewAt !== undefined
         ? { nothingNewAt: prior.nothingNewAt }
+        : {}),
+    // Carried like `config`, and it MUST be: the MCP door reads it after the
+    // session has gone on to Stop several times, and every Stop rewrites this
+    // record whole (C2).
+    ...(input.writeUpFor !== undefined && parseWriteUpFor(input.writeUpFor) !== null
+      ? { writeUpFor: { session: input.writeUpFor.session, part: input.writeUpFor.part } }
+      : prior?.writeUpFor !== undefined
+        ? { writeUpFor: prior.writeUpFor }
         : {}),
   };
 
@@ -1059,5 +1108,359 @@ function parseRecord(raw: unknown): SessionRecord | null {
     ...(typeof rec["nothingNewAt"] === "number" && Number.isFinite(rec["nothingNewAt"])
       ? { nothingNewAt: rec["nothingNewAt"] }
       : {}),
+    // Optional for the same reason; a malformed one is no mark at all, so a
+    // hand-edited record cannot talk the MCP door into accepting a write-up.
+    ...((): { writeUpFor?: WriteUpFor } => {
+      const writeUpFor = parseWriteUpFor(rec["writeUpFor"]);
+      return writeUpFor === null ? {} : { writeUpFor };
+    })(),
   };
+}
+
+/** A `writeUpFor` mark, or null: an id that passes `isSessionId` and a part
+ *  that is a positive integer. Anything else is no mark. */
+function parseWriteUpFor(raw: unknown): WriteUpFor | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const w = raw as Record<string, unknown>;
+  const session = w["session"];
+  const part = w["part"];
+  if (!isSessionId(session)) return null;
+  if (typeof part !== "number" || !Number.isSafeInteger(part) || part < 1) return null;
+  return { session, part };
+}
+
+// ── the next-session write-up (roadmap C2, 2026-09-23) ──────────────────────
+//
+// A session that ended before it was written up is written up by the NEXT
+// session in its project: the SessionStart hook (`claude-code/hooks.ts`) hands
+// the live assistant the ended session's captured words, and the MCP server's
+// door (`mcp/write-up.ts`) takes the memories back and marks the old session
+// written up. Two adapters, and neither imports the other — so the facts they
+// both decide on live HERE, in the one sibling both may import, and are read by
+// both through the same functions. If the ask and the door disagreed about
+// which sessions owe, the hook would hand over a session the door refuses, at
+// every start, for ever.
+//
+// What "owes" means is NOT decided here. It is `remember/owes.ts#owesWriteUp`,
+// defined once (roadmap B3); this file only gathers the host's half of the
+// facts it reads and adds the two things only a host can know — whether the
+// session is still running, and which project it belongs to.
+
+/** Ceiling on the `adapter.ask` rows read at once: a Stop each, ~90 lived days
+ *  of them (the log's own retention). */
+const ASK_ROW_CEILING = 200_000;
+const ASK_ROW_LOOKBACK_DAYS = 90;
+
+/**
+ * WHAT THIS HOST KNOWS ABOUT A SESSION, for `remember/owes.ts`: its registry
+ * record (open or ended, and #186's "nothing new" mark) and its `adapter.ask`
+ * rows (when the last ask was issued, and the substance the pacer measured at
+ * its newest evaluation). Read once per call; never throws. Every read that
+ * fails reads as the fact that KEEPS text.
+ *
+ * Moved here from `claude-code/bin/runner.ts` (C2) so the retention pass, the
+ * SessionStart ask and the MCP door read ONE definition of the host's facts;
+ * the runner re-exports it under its old name, `retentionHost`.
+ */
+export function hostSessionEvidence(store: Store): (session: string) => HostSessionEvidence {
+  const asks = new Map<
+    string,
+    { lastAskedAt: number | null; lastEvaluation: { at: number; turns: number; bytes: number } | null }
+  >();
+  try {
+    const rows = store.eventLog({
+      name: ADAPTER_ASK_EVENT,
+      sinceDay: Math.max(0, store.livedDay() - ASK_ROW_LOOKBACK_DAYS),
+      limit: ASK_ROW_CEILING,
+    });
+    for (const row of rows) {
+      let p: Record<string, unknown>;
+      try {
+        p = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const session = p["session"];
+      if (typeof session !== "string" || session.length === 0) continue;
+      const cur = asks.get(session) ?? { lastAskedAt: null, lastEvaluation: null };
+      if (p["asked"] === true) cur.lastAskedAt = Math.max(cur.lastAskedAt ?? 0, row.at);
+      const turns = p["turns"];
+      const bytes = p["bytes"];
+      if (
+        typeof turns === "number" &&
+        typeof bytes === "number" &&
+        (cur.lastEvaluation === null || row.at >= cur.lastEvaluation.at)
+      ) {
+        cur.lastEvaluation = { at: row.at, turns, bytes };
+      }
+      asks.set(session, cur);
+    }
+  } catch {
+    /* no ask rows: the pacer's own state and the substance count still decide */
+  }
+  const dir = store.dir;
+  return (session) => {
+    const a = asks.get(session);
+    return {
+      ...NO_HOST_EVIDENCE,
+      ...registryFacts(dir, session),
+      lastAskedAt: a?.lastAskedAt ?? null,
+      lastEvaluation: a?.lastEvaluation ?? null,
+    };
+  };
+}
+
+/**
+ * The registry's word on one session. A record with no end is OPEN — never
+ * deleted (PR #189 review m10). A record that exists but will not read is
+ * treated as open too: it may be a live session's, and the safe reading of
+ * "cannot tell" is "keep".
+ */
+function registryFacts(
+  dir: string,
+  session: string,
+): Pick<HostSessionEvidence, "open" | "endedAt" | "nothingNewAt"> {
+  const path = sessionPath(dir, session);
+  if (path === null || !existsSync(path)) return { open: false, endedAt: null, nothingNewAt: null };
+  const rec = readSession(dir, session);
+  if (rec === null) return { open: true, endedAt: null, nothingNewAt: null };
+  return {
+    open: rec.endedAt === null,
+    endedAt: rec.endedAt,
+    nothingNewAt: typeof rec.nothingNewAt === "number" && Number.isFinite(rec.nothingNewAt) ? rec.nothingNewAt : null,
+  };
+}
+
+/**
+ * THE SOURCES `remember/owes.ts` DECIDES ON, as this host supplies them — the
+ * pacer's record (`self/episodes.ts#episodeFacts`), the handoff rows, and
+ * `hostSessionEvidence`. The retention pass and the write-up both build theirs
+ * here, so "what may be deleted" and "what the next session is asked to write"
+ * are read off one set of facts (B3's rule, kept by construction).
+ */
+export function writeUpSources(store: Store, firstAsk: FirstAskThreshold): RetentionSources {
+  return retentionSources(store, {
+    episode: (session) => episodeFacts(store, session),
+    host: hostSessionEvidence(store),
+    firstAsk,
+  });
+}
+
+/** Every session the store holds text for, judged by `remember/owes.ts`. Read-only. */
+export function writeUpPlan(input: {
+  store: Store;
+  spans: SpanBuffer;
+  firstAsk: FirstAskThreshold;
+}): HeldSession[] {
+  return planRetention(input.spans, writeUpSources(input.store, input.firstAsk));
+}
+
+/**
+ * WHERE ONE SESSION STANDS for a write-up by a session in `scope` — the door's
+ * refusals by name, and the ask's filter. One function, both callers.
+ *
+ *   - `unknown-session` — not an id, or no registry record and no text anywhere;
+ *   - `live-session` — the registry holds it running: no end, and a boundary
+ *     inside `SESSION_TTL_MS`. That is the window the MCP bind uses, so a
+ *     session that can still answer for itself is never written up by another.
+ *     A record that exists and will not read is read as live: cannot tell is
+ *     keep. A session that CRASHED has no end in the registry at all, and is
+ *     ended here once it has been silent past the window — which is the whole
+ *     point, since that is most of what owes;
+ *   - `other-project` — its registry record names another directory, or, once
+ *     the registry has forgotten it (records are pruned 7 days after their last
+ *     write, and a debt outlives that), its words are filed under no scope that
+ *     is this one;
+ *   - `already-written-up` — marked through the seam at or after its last words;
+ *   - `owes-nothing` — B3's predicate says so for another reason;
+ *   - `owed`.
+ */
+export type WriteUpStanding =
+  | { readonly status: "owed"; readonly held: HeldSession }
+  | { readonly status: "unknown-session" }
+  | { readonly status: "live-session" }
+  | { readonly status: "other-project" }
+  | { readonly status: "already-written-up" }
+  | { readonly status: "owes-nothing"; readonly why: "below-threshold" | "answered" | "no-text" };
+
+export function writeUpStanding(
+  plan: readonly HeldSession[],
+  dataDir: string,
+  session: string,
+  scope: string,
+  now: number,
+  ttlMs: number = SESSION_TTL_MS,
+): WriteUpStanding {
+  if (!isSessionId(session)) return { status: "unknown-session" };
+  const held = plan.find((h) => h.session === session);
+  const path = sessionPath(dataDir, session);
+  const exists = path !== null && existsSync(path);
+  const record = exists ? readSession(dataDir, session) : null;
+  if (!exists && held === undefined) return { status: "unknown-session" };
+  if (runningNow(dataDir, session, now, ttlMs)) return { status: "live-session" };
+  const here =
+    record !== null
+      ? sameScope(record.scope, scope)
+      : (held?.scopes ?? []).some((s) => sameScope(s, scope));
+  if (!here) return { status: "other-project" };
+  if (held === undefined) return { status: "owes-nothing", why: "no-text" };
+  if (held.facts.writtenUp) return { status: "already-written-up" };
+  if (!held.owes) {
+    return {
+      status: "owes-nothing",
+      why: !held.facts.capturedText ? "no-text" : !held.facts.asked ? "below-threshold" : "answered",
+    };
+  }
+  return { status: "owed", held };
+}
+
+/**
+ * DOES THE REGISTRY HOLD THIS SESSION RUNNING — a record with no end whose last
+ * boundary is inside `ttlMs` (the MCP bind's own window), or a record that is
+ * there and will not read (cannot tell is keep). No record is not running: the
+ * registry forgets a record a week after its last write.
+ */
+export function runningNow(dataDir: string, session: string, now: number, ttlMs: number = SESSION_TTL_MS): boolean {
+  const path = sessionPath(dataDir, session);
+  if (path === null || !existsSync(path)) return false;
+  const record = readSession(dataDir, session);
+  return record === null || isLive(record, now, ttlMs);
+}
+
+/**
+ * EVERY SESSION, IN ANY PROJECT, THAT ENDED OWING A WRITE-UP — B3's predicate,
+ * minus what the registry holds running (a session that was asked a moment ago
+ * and is still at work on its answer owes nothing to anyone else yet). Doctor's
+ * count: a project never reopened is never written up, and this is where that
+ * shows.
+ */
+export function awaitingWriteUp(plan: readonly HeldSession[], dataDir: string, now: number): HeldSession[] {
+  return plan.filter((h) => h.owes && !runningNow(dataDir, h.session, now));
+}
+
+/**
+ * THE SESSIONS A NEW SESSION IN `scope` MAY BE ASKED TO WRITE UP, in the order
+ * they are offered — every `owed` standing, minus the asking session itself.
+ *
+ * **Least recently handed over first, then oldest first.** A session never
+ * handed over comes before one that was, and among equals the one that ended
+ * longest ago goes first. Without the first key, one session nobody writes up
+ * — handed over and ignored, or with nothing in it worth keeping, since an
+ * empty batch is not a write-up — would stand in front of every other session
+ * in its project for ever.
+ *
+ * `endedNormallyOnly` is the API sweep's share of the work being left to it
+ * (`crashWriteUp: "api"`): a session with no normal end is the sweep's, so the
+ * two never write the same session twice.
+ */
+export function owedWriteUps(
+  plan: readonly HeldSession[],
+  dataDir: string,
+  scope: string,
+  now: number,
+  opts: {
+    exclude?: string;
+    endedNormallyOnly?: boolean;
+    progress?: Readonly<Record<string, WriteUpProgress>>;
+  } = {},
+): HeldSession[] {
+  const out: HeldSession[] = [];
+  for (const h of plan) {
+    if (h.session === opts.exclude) continue;
+    if (opts.endedNormallyOnly === true && !h.facts.endedNormally) continue;
+    const standing = writeUpStanding(plan, dataDir, h.session, scope, now);
+    if (standing.status === "owed") out.push(h);
+  }
+  const handed = (h: HeldSession): number => opts.progress?.[h.session]?.handedAt ?? 0;
+  return out.sort((a, b) =>
+    handed(a) !== handed(b)
+      ? handed(a) - handed(b)
+      : a.clockFrom !== b.clockFrom
+        ? a.clockFrom - b.clockFrom
+        : a.session < b.session
+          ? -1
+          : a.session > b.session
+            ? 1
+            : 0,
+  );
+}
+
+/**
+ * HOW FAR A WRITE-UP HAS GOT, per ended session: the part size chosen when it
+ * was first handed over (fixed, so "part k of N" means the same thing at every
+ * start), how many parts that made, and how many have been written. ONE meta
+ * key in box 2, not one per session — nothing mows meta, and an entry is
+ * REMOVED when its session is marked written up, so the map holds only the
+ * write-ups in flight.
+ *
+ * Written by the hook (when it hands a part over) and by the MCP door (when a
+ * part comes back). Not locked: two processes writing it within the same
+ * millisecond can lose one update, and the cost is bounded to one part handed
+ * over a second time.
+ */
+export const WRITE_UP_PROGRESS_KEY = "adapter.writeup.progress";
+
+export interface WriteUpProgress {
+  /** Bytes of captured words per part, fixed at the first ask. */
+  readonly chunk: number;
+  /** How many parts that makes, as of the newest ask. */
+  readonly parts: number;
+  /** How many parts have come back written. */
+  readonly done: number;
+  /** When a part of it was last handed over, epoch ms — what keeps one
+   *  session nobody writes up from standing in front of every other. */
+  readonly handedAt: number;
+}
+
+/** Every write-up in flight. Never throws: an unreadable key is an empty map. */
+export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<string, WriteUpProgress> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(store.getMeta(WRITE_UP_PROGRESS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, WriteUpProgress> = {};
+  for (const [session, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isSessionId(session) || value === null || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const chunk = v["chunk"];
+    const parts = v["parts"];
+    const done = v["done"];
+    const handedAt = v["handedAt"];
+    if (
+      typeof chunk === "number" && Number.isSafeInteger(chunk) && chunk > 0 &&
+      typeof parts === "number" && Number.isSafeInteger(parts) && parts > 0 &&
+      typeof done === "number" && Number.isSafeInteger(done) && done >= 0
+    ) {
+      out[session] = {
+        chunk,
+        parts,
+        done,
+        handedAt: typeof handedAt === "number" && Number.isFinite(handedAt) ? handedAt : 0,
+      };
+    }
+  }
+  return out;
+}
+
+/**
+ * Set (or, with `null`, remove) one session's progress. Read-modify-write of
+ * the one key. Returns whether it landed; never throws.
+ */
+export function saveWriteUpProgress(
+  store: Pick<Store, "getMeta" | "setMeta">,
+  session: string,
+  progress: WriteUpProgress | null,
+): boolean {
+  try {
+    const all = readWriteUpProgress(store);
+    if (progress === null) delete all[session];
+    else all[session] = { chunk: progress.chunk, parts: progress.parts, done: progress.done, handedAt: progress.handedAt };
+    store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
+    return true;
+  } catch {
+    return false;
+  }
 }

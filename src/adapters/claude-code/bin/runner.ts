@@ -45,6 +45,11 @@
  *      `finally` below, so a boundary that FAILED still gets its copy: the day
  *      the worker breaks is the day a backup is worth most.
  *
+ * **THE SWEEP IS OPT-IN** (roadmap C2, 2026-09-23): it runs only when the
+ * configuration's `crashWriteUp` says `"api"` and the key is present. By
+ * default the next session in the crashed session's project writes it up, at
+ * SessionStart, and step 1 records its gate row and does nothing else.
+ *
  * **IT DEGRADES, STEP BY STEP; IT DOES NOT REFUSE** (I32, 2026-09-11). Exactly
  * one of the five jobs above needs a model credential — the sweep — and until
  * this date its absence refused the SPAWN, so a blanked credentials file stopped
@@ -56,27 +61,20 @@
  *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ADAPTER_ASK_EVENT, Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
-import {
-  NO_HOST_EVIDENCE,
-  RETENTION_EVENT,
-  retentionRow,
-  retentionRuns,
-  retentionSources,
-} from "../../../core/remember/index.js";
+import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
+import { RETENTION_EVENT, retentionRow, retentionRuns } from "../../../core/remember/index.js";
 import type { HostSessionEvidence, RetentionReport } from "../../../core/remember/index.js";
 // THE DELETING HALF, by path, and from this file alone (PR #189 review, B1):
 // `remember/index.ts` does not re-export it, and `test/cli.test.ts` pins every
 // importer — nothing that holds a `Counterpart` can reach it.
 import { pruneRetention } from "../../../core/remember/retention.js";
-import { episodeFacts } from "../../../core/self/index.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
-import { readSession, sessionPath } from "../../sessions.js";
+import { hostSessionEvidence, writeUpSources } from "../../sessions.js";
 
 import {
   configLine,
@@ -96,7 +94,7 @@ import { openEmbedder } from "../index.js";
 import type { LiveEmbedder } from "../embed-client.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
-import { API_KEY_ENV, EMBED_KEY_ENV } from "../config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, apiSweepOn, crashWriteUpMode } from "../config.js";
 import { runPageWriter } from "../page-writer.js";
 import type { PageWriterStarter } from "../page-writer.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
@@ -171,88 +169,13 @@ const EMPTY_RETENTION: RetentionReport = {
   bytes: 0,
 };
 
-/** Ceiling on the `adapter.ask` rows read once per date: a Stop each, ~90 lived
- *  days of them (the log's own retention). */
-const ASK_ROW_CEILING = 200_000;
-const ASK_ROW_LOOKBACK_DAYS = 90;
-
 /**
- * WHAT THIS HOST KNOWS ABOUT A SESSION, for `remember/owes.ts`: its registry
- * record (`adapters/sessions.ts` — open or ended, and #186's "nothing new"
- * mark) and its `adapter.ask` rows (when the last ask was issued, and the
- * substance the pacer measured at its newest evaluation). Read once per run;
- * never throws. Every read that fails reads as the fact that KEEPS text.
+ * WHAT THIS HOST KNOWS ABOUT A SESSION, for `remember/owes.ts` — now defined
+ * once in `adapters/sessions.ts#hostSessionEvidence` (C2), because the
+ * SessionStart write-up ask and the MCP write-up door read the same facts this
+ * pass does, and neither of them may import this file. The old name stays.
  */
-export function retentionHost(store: Store): (session: string) => HostSessionEvidence {
-  const asks = new Map<
-    string,
-    { lastAskedAt: number | null; lastEvaluation: { at: number; turns: number; bytes: number } | null }
-  >();
-  try {
-    const rows = store.eventLog({
-      name: ADAPTER_ASK_EVENT,
-      sinceDay: Math.max(0, store.livedDay() - ASK_ROW_LOOKBACK_DAYS),
-      limit: ASK_ROW_CEILING,
-    });
-    for (const row of rows) {
-      let p: Record<string, unknown>;
-      try {
-        p = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const session = p["session"];
-      if (typeof session !== "string" || session.length === 0) continue;
-      const cur = asks.get(session) ?? { lastAskedAt: null, lastEvaluation: null };
-      if (p["asked"] === true) cur.lastAskedAt = Math.max(cur.lastAskedAt ?? 0, row.at);
-      const turns = p["turns"];
-      const bytes = p["bytes"];
-      if (
-        typeof turns === "number" &&
-        typeof bytes === "number" &&
-        (cur.lastEvaluation === null || row.at >= cur.lastEvaluation.at)
-      ) {
-        cur.lastEvaluation = { at: row.at, turns, bytes };
-      }
-      asks.set(session, cur);
-    }
-  } catch {
-    /* no ask rows: the pacer's own state and the substance count still decide */
-  }
-  const dir = store.dir;
-  return (session) => {
-    const a = asks.get(session);
-    return {
-      ...NO_HOST_EVIDENCE,
-      ...registryFacts(dir, session),
-      lastAskedAt: a?.lastAskedAt ?? null,
-      lastEvaluation: a?.lastEvaluation ?? null,
-    };
-  };
-}
-
-/**
- * The registry's word on one session. A record with no end is OPEN — never
- * deleted (review m10). A record that exists but will not read is treated as
- * open too: it may be a live session's, and the safe reading of "cannot tell"
- * is "keep". `nothingNewAt` is #186's "nothing new" answer, read through the
- * registry's own parser.
- */
-function registryFacts(
-  dir: string,
-  session: string,
-): Pick<HostSessionEvidence, "open" | "endedAt" | "nothingNewAt"> {
-  const path = sessionPath(dir, session);
-  if (path === null || !existsSync(path)) return { open: false, endedAt: null, nothingNewAt: null };
-  const rec = readSession(dir, session);
-  if (rec === null) return { open: true, endedAt: null, nothingNewAt: null };
-  return {
-    open: rec.endedAt === null,
-    endedAt: rec.endedAt,
-    // #186's mark, through the registry's own parser now that it carries it.
-    nothingNewAt: typeof rec.nothingNewAt === "number" && Number.isFinite(rec.nothingNewAt) ? rec.nothingNewAt : null,
-  };
-}
+export const retentionHost: (store: Store) => (session: string) => HostSessionEvidence = hostSessionEvidence;
 
 /**
  * THE RETENTION STEP — once per calendar date, keyless, and it never throws.
@@ -287,10 +210,13 @@ export function retentionJob(input: {
   try {
     if (retentionRuns(store).some((r) => r.date === date)) return { ...none, reason: "already-ran" };
     const t = counterpart.self.tunables;
-    const sources = retentionSources(store, {
-      episode: (session) => episodeFacts(store, session),
-      host: retentionHost(store),
-      firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+    // THE SAME SOURCES THE WRITE-UP READS (`sessions.ts#writeUpSources`), so
+    // what this pass keeps as owed and what the next session is asked to write
+    // up are one set, by construction rather than by two copies agreeing.
+    const sources = writeUpSources(store, {
+      turns: t.FIRST_ASK_TURNS,
+      bytes: t.FIRST_ASK_BYTES,
+      soloBytes: t.SOLO_ASK_BYTES,
     });
     // THE DATE IS VISIBLE FROM THE MOMENT IT IS HELD (re-review R7): a
     // `STARTED` row goes in as soon as the latch is taken, before anything is
@@ -451,6 +377,15 @@ export async function runOnce(input: {
   // by name. Refusing the whole run instead is what froze the lived-day clock
   // for a week while every visible surface read healthy.
   const hasInterpretCredential = (env[API_KEY_ENV] ?? "").trim().length > 0;
+  // AND THE KEY IS NO LONGER ENOUGH (roadmap C2, owner 2026-09-23). The sweep is
+  // an opt-in upgrade now: it runs only when `crashWriteUp` says `"api"` AND
+  // the key is present (`config.ts#apiSweepOn`). Otherwise a session that ended
+  // before it was written up is written up by the next session in its project,
+  // at SessionStart, and this step does nothing. The gate row still lands with
+  // the one reason core names for a deliberate skip (`SweepSkipped`,
+  // `"no-credential"`): no credential this worker may SPEND — evidence beats
+  // silence (I32). `runner.sweep` below says which of the two it was.
+  const sweepOn = apiSweepOn(config, env);
 
   // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could
   // record anything. The `sweep.gate` row carries it; so must every failure row,
@@ -500,7 +435,8 @@ export async function runOnce(input: {
   let retentionReport: RetentionJobReport | null = null;
   let result: RunReport;
   try {
-    // NO INTERPRETER IS BUILT when there is no key. Not a client that would
+    // NO INTERPRETER IS BUILT when there is no key — or, since C2, when the
+    // owner has not opted into the API sweep at all. Not a client that would
     // refuse at its first call — the sweep would then claim spans, hand them to
     // something that cannot read them, and the claim would have to be restored.
     // The boundary is told "skipped, and why" instead, and everything that does
@@ -508,7 +444,7 @@ export async function runOnce(input: {
     const report = await counterpart.sessionEnd({
       date: today,
       at: today,
-      sweep: hasInterpretCredential
+      sweep: sweepOn
         ? {
             interpret: interpretClient({
               config,
@@ -533,6 +469,9 @@ export async function runOnce(input: {
       carried: report.carried?.reason ?? "threw",
       carriedRows: report.carried?.rows ?? 0,
       interpret: hasInterpretCredential,
+      // `api` — opted in and keyed, so the sweep ran its gate; `next-session` —
+      // not opted in, whatever the key; `no-key` — opted in with no key.
+      sweep: sweepOn ? "api" : crashWriteUpMode(config) === "api" ? "no-key" : "next-session",
     });
     result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null, retention: null };
   } catch (err) {
