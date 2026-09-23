@@ -1294,4 +1294,6 @@ What the build settled, beyond the CONTRACT section:
   read one set of facts; the runner keeps `retentionHost` as an alias.
 - **Cost on the wake's path:** one `planRetention` pass over every scope's span files and
   up to 90 days of `adapter.ask` rows, only after the cheap checks (observer, already
-  asked this session, day's allowance spent) pass. Not measured on a large store here.
+  asked this session, day's allowance spent) pass. Measured on a seeded temp store: 150
+  sessions of ~24 KB each (1,200 ask rows) — the plan 9 ms, the whole SessionStart 17 ms;
+  400 sessions of ~80 KB (3,200 ask rows) — 30 ms and 50 ms.

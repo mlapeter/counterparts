@@ -587,3 +587,8 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
 - **Duplicates count as landed.** A batch whose every entry is `duplicate-content` says
   what the store already holds, so the part advances; a batch the gate refused entirely
   (`nothing-landed`) does not.
+- **A write-up's memories are the WRITING session's, and B3 reads them that way.** They
+  are accepted `session-end` proposals under the live session's id, so if that session
+  had already been asked at a Stop, `owes.ts` counts them as its answer to that ask. The
+  block arrives at SessionStart, before any Stop ask, so the ordinary order is the
+  harmless one; the other order is named, not guarded.
