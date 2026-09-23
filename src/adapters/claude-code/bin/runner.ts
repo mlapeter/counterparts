@@ -29,12 +29,15 @@
  *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing;
- *   3b. RAW TRANSCRIPT RETENTION (owner's ruling 2026-09-23): once per date, a
- *      session's captured text is deleted 7 days after it ended when it owes no
- *      write-up (`remember/retention.ts`), and one `remember.prune` row says
- *      what was deleted, what is waiting on a write-up and what is simply
- *      younger than a week. Keyless, like every step but the sweep. BEFORE the
- *      snapshot on purpose: raw text in every backup is the reason it exists;
+ *   3b. RAW TRANSCRIPT RETENTION (owner's ruling 2026-09-23): once per date —
+ *      behind an `O_EXCL` latch under `spans/retention/` — a session's captured
+ *      text is deleted 7 days after it ended when it owes no write-up and the
+ *      registry does not hold it open (`remember/owes.ts` decides,
+ *      `remember/retention.ts` deletes, and this file is the only one that may
+ *      import the second), and one `remember.prune` row says what was deleted,
+ *      what is waiting on a write-up, what is younger than a week and what is
+ *      still open. Keyless, like every step but the sweep. BEFORE the snapshot on
+ *      purpose: raw text in every backup is the reason it exists;
  *   4. the DAILY ROTATING SNAPSHOT (`adapters/snapshots.ts`), last and outside
  *      the cycle. Last because it copies the state the three steps above just
  *      left; outside because sleep must not learn that the floor is changing —
