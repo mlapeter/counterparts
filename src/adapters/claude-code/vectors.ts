@@ -434,15 +434,23 @@ export async function backfillVectors(input: {
   // needs, because a skipped id is never offered again and so cannot clear
   // itself. Staged here and written as ONE transaction below.
   const moves: [string, string][] = [];
+  const refusals = new Set<string>();
   for (const id of wanted) {
     let landed = false;
+    // The FILE refused the vector (held, ahead, or now another identity's —
+    // `Store.embedOne`'s `refused`): a fact about the store, never about the
+    // item, so it never moves the item's give-up counter.
+    let refused: string | undefined;
     try {
-      landed = store.embedOne(id).vector;
+      const got = store.embedOne(id);
+      landed = got.vector;
+      refused = got.refused;
     } catch {
       landed = false;
     }
     if (landed) embedded += 1;
     else failed += 1;
+    if (refused !== undefined) refusals.add(`refused:${refused}`);
     const key = `${EMBED_FAILED_PREFIX}${id}`;
     const now = Number(counters.get(key) ?? "0");
     if (landed) {
@@ -450,12 +458,13 @@ export async function backfillVectors(input: {
       // allowlist, and a zero reads identically everywhere it is consulted.
       // Nothing is written for the healthy case, which is every id on a good day.
       if (now !== 0) moves.push([key, "0"]);
-    } else if (itemBlamed) {
+    } else if (itemBlamed && refused === undefined) {
       moves.push([key, String(now + 1)]);
     }
   }
   writeCounters(counterpart, store, moves, emit);
-  return done("ran", embedded, failed, wanted.length, codes);
+  const named = [codes, ...refusals].filter((c) => c.length > 0).join(",");
+  return done("ran", embedded, failed, wanted.length, named);
 }
 
 /** Did the last fill blame any ONE INPUT? Only then may a counter climb. */

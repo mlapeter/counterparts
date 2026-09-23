@@ -44,6 +44,7 @@ import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { Db, Statement } from "./db.js";
+import { isLocked } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -93,17 +94,18 @@ import {
   indexDoc,
   nearest,
   nearestVectors,
-  HELD_EXITS,
+  heldExits,
   cacheAhead,
   heldEmbedder,
   openCache,
+  searchRefusal,
   reconcileEmbedder,
   recordedEmbedder,
   resetCache,
   searchIndex,
   setEmbedding,
 } from "./cache.js";
-import type { EmbedderIdentity, EmbedderVerdict, Hit, LengthNorm } from "./cache.js";
+import type { EmbedderIdentity, EmbedderVerdict, Hit, LengthNorm, VectorRefusal } from "./cache.js";
 
 export * from "./errors.js";
 export * from "../observer.js";
@@ -145,14 +147,14 @@ export {
   EMBEDDER_META_KEY,
   EMBEDDER_REBUILD_META_KEY,
   EMBEDDER_HELD_META_KEY,
-  HELD_EXITS,
+  heldExits,
   heldEmbedder,
   identityTag,
   parseIdentityTag,
   recordedEmbedder,
   schemaAhead,
 } from "./cache.js";
-export type { EmbedderIdentity, EmbedderVerdict, RecordedEmbedder } from "./cache.js";
+export type { EmbedderIdentity, EmbedderVerdict, RecordedEmbedder, VectorRefusal } from "./cache.js";
 export type { ConvertBatchReport, Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
@@ -595,6 +597,8 @@ function verdictData(v: EmbedderVerdict): Record<string, string | number | boole
       return v.released === true ? { kind: v.kind, tag: v.tag, released: true } : { kind: v.kind, tag: v.tag };
     case "cache-ahead":
       return { kind: v.kind, found: v.found, expected: v.expected };
+    case "deferred":
+      return { kind: v.kind, reason: v.reason };
   }
 }
 
@@ -657,6 +661,13 @@ export class Store {
   private readonly ops: Db;
   private readonly cache: Db;
   private readonly embed: Embedder | undefined;
+  /**
+   * The identity this handle writes and ranks under — `opts.embed.identity`,
+   * never under observer. Kept past open because the at-open check is not
+   * enough for a handle that lives all session (re-review MAJOR A): every
+   * vector write and every ranking re-reads the file's claim against it.
+   */
+  private readonly identity: EmbedderIdentity | undefined;
   /**
    * What the at-open identity check found (cache v5). `none` when this process
    * configured no identified embedder. `held` means box 3 holds another paid
@@ -774,13 +785,25 @@ export class Store {
     // handle that wrote it does. Either way a held or ahead handle has its
     // embedder withdrawn, so no vector is written beside another model's.
     const identity = this.observer ? undefined : opts.embed?.identity;
+    this.identity = identity;
     const ahead = cacheAhead(this.cache);
     const held = ahead === null && identity === undefined ? heldEmbedder(this.cache) : null;
+    // A DECISION that lost box 3's write lock past the busy timeout costs the
+    // tag for this open, never the open (re-review NIT 1): `deferred`, the
+    // embedder withdrawn, and the next open decides again.
+    const reconcile = (id: EmbedderIdentity): EmbedderVerdict => {
+      try {
+        return reconcileEmbedder(this.cache, id);
+      } catch (err) {
+        if (!isLocked(err)) throw err;
+        return { kind: "deferred", reason: "locked" };
+      }
+    };
     this.embedderVerdict =
       ahead !== null
         ? { kind: "cache-ahead", found: ahead.found, expected: ahead.expected }
         : identity !== undefined
-          ? reconcileEmbedder(this.cache, identity)
+          ? reconcile(identity)
           : held !== null
             ? {
                 kind: "held",
@@ -790,7 +813,13 @@ export class Store {
                 fresh: false,
               }
             : { kind: "none" };
-    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") this.embed = undefined;
+    if (
+      this.embedderVerdict.kind === "held" ||
+      this.embedderVerdict.kind === "cache-ahead" ||
+      this.embedderVerdict.kind === "deferred"
+    ) {
+      this.embed = undefined;
+    }
     if (this.embedderVerdict.kind === "cache-ahead") {
       this.emit("cache.schema.ahead", undefined, verdictData(this.embedderVerdict));
     } else if (this.embedderVerdict.kind !== "none" && this.embedderVerdict.kind !== "match") {
@@ -873,6 +902,7 @@ export class Store {
     const newIdentity = v.kind === "reset" || (v.kind === "tagged" && v.tag !== null && v.adopted === 0);
     const durable =
       v.kind === "reset" ||
+      v.kind === "deferred" ||
       (v.kind === "held" && v.fresh) ||
       (v.kind === "tagged" && v.adopted > 0) ||
       (v.kind === "match" && v.released === true);
@@ -881,7 +911,7 @@ export class Store {
         this.appendEvent({
           name: EMBEDDER_RECONCILED_EVENT,
           day: this.livedDay(),
-          payload: { ...verdictData(v), ...(v.kind === "held" ? { exits: HELD_EXITS } : {}) },
+          payload: { ...verdictData(v), ...(v.kind === "held" ? { exits: heldExits(v.recorded) } : {}) },
         });
       } catch {
         // A lost lock costs the row, never the open (§5 G2's spirit).
@@ -1771,6 +1801,10 @@ export class Store {
             .map((r) => r.memory_id),
         )
       : new Set<string>();
+    // THE DROP-VECTORS EXIT LEAVES A DURABLE ROW (re-review NIT 2): what a
+    // plain rebuild drops, and the hold it ends, read before the reset.
+    const droppingVectors = keepVectors ? 0 : embeddingCount(this.cache);
+    const endingHold = keepVectors ? null : heldEmbedder(this.cache);
     resetCache(this.cache, { keepEmbeddings: keepVectors });
     const denied = new Set(this.deniedIds());
     const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
@@ -1803,8 +1837,9 @@ export class Store {
       // fresh vectors wants a plain `rebuildCache()`.
       const held = keepVectors && heldVectors.has(row.id);
       const vec = held ? null : this.embed ? this.embed(text) : null;
-      if (vec !== null) indexDoc(this.cache, row.id, text, vec);
-      else {
+      if (vec !== null) {
+        if (indexDoc(this.cache, row.id, text, vec) !== null) unrecomputed += 1;
+      } else {
         indexDoc(this.cache, row.id, text);
         // A miss is only a LOSS when there was nothing there to keep. Under
         // `keepVectors` the row's existing vector is still in the table, so
@@ -1870,6 +1905,17 @@ export class Store {
       droppedVectors,
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
+    if (droppingVectors > 0 || endingHold !== null) {
+      try {
+        this.appendEvent({
+          name: EMBEDDER_RECONCILED_EVENT,
+          day: this.livedDay(),
+          payload: { kind: "dropped", by: "rebuildCache", dropped: droppingVectors, releasedHold: endingHold },
+        });
+      } catch {
+        // A lost lock costs the row, never the rebuild.
+      }
+    }
     return report;
   }
 
@@ -1931,7 +1977,7 @@ export class Store {
    * not a lie: nothing is written and `vector` comes back false, so a backfill
    * that warmed the wrong text reports zero rather than success.
    */
-  embedOne(id: string): { found: boolean; vector: boolean } {
+  embedOne(id: string): { found: boolean; vector: boolean; refused?: VectorRefusal } {
     this.assertWritable("embedOne");
     if (this.isDenied(id)) return { found: false, vector: false };
     const row = this.row(id);
@@ -1950,7 +1996,13 @@ export class Store {
     // there, and it has no vector on purpose.
     const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(indexText(doc)) : null;
     if (vec === null) return { found: true, vector: false };
-    setEmbedding(this.cache, id, vec);
+    // `refused`: the FILE said no (held, ahead, or now another identity's) —
+    // not the item's fault, so a backfill must not count it against the id.
+    const refused = setEmbedding(this.cache, id, vec);
+    if (refused !== null) {
+      this.emit("cache.vector.refused", id, { site: "embedOne", reason: refused });
+      return { found: true, vector: false, refused };
+    }
     return { found: true, vector: true };
   }
 
@@ -2316,7 +2368,7 @@ export class Store {
     // cosine across two models is a number that means nothing (§2.15). A cache
     // from a newer build ranks nothing either: its vectors are not this
     // build's to interpret.
-    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") return [];
+    if (!this.rankable(vec.length, "nearestTo")) return [];
     return nearest(this.cache, vec, limit);
   }
 
@@ -2331,8 +2383,24 @@ export class Store {
    * number, which is the whole point of asking it this way.
    */
   neighbourVectors(vec: readonly number[], limit = 10): number[][] {
-    if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") return [];
+    if (!this.rankable(vec.length, "neighbourVectors")) return [];
     return nearestVectors(this.cache, vec, limit);
+  }
+
+  /**
+   * May this handle take a cosine against box 3 RIGHT NOW? The at-open
+   * verdict first (held, ahead), then the FILE's claim read fresh against this
+   * handle's identity (`cache.ts#searchRefusal`) — one primary-key read, the
+   * per-call pattern #187 uses for the schema stamp. A refusal is an event with
+   * its reason, and an empty answer, never a cosine across two models.
+   */
+  private rankable(dim: number, site: string): boolean {
+    const v = this.embedderVerdict.kind;
+    if (v === "held" || v === "cache-ahead") return false;
+    const refused = searchRefusal(this.cache, this.identity, dim);
+    if (refused === null) return true;
+    this.emit("cache.vector.refused", undefined, { site, reason: refused });
+    return false;
   }
 
   livedDay(): number {
@@ -2568,7 +2636,10 @@ export class Store {
             skipped += 1;
             continue;
           }
-          setEmbedding(this.cache, id, vec);
+          if (setEmbedding(this.cache, id, vec) !== null) {
+            skipped += 1;
+            continue;
+          }
           embedded += 1;
         }
       });
@@ -2600,8 +2671,15 @@ export class Store {
   private indexOne(doc: ProseDoc): void {
     const text = indexText(doc);
     const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(text) : null;
-    if (vec !== null) indexDoc(this.cache, doc.id, text, vec);
-    else indexDoc(this.cache, doc.id, text);
+    if (vec === null) {
+      indexDoc(this.cache, doc.id, text);
+      return;
+    }
+    // The per-write check (re-review MAJOR A): a long-lived handle whose file
+    // now names another identity writes the words and NOT the vector, leaving
+    // the memory for the owning identity's backfill.
+    const refused = indexDoc(this.cache, doc.id, text, vec);
+    if (refused !== null) this.emit("cache.vector.refused", doc.id, { site: "put", reason: refused });
   }
 }
 

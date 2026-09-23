@@ -103,11 +103,11 @@ export const DEFAULT_EMBED_MODEL = "voyage-3-large";
 
 /**
  * The OUTPUT WIDTH of each paid embed model this package knows — its default,
- * because the client never sends `output_dimension` (`embed-client.ts`). It is
- * part of the seat's identity (`<model>@<dim>`, cache v5): a store adopts
- * untagged vectors under a paid seat only when every one of them has this
- * width. An id not listed here has an unknown width, and untagged rows are
- * then held rather than adopted. Voyage's documented defaults, 2026-09-23.
+ * because the client never sends `output_dimension` (`embed-client.ts`). The
+ * store adopts untagged vectors under a paid seat only when every one of them
+ * has this width (cache v5); an id not listed here has an unknown width, and
+ * untagged rows are then held rather than adopted. Voyage's documented
+ * defaults, 2026-09-23. (The Voyage seat is frozen: deprecated, kept.)
  */
 export const EMBED_MODEL_DIMS: Readonly<Record<string, number>> = {
   "voyage-3-large": 1024,
@@ -472,10 +472,19 @@ export function loadConfig(raw: unknown): LoadedConfig {
     // The egress knob is read STRICTLY. A misspelled or half-written `embedder`
     // block must not resolve to "on" by accident, and the unreadable rule below
     // sends the whole configuration to observer rather than guessing.
-    const e = embedder as Record<string, unknown>;
+    // `kind` is read INSIDE the object check (re-review MINOR A): `"embedder":
+    // null` reached `e["kind"]` first and threw, which stood a hook down with a
+    // TypeError and crashed doctor. Now it is what every other malformed block
+    // is — unreadable, the whole configuration to observer, the key named.
+    const e = (typeof embedder === "object" && embedder !== null && !Array.isArray(embedder)
+      ? embedder
+      : {}) as Record<string, unknown>;
     const kind = e["kind"];
     const kindOk = kind === undefined || (typeof kind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(kind));
-    if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder) || typeof e["enabled"] !== "boolean") {
+    if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder)) {
+      unreadable = true;
+      badKeys.push("embedder");
+    } else if (typeof e["enabled"] !== "boolean") {
       unreadable = true;
       badKeys.push("embedder.enabled");
     } else if (e["enabled"] === false) {

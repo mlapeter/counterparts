@@ -329,10 +329,31 @@ export const EMBEDDER_REBUILD_META_KEY = "embedderRebuild";
  */
 export const EMBEDDER_HELD_META_KEY = "embedderHeld";
 
-/** The two ways out of a hold, in the words doctor and the event row use. */
-export const HELD_EXITS =
-  "put the embedder configuration back to the recorded model, or drop the old vectors: " +
-  "counterparts verify --rebuild --drop-vectors --dir <store> (the next boundary refills them)";
+/**
+ * The ways out of a hold, in the words doctor and the durable row use — named
+ * for the hold AS IT IS, because the free exit differs (re-review of #190,
+ * MINOR B):
+ *
+ *   - **No recorded model** (untagged rows: a 0.2.0 store, whose only embedder
+ *     was the Voyage seat, now opened under the static table): the free exit is
+ *     to set `embedder.kind` back to `"voyage"` — the seat adopts rows of its
+ *     own known width as they are. There is no "recorded model" to go back to.
+ *   - **A recorded model**: put the configuration back to it (free).
+ *
+ * Either way the other exit is a drop — `verify --rebuild --drop-vectors` —
+ * after which the configured embedder re-embeds every memory (paid, for a paid
+ * seat; free, for the static table). `<store>` is the caller's to fill.
+ */
+export function heldExits(recorded: string | null): string {
+  const drop =
+    "or drop the old vectors: counterparts verify --rebuild --drop-vectors --dir <store> " +
+    "(the configured embedder then re-embeds every memory — paid again, for a paid seat)";
+  if (recorded === null) {
+    return `set embedder.kind back to "voyage" in the configuration (free: the Voyage seat adopts vectors of its own width as they are), ${drop}`;
+  }
+  const model = parseIdentityTag(recorded).model;
+  return `put the configuration back to the model that wrote them — embedder.kind "voyage" with models.embed "${model}" (free), ${drop}`;
+}
 
 /** What a configured embedder says about the vectors it produces. */
 export interface EmbedderIdentity {
@@ -426,10 +447,11 @@ export type EmbedderVerdict =
    */
   | { readonly kind: "match"; readonly tag: string; readonly released?: boolean }
   /**
-   * There was no tag. `tag` null: nothing was written (a paid seat of unknown
-   * width meeting an empty table — the tag lands with the first vector).
-   * Otherwise the tag is now down: a fresh table, or legacy untagged rows
-   * ADOPTED by a paid seat whose known width they all have.
+   * There was no tag, and now there is: a fresh table taken by this identity
+   * (a static table's `<model>@<dim>`, a paid seat's model alone until its
+   * first vector), or legacy untagged rows ADOPTED by a paid seat whose known
+   * width they all have. (`tag` is null only in a verdict from before the
+   * re-review, kept in the type for readers of old telemetry.)
    */
   | { readonly kind: "tagged"; readonly tag: string | null; readonly adopted: number }
   /**
@@ -442,7 +464,7 @@ export type EmbedderVerdict =
    * PAID rows the configured embedder cannot use (or untagged rows it cannot
    * vouch for): NOTHING dropped, nothing tagged, and a durable marker says so.
    * No handle on this file writes vectors or ranks against them until one of
-   * `HELD_EXITS` is taken. `fresh` is true on the open that WROTE the marker.
+   * `heldExits(recorded)` is taken. `fresh` is true on the open that WROTE the marker.
    */
   | {
       readonly kind: "held";
@@ -458,12 +480,18 @@ export type EmbedderVerdict =
    * read and written by a non-server handle (the MCP server refuses every tool
    * instead, #187).
    */
-  | { readonly kind: "cache-ahead"; readonly found: string; readonly expected: number };
+  | { readonly kind: "cache-ahead"; readonly found: string; readonly expected: number }
+  /**
+   * The check had a DECISION to write (a first tag, a reset, a hold, an
+   * adoption) and another process held box 3's write lock past the busy
+   * timeout. Nothing was written; this handle's embedder is withdrawn for this
+   * open (no vector written under an unsettled identity), and the next open
+   * decides again. A lost lock costs the tag, never the open (re-review NIT 1).
+   */
+  | { readonly kind: "deferred"; readonly reason: "locked" };
 
 /** Per open database: the identity this process writes vectors under. */
 const writerIdentity = new WeakMap<Db, EmbedderIdentity>();
-/** Per open database: the tag this process last saw or wrote — so a write re-tags only on a change. */
-const writtenTag = new WeakMap<Db, string | null>();
 
 function writeTag(db: Db, tag: string | null, rebuild: "inline" | "external"): void {
   if (tag === null) {
@@ -472,12 +500,29 @@ function writeTag(db: Db, tag: string | null, rebuild: "inline" | "external"): v
     db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", EMBEDDER_META_KEY, tag);
     db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", EMBEDDER_REBUILD_META_KEY, rebuild);
   }
-  writtenTag.set(db, tag);
 }
 
+/**
+ * Is the recorded identity the configured one? The model always; the width
+ * only for an INLINE table, where it is part of what the table is (a 256-wide
+ * slice of a 1,024-wide table is another space). A paid seat's width is its
+ * provider's, pinned by the model id — so its declared width (`EMBED_MODEL_DIMS`)
+ * decides only whether untagged rows may be adopted, and the tag records what
+ * its vectors actually measured.
+ */
 function sameIdentity(recorded: { model: string; dim: number | null }, configured: EmbedderIdentity): boolean {
   if (recorded.model !== configured.model) return false;
+  if (configured.rebuild === "external") return true;
   return configured.dim === null || recorded.dim === null || recorded.dim === configured.dim;
+}
+
+/**
+ * The tag an open writes when it TAKES a file (a fresh table, a reset): an
+ * inline table's full `<model>@<dim>`; a paid seat's model alone — its first
+ * vector completes it with the width the provider actually returned.
+ */
+function takenTag(configured: EmbedderIdentity): string {
+  return identityTag(configured.model, configured.rebuild === "inline" ? configured.dim : null);
 }
 
 /**
@@ -519,7 +564,6 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
   const fastHeld = m0.get(EMBEDDER_HELD_META_KEY);
   if (fastHeld === undefined && fastTag !== undefined && sameIdentity(parseIdentityTag(fastTag), configured)) {
     writerIdentity.set(db, configured);
-    writtenTag.set(db, fastTag);
     return { kind: "match", tag: fastTag };
   }
   // A STANDING hold, asked again by the identity it already refused: nothing to
@@ -532,14 +576,11 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
   ) {
     return { kind: "held", recorded: fastTag ?? null, configured: fastConfigured, rows: embeddingCount(db), fresh: false };
   }
-  if (fastHeld === undefined && fastTag === undefined && configured.dim === null && embeddingCount(db) === 0) {
-    // Nothing to decide, and nothing to write: the tag lands with the first
-    // vector (`noteVectorWrite`). BLOCKER 1 of the #190 review — this arm used
-    // to take box 3's write lock on EVERY open of a vectorless paid store.
-    writerIdentity.set(db, configured);
-    writtenTag.set(db, null);
-    return { kind: "tagged", tag: null, adopted: 0 };
-  }
+  // (BLOCKER 1 of the #190 review: every arm below is a TRANSITION, taken once
+  // per store — a fresh table is tagged on its first identified open, even a
+  // paid seat's with its model alone, so every later open is one of the two
+  // lock-free reads above. The once-only write may still lose the lock: the
+  // Store turns that into `deferred`, never a throw.)
   const verdict = db.transaction((): EmbedderVerdict => {
     const recorded = recordedEmbedder(db);
     const held = heldEmbedder(db);
@@ -548,7 +589,11 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
     const dropAndTag = (from: string | null): EmbedderVerdict => {
       db.run("DELETE FROM embeddings");
       db.run("DELETE FROM cache_meta WHERE key = ?", EMBEDDER_HELD_META_KEY);
-      const to = configured.dim === null ? null : configuredTag;
+      // A tag even when the width is unknown (`model` alone): the per-write and
+      // per-search checks need to know WHOSE the file is now, or a process
+      // still running under the old identity would re-tag it with the first
+      // vector it wrote (re-review of #190, MAJOR A).
+      const to = takenTag(configured);
       writeTag(db, to, configured.rebuild);
       return { kind: "reset", from, to, dropped: rows };
     };
@@ -571,7 +616,7 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
     }
     if (rows === 0) {
       db.run("DELETE FROM cache_meta WHERE key = ?", EMBEDDER_HELD_META_KEY);
-      const tag = configured.dim === null ? null : configuredTag;
+      const tag = takenTag(configured);
       writeTag(db, tag, configured.rebuild);
       return { kind: "tagged", tag, adopted: 0 };
     }
@@ -590,25 +635,98 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
     return hold();
   });
   if (verdict.kind !== "held") writerIdentity.set(db, configured);
-  if (verdict.kind === "match") writtenTag.set(db, verdict.tag);
   return verdict;
 }
 
+/** Why a vector was not written, or a ranking not taken — by name. */
+export type VectorRefusal =
+  /** Box 3 is under a durable hold (`EMBEDDER_HELD_META_KEY`). */
+  | "held"
+  /** Box 3 was written by a newer build. */
+  | "cache-ahead"
+  /**
+   * The file now names ANOTHER identity than this handle's: a process with a
+   * newer configuration reset or re-tagged it after this handle opened (a
+   * session-long MCP server, the re-review's MAJOR A). A vector written now
+   * would be filed under a tag it does not match; a cosine taken now would
+   * cross two models.
+   */
+  | "identity-changed";
+
+/** The file's claim, read FRESH: one primary-key read of three `cache_meta` rows. */
+function fileClaim(db: Db): { tag: string | null; held: string | null; ahead: boolean } {
+  let rows: { key: string; value: string }[];
+  try {
+    rows = db.all<{ key: string; value: string }>(
+      "SELECT key, value FROM cache_meta WHERE key IN ('schemaVersion', ?, ?)",
+      EMBEDDER_META_KEY,
+      EMBEDDER_HELD_META_KEY,
+    );
+  } catch {
+    return { tag: null, held: null, ahead: false };
+  }
+  const get = (k: string): string | null => {
+    const v = rows.find((r) => r.key === k)?.value;
+    return v === undefined || v.length === 0 ? null : v;
+  };
+  return {
+    tag: get(EMBEDDER_META_KEY),
+    held: get(EMBEDDER_HELD_META_KEY),
+    ahead: schemaAhead(get("schemaVersion"), CACHE_SCHEMA_VERSION),
+  };
+}
+
+function refusalFor(
+  claim: { tag: string | null; held: string | null; ahead: boolean },
+  identity: EmbedderIdentity | undefined,
+  dim: number,
+): VectorRefusal | null {
+  if (claim.ahead) return "cache-ahead";
+  if (claim.held !== null) return "held";
+  if (identity === undefined || claim.tag === null) return null;
+  const recorded = parseIdentityTag(claim.tag);
+  if (recorded.model !== identity.model) return "identity-changed";
+  // An inline table's width is part of its identity; a paid seat's is its
+  // provider's (see `sameIdentity`), and the scan's width filter covers it.
+  if (identity.rebuild === "inline" && recorded.dim !== null && recorded.dim !== dim) return "identity-changed";
+  return null;
+}
+
 /**
- * "Written whenever vectors are written": the tag follows the vectors. A
- * process that reconciled an identity re-tags the cache the first time it
- * writes a vector whose `<model>@<dim>` differs from what it last saw — once
- * per process in practice, because the memo answers every write after that.
- * A process with no reconciled identity (the console converting rows,
- * a test's bare cache) writes no tag. Always called INSIDE the vector write's
- * own transaction, so a vector and the tag it implies land together.
+ * THE PER-CALL CHECK FOR A RANKING (re-review of #190, MAJOR A). The at-open
+ * check is not enough for a handle that lives all session: another process
+ * may reset or re-tag box 3 under it. So every ranking reads the file's claim
+ * first — the same cheap read #187 makes of the schema stamp on every tool
+ * call — and answers nothing, by name, when the file is held, ahead, or now
+ * another identity's. A handle with no identity (the console, the dashboard)
+ * is checked for the hold and the stamp only; the width filter in `nearest`
+ * is its last line.
  */
-function noteVectorWrite(db: Db, dim: number): void {
+export function searchRefusal(db: Db, identity: EmbedderIdentity | undefined, dim: number): VectorRefusal | null {
+  return refusalFor(fileClaim(db), identity, dim);
+}
+
+/**
+ * THE PER-WRITE CHECK, and "written whenever vectors are written" (the tag
+ * follows the vectors). Called INSIDE the vector write's own transaction, so
+ * the check, the vector and the tag it implies are one unit:
+ *
+ *   - the file held, ahead, or now another identity's → REFUSED: no vector is
+ *     written, and the memory is left unembedded for whichever process owns the
+ *     file now (its backfill fills it);
+ *   - otherwise, a handle with a reconciled identity re-tags the file when its
+ *     `<model>@<dim>` differs from the file's (a first vector; a paid seat's
+ *     width learned; a model-only tag completed). A handle with no identity
+ *     (the console converting rows, a test's bare cache) writes no tag.
+ */
+function admitVector(db: Db, dim: number): VectorRefusal | null {
   const identity = writerIdentity.get(db);
-  if (identity === undefined) return;
+  const claim = fileClaim(db);
+  const refusal = refusalFor(claim, identity, dim);
+  if (refusal !== null || identity === undefined) return refusal;
   const tag = identityTag(identity.model, dim);
-  if (writtenTag.get(db) === tag) return;
-  writeTag(db, tag, identity.rebuild);
+  if (claim.tag !== tag) writeTag(db, tag, identity.rebuild);
+  return null;
 }
 
 /**
@@ -635,7 +753,7 @@ export function resetCache(db: Db, opts: { keepEmbeddings?: boolean } = {}): voi
     // dropped tables, and a rebuild that spared the vectors but dropped the
     // line saying which model wrote them would leave untagged rows behind. A
     // rebuild that DROPS the vectors drops both, and that is one of the two
-    // ways out of a hold (`HELD_EXITS`).
+    // ways out of a hold (`heldExits`).
     const tag = keep
       ? db.all<{ key: string; value: string }>(
           "SELECT key, value FROM cache_meta WHERE key IN (?, ?, ?)",
@@ -649,8 +767,7 @@ export function resetCache(db: Db, opts: { keepEmbeddings?: boolean } = {}): voi
     db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION));
     for (const r of tag) db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", r.key, r.value);
   });
-  // No vectors, no tag: the next vector written re-tags (`noteVectorWrite`).
-  if (!keep) writtenTag.set(db, null);
+  // No vectors, no tag: the next vector written re-tags (`admitVector`).
 }
 
 // ── vectors: the wire shape of box 3's embeddings ────────────────────────────
@@ -869,7 +986,7 @@ export function tokenize(text: string): string[] {
 }
 
 /** (Re)index one document. Idempotent: the doc's prior rows are replaced wholesale. */
-export function indexDoc(db: Db, id: string, text: string, vec?: readonly number[]): void {
+export function indexDoc(db: Db, id: string, text: string, vec?: readonly number[]): VectorRefusal | null {
   const counts = new Map<string, number>();
   let len = 0;
   for (const tok of tokenize(text)) {
@@ -877,7 +994,7 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
     len += 1;
   }
   forgetAvgDocLen(db);
-  db.transaction(() => {
+  return db.transaction((): VectorRefusal | null => {
     db.run("DELETE FROM doc_tokens WHERE memory_id = ?", id);
     const ins = db.prepare("INSERT INTO doc_tokens (memory_id, token, tf) VALUES (?, ?, ?)");
     for (const [token, tf] of counts) ins.run(id, token, tf);
@@ -885,15 +1002,22 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
     // table rather than dragging a zero through `AVG(len)`.
     if (len > 0) db.run("INSERT OR REPLACE INTO doc_lens (memory_id, len) VALUES (?, ?)", id, len);
     else db.run("DELETE FROM doc_lens WHERE memory_id = ?", id);
-    if (vec !== undefined) {
-      db.run(
-        "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
-        id,
-        vec.length,
-        encodeVector(vec),
-      );
-      noteVectorWrite(db, vec.length);
+    if (vec === undefined) return null;
+    const refusal = admitVector(db, vec.length);
+    if (refusal !== null) {
+      // The text changed and this vector may not be filed: the row's OLD
+      // vector (if any) describes words the memory no longer says, so it goes,
+      // and the memory waits for the owning identity's backfill.
+      db.run("DELETE FROM embeddings WHERE memory_id = ?", id);
+      return refusal;
     }
+    db.run(
+      "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+      id,
+      vec.length,
+      encodeVector(vec),
+    );
+    return null;
   });
 }
 
@@ -908,18 +1032,21 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
  * `BUDGET_MS` went from 250 to 1200. Sixty-four token-index rewrites per Stop
  * would have fought the constraint that motivated the lag in the first place.
  */
-export function setEmbedding(db: Db, id: string, vec: readonly number[]): void {
-  // ONE transaction for the vector and the tag it may imply (a SAVEPOINT when
-  // the caller already holds one — the at-open refill does): a crash between
-  // them must not leave a vector under no tag, or a tag with no rebuild key.
-  db.transaction(() => {
+export function setEmbedding(db: Db, id: string, vec: readonly number[]): VectorRefusal | null {
+  // ONE transaction for the check, the vector and the tag it may imply (a
+  // SAVEPOINT when the caller already holds one — the at-open refill does): a
+  // crash between them must not leave a vector under no tag, or a tag with no
+  // rebuild key. Returns the refusal, by name, or null when the vector landed.
+  return db.transaction((): VectorRefusal | null => {
+    const refusal = admitVector(db, vec.length);
+    if (refusal !== null) return refusal;
     db.run(
       "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
       id,
       vec.length,
       encodeVector(vec),
     );
-    noteVectorWrite(db, vec.length);
+    return null;
   });
 }
 

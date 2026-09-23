@@ -28,7 +28,7 @@ import {
   EMBEDDER_REBUILD_META_KEY,
   EMBEDDER_RECONCILED_EVENT,
   EMBED_FAILED_PREFIX,
-  HELD_EXITS,
+  heldExits,
   Store,
   hashText,
   identityTag,
@@ -146,10 +146,10 @@ describe("a fresh store", () => {
     expect(rows()).toHaveLength(1);
   });
 
-  test("a paid seat (width unknown until its first vector) is tagged by that first write", () => {
+  test("a paid seat takes a fresh file with its MODEL; its first vector completes the tag with the measured width", () => {
     const s = store(embedder(PAID_A, 6));
-    expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: null, adopted: 0 });
-    expect(meta()[EMBEDDER_META_KEY]).toBeUndefined();
+    expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: "paid-a", adopted: 0 });
+    expect(meta()[EMBEDDER_META_KEY]).toBe("paid-a");
     s.put(mem("cold brew ratios"));
     closeAll();
     expect(meta()[EMBEDDER_META_KEY]).toBe("paid-a@6");
@@ -241,10 +241,12 @@ describe("mismatch → rebuilt and re-tagged (static)", () => {
   test("static rows → a paid seat: the free rows go, the paid backfill refills, the first write tags", () => {
     seed(embedder(STATIC_A, 4));
     const s = store(embedder(PAID_A, 6));
-    expect(s.embedderVerdict).toEqual({ kind: "reset", from: "static-a@4", to: null, dropped: 3 });
+    expect(s.embedderVerdict).toEqual({ kind: "reset", from: "static-a@4", to: "paid-a", dropped: 3 });
     // Nothing is embedded inline for a paid seat — never a silent paid call.
     expect(s.unembeddedCount()).toBe(3);
-    expect(meta()[EMBEDDER_META_KEY]).toBeUndefined();
+    // The file names its new owner at once, even before a width is known
+    // (MAJOR A: a process still running under the old identity must see it).
+    expect(meta()[EMBEDDER_META_KEY]).toBe("paid-a");
     const [id] = s.missingVectors(1);
     expect(s.embedOne(id ?? "").vector).toBe(true);
     closeAll();
@@ -298,7 +300,7 @@ describe("PAID rows are never dropped at open → HELD, durably", () => {
     expect(rows()).toEqual(before);
     // The durable row names the two ways out.
     const row = store().eventLog({ name: EMBEDDER_RECONCILED_EVENT }).at(-1);
-    expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ kind: "held", configured: "static-a@4", exits: HELD_EXITS });
+    expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ kind: "held", configured: "static-a@4", exits: heldExits("paid-a@6") });
   });
 
   test("a standing hold writes nothing at the next open — one durable row per transition", () => {
@@ -333,8 +335,12 @@ describe("PAID rows are never dropped at open → HELD, durably", () => {
     closeAll();
     expect(meta()[EMBEDDER_HELD_META_KEY]).toBeUndefined();
     expect(rows()).toHaveLength(0);
+    // The exit leaves a DURABLE row (re-review NIT 2): what went, and the hold it ended.
+    const row = store().eventLog({ name: EMBEDDER_RECONCILED_EVENT }).at(-1);
+    expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ kind: "dropped", by: "rebuildCache", dropped: 3, releasedHold: "paid-b" });
+    closeAll();
     const next = store(embedder(PAID_B, 6));
-    expect(next.embedderVerdict).toEqual({ kind: "tagged", tag: null, adopted: 0 });
+    expect(next.embedderVerdict).toEqual({ kind: "tagged", tag: "paid-b", adopted: 0 });
   });
 });
 
@@ -350,7 +356,7 @@ describe("BLOCKER 1 of the review: the steady state takes no lock", () => {
     };
   }
 
-  test("a vectorless paid store of unknown width opens instantly while another connection holds box 3's write lock", () => {
+  test("a vectorless paid store of unknown width: taken once, then opens instantly while another connection holds box 3's write lock", () => {
     seed(undefined);
     store(embedder(PAID_A, 6)).close();
     open.length = 0;
@@ -359,11 +365,35 @@ describe("BLOCKER 1 of the review: the steady state takes no lock", () => {
       const t0 = performance.now();
       const s = store(embedder(PAID_A, 6));
       expect(performance.now() - t0).toBeLessThan(1000);
-      expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: null, adopted: 0 });
+      expect(s.embedderVerdict).toEqual({ kind: "match", tag: "paid-a" });
     } finally {
       lock.release();
     }
   });
+
+  test(
+    "the ONE write a fresh store needs, under a foreign lock past the busy timeout: deferred, named, durable — never a throw (re-review NIT 1)",
+    () => {
+      seed(undefined);
+      const lock = holdWriteLock();
+      let s: Store;
+      try {
+        s = store(embedder(STATIC_A, 4));
+      } finally {
+        lock.release();
+      }
+      expect(s.embedderVerdict).toEqual({ kind: "deferred", reason: "locked" });
+      // The embedder is withdrawn for this open: no vector under an unsettled identity.
+      const id = s.put(mem("written while deferred"));
+      expect(s.embedOne(id).vector).toBe(false);
+      const row = s.eventLog({ name: EMBEDDER_RECONCILED_EVENT }).at(-1);
+      expect(JSON.parse(row?.payload ?? "{}")).toEqual({ kind: "deferred", reason: "locked" });
+      closeAll();
+      // The next open decides again, and settles it.
+      expect(store(embedder(STATIC_A, 4)).embedderVerdict).toEqual({ kind: "tagged", tag: "static-a@4", adopted: 0 });
+    },
+    20_000,
+  );
 
   test("a STANDING hold reopens with a read too — every hook on a held store stays lock-free", () => {
     seed(embedder(PAID_A, 6));
@@ -383,14 +413,14 @@ describe("BLOCKER 1 of the review: the steady state takes no lock", () => {
   test("a vectorless paid store of KNOWN width: tagged once, then a lock-free match", () => {
     seed(undefined);
     const known: EmbedderIdentity = { model: "voyage-3-large", dim: 1024, rebuild: "external" };
-    expect(store(embedder(known, 1024)).embedderVerdict).toEqual({ kind: "tagged", tag: "voyage-3-large@1024", adopted: 0 });
+    expect(store(embedder(known, 1024)).embedderVerdict).toEqual({ kind: "tagged", tag: "voyage-3-large", adopted: 0 });
     closeAll();
     const lock = holdWriteLock();
     try {
       const t0 = performance.now();
       const s = store(embedder(known, 1024));
       expect(performance.now() - t0).toBeLessThan(1000);
-      expect(s.embedderVerdict).toEqual({ kind: "match", tag: "voyage-3-large@1024" });
+      expect(s.embedderVerdict).toEqual({ kind: "match", tag: "voyage-3-large" });
     } finally {
       lock.release();
     }
@@ -598,3 +628,58 @@ describe("a cache from a NEWER build is left exactly as it is (roadmap E's rule)
     expect(meta()["schemaVersion"]).toBe(String(CACHE_SCHEMA_VERSION));
   });
 });
+
+describe("MAJOR A of the re-review: a long-lived handle checks the FILE on every write and every ranking", () => {
+  test("a handle opened under static-a, then the store reset to static-b by another process: no vector filed, no cosine taken", () => {
+    const [first] = seed(embedder(STATIC_A, 4));
+    // The session-long handle (the MCP server's shape): opened while the file was static-a's.
+    const server = store(embedder(STATIC_A, 4));
+    expect(server.embedderVerdict).toEqual({ kind: "match", tag: "static-a@4" });
+    // A hook with a newer configuration takes the file.
+    const hook = Store.open({ dir, embed: embedder(STATIC_B, 4) });
+    expect(hook.embedderVerdict).toMatchObject({ kind: "reset", from: "static-a@4", to: "static-b@4" });
+    hook.close();
+    // SAME WIDTH, other model: the stale handle ranks nothing, by name.
+    expect(server.nearestTo(vec("\ncold brew ratios", 4, "static-a"), 3)).toEqual([]);
+    expect(server.neighbourVectors(vec("\ncold brew ratios", 4, "static-a"), 3)).toEqual([]);
+    expect(server.events("cache.vector.refused").at(-1)?.data).toEqual({ site: "neighbourVectors", reason: "identity-changed" });
+    // A write under the old identity files the words and NOT the vector...
+    const noted = server.put(mem("noted through the stale handle"));
+    expect(server.events("cache.vector.refused").at(-1)).toMatchObject({ ref: noted, data: { site: "put", reason: "identity-changed" } });
+    closeAll();
+    // ...so the memory waits for the owner's backfill, the tag is the owner's,
+    // and every vector in the file is the owner's.
+    const owner = store(embedder(STATIC_B, 4));
+    expect(owner.embedderVerdict).toEqual({ kind: "match", tag: "static-b@4" });
+    expect(owner.missingVectors(10)).toEqual([noted]);
+    expect(owner.search("stale", 5).map((h) => h.id)).toContain(noted);
+    expect(meta()[EMBEDDER_META_KEY]).toBe("static-b@4");
+    expect(first).toBeDefined();
+  });
+
+  test("the reviewer's repro at store level: a static handle, the file reset to the paid seat, a note files NO 4-wide vector under the paid tag", () => {
+    seed(embedder(STATIC_A, 4));
+    const server = store(embedder(STATIC_A, 4));
+    const paid: EmbedderIdentity = { model: "voyage-3-large", dim: 1024, rebuild: "external" };
+    const hook = Store.open({ dir, embed: embedder(paid, 1024) });
+    expect(hook.embedderVerdict).toMatchObject({ kind: "reset", from: "static-a@4", to: "voyage-3-large" });
+    hook.close();
+    const noted = server.put(mem("a note through the stale server"));
+    closeAll();
+    expect(rows().filter((r) => r.dim === 4)).toHaveLength(0);
+    expect(meta()[EMBEDDER_META_KEY]).toBe("voyage-3-large");
+    const owner = store(embedder(paid, 1024));
+    expect(owner.missingVectors(10)).toContain(noted);
+  });
+
+  test("a backfill's refused write is the FILE's fault, never counted against the item", () => {
+    seed(embedder(STATIC_A, 4));
+    const worker = store(embedder(STATIC_A, 4));
+    const id = worker.put(mem("a memory the worker will try"));
+    const hook = Store.open({ dir, embed: embedder(STATIC_B, 4) });
+    hook.close();
+    // The worker's embedOne now meets another identity's file.
+    expect(worker.embedOne(id)).toEqual({ found: true, vector: false, refused: "identity-changed" });
+  });
+});
+

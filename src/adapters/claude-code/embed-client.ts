@@ -532,12 +532,14 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
 
   const keyOf = (text: string): string => `${model}\0${hashText(text)}`;
 
-  // The paid seat's identity: its pinned id, and its output width when this
-  // package knows it (`EMBED_MODEL_DIMS` — we never send `output_dimension`, so
-  // it is the model's default). An id nobody listed has `dim: null`, its width
-  // is learned from its first vector, and untagged rows are never adopted under
-  // it (review of #190, MINOR 1). `external`: box 3 never drops these rows at
+  // The paid seat's identity: its pinned id — which is what the store compares
+  // — and its output width when this package knows it (`EMBED_MODEL_DIMS`; we
+  // never send `output_dimension`, so it is the model's default), which decides
+  // only whether untagged rows may be ADOPTED. An id nobody listed has
+  // `dim: null`, and untagged rows are held rather than adopted under it
+  // (review of #190, MINOR 1). `external`: box 3 never drops these rows at
   // open, and never refills them inline — the backfill is the paid path.
+  // (The seat is FROZEN as of 2026-09-23: deprecated, kept, not extended.)
   const identity: EmbedderIdentity = { model, dim: EMBED_MODEL_DIMS[model] ?? null, rebuild: "external" };
   const embed: Embedder = Object.assign(
     (text: string): number[] | null => {

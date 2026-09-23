@@ -91,7 +91,7 @@ import {
 } from "../snapshots.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, embedderKind, pageWriterMode } from "./config.js";
 import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
-import { HELD_EXITS } from "../../core/store/index.js";
+import { heldExits } from "../../core/store/index.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -1010,14 +1010,17 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
   }
   if (v === undefined) return null;
   if (v.kind === "held") {
-    const from = v.recorded ?? "an older build (untagged)";
+    // Named for the hold AS IT IS (re-review MINOR B): untagged rows have no
+    // recorded model to go back to — they are 0.2.0's, written by the Voyage
+    // seat — so the free exit named is `embedder.kind` back to "voyage".
+    const from = v.recorded ?? "an older build that did not tag them (0.2.0 or earlier — the Voyage seat)";
     return finding(
       "embedder",
       "amber",
       RECALL_TITLE,
       `held — the store holds ${v.rows} vectors from ${from}, and the configuration asks for ${v.configured ?? "another model"}; ` +
         "nothing is embedded or matched by meaning until you choose, so no paid vector is thrown away by accident. Recall still matches on words",
-      `Either ${HELD_EXITS.replace("<store>", tilde(input.dir))}.`,
+      `Either ${heldExits(v.recorded).replace("<store>", tilde(input.dir))}.`,
       { held: true, recorded: v.recorded, configured: v.configured, rows: v.rows },
     );
   }
@@ -2269,6 +2272,23 @@ function vectorFindings(input: DoctorInput, store: Store): Finding[] {
   // WITHDRAWN: the count cannot fall, so the line must not say it will
   // (review of #190, MAJOR 4). The Recall by meaning line names the way out.
   const verdict = store.embedderVerdict.kind;
+  // AN EMBEDDER THAT COULD NOT BE BUILT is the same case (re-review MINOR C):
+  // the count cannot fall while the weights are missing, so the line says
+  // why instead of promising it will.
+  const newest = newestBackfill(input);
+  if (newest !== null && str(newest, "reason") === "embedder-unavailable") {
+    const code = str(newest, "codes") ?? "NO_WEIGHTS";
+    return [
+      finding(
+        "vectors",
+        "amber",
+        "Vectors",
+        `${detail} — the embedder could not be built (${code}), so this will not fall until it can`,
+        "Read the Recall by meaning line.",
+        { ...data, unavailable: code },
+      ),
+    ];
+  }
   if (verdict === "held" || verdict === "cache-ahead") {
     return [
       finding(

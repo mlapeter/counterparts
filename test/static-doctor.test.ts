@@ -19,11 +19,12 @@ import { join } from "node:path";
 
 import { EMBED_BACKFILL_EVENT } from "../src/core/counterpart.js";
 import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/static.js";
-import { HELD_EXITS, Store, paths } from "../src/core/store/index.js";
+import { heldExits, Store, paths } from "../src/core/store/index.js";
 import type { EmbedderIdentity } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 import { EMBED_KEY_ENV, doctorFindings, loadCredentials } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig, DoctorInput, Finding } from "../src/adapters/claude-code/index.js";
+import { run } from "../src/adapters/cli/index.js";
 
 let root: string;
 let dir: string;
@@ -136,6 +137,15 @@ describe("Recall by meaning, for the local table", () => {
     expect(f.fix).toContain("Reinstall");
   });
 
+  test("the Vectors line does not promise to fall while the weights are missing (re-review MINOR C)", () => {
+    writer().put({ type: "memory", kind: "fact", body: "one memory" });
+    opened.splice(0).forEach((s) => s.close());
+    backfillRow({ embedded: 0, failed: 0, remaining: 1, attempted: 0, reason: "embedder-unavailable", codes: "NO_WEIGHTS", skipped: 0, kind: "static", weights: null, model: null });
+    const v = by(reading(STATIC), "vectors");
+    expect(v.detail).toContain("could not be built (NO_WEIGHTS)");
+    expect(v.fix).not.toContain("must fall");
+  });
+
   test("a backfill that could not run is NOT green", () => {
     backfillRow({ embedded: 0, failed: 0, remaining: 5, attempted: 0, reason: "embedder-unavailable", codes: "NO_WEIGHTS", skipped: 0, kind: "static", weights: null, model: null });
     expect(by(reading(STATIC), "backfill").severity).toBe("amber");
@@ -165,8 +175,31 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     expect(f.detail).toContain("voyage-3-large@3");
     expect(f.detail).toContain("voyage-3.5");
     expect(f.fix).toContain("verify --rebuild --drop-vectors");
-    expect(f.fix).toContain("put the embedder configuration back");
-    expect(HELD_EXITS).toContain("verify --rebuild --drop-vectors");
+    // A RECORDED model: the free exit is putting models.embed back to it.
+    expect(f.fix).toContain('models.embed "voyage-3-large"');
+    expect(f.fix).toContain("paid again");
+  });
+
+  test("a hold with NO recorded model (a 0.2.0 store under the static table) names the exit that exists: kind back to voyage (re-review MINOR B)", () => {
+    // 0.2.0's shape: untagged 1024-wide rows (the Voyage seat's), no tag.
+    const bare = Store.open({ dir });
+    bare.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+    bare.close();
+    const db = openDb(paths.cache(dir));
+    const ids = db.all<{ memory_id: string }>("SELECT memory_id FROM doc_lens").map((r) => r.memory_id);
+    for (const id of ids) db.run("INSERT INTO embeddings (memory_id, dim, vec) VALUES (?, 1024, ?)", id, new Uint8Array(4096));
+    db.close();
+    const potion = Object.assign((): number[] | null => null, {
+      identity: { model: "potion-base-8M", dim: 256, rebuild: "inline" } satisfies EmbedderIdentity,
+    });
+    const s = Store.open({ dir, embed: potion });
+    expect(s.embedderVerdict).toMatchObject({ kind: "held", recorded: null, configured: "potion-base-8M@256" });
+    s.close();
+    const f = by(reading(STATIC), "embedder");
+    expect(f.detail).toContain("0.2.0");
+    expect(f.fix).toContain('embedder.kind back to "voyage"');
+    expect(f.fix).not.toContain("models.embed");
+    expect(heldExits(null)).toContain("verify --rebuild --drop-vectors");
   });
 
   test("held: the withdrawn backfill row is amber, and the Vectors line does not promise to fall", () => {
@@ -191,5 +224,23 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     expect(f.detail).toContain("cache v6");
     expect(f.fix).toContain("/mcp");
     expect(f.fix).toContain("Reconnect");
+  });
+});
+
+describe("`\"embedder\": null` in the configuration file (re-review MINOR A)", () => {
+  test("`counterparts doctor --config` grades the file unreadable instead of crashing", async () => {
+    const configPath = join(root, "claude-code.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, credentialsFile: credsPath, embedder: null }));
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await run(["doctor", `--config=${configPath}`], {
+      io: { out: (l) => out.push(l), err: (l) => err.push(l) },
+      env: {},
+      home: root,
+    });
+    const all = [...out, ...err].join("\n");
+    expect(all).not.toContain("null is not an object");
+    expect(all).not.toContain("doctor failed");
+    expect(typeof code).toBe("number");
   });
 });

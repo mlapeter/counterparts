@@ -389,3 +389,45 @@ describe("the MCP server's store reconciles like a hook's (review MAJOR 1)", () 
   });
 });
 
+
+describe("MAJOR A of the re-review, through the real chain: the session-long MCP server after a hook flips the store", () => {
+  test("server under the static table, a hook resets the store to the paid seat, `note` files NO vector under the paid tag and the question ranks nothing", async () => {
+    const e = openStaticEmbedder({ weightsDir: weights });
+    const server = openServer({ dir, session: "s-mcp", scope: "/scope/one", owner: true, embedder: e });
+    opened.push({ close: () => server.counterpart.close() });
+    server.counterpart.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+    expect(server.counterpart.store.embedderVerdict.kind).toBe("tagged");
+    // "Add a key, flip kind": a hook opens with the real paid seat.
+    const paid = openEmbedder({ embedder: { enabled: true } });
+    const hook = Store.open({ dir, embed: paid?.embed });
+    expect(hook.embedderVerdict).toMatchObject({ kind: "reset", to: "voyage-3-large" });
+    hook.close();
+    const result = await server.call("note", { text: "The survey resumes after the flood on the river." });
+    expect(result.structuredContent["stored"]).toBe(true);
+    const id = result.structuredContent["id"] as string;
+    const db = openDb(paths.cache(dir));
+    const widths = db.all<{ dim: number }>("SELECT dim FROM embeddings").map((r) => r.dim);
+    const tag = db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = ?", EMBEDDER_META_KEY)?.value;
+    db.close();
+    expect(widths).toEqual([]); // nothing 4-wide filed under the paid tag
+    expect(tag).toBe("voyage-3-large");
+    // The note waits for the paid seat's backfill, which will see it.
+    const owner = Store.open({ dir, embed: paid?.embed });
+    expect(owner.missingVectors(10)).toContain(id);
+    owner.close();
+    // And the stale server's question ranks nothing (identity-changed), by name.
+    const q = e.embed("otter river") ?? [];
+    expect(server.counterpart.store.nearestTo(q, 3)).toEqual([]);
+  });
+});
+
+describe("`\"embedder\": null` is an unreadable configuration, never a throw (re-review MINOR A)", () => {
+  test("the reader returns observer with the key named", () => {
+    for (const bad of [null, "on", [], 3]) {
+      const got = loadConfig({ dataDir: "/tmp/x", embedder: bad });
+      expect(got.reason).toBe("unreadable");
+      expect(got.config.observer).toBe(true);
+      expect(got.unreadableKeys).toEqual(["embedder"]);
+    }
+  });
+});
