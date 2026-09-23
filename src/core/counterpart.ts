@@ -729,6 +729,10 @@ export interface DepositContext {
   scope: string;
   /** The span this deposit IS (a jot's own words), withheld from the sweep. */
   ownSpanHash?: string | null;
+  /** Whose uncovered spans the deposit claims — `remember/proposals.ts#
+   *  SubmitContext.cover`. Absent: the depositing session's own (every caller
+   *  but the next-session write-up's door). */
+  cover?: false | { readonly session: string };
 }
 
 export type DepositReason =
@@ -3458,6 +3462,7 @@ export class Counterpart {
       source,
       gate: batteryGate(this.vectors),
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
+      ...(ctx.cover === undefined ? {} : { cover: ctx.cover }),
       resolveUpdates: (declared, content) => this.resolveUpdatesFor(ctx.scope, declared, content),
     });
 

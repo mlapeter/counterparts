@@ -262,16 +262,11 @@ worker writes when the owner has not opted into the API sweep (whatever key is p
 session`. Not taught here: the dashboard's narrator (`dashboard/web/narrate.ts`) has a
 sentence for `no-credential` and none yet for `not-opted-in`.
 
-## 15. A deposit cannot say whose words it covers
+## 15. A deposit cannot say whose words it covers — CLOSED 2026-09-23 (C2)
 
-**Owner:** `remember/proposals.ts#submitProposal` (and `core/counterpart.ts#deposit`'s
-`DepositContext`). Filed 2026-09-23 (C2, PR #192 review MAJOR 4). `submitProposal` claims
-coverage for `ctx.session` — the depositing session — which is right for an answer to
-one's own Stop ask and wrong for the next-session write-up, where the depositor is the
-WRITER and the words written about are another session's. The MCP door works around it by
-shadowing `SpanBuffer#claimCoverage` on the instance for the length of its deposits
-(`adapters/mcp/write-up.ts#withoutWriterCoverage`) and claiming the ENDED session's words
-itself when its last part comes back. **Ask:** an optional `coverSession` (or
-`claimCoverage: false`) on `SubmitContext` / `DepositContext`, so a deposit can claim
-against the ended session's spans, part by part, while `origin_session` stays the writer
-— and the shadowing goes.
+**Built:** `SubmitContext.cover` (`remember/proposals.ts`), passed through
+`DepositContext.cover` (`core/counterpart.ts#deposit`): absent is the depositor's own
+spans (unchanged), `{ session }` another session's in the same scope, `false` none — the
+proposal and the memory stay the depositor's. The next-session write-up's door passes
+`false` on an earlier part and the ended session on the last; the instance-level
+shadowing of `SpanBuffer#claimCoverage` it replaced is gone (NOTES §17).

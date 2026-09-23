@@ -27,8 +27,9 @@
  *     `by: "next-session"`, which starts its seven-day retention clock; how it
  *     was answered (`memories` / `nothing-new`) is recorded on the writing
  *     session's record. A write-up's memories claim NO coverage of the
- *     writer's own words (MAJOR 4); the last part's answer marks the ENDED
- *     session's words here as kept instead.
+ *     writer's own words (MAJOR 4): through core's `DepositContext.cover` seam
+ *     they claim nothing on an earlier part, and the ENDED session's words here
+ *     on the last one.
  *
  * **One project's words at a time** (MAJOR 6). A session that left words under
  * two projects is written up in each by a session there: a writer here is
@@ -76,7 +77,6 @@
  * would refuse.
  */
 import type { Counterpart } from "../../core/counterpart.js";
-import type { SpanBuffer } from "../../core/remember/index.js";
 // THE MARK, by path — `remember/index.ts` does not re-export it (PR #189
 // re-review, R1), and `test/cli.test.ts` pins who may import it.
 import { WRITE_UP_BY, recordWriteUp } from "../../core/remember/write-up-seam.js";
@@ -139,8 +139,9 @@ export interface WriteUpDoorInput {
   readonly session: string;
   readonly now: number;
   readonly args: Record<string, unknown>;
-  /** `session_end`'s own per-entry loop, under the WRITING session's name. */
-  readonly deposit: (raw: readonly unknown[]) => Promise<WriteUpDeposits>;
+  /** `session_end`'s own per-entry loop, under the WRITING session's name,
+   *  covering whose words `cover` says (`DepositContext.cover`). */
+  readonly deposit: (raw: readonly unknown[], cover: false | { readonly session: string }) => Promise<WriteUpDeposits>;
 }
 
 export interface WriteUpOutcome {
@@ -310,7 +311,11 @@ async function takeBack(
   // NOTHING WORTH KEEPING IS A REAL ANSWER HERE TOO (owner, 2026-09-23): the
   // part is closed without minting, and on the last part the session is marked.
   const said2: WriteUpAnswer = raw.length === 0 ? "nothing-new" : "memories";
-  const deposits = raw.length === 0 ? NO_DEPOSITS : await withoutWriterCoverage(counterpart.spans, () => input.deposit(raw));
+  // WHOSE WORDS THE MEMORIES COVER (MAJOR 4, through core's `cover` seam):
+  // never the writer's own. On the LAST part here, the ended session's words in
+  // this project — every part has now been served, so all of them were read;
+  // on an earlier part, none, or parts not yet served would read as kept.
+  const deposits = raw.length === 0 ? NO_DEPOSITS : await input.deposit(raw, final ? { session: ended } : false);
   if (said2 === "memories" && deposits.deposited === 0 && deposits.duplicates === 0) {
     return {
       reason: "nothing-landed",
@@ -356,41 +361,13 @@ async function takeBack(
 }
 
 /**
- * A WRITE-UP'S MEMORIES CLAIM NO COVERAGE OF THE WRITER'S OWN WORDS (PR #192
- * review, MAJOR 4). `session_end`'s road claims, for every accepted entry, the
- * depositing session's uncovered spans (`remember/proposals.ts#submitProposal`
- * → `SpanBuffer#claimCoverage`): right for an answer to one's own Stop ask,
- * wrong here, where the depositor is the WRITER and the words written about
- * are another session's — its own early turns would read as already written up
- * to whoever writes it up later, and the API sweep would skip them.
- *
- * Core has no seam for "deposit without claiming" (filed: remember
- * `INTERFACE-GAPS` §15), so for the length of the write-up's deposits the
- * claim is shadowed on this buffer with one that claims nothing, and put back
- * in `finally`. Safe in this process because the MCP stdio loop handles one
- * call at a time (`mcp/stdio.ts`, `await server.handle`): nothing else can
- * deposit while it is shadowed. The ENDED session's words are marked kept by
- * `finish` instead, once its last part here has come back.
- */
-async function withoutWriterCoverage<T>(spans: SpanBuffer, run: () => Promise<T>): Promise<T> {
-  const target = spans as unknown as Record<string, unknown>;
-  const hadOwn = Object.prototype.hasOwnProperty.call(target, "claimCoverage");
-  const prior = target["claimCoverage"];
-  target["claimCoverage"] = (): [] => [];
-  try {
-    return await run();
-  } finally {
-    if (hadOwn) target["claimCoverage"] = prior;
-    else delete target["claimCoverage"];
-  }
-}
-
-/**
  * THE LAST PART HERE CAME BACK.
  *
- * The ended session's words HERE are marked kept (coverage, under the writer's
- * name as the proposal), so a later reader — a next session if it resumes and
- * owes again, the API sweep — sees them as already written up. Then:
+ * The ended session's words HERE are marked kept, so a later reader — a next
+ * session if it resumes and owes again, the API sweep — sees them as already
+ * written up. The last part's memories claimed them already, under their own
+ * proposal (`cover: { session: ended }`); this claims whatever is left — all of
+ * it when the answer was an empty batch — under `writeup:<writer>`. Then:
  *
  *   - if it still holds unwritten words in ANOTHER project, this project's
  *     share WAITS (`written-up-here`): B3 reads a write-up mark for the whole

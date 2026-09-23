@@ -562,3 +562,27 @@ per session across every scope of the store.
 - **The first run on a long-lived store** deletes its whole backlog of sessions that owe
   nothing and are more than a week old, in one pass. On the owner's store, started fresh
   on 2026-09-21, nothing is older than a week before 2026-09-28.
+
+## 17. 2026-09-23 — whose words a deposit covers (`SubmitContext.cover`)
+
+Until C2 every deposit covered its depositor's own uncovered spans, which is what an
+answer to one's own Stop ask should do. The next-session write-up broke the assumption:
+its depositor is the WRITER and its words are an ENDED session's, so its memories marked
+the writer's early turns as "already written up" — dropped silently by the writer's own
+later write-up and by the API sweep (PR #192 review, MAJOR 4). The first fix shadowed
+`SpanBuffer#claimCoverage` on the live instance for the length of the door's deposits; the
+coordinator ruled that out as a runtime patch of core state, and this seam replaced it.
+
+- `cover` absent: today's behaviour, byte for byte — the depositor's spans, and the own
+  span (a jot) withheld as before.
+- `cover: { session }`: that session's uncovered spans in the same scope, under this
+  proposal's id; never an own span (the own span is only ever the depositor's).
+- `cover: false`: nothing claimed, `covers: []`.
+
+The proposal record, its `session`, and the minted memory's `origin_session` are the
+depositor's in all three — so B3 still reads a write-up's memories as the WRITER's
+answers, never as the ended session's. The door passes `false` on every part but the last
+in a project and the ended session on the last, because a claim takes every uncovered span
+of that session in the scope: on an earlier part it would mark parts not yet served as
+kept. A claim is by whole span and whole scope; one that could name span hashes (a part's
+own) would need `SpanBuffer#claimCoverage` to take them — not needed yet.

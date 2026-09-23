@@ -185,6 +185,14 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
    swept again — so a permanently-failing span cannot bill one model call per boundary
    forever. Retried, then set aside; never silently dropped (NOTES §13).
 5. **[M] The engine claims coverage, never the author** — the author cannot see the buffer.
+   By default a deposit covers the DEPOSITING session's own uncovered spans. One caller may
+   say otherwise, through the engine and never through the draft: `SubmitContext.cover`
+   (`DepositContext.cover` on `Counterpart`) — `{ session }` covers another session's
+   uncovered spans in the scope, `false` covers none — while the proposal, its record and
+   the memory stay the depositor's (roadmap C2, 2026-09-23). Its one caller is the
+   next-session write-up's door: `false` on an earlier part, the ENDED session on the last,
+   so a writer's own words are never marked written up by a write-up (PR #192 review,
+   MAJOR 4).
 6. **[M] A rejected proposal claims no coverage.**
 7. **[M] Coverage marks never enter gated text.**
 8. **[M] Observer sessions capture nothing, ask for nothing, and write nothing** — checked

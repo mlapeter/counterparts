@@ -1492,11 +1492,15 @@ export class McpServer {
    * THE ROAD EVERY `session_end` ENTRY TAKES — a write-up's included (C2):
    * one draft per item, the gate battery through `submitSessionEnd`, and
    * per-entry isolation (scar E1). Extracted, not changed, so the write-up
-   * door's memories cannot take a different road from an ordinary answer's.
+   * door's memories cannot take a different road from an ordinary answer's —
+   * except WHOSE words they cover, which the door says (`cover`).
    */
   private async depositEntries(
     raw: readonly unknown[],
     session: string,
+    /** Whose words the entries cover (`DepositContext.cover`). Absent: this
+     *  session's own — every caller but the write-up door. */
+    cover?: false | { readonly session: string },
   ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
     const entries: Record<string, unknown>[] = [];
     for (const item of raw) {
@@ -1527,6 +1531,7 @@ export class McpServer {
         result = await this.counterpart.submitSessionEnd(draft, {
           session,
           scope: this.scope,
+          ...(cover === undefined ? {} : { cover }),
         });
       } catch (err) {
         // Isolation, not a lost dump: this entry failed, the rest still run.
@@ -1566,7 +1571,7 @@ export class McpServer {
       session,
       now: this.nowFn(),
       args,
-      deposit: (raw) => this.depositEntries(raw, session),
+      deposit: (raw, cover) => this.depositEntries(raw, session, cover),
     });
     const body = out.body;
     this.emit("mcp.write_up", typeof args["writeUp"] === "string" ? args["writeUp"] : undefined, {

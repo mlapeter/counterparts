@@ -1291,9 +1291,10 @@ What the build settled, beyond the CONTRACT section:
   session that answered its last ask is never pointed at: the review's repro was a
   terminal left open over a long lunch, written up by another session, then re-served in
   full when it resumed.
-- **A write-up claims no coverage of the writer's own words** (MAJOR 4; the door's
-  `withoutWriterCoverage`) and marks the ENDED session's words here as kept when its last
-  part here comes back — so a later reader of either session sees the truth.
+- **A write-up claims no coverage of the writer's own words** (MAJOR 4; core's
+  `DepositContext.cover` seam, built for it) and marks the ENDED session's words here as
+  kept when its last part here comes back — so a later reader of either session sees the
+  truth.
 - **One project's words at a time** (MAJOR 6). The progress key is the ended session AND
   the project; a session with words in two projects is marked written up only when both
   shares have come back, because B3 reads a write-up mark for the whole session.

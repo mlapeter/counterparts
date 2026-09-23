@@ -571,8 +571,42 @@ describe("the door: `session_end` with `writeUp`", () => {
     const olds = spans.spans(PROJ).filter((x) => x.session === "old-1");
     expect(olds.length).toBeGreaterThan(0);
     expect(olds.every((x) => covered.has(x.hash))).toBe(true);
-    // And the claim is put back: an ordinary answer claims the writer's own words again.
+    // Claimed by the memory's OWN proposal, through core's `cover` seam — not
+    // by a patch of the buffer — while the memory stays the writer's.
+    const proposal = spans
+      .proposalRecords<ProposalRecord>(PROJ)
+      .find((p) => p.accepted === true && p.session === "new-1");
+    expect(proposal).toBeDefined();
+    const marks = spans.coverage(PROJ).filter((m) => m.session === "old-1");
+    expect(marks.every((m) => m.proposalId === proposal?.id)).toBe(true);
+    expect(proposal?.covers.sort()).toEqual(olds.map((x) => x.hash).sort());
     expect(Object.prototype.hasOwnProperty.call(spans, "claimCoverage")).toBe(false);
+  });
+
+  test("the `cover` seam: absent covers the depositor's own words, `{ session }` another's, `false` none", async () => {
+    const c = Counterpart.open({ dir: storeDir, owner: true });
+    open.push(c);
+    const talk = (session: string, text: string): string => {
+      c.captureSpans({ session, scope: PROJ, turns: [{ role: "user", text }] });
+      return c.spans.spans(PROJ).find((x) => x.session === session)?.hash as string;
+    };
+    const mine = talk("depositor", "The depositor's own first turn, about the pump schedule.");
+    const theirs = talk("other", "Another session's words about the relief valve.");
+    const covered = (): Set<string> => c.spans.coveredHashes(PROJ);
+
+    const none = await c.submitSessionEnd({ content: "A memory that covers nothing.", kind: "fact" }, { session: "depositor", scope: PROJ, cover: false });
+    expect(none.deposited).toBe(true);
+    expect(none.covers).toEqual([]);
+    expect(covered().size).toBe(0);
+
+    const other = await c.submitSessionEnd({ content: "A memory about the other session's words.", kind: "fact" }, { session: "depositor", scope: PROJ, cover: { session: "other" } });
+    expect(other.covers).toEqual([theirs]);
+    expect(covered().has(mine)).toBe(false);
+    // The memory is still the depositor's.
+    expect(c.store.row(other.memoryId as string)).toMatchObject({ origin_session: "depositor" });
+
+    const own = await c.submitSessionEnd({ content: "An ordinary answer to its own ask.", kind: "fact" }, { session: "depositor", scope: PROJ });
+    expect(own.covers).toEqual([mine]);
   });
 
   test("a failed final mark is finished by the NEXT session's fetch, depositing nothing (MAJOR 2)", async () => {
@@ -722,6 +756,8 @@ describe("the door: `session_end` with `writeUp`", () => {
         expect(out).toMatchObject({ reason: "part-written", part, of, recorded: true });
         expect(more["reason"]).toBe("part-already-written");
         expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
+        // An earlier part covers nothing: the parts not yet served must not read as kept.
+        expect(s.counterpart.spans.coverage(PROJ).filter((m) => m.session === "long-1")).toEqual([]);
         s.counterpart.close();
         open.splice(open.indexOf(s.counterpart), 1);
         continue;
@@ -729,6 +765,9 @@ describe("the door: `session_end` with `writeUp`", () => {
       expect(out).toMatchObject({ reason: "written-up", part: of, of, marked: true });
       expect(more["reason"]).toBe("already-written-up");
       expect(s.counterpart.spans.writeUps(PROJ).map((w) => w.session)).toEqual(["long-1"]);
+      // The last part: every one of its words here now reads as kept.
+      const covered = s.counterpart.spans.coveredHashes(PROJ);
+      expect(s.counterpart.spans.spans(PROJ).filter((x) => x.session === "long-1").every((x) => covered.has(x.hash))).toBe(true);
       break;
     }
     expect(of).toBe(3);
