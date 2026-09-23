@@ -37,7 +37,7 @@
  * way `ui.ts` does, so `commands.ts` can import `writeCredential` and
  * `promptForKeys` back without minting an ESM cycle.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
@@ -402,15 +402,48 @@ export function enableEmbedder(configPath: string): EmbedderEdit {
     return { ok: false, reason: `${configPath} does not hold a JSON object` };
   }
   const body = { ...(raw as Record<string, unknown>), embedder: { enabled: true } };
-  const tmp = `${configPath}.tmp`;
   try {
-    writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode });
-    chmodSync(tmp, mode);
-    renameSync(tmp, configPath);
+    replaceAtomically(configPath, `${JSON.stringify(body, null, 2)}\n`, mode);
   } catch (err) {
     return { ok: false, reason: String((err as Error).message ?? err) };
   }
   return { ok: true };
+}
+
+/**
+ * THE TEMP NAME BOTH WRITERS USE: `<path>.<pid>.tmp` (review n4).
+ *
+ * It was `<path>.tmp` for both `writeCredential` and `enableEmbedder`, so two
+ * processes writing the same file at once wrote through ONE temp file, and a
+ * rename that failed left that 0600 temp behind for good. The process id makes
+ * the name each process's own — within a process these writes are synchronous,
+ * so they cannot overlap — and it is the one suffix `uninstall.ts#ownedKind`
+ * already counts as a sidecar of ours (`/^\d+\.tmp$/`), so a leftover can
+ * never make `~/.counterparts` look like it holds something foreign.
+ */
+export function tempSibling(path: string): string {
+  return `${path}.${String(process.pid)}.tmp`;
+}
+
+/**
+ * Write `bytes` to a sibling at `mode`, then rename it over `path`. A failure
+ * anywhere removes the sibling before it is reported, so a secret is never
+ * left in a stray file beside the one that should have held it.
+ */
+function replaceAtomically(path: string, bytes: string, mode: number): void {
+  const tmp = tempSibling(path);
+  try {
+    writeFileSync(tmp, bytes, { mode });
+    chmodSync(tmp, mode);
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* a temp file we could not remove is litter, not a second failure */
+    }
+    throw err;
+  }
 }
 
 // ── the one place a secret is written ───────────────────────────────────────
@@ -495,9 +528,6 @@ export function writeCredential(path: string, name: string, value: string): void
   }
   // Sibling, then rename: see the note above — the target is never observed
   // truncated, and the secret is never on disk at anything but 0600.
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, out.join("\n"), { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
+  replaceAtomically(path, out.join("\n"), 0o600);
   chmodSync(path, 0o600);
 }

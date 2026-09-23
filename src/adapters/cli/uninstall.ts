@@ -179,7 +179,8 @@ export function ownedNames(
  * Is this entry name one this package writes, and which kind?
  *
  * The sidecars matter as much as the files: `keys.ts` and `scopes.ts` both
- * write `<path>.tmp` siblings, `start-fresh` leaves `store.parked-<date>`,
+ * write `<path>.<pid>.tmp` siblings (and `keys.ts` wrote a bare `<path>.tmp`
+ * until review n4, which a leftover may still be), `start-fresh` leaves `store.parked-<date>`,
  * `store.blank-<date>` and `store.new-<pid>` behind, and `wire` leaves
  * `<file>.counterparts-backup-<stamp>`. A directory holding only those is still
  * a directory holding only ours.

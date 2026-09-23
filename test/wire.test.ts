@@ -59,6 +59,7 @@ import {
   sessionsNote,
   settingsBytes,
   sightSettings,
+  sniffSettingsFormat,
   tilde,
   unwire,
   userSettingsPath,
@@ -1601,4 +1602,173 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
    * that is asserted where the command lives ("`counterparts connect` on the
    * command line", above).
    */
+});
+
+// ── review n1: the file keeps its layout ────────────────────────────────────
+
+/**
+ * The first `wire` re-serialised the whole file: 4-space indent, tabs and CRLF
+ * all came back 2-space + LF (content and unknown keys always survived, and a
+ * backup was always taken). Now the indent, the line endings and the final
+ * newline are read off the file and written back the same way.
+ */
+describe("review n1 — a settings file keeps its layout", () => {
+  const BODY = { model: "opus", permissions: { allow: ["Bash(ls)"] }, hooks: { Stop: [FOREIGN] } };
+
+  const layouts: readonly { name: string; indent: string; eol: string; final: boolean }[] = [
+    { name: "four spaces", indent: "    ", eol: "\n", final: true },
+    { name: "tabs", indent: "\t", eol: "\n", final: true },
+    { name: "CRLF", indent: "  ", eol: "\r\n", final: true },
+    { name: "no final newline", indent: "  ", eol: "\n", final: false },
+  ];
+
+  for (const layout of layouts) {
+    test(`${layout.name}: connect and disconnect both write it back that way, and a second connect is a no-op`, async () => {
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      const written = JSON.stringify(BODY, null, layout.indent).replace(/\n/g, layout.eol);
+      writeFileSync(settingsFile(), layout.final ? `${written}${layout.eol}` : written);
+
+      expect((await wire(input())).outcome).toBe("ok");
+      const after = readFileSync(settingsFile(), "utf8");
+      const value = JSON.parse(after) as Record<string, unknown>;
+      // Exactly the bytes that layout gives the merged value — nothing else moved.
+      const expected = JSON.stringify(value, null, layout.indent).replace(/\n/g, layout.eol);
+      expect(after).toBe(layout.final ? `${expected}${layout.eol}` : expected);
+      expect(value["model"]).toBe("opus");
+
+      const hash = hashOf(settingsFile());
+      expect((await wire(input())).outcome).toBe("ok");
+      expect(hashOf(settingsFile())).toBe(hash);
+
+      expect((await unwire(input())).outcome).toBe("ok");
+      const back = readFileSync(settingsFile(), "utf8");
+      const restored = JSON.stringify(BODY, null, layout.indent).replace(/\n/g, layout.eol);
+      expect(back).toBe(layout.final ? `${restored}${layout.eol}` : restored);
+    });
+  }
+
+  test("a file that is not there, empty, or one line (`{}`) gets two spaces, LF and a final newline", () => {
+    expect(sniffSettingsFormat("{}")).toEqual({ indent: "  ", eol: "\n", finalNewline: true });
+    expect(sniffSettingsFormat("{}\n")).toEqual({ indent: "  ", eol: "\n", finalNewline: true });
+    expect(sniffSettingsFormat('{"model":"opus"}\r\n')).toEqual({ indent: "  ", eol: "\r\n", finalNewline: true });
+    expect(settingsBytes({ a: 1 })).toBe('{\n  "a": 1\n}\n');
+  });
+
+  test("a layout nobody could have meant takes the default indent and keeps the line endings", () => {
+    expect(sniffSettingsFormat('{\r\n \t"a": 1\r\n}\r\n')).toEqual({ indent: "  ", eol: "\r\n", finalNewline: true });
+    expect(sniffSettingsFormat(`{\n${" ".repeat(12)}"a": 1\n}\n`).indent).toBe("  ");
+  });
+
+  test("a line break inside a string stays escaped under CRLF", () => {
+    const bytes = settingsBytes({ a: "one\ntwo" }, { indent: "  ", eol: "\r\n", finalNewline: true });
+    expect(bytes).toBe('{\r\n  "a": "one\\ntwo"\r\n}\r\n');
+    expect(JSON.parse(bytes)).toEqual({ a: "one\ntwo" });
+  });
+});
+
+// ── review n2: a refusal that says what it found ────────────────────────────
+
+describe("review n2 — BOM, comments and trailing commas are named, and still refused", () => {
+  const cases: readonly { name: string; bytes: string; says: string }[] = [
+    { name: "a byte-order mark", bytes: '\uFEFF{\n  "model": "opus"\n}\n', says: "starts with a byte-order mark" },
+    { name: "a // comment", bytes: '{\n  // mine\n  "model": "opus"\n}\n', says: "holds comments (// or /* */)" },
+    { name: "a /* */ comment", bytes: '{\n  /* mine */\n  "model": "opus"\n}\n', says: "holds comments (// or /* */)" },
+    { name: "a trailing comma", bytes: '{\n  "model": "opus",\n}\n', says: "has a comma just before a closing } or ]" },
+  ];
+  for (const k of cases) {
+    test(`${k.name}: refused by name, with what to do, and not one byte changed`, async () => {
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(settingsFile(), k.bytes);
+      const before = hashOf(settingsFile());
+      for (const verb of [wire, unwire]) {
+        const c = consoleWith();
+        expect((await verb(input({ io: c.io }))).outcome).toBe("refused");
+        const said = text(c.err);
+        expect(said).toContain(k.says);
+        expect(said).toContain("run this again");
+        expect(said).not.toContain("Unexpected");
+      }
+      expect(hashOf(settingsFile())).toBe(before);
+      expect(backups()).toHaveLength(0);
+    });
+  }
+
+  test("a `//` inside a string is not a comment — a URL in a setting still parses and wires", async () => {
+    writeSettingsFile({ apiKeyHelper: "curl https://example.com/key" });
+    expect((await wire(input())).outcome).toBe("ok");
+    expect(readSettingsFile()["apiKeyHelper"]).toBe("curl https://example.com/key");
+  });
+
+  test("anything else keeps the parser's own words", async () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsFile(), '{"hooks": oops}');
+    const c = consoleWith();
+    expect((await wire(input({ io: c.io }))).outcome).toBe("refused");
+    expect(text(c.err)).toContain("does not parse as JSON");
+  });
+});
+
+// ── review n3: the re-read after the question decides ───────────────────────
+
+/**
+ * `wire` and `unwire` re-read the file after the person answers and merge again
+ * — but wrote on the FIRST plan's `changed`, so when another process had done
+ * the same work during the question, they still took a backup and rewrote the
+ * (identical) bytes. The re-read's plan decides now.
+ */
+describe("review n3 — the work done during the question is not done twice", () => {
+  test("connect: hooks put in while the question was up → no write, no backup, 'already in'", async () => {
+    writeSettingsFile({ model: "opus" });
+    let wiredMeanwhile = "";
+    const c = consoleWith();
+    const io: Io = {
+      ...c.io,
+      prompt: async (question: string): Promise<string> => {
+        c.asked.push(question);
+        // Somebody else connects while this one is asking.
+        const other = consoleWith();
+        expect((await wire(input({ io: other.io }))).outcome).toBe("ok");
+        wiredMeanwhile = hashOf(settingsFile());
+        return "y";
+      },
+    };
+    const backupsBefore = () => backups().length;
+    const result = await wire(input({ io, yes: false }));
+    expect(c.asked).toHaveLength(1);
+    expect(result.outcome).toBe("ok");
+    expect(result.hooks).toBe("already");
+    expect(result.backup).toBeNull();
+    expect(hashOf(settingsFile())).toBe(wiredMeanwhile);
+    // One backup — the OTHER connect's — and none of ours.
+    expect(backupsBefore()).toBe(1);
+    expect(text(c.out)).toContain("already in place when the file was read again");
+    expect(text(c.out)).toContain("hooks already in");
+  });
+
+  test("disconnect: hooks taken out while the question was up → no write, no backup", async () => {
+    writeSettingsFile({ model: "opus" });
+    expect((await wire(input())).outcome).toBe("ok");
+    const beforeBackups = backups().length;
+    let unwiredMeanwhile = "";
+    const c = consoleWith();
+    const io: Io = {
+      ...c.io,
+      prompt: async (question: string): Promise<string> => {
+        c.asked.push(question);
+        const other = consoleWith();
+        expect((await unwire(input({ io: other.io }))).outcome).toBe("ok");
+        unwiredMeanwhile = hashOf(settingsFile());
+        return "y";
+      },
+    };
+    const result = await unwire(input({ io, yes: false }));
+    expect(result.outcome).toBe("ok");
+    expect(result.hooks).toBe("none");
+    expect(result.backup).toBeNull();
+    expect(hashOf(settingsFile())).toBe(unwiredMeanwhile);
+    // The other disconnect's backup, and none of ours.
+    expect(backups().length).toBe(beforeBackups + 1);
+    expect(text(c.out)).toContain("no Counterparts hooks were left in");
+    expect(text(c.out)).not.toContain("hooks removed from");
+  });
 });

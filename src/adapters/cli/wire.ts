@@ -172,8 +172,116 @@ export interface SettingsSight {
   readonly mode: number | null;
   /** The parsed object. `{}` for a file that is not there. */
   readonly value: Record<string, unknown>;
+  /** How the file was laid out, so a write gives it back the same way (n1). */
+  readonly format: SettingsFormat;
   /** Why this file will not be edited, or null. */
   readonly refusal: string | null;
+}
+
+/**
+ * HOW A SETTINGS FILE IS LAID OUT — the three things a re-serialisation would
+ * otherwise flatten (review n1, 2026-09-21: "4-space indent, tabs and CRLF all
+ * become 2-space + LF").
+ *
+ * The CONTENT always round-tripped — keys, order, unknown values — and a backup
+ * is always taken; what did not survive was the person's formatting, which is a
+ * diff in their dotfiles repository they did not ask for. Everything past these
+ * three (a hand-aligned array, a blank line between sections) is gone the moment
+ * the file is parsed, and is named as the cost of editing JSON in NOTES.
+ */
+export interface SettingsFormat {
+  /** One level of indentation: `"  "`, `"    "`, `"\t"`. */
+  readonly indent: string;
+  readonly eol: "\n" | "\r\n";
+  /** Whether the file ended with a line ending. */
+  readonly finalNewline: boolean;
+}
+
+/** What a file that is not there yet — or is empty — is written with: two
+ *  spaces, LF, one trailing newline, which is what the host's own file carries. */
+export const DEFAULT_SETTINGS_FORMAT: SettingsFormat = { indent: "  ", eol: "\n", finalNewline: true };
+
+/**
+ * Read the layout off the bytes. The first indented line is one level deep in
+ * any file `JSON.stringify` or an editor wrote, so its leading whitespace IS the
+ * unit. Anything stranger — a unit longer than ten characters (the most
+ * `JSON.stringify` accepts), tabs and spaces mixed in one unit — takes the
+ * default indent and keeps the line endings.
+ *
+ * A file on ONE line has no indent to read, and is almost always `{}` — the
+ * shape a host or a person starts the file with, not a style anybody chose. It
+ * gets the default layout rather than having five hook groups written onto one
+ * line.
+ */
+export function sniffSettingsFormat(raw: string): SettingsFormat {
+  const eol = raw.includes("\r\n") ? "\r\n" : "\n";
+  if (!raw.trimEnd().includes("\n")) return { ...DEFAULT_SETTINGS_FORMAT, eol };
+  const finalNewline = raw.endsWith("\n");
+  const unit = /\n([ \t]+)\S/.exec(raw)?.[1];
+  if (unit === undefined || unit.length > 10 || (unit.includes("\t") && unit.includes(" "))) {
+    return { indent: DEFAULT_SETTINGS_FORMAT.indent, eol, finalNewline };
+  }
+  return { indent: unit, eol, finalNewline };
+}
+
+/** The text with every string literal's CONTENTS taken out, so a `//` inside
+ *  a URL is not mistaken for a comment. */
+function outsideStrings(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of raw) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') {
+        inString = false;
+        out += ch;
+      }
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * WHY THIS FILE DID NOT PARSE, in words a person can act on — or null when it
+ * is none of the three shapes a hand-edited settings file usually takes
+ * (review n2).
+ *
+ * Still a refusal, all three: this command writes plain JSON, and writing a
+ * commented file back would drop every comment in it. What changed is that the
+ * refusal says what it found and what to do, where it used to print the
+ * parser's own complaint about an unexpected character. It does NOT claim to
+ * know what Claude Code itself accepts in this file — nobody here has checked.
+ */
+export function unparsedSettingsWhy(raw: string): string | null {
+  if (raw.charCodeAt(0) === 0xfeff) {
+    return (
+      "starts with a byte-order mark — an invisible character some editors put at the top of " +
+      'a file. This command reads and writes plain JSON only. Save the file as "UTF-8" rather ' +
+      'than "UTF-8 with BOM" and run this again'
+    );
+  }
+  const bare = outsideStrings(raw);
+  if (/\/\/|\/\*/.test(bare)) {
+    return (
+      "holds comments (// or /* */). This command reads and writes plain JSON only, and " +
+      "writing this file back would drop every comment in it. Move the comments out of the " +
+      "file and run this again"
+    );
+  }
+  // A comma AFTER A VALUE and before a close — `"a": 1, }` — and not the stray
+  // one in `{ , }`, which is a different mistake and gets the parser's words.
+  if (/[^\s{[,]\s*,\s*[}\]]/.test(bare)) {
+    return (
+      "has a comma just before a closing } or ], which plain JSON does not allow. Remove it " +
+      "and run this again"
+    );
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -199,6 +307,7 @@ export function sightSettings(named: string, home: string): SettingsSight {
     exists: false,
     mode: null,
     value: {},
+    format: DEFAULT_SETTINGS_FORMAT,
     refusal: null,
   };
   const realHome = realpathDeep(home);
@@ -326,6 +435,7 @@ export function sightSettings(named: string, home: string): SettingsSight {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
+    const why = unparsedSettingsWhy(raw);
     return {
       ...absent,
       target,
@@ -333,12 +443,15 @@ export function sightSettings(named: string, home: string): SettingsSight {
       exists: true,
       mode,
       refusal:
-        `refused: ${target} does not parse as JSON (${String((err as Error).message ?? err)}). ` +
-        "This command will not rewrite a file it cannot read — the one there may hold every " +
-        "other tool's configuration, and a fresh one written over it would lose all of it. " +
-        "Fix the file, or merge the block below by hand.",
+        why !== null
+          ? `refused: ${target} ${why} — or make the change by hand. Nothing in it was touched.`
+          : `refused: ${target} does not parse as JSON (${String((err as Error).message ?? err)}). ` +
+            "This command will not rewrite a file it cannot read — the one there may hold every " +
+            "other tool's configuration, and a fresh one written over it would lose all of it. " +
+            "Fix the file, or merge the block below by hand.",
     };
   }
+  const format = sniffSettingsFormat(raw);
   if (!isRecord(parsed)) {
     return {
       ...absent,
@@ -386,7 +499,7 @@ export function sightSettings(named: string, home: string): SettingsSight {
       }
     }
   }
-  return { named, target, symlink, exists: true, mode, value: parsed, refusal: null };
+  return { named, target, symlink, exists: true, mode, value: parsed, format, refusal: null };
 }
 
 // ── the merge ───────────────────────────────────────────────────────────────
@@ -668,11 +781,23 @@ export function mergeHooks(
 
 // ── writing it ──────────────────────────────────────────────────────────────
 
-/** Exactly the bytes a settings file is written with: two-space indentation and
- *  ONE trailing newline, which is what the host's own file carries and what
- *  every `git diff` of a dotfiles repository expects. */
-export function settingsBytes(value: Record<string, unknown>): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
+/**
+ * Exactly the bytes a settings file is written with: in the layout it already
+ * had (review n1) — its indent, its line endings, its last newline or none —
+ * and, for a file that is new, two-space indentation and ONE trailing newline,
+ * which is what the host's own file carries and what every `git diff` of a
+ * dotfiles repository expects.
+ *
+ * `JSON.stringify` escapes a line break inside a string as `\\n`, so every
+ * literal newline in its output is a line ending and CRLF is a plain replace.
+ */
+export function settingsBytes(
+  value: Record<string, unknown>,
+  format: SettingsFormat = DEFAULT_SETTINGS_FORMAT,
+): string {
+  const text = JSON.stringify(value, null, format.indent);
+  const lines = format.eol === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
+  return format.finalNewline ? `${lines}${format.eol}` : lines;
 }
 
 export interface WriteOutcome {
@@ -707,7 +832,7 @@ export function writeSettings(
     }
     temp = join(dir, `.counterparts-wire-${String(process.pid)}-${String(now)}.tmp`);
     const mode = sight.mode ?? 0o644;
-    writeFileSync(temp, settingsBytes(value), { mode });
+    writeFileSync(temp, settingsBytes(value, sight.format), { mode });
     chmodSync(temp, mode);
     renameSync(temp, target);
     return { backup, error: null };
@@ -1173,19 +1298,28 @@ export async function wire(input: WireInput): Promise<WireResult> {
       return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const again = mergeHooks(fresh.value, command, "wire");
-    const wrote = writeSettings(fresh, again.value, now);
-    backup = wrote.backup;
-    if (wrote.error !== null) {
-      io.err(`failed to write ${fresh.target}: ${wrote.error}`);
-      io.err(
-        wrote.backup === null
-          ? "Nothing was changed."
-          : `Nothing was changed; the backup taken first is at ${wrote.backup}.`,
-      );
-      return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
-    }
-    hooksWord = again.events.some((e) => e.change === "replaced") ? "repaired" : "wired";
     landedIn = fresh.target;
+    if (!again.changed) {
+      // THE WORK WAS DONE WHILE WE ASKED (review n3). The re-read found the
+      // hooks already right — another `connect`, another terminal, the person
+      // pasting the block — and the first plan's "changed" is stale. Writing on
+      // it took a backup and rewrote identical bytes; now nothing is written
+      // and nothing is backed up, and the line below says "already in".
+      u.hint("The hooks were already in place when the file was read again, so nothing was written.");
+    } else {
+      const wrote = writeSettings(fresh, again.value, now);
+      backup = wrote.backup;
+      if (wrote.error !== null) {
+        io.err(`failed to write ${fresh.target}: ${wrote.error}`);
+        io.err(
+          wrote.backup === null
+            ? "Nothing was changed."
+            : `Nothing was changed; the backup taken first is at ${wrote.backup}.`,
+        );
+        return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
+      }
+      hooksWord = again.events.some((e) => e.change === "replaced") ? "repaired" : "wired";
+    }
   }
 
   // ── the MCP server ────────────────────────────────────────────────────────
@@ -1409,23 +1543,30 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const again = mergeHooks(fresh.value, "", "unwire");
-    const wrote = writeSettings(fresh, again.value, now);
+    // THE SAME RACE, THE OTHER WAY ROUND (review n3): the hooks went while the
+    // question was up. Nothing to write, no backup, and the line says so.
+    if (!again.changed) {
+      u.ok(`no Counterparts hooks were left in ${tilde(fresh.target, home)} when it was read again.`);
+    }
+    const wrote = again.changed ? writeSettings(fresh, again.value, now) : { backup: null, error: null };
     backup = wrote.backup;
     if (wrote.error !== null) {
       io.err(`failed to write ${fresh.target}: ${wrote.error}`);
       io.err(backup === null ? "Nothing was changed." : `The backup taken first is at ${backup}.`);
       return { outcome: "failed", hooks: "refused", mcp: "skipped", backup, mcpConfirmed: false };
     }
-    hooksWord = "removed";
-    // THE BACKUP IS NAMED HERE, IN FULL, and not on `connect`'s line — the
-    // owner's screens, 2026-09-22. This is the reader who may want their old
-    // settings file back, and a path they have to reconstruct from a sentence
-    // is a path they cannot type. `~/…` for the file, the whole name for the
-    // copy.
-    u.ok(
-      `${String(again.events.length)} hook${again.events.length === 1 ? "" : "s"} removed from ` +
-        `${tilde(fresh.target, home)}${backup === null ? "" : ` (backup: ${basename(backup)})`}`,
-    );
+    if (again.changed) {
+      hooksWord = "removed";
+      // THE BACKUP IS NAMED HERE, IN FULL, and not on `connect`'s line — the
+      // owner's screens, 2026-09-22. This is the reader who may want their old
+      // settings file back, and a path they have to reconstruct from a sentence
+      // is a path they cannot type. `~/…` for the file, the whole name for the
+      // copy.
+      u.ok(
+        `${String(again.events.length)} hook${again.events.length === 1 ? "" : "s"} removed from ` +
+          `${tilde(fresh.target, home)}${backup === null ? "" : ` (backup: ${basename(backup)})`}`,
+      );
+    }
     if (again.foreignKept > 0) {
       u.hint(
         again.foreignKept === 1

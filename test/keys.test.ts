@@ -28,7 +28,7 @@
  * a real credentials file.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,9 +38,11 @@ import type { Io } from "../src/adapters/cli/index.js";
 import {
   KEY_LINKS,
   enableEmbedder,
+  tempSibling,
   promptForKeys,
   writeCredential,
 } from "../src/adapters/cli/keys.js";
+import { ownedKind } from "../src/adapters/cli/uninstall.js";
 import type { KeyPromptContext } from "../src/adapters/cli/keys.js";
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
 
@@ -736,5 +738,61 @@ describe("writeCredential", () => {
     const after = statSync(credsPath);
     expect((after.mode & 0o777).toString(8)).toBe("600");
     expect(after.ino).not.toBe(before.ino);
+  });
+});
+
+// ── review n4: a temp name of each process's own ───────────────────────────
+
+/**
+ * `writeCredential` and `enableEmbedder` both wrote through a FIXED
+ * `<path>.tmp`, so two writers at once shared one temp file, and a rename that
+ * failed left the 0600 temp behind. The name is `<path>.<pid>.tmp` now, a
+ * failure removes it, and it stays a name `uninstall` counts as ours.
+ */
+describe("review n4 — the temp file", () => {
+  const temps = (): string[] => readdirSync(root).filter((n) => n.endsWith(".tmp"));
+
+  test("is `<path>.<pid>.tmp`, and uninstall still reads it as a sidecar of ours", () => {
+    expect(tempSibling(credsPath)).toBe(`${credsPath}.${String(process.pid)}.tmp`);
+    const owned = {
+      config: "claude-code.json",
+      credentials: "credentials.env",
+      scopes: "scopes.json",
+      snapshots: null,
+      store: null,
+    };
+    for (const path of [credsPath, configPath]) {
+      const name = tempSibling(path).slice(root.length + 1);
+      expect(ownedKind(name, owned)).toBe("sidecar");
+    }
+  });
+
+  test("the OLD fixed name in the way stops neither writer", () => {
+    // A directory at `<path>.tmp` made the old `writeFileSync(tmp, …)` throw.
+    mkdirSync(`${credsPath}.tmp`);
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    expect(readFileSync(credsPath, "utf8")).toBe(`${API_KEY_ENV}=${ANTHROPIC_KEY}\n`);
+    writeConfig();
+    mkdirSync(`${configPath}.tmp`);
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    // Only the two directories this test made; no temp FILE of ours is left.
+    expect(temps().sort()).toEqual(["claude-code.json.tmp", "credentials.env.tmp"]);
+  });
+
+  test("a rename that fails takes its temp file with it — the secret is not left beside the target", () => {
+    // The target is a DIRECTORY, so the rename over it fails after the temp
+    // file (holding the key) has been written.
+    mkdirSync(credsPath);
+    writeFileSync(join(credsPath, "keep"), "x");
+    expect(() => writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY)).toThrow();
+    expect(temps()).toEqual([]);
+    expect(existsSync(tempSibling(credsPath))).toBe(false);
+  });
+
+  test("success leaves no temp of any name", () => {
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    writeConfig();
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    expect(temps()).toEqual([]);
   });
 });
