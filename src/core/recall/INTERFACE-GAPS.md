@@ -171,7 +171,7 @@ than a number that quietly gets worse. Related and cheap: the same 278 MB is wha
 FIRST recall in a fresh hook process cost ~800 ms of page-cache warming (`BUDGET_MS`'s day-0
 recalibration).
 
-## 8. The semantic fusion is calibrated for ONE embedder's cosine scale — OPEN (2026-09-23)
+## 8. The semantic fusion is calibrated for ONE embedder's cosine scale — CLOSED 2026-09-23 (keyless/recall-tune)
 
 **Owner:** `recall/` (`tunables.ts`: `SEMANTIC_SEED_FLOOR`, `SEMANTIC_WEIGHT`, `SEMANTIC_TOP_M`).
 **Needed:** a semantic hit's contribution that means the same thing whichever model
@@ -212,10 +212,27 @@ words, which is the case the channel exists for and so flatters it; the per-turn
 the ceiling described above; per-query ranks are over the activation ranking, and the
 gate's relative bar decides delivery.
 
-**The shape of the fix:** per-identity tunables — the cache tag (`store.embedderVerdict`,
-`cache_meta.embedder`) now names the model, so the floor/weight can be looked up by it
-rather than being one pair for every model — and very likely per-path ones, since the
-deliberate path loses a delivery at floor 0 and the per-turn path's floor-0 cost on a
-topic change is unknown. Not built here: the numbers are `recall/`'s to own, and this is a
-first measurement, not a calibration (the recall-bench's labelled real prompts on a store
-copy, with a topic-changing per-turn arm, should decide).
+**Closed by per-identity, per-path tunables** (`SEMANTIC_BY_IDENTITY`, `tunables.ts`;
+looked up in `activate.ts` from the identity the store RECORDS — `recordedIdentity` — and
+by the path: `vector` → inline, `hits` → lagged; anything unlisted gets 0.45 / 1.0):
+
+| identity | inline (deliberate) | lagged (per-turn) |
+|---|---|---|
+| `potion-base-8M@256` | floor 0.15, weight 6 | floor 0.08, weight 2 |
+| `voyage-3-large` | 0.45 / 1.0 (unmeasured, frozen) | 0.45 / 1.0 |
+
+**The per-turn floor-0 cost is now MEASURED, not guessed** — a topic-changing arm (turn 1
+query i, its lag, turn 2 a query j about something else): at weight 1 nothing; weight 2,
+one stale intrusion over 40 pairs; weight 4, two; **weight 6, one of j's targets lost and
+~4 stale**; weight 8, one lost and 6 stale. The weight costs more than the floor, which is
+why the lagged pair is 0.08 / 2 (on topic 10/30 vs lexical-only's 8.4–8.6, and on a topic
+change 0 lost, 0 stale) while the deliberate pair is 0.15 / 6 (11/30 vs 6, 0 deliveries
+lost, ~7 rank slips, lexical 10/10). Every number, both grids and the confirmation run:
+`docs/research/static-embedder-trial-2026-09-23.md`, "the retune".
+
+**Still owed, and named there:** the caveats above stand (one synthetic persona, builder
+queries, a lag embedded from the question alone); the recall-bench's labelled real
+prompts on a store copy should re-earn both pairs. The identity is the handle's
+open-time snapshot — safe because the store's per-ranking claim check returns no hits
+when the file's tag has moved (#190, MAJOR A), but a per-query read would need a `Store`
+method.

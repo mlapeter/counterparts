@@ -196,8 +196,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    cosine across two models or files a vector under another model's tag, however long it
    has been open (test: `embedder-identity.test.ts` › "MAJOR A of the re-review"). A
    previous release's unrestarted MCP server can until it is restarted: store NOTES,
-   "Release timing"). The fusion's floor and weight are still one
-   pair calibrated for Voyage: INTERFACE-GAPS §8.)*
+   "Release timing"). The fusion's floor and weight are chosen per embedder identity and
+   per path (`SEMANTIC_BY_IDENTITY`, looked up from the identity the store records), with
+   the old pair as the default: INTERFACE-GAPS §8, closed.)*
 2. **[M]** A latency-budget abort has zero side effects: nothing injected, nothing buffered,
    no telemetry, no fire budget spent.
 3. **[M]** Build and record are separate steps.

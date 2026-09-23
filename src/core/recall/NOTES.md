@@ -486,3 +486,29 @@ hurt by floor 0; the per-turn path (the lagged cue) gains less and is not. INTER
 §8 carries both grids and the proposed shape (per-identity, per-path floor/weight, keyed
 by the cache's new tag).
 
+## 16. The retune: a floor and weight per embedder and per path — 2026-09-23 (night)
+
+The static table became the primary embedder, and §15's finding — the shipped pair makes
+it near-inert — became a table: `SEMANTIC_BY_IDENTITY`, keyed by the identity box 3
+records, split by path. `activate` chooses by `recordedIdentity(store)` (the tag the
+store's open reconciled) and by whether the semantic input is the caller's own `vector`
+(inline — the deliberate MCP ask) or the worker's `hits` (lagged — the hook's per-turn
+cue), and reports the choice on `ActivationResult.semantic`.
+
+**What the measurement said, in one line each** (`docs/research/…`, "the retune"):
+
+- The deliberate path wants a LOW floor and a HIGH weight (0.15 / 6): the ranking is of
+  the question itself, so what a low floor adds is mostly the right memory — 11/30
+  paraphrase targets against lexical-only's 6, nothing lost.
+- The per-turn path wants a LOW weight (0.08 / 2): its cue may be about the previous
+  subject, and the new topic-changing arm shows the weight is what pays for that — at
+  weight 6 a changed topic loses its target and gathers ~4 stale items; at weight 2,
+  nothing measurable on a topic change and 10/30 on topic (lexical-only ~8.5).
+- An identity with no entry — static-retrieval, an unknown table, a store with no tag,
+  Voyage — behaves exactly as before (the confirmation run's static-retrieval table row
+  equals lexical-only; every existing recall test is unchanged).
+
+**What was not changed:** `SEMANTIC_TOP_M` (8) stays global; the gate's bars and floors
+stay as calibrated on the lexical channel; nothing in the decision record's hashed field
+set moved (`ActivationResult` is not the decision record).
+
