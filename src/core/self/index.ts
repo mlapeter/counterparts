@@ -1644,6 +1644,9 @@ export class Self {
       asks: state.asks + 1,
       asksToday: asksSpentOn(state, today) + 1,
       asksDay: today,
+      // WHEN, as well as how many: an answer counts only if it came after the
+      // last ask (`remember/owes.ts`, PR #189 review M1).
+      lastAskAt: this.store.now(),
       askedAtTurns: substance.turns,
       askedAtBytes: substance.bytes,
       lastDay: d,

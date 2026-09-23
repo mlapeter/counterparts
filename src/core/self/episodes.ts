@@ -173,6 +173,14 @@ export interface EpisodeState {
   asksDay: string | null;
   /** The ask index at the last append: how "is a new chapter open?" is decided. */
   appendedAtAsk: number;
+  /**
+   * WHEN the last ask was committed, epoch ms on the store's clock — null
+   * until one is, and on every state written before 2026-09-23. Read by
+   * `remember/owes.ts`: an answer counts only if it came AFTER the last ask,
+   * so one early answer cannot cover the asks that followed it (PR #189
+   * review, M1).
+   */
+  lastAskAt: number | null;
   /** Substance at the last COMMITTED ask (committed before the ask blocks). */
   askedAtTurns: number;
   askedAtBytes: number;
@@ -197,6 +205,7 @@ export function freshEpisodeState(sessionId: string, day: number): EpisodeState 
     asksToday: 0,
     asksDay: null,
     appendedAtAsk: 0,
+    lastAskAt: null,
     askedAtTurns: 0,
     askedAtBytes: 0,
     lastDay: day,
@@ -246,12 +255,27 @@ export function loadEpisodeState(
 export function episodeFacts(
   store: Store,
   sessionId: string,
-): { status: "loaded" | "absent" | "unreadable"; asks: number; chapters: number } {
+): {
+  status: "loaded" | "absent" | "unreadable";
+  asks: number;
+  chapters: number;
+  /** The ask count when a chapter was last appended: a chapter answers the
+   *  LAST ask only when this has caught up with `asks`. */
+  appendedAtAsk: number;
+  lastAskAt: number | null;
+} {
   try {
     const { state, status } = loadEpisodeState(store, sessionId, 0);
-    return { status, asks: state.asks, chapters: state.chapters };
+    return {
+      status,
+      asks: state.asks,
+      chapters: state.chapters,
+      appendedAtAsk: state.appendedAtAsk,
+      lastAskAt:
+        typeof state.lastAskAt === "number" && Number.isFinite(state.lastAskAt) ? state.lastAskAt : null,
+    };
   } catch {
-    return { status: "unreadable", asks: 0, chapters: 0 };
+    return { status: "unreadable", asks: 0, chapters: 0, appendedAtAsk: 0, lastAskAt: null };
   }
 }
 

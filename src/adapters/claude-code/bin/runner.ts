@@ -53,21 +53,27 @@
  *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
+import { ADAPTER_ASK_EVENT, Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
 import {
+  NO_HOST_EVIDENCE,
   RETENTION_EVENT,
-  pruneRetention,
   retentionRow,
   retentionRuns,
   retentionSources,
 } from "../../../core/remember/index.js";
-import type { RetentionReport } from "../../../core/remember/index.js";
+import type { HostSessionEvidence, RetentionReport } from "../../../core/remember/index.js";
+// THE DELETING HALF, by path, and from this file alone (PR #189 review, B1):
+// `remember/index.ts` does not re-export it, and `test/cli.test.ts` pins every
+// importer — nothing that holds a `Counterpart` can reach it.
+import { pruneRetention } from "../../../core/remember/retention.js";
 import { episodeFacts } from "../../../core/self/index.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
+import type { Store } from "../../../core/store/index.js";
+import { readSession, sessionPath } from "../../sessions.js";
 
 import {
   configLine,
@@ -138,7 +144,8 @@ export interface RunReport {
 /** What the retention step came to on one worker run. */
 export interface RetentionJobReport {
   /** `ran` — it planned and pruned (possibly nothing); `already-ran` — this
-   *  date's row exists, so this run did nothing; `observer` / `failed` — named. */
+   *  date's row exists, or another worker holds this date's latch, so this run
+   *  did nothing; `observer` / `failed` — named. */
   readonly reason: "ran" | "already-ran" | "observer" | "failed";
   readonly date: string;
   readonly report: RetentionReport | null;
@@ -147,20 +154,116 @@ export interface RetentionJobReport {
   readonly code: string | null;
 }
 
+/** Ceiling on the `adapter.ask` rows read once per date: a Stop each, ~90 lived
+ *  days of them (the log's own retention). */
+const ASK_ROW_CEILING = 200_000;
+const ASK_ROW_LOOKBACK_DAYS = 90;
+
+/**
+ * WHAT THIS HOST KNOWS ABOUT A SESSION, for `remember/owes.ts`: its registry
+ * record (`adapters/sessions.ts` — open or ended, and #186's "nothing new"
+ * mark) and its `adapter.ask` rows (when the last ask was issued, and the
+ * substance the pacer measured at its newest evaluation). Read once per run;
+ * never throws. Every read that fails reads as the fact that KEEPS text.
+ */
+export function retentionHost(store: Store): (session: string) => HostSessionEvidence {
+  const asks = new Map<
+    string,
+    { lastAskedAt: number | null; lastEvaluation: { at: number; turns: number; bytes: number } | null }
+  >();
+  try {
+    const rows = store.eventLog({
+      name: ADAPTER_ASK_EVENT,
+      sinceDay: Math.max(0, store.livedDay() - ASK_ROW_LOOKBACK_DAYS),
+      limit: ASK_ROW_CEILING,
+    });
+    for (const row of rows) {
+      let p: Record<string, unknown>;
+      try {
+        p = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const session = p["session"];
+      if (typeof session !== "string" || session.length === 0) continue;
+      const cur = asks.get(session) ?? { lastAskedAt: null, lastEvaluation: null };
+      if (p["asked"] === true) cur.lastAskedAt = Math.max(cur.lastAskedAt ?? 0, row.at);
+      const turns = p["turns"];
+      const bytes = p["bytes"];
+      if (
+        typeof turns === "number" &&
+        typeof bytes === "number" &&
+        (cur.lastEvaluation === null || row.at >= cur.lastEvaluation.at)
+      ) {
+        cur.lastEvaluation = { at: row.at, turns, bytes };
+      }
+      asks.set(session, cur);
+    }
+  } catch {
+    /* no ask rows: the pacer's own state and the substance count still decide */
+  }
+  const dir = store.dir;
+  return (session) => {
+    const a = asks.get(session);
+    return {
+      ...NO_HOST_EVIDENCE,
+      ...registryFacts(dir, session),
+      lastAskedAt: a?.lastAskedAt ?? null,
+      lastEvaluation: a?.lastEvaluation ?? null,
+    };
+  };
+}
+
+/**
+ * The registry's word on one session. A record with no end is OPEN — never
+ * deleted (review m10). A record that exists but will not read is treated as
+ * open too: it may be a live session's, and the safe reading of "cannot tell"
+ * is "keep". `nothingNewAt` is #186's mark, read DEFENSIVELY: until that PR
+ * lands, the registry's parser does not carry the field, so it is also read
+ * from the raw record.
+ */
+function registryFacts(
+  dir: string,
+  session: string,
+): Pick<HostSessionEvidence, "open" | "endedAt" | "nothingNewAt"> {
+  const path = sessionPath(dir, session);
+  if (path === null || !existsSync(path)) return { open: false, endedAt: null, nothingNewAt: null };
+  const rec = readSession(dir, session);
+  if (rec === null) return { open: true, endedAt: null, nothingNewAt: null };
+  let mark: unknown = (rec as { nothingNewAt?: unknown }).nothingNewAt;
+  if (typeof mark !== "number") {
+    try {
+      mark = (JSON.parse(readFileSync(path, "utf8")) as { nothingNewAt?: unknown }).nothingNewAt;
+    } catch {
+      mark = undefined;
+    }
+  }
+  return {
+    open: rec.endedAt === null,
+    endedAt: rec.endedAt,
+    nothingNewAt: typeof mark === "number" && Number.isFinite(mark) ? mark : null,
+  };
+}
+
 /**
  * THE RETENTION STEP — once per calendar date, keyless, and it never throws.
  *
  * ONCE PER DATE because the worker runs at every boundary and the rule is
- * measured in days: a pass per Stop would read every scope's streams hundreds of
- * times a day to find the same answer. The latch is the durable row itself —
- * this date's `remember.prune` row exists, so the pass has happened — with a
- * `dedupKey` beneath it so two workers racing past the check still leave one
- * row. A run that FAILED leaves its row too, with `failed` counted, and is
- * retried the next date: sessions it could not delete stay due.
+ * measured in days. Two latches: this date's `remember.prune` row (the cheap
+ * check), and beneath it the one that is atomic — `retention.ts` creates
+ * `spans/retention/<date>.latch` with `O_EXCL` before it plans or deletes
+ * anything, so two workers racing past the row check cannot both prune (PR
+ * #189 review, m6). A run that FAILED leaves its row with `failed` counted and
+ * is retried the next date: sessions it could not delete stay due. The date is
+ * the worker's run date, which is UTC like every date this worker stamps — so
+ * for a Pacific owner the pass happens at the first boundary after 17:00 local
+ * (review n1, named rather than moved).
  *
- * What it may delete is decided by `remember/retention.ts` and nothing here: the
- * pacer's record (`self/episodes.ts#episodeFacts`) and the handoff rows are the
- * facts, and a session that owes a write-up is never in any request.
+ * What it may delete is decided by `remember/owes.ts` and nothing here: the
+ * pacer's record (`self/episodes.ts#episodeFacts`), the handoff rows, and this
+ * host's registry and ask rows (`retentionHost`) are the facts, and a session
+ * that owes a write-up, or that the registry holds open, is never in any
+ * request.
  */
 export function retentionJob(input: {
   counterpart: Counterpart;
@@ -174,8 +277,20 @@ export function retentionJob(input: {
   const store = counterpart.store;
   try {
     if (retentionRuns(store).some((r) => r.date === date)) return { ...none, reason: "already-ran" };
-    const sources = retentionSources(store, (session) => episodeFacts(store, session));
-    const report = pruneRetention(counterpart.spans, sources);
+    const t = counterpart.self.tunables;
+    const sources = retentionSources(store, {
+      episode: (session) => episodeFacts(store, session),
+      host: retentionHost(store),
+      firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+    });
+    const report = pruneRetention(counterpart.spans, sources, { date });
+    if (report.reason === "ALREADY_RAN") return { ...none, reason: "already-ran" };
+    // The latch itself would not take (an unwritable `spans/`): nothing was
+    // planned or deleted, and no row is written, so the next worker today tries
+    // again rather than finding the date spent.
+    if (report.reason === "IO_FAILED" && report.failed === 0 && report.scopes === 0) {
+      return { ...none, reason: "failed", code: "LATCH_FAILED" };
+    }
     let recorded = false;
     try {
       store.appendEvent({
@@ -193,6 +308,7 @@ export function retentionJob(input: {
       deleted: report.deleted,
       keptOwed: report.keptOwed,
       keptYoung: report.keptYoung,
+      keptLive: report.keptLive,
       failed: report.failed,
       lines: report.lines,
       recorded,

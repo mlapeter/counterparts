@@ -4625,11 +4625,14 @@ describe("the destruction path is importable from this directory only", () => {
     // `remember/spans.ts`, which HANDS OVER the capability in its constructor
     // and never calls the strike; `adapters/cli/removal.ts`, the owner's
     // destruction path; and — since 2026-09-23, a DECISION and not an import —
-    // `remember/retention.ts`, the 7-day rule the owner set, which names only
-    // sessions its own predicate says owe nothing and are a week past their
-    // end. A `Counterpart` — which the MCP server holds, and a model talks to —
-    // holds a `SpanBuffer` and reaches nothing (§16 G2, and
-    // `store/owner-op-seam.ts`'s own reasoning).
+    // `remember/retention.ts`, the deleting half of the 7-day rule the owner
+    // set. That third file is itself pinned below: `remember/index.ts` does not
+    // re-export it and only the background worker imports it (PR #189 review,
+    // B1 — an index export once let anything holding a `Counterpart` delete
+    // spans with facts of its own making). So a `Counterpart` — which the MCP
+    // server holds, and a model talks to — holds a `SpanBuffer` and reaches the
+    // strike by neither road (§16 G2, and `store/owner-op-seam.ts`'s own
+    // reasoning).
     const root = join(import.meta.dir, "..", "src");
     const offenders: string[] = [];
     const walk = (path: string): void => {
@@ -4653,6 +4656,47 @@ describe("the destruction path is importable from this directory only", () => {
     };
     walk(root);
     expect(offenders).toEqual([]);
+  });
+
+  test("the RETENTION delete is imported by the background worker only, and no index re-exports it", () => {
+    // `remember/retention.ts#pruneRetention` takes a buffer and a set of facts
+    // and deletes through the strike. Reached through `remember/index.ts` —
+    // which the MCP server and the hooks import — it let any holder of the
+    // public `Counterpart.spans` delete a session that owed a write-up by
+    // handing it facts that said otherwise (PR #189 review, B1). ONE file in
+    // `src/` may import it: the worker that runs the once-a-date pass.
+    const root = join(import.meta.dir, "..", "src");
+    const ALLOWED = [join("adapters", "claude-code", "bin", "runner.ts")];
+    const offenders: string[] = [];
+    const importers: string[] = [];
+    const walk = (path: string): void => {
+      for (const name of readdirSync(path)) {
+        const full = join(path, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        if (full.endsWith(join("core", "remember", "retention.ts"))) continue;
+        const body = readFileSync(full, "utf8");
+        for (const line of body.split("\n")) {
+          if (!/from\s+"[^"]*\/retention\.js"/.test(line)) continue;
+          if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
+          if (ALLOWED.some((suffix) => full.endsWith(suffix))) {
+            importers.push(full);
+            continue;
+          }
+          offenders.push(`${full}: ${line.trim()}`);
+        }
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+    // NOT VACUOUS: the worker really does import it.
+    expect(importers.length).toBe(1);
+    const index = readFileSync(join(root, "core", "remember", "index.ts"), "utf8");
+    expect(/from\s+"\.\/retention\.js"/.test(index)).toBe(false);
+    expect(index).not.toContain("pruneRetention,");
   });
 
   test("the WALKING read is imported by two files, and is on no class anyone holds", () => {

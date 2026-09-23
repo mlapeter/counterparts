@@ -21,12 +21,14 @@
  * developer's own key can never reach it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Counterpart } from "../src/core/counterpart.js";
+import { ADAPTER_ASK_EVENT, Counterpart } from "../src/core/counterpart.js";
+import * as rememberIndex from "../src/core/remember/index.js";
 import {
+  NO_HOST_EVIDENCE,
   RETENTION_EVENT,
   SpanBuffer,
   TUNABLES as REMEMBER_TUNABLES,
@@ -34,13 +36,20 @@ import {
   lastRetentionRun,
   owesWriteUp,
   planRetention,
-  pruneRetention,
   retentionRuns,
   retentionSources,
 } from "../src/core/remember/index.js";
-import type { EpisodeFactsReading, RetentionSources, WriteUpFacts } from "../src/core/remember/index.js";
-import { episodeFacts } from "../src/core/self/index.js";
-import { retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
+import type {
+  EpisodeFactsReading,
+  HostSessionEvidence,
+  RetentionSources,
+  WriteUpFacts,
+} from "../src/core/remember/index.js";
+// The deleting half, by path — the way only the worker may import it in `src/`.
+import { pruneRetention } from "../src/core/remember/retention.js";
+import { SELF_TUNABLES, episodeFacts } from "../src/core/self/index.js";
+import { recordSession, sessionPath } from "../src/adapters/sessions.js";
+import { retentionHost, retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
 
 const DAY = 86_400_000;
 const SCOPE = "/scope/retention";
@@ -111,8 +120,38 @@ async function live(
   if (opts.endNormally !== false) b.c.boundary({ session, scope: SCOPE, kind: "session-end" });
 }
 
+const FIRST_ASK = {
+  turns: SELF_TUNABLES.FIRST_ASK_TURNS,
+  bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
+  soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+};
+
+/** The sources the worker builds: the pacer, the handoff rows, this host's
+ *  registry and ask rows. */
 function sources(c: Counterpart): RetentionSources {
-  return retentionSources(c.store, (id) => episodeFacts(c.store, id));
+  return retentionSources(c.store, {
+    episode: (id) => episodeFacts(c.store, id),
+    host: retentionHost(c.store),
+    firstAsk: FIRST_ASK,
+  });
+}
+
+/** Hand-made sources, for a test about ONE fact. */
+function fake(episode: Partial<EpisodeFactsReading>, host: Partial<HostSessionEvidence> = {}): RetentionSources {
+  const e: EpisodeFactsReading = { status: "loaded", asks: 0, chapters: 0, appendedAtAsk: 0, lastAskAt: null, ...episode };
+  return { episode: () => e, handoffAnswers: () => [], host: () => ({ ...NO_HOST_EVIDENCE, ...host }), firstAsk: FIRST_ASK };
+}
+
+let dates = 0;
+/** A fresh date per call, so the O_EXCL latch never stands in a test's way
+ *  unless the test is about the latch. */
+function nextDate(): string {
+  dates += 1;
+  return `2030-01-${String(dates % 28 + 1).padStart(2, "0")}`;
+}
+
+function prune(buffer: SpanBuffer, src: RetentionSources, date = nextDate()) {
+  return pruneRetention(buffer, src, { date });
 }
 
 /** Every session id that still has a line in any text-bearing file of the scope. */
@@ -263,7 +302,7 @@ describe("THE PREDICATE — nothing deletes unless it says nothing is owed", () 
         deleted: !owesWriteUp(h.facts),
       });
     }
-    const report = pruneRetention(b.c.spans, sources(b.c));
+    const report = prune(b.c.spans, sources(b.c));
     const owed = plan.filter((h) => h.owes).map((h) => h.session).sort();
     expect(heldSessions(dir)).toEqual(owed);
     expect(report.keptOwed).toBe(owed.length);
@@ -344,8 +383,7 @@ describe("THE PREDICATE — nothing deletes unless it says nothing is owed", () 
     // claimed or swept, so a session it wrote up still holds its replies.
     const buf = new SpanBuffer({ dir, now: () => NOW - 10 * DAY });
     buf.capture({ session: "swept", scope: SCOPE, turns: [{ role: "assistant", text: "Only the reply is left." }] });
-    const facts: EpisodeFactsReading = { status: "loaded", asks: 3, chapters: 0 };
-    const src: RetentionSources = { episode: () => facts, handoffSessions: new Set() };
+    const src = fake({ asks: 3 });
     const later = new SpanBuffer({ dir, now: () => NOW });
     const [h] = planRetention(later, src);
     expect(h?.facts.capturedText).toBe(false);
@@ -357,10 +395,194 @@ describe("THE PREDICATE — nothing deletes unless it says nothing is owed", () 
     buf.capture({ session: "mid-sweep", scope: SCOPE, turns: [{ role: "user", text: "A turn a crashed sweep is holding." }] });
     const claim = buf.claim(SCOPE);
     expect(claim.claimed).toBe(true);
-    const src: RetentionSources = { episode: () => ({ status: "loaded", asks: 1, chapters: 0 }), handoffSessions: new Set() };
+    const src = fake({ asks: 1, lastAskAt: NOW - 10 * DAY });
     const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), src);
     expect(h?.facts.capturedText).toBe(true);
     expect(h?.verdict).toBe("kept-owed");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the PR #189 review's findings, each held by a test", () => {
+  test("B1: the deleting half is not reachable through remember's index — fake facts through `Counterpart.spans` delete nothing", async () => {
+    expect(Object.keys(rememberIndex)).not.toContain("pruneRetention");
+    expect(Object.keys(rememberIndex)).not.toContain("strikeSpans");
+    // The review's repro, through everything the index DOES export: one session,
+    // asked a day ago and never answered — owed.
+    const b = brain();
+    await live(b, "A", NOW - 1 * DAY, { answer: null, endNormally: false });
+    b.set(NOW);
+    expect(planRetention(b.c.spans, sources(b.c)).map((h) => h.verdict)).toEqual(["kept-owed"]);
+    // A buffer on a clock 30 days on, and facts made up to say "never asked":
+    // the plan agrees to delete — and a plan is all the index can give.
+    const future = new SpanBuffer({ dir, now: () => NOW + 30 * DAY });
+    expect(planRetention(future, fake({ status: "absent" })).map((h) => h.verdict)).toEqual(["deleted"]);
+    expect(heldSessions(dir)).toEqual(["A"]);
+    expect(b.c.spans.spans(SCOPE).length).toBeGreaterThan(0);
+    expect(b.c.spans.assistantSpans(SCOPE).length).toBeGreaterThan(0);
+  });
+
+  test("M1: one early answer does not cover the asks after it — a chapter, a session_end memory, a handoff", async () => {
+    for (const answer of ["chapter", "session-end", "handoff"] as const) {
+      const b = brain();
+      await live(b, "early", NOW - 10 * DAY, { answer, endNormally: false });
+      // Four more hours, two more asks, never answered — then a clean end.
+      b.set(NOW - 10 * DAY + 2 * 3_600_000);
+      b.c.captureSpans({ session: "early", scope: SCOPE, turns: [...TALK, ...TALK].map((t, i) => ({ ...t, text: `${t.text} [${String(i)}] (early)` })) });
+      expect(b.c.episodeAsk("early", { turns: 30, bytes: 30_000 }).asked).toBe(true);
+      b.set(NOW - 10 * DAY + 4 * 3_600_000);
+      expect(b.c.episodeAsk("early", { turns: 60, bytes: 60_000 }).asked).toBe(true);
+      b.c.boundary({ session: "early", scope: SCOPE, kind: "session-end" });
+      b.set(NOW);
+      const [h] = planRetention(b.c.spans, sources(b.c));
+      expect({ answer, answered: h?.facts.answered, verdict: h?.verdict }).toEqual({ answer, answered: false, verdict: "kept-owed" });
+      b.c.close();
+      open.length = 0;
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "counterparts-retention-"));
+    }
+  });
+
+  test("M1: an answer AFTER the last ask does settle it", async () => {
+    const b = brain();
+    await live(b, "late-answer", NOW - 10 * DAY, { answer: null, endNormally: false });
+    b.set(NOW - 10 * DAY + 3_600_000);
+    expect(b.c.episodeAsk("late-answer", { turns: 30, bytes: 30_000 }).asked).toBe(true);
+    b.set(NOW - 10 * DAY + 2 * 3_600_000);
+    expect(b.c.appendEpisode("late-answer", "What the afternoon came to, written at the end.").appended).toBe(true);
+    b.c.boundary({ session: "late-answer", scope: SCOPE, kind: "session-end" });
+    b.set(NOW);
+    const [h] = planRetention(b.c.spans, sources(b.c));
+    expect(h?.facts.answered).toBe(true);
+    expect(h?.verdict).toBe("deleted");
+  });
+
+  test("m1: no pacer record, but substance past the first-ask threshold — a stood-down or failed ask is not a short session", () => {
+    // 30 turns, ~4.7 KB, the pacer never recorded anything, no end: it OWES.
+    const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
+    const turns = Array.from({ length: 30 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      text: `Turn ${String(i)}: a real exchange about the migration plan and what it costs.`.padEnd(156, "."),
+    }));
+    buf.capture({ session: "substantive", scope: SCOPE, turns });
+    buf.boundary({ session: "substantive", scope: SCOPE, kind: "stop" });
+    const later = new SpanBuffer({ dir, now: () => NOW });
+    const [h] = planRetention(later, fake({ status: "absent" }));
+    expect(h?.facts.asked).toBe(true);
+    expect(h?.verdict).toBe("kept-owed");
+    // ...unless the pacer SAW all of it and measured it short: its word stands.
+    const sawIt = fake({ status: "absent" }, { lastEvaluation: { at: NOW - 8 * DAY, turns: 3, bytes: 900 } });
+    expect(planRetention(later, sawIt)[0]?.verdict).toBe("deleted");
+    // An evaluation OLDER than the last capture did not see it all: the count decides.
+    const stale = fake({ status: "absent" }, { lastEvaluation: { at: NOW - 9 * DAY, turns: 3, bytes: 900 } });
+    expect(planRetention(later, stale)[0]?.verdict).toBe("kept-owed");
+  });
+
+  test("m1: the host's ask rows count as asks, and their time as the last ask", async () => {
+    const b = brain();
+    await live(b, "host-asked", NOW - 10 * DAY, { asked: false, answer: null });
+    // The pacer's state was never written, but the host recorded an ask.
+    b.c.noteAdapterEvent(ADAPTER_ASK_EVENT, { session: "host-asked", asked: true, outcome: "asked", turns: 9, bytes: 6_000 });
+    b.set(NOW);
+    const [h] = planRetention(b.c.spans, sources(b.c));
+    expect(h?.facts.asked).toBe(true);
+    expect(h?.verdict).toBe("kept-owed");
+  });
+
+  test("m10: a session the registry holds OPEN is never deleted, whatever its age", async () => {
+    const b = brain();
+    await live(b, "idle-open", NOW - 400 * DAY, { asked: false, endNormally: false });
+    recordSession(dir, { sessionId: "idle-open", scope: SCOPE, phase: "start", at: NOW - 400 * DAY });
+    b.set(NOW);
+    const [h] = planRetention(b.c.spans, sources(b.c));
+    expect(h?.open).toBe(true);
+    expect(h?.verdict).toBe("kept-live");
+    const report = prune(b.c.spans, sources(b.c));
+    expect(report.keptLive).toBe(1);
+    expect(heldSessions(dir)).toEqual(["idle-open"]);
+    // Once the registry records its end, the ordinary rule applies.
+    recordSession(dir, { sessionId: "idle-open", scope: SCOPE, phase: "end", at: NOW - 399 * DAY });
+    expect(planRetention(b.c.spans, sources(b.c))[0]?.verdict).toBe("deleted");
+  });
+
+  test("m10: a registry record that will not read is treated as open — cannot tell means keep", async () => {
+    const b = brain();
+    await live(b, "garbled", NOW - 30 * DAY, { asked: false, endNormally: false });
+    recordSession(dir, { sessionId: "garbled", scope: SCOPE, phase: "start", at: NOW - 30 * DAY });
+    writeFileSync(sessionPath(dir, "garbled") as string, "{half a rec", "utf8");
+    b.set(NOW);
+    expect(planRetention(b.c.spans, sources(b.c))[0]?.verdict).toBe("kept-live");
+  });
+
+  test("m2: an end recorded in one directory settles the text the session left in another", async () => {
+    const b = brain();
+    const OTHER = "/scope/retention-worktree";
+    b.set(NOW - 10 * DAY);
+    b.c.captureSpans({ session: "two-dirs", scope: OTHER, turns: TALK.map((t) => ({ ...t, text: `${t.text} (other dir)` })) });
+    b.c.boundary({ session: "two-dirs", scope: OTHER, kind: "stop" });
+    await live(b, "two-dirs", NOW - 10 * DAY, { answer: "chapter" }); // the end lands under SCOPE only
+    b.set(NOW);
+    const plan = planRetention(b.c.spans, sources(b.c));
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.scopes).toEqual([OTHER, SCOPE].sort());
+    expect(plan[0]?.facts.endedNormally).toBe(true);
+    expect(plan[0]?.verdict).toBe("deleted");
+    const report = prune(b.c.spans, sources(b.c));
+    expect(report.deleted).toBe(1);
+    expect(b.c.spans.spans(OTHER)).toEqual([]);
+    expect(b.c.spans.spans(SCOPE)).toEqual([]);
+  });
+
+  test("m3: #186's 'nothing new' mark is an answer when it came after the last ask — and not when it came before", async () => {
+    // #186 is not merged: the mark is written the way it will write it, on the
+    // raw registry record, and read defensively.
+    const withMark = async (markAfterAsk: boolean): Promise<string | undefined> => {
+      const b = brain();
+      await live(b, "nothing-new", NOW - 10 * DAY, { answer: null });
+      recordSession(dir, { sessionId: "nothing-new", scope: SCOPE, phase: "end", at: NOW - 10 * DAY });
+      const path = sessionPath(dir, "nothing-new") as string;
+      const rec = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      rec["nothingNewAt"] = markAfterAsk ? NOW - 10 * DAY + 60_000 : NOW - 11 * DAY;
+      writeFileSync(path, JSON.stringify(rec), "utf8");
+      b.set(NOW);
+      const verdict = planRetention(b.c.spans, sources(b.c))[0]?.verdict;
+      b.c.close();
+      open.length = 0;
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "counterparts-retention-"));
+      return verdict;
+    };
+    expect(await withMark(true)).toBe("deleted");
+    expect(await withMark(false)).toBe("kept-owed");
+  });
+
+  test("m6: the date's latch is taken with O_EXCL BEFORE anything is planned — a second run that date touches nothing", async () => {
+    const b = brain();
+    await live(b, "old", NOW - 10 * DAY, { answer: "chapter" });
+    b.set(NOW);
+    // Another worker holds today's latch already.
+    mkdirSync(join(dir, "spans", "retention"), { recursive: true });
+    writeFileSync(join(dir, "spans", "retention", "2026-09-23.latch"), "", "utf8");
+    const second = pruneRetention(b.c.spans, sources(b.c), { date: "2026-09-23" });
+    expect(second.reason).toBe("ALREADY_RAN");
+    expect(heldSessions(dir)).toEqual(["old"]);
+    // The next date is its own, and the first run on it wins it.
+    expect(pruneRetention(b.c.spans, sources(b.c), { date: "2026-09-24" }).deleted).toBe(1);
+    expect(pruneRetention(b.c.spans, sources(b.c), { date: "2026-09-24" }).reason).toBe("ALREADY_RAN");
+    // The job reads a held latch as "already ran" and writes no row for it.
+    expect(retentionJob({ counterpart: b.c, date: "2026-09-24" }).reason).toBe("already-ran");
+    expect(b.c.store.eventLog({ name: RETENTION_EVENT })).toHaveLength(0);
+  });
+
+  test("m6: latches stay bounded — a month of them, the oldest let go", () => {
+    const buf = new SpanBuffer({ dir, now: () => NOW });
+    for (let d = 1; d <= 40; d += 1) {
+      pruneRetention(buf, fake({}), { date: `2026-08-${String(((d - 1) % 31) + 1).padStart(2, "0")}` });
+    }
+    for (let d = 1; d <= 9; d += 1) pruneRetention(buf, fake({}), { date: `2026-09-0${String(d)}` });
+    const latches = readdirSync(join(dir, "spans", "retention"));
+    expect(latches.length).toBe(31);
+    expect(latches.sort()[latches.length - 1]).toBe("2026-09-09.latch");
   });
 });
 
@@ -370,7 +592,7 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
     const b = brain();
     await live(b, "old", NOW - 10 * DAY, { answer: "chapter" });
     b.set(NOW);
-    pruneRetention(b.c.spans, sources(b.c));
+    prune(b.c.spans, sources(b.c));
     const strikes = readFileSync(join(dir, "spans", keyFor(SCOPE), "strikes.jsonl"), "utf8").trim().split("\n");
     expect(strikes).toHaveLength(1);
     const rec = JSON.parse(strikes[0] as string) as Record<string, unknown>;
@@ -384,7 +606,7 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
     await live(b, "old", NOW - 10 * DAY, { answer: "session-end" });
     b.set(NOW);
     const before = b.c.spans.boundaries(SCOPE).length;
-    pruneRetention(b.c.spans, sources(b.c));
+    prune(b.c.spans, sources(b.c));
     expect(b.c.spans.boundaries(SCOPE).length).toBe(before);
     expect(b.c.spans.cursor(SCOPE, "old")).toBe(TALK.length);
     // A re-read of the same transcript captures nothing: the cursor, not the
@@ -399,11 +621,12 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
     b.c.close();
     open.length = 0;
     const obs = new SpanBuffer({ dir, observer: true, now: () => NOW });
-    const src: RetentionSources = { episode: () => ({ status: "loaded", asks: 1, chapters: 1 }), handoffSessions: new Set() };
-    const report = pruneRetention(obs, src);
+    const src = fake({ asks: 1, chapters: 1, appendedAtAsk: 1, lastAskAt: NOW - 10 * DAY });
+    const report = prune(obs, src);
     expect(report.reason).toBe("OBSERVER");
     expect(report.deleted).toBe(0);
-    expect(report.failed).toBe(1);
+    // An instrument does not even take the date's latch.
+    expect(existsSync(join(dir, "spans", "retention"))).toBe(false);
     expect(heldSessions(dir)).toEqual(["old"]);
     expect(obs.events("remember.observer.standdown").map((e) => e.data?.site)).toContain("strike");
   });
@@ -415,8 +638,8 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
       writer.boundary({ session: `s${String(i)}`, scope: SCOPE, kind: "session-end" });
     }
     const small = new SpanBuffer({ dir, now: () => NOW, consumedLedgerMax: 5 });
-    const src: RetentionSources = { episode: () => ({ status: "absent", asks: 0, chapters: 0 }), handoffSessions: new Set() };
-    const report = pruneRetention(small, src);
+    const src = fake({ status: "absent" });
+    const report = prune(small, src);
     expect(report.deleted).toBe(12);
     const ledger = readFileSync(join(dir, "spans", keyFor(SCOPE), "consumed.jsonl"), "utf8").trim().split("\n");
     expect(ledger.length).toBeLessThanOrEqual(5);
