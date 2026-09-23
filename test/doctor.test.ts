@@ -41,7 +41,7 @@ import {
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
-import { STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
+import { DATABASE_FILE, STORE_CREATED_KEY, Store, dateOf } from "../src/core/store/index.js";
 import {
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_COPY_WRITTEN_EVENT,
@@ -2840,16 +2840,78 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     expect(f.detail).toContain("of that week");
   });
 
-  test("a store with NO record of its beginning is not guessed at", () => {
-    // Every store made before 2026-09-21 is this store. The reading declines
-    // rather than inventing an age, and the sentence is the one it always was.
+  test("a store with no record of its beginning that dates itself AFTER today clamps nothing", () => {
+    // Every store made before 2026-09-21 has no `store.created`, and since
+    // 2026-09-23 the reading falls back to the store's own evidence (the next
+    // three tests). Here that evidence — no events, and a database file born
+    // just now — lands after this test's `today`, which is a clock nobody
+    // should trust, so the sentence is the one it always was.
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "");
+    expect(s.eventLog({ limit: 1 })).toHaveLength(0);
     const f = by(doctorFindings(input({ store: s })), "authorship");
     expect(f.detail.startsWith("2026-09-08→2026-09-14: ")).toBe(true);
+  });
+
+  // ── #8 for the stores 0.1.0 made (2026-09-23) ─────────────────────────────
+
+  test("no `store.created`: the OLDEST EVENT ROW's write time says when it began", () => {
+    // `at`, the moment the row was written, on the store's provenance clock —
+    // not `rowDate`, which prefers the day a payload is ABOUT. The payload here
+    // claims a date a year back, and it must not be believed.
+    const clock = Date.parse("2026-09-12T10:00:00Z");
+    const c = Counterpart.open({ dir, now: () => clock });
+    c.close();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = Store.open({ dir, now: () => clock });
+    stores.push(s);
+    s.setMeta(STORE_CREATED_KEY, "");
+    s.appendEvent({
+      name: SWEEP_GATE_EVENT,
+      day: s.livedDay(),
+      payload: { reason: "ran", ran: 1, scopes: 1, date: "2025-09-12" },
+    });
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-12→2026-09-14: ")).toBe(true);
+    expect(f.data["shownFrom"]).toBe("2026-09-12");
+    // The READING is untouched, as for `store.created`.
+    expect(f.data["from"]).toBe("2026-09-08");
+  });
+
+  test("no `store.created` and no events: the DATABASE FILE's birth time says when it began", () => {
+    // The file is born now, so `today` three days on puts that birth inside
+    // the window — which is exactly the store 0.1.0 made on a morning and was
+    // graded that week.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.setMeta(STORE_CREATED_KEY, "");
+    expect(s.eventLog({ limit: 1 })).toHaveLength(0);
+    const born = statSync(join(dir, DATABASE_FILE)).birthtimeMs;
+    if (!(born > 0)) return; // a filesystem that keeps no birth time: nothing to read
+    const bornOn = dateOf(born);
+    const today = dateOf(born + 3 * 86_400_000);
+    const f = by(doctorFindings(input({ store: s, today })), "authorship");
+    expect(f.detail.startsWith(`${bornOn}→${today}: `)).toBe(true);
+    expect(f.data["shownFrom"]).toBe(bornOn);
+  });
+
+  test("a `store.created` that IS there wins: the fallbacks are fallbacks", () => {
+    const clock = Date.parse("2026-09-09T10:00:00Z");
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = Store.open({ dir, now: () => clock });
+    stores.push(s);
+    s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
+    s.setMeta(STORE_CREATED_KEY, "2026-09-13");
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-13→2026-09-14: ")).toBe(true);
   });
 
   test("a beginning AFTER today is a clock nobody should trust, and clamps nothing", () => {
@@ -2899,7 +2961,10 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     expect(f.data["answered"]).toBe(true);
   });
 
-  test("Sweep: `no-credential` with NO key is the amber it always was", () => {
+  test("Sweep: `no-credential` with NO key is the amber it always was — and its fix is the command", () => {
+    // 2026-09-23, from the 0.2.0 trial: "every fix a command". The one reason
+    // whose remedy is a single command names it; the others keep pointing at
+    // the row (the next test), because what fixes them depends on the door.
     mintStore();
     writeConfig();
     writeCredentials([EMBED_KEY_ENV]);
@@ -2911,7 +2976,7 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     });
     const f = by(doctorFindings(input({ store: s })), "sweep");
     expect(f.severity).toBe("amber");
-    expect(f.fix).toBe("The sweep stood down; the reason names why.");
+    expect(f.fix).toBe(`Run: counterparts credentials set ${API_KEY_ENV}`);
     expect(f.detail).not.toContain("was added");
   });
 

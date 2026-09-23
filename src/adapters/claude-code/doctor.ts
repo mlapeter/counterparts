@@ -33,7 +33,7 @@
  *      nobody needed).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1263,11 +1263,24 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
               "",
               { reason, ran: num(p, "ran"), date: rowDate(sweep), answered: true },
             )
-          : finding("sweep", "amber", "Sweep", detail, "The sweep stood down; the reason names why.", {
-              reason,
-              ran: num(p, "ran"),
-              date: rowDate(sweep),
-            }),
+          : finding(
+              "sweep",
+              "amber",
+              "Sweep",
+              detail,
+              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial). The
+              // one stand-down whose remedy is a single command says the
+              // command; every other reason still points at the row, because
+              // what fixes it depends on which door it names.
+              reason === "no-credential"
+                ? `Run: counterparts credentials set ${API_KEY_ENV}`
+                : "The sweep stood down; the reason names why.",
+              {
+                reason,
+                ran: num(p, "ran"),
+                date: rowDate(sweep),
+              },
+            ),
     );
   }
 
@@ -1451,17 +1464,31 @@ const STORE_STARTED_META = "store.started";
  *   2. `store.started` — `start-fresh`'s own record of the day a blank store
  *      took a parked one's place.
  *
- * **Absent on every store made before 2026-09-21, and that is the whole answer
- * for them: null, no clamp, exactly today's sentence.** A reading that guessed
- * would be worse than one that declines to.
+ * **Absent on every store made before 2026-09-21** — every store 0.1.0 made,
+ * which is why finding #8 stayed open for them after 0.2.0 closed it for new
+ * ones. So when neither record is there, two FALLBACKS, in order (2026-09-23):
  *
- * THREE THINGS THAT LOOK LIKE SOURCES AND ARE NOT. A memory's `learned_on` — an
- * imported store carries dates from long before it existed. The oldest EVENT
- * row's date — `rowDate` prefers the payload's own `date` field, which is the
- * date the event is ABOUT and not the day the row was written, so a store whose
- * first row is back-dated would be declared younger than its own contents.
- * `livedDay` — the physics clock, which the worker advances and which is 0 on a
- * store whose worker has never run.
+ *   3. **The oldest event row's `at`** — the moment the row was WRITTEN, on the
+ *      store's own provenance clock. Not its `rowDate`: that prefers the
+ *      payload's `date` field, which is the day the event is ABOUT, and a
+ *      back-dated first row would declare the store younger than its contents.
+ *      `at` has no such field to be fooled by. Event pruning cannot make it lie
+ *      the dangerous way either: a row is pruned only once it is 90 LIVED days
+ *      old, so a store that has lost its first rows is months older than the
+ *      seven-day window, and its oldest survivor clamps nothing.
+ *   4. **The database file's birth time** — for a store with no events at all.
+ *      A filesystem that does not keep one reports zero, which is read as "no
+ *      answer", never as 1970.
+ *
+ * Both fallbacks can only make a store look OLDER than it is when they are
+ * wrong (a copied file is born when it was copied, and a row written by replay
+ * tooling carries the clock it was given) — never younger than its rows, which
+ * is the direction that would matter.
+ *
+ * TWO THINGS THAT LOOK LIKE SOURCES AND ARE NOT. A memory's `learned_on` — an
+ * imported store carries dates from long before it existed. `livedDay` — the
+ * physics clock, which the worker advances and which is 0 on a store whose
+ * worker has never run.
  */
 function storeFirstDay(store: Store): string | null {
   let first: string | null = null;
@@ -1470,7 +1497,30 @@ function storeFirstDay(store: Store): string | null {
     if (said === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(said)) continue;
     if (first === null || said < first) first = said;
   }
-  return first;
+  if (first !== null) return first;
+  return oldestEventDay(store) ?? databaseBirthDay(store.dir);
+}
+
+/** The calendar day (UTC) the store's oldest surviving event row was written,
+ *  or null when it has none, or none that can be read. */
+function oldestEventDay(store: Store): string | null {
+  try {
+    const at = store.eventLog({ limit: 1 })[0]?.at;
+    return typeof at === "number" && Number.isFinite(at) && at > 0 ? dateOf(at) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The calendar day (UTC) the store's database file was born, or null when the
+ *  filesystem keeps no birth time (it reports zero) or the file cannot be read. */
+function databaseBirthDay(dir: string): string | null {
+  try {
+    const born = statSync(paths.operational(dir)).birthtimeMs;
+    return Number.isFinite(born) && born > 0 ? dateOf(born) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
