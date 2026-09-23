@@ -189,7 +189,14 @@ the only way the pre-migration years get a threads lane at all.
 
 ---
 
-## The cap has a day again, so the zone question is live again — REOPENED 2026-09-18
+## The cap has a day again, so the zone question is live again — REOPENED 2026-09-18, CLOSED FOR THE CAP 2026-09-23
+
+**Closed for the cap and the page writer's night (owner's ruling 2026-09-23):** both take
+the machine's LOCAL calendar day (`calendar.ts`, NOTES §22). What survives is the other
+half named below and in NOTES §22: provenance dates — `learned_on`, the `date` on every
+`adapter.ask` row — are still UTC, and they are `store/`'s and the hooks' to move.
+
+*The entry as it stood before, for the record:*
 
 This closed on 2026-09-17, when the cap became the session's own for the
 session's whole life: no day, so no zone. The cap is now the session's own **per

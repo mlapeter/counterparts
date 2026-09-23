@@ -1055,3 +1055,62 @@ end. The store CONTRACT's §4 says that second half in its own words now: markdo
 is an export, AND the journal keeps a file copy — a copy, derived, write-only,
 classified in the layout but deliberately out of the backup set, regenerated from
 its rows if it is deleted.
+
+## 22. The calendar day is the person's: local midnight for the cap and the night (2026-09-23, B3)
+
+**The ruling.** The owner's, 2026-09-23: the six-a-day ask cap and the "nightly" page
+writer take their calendar day in the machine's LOCAL zone. Until then both read
+`Store#today`, which is UTC — an owner at UTC−6 got the day's allowance back at 18:00,
+and the writer's night turned over at about 17:00 Pacific (`claude-code/INTERFACE-GAPS`
+§13).
+
+**What moved — one helper, read in one place.** `calendar.ts#calendarDate(at, zone?)`
+turns the STORE's provenance instant (`store.now()`, never the ambient clock, so a seeded
+or replayed store decides its days by its own run) into `YYYY-MM-DD` in `zone`, or in the
+machine's zone when none is given — which is what `TZ` sets. `Self#calendarToday()` is
+the only caller inside `self/`, and it now decides: the cap's day (`askDue`,
+`openChapter` → `asksDay`), the writer's due check, the claim's `on` stamp, and the
+defaults of `pageWriterStatus` / `pageWriterClaimOpen` / `pageWriterInput`. The claim's
+`on` had to move WITH the day it is compared against — `claim.on < today` with one side
+local and the other UTC would close a night hours early or late. Host mode
+(`claude-code/page-writer.ts`) stopped passing its own `today` and lets `Self` decide,
+so the two modes cannot disagree about which night is owed.
+
+**What did not move.** The LIVED day (physics) is untouched — no clock move here reads or
+advances it (`test/local-day.test.ts` asserts it). Every PROVENANCE date stays UTC and
+stays `store/`'s: `learned_on`, the page's `revisedOn`, a clearing's `on`, every `date` a
+hook stamps (`input.at`, the `adapter.ask` row's `date`), the worker's run date. The page
+writer still SELECTS a night's memories by `learned_on`, so the day it names (local) and
+the rows it reads (UTC-stamped) are offset by the zone. Nothing is read twice or
+skipped — each UTC date is read by exactly one run, the first one after it has closed —
+but west of UTC "the 18th" is 18:00-on-the-17th to 18:00-on-the-18th local. That is two
+clocks in one store, named rather than hidden; the fix that removes it is `store/`
+stamping `learned_on` locally (`store/index.ts#dateOf`), one clock moved once, and it is
+not this module's to make.
+
+**The east-of-UTC guard.** `pageWriterNight` holds the night back to the newest
+provenance date that has CLOSED: `about = min(local yesterday, UTC yesterday)`. West of
+UTC the local yesterday is never later than UTC's, so this changes nothing there. East of
+UTC, for the hours between local midnight and UTC's, the local yesterday is a UTC date
+still being filed under — and on a store made that morning its rows are hours old, so a
+plain "local yesterday" would have broken DAY 0 (`no-previous-day`) for every new user in
+Asia or Australia. With the guard the night waits until that date closes (09:00 in
+Tokyo); a caller that passes `today` explicitly gets the plain rule, unchanged.
+
+**The day of the change — accepted.** An `asksDay` stamped under UTC and read against a
+local `today` can differ for a few hours: the allowance may refill once early, or hold a
+few hours late, and `asksSpentOn`'s existing rule (a mismatched stamp reads as nothing
+spent) means it never reads as MORE spent than there was. Likewise a writer claim stamped
+with a UTC `on` may close its night a few hours early or late, once. Both were accepted
+with the ruling.
+
+**Tests do not depend on the machine's zone.** `Self` takes a `zone` (`SelfOptions.zone`),
+and `test/local-day.test.ts` pins `America/Chicago`, `UTC` and `Asia/Tokyo` explicitly;
+the older writer tests now read the night through `pageWriterNight` instead of
+recomputing it from UTC, so the whole suite passes under any `TZ`.
+
+**Owed elsewhere (not this module's files).** `doctor.ts#pageWriterFindings` still takes
+`dateOf(store.now())` — UTC — so between local and UTC midnight its "owed for" can name a
+different night from the one the mechanism is working on. The one-line fix is
+`const { today, about } = pageWriterNight(store);` in place of its two lines.
+

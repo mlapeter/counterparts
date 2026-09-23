@@ -124,6 +124,25 @@ line 13: decisions are defaults).
     stand-down is logged (`encode.observer.standdown`), so a stood-down instrument
     stays distinguishable from a broken hook (scar E7, observer-mode G5/G6).
 
+18. **The AWS SECRET access key is caught by context, never by shape alone** (2026-09-23,
+    handoff INTERFACE-GAPS §6). The key id has a prefix (`AKIA…`) and always had a family;
+    the 40-character secret beside it has none — it is base64's alphabet, and that shape
+    alone also matches a 40-character CamelCase identifier or a path. The 09-20 review
+    measured the consequence: id redacted, secret stored verbatim, in a handoff and, by the
+    same battery, the journal and the self page. `aws-secret-access-key` is three patterns
+    under one family name: (a) the value under its own NAME — `aws_secret_access_key`,
+    `AWS_SECRET_ACCESS_KEY`, `"SecretAccessKey"`, `aws configure`'s prompt — keeping the
+    name; (b) a 40-character token within 200 characters AFTER the key id; (c) the same
+    BEFORE it. (b) and (c) anchor on the id's PLACEHOLDER, which the key-id family has
+    written by then, so text an older build half-redacted is finished by a re-scan; and the
+    token must carry both cases, which a 40-hex git SHA, a lowercase slug and an all-caps
+    constant never do (a random 40-character base64 string lacks one about once in a
+    billion). A bare 40-character token with no name and no id nearby is LEFT ALONE: a
+    declared non-goal, because the false positives are ordinary technical prose.
+    `assigned-credential` could not have caught (a): its `\b` fails before `secret` and
+    `access` when an underscore precedes them (`aws_secret…`). Proved in
+    `test/secrets-aws.test.ts`, including every entrance.
+
 ## Calibration status (scar §2.8, guarantee 13)
 
 Every threshold in `tunables.ts` carries the v1 measurement it inherits and a

@@ -371,3 +371,109 @@ for a normally-ended session is never swept (by design) and has no prune path,
 so it only grows (131 KB in the counterparts scope on 2026-09-14). That is a
 retention question for the buffer, not a gate question, and nothing here touches
 it.
+
+## 16. 2026-09-23 — retention: the predicate, the week, and who reads spans
+
+**The rule** (owner's ruling 2026-09-23, roadmap B3): a session's captured text is
+deleted 7 days after it ended, when nothing is owed; a session that owes a write-up waits
+until it is written up. CONTRACT §5 G15; `retention.ts`.
+
+### Every reader of `spans/`, inventoried before anything was deleted
+
+What each needs, and what a week-old deletion of a session that owes nothing costs it:
+
+| Reader | What it reads | Needs | After retention |
+|---|---|---|---|
+| The crash-fallback sweep (`fallback.ts`, via `Counterpart#sweepFallback` in the worker) | `buffer.jsonl`, `jots.jsonl`, claims — CRASHED sessions only | a crashed session's uncovered text until it is swept (12 h silence) | Unaffected in practice. A crashed session the pacer asked about OWES (clause b) and is kept however old; one it never asked about is short and goes after a week — six and a half days after the sweep could first have read it. |
+| The next-session write-up (roadmap C2, not built) | a session's captured text | everything a session that owes still holds | This IS the predicate it will read; nothing it needs can age out. |
+| The lagged semantic cue (`claude-code/vectors.ts`) | `spans()` and `assistantSpans()` filtered to the session that just spoke | the live session's last turn | A live session is always younger than a week (its clock is its last activity). |
+| The Stop's coverage report (`hooks.ts#askAtStop` → `coverageReport`) | counts over the scope's buffer | counts for the `adapter.ask` row | The counts now describe what is HELD — a week and what is owed — not everything ever captured. |
+| Deposit intake (`proposals.ts#submitProposal`) | the deposit's own span, just captured | the live session | Live, so young. |
+| `claimCoverage` | the live session's uncovered spans | the live session | Live, so young. |
+| Dedup layer 2 (`seenHashes`) at capture and jot | every stream's hashes + claims + the consumed ledger | to refuse an exact repeat | A session's own re-read is refused by its CURSOR, which retention keeps. An identical sentence in a LATER session is admitted once the old copy is gone — which is correct: it is a new utterance. |
+| The owner's removal (`cli` remove → the strike; the echo walk) | every text stream, quarantine, claims | to find and destroy a removed memory's words | Less to find. A removed memory's source text now survives at most a week (or until written up) instead of for ever. |
+| The daily rotating snapshot (`adapters/snapshots.ts`) | the whole of `spans/` (`backup: true`) | a copy | Retention runs BEFORE the day's copy, so a new copy never carries text past its week. The 14 copies already rotating still hold what they held; the last of them ages out 14 days after retention first runs. |
+| `export` (`cli/export.ts`) | nothing — it omits `spans/` (LAUNCH-STATUS §I3) | — | Unchanged; the line saying so is INTERFACE-GAPS §12. |
+| The dashboard (`views.ts` "spans" node) | nothing — "silent by design" | — | Unchanged; the new row is INTERFACE-GAPS §10. |
+| Replay tooling (`tools/replay/`) | writes a fresh temp store's buffer from a corpus; never reads a live `spans/` | — | Unaffected. |
+| The parallel-run recorder (`tools/parallel/record.ts`, `readers.ts`) | a v2 data dir's span files for ONE day, and every `quarantine.jsonl` | the day being recorded | A daily recorder reads days younger than a week; it would only lose text if run against a day more than 7 days old. |
+
+### Decisions, each with its reason
+
+1. **The predicate reads the PACER, not the text.** "A short session that never reached
+   the pacer's threshold owes nothing" is the owner's sentence, and the durable evidence
+   that the threshold was reached is the pacer's own: an ask is committed only when one
+   was due (`self/episodes.ts#episodeFacts`, `asks > 0`). Re-deriving a threshold from
+   captured bytes would be a second pacer, measured on a different corpus (tool turns,
+   injected context), which is the drift `self/` CONTRACT §3 already paid for once.
+
+2. **Clause (b) needs `asked` too.** Read literally, "(b) ended abnormally with captured
+   text" makes EVERY session that was lost to a closed terminal — Claude Code fires no
+   SessionEnd for that — owe a write-up, including a two-turn "hi". On a keyless store
+   that text would never age out, and C2 would ask the next session to write it up; the
+   roadmap says of C2 that "a short session that never reached the pacer's threshold is
+   never asked about". So both clauses sit under the threshold, and (b) catches what it is
+   for: a session that was asked, perhaps answered once, and was then lost with a tail
+   nobody wrote. **Flagged for the owner's review** — it is the one reading this build
+   chose rather than transcribed.
+
+3. **The assistant's own turns are not a debt.** `assistant.jsonl` is never claimed and
+   never swept, so a session the key-based sweep already wrote up still holds its replies.
+   Counting them as "captured text" would make it owe for ever. They are DELETED with the
+   session, though — they are the fastest-growing file.
+
+4. **"Ended normally" is a `session-end` boundary at or after the last capture**, not
+   "any `session-end` ever" (`crashedSessions`' reading, which the sweep keeps). A session
+   resumed after a normal end and then lost is judged by the stretch after its last end —
+   the direction that keeps text.
+
+5. **An unreadable pacer state counts as asked**, and an unreadable handoff log as no
+   answers. Every failure to read a fact moves toward KEEPING.
+
+6. **The clock** is the later of the session's last activity in that scope (capture or
+   boundary) and its write-up mark, on the buffer's own clock. A live session is always
+   young; a session written up late keeps its text a week past the write-up (the
+   roadmap's "so B3's retention clock starts").
+
+7. **Through the strike, not beside it.** A second destruction path would have made the
+   strike's first line ("the one place in `remember/` that destroys lived experience")
+   false. The strike gained `sessions` (identity, every kind — the jot-only rule is about
+   text PREDICATES) and `by`. `test/cli.test.ts`'s import pin now lists `retention.ts` as
+   the third allowed importer, with the reason. What the owner's strike does is byte for
+   byte what it did.
+
+8. **The retention ledger is trimmed; the owner's is not.** The strike ledgers every
+   struck hash into `consumed.jsonl` before it moves a byte (so a restore or an orphan
+   merge cannot re-admit it). A retention run can name thousands of spans, and a keyless
+   store never runs the `consume()` that trims that file — so a retention strike trims it
+   to `CONSUMED_LEDGER_MAX`, exactly as `consume()` does. Evicting an old hash costs, at
+   worst, one re-admission that the next day's run deletes again.
+
+9. **Claims count, and are struck.** Text held only in a claim file (a sweep in flight, or
+   a crashed run's orphan) counts as captured, so nothing in flight can make a session
+   look empty. A doomed session's lines are struck from claim files too — the strike's
+   existing behaviour, and the reason a mid-arc restore cannot bring them back (the
+   ledger refuses them).
+
+10. **Once per date, before the snapshot.** The worker runs at every boundary; the rule is
+    measured in days. The latch is the durable row (and a `dedupKey` beneath it for two
+    workers racing past the check). A run that fails leaves its row with `failed` counted
+    and is retried the next date.
+
+11. **Counts are per (scope, session).** A session id that captured under two scopes is
+    judged in each — the same per-scope rule the sweep has (CONTRACT open question 6).
+
+12. **`keptOwed` includes LIVE sessions** that have been asked and not yet answered —
+    they owe, right now. It is the honest count of "what the predicate says is owed", and
+    a doctor line that wants only ENDED sessions can subtract the young ones.
+
+### Named, not built
+
+- **Two workers overlapping** have no lock between them, the same property the strike
+  already names (NOTES §14): the rename-aside choreography bounds the damage to duplicate
+  lines, and nothing is lost.
+- **The first run on a long-lived store** deletes its whole backlog of sessions that owe
+  nothing and are more than a week old, in one pass. On the owner's store, started fresh
+  on 2026-09-21, nothing is older than a week before 2026-09-28.
+- **Old snapshots** keep what they copied until they rotate out (14 days).
+

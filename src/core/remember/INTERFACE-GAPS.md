@@ -148,7 +148,16 @@ A draft with no `kind` mints as `"fact"`. If `encode/` classifies kind, that def
 should move behind the gate seam (the verdict can return one) rather than being
 guessed twice.
 
-## 9. Nothing prunes `buffer.jsonl` for a session that ended normally
+## 9. Nothing prunes `buffer.jsonl` for a session that ended normally — CLOSED 2026-09-23
+
+**Closed by retention** (owner's ruling 2026-09-23; CONTRACT §5 G15, NOTES §16): a
+session's captured text is deleted 7 days after it ended when it owes no write-up. The
+answer to the question below — "may an UNCOVERED span be dropped on age alone?" — turned
+out to be the pacer's, not coverage's: a session the pacer never found substance in owes
+nothing and ages out; one it did and nobody answered is kept until it is written up.
+What the rest of the tree still owes for it is §10–§12 below.
+
+*The entry as filed, for the record:*
 
 **Filed 2026-09-05**, by the adversarial review of the span chase (finding F5).
 
@@ -187,3 +196,34 @@ same way here: bound it, count it, do not silently drop it.
 forgetting, the strike is a mechanism for destroying on demand, and building the
 first inside the second would have made a removal PR into a change of what the
 system keeps.
+
+## 10. The `remember.prune` row is not in the dashboard's vocabulary, nor under a mechanism
+
+**Owner:** `adapters/dashboard/` and `adapters/fired.ts` — NOT this module. Filed 2026-09-23.
+**Needed:** the retention job writes one durable `remember.prune` row per date
+(`retention.ts#RETENTION_EVENT`, payload `retentionRow`: `date`, `reason`, `scopes`,
+`deleted`, `keptOwed`, `keptYoung`, `failed`, `lines`, `bytes`, `retentionDays`; no `ref`).
+**Have:** the row is written, and nothing that renders the log knows its name. The totality
+tests do not fail — they walk the registry, not the log — so the row is invisible rather
+than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union and the
+`DURABLE_EVENTS` gloss), `dashboard/web/flow.ts` (`EVENT_NODE`, the `spans` node),
+`dashboard/web/narrate.ts` (a `NARRATORS` line), the `REF_KIND` table (`"none"`), and a
+`MECHANISMS` row in `fired.ts` naming it as evidence. It is written with
+`store.appendEvent` directly, not `noteAdapterEvent`, because that method's name list is
+`counterpart.ts`'s.
+
+## 11. Doctor does not show it yet
+
+**Owner:** `adapters/claude-code/doctor.ts`. Filed 2026-09-23.
+**Have:** `lastRetentionRun(store)` returns the newest row as numbers. The line it was
+built for: `Raw transcripts  kept 7 days · <deleted> sessions pruned <date> · <keptOwed>
+awaiting a write-up` — green; amber only when `failed > 0`; "not run yet" on a store the
+worker has not reached, which is not a fault.
+
+## 12. `export` still says nothing about `spans/`
+
+**Owner:** `adapters/cli/` (LAUNCH-STATUS §I3). Filed again 2026-09-23 with the words
+retention makes true: after the export's `Kind:` line, one line —
+`Not included: spans/ — the raw captured conversation, kept at most 7 days after a session
+ends (longer only while it waits to be written up).`
+
