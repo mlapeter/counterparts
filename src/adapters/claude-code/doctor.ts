@@ -89,7 +89,9 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, pageWriterMode } from "./config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, embedderKind, pageWriterMode } from "./config.js";
+import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
+import { HELD_EXITS } from "../../core/store/index.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -939,6 +941,15 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
   const haveKey = present.includes(EMBED_KEY_ENV);
   const data = { enabled, key: haveKey, everEmbedded: history.embedded };
   const turnOn = `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
+  // THE STORE'S OWN VERDICT FIRST (review of #190, MAJOR 4): a hold or a newer
+  // build's cache turns the channel off whatever the configuration says, and
+  // it is read DURABLY — this handle is an observer and reconciles nothing.
+  if (enabled) {
+    const withdrawn = withdrawnFinding(input);
+    if (withdrawn !== null) return [withdrawn];
+  }
+  // THE LOCAL TABLE (MAJOR 3): never a Voyage key in its advice.
+  if (enabled && embedderKind(input.config) === "static") return [staticFinding(input, data)];
   if (enabled && haveKey) {
     return [finding("embedder", "green", RECALL_TITLE, "on — recall matches meaning as well as words", "", data)];
   }
@@ -983,6 +994,116 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
 
 const RECALL_TITLE = "Recall by meaning";
 const CRASH_TITLE = "Crash write-up";
+
+/**
+ * A HOLD, or a cache from a newer build — the two states in which the store
+ * itself has taken the vector channel away (cache v5). Amber, and each names
+ * its own way out; the grade is the same whichever embedder is configured,
+ * because in both states nothing is ranked or embedded until somebody acts.
+ */
+function withdrawnFinding(input: DoctorInput): Finding | null {
+  let v;
+  try {
+    v = input.store?.embedderVerdict;
+  } catch {
+    return null;
+  }
+  if (v === undefined) return null;
+  if (v.kind === "held") {
+    const from = v.recorded ?? "an older build (untagged)";
+    return finding(
+      "embedder",
+      "amber",
+      RECALL_TITLE,
+      `held — the store holds ${v.rows} vectors from ${from}, and the configuration asks for ${v.configured ?? "another model"}; ` +
+        "nothing is embedded or matched by meaning until you choose, so no paid vector is thrown away by accident. Recall still matches on words",
+      `Either ${HELD_EXITS.replace("<store>", tilde(input.dir))}.`,
+      { held: true, recorded: v.recorded, configured: v.configured, rows: v.rows },
+    );
+  }
+  if (v.kind === "cache-ahead") {
+    return finding(
+      "embedder",
+      "amber",
+      RECALL_TITLE,
+      `off in this process — the store's cache was written by a newer Counterparts (cache v${v.found}; this build reads v${v.expected}). Recall still matches on words`,
+      "Update: bun add -g counterparts@latest — then in Claude Code run /mcp → Reconnect so the server loads it.",
+      { cacheAhead: true, found: v.found, expected: v.expected },
+    );
+  }
+  return null;
+}
+
+/**
+ * THE LOCAL TABLE'S LINE (review of #190, MAJOR 3). Before this, a
+ * `kind: "static"` configuration read the Voyage branch: "on, but
+ * VOYAGE_API_KEY is not saved", with a fix that bought a key the table never
+ * uses and then graded green. So:
+ *
+ *   - What the WORKER saw wins: its newest backfill row says which embedder
+ *     ran, where its weights came from, or — `embedder-unavailable` — the code
+ *     it refused with. That row is written in the hooks' own environment, which
+ *     is not the console's (I32).
+ *   - With no row yet, this process looks for the table itself, and says that
+ *     the first boundary will confirm it.
+ */
+function staticFinding(input: DoctorInput, data: Record<string, string | number | boolean | null>): Finding {
+  const install = `Install the table: bun add -g ${STATIC_WEIGHTS_PACKAGE} — or set ${STATIC_WEIGHTS_ENV} in the environment Claude Code starts hooks with`;
+  const row = newestBackfill(input);
+  if (row !== null && str(row, "reason") === "embedder-unavailable") {
+    const code = str(row, "codes") ?? "NO_WEIGHTS";
+    return finding(
+      "embedder",
+      "amber",
+      RECALL_TITLE,
+      `on (a local table), but the worker could not load its weights (${code}) — nothing is embedded; recall still matches on words`,
+      code === "HASH_MISMATCH" ? `The table on disk is not the one its package declares. Reinstall it: bun add -g ${STATIC_WEIGHTS_PACKAGE}` : install,
+      { ...data, kind: "static", code },
+    );
+  }
+  if (row !== null && str(row, "kind") === "static" && str(row, "weights") !== null) {
+    return finding(
+      "embedder",
+      "green",
+      RECALL_TITLE,
+      `on — a local table (${str(row, "model") ?? "static"}, weights from the ${String(str(row, "weights"))}); nothing leaves this machine`,
+      "",
+      { ...data, kind: "static", weights: str(row, "weights") },
+    );
+  }
+  const found = resolveStaticWeights();
+  if (found === null) {
+    return finding(
+      "embedder",
+      "amber",
+      RECALL_TITLE,
+      "on (a local table), but its weights were not found — nothing will be embedded; recall still matches on words",
+      install,
+      { ...data, kind: "static", weights: null },
+    );
+  }
+  return finding(
+    "embedder",
+    "green",
+    RECALL_TITLE,
+    `on — a local table, weights found (${found.source}); the next boundary's worker confirms what the hooks see`,
+    "",
+    { ...data, kind: "static", weights: found.source },
+  );
+}
+
+/** The newest backfill row's payload, or null — one bounded read, never a throw. */
+function newestBackfill(input: DoctorInput): Record<string, unknown> | null {
+  const store = input.store;
+  if (store === null) return null;
+  try {
+    const read = newestRows(store, EMBED_BACKFILL_EVENT, 1, store.livedDay());
+    const row = read.rows[0];
+    return row === undefined ? null : payloadOf(row);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The clause for THE NAME THIS FINDING IS ABOUT, and no other: "your shell
@@ -1346,8 +1467,22 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
       (num(prior, "embedded") ?? 0) === 0 &&
       (num(prior, "failed") ?? 0) > 0;
     const data = { embedded, failed, remaining: num(p, "remaining"), skipped: num(p, "skipped"), codes: str(p, "codes"), date: rowDate(newest) };
+    // NOT GREEN WHEN NOTHING COULD RUN (review of #190, MAJOR 4): a withdrawn
+    // channel or an embedder that could not be built has `failed: 0` because it
+    // never tried, which is the opposite of healthy.
+    const why = str(p, "reason");
+    const idle = why === "vectors-withdrawn" || why === "embedder-unavailable";
     out.push(
-      stalledTwice
+      idle
+        ? finding(
+            "backfill",
+            "amber",
+            "Backfill",
+            `${detail} — ${why === "vectors-withdrawn" ? "the store has withdrawn the vector channel" : "the embedder could not be built"}, so nothing was tried`,
+            "Read the Recall by meaning line.",
+            { ...data, reason: why },
+          )
+        : stalledTwice
         ? finding("backfill", "red", "Backfill", `${detail} — and the run before it embedded nothing too`, "The backfill is head-of-line blocked; the codes name the fault (see I33).", data)
         : failed > 0
           ? finding("backfill", "amber", "Backfill", detail, "Some chunks failed; the codes name why.", data)
@@ -2131,11 +2266,27 @@ function vectorFindings(input: DoctorInput, store: Store): Finding[] {
   const skipped = store.skippedVectorIds().length;
   const detail = `${unembedded} live memories with no vector, ${skipped} skipped after repeated embed failures`;
   const data = { unembedded, skipped };
+  // WITHDRAWN: the count cannot fall, so the line must not say it will
+  // (review of #190, MAJOR 4). The Recall by meaning line names the way out.
+  const verdict = store.embedderVerdict.kind;
+  if (verdict === "held" || verdict === "cache-ahead") {
+    return [
+      finding(
+        "vectors",
+        "amber",
+        "Vectors",
+        `${detail} — the vector channel is withdrawn (${verdict}), so this will not fall until that is resolved`,
+        "Read the Recall by meaning line.",
+        { ...data, withdrawn: verdict },
+      ),
+    ];
+  }
   if (skipped > 0) {
     return [finding("vectors", "amber", "Vectors", detail, "counterparts verify --dir <store> --retry-skipped puts the skipped ids back in the rotation.", data)];
   }
   if (unembedded > 0) {
-    return [finding("vectors", "amber", "Vectors", detail, "The backfill embeds up to 64 per boundary; this number must fall run over run.", data)];
+    const perBoundary = embedderKind(input.config) === "static" ? "1,000" : "64";
+    return [finding("vectors", "amber", "Vectors", detail, `The backfill embeds up to ${perBoundary} per boundary; this number must fall run over run.`, data)];
   }
   return [finding("vectors", "green", "Vectors", detail, "", data)];
 }

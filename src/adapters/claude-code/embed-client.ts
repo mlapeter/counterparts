@@ -69,7 +69,7 @@ import type { StaticModel } from "../../core/embed/static.js";
 import type { Embedder, EmbedderIdentity } from "../../core/store/index.js";
 import { hashText } from "../../core/store/index.js";
 
-import { EMBED_KEY_ENV, TUNABLES, VOYAGE_ENDPOINT, embedSeat, embedderKind } from "./config.js";
+import { EMBED_KEY_ENV, EMBED_MODEL_DIMS, TUNABLES, VOYAGE_ENDPOINT, embedSeat, embedderKind } from "./config.js";
 import type { AdapterConfig, EmbedderKind } from "./config.js";
 import type { FetchLike } from "./interpret-client.js";
 
@@ -466,6 +466,18 @@ export interface LiveEmbedder {
    */
   readonly needsCredential?: boolean;
   /**
+   * Set when this embedder was ASKED FOR and could not be built — today, a
+   * static table whose weights were not found or would not load (`NO_WEIGHTS`,
+   * `MISSING_FILE`, `HASH_MISMATCH`, …). Such an embedder answers every ask
+   * with null, carries no identity (so the store never reconciles against it),
+   * and the worker's backfill writes the code into its DURABLE row
+   * (`reason: "embedder-unavailable"`) — which is how a refusal that happened
+   * inside a hook process, whose `onEvent` goes nowhere, reaches doctor.
+   */
+  readonly unavailable?: string;
+  /** For the static table: which rule found the weights (`option`, `env`, `package`). */
+  readonly weights?: "option" | "env" | "package";
+  /**
    * The sync face `Store.open({ embed })` takes. For the paid seat: cache only,
    * never a socket. For the static table: it COMPUTES, in-process — which is
    * what puts a vector on every memory at write time, in whatever process
@@ -520,11 +532,13 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
 
   const keyOf = (text: string): string => `${model}\0${hashText(text)}`;
 
-  // The paid seat's identity: its pinned id, and a width only its first vector
-  // can tell (`dim: null` — the store tags the cache at that first write).
-  // `external`: box 3 never drops these rows at open without a confirm, and
-  // never refills them inline — the backfill is the paid path.
-  const identity: EmbedderIdentity = { model, dim: null, rebuild: "external" };
+  // The paid seat's identity: its pinned id, and its output width when this
+  // package knows it (`EMBED_MODEL_DIMS` — we never send `output_dimension`, so
+  // it is the model's default). An id nobody listed has `dim: null`, its width
+  // is learned from its first vector, and untagged rows are never adopted under
+  // it (review of #190, MINOR 1). `external`: box 3 never drops these rows at
+  // open, and never refills them inline — the backfill is the paid path.
+  const identity: EmbedderIdentity = { model, dim: EMBED_MODEL_DIMS[model] ?? null, rebuild: "external" };
   const embed: Embedder = Object.assign(
     (text: string): number[] | null => {
       const hit = cache.get(keyOf(text));
@@ -675,7 +689,10 @@ export interface StaticEmbedderOptions {
  * `vector()` and `warm()` never touch a network and never throw; there is no
  * cache, because there is nothing to save by keeping one.
  */
-export function createStaticEmbedder(model: StaticModel, opts: { onEvent?: EmitFn } = {}): LiveEmbedder {
+export function createStaticEmbedder(
+  model: StaticModel,
+  opts: { onEvent?: EmitFn; weights?: "option" | "env" | "package" } = {},
+): LiveEmbedder {
   const emit = opts.onEvent ?? ((): void => {});
   let hits = 0;
   let misses = 0;
@@ -695,6 +712,7 @@ export function createStaticEmbedder(model: StaticModel, opts: { onEvent?: EmitF
     model: model.model,
     kind: "static",
     needsCredential: false,
+    ...(opts.weights === undefined ? {} : { weights: opts.weights }),
     embed,
     vector: async (text: string): Promise<number[] | null> => (text.length === 0 ? null : compute(text)),
     // Nothing to fetch ahead of time: the sync face computes when the store
@@ -706,12 +724,34 @@ export function createStaticEmbedder(model: StaticModel, opts: { onEvent?: EmitF
 }
 
 /**
- * Load the table and wrap it, or say — by returning null and emitting a named
- * refusal — that there is none here. A missing table is not an error worth a
- * failed hook: the brain runs lexical-only, exactly as it did before, and the
- * event says why.
+ * The static table that was asked for and is not here: every ask answers null,
+ * no identity (the store never reconciles against it, so nothing in box 3 is
+ * touched), and `unavailable` carries the refusal's code to the worker's
+ * durable backfill row. Lexical recall is untouched.
  */
-export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedder | null {
+export function unavailableStaticEmbedder(code: string): LiveEmbedder {
+  const embed: Embedder = (): number[] | null => null;
+  return {
+    model: "static",
+    kind: "static",
+    needsCredential: false,
+    unavailable: code,
+    embed,
+    vector: async (): Promise<number[] | null> => null,
+    warm: async (): Promise<number> => 0,
+    stats: (): EmbedderStats => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
+  };
+}
+
+/**
+ * Load the table and wrap it — or, when it cannot, say so by NAME twice: an
+ * `embed.refused` event for whoever listens, and an UNAVAILABLE embedder whose
+ * code the worker writes durably (review of #190, MAJOR 3: a hook's `onEvent`
+ * goes nowhere, so the event alone reached no one). A missing table is not an
+ * error worth a failed hook: the brain runs lexical-only, exactly as it did
+ * before.
+ */
+export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedder {
   const emit = opts.onEvent ?? ((): void => {});
   const found = resolveStaticWeights({
     ...(opts.weightsDir === undefined ? {} : { dir: opts.weightsDir }),
@@ -719,7 +759,7 @@ export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedd
   });
   if (found === null) {
     emit("embed.refused", { code: "NO_WEIGHTS", kind: "static" });
-    return null;
+    return unavailableStaticEmbedder("NO_WEIGHTS");
   }
   try {
     const model = loadStaticModel({ dir: found.dir });
@@ -729,13 +769,13 @@ export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedd
       source: found.source,
       ms: Math.round(model.loadMs),
     });
-    return createStaticEmbedder(model, opts.onEvent === undefined ? {} : { onEvent: opts.onEvent });
-  } catch (err) {
-    emit("embed.refused", {
-      code: err instanceof StaticEmbedderError ? err.code : "LOAD_FAILED",
-      kind: "static",
-      source: found.source,
+    return createStaticEmbedder(model, {
+      weights: found.source,
+      ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     });
-    return null;
+  } catch (err) {
+    const code = err instanceof StaticEmbedderError ? err.code : "LOAD_FAILED";
+    emit("embed.refused", { code, kind: "static", source: found.source });
+    return unavailableStaticEmbedder(code);
   }
 }

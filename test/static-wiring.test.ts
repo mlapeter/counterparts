@@ -17,6 +17,7 @@ import { EMBEDDER_KINDS, embedderKind, loadConfig } from "../src/adapters/claude
 import { STATIC_BACKFILL_LIMIT, backfillVectors, laggedSemantic } from "../src/adapters/claude-code/vectors.js";
 import { createEmbedder, createStaticEmbedder, openEmbedder, openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { loadStaticModel } from "../src/core/embed/static.js";
+import { openServer } from "../src/adapters/mcp/index.js";
 import { EMBEDDER_META_KEY, EMBED_SKIP_AFTER, Store, paths } from "../src/core/store/index.js";
 import type { LiveEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { openDb } from "../src/core/store/db.js";
@@ -91,8 +92,9 @@ describe("openEmbedder — which embedder the knob switches on", () => {
     expect(e).not.toBeNull();
     expect(e?.kind).toBe("static");
     expect(e?.needsCredential).toBe(false);
-    expect(e?.model).toBe("tiny-static");
-    expect(e?.embed.identity).toEqual({ model: "tiny-static", dim: 4, rebuild: "inline" });
+    expect(e?.model).toMatch(/^static-[0-9a-f]{12}$/); // from the bytes; the package label is display only
+    expect(e?.weights).toBe("option");
+    expect(e?.embed.identity).toEqual({ model: e?.model ?? "", dim: 4, rebuild: "inline" });
     // The SYNC face computes — that is the whole of "in-process embedding".
     expect(e?.embed("the otter survey")?.length).toBe(4);
   });
@@ -101,7 +103,8 @@ describe("openEmbedder — which embedder the knob switches on", () => {
     const e = openEmbedder({ embedder: { enabled: true } });
     expect(e?.kind).toBe("voyage");
     expect(e?.needsCredential).toBe(true);
-    expect(e?.embed.identity).toEqual({ model: "voyage-3-large", dim: null, rebuild: "external" });
+    // Its KNOWN width (review MINOR 1): adoption of untagged rows needs it.
+    expect(e?.embed.identity).toEqual({ model: "voyage-3-large", dim: 1024, rebuild: "external" });
     // Cache only: a miss is null, never a socket.
     expect(e?.embed("anything")).toBeNull();
   });
@@ -111,21 +114,23 @@ describe("openEmbedder — which embedder the knob switches on", () => {
     expect(openEmbedder({ observer: true, embedder: { enabled: true, kind: "static" } }, { weightsDir: weights })).toBeNull();
   });
 
-  test("a table that will not load is a named refusal and no embedder — never a failed hook", () => {
+  test("a table that will not load: a named refusal, and an UNAVAILABLE embedder carrying the code — never a failed hook", () => {
     const events: { name: string; data: Record<string, unknown> }[] = [];
     const e = openStaticEmbedder({
       weightsDir: join(weights, "nope"),
       onEvent: (name, data) => events.push({ name, data }),
     });
-    expect(e).toBeNull();
     expect(events).toEqual([{ name: "embed.refused", data: { code: "MISSING_FILE", kind: "static", source: "option" } }]);
+    expect(e.unavailable).toBe("MISSING_FILE");
+    expect(e.embed("the otter survey")).toBeNull();
+    expect(e.embed.identity).toBeUndefined(); // the store never reconciles against it
   });
 
   test("the loaded event names the model, width, source and load time — never a path", () => {
     const events: { name: string; data: Record<string, unknown> }[] = [];
     openStaticEmbedder({ env: { COUNTERPARTS_STATIC_WEIGHTS_DIR: weights }, onEvent: (name, data) => events.push({ name, data }) });
     expect(events[0]?.name).toBe("embed.static.loaded");
-    expect(events[0]?.data).toMatchObject({ model: "tiny-static", dim: 4, source: "env" });
+    expect(events[0]?.data).toMatchObject({ dim: 4, source: "env" });
     expect(JSON.stringify(events)).not.toContain(weights);
   });
 
@@ -146,7 +151,7 @@ describe("in-process embedding: a memory has its vector in the process that wrot
     const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     const s = c.store;
-    expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: "tiny-static@4", adopted: 0 });
+    expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: `${e.model}@4`, adopted: 0 });
     const id = s.put({ type: "memory", kind: "fact", body: "The otter survey found eleven holts on the river." });
     expect(s.unembeddedCount()).toBe(0);
     expect(s.nearestTo(e.embed("otter holt river") ?? [], 1)[0]?.id).toBe(id);
@@ -155,7 +160,7 @@ describe("in-process embedding: a memory has its vector in the process that wrot
     const db = openDb(paths.cache(dir));
     const tag = db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = ?", EMBEDDER_META_KEY)?.value;
     db.close();
-    expect(tag).toBe("tiny-static@4");
+    expect(tag).toBe(`${e.model}@4`);
   });
 });
 
@@ -294,3 +299,93 @@ describe("a static table's null is the item's, so the backfill retires it", () =
     expect(after.skipped).toBe(1);
   });
 });
+
+describe("an embedder that was asked for and is not here reaches a DURABLE row (review MAJOR 3)", () => {
+  test("backfill: reason embedder-unavailable, the code in codes, kind static — in box 2's event log", async () => {
+    const e = openStaticEmbedder({ weightsDir: join(weights, "nope") });
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    opened.push(c);
+    c.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+    expect(c.store.embedderVerdict).toEqual({ kind: "none" }); // no identity, nothing reconciled
+    const report = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    expect(report).toMatchObject({ reason: "embedder-unavailable", codes: "MISSING_FILE", kind: "static", attempted: 0 });
+    const row = c.store.eventLog({ name: "adapter.embed.backfill" }).at(-1);
+    expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ reason: "embedder-unavailable", codes: "MISSING_FILE" });
+  });
+
+  test("a working table's row says which rule found its weights and which model ran", async () => {
+    const e = openStaticEmbedder({ weightsDir: weights });
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    opened.push(c);
+    const report = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    expect(report).toMatchObject({ kind: "static", weights: "option", model: e.model });
+  });
+
+  test("the lagged cue records embed-failed with the refusal beside it", async () => {
+    const e = openStaticEmbedder({ weightsDir: join(weights, "nope") });
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    opened.push(c);
+    c.captureSpans({ session: "s1", scope: "proj", turns: [{ role: "user", text: "Where is the otter holt?" }] });
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s1",
+      scope: "proj",
+      embedder: e,
+      hasCredential: false,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    expect(lag.reason).toBe("embed-failed");
+    expect(events.find((x) => x.name === "vectors.lag")?.data).toMatchObject({ unavailable: "MISSING_FILE" });
+  });
+});
+
+describe("embedder.kind is ignored while the embedder is OFF (review MINOR 5)", () => {
+  test("a typo in a switched-off knob does not stand memory down", () => {
+    for (const kind of ["static ", "Static", "potion"]) {
+      const got = loadConfig({ dataDir: "/tmp/x", embedder: { enabled: false, kind } });
+      expect(got.ok).toBe(true);
+      expect(got.config.observer).toBeUndefined();
+      expect(got.config.embedder).toEqual({ enabled: false });
+    }
+    expect(loadConfig({ embedder: { enabled: false, kind: "static" } }).config.embedder).toEqual({ enabled: false, kind: "static" });
+  });
+
+  test("switched ON, the bad key is named in the unreadable reason", () => {
+    const got = loadConfig({ dataDir: "/tmp/x", embedder: { enabled: true, kind: "potion" } });
+    expect(got.reason).toBe("unreadable");
+    expect(got.unreadableKeys).toEqual(["embedder.kind"]);
+    expect(loadConfig({ embedder: { enabled: "yes" } }).unreadableKeys).toEqual(["embedder.enabled"]);
+  });
+});
+
+describe("the MCP server's store reconciles like a hook's (review MAJOR 1)", () => {
+  test("openServer hands the embedder's identity to its store: tagged, and a note gets its vector at write time", () => {
+    const e = openStaticEmbedder({ weightsDir: weights });
+    const server = openServer({ dir, owner: true, embedder: e });
+    opened.push({ close: () => server.counterpart.close() });
+    const s = server.counterpart.store;
+    expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: `${e.model}@4`, adopted: 0 });
+    s.put({ type: "memory", kind: "fact", body: "The otter survey found eleven holts." });
+    expect(s.unembeddedCount()).toBe(0);
+  });
+
+  test("a held box 3 answers the server's ranking with nothing", () => {
+    const paidA = Object.assign((t: string): number[] | null => [t.length, 1, 2, 3], {
+      identity: { model: "voyage-3-large", dim: null, rebuild: "external" as const },
+    });
+    const seedStore = Store.open({ dir, embed: paidA });
+    seedStore.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+    seedStore.close();
+    const paidB = Object.assign((): number[] | null => null, {
+      identity: { model: "voyage-3.5", dim: null, rebuild: "external" as const },
+    });
+    Store.open({ dir, embed: paidB }).close();
+    // The server with NO embedder at all still sees the hold.
+    const server = openServer({ dir, owner: true });
+    opened.push({ close: () => server.counterpart.close() });
+    expect(server.counterpart.store.embedderVerdict.kind).toBe("held");
+    expect(server.counterpart.store.nearestTo([10, 1, 2, 3], 3)).toEqual([]);
+  });
+});
+

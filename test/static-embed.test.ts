@@ -14,7 +14,7 @@
  *   COUNTERPARTS_STATIC_RETRIEVAL_DIR=<dir with static-retrieval-mrl-en-v1's, vocab derived>
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -137,27 +137,73 @@ describe("WordPiece", () => {
 });
 
 describe("loadStaticModel — a synthetic table", () => {
-  test("loads rows, width, identity from the directory name or the option", () => {
+  test("loads rows and width; the identity comes from the BYTES, the label is only a label", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny" });
+    const m = loadStaticModel({ dir, label: "tiny" });
     expect(m.rows).toBe(VOCAB.length);
     expect(m.width).toBe(4);
     expect(m.dim).toBe(4);
-    expect(m.identity).toBe("tiny@4");
+    expect(m.identity).toMatch(/^static-[0-9a-f]{12}@4$/);
+    expect(m.label).toBe("tiny");
+    expect(m.sha256.model).toMatch(/^[0-9a-f]{64}$/);
     expect(m.dtype).toBe("F32");
     expect(m.tensor).toBe("embeddings");
     expect(m.maxTokens).toBe(DEFAULT_MAX_TOKENS);
   });
 
-  test("the model name falls back to package.json's counterparts.model", () => {
+  test("package.json's counterparts.model is the LABEL; it never changes the identity", () => {
     makeTable(dir);
+    const bare = loadStaticModel({ dir });
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", counterparts: { model: "named-here" } }));
-    expect(loadStaticModel({ dir }).identity).toBe("named-here@4");
+    const named = loadStaticModel({ dir });
+    expect(named.label).toBe("named-here");
+    expect(named.identity).toBe(bare.identity);
+  });
+
+  test("the same bytes through three differently named (symlinked) directories give ONE identity (review MAJOR 5)", () => {
+    makeTable(dir);
+    const names = ["potion", "snapshot-bf8b056", "potion-base-8M"];
+    const ids = names.map((name) => {
+      const d = join(dir, name);
+      mkdirSync(d);
+      symlinkSync(join(dir, "model.safetensors"), join(d, "model.safetensors"));
+      symlinkSync(join(dir, "vocab.txt"), join(d, "vocab.txt"));
+      return loadStaticModel({ dir: d }).identity;
+    });
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  test("different bytes never share an identity — a changed vocabulary included", () => {
+    makeTable(dir);
+    const a = loadStaticModel({ dir }).identity;
+    writeFileSync(join(dir, "vocab.txt"), `${[...VOCAB.slice(0, -1), "kafe"].join("\n")}\n`);
+    expect(loadStaticModel({ dir }).identity).not.toBe(a);
+  });
+
+  test("a package.json that DECLARES a sha256 is checked: a mismatch is refused by name, a match loads", () => {
+    makeTable(dir);
+    const good = loadStaticModel({ dir }).sha256;
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ counterparts: { sha256: { "model.safetensors": good.model, "vocab.txt": good.vocab } } }),
+    );
+    expect(loadStaticModel({ dir }).sha256).toEqual(good);
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ counterparts: { sha256: { "model.safetensors": "0".repeat(64) } } }),
+    );
+    let code: string | null = null;
+    try {
+      loadStaticModel({ dir });
+    } catch (err) {
+      code = err instanceof StaticEmbedderError ? err.code : "OTHER";
+    }
+    expect(code).toBe("HASH_MISMATCH");
   });
 
   test("the vector is the L2-normalized MEAN of the known tokens, UNK dropped", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny" });
+    const m = loadStaticModel({ dir, label: "tiny" });
     // hello , worlds ! → [5, 9, 6, 7] and `!` is not in the vocabulary (UNK, dropped)
     expect(m.tokenIds("Hello, worlds!")).toEqual([5, 9, 6, 7]);
     const got = m.embed("Hello, worlds!");
@@ -168,28 +214,28 @@ describe("loadStaticModel — a synthetic table", () => {
 
   test("accents are stripped before lookup (café → cafe)", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny" });
+    const m = loadStaticModel({ dir, label: "tiny" });
     expect(m.tokenIds("Café")).toEqual([11]);
   });
 
   test("a literal special token is ONE id (HF added vocabulary), and [UNK] is still dropped", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny" });
+    const m = loadStaticModel({ dir, label: "tiny" });
     expect(m.tokenIds("the[MASK]test")).toEqual([10, 4, 8]);
     expect(m.tokenIds("[UNK] hello")).toEqual([5]);
   });
 
   test("deterministic: the same text gives the same bytes, across loads", () => {
     makeTable(dir);
-    const a = loadStaticModel({ dir, model: "tiny" });
-    const b = loadStaticModel({ dir, model: "tiny" });
+    const a = loadStaticModel({ dir, label: "tiny" });
+    const b = loadStaticModel({ dir, label: "tiny" });
     expect(a.embed("the test worlds")).toEqual(a.embed("the test worlds"));
     expect(a.embed("the test worlds")).toEqual(b.embed("the test worlds"));
   });
 
   test("empty, whitespace-only and UNK-only input is NULL — never a zero vector", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny" });
+    const m = loadStaticModel({ dir, label: "tiny" });
     expect(m.embed("")).toBeNull();
     expect(m.embed("   \n\t")).toBeNull();
     expect(m.embed("zzz qqq !!!")).toBeNull();
@@ -198,9 +244,9 @@ describe("loadStaticModel — a synthetic table", () => {
 
   test("the DIM slice keeps the leading columns and renormalizes over them", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny", dim: 2 });
+    const m = loadStaticModel({ dir, label: "tiny", dim: 2 });
     expect(m.dim).toBe(2);
-    expect(m.identity).toBe("tiny@2");
+    expect(m.identity).toMatch(/^static-[0-9a-f]{12}@2$/);
     const got = m.embed("hello the");
     const want = unit(meanOf([5, 10], 2));
     expect(got?.length).toBe(2);
@@ -209,18 +255,18 @@ describe("loadStaticModel — a synthetic table", () => {
 
   test("sentence-transformers' tensor name loads through the same code", () => {
     makeTable(dir, { name: "embedding.weight" });
-    const m = loadStaticModel({ dir, model: "st" });
+    const m = loadStaticModel({ dir, label: "st" });
     expect(m.tensor).toBe("embedding.weight");
     expect(m.embed("hello")).not.toBeNull();
   });
 
   test("an F16 table decodes to the same vectors (exact for these values)", () => {
     makeTable(dir);
-    const f32 = loadStaticModel({ dir, model: "tiny" });
+    const f32 = loadStaticModel({ dir, label: "tiny" });
     const dir16 = mkdtempSync(join(tmpdir(), "cp-static16-"));
     try {
       makeTable(dir16, { dtype: "F16" });
-      const f16 = loadStaticModel({ dir: dir16, model: "tiny" });
+      const f16 = loadStaticModel({ dir: dir16, label: "tiny" });
       expect(f16.dtype).toBe("F16");
       expect(f16.embed("hello worlds the")).toEqual(f32.embed("hello worlds the"));
     } finally {
@@ -239,7 +285,7 @@ describe("loadStaticModel — a synthetic table", () => {
 
   test("the text is clipped to maxTokens × medianTokenLength chars, then maxTokens ids", () => {
     makeTable(dir);
-    const m = loadStaticModel({ dir, model: "tiny", maxTokens: 3 });
+    const m = loadStaticModel({ dir, label: "tiny", maxTokens: 3 });
     // The median token length of VOCAB is 5 (sorted lengths' middle pair 5,5),
     // so the string is cut to 15 characters before tokenizing: the third
     // `hello` arrives as `hel`, which is unknown and dropped.
@@ -334,6 +380,12 @@ describe.skipIf(POTION === undefined || POTION === "")("potion-base-8M — the r
     }
   });
 
+  test("its identity is potion-base-8M@256 — from its bytes, whatever the directory is called", () => {
+    const m = loadStaticModel({ dir: POTION ?? "" });
+    expect(m.identity).toBe("potion-base-8M@256");
+    expect(m.sha256.model).toBe("f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2");
+  });
+
   test("the research proof's four pairs: related 0.58 / 0.42, unrelated 0.06 / 0.09", () => {
     const m = loadStaticModel({ dir: POTION ?? "" });
     const cos = (a: string, b: string): number => {
@@ -356,6 +408,7 @@ describe.skipIf(RETRIEVAL === undefined || RETRIEVAL === "")("static-retrieval-m
     expect(m.tensor).toBe("embedding.weight");
     expect(m.width).toBe(1024);
     expect(m.dim).toBe(256);
+    expect(m.identity).toBe("static-retrieval-mrl-en-v1@256");
     for (const c of TOKENIZER_CASES) {
       expect(m.tokenIds(c.text)).toEqual(c.staticRetrievalIds.filter((id) => id !== 100));
     }

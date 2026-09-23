@@ -93,9 +93,12 @@ import {
   indexDoc,
   nearest,
   nearestVectors,
+  HELD_EXITS,
   cacheAhead,
+  heldEmbedder,
   openCache,
   reconcileEmbedder,
+  recordedEmbedder,
   resetCache,
   searchIndex,
   setEmbedding,
@@ -141,9 +144,13 @@ export {
   vectorFormats,
   EMBEDDER_META_KEY,
   EMBEDDER_REBUILD_META_KEY,
+  EMBEDDER_HELD_META_KEY,
+  HELD_EXITS,
+  heldEmbedder,
   identityTag,
   parseIdentityTag,
   recordedEmbedder,
+  schemaAhead,
 } from "./cache.js";
 export type { EmbedderIdentity, EmbedderVerdict, RecordedEmbedder } from "./cache.js";
 export type { ConvertBatchReport, Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
@@ -556,6 +563,13 @@ export type WriteMethod = (typeof WRITE_METHODS)[number];
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
 
+/**
+ * The DURABLE row an open writes when the identity check changed something
+ * (a reset, a new hold, an adoption, a released hold). Box 2's event log, so
+ * doctor and tomorrow can read what the open did to box 3's vectors.
+ */
+export const EMBEDDER_RECONCILED_EVENT = "store.embedder.reconciled";
+
 /** Rows per box-3 transaction in the at-open inline refill. CAL. */
 const REFILL_BATCH = 500;
 /**
@@ -571,14 +585,14 @@ function verdictData(v: EmbedderVerdict): Record<string, string | number | boole
   switch (v.kind) {
     case "none":
       return { kind: v.kind };
-    case "match":
-      return { kind: v.kind, tag: v.tag };
     case "tagged":
       return { kind: v.kind, tag: v.tag, adopted: v.adopted };
     case "reset":
       return { kind: v.kind, from: v.from, to: v.to, dropped: v.dropped };
     case "held":
       return { kind: v.kind, recorded: v.recorded, configured: v.configured, rows: v.rows };
+    case "match":
+      return v.released === true ? { kind: v.kind, tag: v.tag, released: true } : { kind: v.kind, tag: v.tag };
     case "cache-ahead":
       return { kind: v.kind, found: v.found, expected: v.expected };
   }
@@ -748,21 +762,34 @@ export class Store {
     // THE AT-OPEN IDENTITY CHECK (cache v5, roadmap C1). Once per open, never
     // per call, and never under observer: an instrument has no embedder, and
     // "a recorded identity with no configured embedder" keeps the rows as they
-    // are. A HELD mismatch (two paid identities) takes the embedder away from
-    // this handle for writes, so a new model's vectors are never filed beside
-    // an old model's under one tag.
+    // are.
     //
     // A cache from a NEWER build is checked first and wins over everything:
     // no reconcile (it could drop rows or write a tag), no vectors written, no
     // ranking — whatever this process configured. Named, never silent.
+    //
+    // A HOLD IS THE FILE'S, NOT THE HANDLE'S (review of #190, MAJOR 1): a
+    // handle with no identity — the MCP server's, the dashboard's, the
+    // console's — reads the durable marker and refuses to rank exactly as the
+    // handle that wrote it does. Either way a held or ahead handle has its
+    // embedder withdrawn, so no vector is written beside another model's.
     const identity = this.observer ? undefined : opts.embed?.identity;
     const ahead = cacheAhead(this.cache);
+    const held = ahead === null && identity === undefined ? heldEmbedder(this.cache) : null;
     this.embedderVerdict =
       ahead !== null
         ? { kind: "cache-ahead", found: ahead.found, expected: ahead.expected }
-        : identity === undefined
-          ? { kind: "none" }
-          : reconcileEmbedder(this.cache, identity);
+        : identity !== undefined
+          ? reconcileEmbedder(this.cache, identity)
+          : held !== null
+            ? {
+                kind: "held",
+                recorded: recordedEmbedder(this.cache)?.tag ?? null,
+                configured: held,
+                rows: embeddingCount(this.cache),
+                fresh: false,
+              }
+            : { kind: "none" };
     if (this.embedderVerdict.kind === "held" || this.embedderVerdict.kind === "cache-ahead") this.embed = undefined;
     if (this.embedderVerdict.kind === "cache-ahead") {
       this.emit("cache.schema.ahead", undefined, verdictData(this.embedderVerdict));
@@ -817,15 +844,61 @@ export class Store {
       },
     });
     this.assertLayout();
-    // INLINE REBUILD, for an embedder that can: the tag was just (re)written,
-    // so every live memory is missing its vector, and a static table computes
-    // them in-process for nothing. The tag went down FIRST (inside
-    // `reconcileEmbedder`), so a process that dies part-way leaves rows that
-    // all match their tag, and the worker's backfill finishes the rest.
-    if (
-      identity?.rebuild === "inline" &&
-      (this.embedderVerdict.kind === "reset" || this.embedderVerdict.kind === "tagged")
-    ) {
+    this.afterReconcile(identity);
+  }
+
+  /**
+   * What an open does AFTER the identity check wrote something — and only then;
+   * the steady state (a match, `none`, a standing hold) writes nothing here.
+   *
+   *   1. **A durable row** (`EMBEDDER_RECONCILED_EVENT`) for every transition:
+   *      a reset (and how many vectors it dropped), a NEW hold (with the two
+   *      exits), an adoption, a released hold. Through box 2's event log, not
+   *      only the in-process ring — the hook's composition root passes no
+   *      `onEvent`, and a drop nobody can read tomorrow is the §2.4 failure.
+   *   2. **The skip list starts over for a new identity** (review MINOR 3): an
+   *      id the old embedder gave up on (a Voyage 400, a table with no token
+   *      for an emoji) is offered to the new one. `embed.failed.<id>` counters
+   *      are not keyed by identity, so a reset is when they stop meaning
+   *      anything.
+   *   3. **Inline refill**, for an embedder that can: every live memory is
+   *      missing its vector and a static table computes them in-process for
+   *      nothing. The tag went down FIRST (inside `reconcileEmbedder`), so a
+   *      process that dies part-way leaves rows that all match their tag, and
+   *      the worker's backfill finishes the rest.
+   */
+  private afterReconcile(identity: EmbedderIdentity | undefined): void {
+    if (this.observer) return;
+    const v = this.embedderVerdict;
+    const newIdentity = v.kind === "reset" || (v.kind === "tagged" && v.tag !== null && v.adopted === 0);
+    const durable =
+      v.kind === "reset" ||
+      (v.kind === "held" && v.fresh) ||
+      (v.kind === "tagged" && v.adopted > 0) ||
+      (v.kind === "match" && v.released === true);
+    if (durable) {
+      try {
+        this.appendEvent({
+          name: EMBEDDER_RECONCILED_EVENT,
+          day: this.livedDay(),
+          payload: { ...verdictData(v), ...(v.kind === "held" ? { exits: HELD_EXITS } : {}) },
+        });
+      } catch {
+        // A lost lock costs the row, never the open (§5 G2's spirit).
+      }
+    }
+    if (newIdentity) {
+      try {
+        const moves: [string, string][] = [];
+        for (const [key, value] of this.metaWithPrefix(EMBED_FAILED_PREFIX)) {
+          if (value !== "0") moves.push([key, "0"]);
+        }
+        if (moves.length > 0) this.setMetaMany(moves);
+      } catch {
+        // Same bargain: the counters are a retry hint, not memory.
+      }
+    }
+    if (identity?.rebuild === "inline" && (v.kind === "reset" || (v.kind === "tagged" && v.tag !== null))) {
       this.refillVectorsInline();
     }
   }
@@ -2454,22 +2527,6 @@ export class Store {
   }
 
   /**
-   * Box 3 is best-effort by design: it is rebuildable, so it never fails a
-   * write.
-   *
-   * **This is where `noVector` has to be asked, and the backfill is the second
-   * place and not the first.** The live adapter wires a SYNC embedder
-   * (`claude-code/index.ts`), so every `put` and `revise` embeds here, at write
-   * time, long before `unembeddedIds` is consulted — a filter only on the
-   * backfill leaves the write path handing the whole body to an embedder. That
-   * was measured, with a stub, before it was fixed.
-   *
-   * The TOKENS are still written either way. A row nobody should embed is still
-   * a row the OWNER should be able to find: the dashboard's search, the console
-   * `remove` flow and `expandHandle`'s exact-title match all read the lexical
-   * index, and none of them is a recall candidate path.
-   */
-  /**
    * Give every live memory its vector, in-process, right now — the INLINE half
    * of the identity check, for an embedder whose sync face computes (a static
    * table). Not a public door: it runs from the constructor, after a reset or
@@ -2524,6 +2581,22 @@ export class Store {
     });
   }
 
+  /**
+   * Box 3 is best-effort by design: it is rebuildable, so it never fails a
+   * write.
+   *
+   * **This is where `noVector` has to be asked, and the backfill is the second
+   * place and not the first.** The live adapter wires a SYNC embedder
+   * (`claude-code/index.ts`), so every `put` and `revise` embeds here, at write
+   * time, long before `unembeddedIds` is consulted — a filter only on the
+   * backfill leaves the write path handing the whole body to an embedder. That
+   * was measured, with a stub, before it was fixed.
+   *
+   * The TOKENS are still written either way. A row nobody should embed is still
+   * a row the OWNER should be able to find: the dashboard's search, the console
+   * `remove` flow and `expandHandle`'s exact-title match all read the lexical
+   * index, and none of them is a recall candidate path.
+   */
   private indexOne(doc: ProseDoc): void {
     const text = indexText(doc);
     const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(text) : null;

@@ -173,6 +173,11 @@ export async function laggedSemantic(input: {
   };
 
   if (input.embedder === null) return note("embedder-off", null, 0);
+  // Asked for and not here (a static table whose weights were not found): the
+  // code rides beside the reason, durably.
+  if (input.embedder.unavailable !== undefined) {
+    return note("embed-failed", null, 0, { unavailable: input.embedder.unavailable });
+  }
   // Before the credential and before any text: a withdrawn channel is not worth
   // one call. `embed-failed` is the closest word recall's closed vocabulary has;
   // `withdrawn` names the store's verdict beside it, durably.
@@ -241,8 +246,27 @@ export interface BackfillReport {
    * `vectors-withdrawn`: the store took the vector channel away at open (a HELD
    * paid-model mismatch, or a cache from a newer build) — nothing was embedded,
    * nothing was paid for, and `codes` names which verdict.
+   * `embedder-unavailable`: an embedder was asked for and could not be built
+   * (a static table whose weights were not found) — `codes` names the refusal.
    */
-  readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer" | "vectors-withdrawn";
+  readonly reason:
+    | "ran"
+    | "embedder-off"
+    | "no-credentials"
+    | "nothing-missing"
+    | "observer"
+    | "vectors-withdrawn"
+    | "embedder-unavailable";
+  /**
+   * WHICH EMBEDDER this row is about (`static` | `voyage`, null when none) and,
+   * for the static table, which rule found its weights. Durable, so doctor can
+   * say what the WORKER'S process saw — the environment a hook inherits is not
+   * the console's (I32).
+   */
+  readonly kind: string | null;
+  readonly weights: string | null;
+  /** The embedder's model name (content-derived for the static table). */
+  readonly model: string | null;
   /**
    * WHY the failures failed: the distinct `code[:status]` pairs of this run,
    * joined by commas, or `""` when nothing failed.
@@ -322,6 +346,9 @@ export async function backfillVectors(input: {
       reason,
       codes,
       skipped,
+      kind: input.embedder === null ? null : (input.embedder.kind ?? "voyage"),
+      weights: input.embedder?.weights ?? null,
+      model: input.embedder === null || input.embedder.unavailable !== undefined ? null : input.embedder.model,
     };
     emit("vectors.backfill", { ...report });
     if (!counterpart.observer) {
@@ -334,6 +361,9 @@ export async function backfillVectors(input: {
 
   if (counterpart.observer) return done("observer", 0, 0, 0);
   if (input.embedder === null) return done("embedder-off", 0, 0, 0);
+  if (input.embedder.unavailable !== undefined) {
+    return done("embedder-unavailable", 0, 0, 0, input.embedder.unavailable);
+  }
   const withdrawn = vectorsWithdrawn(counterpart);
   if (withdrawn !== null) return done("vectors-withdrawn", 0, 0, 0, withdrawn);
   if (credentialMissing(input.embedder, input.hasCredential)) return done("no-credentials", 0, 0, 0);

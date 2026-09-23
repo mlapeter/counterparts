@@ -51,9 +51,11 @@
  * Host-agnostic: `node:fs` and `node:module` only, both of which bun and Node
  * provide. No `Bun.file`.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, join } from "node:path";
+import { endianness } from "node:os";
+import { dirname, join } from "node:path";
 
 /** Where an explicit weights directory comes from when no option names one. */
 export const STATIC_WEIGHTS_ENV = "COUNTERPARTS_STATIC_WEIGHTS_DIR";
@@ -104,7 +106,17 @@ export type StaticRefusal =
   /** The vocabulary is empty or its size disagrees with the table's rows. */
   | "BAD_VOCAB"
   /** A requested `dim` slice that is not 1..table width. */
-  | "BAD_DIM";
+  | "BAD_DIM"
+  /**
+   * The weights directory's `package.json` declares a sha256 for a file and
+   * the bytes on disk do not have it: a corrupted download, or a table swapped
+   * under a package that still claims the old one. Refused, never loaded — a
+   * table that is not what it says would share a store's cosines with rows of
+   * another generation (§2.15).
+   */
+  | "HASH_MISMATCH"
+  /** A big-endian host: safetensors is little-endian and typed arrays use the platform's order. */
+  | "BIG_ENDIAN";
 
 export class StaticEmbedderError extends Error {
   readonly code: StaticRefusal;
@@ -121,12 +133,13 @@ export interface StaticModelOptions {
   /** The directory holding `model.safetensors` and `vocab.txt`. */
   readonly dir: string;
   /**
-   * The model's name — the first half of its identity (`<model>@<dim>`).
+   * A DISPLAY name only. The identity is derived from the bytes (see
+   * `StaticModel.model`), never from a name somebody chose — two directories
+   * holding the same table must agree, and two tables must never share a name.
    * Defaults to `counterparts.model` in the directory's `package.json`, then to
-   * the directory's own name. A vector's generation is part of its identity:
-   * two tables under one name would silently share a store's cosines.
+   * the identity's own name.
    */
-  readonly model?: string;
+  readonly label?: string;
   /**
    * Keep only the first `dim` columns (a Matryoshka slice — meaningful for
    * static-retrieval-mrl-en-v1, whose leading dimensions were trained to stand
@@ -139,8 +152,19 @@ export interface StaticModelOptions {
 
 /** A loaded table. Everything a caller needs, and one method that matters. */
 export interface StaticModel {
-  /** `potion-base-8M` */
+  /**
+   * The table's name AS DERIVED FROM ITS BYTES (review of #190, MAJOR 5): the
+   * sha256 of `model.safetensors` and of `vocab.txt`, looked up in
+   * `KNOWN_TABLES` (`potion-base-8M`, `static-retrieval-mrl-en-v1`), else
+   * `static-<first 12 hex of their combined hash>`. The same bytes give the
+   * same name whatever directory, symlink or package they are found through;
+   * different bytes never share one.
+   */
   readonly model: string;
+  /** For people: the package's `counterparts.model`, else `model`. Never compared. */
+  readonly label: string;
+  /** sha256 of `model.safetensors` and `vocab.txt`, hex. Computed at every load (~10 ms for 30 MB). */
+  readonly sha256: { readonly model: string; readonly vocab: string };
   /** The OUTPUT width (after any slice). */
   readonly dim: number;
   /** `<model>@<dim>` — what `store/` records in `cache_meta.embedder`. */
@@ -408,19 +432,56 @@ export function resolveStaticWeights(
   }
 }
 
-/** `counterparts.model` from the weights directory's `package.json`, if it says. */
-function modelNameOf(dir: string): string {
+/**
+ * The tables this package knows BY THEIR BYTES: `<sha256 of model.safetensors>:<sha256 of vocab.txt>`
+ * → the name a store's tag carries. A table not listed here is named from its
+ * hash (`static-<12 hex>`), so it still has a stable identity of its own — it is
+ * only its human name that is missing.
+ *
+ * static-retrieval-mrl-en-v1's vocabulary is DERIVED (Hugging Face ships only
+ * `tokenizer.json`): `model.vocab` sorted by id, one token per line, trailing
+ * newline — `docs/research/static-embedder-trial-2026-09-23.md`.
+ */
+export const KNOWN_TABLES: ReadonlyMap<string, string> = new Map([
+  [
+    "f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2:1394523a67ddd404a825428018c0582a6998bcfa044ecbcbf1f4d71adb94c61c",
+    "potion-base-8M",
+  ],
+  [
+    "164fc63ee9f9267be7378fcbd7df99d09788a2f45244c92aa99ae5a574925716:07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+    "static-retrieval-mrl-en-v1",
+  ],
+]);
+
+function sha256Hex(bytes: Uint8Array | string): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * The weights directory's `package.json`, if it has one we can read: its
+ * display name and the sha256s it DECLARES. A declaration is a promise the
+ * loader checks (`HASH_MISMATCH`); a missing or unreadable file declares
+ * nothing.
+ */
+function packageClaims(dir: string): { label: string | null; sha256: Record<string, string> } {
   const pkg = join(dir, "package.json");
-  if (existsSync(pkg)) {
-    try {
-      const parsed = JSON.parse(readFileSync(pkg, "utf8")) as { counterparts?: { model?: unknown } };
-      const named = parsed.counterparts?.model;
-      if (typeof named === "string" && named.length > 0) return named;
-    } catch {
-      // A package.json we cannot read names nothing; the directory name does.
+  if (!existsSync(pkg)) return { label: null, sha256: {} };
+  try {
+    const parsed = JSON.parse(readFileSync(pkg, "utf8")) as {
+      counterparts?: { model?: unknown; sha256?: unknown };
+    };
+    const named = parsed.counterparts?.model;
+    const declared = parsed.counterparts?.sha256;
+    const sha256: Record<string, string> = {};
+    if (declared !== null && typeof declared === "object" && !Array.isArray(declared)) {
+      for (const [file, hex] of Object.entries(declared as Record<string, unknown>)) {
+        if (typeof hex === "string") sha256[file] = hex.toLowerCase();
+      }
     }
+    return { label: typeof named === "string" && named.length > 0 ? named : null, sha256 };
+  } catch {
+    return { label: null, sha256: {} };
   }
-  return basename(dir);
 }
 
 /** Python's `int(np.median(lengths))`: the mean of the two middles on an even count, truncated. */
@@ -435,17 +496,38 @@ function medianTokenLength(tokens: readonly string[]): number {
 
 export function loadStaticModel(opts: StaticModelOptions): StaticModel {
   const t0 = performance.now();
+  // Named, where CONTRACT G2 used to say "in a comment": safetensors is
+  // little-endian and a Float32Array view reads in the platform's order.
+  if (endianness() !== "LE") throw new StaticEmbedderError("BIG_ENDIAN", { endianness: endianness() });
   const modelPath = join(opts.dir, MODEL_FILE);
   const vocabPath = join(opts.dir, VOCAB_FILE);
   if (!existsSync(modelPath)) throw new StaticEmbedderError("MISSING_FILE", { file: MODEL_FILE });
   if (!existsSync(vocabPath)) throw new StaticEmbedderError("MISSING_FILE", { file: VOCAB_FILE });
 
-  const table = readTable(readFileSync(modelPath));
+  const modelBytes = readFileSync(modelPath);
+  const vocabBytes = readFileSync(vocabPath);
+  // IDENTITY FROM CONTENT (review of #190, MAJOR 5). Both files: a changed
+  // vocabulary changes every token id, so it is as much the table as the
+  // matrix is. Checked against whatever the directory's package.json DECLARES,
+  // before a byte of the table is used.
+  const sha = { model: sha256Hex(modelBytes), vocab: sha256Hex(vocabBytes) };
+  const claims = packageClaims(opts.dir);
+  for (const [file, got] of [
+    [MODEL_FILE, sha.model],
+    [VOCAB_FILE, sha.vocab],
+  ] as const) {
+    const declared = claims.sha256[file];
+    if (declared !== undefined && declared !== got) {
+      throw new StaticEmbedderError("HASH_MISMATCH", { file, declared: declared.slice(0, 12), found: got.slice(0, 12) });
+    }
+  }
+
+  const table = readTable(modelBytes);
 
   // One token per line, line number = id, trailing whitespace trimmed — HF
   // `WordPiece::read_file`, including its last-line-wins on a duplicate (neither
   // real vocabulary has one). A trailing newline is not a token.
-  const lines = readFileSync(vocabPath, "utf8").split("\n");
+  const lines = vocabBytes.toString("utf8").split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   const tokens = lines.map((l) => l.trimEnd());
   if (tokens.length === 0 || tokens.length !== table.rows) {
@@ -463,7 +545,9 @@ export function loadStaticModel(opts: StaticModelOptions): StaticModel {
   }
   const maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS;
   const maxChars = maxTokens * medianTokenLength(tokens);
-  const model = opts.model ?? modelNameOf(opts.dir);
+  const model =
+    KNOWN_TABLES.get(`${sha.model}:${sha.vocab}`) ?? `static-${sha256Hex(`${sha.model}:${sha.vocab}`).slice(0, 12)}`;
+  const label = opts.label ?? claims.label ?? model;
   const width = table.width;
   const data = table.data;
 
@@ -521,6 +605,8 @@ export function loadStaticModel(opts: StaticModelOptions): StaticModel {
 
   return {
     model,
+    label,
+    sha256: sha,
     dim,
     identity: `${model}@${dim}`,
     rows: table.rows,

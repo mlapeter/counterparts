@@ -63,6 +63,7 @@ export { serveStdio } from "./stdio.js";
 export type { StdioOptions } from "./stdio.js";
 
 import { Counterpart } from "../../core/counterpart.js";
+import type { Embedder } from "../../core/store/index.js";
 import { McpServer } from "./server.js";
 import type { McpServerOptions } from "./server.js";
 
@@ -70,6 +71,27 @@ export interface OpenServerOptions extends Omit<McpServerOptions, "counterpart">
   /** Where the memory lives. Defaults to the store's own resolution. */
   dir?: string;
   observer?: boolean;
+  /**
+   * The STORE's sync embedder — the same `Embedder` the hooks hand their store,
+   * carrying its identity. Absent, it is taken from `embedder` when that is a
+   * full live embedder (the entry point's `openEmbedder` result is one), so the
+   * entry point needs no second argument.
+   *
+   * Why the server's store needs it (review of #190, MAJOR 1; INTERFACE-GAPS
+   * §7): a store opened with no identity never reconciles box 3's tag, and this
+   * server ranks its `recall` question against box 3. With the identity it
+   * reconciles like every hook does — a held or mismatched table answers
+   * nothing instead of a cosine across two models — and, under the static
+   * table, a memory noted through `note` gets its vector at write time. The
+   * paid seat's sync face is a cache, so passing it costs no call.
+   */
+  embed?: Embedder;
+}
+
+/** The sync face of a live embedder, when `embedder` is one. Duck-typed on purpose: this file must not import the claude-code adapter. */
+function embedOf(embedder: OpenServerOptions["embedder"]): Embedder | undefined {
+  const candidate = (embedder as { embed?: unknown } | null | undefined)?.embed;
+  return typeof candidate === "function" ? (candidate as Embedder) : undefined;
 }
 
 /**
@@ -78,7 +100,9 @@ export interface OpenServerOptions extends Omit<McpServerOptions, "counterpart">
  * ARGUMENTS, never as ambient state this file reads for itself (scar §2.13).
  */
 export function openServer(opts: OpenServerOptions = {}): McpServer {
+  const embed = opts.embed ?? embedOf(opts.embedder);
   const counterpart = Counterpart.open({
+    ...(embed === undefined ? {} : { embed }),
     ...(opts.dir === undefined ? {} : { dir: opts.dir }),
     ...(opts.observer === undefined ? {} : { observer: opts.observer }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),

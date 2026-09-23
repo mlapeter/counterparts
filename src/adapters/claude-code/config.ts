@@ -101,6 +101,23 @@ export const DEFAULT_INTERPRET_MODEL = "claude-opus-5";
  */
 export const DEFAULT_EMBED_MODEL = "voyage-3-large";
 
+/**
+ * The OUTPUT WIDTH of each paid embed model this package knows — its default,
+ * because the client never sends `output_dimension` (`embed-client.ts`). It is
+ * part of the seat's identity (`<model>@<dim>`, cache v5): a store adopts
+ * untagged vectors under a paid seat only when every one of them has this
+ * width. An id not listed here has an unknown width, and untagged rows are
+ * then held rather than adopted. Voyage's documented defaults, 2026-09-23.
+ */
+export const EMBED_MODEL_DIMS: Readonly<Record<string, number>> = {
+  "voyage-3-large": 1024,
+  "voyage-3.5": 1024,
+  "voyage-3.5-lite": 1024,
+  "voyage-3": 1024,
+  "voyage-3-lite": 512,
+  "voyage-code-3": 1024,
+};
+
 /** The Messages API, raw. No SDK, no runtime dependency (constitution 10). */
 export const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
@@ -338,6 +355,13 @@ export interface LoadedConfig {
   readonly config: AdapterConfig;
   readonly ok: boolean;
   readonly reason: "loaded" | "absent" | "unreadable";
+  /**
+   * The keys that made it unreadable, where the reader can name them (today:
+   * `embedder.enabled`, `embedder.kind`). Absent when it cannot, or when
+   * nothing was wrong. A reason that names its key is one a person can fix
+   * without reading this file.
+   */
+  readonly unreadableKeys?: readonly string[];
 }
 
 /**
@@ -371,6 +395,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     identity?: { name: string; aliases?: readonly string[] };
   } = {};
   let unreadable = false;
+  const badKeys: string[] = [];
 
   const num = (key: string): number | undefined => {
     const value = rec[key];
@@ -449,11 +474,22 @@ export function loadConfig(raw: unknown): LoadedConfig {
     // sends the whole configuration to observer rather than guessing.
     const e = embedder as Record<string, unknown>;
     const kind = e["kind"];
+    const kindOk = kind === undefined || (typeof kind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(kind));
     if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder) || typeof e["enabled"] !== "boolean") {
       unreadable = true;
-    } else if (kind !== undefined && !(typeof kind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(kind))) {
-      // Present and not one of the two: unreadable, never a default.
+      badKeys.push("embedder.enabled");
+    } else if (e["enabled"] === false) {
+      // OFF MEANS OFF, WHATEVER `kind` SAYS (review of #190, MINOR 5). A typo in
+      // a knob that is switched off must not stand every memory down: `kind`
+      // chooses between two embedders, and with neither running there is
+      // nothing for it to choose. A valid kind is kept, so switching the
+      // embedder back on keeps the choice; an invalid one is dropped.
+      out.embedder = { enabled: false, ...(kind !== undefined && kindOk ? { kind: kind as EmbedderKind } : {}) };
+    } else if (!kindOk) {
+      // On, and naming neither embedder: unreadable, never a default — one
+      // guess sends memory text to a third party.
       unreadable = true;
+      badKeys.push("embedder.kind");
     } else {
       out.embedder = { enabled: e["enabled"], ...(kind === undefined ? {} : { kind: kind as EmbedderKind }) };
     }
@@ -520,7 +556,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (unreadable) {
     // Everything we did read is discarded along with the stance: a partially
     // understood configuration is not a configuration.
-    return { config: { observer: true }, ok: false, reason: "unreadable" };
+    return {
+      config: { observer: true },
+      ok: false,
+      reason: "unreadable",
+      ...(badKeys.length === 0 ? {} : { unreadableKeys: badKeys }),
+    };
   }
   return { config: out, ok: true, reason: "loaded" };
 }
