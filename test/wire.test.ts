@@ -1152,6 +1152,54 @@ describe("install, at a terminal", () => {
    * and recall by meaning is switched on with the local table, which sends
    * nothing anywhere, so there is nothing to consent to.
    */
+  /**
+   * THE INSTALL SCREEN BLOCK IN docs/new-user-findings.md IS HELD TO THE SCREEN
+   * (the owner's answer to the review's NIT 8, 2026-09-23). Its TOP-LEVEL lines
+   * — everything but the indented `ok` receipt, whose exact spacing belongs to
+   * the terminal — must appear in the rendered transcript, as whole lines, in
+   * the same order, with the prompt and its answer on one line as a terminal
+   * shows them. A change to that block, or to the screen, fails here.
+   */
+  test("the doc's install screen, line by line, in order — including the recall-by-meaning line", async () => {
+    const DOC = "docs/new-user-findings.md";
+    const doc = readFileSync(join(import.meta.dir, "..", DOC), "utf8");
+    const anchor = "**`install`** (first time, on a terminal)";
+    const at = doc.indexOf(anchor);
+    expect(at, `${DOC} has no install screen block`).toBeGreaterThan(0);
+    const open = doc.indexOf("```\n", at) + 4;
+    const block = doc.slice(open, doc.indexOf("\n```", open)).split("\n");
+    const topLevel = block.filter((l) => l.length > 0 && !l.startsWith(" "));
+    expect(topLevel).toContain("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+
+    const transcript: string[] = [];
+    const answers = ["Mike"];
+    const io: Io = {
+      out: (l) => transcript.push(l),
+      err: (l) => transcript.push(l),
+      prompt: async (question: string): Promise<string> => {
+        const answer = answers.shift() ?? "";
+        transcript.push(`${question}${answer}`);
+        return answer;
+      },
+      promptHidden: async (): Promise<string> => "",
+      tty: { stdin: true, stdout: true, columns: 200 },
+    };
+    const code = await run(["install", "--config", configPath()], {
+      io,
+      env: { ...tableEnv(true), NO_COLOR: "1" },
+      home,
+      spawner: spawnerThat(() => OK).spawner,
+      processes: noProcesses,
+    });
+    expect(code).toBe(EXIT.ok);
+    let from = 0;
+    for (const line of topLevel) {
+      const found = transcript.indexOf(line, from);
+      expect(found, `"${line}" is not on the screen after line ${String(from)}:\n${transcript.join("\n")}`).toBeGreaterThanOrEqual(0);
+      from = found + 1;
+    }
+  });
+
   test("the name is the only question: no key is asked about, and recall by meaning is on (static)", async () => {
     const c = await install([], ["Ada"], spawnerThat(() => OK).spawner);
     expect(c.asked).toHaveLength(1);
@@ -1162,6 +1210,10 @@ describe("install, at a terminal", () => {
     const said = text(c.out);
     expect(said).not.toContain("Voyage");
     expect(said).toContain("it should be all green");
+    // WHAT WAS SWITCHED ON IS SAID (the owner, NIT 8), before `Done.`.
+    const recall = c.out.indexOf("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+    expect(recall).toBeGreaterThanOrEqual(0);
+    expect(recall).toBeLessThan(c.out.findIndex((l) => l.startsWith("Done.")));
     const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
     expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
     // The template is still written, 0600, holding no key.
@@ -1186,6 +1238,8 @@ describe("install, at a terminal", () => {
     const c = await install([], ["Ada"], spawnerThat(() => OK).spawner, tableEnv(false));
     const said = text([...c.out, ...c.err]);
     expect(said).toContain("its table was not found");
+    // Not "on": the line is said only when it is true.
+    expect(said).not.toContain("Recall by meaning: on.");
     expect(said).toContain("bun add -g counterparts-model-potion");
     expect(said).not.toContain("it should be all green");
     expect(said).toContain("everything but recall by meaning should be green");

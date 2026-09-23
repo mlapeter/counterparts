@@ -312,10 +312,12 @@ To remove the program too: bun remove -g counterparts
 
 *Keyless round, 2026-09-23 (roadmap C3): the two key questions are gone — both keys are
 upgrades, added with `counterparts credentials set <NAME>` — and recall by meaning is switched
-on silently with the local table, which sends nothing anywhere. Nothing else on the screen
-changed. When the table's weights cannot be found (a from-source checkout, a dependency that
-did not install), one warning and its fix print above `Done.`, and the last line stops
-promising all green.*
+on with the local table, which sends nothing anywhere. Where the key questions were, one line
+now says so, in the owner's words (his answer to the review's NIT 8, 2026-09-23). Nothing else
+on the screen changed. When the table's weights cannot be found (a from-source checkout, a
+dependency that did not install), a warning and its fix print there instead, and the last
+line stops promising all green. The top-level lines of this block are held to the rendered
+screen, in order, by `test/wire.test.ts`.*
 
 ```
 counterparts install
@@ -325,6 +327,8 @@ Nice to meet you, Mike.
 
 Connecting Claude Code…
   ok  connected — 5 hooks added to ~/.claude/settings.json (backup kept), memory tools registered
+
+Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.
 
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.

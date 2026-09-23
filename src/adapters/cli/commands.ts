@@ -3220,21 +3220,28 @@ async function installConversation(
   // session in that project. `counterparts credentials set <NAME>` is where a
   // key goes, and `help credentials` says what each one adds.
   //
-  // What IS said, and only when it is true: the table this configuration now
-  // asks for is not where the hooks will look. The weights ship as the
-  // package's one dependency, so on an ordinary install this never prints — it
-  // is the from-source checkout, or a dependency that did not land, and a
-  // screen that ended "it should be all green" over an amber would be the
-  // silence review M1 named.
+  // WHAT WAS SWITCHED ON IS SAID, in one line, where the key questions used to
+  // be (the owner's answer to review NIT 8, 2026-09-23, his wording): recall by
+  // meaning is on and runs here. Only when it is true — the table is on AND it
+  // is where the hooks will look.
+  //
+  // When the table this configuration asks for is NOT where the hooks will
+  // look, that is said instead. The weights ship as the package's one
+  // dependency, so on an ordinary install this never prints — it is the
+  // from-source checkout, or a dependency that did not land, and a screen that
+  // ended "it should be all green" over an amber would be the silence review
+  // M1 named.
   //
   // Looked for the way the hooks will look (`resolveStaticWeights`: the
   // environment variable, then the installed package), and then for the table
   // FILE in what that found — a variable naming an empty folder is not a table.
   const table = resolveStaticWeights({ env });
-  const tableMissing =
-    config.embedder?.enabled === true &&
-    embedderKind(config) === "static" &&
-    (table === null || !existsSync(join(table.dir, MODEL_FILE)));
+  const tableOn = config.embedder?.enabled === true && embedderKind(config) === "static";
+  const tableMissing = tableOn && (table === null || !existsSync(join(table.dir, MODEL_FILE)));
+  if (tableOn && !tableMissing) {
+    io.out("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+    u.blank();
+  }
   if (tableMissing) {
     u.warn("recall by meaning is on, but its table was not found — recall will match on words only.");
     u.hint(`Install it: bun add -g ${STATIC_WEIGHTS_PACKAGE} — or set ${STATIC_WEIGHTS_ENV} to a folder holding it.`);
