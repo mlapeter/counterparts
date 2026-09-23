@@ -40,6 +40,7 @@
  * the write).
  */
 import type { GateRecordInput, Store } from "../store/index.js";
+import { parseIdentityTag } from "../store/index.js";
 import type { UseTier } from "../physics/index.js";
 
 export const GATE_STATE_VERSION = 1;
@@ -298,6 +299,11 @@ export type SemanticReason =
  *   `in-line`     the caller embedded THIS text now (the deliberate ask, which
  *                 has no latency budget and is allowed to pay for a round trip).
  *   `stale`       a row exists but is older than one turn.
+ *   `other-model` a row exists for this turn, but it was ranked under ANOTHER
+ *                 embedder than the one box 3 records now (the store was reset
+ *                 or switched between the worker's rank and this turn). Its
+ *                 cosines are another model's, so they are neither used nor
+ *                 scaled by this model's calibration (keyless/recall-tune).
  *   `unreadable`  a row exists and did not parse (a reset is countable).
  *   the four `SemanticReason` failures — what the worker said it could not do.
  */
@@ -306,6 +312,7 @@ export type SemanticSource =
   | "lagged"
   | "in-line"
   | "stale"
+  | "other-model"
   | "unreadable"
   | Exclude<SemanticReason, "ok">;
 
@@ -399,5 +406,30 @@ export function loadSessionSemantic(store: Store, sessionId: string): SemanticLo
   // ONE TURN, exactly as `carriedCues` expires: the cue must have been computed
   // after the last turn this session served.
   if (payload.turn !== served) return { source: "stale", hits: null, ...base };
+  // THE ROW'S OWN MODEL (keyless/recall-tune, review MINOR 1). The lagged path
+  // never ranks, so the store's per-ranking claim check does not see it: a row
+  // ranked under one table and read after the store was reset to another would
+  // hand this turn another model's cosines, to be scaled by the new model's
+  // calibration. The model box 3 records NOW (`Store.rankingIdentity`, read
+  // fresh) must be the model the row was ranked under; when the store records
+  // none this handle may rank against, there is nothing to compare, and the row
+  // is used as before (the defaults then scale it).
+  if (payload.model !== null && !rankedUnder(store, payload.model, payload.dim)) {
+    return { source: "other-model", hits: null, ...base };
+  }
   return { source: "lagged", hits: payload.hits, ...base };
+}
+
+/** Was a lag row ranked under the model box 3 records now? True when nothing is recorded. */
+function rankedUnder(store: Store, model: string, dim: number): boolean {
+  let now: string | null;
+  try {
+    now = store.rankingIdentity();
+  } catch {
+    return true;
+  }
+  if (now === null) return true;
+  const recorded = parseIdentityTag(now);
+  if (recorded.model !== model) return false;
+  return recorded.dim === null || dim <= 0 || recorded.dim === dim;
 }

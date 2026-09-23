@@ -486,3 +486,36 @@ hurt by floor 0; the per-turn path (the lagged cue) gains less and is not. INTER
 §8 carries both grids and the proposed shape (per-identity, per-path floor/weight, keyed
 by the cache's new tag).
 
+## 16. The retune: a floor and weight per embedder and per path — 2026-09-23 (night)
+
+The static table became the primary embedder, and §15's finding — the shipped pair makes
+it near-inert — became a table: `SEMANTIC_BY_IDENTITY`, keyed by the identity box 3
+records, split by path. `activate` chooses by `recordedIdentity(store)` — the file's tag,
+read fresh (`Store.rankingIdentity()`) — and by whether the semantic input is the caller's
+own `vector` (inline: the deliberate MCP ask) or the worker's `hits` (lagged: the hook's
+per-turn cue), and reports the choice on `ActivationResult.semantic`; the recording path
+puts it on the ring as `recall.semantic.tuning`.
+
+**What the measurement said, in one line each** (`docs/research/…`, "the retune"):
+
+- The deliberate path wants a LOW floor and a HIGH weight (0.15 / 6): the ranking is of
+  the question itself, so what a low floor adds is mostly the right memory — 11/30
+  paraphrase targets against lexical-only's 6, nothing lost.
+- The per-turn path wants TODAY's weight with potion's floor (0.05 / 1): its cue may be
+  about the previous subject, and the topic-changing arm shows the weight is what pays for
+  that — at weight 6 a changed topic loses its target and gains ~26 stale items; at weight
+  1, 9.8/30 on topic (lexical-only 8.4–9.0) for 1.2 stale items over 40 pairs.
+- An identity with no entry — static-retrieval, an unknown table, a store with no tag,
+  Voyage — behaves exactly as before (the confirmation run's static-retrieval table row
+  equals lexical-only on every delivery; a Voyage-tagged store through `activate` is
+  pinned equal to the defaults by a test).
+
+**Two things the review taught** (and the fixes): a lagged row is never ranked, so a row
+ranked under another model must be dropped where it is LOADED (`other-model`), not where
+a ranking would have been refused; and an identity snapshot taken at open is wrong for a
+handle whose open lost the lock, so the identity is read per activation.
+
+**What was not changed:** `SEMANTIC_TOP_M` (8) stays global; the gate's bars and floors
+stay as calibrated on the lexical channel; nothing in the decision record's hashed field
+set moved (`ActivationResult` is not the decision record).
+

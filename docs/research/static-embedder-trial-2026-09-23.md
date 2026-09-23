@@ -7,6 +7,13 @@ Fernbrook/Halfmoon persona); no real store was opened. Working material, not a r
 
 ## The answer, first
 
+> **Later the same night — the retune** (its own section, below "The bench"): recall now
+> chooses a floor and weight per embedder and per path. potion-base-8M@256 runs **0.15 / 6**
+> on the deliberate path (11/30 paraphrase targets vs 6, nothing lost) and **0.05 / 1** on
+> the per-turn path (9.8/30 on topic vs 8.4–9.0; on a topic change 0 lost and 1.2 stale
+> items added over 40 pairs). The paragraphs below are the first trial, at the old single
+> pair.
+
 - **potion-base-8M is the better of the two static tables.** On paraphrased questions its
   raw semantic ranking has MRR **0.404**, against static-retrieval-mrl-en-v1@256's 0.207
   (and the lexical channel's 0.169 through recall). static-retrieval wins only on
@@ -255,6 +262,186 @@ delivered by the gate.
 | lexical | Rosalind Achebe founded Fernbrook after hospital operations work | 1* | 1* | 1* | 1* | 1* |
 | lexical | Thursday maintenance window for the skill-mix schema change | 1* | 1* | 1* | 1* | 1* |
 | lexical | corridor noticeboard printed rota Friday afternoon | 1* | 1* | 1* | 1* | 1* |
+
+## 2026-09-23 (night) — the retune: per-model, per-path floor and weight
+
+*The owner's decision after #190: the static tier is primary; recall is retuned for it;
+Voyage is frozen. Branch `keyless/recall-tune`, revised after its light review. Same bench,
+same persona, same 40 queries, 5 reseeds per run.*
+
+### What changed in recall
+
+`SEMANTIC_BY_IDENTITY` in `recall/tunables.ts`: a floor/weight pair per embedder identity
+and per path. `activate` looks it up from the identity box 3 records, **read fresh from the
+file at every activation** (`Store.rankingIdentity()`: the tag, when this handle may rank
+against it — one primary-key read; never the configuration, never the handle's open-time
+snapshot), and by the path the semantic input came by (`vector` → `inline`, the deliberate
+path; `hits` → `lagged`, the per-turn path). The exact tag first, then the model alone
+(split, like the store's own tags, only on an integer `@` suffix); anything else, the old
+defaults (0.45 / 1.0). A **lag row ranked under another model** than the file records now
+is dropped before it can be scaled (`loadSessionSemantic` → source `other-model`), because
+the lagged path never ranks and so never meets the store's per-ranking claim check. The
+recording path emits `recall.semantic.tuning` (identity, path, floor, weight, source) so a
+live ring shows which pair ran.
+
+| identity | inline (deliberate) | lagged (per-turn) | source |
+|---|---|---|---|
+| `potion-base-8M@256` | **floor 0.15, weight 6** | **floor 0.05, weight 1** | this bench |
+| `voyage-3-large` (any width) | 0.45 / 1.0 | 0.45 / 1.0 | unchanged — unmeasured (no key), frozen |
+| anything else, or no tag | 0.45 / 1.0 | 0.45 / 1.0 | the defaults |
+
+### The new arm: what the lag COSTS when the subject changes
+
+The first trial's per-turn arm was the lag's ceiling (its turn 2 stayed on topic). This
+arm pairs each query i with the next query j whose answer shares nothing with i's: turn 1
+is i, the worker's rank of i becomes the lagged cue, turn 2 is j. On turn 2 it counts j's
+targets delivered and lost against lexical-only, and **stale intrusions**, honestly: every
+turn-2 delivery that is among i's lagged hits and not relevant to j — and, the column that
+prices the lag, **stale ADDED**: of those, the ones lexical-only did not deliver on the same
+turn anyway (some of the lag's hits are delivered by the new query's own words, and are
+not the lag's doing). *(The first version of this section counted only i's labelled
+targets, a lower bound blind to anything else the lag pulled in; it reported "0 stale" for
+cells that in fact add 2–3 items. Re-measured below.)*
+
+**Floor 0's cost on the lagged cue, measured:** at weight 1, 0 targets lost and 1.2 stale
+items added over the 40 pairs; weight 2, 0 lost and 4.8 added; weight 3, 0 and 6; weight 4,
+0 and 11.8; **weight 6, one of j's targets lost and 25.8 added**; weight 8, one lost and
+39.4 added. The weight, far more than the floor, is what costs: at weight 1 every floor
+from 0.15 down adds the same 1.2.
+
+### How the values were chosen
+
+- **Inline (deliberate) 0.15 / 6:** the most paraphrase targets delivered with **no
+  delivery lost** against lexical-only (either set) and lexical 10/10. Eleven of 30 is the
+  best any zero-loss cell reaches (lexical-only: 6); 0.15 / 6 is chosen among the 11/30
+  cells (0.1 / 6 ties) as the value both trials measured, MRR 0.211 on every rerun. Its
+  trade-offs: 7–8 rank slips (targets lexical-only ranked higher — most delivered by
+  neither arm; two, at ranks 3→6 and 3→4, delivered by both and still delivered) and
+  +0.13 items per turn. The loss edge is one grid step away (weight 7 at this floor; floor
+  0.08 at this weight), so this is the edge the bench can see, not a margin.
+- **Lagged (per-turn) 0.05 / 1:** today's weight with potion's floor. On topic 9.8/30
+  within two turns (lexical-only 8.4–9.0 across runs, so +0.8 to +1.4); on a topic change 0
+  targets lost and 1.2 stale items added over 40 pairs. Every cell that gains anything on
+  topic adds at least that 1.2; heavier pairs buy little and pay more: 0.08 / 2 (the first
+  choice) reaches 10/30 for 2.6 added, 0.15 / 3 reaches 10/30 for 4.8, weight 6 at floor
+  0.15 or below loses a topic-changed target and adds 15–26, floor 0 at weight 8 reaches
+  14.8/30 for 39. **The ceiling traded away, as a decision:** 12–15/30 on topic, for a lost
+  target and 25–39 items that the new subject did not ask for.
+
+### The confirmation run — the shipped table reproducing (5 reseeds)
+
+The **table** rows run the SHIPPED tunables unchanged. potion's table row matches the
+0.15 / 6 cell on the deliberate columns and the 0.05 / 1 cell on both per-turn arms; the
+static-retrieval table row (no entry: the defaults) matches its 0.45 / 1 cell — lexical-only
+on every delivery.
+
+| arm | floor | weight | delib para | MRR | delib lex | delib lost | slips | items/turn | on-topic within two | by lag | lost | topic: para j | lex j | j lost | stale | stale added | turn-2 items |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **lexical-only** | — | — | 6/30 | 0.169 | 10/10 | — | — | 4.90 | 8.8/30 | 2.8 | — | 6/30 | 10/10 | — | 0 | — | 4.20 |
+| **potion-base-8M (table)** | table | table | 11/30 | 0.211 | 10/10 | 0 | 7.2 | 5.03 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.8 | 1.2 | 4.09 |
+| potion-base-8M | 0.45 | 1 | 6/30 | 0.169 | 10/10 | 0 | 0 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.6 | 0 | 4.20 |
+| potion-base-8M | 0.15 | 1 | 7/30 | 0.179 | 10/10 | 0 | 5 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.8 | 1.2 | 4.12 |
+| potion-base-8M | 0.05 | 1 | 9/30 | 0.181 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.8 | 1.2 | 4.09 |
+| potion-base-8M | 0 | 1 | 9/30 | 0.181 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.8 | 1.2 | 4.09 |
+| potion-base-8M | 0.45 | 6 | 6/30 | 0.169 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.6 | 0 | 4.12 |
+| potion-base-8M | 0.15 | 6 | 11/30 | 0.211 | 10/10 | 0 | 7.2 | 5.03 | 10/30 | 4 | 0 | 5/30 | 10/10 | 1 | 22.2 | 14.6 | 4.05 |
+| potion-base-8M | 0.05 | 6 | 11/30 | 0.214 | 10/10 | 1 | 9 | 4.97 | 11.4/30 | 5.4 | 0 | 5/30 | 10/10 | 1 | 29.2 | 21.6 | 4.04 |
+| potion-base-8M | 0 | 6 | 11/30 | 0.225 | 10/10 | 1 | 9 | 4.90 | 12/30 | 6 | 0 | 5/30 | 10/10 | 1 | 33.2 | 25.6 | 3.99 |
+| **static-retrieval-mrl-en-v1@256 (table)** | table | table | 6/30 | 0.169 | 10/10 | 0 | 0 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.4 | 0 | 4.20 |
+| static-retrieval-mrl-en-v1@256 | 0.45 | 1 | 6/30 | 0.169 | 10/10 | 0 | 0 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.4 | 0 | 4.20 |
+| static-retrieval-mrl-en-v1@256 | 0.15 | 1 | 7/30 | 0.174 | 10/10 | 0 | 1.8 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.4 | 0 | 4.17 |
+| static-retrieval-mrl-en-v1@256 | 0.05 | 1 | 7/30 | 0.175 | 10/10 | 0 | 1.8 | 5.01 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.8 | 0.4 | 4.15 |
+| static-retrieval-mrl-en-v1@256 | 0 | 1 | 7/30 | 0.177 | 10/10 | 0 | 1.8 | 4.98 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.8 | 0.4 | 4.15 |
+| static-retrieval-mrl-en-v1@256 | 0.45 | 6 | 6/30 | 0.169 | 10/10 | 0 | 0 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.4 | 0 | 4.20 |
+| static-retrieval-mrl-en-v1@256 | 0.15 | 6 | 7/30 | 0.166 | 10/10 | 0 | 5.8 | 4.95 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.8 | 2.4 | 4.03 |
+| static-retrieval-mrl-en-v1@256 | 0.05 | 6 | 8/30 | 0.173 | 10/10 | 0 | 7 | 4.97 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 21.4 | 15 | 4.14 |
+| static-retrieval-mrl-en-v1@256 | 0 | 6 | 8/30 | 0.171 | 10/10 | 0 | 9 | 5.03 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 26.8 | 20.4 | 4.15 |
+
+### The grid (5 reseeds; potion; the table emptied so each cell's pair runs on both paths)
+
+The **table** row here is the shipped table at the time of the run (0.15 / 6, 0.08 / 2),
+since changed to 0.05 / 1 for the lagged path on the evidence below.
+
+| arm | floor | weight | delib para | MRR | delib lex | delib lost | slips | items/turn | on-topic within two | by lag | lost | topic: para j | lex j | j lost | stale | stale added | turn-2 items |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **lexical-only** | — | — | 6/30 | 0.163 | 10/10 | — | — | 4.90 | 8.8/30 | 2.8 | — | 6/30 | 10/10 | — | 0 | — | 4.20 |
+| **potion-base-8M (table)** | table | table | 11/30 | 0.211 | 10/10 | 0 | 7.2 | 5.03 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 10 | 2.6 | 4.06 |
+| potion-base-8M | 0.45 | 1 | 6/30 | 0.163 | 10/10 | 0 | 0 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.20 |
+| potion-base-8M | 0.35 | 1 | 6/30 | 0.165 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.17 |
+| potion-base-8M | 0.25 | 1 | 6/30 | 0.169 | 10/10 | 0 | 4 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.17 |
+| potion-base-8M | 0.2 | 1 | 6/30 | 0.172 | 10/10 | 0 | 4 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.6 | 0.2 | 4.17 |
+| potion-base-8M | 0.15 | 1 | 7/30 | 0.174 | 10/10 | 0 | 5 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.12 |
+| potion-base-8M | 0.1 | 1 | 7/30 | 0.176 | 10/10 | 0 | 5 | 4.93 | 9.2/30 | 3.2 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.09 |
+| potion-base-8M | 0.08 | 1 | 8/30 | 0.176 | 10/10 | 0 | 5 | 4.93 | 9.2/30 | 3.2 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.09 |
+| potion-base-8M | 0.05 | 1 | 9/30 | 0.177 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.09 |
+| potion-base-8M | 0 | 1 | 9/30 | 0.177 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.09 |
+| potion-base-8M | 0.45 | 2 | 6/30 | 0.163 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.17 |
+| potion-base-8M | 0.35 | 2 | 6/30 | 0.166 | 10/10 | 0 | 2 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.14 |
+| potion-base-8M | 0.25 | 2 | 7/30 | 0.171 | 10/10 | 0 | 5 | 4.97 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.12 |
+| potion-base-8M | 0.2 | 2 | 8/30 | 0.177 | 10/10 | 0 | 5 | 4.93 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.09 |
+| potion-base-8M | 0.15 | 2 | 9/30 | 0.179 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 9.6 | 2.2 | 4.09 |
+| potion-base-8M | 0.1 | 2 | 9/30 | 0.180 | 10/10 | 0 | 5 | 4.97 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 10 | 2.6 | 4.06 |
+| potion-base-8M | 0.08 | 2 | 9/30 | 0.181 | 10/10 | 0 | 5 | 4.97 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 10 | 2.6 | 4.06 |
+| potion-base-8M | 0.05 | 2 | 9/30 | 0.181 | 10/10 | 0 | 5 | 4.93 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 11.2 | 3.8 | 4.05 |
+| potion-base-8M | 0 | 2 | 9/30 | 0.183 | 10/10 | 0 | 5 | 4.97 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12.2 | 4.8 | 4.06 |
+| potion-base-8M | 0.45 | 3 | 6/30 | 0.163 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.17 |
+| potion-base-8M | 0.35 | 3 | 7/30 | 0.166 | 10/10 | 0 | 3 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.4 | 1 | 4.14 |
+| potion-base-8M | 0.25 | 3 | 8/30 | 0.175 | 10/10 | 0 | 6 | 4.93 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 8.6 | 1.2 | 4.04 |
+| potion-base-8M | 0.2 | 3 | 8/30 | 0.181 | 10/10 | 0 | 6 | 4.90 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 10.6 | 3.2 | 4.04 |
+| potion-base-8M | 0.15 | 3 | 9/30 | 0.196 | 10/10 | 0 | 7 | 4.97 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12.2 | 4.8 | 4.04 |
+| potion-base-8M | 0.1 | 3 | 10/30 | 0.198 | 10/10 | 0 | 7 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12.2 | 4.8 | 4.01 |
+| potion-base-8M | 0.08 | 3 | 10/30 | 0.199 | 10/10 | 0 | 7 | 5.03 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12.2 | 4.8 | 4.01 |
+| potion-base-8M | 0.05 | 3 | 10/30 | 0.198 | 10/10 | 0 | 6 | 5.03 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12.2 | 4.8 | 4.01 |
+| potion-base-8M | 0 | 3 | 10/30 | 0.199 | 10/10 | 0 | 6.2 | 5.03 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 13.4 | 6 | 4.03 |
+| potion-base-8M | 0.45 | 4 | 6/30 | 0.163 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.14 |
+| potion-base-8M | 0.35 | 4 | 7/30 | 0.167 | 10/10 | 0 | 3 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.4 | 1 | 4.07 |
+| potion-base-8M | 0.25 | 4 | 8/30 | 0.191 | 10/10 | 0 | 7 | 4.90 | 9.8/30 | 3.8 | 0 | 6/30 | 10/10 | 0 | 10.6 | 3.2 | 4.06 |
+| potion-base-8M | 0.2 | 4 | 8/30 | 0.195 | 10/10 | 0 | 7 | 4.97 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 12 | 4.6 | 4.03 |
+| potion-base-8M | 0.15 | 4 | 10/30 | 0.197 | 10/10 | 0 | 7 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 13.4 | 6 | 4.04 |
+| potion-base-8M | 0.1 | 4 | 10/30 | 0.200 | 10/10 | 0 | 6.2 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 15.2 | 7.8 | 4.08 |
+| potion-base-8M | 0.08 | 4 | 10/30 | 0.200 | 10/10 | 0 | 6.2 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 17.2 | 9.8 | 4.10 |
+| potion-base-8M | 0.05 | 4 | 10/30 | 0.202 | 10/10 | 0 | 7.2 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 17.2 | 9.8 | 4.10 |
+| potion-base-8M | 0 | 4 | 10/30 | 0.208 | 10/10 | 0 | 7.2 | 4.95 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 19.2 | 11.8 | 4.15 |
+| potion-base-8M | 0.45 | 6 | 6/30 | 0.164 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 0 | 4.12 |
+| potion-base-8M | 0.35 | 6 | 7/30 | 0.184 | 10/10 | 0 | 4 | 4.93 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 7.4 | 1 | 4.04 |
+| potion-base-8M | 0.25 | 6 | 8/30 | 0.196 | 10/10 | 0 | 7 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 13.4 | 6 | 4.06 |
+| potion-base-8M | 0.2 | 6 | 10/30 | 0.203 | 10/10 | 0 | 7.2 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 16.2 | 8.8 | 4.08 |
+| potion-base-8M | 0.15 | 6 | 11/30 | 0.211 | 10/10 | 0 | 7.2 | 5.03 | 10/30 | 4 | 0 | 5/30 | 10/10 | 1 | 22.2 | 14.8 | 4.05 |
+| potion-base-8M | 0.1 | 6 | 11/30 | 0.214 | 10/10 | 0 | 7.2 | 5.00 | 10/30 | 4 | 0 | 5/30 | 10/10 | 1 | 25.4 | 18 | 4.01 |
+| potion-base-8M | 0.08 | 6 | 11/30 | 0.221 | 10/10 | 1 | 7.2 | 4.93 | 11/30 | 5 | 0 | 5/30 | 10/10 | 1 | 25.4 | 18 | 3.96 |
+| potion-base-8M | 0.05 | 6 | 11.2/30 | 0.211 | 10/10 | 1 | 9 | 4.97 | 11.2/30 | 5.2 | 0 | 5/30 | 10/10 | 1 | 29.4 | 22 | 4.04 |
+| potion-base-8M | 0 | 6 | 11.2/30 | 0.222 | 10/10 | 1 | 9 | 4.90 | 12/30 | 6 | 0 | 5/30 | 10/10 | 1 | 33.2 | 25.8 | 3.98 |
+| potion-base-8M | 0.45 | 8 | 6/30 | 0.181 | 10/10 | 0 | 1 | 4.90 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 6.4 | 0 | 4.07 |
+| potion-base-8M | 0.35 | 8 | 7/30 | 0.181 | 10/10 | 0 | 5 | 4.97 | 8.8/30 | 2.8 | 0 | 6/30 | 10/10 | 0 | 8.4 | 2 | 3.97 |
+| potion-base-8M | 0.25 | 8 | 10/30 | 0.199 | 10/10 | 0 | 7.2 | 5.00 | 10/30 | 4 | 0 | 6/30 | 10/10 | 0 | 20.4 | 13 | 4.05 |
+| potion-base-8M | 0.2 | 8 | 10/30 | 0.215 | 10/10 | 1 | 7.2 | 5.03 | 11/30 | 5 | 0 | 5/30 | 10/10 | 1 | 27.2 | 19.8 | 3.90 |
+| potion-base-8M | 0.15 | 8 | 12/30 | 0.219 | 10/10 | 1 | 9 | 4.87 | 11.4/30 | 5.4 | 0 | 5/30 | 10/10 | 1 | 27.2 | 19.8 | 3.73 |
+| potion-base-8M | 0.1 | 8 | 11.4/30 | 0.227 | 10/10 | 1 | 8 | 4.83 | 13/30 | 7 | 0 | 5/30 | 10/10 | 1 | 32.2 | 24.8 | 3.82 |
+| potion-base-8M | 0.08 | 8 | 11.4/30 | 0.235 | 10/10 | 1 | 8 | 4.80 | 13/30 | 7 | 0 | 5/30 | 10/10 | 1 | 36.4 | 29 | 3.88 |
+| potion-base-8M | 0.05 | 8 | 12/30 | 0.241 | 10/10 | 1 | 8 | 4.83 | 13.2/30 | 7.2 | 0 | 5/30 | 10/10 | 1 | 39.4 | 32 | 3.83 |
+| potion-base-8M | 0 | 8 | 12/30 | 0.245 | 10/10 | 1 | 8 | 4.80 | 14.8/30 | 8.8 | 0 | 5/30 | 10/10 | 1 | 46.8 | 39.4 | 3.86 |
+
+*(A 36-cell refinement around 0.15 / 6 and 0.08 / 2 ran before the stale count was made
+honest; it found the same 11/30 deliberate plateau (0.03–0.08 at weight 5, 0.12–0.15 at 6),
+and its per-turn stale column is superseded by the grid above. Its table is not repeated.)*
+
+### What the retune does NOT settle
+
+- **The pairs may not transfer to a live-sized store.** The semantic contribution is
+  absolute (at most `weight`), while the cue channel and the gate's floors are in cue units,
+  `floorUnit(N) = log((N+1)/2)`: ≈ 4.4 at the bench's N = 161, ≈ 6.9 at 2,000, ≈ 9.0 at
+  17,000. Against the floors, weight 6 counts roughly 1.5–2× less on a live-sized store than
+  it did here — the deliberate pair's gain may shrink, and the lagged pair's cost with it.
+  **The recall-bench's labelled real prompts, on a copy of a real store, should re-earn both
+  pairs** before anyone reads these as calibrated.
+- One synthetic persona, 161 memories, 40 builder-written queries; the paraphrase set
+  flatters the channel.
+- The per-turn arms embed only the question; the real lag text is the prompt plus up to 800
+  bytes of the reply. The topic-change arm pairs each query with ONE other.
+- The MCP `recall` tool builds rather than records (`Recall.build`), so its choice rides
+  `BuildOutput.semantic`, not the telemetry ring; the server logging it is `server.ts`'s.
+- Voyage keeps today's numbers, unmeasured. If a key is ever in the bench's environment,
+  its arm runs automatically.
 
 ## At scale: the at-open refill and the worker's backfill
 
