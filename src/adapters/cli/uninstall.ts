@@ -94,6 +94,9 @@ export const DELETE_PHRASE = "DELETE MEMORIES";
  *  out from under the process that is running it. */
 export const REMOVE_PACKAGE = `bun remove -g ${BIN.cli}`;
 
+/** The one line a moving arm prints while `claude mcp list` runs (TTY only). */
+export const CHECKING_CLAUDE_CODE = "Checking Claude Code…";
+
 // ── the forbidden-root clause, which every arm runs ─────────────────────────
 
 /**
@@ -176,7 +179,8 @@ export function ownedNames(
  * Is this entry name one this package writes, and which kind?
  *
  * The sidecars matter as much as the files: `keys.ts` and `scopes.ts` both
- * write `<path>.tmp` siblings, `start-fresh` leaves `store.parked-<date>`,
+ * write `<path>.<pid>.tmp` siblings (and `keys.ts` wrote a bare `<path>.tmp`
+ * until review n4, which a leftover may still be), `start-fresh` leaves `store.parked-<date>`,
  * `store.blank-<date>` and `store.new-<pid>` behind, and `wire` leaves
  * `<file>.counterparts-backup-<stamp>`. A directory holding only those is still
  * a directory holding only ours.
@@ -235,6 +239,68 @@ export function dirSize(path: string): number {
   }
   for (const name of entries) total += dirSize(join(path, name));
   return total;
+}
+
+/**
+ * How many of `dirSize`'s bytes are SQLite WRITE-AHEAD LOGS — a `<name>.sqlite-wal`
+ * with its database `<name>.sqlite` beside it, the only shape this package's two
+ * databases take — so the plan can say what its number is made of (finding #26,
+ * below). A `something.bak-wal` beside a `something.bak` is not one of ours and
+ * is not called a log that shrinks on its own (review of #188, NIT).
+ *
+ * `lstat` and `readdir` only, like `dirSize`: the store is never opened to ask.
+ */
+export function walBytes(path: string): number {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return 0;
+  }
+  if (!stat.isDirectory()) return 0;
+  let entries: string[];
+  try {
+    entries = readdirSync(path);
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const name of entries) {
+    const full = join(path, name);
+    if (name.endsWith(".sqlite-wal") && entries.includes(name.slice(0, -"-wal".length))) {
+      try {
+        const log = lstatSync(full);
+        if (log.isFile()) total += log.size;
+      } catch {
+        /* gone between the listing and the stat: nothing to count */
+      }
+    } else {
+      total += walBytes(full);
+    }
+  }
+  return total;
+}
+
+/**
+ * WHEN THE LOG IS WORTH A SENTENCE: a megabyte or more, and at least a tenth of
+ * the store. A fresh store carries a couple of hundred kilobytes of log and the
+ * owner's screens stay exactly as he drew them; the trial's store carried 5.3 MB
+ * of its 6.7, and that is the case a person would otherwise wonder about.
+ */
+export const LOG_WORTH_SAYING = 1024 * 1024;
+
+/**
+ * THE SENTENCE — the same words under both plans, so the two arms cannot tell
+ * one memory's size two ways (finding #26). Two short lines rather than one
+ * long one: under the delete plan it starts in the column the store's words
+ * start in, forty-odd characters in.
+ */
+export function logClause(logBytes: number, storeBytes: number): readonly string[] | null {
+  if (logBytes < LOG_WORTH_SAYING || logBytes * 10 < storeBytes) return null;
+  return [
+    `${humanBytes(logBytes)} of that is a database log that shrinks on its own;`,
+    "nothing is lost when it does.",
+  ];
 }
 
 /**
@@ -396,15 +462,21 @@ export interface UninstallPlan {
    */
   readonly targets: readonly string[];
   /**
-   * The count, and ONLY on the arm that needs it.
+   * The count, and ONLY on the arm that needs it — filled in by `counted`, never
+   * by `planUninstall`, which opens nothing.
    *
    * Null for `--park`, deliberately: counting means OPENING the store, and
-   * `start-fresh`'s discipline — the store being moved is never opened, not
-   * even read-only — is worth keeping for the arm that does not have to. The
-   * printed plan gets its sizes from the filesystem either way.
+   * `start-fresh`'s discipline — this process never opens the store it is
+   * moving, not even read-only — is worth keeping for the arm that does not
+   * have to. The printed plan gets its sizes from the filesystem either way.
    */
   readonly census: Census | null;
   readonly bytes: number;
+  /**
+   * The part of the STORE's bytes that is SQLite's write-ahead log (`walBytes`),
+   * 0 when no store is acted on. Both arms print it the same way (`logClause`).
+   */
+  readonly logBytes: number;
   readonly refusal: string | null;
 }
 
@@ -419,8 +491,10 @@ export interface PlanInput {
 /**
  * Read the ground and decide exactly what this command may act on.
  *
- * Pure but for the reads: it stats, lists and opens the store read-only, and it
- * changes nothing. The caller prints it before it asks.
+ * Pure but for the reads, and those are `lstat` and `readdir` — it OPENS
+ * NOTHING and changes nothing. The count the delete arm needs is `counted`,
+ * taken by the caller after the sizes it will print (finding #26). The caller
+ * prints the plan before it asks.
  */
 export function planUninstall(input: PlanInput): UninstallPlan {
   const configPath = resolve(input.configPath);
@@ -432,8 +506,6 @@ export function planUninstall(input: PlanInput): UninstallPlan {
       : isAbsolute(written.trim())
         ? resolve(written.trim())
         : null;
-  // COUNTED ONLY WHEN IT IS ABOUT TO GO. See `UninstallPlan.census`.
-  const census = input.verb === "delete" ? censusOf(configDir, storeDir) : null;
   const empty: UninstallPlan = {
     configDir,
     configPath,
@@ -444,8 +516,9 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     foreign: [],
     wholeDirectory: false,
     targets: [],
-    census,
+    census: null,
     bytes: 0,
+    logBytes: 0,
     refusal: null,
   };
 
@@ -518,6 +591,13 @@ export function planUninstall(input: PlanInput): UninstallPlan {
   const targets = wholeDirectory
     ? [...(storeOutside && storeDir !== null ? [storeDir] : []), configDir]
     : entries.map((e) => e.path);
+
+  // NO COUNT HERE (finding #26; review of #188). The sizes were never the cause
+  // of #26 — both arms always walked the same files — what moved between the
+  // owner's two runs was the store's write-ahead log, folded in by the MCP
+  // server the FIRST run's pre-flight started. So the command takes its sizes
+  // again after its pre-flight (`remeasured`) and only THEN counts (`counted`),
+  // so that nothing this process opens can move the number it prints.
   return {
     ...empty,
     storeActed,
@@ -526,8 +606,20 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     wholeDirectory,
     targets,
     bytes: entries.reduce((n, e) => n + e.bytes, 0),
+    logBytes: storeActed && storeDir !== null ? walBytes(storeDir) : 0,
     refusal: null,
   };
+}
+
+/**
+ * The plan with its COUNT — the delete arm's, and only after the sizes it
+ * prints have been taken. `censusOf` opens the store (observer); today that
+ * open-and-close leaves the log byte-identical under bun, but the order is what
+ * guarantees it rather than a property of the current `store/` (`store/`'s
+ * INTERFACE-GAPS §13 ask would change that property).
+ */
+export function counted(plan: UninstallPlan): UninstallPlan {
+  return { ...plan, census: censusOf(plan.configDir, plan.storeDir) };
 }
 
 /** What each thing IS, in the words somebody who never read this code would
@@ -742,7 +834,10 @@ export function planLines(
       );
     }
     if (plan.targets.length === 0) out.push("  (nothing — there is none of ours left here)");
-    else out.push(`     ${contentsSentence(plan)}`);
+    else {
+      out.push(`     ${contentsSentence(plan)}`);
+      for (const line of logClause(plan.logBytes, storeBytesOf(plan)) ?? []) out.push(`     ${line}`);
+    }
   } else {
     out.push("This will delete, for good:");
     // Two columns, sized to what is actually in them: the paths are shortened
@@ -756,6 +851,10 @@ export function planLines(
       out.push(
         `  ${short(e.path).padEnd(pathWidth)}  ${humanBytes(e.bytes).padEnd(sizeWidth)}   ${what}`,
       );
+      // UNDER THE STORE'S OWN ROW, in the column its words are in: "that" is
+      // the size just printed on the line above.
+      const log = e.kind === "store" ? logClause(plan.logBytes, e.bytes) : null;
+      for (const line of log ?? []) out.push(`${" ".repeat(2 + pathWidth + 2 + sizeWidth + 3)}${line}`);
     }
     if (plan.entries.length === 0) out.push("  (nothing — there is none of ours left here)");
     if (plan.wholeDirectory) {
@@ -786,6 +885,11 @@ export function planLines(
     );
   }
   return out;
+}
+
+/** The store's own row's bytes, or 0 when no store is acted on. */
+function storeBytesOf(plan: UninstallPlan): number {
+  return plan.entries.find((e) => e.kind === "store")?.bytes ?? 0;
 }
 
 /** `your memory, configuration, API keys, snapshots — 7.6 MB`: what is inside
@@ -933,6 +1037,23 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       return "refused";
     }
 
+    // ── THE SIZES, TAKEN AGAIN NOW (finding #26) ─────────────────────────────
+    //
+    // The pre-flight's `claude mcp list` STARTS OUR MCP SERVER as a health
+    // check, and that server — a writer, in another process — folds the
+    // store's write-ahead log into the database on its way out: measured on a
+    // throwaway store, 3.8 MB of log to 0, the database 2.9 → 3.3 MB (NOTES,
+    // 2026-09-23). That is the owner's 6.7 MB and 1.4 MB: the delete plan was
+    // sized before its own pre-flight, and the park plan a minute later found
+    // the log already folded. Sizing AFTER the pre-flight, in both arms,
+    // measures the ground as it stands when the question is put — `lstat`
+    // only, so THIS process still never opens a store it parks — and whatever
+    // log is still there is said.
+    plan = remeasured(plan);
+    // AND ONLY THEN THE COUNT, which opens the store: after the sizes, so it
+    // cannot move the number printed above it.
+    if (input.deleteMemories) plan = counted(plan);
+
     // ── THE PLAN, PRINTED, BEFORE A SINGLE QUESTION ────────────────────────
     //
     // The park arm shows WHERE each thing is going, which means working the
@@ -947,7 +1068,11 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   }
 
   // ── the count, and the typed phrase, BEFORE the hooks come out ───────────
-  if (input.deleteMemories && plan !== null && plan.census !== null) {
+  //
+  // Keyed on the FLAG, not on the count being there: the typed phrase is the
+  // whole guard on the one destructive verb, and it must never fall through to
+  // the ordinary yes/no because a count went missing.
+  if (input.deleteMemories && plan !== null) {
     if (io.prompt === undefined) {
       io.err(
         "refused: --delete-memories needs a person. It has no --yes and never will: the typed " +
@@ -956,7 +1081,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       );
       return "refused";
     }
-    const census = plan.census;
+    const census = plan.census ?? censusOf(plan.configDir, plan.storeDir);
     // A PLAIN RED WARNING, not a `fail` tag (owner, finding #25): nothing has
     // failed here. The count it used to carry is on the store's own line of the
     // plan above, which is the line it is a count of.
@@ -1073,6 +1198,21 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
 }
 
 /**
+ * The same plan with every size taken again from the filesystem — `dirSize` and
+ * `walBytes`, `lstat` and `readdir` only, nothing opened. What moves or goes,
+ * and the count, are unchanged: only the numbers are brought up to now.
+ */
+export function remeasured(plan: UninstallPlan): UninstallPlan {
+  const entries = plan.entries.map((e) => ({ ...e, bytes: dirSize(e.path) }));
+  return {
+    ...plan,
+    entries,
+    bytes: entries.reduce((n, e) => n + e.bytes, 0),
+    logBytes: plan.storeActed && plan.storeDir !== null ? walBytes(plan.storeDir) : 0,
+  };
+}
+
+/**
  * The suffix the park arm is ABOUT to use, for the destination column — or null
  * when it cannot be worked out yet.
  *
@@ -1108,6 +1248,18 @@ function previewSuffix(input: UninstallInput, plan: UninstallPlan): string | nul
 function mcpPreflight(input: UninstallInput, home: string): string | null {
   const mcp = readMcp(home, input.env, input.config.dataDir ?? "", input.custom, input.exe);
   if (!mcp.present && !mcp.unreadable) return null;
+  // THE WAIT, SAID OUT LOUD (the owner's 0.2.0 trial, 2026-09-22). `claude mcp
+  // list` health-checks every MCP server a person has registered, which takes
+  // seconds, and until this line both moving arms sat on a blank screen while
+  // it ran. `spawnSync` blocks the event loop, so nothing can animate — a
+  // spinner was ruled out for exactly that reason — and one static line is the
+  // whole of it. Printed HERE, after the early return, so somebody with nothing
+  // registered is never told about a check that does not happen; and only to a
+  // terminal, so a pipe, a script and every test keep the screen they had.
+  if (input.io.tty?.stdout === true) {
+    input.io.out(CHECKING_CLAUDE_CODE);
+    input.io.out("");
+  }
   // MISSING, HANGING **AND** ANGRY. A `spawnSync` that timed out comes back
   // `missing: false, code: null`, and a `claude` that exits non-zero on a
   // read-only `mcp list` is one that will not manage a removal either. Testing

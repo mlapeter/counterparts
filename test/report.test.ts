@@ -372,13 +372,13 @@ describe("doctor: the folded screen", () => {
       "amber",
       "Sweep",
       "newest sweep.gate 2026-09-21: reason no-credential",
-      "The sweep stood down; the reason names why.",
+      "Run: counterparts credentials set ANTHROPIC_API_KEY",
     );
     const out = screen([...HEADLINES, ...internals([amber])]);
     const said = out.join("\n");
     // The amber is at the top, above the OFF lines, with its fix under it.
     expect(out[2]).toBe("AMBER  Sweep               newest sweep.gate 2026-09-21: reason no-credential");
-    expect(out[3]).toBe(`${" ".repeat(27)}fix: The sweep stood down; the reason names why.`);
+    expect(out[3]).toBe(`${" ".repeat(27)}fix: Run: counterparts credentials set ANTHROPIC_API_KEY`);
     // And every other internal is back on the screen.
     expect(said).toContain("GREEN  Sleep");
     expect(said).toContain("GREEN  Clock");

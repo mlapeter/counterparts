@@ -37,7 +37,18 @@
  * way `ui.ts` does, so `commands.ts` can import `writeCredential` and
  * `promptForKeys` back without minting an ESM cycle.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
@@ -402,15 +413,92 @@ export function enableEmbedder(configPath: string): EmbedderEdit {
     return { ok: false, reason: `${configPath} does not hold a JSON object` };
   }
   const body = { ...(raw as Record<string, unknown>), embedder: { enabled: true } };
-  const tmp = `${configPath}.tmp`;
   try {
-    writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode });
-    chmodSync(tmp, mode);
-    renameSync(tmp, configPath);
+    replaceAtomically(configPath, `${JSON.stringify(body, null, 2)}\n`, mode);
   } catch (err) {
     return { ok: false, reason: String((err as Error).message ?? err) };
   }
   return { ok: true };
+}
+
+/**
+ * THE TEMP NAME BOTH WRITERS USE: `<path>.<pid>.tmp` (review n4).
+ *
+ * It was `<path>.tmp` for both `writeCredential` and `enableEmbedder`, so two
+ * processes writing the same file at once wrote through ONE temp file, and a
+ * rename that failed left that 0600 temp behind for good. The process id makes
+ * the name each process's own — within a process these writes are synchronous,
+ * so they cannot overlap — and it is the one suffix `uninstall.ts#ownedKind`
+ * already counts as a sidecar of ours (`/^\d+\.tmp$/`), so a leftover can
+ * never make `~/.counterparts` look like it holds something foreign.
+ */
+export function tempSibling(path: string): string {
+  return `${path}.${String(process.pid)}.tmp`;
+}
+
+/**
+ * WHERE A WRITE TO `path` ACTUALLY LANDS: the file itself, or — when `path` is
+ * a symbolic link — the file the link points at (review of #188, M4).
+ *
+ * A rename over a LINK replaces the link: `credentials.env -> ~/secrets/creds.env`
+ * became a plain 0600 file holding the key, the link was gone, and the file the
+ * person keeps their secrets in never saw the key. `wire.ts#sightSettings`
+ * already writes through a link for the same reason, and so does this now:
+ * the temp sibling is minted beside the TARGET (a rename is atomic only within
+ * one directory's filesystem) and renamed over the target, and the link stays
+ * exactly as it was.
+ *
+ * Unlike `wire.ts`, a target outside the home is NOT refused: nobody else's
+ * file is at stake here — the person linked their own credentials file to where
+ * they keep it, which is the whole point of the link. A DANGLING link is
+ * refused, as it is there: it is an arrangement part-way through being set up,
+ * and writing a file where the link was waiting is how that setup silently loses.
+ */
+export function writeTarget(path: string): string {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return path; // not there yet: this write is how it comes to exist
+  }
+  if (!stat.isSymbolicLink()) return path;
+  try {
+    return realpathSync(path);
+  } catch {
+    let pointsAt = "(unreadable)";
+    try {
+      pointsAt = readlinkSync(path);
+    } catch {
+      /* the sentence below still says what matters */
+    }
+    throw new Error(
+      `${path} is a symbolic link to ${pointsAt}, and nothing is there. Nothing was written: ` +
+        "put the file the link points at in place first (an empty one will do), or remove the link.",
+    );
+  }
+}
+
+/**
+ * Write `bytes` to a sibling at `mode`, then rename it over `path` — or over
+ * the file `path` links to (`writeTarget`). A failure anywhere removes the
+ * sibling before it is reported, so a secret is never left in a stray file
+ * beside the one that should have held it.
+ */
+function replaceAtomically(path: string, bytes: string, mode: number): void {
+  const target = writeTarget(path);
+  const tmp = tempSibling(target);
+  try {
+    writeFileSync(tmp, bytes, { mode });
+    chmodSync(tmp, mode);
+    renameSync(tmp, target);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* a temp file we could not remove is litter, not a second failure */
+    }
+    throw err;
+  }
 }
 
 // ── the one place a secret is written ───────────────────────────────────────
@@ -494,10 +582,8 @@ export function writeCredential(path: string, name: string, value: string): void
     out.push("");
   }
   // Sibling, then rename: see the note above — the target is never observed
-  // truncated, and the secret is never on disk at anything but 0600.
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, out.join("\n"), { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  // truncated, and the secret is never on disk at anything but 0600. Through a
+  // link when `path` is one; `chmod` follows the link to the same file.
+  replaceAtomically(path, out.join("\n"), 0o600);
+  chmodSync(writeTarget(path), 0o600);
 }

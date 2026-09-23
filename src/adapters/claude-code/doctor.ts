@@ -33,7 +33,7 @@
  *      nobody needed).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1263,11 +1263,24 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
               "",
               { reason, ran: num(p, "ran"), date: rowDate(sweep), answered: true },
             )
-          : finding("sweep", "amber", "Sweep", detail, "The sweep stood down; the reason names why.", {
-              reason,
-              ran: num(p, "ran"),
-              date: rowDate(sweep),
-            }),
+          : finding(
+              "sweep",
+              "amber",
+              "Sweep",
+              detail,
+              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial). The
+              // one stand-down whose remedy is a single command says the
+              // command; every other reason still points at the row, because
+              // what fixes it depends on which door it names.
+              reason === "no-credential"
+                ? `Run: counterparts credentials set ${API_KEY_ENV}`
+                : "The sweep stood down; the reason names why.",
+              {
+                reason,
+                ran: num(p, "ran"),
+                date: rowDate(sweep),
+              },
+            ),
     );
   }
 
@@ -1451,17 +1464,39 @@ const STORE_STARTED_META = "store.started";
  *   2. `store.started` — `start-fresh`'s own record of the day a blank store
  *      took a parked one's place.
  *
- * **Absent on every store made before 2026-09-21, and that is the whole answer
- * for them: null, no clamp, exactly today's sentence.** A reading that guessed
- * would be worse than one that declines to.
+ * **Absent on every store made before 2026-09-21** — every store 0.1.0 made,
+ * which is why finding #8 stayed open for them after 0.2.0 closed it for new
+ * ones. So when neither record is there, the store's own evidence stands in
+ * (2026-09-23), and the EARLIER of two readings wins:
  *
- * THREE THINGS THAT LOOK LIKE SOURCES AND ARE NOT. A memory's `learned_on` — an
- * imported store carries dates from long before it existed. The oldest EVENT
- * row's date — `rowDate` prefers the payload's own `date` field, which is the
- * date the event is ABOUT and not the day the row was written, so a store whose
- * first row is back-dated would be declared younger than its own contents.
- * `livedDay` — the physics clock, which the worker advances and which is 0 on a
- * store whose worker has never run.
+ *   3. **The oldest event row's `at`** — the moment a row was WRITTEN, on the
+ *      store's own provenance clock, and the smallest one (`eventLogCensus`'s
+ *      `MIN(at)`), not the first row by insertion order. Not `rowDate`: that
+ *      prefers the payload's `date` field, the day the event is ABOUT.
+ *   4. **The database file's birth time.** A filesystem that keeps none reports
+ *      zero, or — Node's documentation allows it — the change time instead;
+ *      a birth time that is not EARLIER than the change time is therefore read
+ *      as "no answer" rather than trusted.
+ *
+ * **WHICH WAY THESE CAN BE WRONG, said plainly (review of #188, M2): YOUNGER.**
+ * Each is the latest day the store could have begun, never the earliest: no
+ * row is written before the store exists, and `install` writes no event, so a
+ * store installed on the 3rd and first used on the 10th has its oldest row on
+ * the 10th; a database restored from a copy is born the day it was copied.
+ * Taking the earlier of the two answers the common case — an installed-but-idle
+ * store, whose FILE was born on the 3rd — and leaves one: a store that was both
+ * copied into place and idle before its first row. Its label then starts later
+ * than the store did, and hides days on which nothing was invited — the very
+ * silence the Authorship line exists to show. The READING is untouched either
+ * way (`windowShown` moves only the words), which is why a label that can err
+ * in that one case was judged worth having for every 0.1.0 store rather than
+ * no label at all. Event pruning does not add a case: a row goes only at 90
+ * lived days, far outside a seven-day window.
+ *
+ * TWO THINGS THAT LOOK LIKE SOURCES AND ARE NOT. A memory's `learned_on` — an
+ * imported store carries dates from long before it existed. `livedDay` — the
+ * physics clock, which the worker advances and which is 0 on a store whose
+ * worker has never run.
  */
 function storeFirstDay(store: Store): string | null {
   let first: string | null = null;
@@ -1470,7 +1505,35 @@ function storeFirstDay(store: Store): string | null {
     if (said === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(said)) continue;
     if (first === null || said < first) first = said;
   }
-  return first;
+  if (first !== null) return first;
+  const readings = [oldestEventDay(store), databaseBirthDay(store.dir)].filter(
+    (d): d is string => d !== null,
+  );
+  return readings.length === 0 ? null : readings.reduce((a, b) => (b < a ? b : a));
+}
+
+/** The calendar day (UTC) of the EARLIEST `at` among the store's event rows,
+ *  or null when it has none, or none that can be read. */
+function oldestEventDay(store: Store): string | null {
+  try {
+    const at = store.eventLogCensus().oldestAt;
+    return typeof at === "number" && Number.isFinite(at) && at > 0 ? dateOf(at) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The calendar day (UTC) the store's database file was born, or null when the
+ *  filesystem keeps no birth time — zero, or a "birth" no earlier than the last
+ *  change, which is what a filesystem without one may report instead. */
+function databaseBirthDay(dir: string): string | null {
+  try {
+    const stat = statSync(paths.operational(dir));
+    const born = stat.birthtimeMs;
+    return Number.isFinite(born) && born > 0 && born < stat.ctimeMs ? dateOf(born) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

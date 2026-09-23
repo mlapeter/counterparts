@@ -28,7 +28,19 @@
  * a real credentials file.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,9 +50,11 @@ import type { Io } from "../src/adapters/cli/index.js";
 import {
   KEY_LINKS,
   enableEmbedder,
+  tempSibling,
   promptForKeys,
   writeCredential,
 } from "../src/adapters/cli/keys.js";
+import { ownedKind } from "../src/adapters/cli/uninstall.js";
 import type { KeyPromptContext } from "../src/adapters/cli/keys.js";
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
 
@@ -736,5 +750,122 @@ describe("writeCredential", () => {
     const after = statSync(credsPath);
     expect((after.mode & 0o777).toString(8)).toBe("600");
     expect(after.ino).not.toBe(before.ino);
+  });
+});
+
+// ── review n4: a temp name of each process's own ───────────────────────────
+
+/**
+ * `writeCredential` and `enableEmbedder` both wrote through a FIXED
+ * `<path>.tmp`, so two writers at once shared one temp file, and a rename that
+ * failed left the 0600 temp behind. The name is `<path>.<pid>.tmp` now, a
+ * failure removes it, and it stays a name `uninstall` counts as ours.
+ */
+describe("review n4 — the temp file", () => {
+  const temps = (): string[] => readdirSync(root).filter((n) => n.endsWith(".tmp"));
+
+  test("is `<path>.<pid>.tmp`, and uninstall still reads it as a sidecar of ours", () => {
+    expect(tempSibling(credsPath)).toBe(`${credsPath}.${String(process.pid)}.tmp`);
+    const owned = {
+      config: "claude-code.json",
+      credentials: "credentials.env",
+      scopes: "scopes.json",
+      snapshots: null,
+      store: null,
+    };
+    for (const path of [credsPath, configPath]) {
+      const name = tempSibling(path).slice(root.length + 1);
+      expect(ownedKind(name, owned)).toBe("sidecar");
+    }
+  });
+
+  test("the OLD fixed name in the way stops neither writer", () => {
+    // A directory at `<path>.tmp` made the old `writeFileSync(tmp, …)` throw.
+    mkdirSync(`${credsPath}.tmp`);
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    expect(readFileSync(credsPath, "utf8")).toBe(`${API_KEY_ENV}=${ANTHROPIC_KEY}\n`);
+    writeConfig();
+    mkdirSync(`${configPath}.tmp`);
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    // Only the two directories this test made; no temp FILE of ours is left.
+    expect(temps().sort()).toEqual(["claude-code.json.tmp", "credentials.env.tmp"]);
+  });
+
+  test("a rename that fails takes its temp file with it — the secret is not left beside the target", () => {
+    // The target is a DIRECTORY, so the rename over it fails after the temp
+    // file (holding the key) has been written.
+    mkdirSync(credsPath);
+    writeFileSync(join(credsPath, "keep"), "x");
+    expect(() => writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY)).toThrow();
+    expect(temps()).toEqual([]);
+    expect(existsSync(tempSibling(credsPath))).toBe(false);
+  });
+
+  test("success leaves no temp of any name", () => {
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    writeConfig();
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    expect(temps()).toEqual([]);
+  });
+});
+
+// ── #188 review M4: a symlinked file is written THROUGH, never replaced ─────
+
+describe("a symlinked credentials or configuration file (#188 review M4)", () => {
+  test("writeCredential writes the key into the file the link points at, and the link survives", () => {
+    const secrets = join(root, "secrets");
+    mkdirSync(secrets);
+    const real = join(secrets, "creds.env");
+    writeFileSync(real, "# mine\n", { mode: 0o644 });
+    symlinkSync(real, credsPath);
+
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+
+    // The LINK is still a link, pointing where it pointed.
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(credsPath)).toBe(real);
+    // The key is in the real file, which is 0600 now, beside what was there.
+    expect(readFileSync(real, "utf8")).toBe(`# mine\n${API_KEY_ENV}=${ANTHROPIC_KEY}\n`);
+    expect((statSync(real).mode & 0o777).toString(8)).toBe("600");
+    // And no temp file is left in either directory.
+    for (const dir of [root, secrets]) {
+      expect(readdirSync(dir).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+    }
+  });
+
+  test("a second key through the same link replaces nothing but its own line", () => {
+    const real = join(root, "elsewhere.env");
+    writeFileSync(real, "", { mode: 0o600 });
+    symlinkSync(real, credsPath);
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    writeCredential(credsPath, EMBED_KEY_ENV, VOYAGE_KEY);
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, "utf8")).toBe(
+      `${API_KEY_ENV}=${ANTHROPIC_KEY}\n${EMBED_KEY_ENV}=${VOYAGE_KEY}\n`,
+    );
+  });
+
+  test("a DANGLING link is refused by name, and nothing is created at either end", () => {
+    const missing = join(root, "not-mounted", "creds.env");
+    symlinkSync(missing, credsPath);
+    expect(() => writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY)).toThrow(
+      "is a symbolic link to",
+    );
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(existsSync(missing)).toBe(false);
+    expect(existsSync(join(root, "not-mounted"))).toBe(false);
+    expect(readdirSync(root).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("enableEmbedder writes through a symlinked configuration too, keeping its mode", () => {
+    const real = join(root, "dotfiles-config.json");
+    writeFileSync(real, `${JSON.stringify({ dataDir: "/x" }, null, 2)}\n`, { mode: 0o640 });
+    symlinkSync(real, configPath);
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    expect(lstatSync(configPath).isSymbolicLink()).toBe(true);
+    const body = JSON.parse(readFileSync(real, "utf8")) as Record<string, unknown>;
+    expect(body["embedder"]).toEqual({ enabled: true });
+    expect(body["dataDir"]).toBe("/x");
+    expect((statSync(real).mode & 0o777).toString(8)).toBe("640");
   });
 });

@@ -3,7 +3,7 @@
  *
  * The finding (new-user findings #4, 2026-09-21): `counterparts --help` was 129
  * lines of dense paragraphs, and it is the SECOND thing a stranger types — the
- * "did that install work?" check. It is now about forty lines, grouped, one
+ * "did that install work?" check. It is now twenty-six lines, grouped, one
  * short line per command, and the detail moved to `counterparts help <command>`.
  *
  * Two properties are worth a test, and they are the two that decay on their own:
@@ -23,6 +23,8 @@
  * environment.
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   ADVANCED,
@@ -77,14 +79,41 @@ describe("the short page", () => {
     // which is the question it was actually asking.
     expect(lines[0]).toBe("counterparts — a memory layer for AI");
     expect(page).not.toContain("the owner's console");
-    // A number with room in it, not a target: the point is that it CANNOT grow
-    // back into a wall of text one command at a time. Today it is 26.
-    expect(lines.length).toBeLessThanOrEqual(32);
+    // EXACTLY 26 (2026-09-23). It used to be a ceiling of 32 with room in it;
+    // the page is now the owner's own, line for line (next test), so its length
+    // is a fact rather than a budget, and a change to it is a change to his
+    // screen. The "Advanced group collapses to a comma list, 39 → ~31 lines"
+    // item on the 0.2.0 trial's list was written 2026-09-21, against the page
+    // before the 09-22 split moved the whole Advanced group to `help advanced`;
+    // this page has had no Advanced group since, and is shorter than the target.
+    expect(lines).toHaveLength(26);
+    expect(page).not.toContain("\nAdvanced\n");
     // `usage()` is the same page — the two names are one thing.
     expect(usage()).toBe(page);
     // Both ways further in are on it.
     expect(page).toContain("counterparts help <command>");
     expect(page).toContain("counterparts help advanced");
+  });
+
+  test("it is the \"Help page\" block in docs/new-user-findings.md, byte for byte — that block changes only on the owner's word", () => {
+    // `docs/new-user-findings.md` §"The screens" is the acceptance criterion the
+    // 2026-09-22 round was built to ("the five rendered screens below are the
+    // acceptance criteria"), and the help page is the first of them. A change
+    // to this page is a change to that screen: make it there too, on his word.
+    const DOC = "docs/new-user-findings.md";
+    const doc = readFileSync(join(import.meta.dir, "..", DOC), "utf8");
+    // Anchored on the heading AND its fence: "**Help page**" also opens item 2
+    // of the owner's answers, a hundred lines above the screen itself.
+    const anchor = "**Help page**\n\n```\n";
+    const at = doc.indexOf(anchor);
+    expect(at, `${DOC} has no "**Help page**" screen block (§"The screens") to hold the help page to`).toBeGreaterThan(0);
+    const start = at + anchor.length;
+    const end = doc.indexOf("\n```", start);
+    expect(
+      shortHelp(),
+      `the help page no longer matches the "Help page" block in ${DOC} §"The screens" — ` +
+        "that block is the owner's approved screen and changes only on his word; change both, or neither",
+    ).toBe(doc.slice(start, end));
   });
 
   test("every description is one short line — or the two the owner wrote", () => {

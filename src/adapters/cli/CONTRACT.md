@@ -286,16 +286,41 @@ The standalone verb does not ask either: typing it is the yes.*
     reader is the one who may want the file back, and by `--dry-run`. The name is
     deterministic (`BACKUP_INFIX`, beside the file), so it is findable either way; but
     "its path is printed" is now true of two of the three arms, not three.*
+    *Amended 2026-09-23 (review n3): "no change" is decided by the RE-READ after the
+    question, not by the plan made before it. When another process did the same work
+    while the question was up, nothing is written and no backup is taken, and the screen
+    says the hooks were already in place (or already gone) when the file was read again.*
 22. **[M] Every other key and every other tool's hooks survive, and the merge works on
     the INNER hook entry.** Another tool's entry keeps its position, its `matcher`, its
     `timeout` and every key this package has never heard of; an event we do not use is not
     read; a group shaped in a way this does not understand is carried through whole. A
     wire followed by an unwire returns the document deep-equal to what it was.
+    *Amended 2026-09-23 (review n1): and the file keeps its LAYOUT — its indent (spaces
+    or tabs, read off the first indented line), its line ending (the one MOST of the file
+    uses — CRLF, LF or a bare CR, a tie going to LF — so one pasted odd line does not
+    convert the rest) and its final newline or the lack of one, so a wire followed by an
+    unwire returns it byte-identical when it was written the way `JSON.stringify` writes.
+    A file that is new, empty or on one line gets two spaces, LF and a final newline.
+    Anything a parse cannot carry is still lost to the re-serialisation — the LAYOUT kind
+    (a hand-aligned array, a blank line between sections) and the CONTENT kind, which is
+    the parser's rather than this command's: of two duplicate keys only the last
+    survives, a number past double precision is rounded (`12345678901234567890` comes
+    back `12345678901234567000`), `1.0` and `1e3` come back `1` and `1000`, and escapes
+    such as `\/` or `\u00e9` come back as the characters they stand for. That is the
+    cost of editing JSON, and the backup holds the file as it was.*
 23. **[M] A settings file this cannot read is a REFUSAL that changes nothing.** Bytes that
     are not JSON, a top level that is not an object, a `hooks` key that is not an object,
     an event whose value is not an array, something that is not a regular file, or a
     symlink pointing outside the home directory. Each prints the block for hand-merging
     and leaves the file hashed-identical.
+    *Amended 2026-09-23 (review n2): four unparsable shapes are NAMED rather than handed
+    over in the parser's words — a byte-order mark, comments (`//`, `/* */`), single-quoted
+    strings, and a comma before a closing bracket — each with what to do about it, found
+    by one pass that knows a string from a comment (so a `//` inside any quoted value is
+    not a comment, and an apostrophe inside a comment is not a quote). Still refusals: this writes
+    plain JSON, and writing a commented file back would drop its comments. Whether Claude
+    Code itself accepts those shapes in this file has not been checked, and the refusal
+    does not claim to know.*
 24. **[M] The write is atomic and keeps the file's mode**: a temp file in the same
     directory and one `rename(2)`. A symlinked settings file is written THROUGH to its
     target (only when the target is inside the home), so the link survives.
@@ -337,6 +362,22 @@ The standalone verb does not ask either: typing it is the yes.*
     — the way back is `counterparts install`, which finds a parked folder beside a missing
     one and asks; the shell line moved to `counterparts help uninstall` (finding #22).
     `start-fresh` still prints its own, and is still where the guard is proved.*
+    *Amended 2026-09-23 (finding #26, the owner's 0.2.0 trial: 6.7 MB in the delete plan,
+    1.4 MB in the park plan a minute later). **Both arms take the sizes the same way, at
+    the same point: after the pre-flight, immediately before the plan is printed**, with
+    `lstat` and `readdir` only, and the delete arm's COUNT (which opens the store,
+    observer) comes after those sizes, so nothing this process opens can move the number
+    it prints. The cause was the pre-flight itself: `claude mcp list` starts our MCP
+    server as a health check — a WRITER open of the very store about to be parked or
+    deleted, in another process — and that server folds the store's write-ahead log into
+    the database on its way out, so the first run was sized before that happened and the
+    second after. "The park arm never opens the store" is therefore true of THIS process
+    only; the pre-flight's health check does, and always has. The number is every byte
+    under the path, the log included; when the log is a megabyte or more and a tenth or
+    more of the store, both plans say so in the same two lines, because it is the part
+    that shrinks on its own later (NOTES, 2026-09-23, has the measurements). And while
+    `claude mcp list` runs, a terminal shows one static line, `Checking Claude Code…` —
+    only when there is a registration to check.*
 29. **[M] The store is in that plan under its own ring** — absolute, not a forbidden root
     by either spelling, not a filesystem root, not the home, inside the home, not a
     symlink, and recognisable as a store by its own files — and a store that fails it is a
