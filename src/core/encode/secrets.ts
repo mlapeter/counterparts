@@ -37,6 +37,12 @@ export interface SecretPattern {
   re: RegExp;
   /** Which capture group holds the credential. 0 = the whole match. */
   value: number;
+  /**
+   * Redact every OTHER occurrence of a value this pattern captured, anywhere in
+   * the text. For a credential caught by its context — a name, a nearby key id
+   * — whose second copy has no context of its own (PR #189 review, M3).
+   */
+  propagate?: boolean;
   /** Why this family exists — lineage where there is any. */
   why: string;
 }
@@ -59,12 +65,31 @@ const SCHEME_TAIL = "[a-z0-9+.-]{0,32}";
  * fenced by lookarounds (`/`, `+` and `=` are not word characters, so `\b` would
  * not fence it), carrying at least one upper- and one lower-case letter. Only
  * ever used beside a context anchor — never on its own.
+ *
+ * Two kinds of PATH are not taken for one even beside a key id (review m8): a
+ * run straight after `~` or `.` (`~/…`, `./…`, the path after a host name), and
+ * a run that starts at a well-known absolute root (`/Users/…`, `/home/…`). A
+ * secret that begins with one of those roots is a one-in-64⁶ event; a bare
+ * leading `/` is NOT excluded, because one real secret in 64 begins with one.
  */
-const AWS_SECRET_TOKEN =
-  "(?<![A-Za-z0-9/+=])" +
+const AWS_SECRET_SHAPE =
+  "(?<![A-Za-z0-9/+=~.])" +
   NOT_REDACTED +
-  "((?=[A-Za-z0-9/+=]{0,39}[A-Z])(?=[A-Za-z0-9/+=]{0,39}[a-z])[A-Za-z0-9/+=]{40})" +
-  "(?![A-Za-z0-9/+=])";
+  "(?!/(?:Users|home|usr|var|tmp|opt|etc|private|Volumes|mnt|srv|root|Library|Applications|System)/)" +
+  "(?=[A-Za-z0-9/+=]{0,39}[A-Z])(?=[A-Za-z0-9/+=]{0,39}[a-z])(?=[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]))";
+const AWS_SECRET_TOKEN_AFTER_ID =
+  AWS_SECRET_SHAPE + "(?<=\\[REDACTED:aws-access-key-id\\][\\s\\S]{0,200})([A-Za-z0-9/+=]{40})";
+const AWS_SECRET_TOKEN_BEFORE_ID =
+  AWS_SECRET_SHAPE + "([A-Za-z0-9/+=]{40})(?=[\\s\\S]{0,200}\\[REDACTED:aws-access-key-id\\])";
+
+/**
+ * A value that is a small number, a boolean or a null word is a SETTING, not a
+ * credential — `TOKEN_LIMIT: "4096"`, `SECRET="false"` — and is left alone by
+ * the catch-all below. Six digits or more under a password-shaped name is still
+ * redacted: a numeric password or a PIN is a credential.
+ */
+const NOT_A_PLAIN_VALUE =
+  "(?![\"']?(?:\\d{1,5}|true|false|null|none|nil|yes|no|on|off|undefined)[\"']?(?![^\\s,;}\\])]))";
 // The same lever exists one class later in `url-path-token`: an unbounded
 // host/path run (`[^\s"'<>]*`) retried across a comma-joined URL list was
 // quadratic too (179ms at 64KB, 2.8s at 256KB — PR-8 review). Bounded to 512:
@@ -105,52 +130,56 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   // alphabet — so its SHAPE alone would also match a CamelCase identifier or a
   // path, and a bare-shape family is a declared non-goal (encode NOTES, item 18).
   // It is caught by CONTEXT, three ways, and all three share one family name
-  // because they are one credential.
+  // because they are one credential. Every value any of them captures is then
+  // redacted EVERYWHERE it appears in the text (`propagate`): one verbatim copy
+  // further down is the whole leak (PR #189 review, M3).
   {
     family: "aws-secret-access-key",
     // 1. NAMED: `aws_secret_access_key = …`, `AWS_SECRET_ACCESS_KEY=…`, the JSON
     //    `"SecretAccessKey": "…"`, `aws configure`'s `AWS Secret Access Key
-    //    [None]: …`. Keeps the name, redacts the value — the ops rule. The
-    //    catch-all below cannot see these: its `\b` fails before `secret` and
-    //    `access` when an underscore precedes them.
-    // Fenced by "no letter or digit before", not `\b`, so a prefixed name
-    // (`MY_AWS_SECRET_ACCESS_KEY`) is still a name.
+    //    [None]: …`, and the four forms with no `=` beside the name (review M4):
+    //    `aws configure set aws_secret_access_key …`, a Dockerfile's `ENV
+    //    AWS_SECRET_ACCESS_KEY …`, `os.environ["AWS_SECRET_ACCESS_KEY"] = "…"`,
+    //    and STS/IAM XML `<SecretAccessKey>…`. Keeps the name, redacts the value
+    //    — the ops rule. The VALUE must carry a digit, `/` or `+` as well as a
+    //    letter, so the word after the name in prose ("SecretAccessKey:
+    //    ConfigurationDocumentation…") is not taken for one (review m8).
+    //    Fenced by "no letter or digit before", not `\b`, so a prefixed name
+    //    (`MY_AWS_SECRET_ACCESS_KEY`) is still a name.
     re: new RegExp(
       "(?<![A-Za-z0-9])((?:aws[_ \\t-]?secret[_ \\t-]?(?:access[_ \\t-]?)?key|secret[_ \\t-]?access[_ \\t-]?key)" +
-        "(?:[ \\t]*\\[[^\\]\\n]{0,24}\\])?[\"']?[ \\t]*[:=][ \\t]*[\"']?)" +
+        "(?:[ \\t]*\\[[^\\]\\n]{0,24}\\])?" +
+        "(?:[\"']?\\]?[ \\t]*[:=>][ \\t]*[\"']?|[\"']?[ \\t]+[\"']?))" +
         NOT_REDACTED +
-        "([A-Za-z0-9/+=]{16,})",
+        "((?=[A-Za-z0-9/+=]{0,200}?[0-9/+])(?=[A-Za-z0-9/+=]{0,200}?[A-Za-z])[A-Za-z0-9/+=]{16,})",
       "gi",
     ),
     value: 2,
-    why: "An AWS secret access key under its own name (env, credentials file, JSON, `aws configure`).",
+    propagate: true,
+    why: "An AWS secret access key under its own name (env, credentials file, CLI, Dockerfile, code, JSON, XML).",
   },
   {
     family: "aws-secret-access-key",
-    // 2. AFTER THE KEY ID, within 200 characters: the 09-20 review's own shape,
+    // 2. AFTER A KEY ID, within 200 characters: the 09-20 review's own shape,
     //    "…AKIA… and the secret wJalr…". Anchored on the id's PLACEHOLDER, which
     //    the key-id family has already written by the time this runs — so text
-    //    an older build redacted half of is finished by a re-scan. The token must
-    //    carry BOTH cases: a 40-hex git SHA or an all-caps constant is not a
-    //    secret, and a random 40-character base64 string lacks either case about
-    //    once in a billion.
-    re: new RegExp(
-      "\\[REDACTED:aws-access-key-id\\][\\s\\S]{0,200}?" +
-        AWS_SECRET_TOKEN,
-      "g",
-    ),
+    //    an older build redacted half of is finished by a re-scan. The anchor is
+    //    a LOOKBEHIND, not part of the match: one id cannot be used up by the
+    //    first token after it, so a second copy, an old and a new secret, and
+    //    two ids followed by two secrets are all taken (review M3).
+    re: new RegExp(AWS_SECRET_TOKEN_AFTER_ID, "g"),
     value: 1,
-    why: "An AWS secret access key written beside its key id.",
+    propagate: true,
+    why: "An AWS secret access key written after its key id.",
   },
   {
     family: "aws-secret-access-key",
-    // 3. BEFORE THE KEY ID, within 200 characters — the same pair, the other way
-    //    round ("secret wJalr…, id AKIA…").
-    re: new RegExp(
-      AWS_SECRET_TOKEN + "[\\s\\S]{0,200}?\\[REDACTED:aws-access-key-id\\]",
-      "g",
-    ),
+    // 3. BEFORE A KEY ID, within 200 characters — the same pair, the other way
+    //    round ("secret wJalr…, id AKIA…"), with the anchor a LOOKAHEAD for the
+    //    same reason.
+    re: new RegExp(AWS_SECRET_TOKEN_BEFORE_ID, "g"),
     value: 1,
+    propagate: true,
     why: "An AWS secret access key written before its key id.",
   },
   {
@@ -243,11 +272,25 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   },
   {
     family: "assigned-credential",
+    // FENCED BY "NO LETTER OR DIGIT BEFORE", NOT `\b` (PR #189 review, M5). An
+    // underscore is a word character, so `\b` never fired inside a snake_case
+    // name and `DB_PASSWORD=…`, `JWT_SECRET=…`, `AWS_SESSION_TOKEN=…` and
+    // `HF_TOKEN=…` were stored verbatim through every entrance. The TRAILING
+    // `\b` stays, and it is the false-positive guard: `MAX_TOKENS`,
+    // `TOKEN_URL`, `SECRET_ROTATION_DAYS` do not end in the keyword, so they
+    // never match. A closing quote may sit between the name and the `:` — the
+    // JSON form (`"SessionToken": "…"`) — and a small number or a boolean is a
+    // setting, not a credential (`NOT_A_PLAIN_VALUE`).
     re: new RegExp(
-      "\\b(password|passwd|pwd|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|" +
-        "client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|" +
-        "bearer[_-]?token|secret|token|credential)\\b\\s*[:=]\\s*" +
-        NOT_REDACTED +
+      "(?<![A-Za-z0-9])(password|passwd|pwd|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|" +
+        "client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|" +
+        "bearer[_-]?token|secret|token|credential)\\b[\"']?\\s*[:=]\\s*" +
+        // A QUOTED placeholder is still a placeholder: without the optional quote
+        // a re-scan re-redacted `KEY="[REDACTED:…]"`, and once the fence let this
+        // family reach `ACCESS_KEY` inside `AWS_SECRET_ACCESS_KEY`, it took the
+        // AWS family's own mark for a value.
+        "(?![\"']?\\[REDACTED:)" +
+        NOT_A_PLAIN_VALUE +
         "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n,;]{6,})",
       "gi",
     ),
@@ -266,7 +309,12 @@ export interface SecretsScan {
   emptyAfterRedaction: boolean;
 }
 
-function redactOne(text: string, p: SecretPattern, hit: () => void): string {
+function redactOne(
+  text: string,
+  p: SecretPattern,
+  hit: () => void,
+  captured?: (value: string) => void,
+): string {
   // A fresh regex per call: a module-level /g regex carries `lastIndex` state,
   // and a shared mutable cursor across callers is a bug waiting for a Tuesday.
   const re = new RegExp(p.re.source, p.re.flags);
@@ -274,10 +322,14 @@ function redactOne(text: string, p: SecretPattern, hit: () => void): string {
     const match = String(args[0] ?? "");
     hit();
     const mark = `[REDACTED:${p.family}]`;
-    if (p.value === 0) return mark;
+    if (p.value === 0) {
+      captured?.(match);
+      return mark;
+    }
     const raw = args[p.value];
     const val = typeof raw === "string" ? raw : "";
     if (val.length === 0) return mark;
+    captured?.(val);
     const at = match.lastIndexOf(val);
     if (at < 0) return mark;
     return `${match.slice(0, at)}${mark}${match.slice(at + val.length)}`;
@@ -298,9 +350,47 @@ export function stripRedactions(text: string): string {
  */
 export function scanSecrets(text: string, site = "body"): SecretsScan {
   const counts = new Map<string, number>();
+  const bump = (family: string): void => {
+    counts.set(family, (counts.get(family) ?? 0) + 1);
+  };
+  // Values a `propagate` pattern captured, by family. Never logged, never
+  // hashed — they live for the length of this call and leave only as marks.
+  const spread = new Map<string, Set<string>>();
   let out = text;
   for (const p of SECRET_FAMILIES) {
-    out = redactOne(out, p, () => counts.set(p.family, (counts.get(p.family) ?? 0) + 1));
+    out = redactOne(
+      out,
+      p,
+      () => bump(p.family),
+      p.propagate === true
+        ? (value) => {
+            const set = spread.get(p.family) ?? new Set<string>();
+            set.add(value);
+            spread.set(p.family, set);
+          }
+        : undefined,
+    );
+  }
+  // EVERY COPY, NOT THE FIRST ONE (review M3). A value caught by its context is
+  // taken out wherever else it stands. ONE linear pass over the text's maximal
+  // base64 runs with a set lookup — never a regex per value, which on a text of
+  // a thousand pairs would be a thousand passes. Every propagating family
+  // captures a maximal run (greedy, or fenced), so an exact run match is the
+  // same value and a longer token that merely contains it is left alone.
+  // Sixteen characters at least, so no common word can ever be propagated.
+  if (spread.size > 0) {
+    const familyOf = new Map<string, string>();
+    for (const [family, values] of spread) {
+      for (const value of values) if (value.length >= 16) familyOf.set(value, family);
+    }
+    if (familyOf.size > 0) {
+      out = out.replace(/(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{16,}(?![A-Za-z0-9/+=])/g, (run) => {
+        const family = familyOf.get(run);
+        if (family === undefined) return run;
+        bump(family);
+        return `[REDACTED:${family}]`;
+      });
+    }
   }
   const findings: SecretFinding[] = [...counts.entries()].map(([family, count]) => ({
     family,

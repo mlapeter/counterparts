@@ -99,6 +99,60 @@ describe("the shapes — by name, and beside its key id either way round", () =>
     }
   });
 
+  test("EVERY copy goes, not the first one (review M3): a repeat, an old and a new secret, two ids then two secrets", () => {
+    const S2 = "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY"; // AWS's second documented example secret
+    const ID2 = "AKIAI44QH8DHBEXAMPLE";
+    const cases: [string, string][] = [
+      [
+        `key ${KEY_ID} secret ${SECRET} — to be clear, the secret is ${SECRET}`,
+        `key ${ID_MARK} secret ${SECRET_MARK} — to be clear, the secret is ${SECRET_MARK}`,
+      ],
+      [`key ${KEY_ID}: old secret ${SECRET}, new secret ${S2}`, `key ${ID_MARK}: old secret ${SECRET_MARK}, new secret ${SECRET_MARK}`],
+      [`ids: ${KEY_ID}, ${ID2}\nsecrets: ${SECRET}, ${S2}`, `ids: ${ID_MARK}, ${ID_MARK}\nsecrets: ${SECRET_MARK}, ${SECRET_MARK}`],
+      // Far past the 200-character window: the value is taken wherever it stands.
+      [`key ${KEY_ID} secret ${SECRET}. ${"More notes. ".repeat(40)}Again: ${SECRET}`, `key ${ID_MARK} secret ${SECRET_MARK}. ${"More notes. ".repeat(40)}Again: ${SECRET_MARK}`],
+      // ...and a value caught by NAME is taken everywhere too.
+      [`AWS_SECRET_ACCESS_KEY=${SECRET}\n# copied from ${SECRET}`, `AWS_SECRET_ACCESS_KEY=${SECRET_MARK}\n# copied from ${SECRET_MARK}`],
+    ];
+    for (const [input, expected] of cases) {
+      const out = redactSecrets(input);
+      expect({ input, out }).toEqual({ input, out: expected });
+      expect(out).not.toContain("EXAMPLEKEY");
+    }
+    // A longer token that merely CONTAINS a caught value is not a copy of it.
+    const longer = `key ${KEY_ID} secret ${SECRET} and ${SECRET}XYZ9`;
+    expect(redactSecrets(longer)).toContain(`${SECRET}XYZ9`);
+  });
+
+  test("the forms with no `=` beside the name, and no key id nearby (review M4)", () => {
+    const cases: [string, string][] = [
+      [`aws configure set aws_secret_access_key ${SECRET}`, `aws configure set aws_secret_access_key ${SECRET_MARK}`],
+      [`ENV AWS_SECRET_ACCESS_KEY ${SECRET}`, `ENV AWS_SECRET_ACCESS_KEY ${SECRET_MARK}`],
+      [`os.environ["AWS_SECRET_ACCESS_KEY"] = "${SECRET}"`, `os.environ["AWS_SECRET_ACCESS_KEY"] = "${SECRET_MARK}"`],
+      [`<SecretAccessKey>${SECRET}</SecretAccessKey>`, `<SecretAccessKey>${SECRET_MARK}</SecretAccessKey>`],
+      [`--aws-secret-access-key ${SECRET}`, `--aws-secret-access-key ${SECRET_MARK}`],
+    ];
+    for (const [input, expected] of cases) {
+      expect({ input, out: redactSecrets(input) }).toEqual({ input, out: expected });
+    }
+  });
+
+  test("near a key id, PATHS are not secrets, and by name a plain WORD is not one (review m8)", () => {
+    for (const clean of [
+      `${KEY_ID} is the key the job at /Users/alice/projects/myapp/src/core/enc uses`,
+      `${KEY_ID} lives in ~/Users/alice/projectsXX/myapp/src/core/enc today`,
+      `${KEY_ID} see ./Users/alice/projectsXX/myapp/src/core/enc for it`,
+      `${KEY_ID} is documented at docs.example.com/Users/alice/projectsXX/myapp/src/co`,
+    ]) {
+      expect({ clean, out: redactSecrets(clean) }).toEqual({ clean, out: clean.replace(KEY_ID, ID_MARK) });
+    }
+    const prose = "SecretAccessKey: ConfigurationDocumentation is the page to read";
+    expect(redactSecrets(prose)).toBe(prose);
+    // A bare leading `/` is NOT excluded: one real secret in 64 begins with one.
+    const slashSecret = "/alrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY1";
+    expect(redactSecrets(`key ${KEY_ID} secret ${slashSecret}`)).toBe(`key ${ID_MARK} secret ${SECRET_MARK}`);
+  });
+
   test("text an OLDER build redacted half of is finished by a re-scan, and a re-scan is a no-op after that", () => {
     // Exactly what the review found stored: the id's placeholder beside the
     // secret. Anchoring on the placeholder is what lets the gate finish it.
@@ -140,6 +194,13 @@ describe("the shapes — by name, and beside its key id either way round", () =>
     expect(out).toContain(ID_MARK);
   });
 
+  test("a QUOTED placeholder is still a placeholder: a re-scan of `KEY=\"[REDACTED:…]\"` finds nothing", () => {
+    const once = redactSecrets(`export AWS_SECRET_ACCESS_KEY="${SECRET}"`);
+    expect(once).toBe(`export AWS_SECRET_ACCESS_KEY="${SECRET_MARK}"`);
+    expect(scanSecrets(once).fired).toBe(false);
+    expect(scanSecrets('password: "[REDACTED:assigned-credential]"').fired).toBe(false);
+  });
+
   test("the family is declared once by NAME and three times by pattern, all fenced by context", () => {
     const patterns = SECRET_FAMILIES.filter((f) => f.family === "aws-secret-access-key");
     expect(patterns).toHaveLength(3);
@@ -155,11 +216,52 @@ describe("the shapes — by name, and beside its key id either way round", () =>
       "aws_secret_access_key".repeat(3000),
       "aB".repeat(32 * 1024),
       `${SECRET.slice(0, 39)}/`.repeat(1600),
+      // A thousand pairs: every value propagates, in one pass, not one each.
+      Array.from({ length: 1000 }, (_, i) => `AKIA${String(i).padStart(16, "0")} ${SECRET.slice(0, 36)}${String(i).padStart(4, "0")}`).join("\n"),
     ];
     for (const text of shapes) {
       const t0 = performance.now();
       scanSecrets(text);
       expect(performance.now() - t0).toBeLessThan(250);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the ROOT cause, fixed for every name — the catch-all's fence (review M5)", () => {
+  test("snake_case and JSON names ending in a credential word are redacted, name kept", () => {
+    const cases: [string, string][] = [
+      ["DB_PASSWORD=hunter2hunter2", "DB_PASSWORD=[REDACTED:assigned-credential]"],
+      ["POSTGRES_PASSWORD=supersecret9", "POSTGRES_PASSWORD=[REDACTED:assigned-credential]"],
+      ["JWT_SECRET=abcDEF123456xyz", "JWT_SECRET=[REDACTED:assigned-credential]"],
+      ["AWS_SESSION_TOKEN=FwoGZXIvYXdzEBYaDExampleToken", "AWS_SESSION_TOKEN=[REDACTED:assigned-credential]"],
+      ["HF_TOKEN=hf_abcdefghijklmnopqrstu", "HF_TOKEN=[REDACTED:assigned-credential]"],
+      ["STRIPE_API_KEY=pk9_abcdefghijklm", "STRIPE_API_KEY=[REDACTED:assigned-credential]"],
+      ['"SessionToken": "FwoGZXIvYXdzEBYaDExampleToken"', '"SessionToken": [REDACTED:assigned-credential]'],
+      ['{"password": "correct-horse"}', '{"password": [REDACTED:assigned-credential]}'],
+      // A numeric password is still a password.
+      ["DB_PASSWORD=12345678", "DB_PASSWORD=[REDACTED:assigned-credential]"],
+    ];
+    for (const [input, expected] of cases) {
+      expect({ input, out: redactSecrets(input) }).toEqual({ input, out: expected });
+    }
+  });
+
+  test("the false-positive guard: settings that only look like it are left alone", () => {
+    for (const clean of [
+      "MAX_TOKENS=4096",
+      "MAX_TOKEN=4096",
+      'TOKEN_LIMIT: "4096"',
+      'token: "4096"',
+      '"secret": "false"',
+      "SECRET_ROTATION_DAYS=30",
+      "TOKEN_URL=https://auth.example.com/token",
+      "PASSWORD_MIN_LENGTH=12",
+      "ACCESS_KEY_ID_ROTATION=monthly",
+      "USE_SECRET=undefined",
+      "the password reset form moved to the settings page",
+    ]) {
+      expect({ clean, out: redactSecrets(clean) }).toEqual({ clean, out: clean });
     }
   });
 });
