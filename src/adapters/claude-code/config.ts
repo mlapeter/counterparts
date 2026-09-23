@@ -165,6 +165,10 @@ export const TUNABLES = {
   // numbers below were copied from when this knob was introduced.
 } as const;
 
+/** The two embedders `embedder.kind` can name. See `AdapterConfig.embedder`. */
+export type EmbedderKind = "static" | "voyage";
+export const EMBEDDER_KINDS: readonly EmbedderKind[] = ["static", "voyage"];
+
 export interface AdapterConfig {
   /** Where the memory lives. Pinned onto the child's environment LAST. */
   readonly dataDir?: string;
@@ -214,8 +218,23 @@ export interface AdapterConfig {
    * starts shipping this store's contents anywhere. Absent ⇒ no client is built,
    * no socket is opened, and the brain runs exactly as it does today — blind,
    * and countably so (`novelty.reason = "no-chunk-vector"`).
+   *
+   * `kind` (roadmap C1, 2026-09-23) picks WHICH embedder `enabled` switches on:
+   *
+   *   - `"voyage"` — the paid remote seat (`models.embed`, `VOYAGE_API_KEY`).
+   *     ABSENT `kind` MEANS THIS, so every configuration written before the
+   *     field existed behaves exactly as it did.
+   *   - `"static"` — the local potion-base-8M table (`core/embed/static.ts`):
+   *     no key, no network, no egress, so `enabled` is not an egress decision
+   *     for it — it is only "use the semantic channel". Its weights come from
+   *     `COUNTERPARTS_STATIC_WEIGHTS_DIR` or the installed
+   *     `counterparts-model-potion` package.
+   *
+   * Read as strictly as `enabled`: a `kind` that is present and not one of the
+   * two stands the whole configuration down, rather than guessing which
+   * provider a typo meant — one guess sends memory text to a third party.
    */
-  readonly embedder?: { readonly enabled: boolean };
+  readonly embedder?: { readonly enabled: boolean; readonly kind?: EmbedderKind };
   /**
    * THE PARALLEL-RUN KNOB, and it defaults to ABSENT.
    *
@@ -343,7 +362,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     socketLifetimeMs?: number;
     watchdogMs?: number;
     models?: { interpret?: ModelSeat; embed?: ModelSeat };
-    embedder?: { enabled: boolean };
+    embedder?: { enabled: boolean; kind?: EmbedderKind };
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
     pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number; ignored?: string[] };
@@ -429,10 +448,14 @@ export function loadConfig(raw: unknown): LoadedConfig {
     // block must not resolve to "on" by accident, and the unreadable rule below
     // sends the whole configuration to observer rather than guessing.
     const e = embedder as Record<string, unknown>;
+    const kind = e["kind"];
     if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder) || typeof e["enabled"] !== "boolean") {
       unreadable = true;
+    } else if (kind !== undefined && !(typeof kind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(kind))) {
+      // Present and not one of the two: unreadable, never a default.
+      unreadable = true;
     } else {
-      out.embedder = { enabled: e["enabled"] };
+      out.embedder = { enabled: e["enabled"], ...(kind === undefined ? {} : { kind: kind as EmbedderKind }) };
     }
   }
   const parallel = rec["parallel"];
@@ -775,4 +798,13 @@ export function embedderState(
     enabled: config.embedder?.enabled === true,
     credential: key !== undefined && key.trim().length > 0,
   };
+}
+
+/**
+ * Which embedder `embedder.enabled` switches on. Absent `kind` is `"voyage"`:
+ * the one embedder that existed before the field did, so an old configuration
+ * reads the way it always has.
+ */
+export function embedderKind(config: AdapterConfig): EmbedderKind {
+  return config.embedder?.kind ?? "voyage";
 }

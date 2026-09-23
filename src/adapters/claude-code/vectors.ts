@@ -76,6 +76,24 @@ export const LAG_REPLY_BYTES = 800;
 /** How many unembedded memories one worker run may pay for. CAL. */
 export const BACKFILL_LIMIT = 64;
 
+/**
+ * The same bound for the STATIC table, which pays nothing and needs no
+ * network: one worker run may embed this many. It is a bound at all only
+ * because each `embedOne` is its own box-3 commit (`synchronous = FULL`), and a
+ * detached worker shares that file with the next hook. CAL: measured
+ * 2026-09-23 (`docs/research/static-embedder-trial-2026-09-23.md`).
+ */
+export const STATIC_BACKFILL_LIMIT = 1000;
+
+/**
+ * Does THIS embedder need the Voyage credential? Only the paid seat does; the
+ * static table computes locally. An injected embedder that predates the field
+ * is the paid shape.
+ */
+function credentialMissing(embedder: LiveEmbedder, hasCredential: boolean): boolean {
+  return embedder.needsCredential !== false && !hasCredential;
+}
+
 export interface LagReport {
   readonly reason: SemanticReason;
   readonly stored: boolean;
@@ -103,7 +121,8 @@ export async function laggedSemantic(input: {
   sessionId: string;
   scope: string;
   embedder: LiveEmbedder | null;
-  /** Present ⇒ a credential answered. Its VALUE is never read here. */
+  /** Present ⇒ a credential answered. Its VALUE is never read here, and an
+   *  embedder that needs none (the static table) is not asked about it. */
   hasCredential: boolean;
   onEvent?: Emit;
 }): Promise<LagReport> {
@@ -134,7 +153,7 @@ export async function laggedSemantic(input: {
   };
 
   if (input.embedder === null) return note("embedder-off", null, 0);
-  if (!input.hasCredential) return note("no-credentials", null, 0);
+  if (credentialMissing(input.embedder, input.hasCredential)) return note("no-credentials", null, 0);
 
   const text = lagText(counterpart, sessionId, scope);
   if (text.length === 0) return note("no-text", null, 0);
@@ -237,13 +256,16 @@ export interface BackfillReport {
 export async function backfillVectors(input: {
   counterpart: Counterpart;
   embedder: LiveEmbedder | null;
+  /** Present ⇒ a Voyage credential answered. Ignored for an embedder that needs none. */
   hasCredential: boolean;
+  /** Defaults to `BACKFILL_LIMIT` for the paid seat, `STATIC_BACKFILL_LIMIT` for the table. */
   limit?: number;
   onEvent?: Emit;
 }): Promise<BackfillReport> {
   const { counterpart } = input;
   const emit = input.onEvent ?? ((): void => {});
-  const limit = input.limit ?? BACKFILL_LIMIT;
+  const limit =
+    input.limit ?? (input.embedder?.needsCredential === false ? STATIC_BACKFILL_LIMIT : BACKFILL_LIMIT);
   const store = counterpart.store;
 
   const done = (
@@ -282,7 +304,7 @@ export async function backfillVectors(input: {
 
   if (counterpart.observer) return done("observer", 0, 0, 0);
   if (input.embedder === null) return done("embedder-off", 0, 0, 0);
-  if (!input.hasCredential) return done("no-credentials", 0, 0, 0);
+  if (credentialMissing(input.embedder, input.hasCredential)) return done("no-credentials", 0, 0, 0);
 
   const ids = store.missingVectors(limit);
   if (ids.length === 0) return done("nothing-missing", 0, 0, 0);
