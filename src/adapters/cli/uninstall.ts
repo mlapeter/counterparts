@@ -94,6 +94,9 @@ export const DELETE_PHRASE = "DELETE MEMORIES";
  *  out from under the process that is running it. */
 export const REMOVE_PACKAGE = `bun remove -g ${BIN.cli}`;
 
+/** The one line a moving arm prints while `claude mcp list` runs (TTY only). */
+export const CHECKING_CLAUDE_CODE = "Checking Claude Code…";
+
 // ── the forbidden-root clause, which every arm runs ─────────────────────────
 
 /**
@@ -235,6 +238,66 @@ export function dirSize(path: string): number {
   }
   for (const name of entries) total += dirSize(join(path, name));
   return total;
+}
+
+/**
+ * How many of `dirSize`'s bytes are SQLite WRITE-AHEAD LOGS — a `<file>-wal`
+ * with its database `<file>` beside it — so the plan can say what its number is
+ * made of (finding #26, below).
+ *
+ * `lstat` and `readdir` only, like `dirSize`: the store is never opened to ask.
+ */
+export function walBytes(path: string): number {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return 0;
+  }
+  if (!stat.isDirectory()) return 0;
+  let entries: string[];
+  try {
+    entries = readdirSync(path);
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const name of entries) {
+    const full = join(path, name);
+    if (name.endsWith("-wal") && entries.includes(name.slice(0, -"-wal".length))) {
+      try {
+        const log = lstatSync(full);
+        if (log.isFile()) total += log.size;
+      } catch {
+        /* gone between the listing and the stat: nothing to count */
+      }
+    } else {
+      total += walBytes(full);
+    }
+  }
+  return total;
+}
+
+/**
+ * WHEN THE LOG IS WORTH A SENTENCE: a megabyte or more, and at least a tenth of
+ * the store. A fresh store carries a couple of hundred kilobytes of log and the
+ * owner's screens stay exactly as he drew them; the trial's store carried 5.3 MB
+ * of its 6.7, and that is the case a person would otherwise wonder about.
+ */
+export const LOG_WORTH_SAYING = 1024 * 1024;
+
+/**
+ * THE SENTENCE — the same words under both plans, so the two arms cannot tell
+ * one memory's size two ways (finding #26). Two short lines rather than one
+ * long one: under the delete plan it starts in the column the store's words
+ * start in, forty-odd characters in.
+ */
+export function logClause(logBytes: number, storeBytes: number): readonly string[] | null {
+  if (logBytes < LOG_WORTH_SAYING || logBytes * 10 < storeBytes) return null;
+  return [
+    `${humanBytes(logBytes)} of that is a database log that shrinks on its own;`,
+    "nothing is lost when it does.",
+  ];
 }
 
 /**
@@ -405,6 +468,11 @@ export interface UninstallPlan {
    */
   readonly census: Census | null;
   readonly bytes: number;
+  /**
+   * The part of the STORE's bytes that is SQLite's write-ahead log (`walBytes`),
+   * 0 when no store is acted on. Both arms print it the same way (`logClause`).
+   */
+  readonly logBytes: number;
   readonly refusal: string | null;
 }
 
@@ -432,8 +500,6 @@ export function planUninstall(input: PlanInput): UninstallPlan {
       : isAbsolute(written.trim())
         ? resolve(written.trim())
         : null;
-  // COUNTED ONLY WHEN IT IS ABOUT TO GO. See `UninstallPlan.census`.
-  const census = input.verb === "delete" ? censusOf(configDir, storeDir) : null;
   const empty: UninstallPlan = {
     configDir,
     configPath,
@@ -444,8 +510,9 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     foreign: [],
     wholeDirectory: false,
     targets: [],
-    census,
+    census: null,
     bytes: 0,
+    logBytes: 0,
     refusal: null,
   };
 
@@ -518,6 +585,19 @@ export function planUninstall(input: PlanInput): UninstallPlan {
   const targets = wholeDirectory
     ? [...(storeOutside && storeDir !== null ? [storeDir] : []), configDir]
     : entries.map((e) => e.path);
+
+  // ── THE COUNT, AND ONLY AFTER EVERY SIZE ABOVE WAS TAKEN (finding #26) ──────
+  //
+  // COUNTED ONLY WHEN IT IS ABOUT TO GO (see `UninstallPlan.census`) — and
+  // counted LAST, so that both arms size a store nobody has opened in this
+  // command. The count opens it (observer, read-only in intent), and the park
+  // arm never does; sizing after the count would make the two arms measure
+  // different ground by construction, which is the one thing finding #26 asked
+  // us not to do. The sizes themselves were never the cause (NOTES, 2026-09-23):
+  // both arms always walked the same files. What moved between the owner's two
+  // runs was the store's write-ahead log, which is why it is now said out loud.
+  const logBytes = storeActed && storeDir !== null ? walBytes(storeDir) : 0;
+  const census = input.verb === "delete" ? censusOf(configDir, storeDir) : null;
   return {
     ...empty,
     storeActed,
@@ -525,7 +605,9 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     foreign,
     wholeDirectory,
     targets,
+    census,
     bytes: entries.reduce((n, e) => n + e.bytes, 0),
+    logBytes,
     refusal: null,
   };
 }
@@ -742,7 +824,10 @@ export function planLines(
       );
     }
     if (plan.targets.length === 0) out.push("  (nothing — there is none of ours left here)");
-    else out.push(`     ${contentsSentence(plan)}`);
+    else {
+      out.push(`     ${contentsSentence(plan)}`);
+      for (const line of logClause(plan.logBytes, storeBytesOf(plan)) ?? []) out.push(`     ${line}`);
+    }
   } else {
     out.push("This will delete, for good:");
     // Two columns, sized to what is actually in them: the paths are shortened
@@ -756,6 +841,10 @@ export function planLines(
       out.push(
         `  ${short(e.path).padEnd(pathWidth)}  ${humanBytes(e.bytes).padEnd(sizeWidth)}   ${what}`,
       );
+      // UNDER THE STORE'S OWN ROW, in the column its words are in: "that" is
+      // the size just printed on the line above.
+      const log = e.kind === "store" ? logClause(plan.logBytes, e.bytes) : null;
+      for (const line of log ?? []) out.push(`${" ".repeat(2 + pathWidth + 2 + sizeWidth + 3)}${line}`);
     }
     if (plan.entries.length === 0) out.push("  (nothing — there is none of ours left here)");
     if (plan.wholeDirectory) {
@@ -786,6 +875,11 @@ export function planLines(
     );
   }
   return out;
+}
+
+/** The store's own row's bytes, or 0 when no store is acted on. */
+function storeBytesOf(plan: UninstallPlan): number {
+  return plan.entries.find((e) => e.kind === "store")?.bytes ?? 0;
 }
 
 /** `your memory, configuration, API keys, snapshots — 7.6 MB`: what is inside
@@ -1108,6 +1202,18 @@ function previewSuffix(input: UninstallInput, plan: UninstallPlan): string | nul
 function mcpPreflight(input: UninstallInput, home: string): string | null {
   const mcp = readMcp(home, input.env, input.config.dataDir ?? "", input.custom, input.exe);
   if (!mcp.present && !mcp.unreadable) return null;
+  // THE WAIT, SAID OUT LOUD (the owner's 0.2.0 trial, 2026-09-22). `claude mcp
+  // list` health-checks every MCP server a person has registered, which takes
+  // seconds, and until this line both moving arms sat on a blank screen while
+  // it ran. `spawnSync` blocks the event loop, so nothing can animate — a
+  // spinner was ruled out for exactly that reason — and one static line is the
+  // whole of it. Printed HERE, after the early return, so somebody with nothing
+  // registered is never told about a check that does not happen; and only to a
+  // terminal, so a pipe, a script and every test keep the screen they had.
+  if (input.io.tty?.stdout === true) {
+    input.io.out(CHECKING_CLAUDE_CODE);
+    input.io.out("");
+  }
   // MISSING, HANGING **AND** ANGRY. A `spawnSync` that timed out comes back
   // `missing: false, code: null`, and a `claude` that exits non-zero on a
   // read-only `mcp list` is one that will not manage a removal either. Testing

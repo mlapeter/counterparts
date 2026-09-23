@@ -49,19 +49,24 @@ import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { CONFIG_FILE, HOST_EVENTS, MCP_SERVER_NAME, readHost } from "../src/adapters/cli/install.js";
 import {
+  CHECKING_CLAUDE_CODE,
   DELETE_PHRASE,
+  LOG_WORTH_SAYING,
   REMOVE_PACKAGE,
   censusOf,
   configDirRefusal,
   dirSize,
   grouped,
   humanBytes,
+  logClause,
   memories,
   ownedKind,
   ownedNames,
+  planLines,
   planUninstall,
   storeRefusal,
   uninstall,
+  walBytes,
 } from "../src/adapters/cli/uninstall.js";
 import type { UninstallInput } from "../src/adapters/cli/uninstall.js";
 import { PARKED_INFIX } from "../src/adapters/cli/start-fresh.js";
@@ -1233,5 +1238,225 @@ describe("the count", () => {
     const c = consoleWith();
     expect(await uninstall(input({ io: c.io }))).toBe("ok");
     expect(existsSync(storePath())).toBe(false);
+  });
+});
+
+// ── the wait (the owner's 0.2.0 trial, 2026-09-22) ──────────────────────────
+
+/**
+ * Both moving arms sat on a blank screen while `claude mcp list` health-checked
+ * every MCP server the person has. `spawnSync` blocks, so a spinner cannot tick
+ * (and was ruled out); ONE static line, before the call, on a terminal only.
+ */
+describe("the wait while Claude Code is checked", () => {
+  function registration(): void {
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "bun", args: ["x"] } } }),
+    );
+  }
+
+  /** A terminal console, and a spawner that notes how much had been printed by
+   *  the time `claude mcp list` was run. */
+  function watched(answers: readonly string[]): {
+    c: Console_;
+    spawner: Spawner;
+    seenAt: () => number | null;
+  } {
+    const c = consoleWith(answers);
+    const io: Io = { ...c.io, tty: { stdin: true, stdout: true, columns: 100 } };
+    c.io = io;
+    let at: number | null = null;
+    const spawner: Spawner = (args) => {
+      if (args[0] === "mcp" && args[1] === "list" && at === null) at = c.out.length;
+      return OK;
+    };
+    return { c, spawner, seenAt: () => at };
+  }
+
+  for (const arm of ["park", "delete"] as const) {
+    test(`--${arm === "park" ? "park" : "delete-memories"}: the line is on screen BEFORE \`claude mcp list\` runs`, async () => {
+      await install();
+      await wireIt();
+      registration();
+      const w = watched(arm === "park" ? ["y"] : ["cancel"]);
+      const flags = arm === "park" ? { park: true, yes: false } : { deleteMemories: true };
+      expect(await uninstall(input({ io: w.c.io, spawner: w.spawner, ...flags }))).toBe("ok");
+      const at = w.seenAt();
+      expect(at).not.toBeNull();
+      // The last two lines printed before the spawn: the line, then a blank.
+      expect(w.c.out.slice(0, at ?? 0).slice(-2)).toEqual([CHECKING_CLAUDE_CODE, ""]);
+      expect(w.c.out.filter((l) => l === CHECKING_CLAUDE_CODE)).toHaveLength(1);
+    });
+  }
+
+  test("off a terminal the screen is exactly what it was — no line", async () => {
+    await install();
+    await wireIt();
+    registration();
+    const c = consoleWith();
+    let listed = false;
+    const spawner: Spawner = (args) => {
+      if (args[1] === "list") listed = true;
+      return OK;
+    };
+    expect(await uninstall(input({ io: c.io, park: true, spawner }))).toBe("ok");
+    expect(listed).toBe(true);
+    expect(text(c.out)).not.toContain(CHECKING_CLAUDE_CODE);
+  });
+
+  test("nothing registered: no check runs, so nothing is said about one", async () => {
+    await install();
+    await wireIt();
+    const w = watched(["y"]);
+    expect(await uninstall(input({ io: w.c.io, spawner: w.spawner, park: true, yes: false }))).toBe("ok");
+    expect(w.seenAt()).toBeNull();
+    expect(text(w.c.out)).not.toContain(CHECKING_CLAUDE_CODE);
+  });
+});
+
+// ── finding #26: one store, one size, in both plans ─────────────────────────
+
+/**
+ * The owner's trial (2026-09-22): the store was 6.7 MB in the `--delete-memories`
+ * plan and 1.4 MB in the `--park` plan a minute later. Both arms always walked
+ * the same files with the same `dirSize`; what moved between the runs was the
+ * store's WRITE-AHEAD LOG (`counterparts.sqlite-wal`), which a process that is
+ * killed — or that closes with statements still prepared, which is every one
+ * of ours — leaves on disk at whatever size it reached, and which shrinks only
+ * when something later checkpoints it. NOTES (2026-09-23) has the measurements.
+ *
+ * So the plans now (a) size the store before anything in this command opens it,
+ * in BOTH arms, and (b) say how much of the number is that log, in the same
+ * words under both.
+ */
+describe("finding #26 — the store's size, and what it is made of", () => {
+  /**
+   * A real log, left the way a killed writer leaves one: 400 commits with
+   * autocheckpoint off, then SIGKILL — so every frame is still in the `-wal` and
+   * the database file itself has not moved. The row it churns is deleted again
+   * before the kill, so the store's CONTENT is what install left.
+   */
+  function fattenLog(): void {
+    const db = join(storePath(), DATABASE_FILE).replace(/'/g, "\\'");
+    const script = [
+      `import { Database } from "bun:sqlite";`,
+      `const db = new Database('${db}');`,
+      `db.exec("PRAGMA wal_autocheckpoint = 0");`,
+      `for (let i = 0; i < 400; i++) db.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('test.churn', '" + i + "')");`,
+      `db.exec("DELETE FROM meta WHERE key = 'test.churn'");`,
+      `process.kill(process.pid, "SIGKILL");`,
+    ].join("\n");
+    const res = spawnSync(process.execPath, ["-e", script], { encoding: "utf8", env: { ...ENV } });
+    expect(res.signal).toBe("SIGKILL");
+  }
+
+  const storeRow = (lines: readonly string[]): string =>
+    lines.find((l) => l.includes("your memory")) ?? "";
+
+  test("both arms print the SAME size for the store, and the same sentence about its log", async () => {
+    await install();
+    fattenLog();
+    const size = dirSize(storePath());
+    const log = walBytes(storePath());
+    expect(log).toBeGreaterThanOrEqual(LOG_WORTH_SAYING);
+    const config = { dataDir: storePath() };
+    const park = planUninstall({ configPath: configPath(), config, home, verb: "park" });
+    const del = planUninstall({ configPath: configPath(), config, home, verb: "delete" });
+    const storeBytes = (p: typeof park): number | undefined =>
+      p.entries.find((e) => e.kind === "store")?.bytes;
+    expect(storeBytes(park)).toBe(size);
+    expect(storeBytes(del)).toBe(size);
+    expect(park.logBytes).toBe(log);
+    expect(del.logBytes).toBe(log);
+
+    const clause = logClause(log, size) ?? [];
+    expect(clause).toEqual([
+      `${humanBytes(log)} of that is a database log that shrinks on its own;`,
+      "nothing is lost when it does.",
+    ]);
+    const parkLines = planLines(park, "park", home);
+    const delLines = planLines(del, "delete", home);
+    // THE SAME WORDS under both, each at its own arm's indent.
+    const parkAt = parkLines.indexOf(`     ${clause[0] ?? ""}`);
+    expect(parkAt).toBeGreaterThan(0);
+    expect(parkLines[parkAt + 1]).toBe(`     ${clause[1] ?? ""}`);
+    // Under the store's own row, in the column its words start in.
+    const row = storeRow(delLines);
+    const at = delLines.indexOf(row);
+    const column = row.indexOf("your memory");
+    expect(delLines[at + 1]).toBe(`${" ".repeat(column)}${clause[0] ?? ""}`);
+    expect(delLines[at + 2]).toBe(`${" ".repeat(column)}${clause[1] ?? ""}`);
+    expect(row).toContain(humanBytes(size));
+  });
+
+  test("the delete arm sizes the store BEFORE it opens it to count", async () => {
+    // Counting opens the store; the park arm never does. Sizing after the count
+    // would make the two arms measure different ground by construction.
+    await install();
+    fattenLog();
+    const size = dirSize(storePath());
+    const del = planUninstall({
+      configPath: configPath(),
+      config: { dataDir: storePath() },
+      home,
+      verb: "delete",
+    });
+    expect(del.census?.kind).toBe("memories");
+    expect(del.entries.find((e) => e.kind === "store")?.bytes).toBe(size);
+  });
+
+  test("the whole screens, both arms, carry it — and a fresh store's screens do not", async () => {
+    await install();
+    const fresh = consoleWith(["cancel"]);
+    expect(await uninstall(input({ io: fresh.io, deleteMemories: true }))).toBe("ok");
+    expect(text(fresh.out)).not.toContain("database log");
+
+    fattenLog();
+    const del = consoleWith(["cancel"]);
+    expect(await uninstall(input({ io: del.io, deleteMemories: true }))).toBe("ok");
+    expect(text(del.out)).toContain("of that is a database log that shrinks on its own;");
+    const park = consoleWith(["n"]);
+    expect(await uninstall(input({ io: park.io, park: true, yes: false }))).toBe("ok");
+    expect(text(park.out)).toContain("of that is a database log that shrinks on its own;");
+  });
+
+  test("a small log is not worth a sentence, and neither is a big store's", () => {
+    expect(logClause(200 * 1024, 2 * 1024 * 1024)).toBeNull();
+    expect(logClause(2 * 1024 * 1024, 100 * 1024 * 1024)).toBeNull();
+    expect(logClause(5 * 1024 * 1024, 6 * 1024 * 1024)?.[0]).toContain("5.0 MB of that");
+  });
+
+  test("walBytes counts a `-wal` only beside its database, and never opens either", () => {
+    const d = join(home, "walk");
+    mkdirSync(join(d, "cache"), { recursive: true });
+    writeFileSync(join(d, "a.sqlite"), "x");
+    writeFileSync(join(d, "a.sqlite-wal"), "y".repeat(100));
+    writeFileSync(join(d, "cache", "c.sqlite"), "x");
+    writeFileSync(join(d, "cache", "c.sqlite-wal"), "z".repeat(50));
+    writeFileSync(join(d, "orphan-wal"), "q".repeat(1000));
+    expect(walBytes(d)).toBe(150);
+    expect(walBytes(join(home, "not-there"))).toBe(0);
+  });
+});
+
+// ── review n5: the park heading, when no memory moved ───────────────────────
+
+describe("review n5 — the park screen claims only what moved", () => {
+  test("no store at the configured path: no 'your memory' in the plan, and the report says none moved", async () => {
+    // The review found "Your memory, parked" printed when the census could not
+    // be taken and nothing of the memory moved. The 2026-09-22 screens replaced
+    // that heading with "Set aside" and took the census off this arm entirely;
+    // this pins what is left of the finding — the words about the memory.
+    await install();
+    rmSync(storePath(), { recursive: true, force: true });
+    const c = consoleWith();
+    expect(await uninstall(input({ io: c.io, park: true }))).toBe("ok");
+    const said = text(c.out);
+    expect(said).not.toContain("Your memory, parked");
+    expect(said).not.toContain("your memory,");
+    expect(said).toContain("so no memory is moved");
+    expect(said).toContain("Set aside");
+    expect(said).toContain("No memory was moved: there was no store at the path the configuration named.");
   });
 });
