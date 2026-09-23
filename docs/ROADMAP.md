@@ -46,11 +46,11 @@ plan of record for boundary credit is built — `creditUse` is wired).*
 | builder | owns | lands |
 |---|---|---|
 | A docs | `docs/**` (scrub + index), `README.md`, `CONTRIBUTING.md`, PR bodies, repo metadata, remote branches; `src/**` comment scrubs only in files no other builder owns | first — docs-only, others rebase over it |
-| B1 Stop ask | `src/adapters/claude-code/hooks.ts` **Stop region + `substanceOf` + transcript reader + the SessionStart warning line (I40)**; `src/adapters/mcp/server.ts` session_end empty-batch; `src/core/self/episodes.ts` only if the "nothing new" record needs it; their tests | before C2 and E touch `hooks.ts` |
+| B1 Stop ask | `src/adapters/claude-code/hooks.ts` **Stop region + `substanceOf` + transcript reader + the SessionStart warning line (I40)**; `src/adapters/mcp/server.ts` session_end empty-batch; the live-session registry if `nothing-new` is recorded there; their tests. **Not** `self/episodes.ts` | before C2 and E touch `hooks.ts` |
 | B2 CLI fixes | `src/adapters/cli/**`, `src/adapters/claude-code/doctor.ts`, `wire*.ts`, `uninstall*`; cli CONTRACT/NOTES; QUICKSTART lines that quote the help screen | before C3 |
 | B3 hygiene | `src/core/encode/secrets.ts`; the calendar-day seam (`src/core/self/episodes.ts#asksSpentOn`/`asksDay`, `self/index.ts`, the page writer's schedule in `claude-code/`); spans retention (`src/core/remember/**`, `bin/runner.ts` job) | independent |
 | C1 embedder | `src/core/store/cache.ts` (identity tag), new `src/core/embed/` (static embedder), `src/adapters/claude-code/vectors.ts`, `embed-client.ts` wiring, `config.ts` `embedder.kind`; the bench under `tools/`; a new sibling repo/dir for the weights package | independent; the config/install surface waits for C3 |
-| E server version | `src/adapters/mcp/server.ts` every-call check + version in the session record; `src/core/store` schema-version read; `hooks.ts` **UserPromptSubmit region** (compare + `systemMessage`) | after B1 on `hooks.ts` (rebase) |
+| E server version | `src/adapters/mcp/server.ts` every-call check + version in the session record; `src/core/store` schema-version read; `hooks.ts` **UserPromptSubmit region** (compare + `systemMessage`) | builds `server.ts` first, the `hooks.ts` compare last, rebases after B1 merges |
 
 **Wave 2 (after wave 1 merges):**
 
@@ -99,11 +99,12 @@ Observed 2026-09-23: a subagent's hand-back arrived as a user-role message and p
    gets a two-line ask: memories via `session_end` (session id), chapter N via `chapter` (session id),
    with "set `handoff` on `session_end` only if work here is unfinished" and "nothing worth keeping is
    a real answer" as clauses. Field detail stays in the tool descriptions.
-2. **Emission:** try the JSON Stop-hook shape (`decision: "block"`, `reason` for the model,
-   `systemMessage` for the person) **first, and measure what the terminal shows** with a real Claude
-   Code in a throwaway project (never the owner's live config). Keep whichever shape (a) still gets the
-   ask to the model — verified by the model calling `session_end` — and (b) shows the person the
-   least. Fall back to stderr + exit 2 with the short text if JSON does not block.
+2. **Emission:** what the terminal renders is a TUI question no agent can measure (`claude -p` does
+   not render the banner). The builder reads the Claude Code hooks documentation for what a Stop
+   hook's JSON `decision: "block"` + `reason` + `systemMessage` do, implements the emission **behind a
+   switch that ships both shapes** (JSON and stderr + exit 2, both with the short text), unit-tests
+   that both block, and writes a one-turn recipe. **The owner looks at one Stop in his own terminal
+   after the round's restart and picks**; the losing shape is removed next round.
 3. **Pacing counts only what the owner typed.** Agent hand-backs, task notifications, hook feedback
    ("Stop hook feedback", "UserPromptSubmit hook success") and other host-injected material are not
    `source: "conversation"`. Classify from the transcript JSONL's own metadata where it exists, not by
@@ -114,8 +115,9 @@ Observed 2026-09-23: a subagent's hand-back arrived as a user-role message and p
 
 **Acceptance:** a fixture transcript with 1 typed turn + 1 agent hand-back + 1 task notification
 paces as 1 turn; the emitted human line ≤ 1 line; the model ask ≤ 2 lines + clauses; an empty
-`session_end` is accepted and recorded; the terminal measurement is written into
-`src/adapters/claude-code/NOTES.md`.
+`session_end` is accepted and recorded; both emission shapes tested for blocking; the recipe for the
+owner's one-look test is in `src/adapters/claude-code/NOTES.md`. **B1 does not touch
+`src/core/self/episodes.ts`** (B3 owns it): record `nothing-new` in the registry or `server.ts`.
 **Review:** yes (the boundary ritual; the "one ask, one pacer" scar in `self/CONTRACT.md` §3).
 
 ### B2. Small fixes from the 0.2.0 trial (defaults, all agreed)
@@ -150,11 +152,15 @@ paces as 1 turn; the emitted human line ≤ 1 line; the model ask ≤ 2 lines + 
 - **Hidden SessionStart warning (I40):** the scope-registry warning goes to stderr at SessionStart,
   which the terminal does not show; emit it as the hook JSON `systemMessage` (the channel E also uses).
 - **Raw transcript retention — 7 days.** Nothing prunes `buffer.jsonl`/spans (remember §9); backups
-  carry raw text forever, and a removed memory's source text survives. Rule: a session's captured text
-  is deleted **7 days after the session ended normally AND was written up** (`session_end` recorded,
-  or C2's write-up completed). Never for a session still awaiting write-up. A worker job; one
-  `remember.prune` event row per run with counts; doctor shows pending-write-up vs pruned. `export`
-  still omits spans (I3) — say so in export's output while here.
+  carry raw text forever, and a removed memory's source text survives. **One predicate, defined once
+  here and reused by C2:** a session *owes a write-up* only when (a) the pacer found substance and no
+  answer (`session_end`/`chapter`) was recorded, or (b) it ended abnormally (no normal end in the
+  registry) with captured text. A short session that never reached the pacer's threshold owes nothing.
+  Rule: a session's captured text is deleted **7 days after it ended, when nothing is owed**; a session
+  that owes waits until written up (by its own boundary or C2), and doctor counts those. A worker job;
+  one `remember.prune` event row per run with counts. Before deleting, the builder inventories every
+  reader of spans (the sweep, C2's write-up, dashboard flow page, replay tooling) and says so in NOTES.
+  `export` still omits spans (I3) — say so in export's output while here.
 
 **Acceptance:** tests for each; the retention job on a seeded store with three sessions (written-up
 old, written-up recent, unwritten old) deletes exactly one.
@@ -169,8 +175,8 @@ old, written-up recent, unwritten old) deletes exactly one.
 (no Voyage key was ever set) — he is the first user of the static tier.
 
 **Steps, in order:**
-1. **Identity tag:** `cache_meta.embedder = "<model>@<dim>"` written when vectors are; at open (and on
-   E's every-call check path), if the configured embedder's identity differs from the recorded one,
+1. **Identity tag:** `cache_meta.embedder = "<model>@<dim>"` written when vectors are; **at open only**
+   (E's every-call check is E's alone), if the configured embedder's identity differs from the recorded one,
    drop `embeddings` and rebuild — inline for static (milliseconds), through the existing
    `migrate-cache` typed confirm for Voyage (paid). Cache schema bump (v5) → E's rule applies.
 2. **Embedder:** the 54-line zero-dependency proof (`docs/research/local-embeddings-2026-09-22.md`
@@ -212,6 +218,8 @@ what Claude Code already sees; the write-up is in the model's voice. The key-bas
 is accepted: a project never reopened is never written up; doctor counts them.
 
 **Design points the builder settles (CONTRACT amendment, reviewed):**
+- **"Ended without a write-up" is B3's predicate** (owes a write-up), not "no `session_end` recorded":
+  a short session that never reached the pacer's threshold is never asked about.
 - `session_end` is bound to ONE live session and refuses other ids by design. The write-up needs its
   own door: a `writeUp: <ended session id>` field (or a sibling tool) accepted **only** when the hooks'
   registry says that id ended in this project without a write-up. Memories are recorded as authored,
