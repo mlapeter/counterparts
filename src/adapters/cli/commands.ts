@@ -146,7 +146,10 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, loadConfig } from "../claude-code/config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, embedderKind, loadConfig } from "../claude-code/config.js";
+// The local table's locator, for install's one check that the weights the new
+// configuration asks for are where the hooks will look.
+import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import type { AdapterConfig } from "../claude-code/config.js";
 import {
   anyRed,
@@ -172,6 +175,7 @@ import {
   configObject,
   credentialsHeld,
   credentialsTemplate,
+  resolveEmbedderBlock,
   hookCommand,
   hostConfigBase,
   installLayout,
@@ -184,10 +188,11 @@ import {
   writeOnce,
 } from "./install.js";
 import type { InstallLayout, ParkedSighting } from "./install.js";
-// The keys module: the two install prompts, and `writeCredential` — the one
-// function in this package that puts a secret on disk. It imports only a TYPE
-// from here, the way `ui.ts` does, so this import is not half of a cycle.
-import { offerEmbedder, promptForKeys, writeCredential } from "./keys.js";
+// The keys module: `writeCredential` — the one function in this package that
+// puts a secret on disk — and the one upgrade a key offers (`credentials set
+// ANTHROPIC_API_KEY`). It imports only a TYPE from here, the way `ui.ts` does,
+// so this import is not half of a cycle.
+import { offerCrashWriteUp, voyageKeyLine, writeCredential } from "./keys.js";
 // `removalRefusal` is step 1 of a plan on its own — the console's picker asks it
 // of every search hit before it offers one, and of every pick before it asks the
 // one question. It is an extraction from `planRemoval`, never a second rule.
@@ -617,7 +622,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `--no-connect` was `--no-wire` until 2026-09-22 (item 3 renamed the verbs,
   // item 9 made connecting the default). Both are new in 0.2.0 and neither has
   // shipped, so there is no compatibility to keep and no alias to carry.
-  install: ["budget", "name", "embedder", "force", "config", "no-connect", "yes"],
+  install: ["budget", "name", "embedder", "no-embedder", "force", "config", "no-connect", "yes"],
   // `--dir` is deliberately absent from all three, exactly as it is from
   // `start-fresh`: it is a COMMON flag, so it parses either way, and these
   // commands refuse it in words rather than ignoring it. The store they name is
@@ -728,7 +733,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, connects Claude Code (counterparts disconnect undoes that), asks for each optional key, and offers back any memory a parked uninstall set aside. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, turns on recall by meaning (a local table — nothing leaves this machine), connects Claude Code (counterparts disconnect undoes that), and offers back any memory a parked uninstall set aside. It asks about no API key: both are optional upgrades, added with counterparts credentials set. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
   connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. Claude Code is the one host it knows today.",
   disconnect:
     "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
@@ -828,7 +833,11 @@ const FLAG_HELP: Record<string, string> = {
   help: "this page — it opens nothing and writes nothing",
   budget: "the injection ceiling, in bytes",
   name: "the owner's name; it seeds the identity core",
-  embedder: "record that an embedder will be configured",
+  // The local table only (roadmap C3): Voyage is frozen, and nothing on this
+  // line can turn it on. A configuration that already names it keeps it.
+  embedder:
+    "turn on recall by meaning — a local table that ships with the package; nothing leaves this machine (on by default at a terminal)",
+  "no-embedder": "leave recall by meaning off: recall matches on words alone",
   force: "overwrite configuration this command already wrote once",
   kind: "self, person, entity, skill, place or fact",
   title: "a title for the memory, instead of one taken from its first line",
@@ -1215,6 +1224,7 @@ export function parse(argv: readonly string[]): Parsed {
       confirm: { type: "boolean" },
       name: { type: "string" },
       embedder: { type: "boolean" },
+      "no-embedder": { type: "boolean" },
       force: { type: "boolean" },
       kind: { type: "string" },
       title: { type: "string" },
@@ -2585,6 +2595,9 @@ function installCommand(
     /** False for the conversational arm, which has already ASKED about a
      *  parked memory (`offerParkedMemory`) and must not say it twice. */
     parkedNotice?: boolean;
+    /** True for the conversational arm: a configuration this call CREATES
+     *  gets the local embedder switched on when no flag said otherwise. */
+    defaultEmbedder?: boolean;
   } = {},
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
@@ -2664,7 +2677,27 @@ function installCommand(
   }
   const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
   const force = parsed.flags["force"] === true;
-  const embedder = parsed.flags["embedder"] === true;
+  // RECALL BY MEANING, ON OR OFF — and only the local table (roadmap C3).
+  //
+  // `--embedder` turns it on, `--no-embedder` leaves it off, and the terminal
+  // arm passes `defaultEmbedder` so a configuration it CREATES has it on
+  // without a question (the table sends nothing anywhere, so there is no
+  // egress to consent to). Nothing said → nothing written, and a forced
+  // re-install carries the old block forward untouched. Both flags at once is
+  // a line that contradicts itself, and it is refused before anything exists.
+  const embedderOn = parsed.flags["embedder"] === true;
+  const embedderOff = parsed.flags["no-embedder"] === true;
+  if (embedderOn && embedderOff) {
+    io.err("refused: --embedder and --no-embedder were both given. Pick one; nothing was written.");
+    return EXIT.usage;
+  }
+  const embedderSaid: boolean | undefined = embedderOn
+    ? true
+    : embedderOff
+      ? false
+      : opts.defaultEmbedder === true && !existsSync(layout.config)
+        ? true
+        : undefined;
 
   // The store first, and through `Store` itself, so the forbidden-root guard
   // runs before a single directory is created (scar §2.13).
@@ -2715,18 +2748,27 @@ function installCommand(
   // (`dataDir`, `credentialsFile`) that this install resolved itself are never
   // taken from the old file, because moving an install is exactly what `--force`
   // is for. What was kept is SAID, below, on both arms.
+  // The kind is decided against the file being REPLACED (`resolveEmbedderBlock`):
+  // a kind it names is kept, a 0.2.0 Voyage opt-in beside a saved key stays as
+  // it was, and everything else is the local table. Read before anything below
+  // writes, because the credentials file and the config are both inputs.
+  const embedderBlock = resolveEmbedderBlock({
+    enabled: embedderSaid,
+    configPath: layout.config,
+    voyageKeySaved: credentialsHeld(layout.credentials).includes(EMBED_KEY_ENV),
+  });
   const carried = force
     ? carryForward(layout.config, {
         budget: budgetBytes !== undefined,
         name: name !== undefined && name.length > 0,
-        embedder,
+        embedder: embedderBlock !== undefined,
       })
     : {};
   const body = configObject({
     layout,
     ...(budgetBytes === undefined ? {} : { budgetBytes }),
     ...(name === undefined ? {} : { name }),
-    embedder,
+    ...(embedderBlock === undefined ? {} : { embedder: embedderBlock }),
     carried,
   });
   const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
@@ -3091,6 +3133,12 @@ async function installConversation(
     // This arm ASKED, a few lines up. The scripted arm's notice would repeat
     // the answer back at somebody who has just given it.
     parkedNotice: false,
+    // RECALL BY MEANING IS ON FOR A PERSON'S NEW INSTALL (roadmap C3). The
+    // local table sends nothing anywhere, so there is no egress to ask about
+    // and no question on this screen; `--no-embedder` still says no. Only a
+    // configuration being CREATED gets it — a re-run keeps the file it finds,
+    // like every other key in it (the budget default above, same rule).
+    defaultEmbedder: true,
   });
   if (code !== EXIT.ok) return code;
 
@@ -3139,40 +3187,34 @@ async function installConversation(
   }
   u.blank();
 
-  // ── the keys ──────────────────────────────────────────────────────────────
+  // ── no keys ───────────────────────────────────────────────────────────────
   //
-  // AFTER the config and the credentials template exist, and not before:
-  // `keys.ts#enableEmbedder` edits a configuration and never creates one, and
-  // the file it writes keys into is the one the step above made at 0600.
+  // THIS SCREEN ASKS ABOUT NO API KEY (roadmap C3, 2026-09-23). Both are
+  // upgrades: recall by meaning runs on the local table switched on above, and
+  // a session that ended before it was written up is written up by the next
+  // session in that project. `counterparts credentials set <NAME>` is where a
+  // key goes, and `help credentials` says what each one adds.
   //
-  // CTRL-C PROPAGATES OUT OF HERE, by `keys.ts`'s own argument: a cancelled key
-  // prompt folded into a result is an install that carries on without the key
-  // somebody was in the middle of cancelling. It is caught, said plainly, and
-  // exits non-zero — and what is reported is read from the FILE, which is the
-  // only thing that knows what actually landed.
-  const credentialsPath = credentialsPathFor(layout.config, config);
-  try {
-    await promptForKeys(io, env, {
-      ui: u,
-      configPath: layout.config,
-      credentialsPath,
-      held: credentialsHeld(credentialsPath),
-      ...(config.embedder?.enabled === true ? { embedderOn: true } : {}),
-    });
-  } catch (err) {
-    if (!isPromptAborted(err)) throw err;
+  // What IS said, and only when it is true: the table this configuration now
+  // asks for is not where the hooks will look. The weights ship as the
+  // package's one dependency, so on an ordinary install this never prints — it
+  // is the from-source checkout, or a dependency that did not land, and a
+  // screen that ended "it should be all green" over an amber would be the
+  // silence review M1 named.
+  //
+  // Looked for the way the hooks will look (`resolveStaticWeights`: the
+  // environment variable, then the installed package), and then for the table
+  // FILE in what that found — a variable naming an empty folder is not a table.
+  const table = resolveStaticWeights({ env });
+  const tableMissing =
+    config.embedder?.enabled === true &&
+    embedderKind(config) === "static" &&
+    (table === null || !existsSync(join(table.dir, MODEL_FILE)));
+  if (tableMissing) {
+    u.warn("recall by meaning is on, but its table was not found — recall will match on words only.");
+    u.hint(`Install it: bun add -g ${STATIC_WEIGHTS_PACKAGE} — or set ${STATIC_WEIGHTS_ENV} to a folder holding it.`);
     u.blank();
-    u.fail("stopped; nothing else was changed.");
-    const holds = credentialsHeld(credentialsPath);
-    u.hint(
-      holds.length === 0
-        ? `No key was written. ${BIN.cli} credentials set <NAME> adds one whenever you like.`
-        : `${credentialsPath} holds ${holds.join(" and ")}.`,
-    );
-    u.hint(`Your memory is at ${store}. Run \`${BIN.cli} doctor\` to see where this got to.`);
-    return EXIT.refused;
   }
-  u.blank();
 
   // ── the last two lines ────────────────────────────────────────────────────
   //
@@ -3196,11 +3238,14 @@ async function installConversation(
   const toolsIn =
     wired !== null &&
     (wired.mcp === "added" || wired.mcp === "re-added" || wired.mcp === "already");
-  if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn) {
+  if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn && !tableMissing) {
     io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — it should be all green.`);
   } else if (hooksIn && !toolsIn) {
     io.out("The hooks are in; the memory tools are NOT registered — the line above does that.");
     io.out(`Then restart Claude Code and run \`${BIN.cli} doctor\`.`);
+  } else if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn) {
+    // Connected, and the one amber is the table named above.
+    io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — everything but recall by meaning should be green.`);
   } else {
     io.out(`Run \`${BIN.cli} doctor\` to see where this got to.`);
   }
@@ -6119,6 +6164,13 @@ function exportCommand(
     }
     io.out(`Exported ${report.files} files (${report.bytes} bytes) to ${report.target}`);
     io.out(`Kind: ${report.kind}. Mode: ${report.mode}. ${report.reason}`);
+    // WHAT THE COPY LEAVES OUT, said in the words retention makes true (remember
+    // INTERFACE-GAPS §12, LAUNCH-STATUS §I3): the raw capture is not a memory,
+    // no export kind carries it, and a person taking "a copy of my memory"
+    // somewhere should not have to discover which half stayed behind.
+    io.out(
+      "Not included: spans/ — the raw captured conversation, kept 7 days after a session ends, or for as long as it waits to be written up.",
+    );
     // THE DURABLE ROW. Counts and flags only: which kind, how many rows went,
     // how many confidential ones were left out, whether it was sealed. NOT the
     // target — where the owner sent his memories is more than the row needs to
@@ -7755,6 +7807,8 @@ export const DOCTOR_RED_EXIT = 1;
 function hostConfigFor(path: string): {
   config: AdapterConfig;
   reason: "loaded" | "absent" | "unreadable";
+  /** The keys the loader named, when it could not read the file. */
+  unreadableKeys?: readonly string[];
 } {
   let text: string;
   try {
@@ -7772,7 +7826,11 @@ function hostConfigFor(path: string): {
     return { config: { observer: true }, reason: "unreadable" };
   }
   const load = loadConfig(raw);
-  return { config: load.config, reason: load.reason };
+  return {
+    config: load.config,
+    reason: load.reason,
+    ...(load.unreadableKeys === undefined ? {} : { unreadableKeys: load.unreadableKeys }),
+  };
 }
 
 /** Where the credentials live for a given configuration: the file the config
@@ -7859,8 +7917,8 @@ function doctorCommand(
     typeof parsed.flags["dir"] === "string" &&
     (named === undefined || named.source === "default") &&
     explicitDirSetting(env).armed;
-  const { config, reason } = unread
-    ? { config: {} as AdapterConfig, reason: "not-read" as const }
+  const { config, reason, unreadableKeys } = unread
+    ? { config: {} as AdapterConfig, reason: "not-read" as const, unreadableKeys: undefined }
     : hostConfigFor(configPath);
   const credentialsPath = unread ? undefined : credentialsPathFor(configPath, config);
   const credentials = unread
@@ -7922,6 +7980,7 @@ function doctorCommand(
     const findings = doctorFindings({
       configPath,
       configReason: reason,
+      ...(unreadableKeys === undefined ? {} : { configUnreadableKeys: unreadableKeys }),
       config,
       dir,
       credentials,
@@ -8116,35 +8175,39 @@ async function credentialsCommand(
   // The NAME and the PATH, never the value — and for the typed arm the same
   // sentence through `ui`, so it reads as one line of a conversation rather
   // than as a script's receipt. Every non-interactive caller keeps the exact
-  // bytes it had.
+  // bytes it had, plus — for the Voyage key only — the one line below.
   if (!typedHere) {
     io.out(`set ${name} in ${path}`);
+    // VOYAGE IS FROZEN (ROADMAP §"Amendments", 2026-09-23), so saving its key
+    // turns nothing on any more, and a person who just saved one is owed the
+    // sentence that says so — on both arms: a script that sets the key and
+    // expects the paid embedder is exactly the reader who needs it.
+    if (name === EMBED_KEY_ENV) io.out(voyageKeyLine(config));
     return EXIT.ok;
   }
   const u = ui(io, env);
   u.ok(`set ${name} in ${path}`);
-
-  // AND THE SECOND YES, FOR THE VOYAGE KEY ONLY (2026-09-22, item 6).
-  //
-  // `doctor`'s fix line for recall-by-meaning is now a COMMAND — `counterparts
-  // credentials set VOYAGE_API_KEY` — rather than an instruction to hand-edit
-  // JSON (item 12, item 19 of the trial). That sentence is only TRUE if this
-  // command does what the install does, so it calls the same function the
-  // install's key step calls: a key is not consent, the question is asked once,
-  // and the line above it says where the text goes.
-  //
-  // Typed-at-a-terminal only. A pipe, `--from-env`, `--stdin` and CI return
-  // above with their bytes untouched, because there is nobody there to ask and
-  // an egress is not something to turn on for a script that did not mention it.
   if (name === EMBED_KEY_ENV) {
-    try {
-      await offerEmbedder(io, u, configPath, config.embedder?.enabled === true);
-    } catch (err) {
-      if (!isPromptAborted(err)) throw err;
-      // The KEY is written and stays written; only the knob was being decided.
-      u.hint(`${name} is saved. Recall by meaning is off; this command offers it again.`);
-      return EXIT.refused;
-    }
+    u.hint(voyageKeyLine(config));
+    return EXIT.ok;
+  }
+
+  // THE ONE UPGRADE A KEY STILL OFFERS: THE ANTHROPIC KEY'S (roadmap C2/C3).
+  //
+  // Without it, a session that ended before it was written up is written up
+  // by the next session in that project. With it, the worker can do it at
+  // once — and that sends the conversation to Anthropic, so the key is not the
+  // consent: the question is, `[y/N]`, with the egress IN it. Typed-at-a-
+  // terminal only, like the embedder offer this replaces: a pipe, `--from-env`,
+  // `--stdin` and CI returned above, because there is nobody there to ask and
+  // an egress is not something to turn on for a script that did not mention it.
+  try {
+    await offerCrashWriteUp(io, u, configPath);
+  } catch (err) {
+    if (!isPromptAborted(err)) throw err;
+    // The KEY is written and stays written; only the switch was being decided.
+    u.hint(`${name} is saved. Ended sessions still wait for the next session in their project; this command offers the switch again.`);
+    return EXIT.refused;
   }
   return EXIT.ok;
 }

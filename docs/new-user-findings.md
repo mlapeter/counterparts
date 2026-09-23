@@ -218,10 +218,10 @@ Everyday
                 read at the start of every session
 
 Setup
-  install       First-time setup: your memory, Claude Code, your keys — safe to run again
+  install       First-time setup: your memory and Claude Code — safe to run again
   connect       Connect an AI to your memory (Claude Code today; more soon)
   disconnect    Disconnect an AI
-  credentials   Add or change your API keys (Anthropic, Voyage)
+  credentials   Add or change your API keys (optional upgrades)
   scope         Turn memory on or off for a directory
   uninstall     Remove Counterparts; keeps your memory unless you say otherwise
 
@@ -237,21 +237,28 @@ https://www.npmjs.com/package/counterparts
 
 **Doctor** (fresh store, both keys skipped, everything else fine)
 
-```
-counterparts doctor — 2026-09-22
+*Keyless round, 2026-09-23 (roadmap C3): a terminal install now turns recall by meaning on
+with the local table, so on a fresh install that line reads green; `Crash write-up` is being
+reworded by C2 (the next session writes an ended session up; the key becomes an opt-in), and
+this screen shows it as it was until that lands. The 09-22 screen's `OFF Recall by meaning`
+line, for reference, now reads: `optional. Recall works on words; a local table lets it match
+meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.*
 
-OFF    Recall by meaning   optional. Recall works on words; a Voyage key lets it match
-                           meaning too.  Turn on: counterparts credentials set VOYAGE_API_KEY
+```
+counterparts doctor — 2026-09-23
+
 OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon
                            get written up anyway.  Turn on: counterparts credentials set ANTHROPIC_API_KEY
 
 GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine
 GREEN  Claude Code         connected: 5 hooks and the memory tools
+GREEN  Recall by meaning   on — a local table (potion-base-8M, weights from the
+                           counterparts-model-potion package); nothing leaves this machine
 GREEN  Background          the nightly worker ran today; nothing failed
-GREEN  Snapshots           last 2026-09-22, 2 kept
+GREEN  Snapshots           last 2026-09-23, 2 kept
 GREEN  Self page           not written yet — still forming
 
-0 red, 0 amber, 2 off, 5 green.   Every line: counterparts doctor --all
+0 red, 0 amber, 1 off, 6 green.   Every line: counterparts doctor --all
 ```
 
 **`uninstall --delete-memories`**
@@ -301,6 +308,13 @@ To remove the program too: bun remove -g counterparts
 
 **`install`** (first time, on a terminal)
 
+*Keyless round, 2026-09-23 (roadmap C3): the two key questions are gone — both keys are
+upgrades, added with `counterparts credentials set <NAME>` — and recall by meaning is switched
+on silently with the local table, which sends nothing anywhere. Nothing else on the screen
+changed. When the table's weights cannot be found (a from-source checkout, a dependency that
+did not install), one warning and its fix print above `Done.`, and the last line stops
+promising all green.*
+
 ```
 counterparts install
 
@@ -309,12 +323,6 @@ Nice to meet you, Mike.
 
 Connecting Claude Code…
   ok  connected — 5 hooks added to ~/.claude/settings.json (backup kept), memory tools registered
-
-Add an Anthropic key? Optional — lets a session that ended too soon get written up anyway. [y/N] y
-  Get one at https://console.anthropic.com/settings/keys
-  Paste it here (hidden):
-  ok  saved
-Add a Voyage key? Optional — lets recall match by meaning, not just words. [y/N] n
 
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.

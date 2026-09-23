@@ -423,6 +423,10 @@ The standalone verb does not ask either: typing it is the yes.*
     default no. `offerEmbedder` was split out of the same function so that
     `credentials set VOYAGE_API_KEY` at a terminal puts the same question — which is what
     makes guarantee 35's fix line true of the embedder as well.*
+    *SUPERSEDED 2026-09-23 by guarantee 39 (roadmap C3): the install asks about no key.
+    `promptForKeys`, `offerEmbedder` and `enableEmbedder` are gone from `keys.ts`; what
+    stays is `writeCredential` (the one function that puts a secret on disk), the atomic
+    configuration edit (`setConfigKeys`), and the one upgrade a key still offers.*
 35. **[A] `doctor`'s Host fix lines name `counterparts wire`**, not `counterparts install`.
     Until the three verbs above existed, the only thing this package could do about a
     missing or stale hook was print a block for the reader to paste; the fix line now names
@@ -502,6 +506,36 @@ The standalone verb does not ask either: typing it is the yes.*
     line's `startsToday` rather than assumed; one red or amber unfolds all of them and the
     `--all` invitation disappears, because nothing was hidden. The fold is an **allowlist of
     headline keys**, not a list of what folds, so a line added next month folds by default.
+
+### Keyless by default (2026-09-23, roadmap C3)
+
+39. **[M] `install` asks about NO key, and turns on only the local table.** Both API keys
+    are upgrades (roadmap C; ROADMAP §"Amendments": static is primary, Voyage is FROZEN).
+    On a terminal a configuration being CREATED gets `"embedder": { "enabled": true,
+    "kind": "static" }` without a question — the table sends nothing anywhere, so there is
+    no egress to consent to; `--no-embedder` says no. Off a terminal nothing is switched on
+    unless `--embedder` is on the line, so the scripted arm's bytes do not move. **A kind is
+    never flipped** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4): a kind the
+    replaced file names is kept, on or off; a kind-less 0.2.0 block beside a saved
+    `VOYAGE_API_KEY` stays kind-less (absent `kind` is how 0.2.0 says Voyage); everything
+    else is `"static"`. Nothing on this command line can write `"voyage"`. A re-run keeps
+    the file it finds (rule 2); `install --force --embedder` is the command that turns the
+    table on for an existing configuration, and it is the one `doctor`'s `Turn on:` line
+    names. `--embedder` with `--no-embedder` is refused before anything is written. When
+    the configuration asks for the table and it is not where the hooks will look
+    (`resolveStaticWeights` + the table file), the conversation says so with the fix and
+    its last line stops promising all green.
+40. **[M] `credentials set` is the one door for a key, and a key is not consent.**
+    `ANTHROPIC_API_KEY` typed at a terminal is followed by ONE `[y/N]` question — *Write up
+    ended sessions with the API from now on?* — with the egress (the conversation goes to
+    Anthropic) said above it; only a yes writes `"crashWriteUp": "api"` (C2's knob, #192),
+    through `setConfigKeys`: atomic, every other key kept in its order, through a symlink,
+    never creating the file. A switch already on is not asked about. `VOYAGE_API_KEY` asks
+    nothing and turns nothing on; one line (`keys.ts#voyageKeyLine`) says whether this
+    configuration names Voyage (the key is used; Voyage is deprecated) or not (nothing turns
+    on; the local table is the default) — on the piped arm too, after the receipt line,
+    because a script that sets the key expecting the paid embedder is exactly the reader
+    who needs it. A pipe, `--from-env`, `--stdin` and CI are asked nothing.
 
 ## 6. Scars honored
 

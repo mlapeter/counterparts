@@ -825,6 +825,11 @@ describe("export", () => {
     expect(await run(["export", "--out", target, "--plaintext"], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
+    // WHAT THE COPY LEAVES OUT is said, in the words retention makes true
+    // (remember INTERFACE-GAPS §12): the raw capture is not in any export.
+    expect(c.out).toContain(
+      "Not included: spans/ — the raw captured conversation, kept 7 days after a session ends, or for as long as it waits to be written up.",
+    );
 
     // THE BUNDLE IS THE DATABASE. `prose/**.md` was half of it until the floor;
     // the words are columns now, so the one file has to carry them — which is
@@ -5419,7 +5424,9 @@ describe("install", () => {
     expect(runCommand("/a b/c.ts", "/x y/bun")).toBe('"/x y/bun" run "/a b/c.ts"');
   });
 
-  test("--embedder is the only way the egress knob is written", async () => {
+  test("--embedder is the only way the scripted arm writes the embedder knob — and it is the local table", async () => {
+    // Since 2026-09-23 (roadmap C3) `--embedder` means the local table, which
+    // sends nothing anywhere; Voyage is frozen and nothing here can name it.
     const home = fakeHome("egress");
     const store = join(outside, "egress", "store");
     await run(["install", "--dir", store, "--budget", "9000", "--embedder"], {
@@ -5430,7 +5437,7 @@ describe("install", () => {
     const parsed = JSON.parse(
       readFileSync(join(home, ".counterparts", CONFIG_FILE), "utf8"),
     ) as Record<string, unknown>;
-    expect(parsed["embedder"]).toEqual({ enabled: true });
+    expect(parsed["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
   test("invents no injection ceiling, and says so (scar §2.18)", async () => {
