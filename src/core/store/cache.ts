@@ -522,6 +522,16 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
     writtenTag.set(db, fastTag);
     return { kind: "match", tag: fastTag };
   }
+  // A STANDING hold, asked again by the identity it already refused: nothing to
+  // decide, so no lock — every hook on a held store opens with a read.
+  const fastConfigured = identityTag(configured.model, configured.dim);
+  if (
+    fastHeld !== undefined &&
+    fastHeld === fastConfigured &&
+    !(fastTag !== undefined && sameIdentity(parseIdentityTag(fastTag), configured))
+  ) {
+    return { kind: "held", recorded: fastTag ?? null, configured: fastConfigured, rows: embeddingCount(db), fresh: false };
+  }
   if (fastHeld === undefined && fastTag === undefined && configured.dim === null && embeddingCount(db) === 0) {
     // Nothing to decide, and nothing to write: the tag lands with the first
     // vector (`noteVectorWrite`). BLOCKER 1 of the #190 review — this arm used

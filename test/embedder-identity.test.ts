@@ -365,6 +365,21 @@ describe("BLOCKER 1 of the review: the steady state takes no lock", () => {
     }
   });
 
+  test("a STANDING hold reopens with a read too — every hook on a held store stays lock-free", () => {
+    seed(embedder(PAID_A, 6));
+    store(embedder(PAID_B, 6));
+    closeAll();
+    const lock = holdWriteLock();
+    try {
+      const t0 = performance.now();
+      const s = store(embedder(PAID_B, 6));
+      expect(performance.now() - t0).toBeLessThan(1000);
+      expect(s.embedderVerdict).toMatchObject({ kind: "held", fresh: false });
+    } finally {
+      lock.release();
+    }
+  });
+
   test("a vectorless paid store of KNOWN width: tagged once, then a lock-free match", () => {
     seed(undefined);
     const known: EmbedderIdentity = { model: "voyage-3-large", dim: 1024, rebuild: "external" };
