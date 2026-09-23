@@ -1585,3 +1585,89 @@ one plan and 1.4 MB in another a minute later) was not investigated; the most li
 is still a checkpoint or the worker finishing between two runs. #28, the Stop ask's
 verbosity, is explicitly the next round. And `Everywhere` is still the label over the three
 global flags on every command's help page — the rest of #27's list went, that one stayed.
+
+## 2026-09-23 — the small fixes from the 0.2.0 trial (roadmap B2)
+
+Six items the owner agreed on 2026-09-23, one PR. What each one does now:
+
+- **The uninstall wait.** Both moving arms print `Checking Claude Code…` (and a blank
+  line) immediately before the pre-flight spawns `claude mcp list` — on a terminal only,
+  and only when there is a registration to check, so somebody who never connected is not
+  told about a check that does not happen. `spawnSync` blocks, so it is one static line;
+  a spinner was ruled out on 09-22. Driven on a real pty (an ad hoc `python3 pty.fork()`
+  harness around `run()` with a stub `claude` that sleeps two seconds — the "pty helpers
+  from the 09-22 round" were never committed, so there was nothing to reuse): the line is
+  on screen at 0.05 s, the plan at 2.06 s.
+- **Doctor's `no-credential` fix line** is the command:
+  `Run: counterparts credentials set ANTHROPIC_API_KEY`. Every other sweep stand-down
+  reason keeps "The sweep stood down; the reason names why." — what fixes those depends
+  on the door the row names. *Left for the owner:* on a store that never had the key, this
+  amber and the `OFF  Crash write-up` line are now two lines about one optional key —
+  the #24 shape. Whether a keyless sweep should read OFF rather than amber is a grading
+  decision, and the keyless round (C3) is the one about to redraw that screen.
+- **#8 for stores 0.1.0 made.** With neither `store.created` nor `store.started`, the
+  window doctor STATES falls back to the oldest event row's `at` — the moment it was
+  written, which is the answer to the old objection that `rowDate` prefers a payload's
+  own date — and then to the database file's birth time (zero is "no answer", never
+  1970). Both can only make a store look older when they are wrong, never younger than
+  its rows; event pruning cannot bite, because a row goes only at 90 lived days, far
+  outside a seven-day window. The reading is untouched; this is still one string.
+- **`help`'s Advanced group — already done.** The "collapse to a comma list, 39 → ~31
+  lines" item was written 2026-09-21 (commit `ae1021d`) against the page before the 09-22
+  split, which moved the whole Advanced group to `counterparts help advanced`. The short
+  page has had no Advanced group since and is 26 lines, so there was nothing to collapse,
+  and collapsing `help advanced` instead would have thrown away the one-liners finding
+  #18 asked for. The test now asserts exactly 26 lines and that `shortHelp()` is
+  byte-for-byte the "Help page" block in `docs/new-user-findings.md` §"The screens".
+  (The brief said the screen was quoted verbatim in this CONTRACT and in QUICKSTART;
+  it is quoted in neither, so there was nothing there to amend.)
+- **NITs n1–n4** (`docs/adversarial-review-onboarding-ab-2026-09-21.md`): a settings file
+  keeps its indent, line endings and final newline (CONTRACT 22); a BOM, comments and a
+  trailing comma are refused BY NAME with what to do (CONTRACT 23 — still refusals, and
+  nobody has checked what Claude Code itself accepts there); the re-read after the
+  question decides whether to write, so work another process did meanwhile is not redone
+  (CONTRACT 21); `writeCredential` and `enableEmbedder` write through `<path>.<pid>.tmp`
+  — the one suffix `uninstall.ts#ownedKind` already counts as ours — and remove it when a
+  write fails. **n5 was already gone**: the 09-22 screens replaced "Your memory, parked"
+  with "Set aside" and took the census off the park arm; a test pins that the screen
+  claims no memory when none moved.
+
+### #26, the two sizes — the cause, measured
+
+The owner's trial: the store was 6.7 MB in the `--delete-memories` plan and 1.4 MB in the
+`--park` plan a minute later. **Both arms always walked the same files with the same
+`dirSize`.** What changed was the ground, and specifically the store's write-ahead log.
+Measured on throwaway stores, bun 1.3.10, macOS (Apple's SQLite 3.39.5):
+
+1. **Our processes leave the `-wal` behind at its high-water size.** `store/db.ts`
+   prepares a fresh statement for every call and never finalizes one, so bun's `close()`
+   cannot run SQLite's last-connection checkpoint-and-truncate. A `Store` that wrote 300
+   rows and closed cleanly left a 2.19 MB log on disk, before and after the process
+   exited; a writer killed mid-session (the way a host ends a server) left 3.8 MB.
+2. **That log can hold data the database file does not have yet** — a store whose
+   `counterparts.sqlite` was 4 KB carried everything in 3.4 MB of log. So leaving the log
+   out of the number would be the dishonest fix; it stays in.
+3. **Reading changes nothing.** The delete arm's count (an observer open), doctor on the
+   main database, and both plans left the log exactly as it was.
+4. **The first run's own pre-flight folded it.** `claude mcp list` starts our MCP server
+   as a health check. A health-check-shaped session against a throwaway store —
+   `initialize`, `tools/list`, stdin closed — took the log from 3.8 MB to 0 and the
+   database from 2.9 to 3.3 MB. The delete plan had been sized BEFORE its pre-flight; the
+   park plan a minute later was sized after that fold. (Whether `claude mcp list` ends the
+   server exactly that way is not measured: a session never runs it, because it would
+   start our server against the owner's live store. The shape and the numbers match.)
+
+**The fix.** Both arms now take their sizes at the same point — after the pre-flight,
+right before the plan is printed (`uninstall.ts#remeasured`, `lstat` and `readdir` only, so
+the park arm still never opens the store) — and `planUninstall` itself sizes before its
+count. The number is every byte under the path, log included. When the log is a megabyte
+or more and a tenth or more of the store, both plans say so in the same two lines:
+`5.3 MB of that is a database log that shrinks on its own; / nothing is lost when it
+does.` A fresh store's log is a couple of hundred kilobytes, so the owner's screens are
+unchanged there, and `counterparts help uninstall` says what the sizes are.
+
+**For whoever owns `store/` next** (not this module's to change): finalizing statements,
+or caching them and finalizing at `close()`, would let every clean close fold its own log
+and the stores would stop carrying megabytes of stale log between sessions. Nothing is
+lost today — the next writer reuses the log — but the size a person sees depends on which
+program happened to touch the store last.

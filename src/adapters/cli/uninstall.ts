@@ -590,13 +590,13 @@ export function planUninstall(input: PlanInput): UninstallPlan {
   // ── THE COUNT, AND ONLY AFTER EVERY SIZE ABOVE WAS TAKEN (finding #26) ──────
   //
   // COUNTED ONLY WHEN IT IS ABOUT TO GO (see `UninstallPlan.census`) — and
-  // counted LAST, so that both arms size a store nobody has opened in this
-  // command. The count opens it (observer, read-only in intent), and the park
-  // arm never does; sizing after the count would make the two arms measure
-  // different ground by construction, which is the one thing finding #26 asked
-  // us not to do. The sizes themselves were never the cause (NOTES, 2026-09-23):
-  // both arms always walked the same files. What moved between the owner's two
-  // runs was the store's write-ahead log, which is why it is now said out loud.
+  // counted LAST, so that the plan's sizes are of a store nobody has opened in
+  // this command, in both arms. The count opens it (observer), and the park arm
+  // never does. The sizes were never the cause of #26 (both arms always walked
+  // the same files): what moved between the owner's two runs was the store's
+  // write-ahead log, folded in by the MCP server the FIRST run's pre-flight
+  // started. The command therefore takes the sizes AGAIN after its pre-flight
+  // (`remeasured`, in `uninstall`), and says how much of them is log.
   const logBytes = storeActed && storeDir !== null ? walBytes(storeDir) : 0;
   const census = input.verb === "delete" ? censusOf(configDir, storeDir) : null;
   return {
@@ -1028,6 +1028,19 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       return "refused";
     }
 
+    // ── THE SIZES, TAKEN AGAIN NOW (finding #26) ─────────────────────────────
+    //
+    // The pre-flight's `claude mcp list` STARTS OUR MCP SERVER as a health
+    // check, and that server, on its way out, folds the store's write-ahead log
+    // into the database and truncates it — measured on a throwaway store: 3.8 MB
+    // of log to 0, the database 2.9 → 3.3 MB (NOTES, 2026-09-23). That is the
+    // owner's 6.7 MB and 1.4 MB: the delete plan was sized before its own
+    // pre-flight, and the park plan a minute later found the log already
+    // folded. Sizing AFTER the pre-flight, in both arms, measures the ground as
+    // it stands when the question is put — `lstat` only, so the park arm still
+    // never opens the store — and whatever log is still there is said.
+    plan = remeasured(plan);
+
     // ── THE PLAN, PRINTED, BEFORE A SINGLE QUESTION ────────────────────────
     //
     // The park arm shows WHERE each thing is going, which means working the
@@ -1165,6 +1178,21 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   u.blank();
   io.out(`To remove the program too: ${REMOVE_PACKAGE}`);
   return "ok";
+}
+
+/**
+ * The same plan with every size taken again from the filesystem — `dirSize` and
+ * `walBytes`, `lstat` and `readdir` only, nothing opened. What moves or goes,
+ * and the count, are unchanged: only the numbers are brought up to now.
+ */
+export function remeasured(plan: UninstallPlan): UninstallPlan {
+  const entries = plan.entries.map((e) => ({ ...e, bytes: dirSize(e.path) }));
+  return {
+    ...plan,
+    entries,
+    bytes: entries.reduce((n, e) => n + e.bytes, 0),
+    logBytes: plan.storeActed && plan.storeDir !== null ? walBytes(plan.storeDir) : 0,
+  };
 }
 
 /**

@@ -42,6 +42,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { Database } from "bun:sqlite";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -1419,6 +1420,50 @@ describe("finding #26 — the store's size, and what it is made of", () => {
     const park = consoleWith(["n"]);
     expect(await uninstall(input({ io: park.io, park: true, yes: false }))).toBe("ok");
     expect(text(park.out)).toContain("of that is a database log that shrinks on its own;");
+  });
+
+  test("sized AFTER the pre-flight: a log the health check folds in is gone from BOTH screens", async () => {
+    // The cause, reproduced with a stand-in: `claude mcp list` starts our MCP
+    // server, which folds the log into the database on its way out. The stub
+    // does exactly that — a real `wal_checkpoint(TRUNCATE)` — when it is asked
+    // to list. Before 2026-09-23 the delete plan was sized before its own
+    // pre-flight (log included) and a park plan run after it found the log
+    // gone: two sizes for one store.
+    await install();
+    await wireIt();
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "bun", args: ["x"] } } }),
+    );
+    const folding: Spawner = (args) => {
+      if (args[0] === "mcp" && args[1] === "list") {
+        const db = new Database(join(storePath(), DATABASE_FILE));
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        db.close();
+      }
+      return OK;
+    };
+    const sizes: string[] = [];
+    for (const flags of [{ deleteMemories: true }, { park: true, yes: false }]) {
+      fattenLog();
+      expect(walBytes(storePath())).toBeGreaterThanOrEqual(LOG_WORTH_SAYING);
+      const c = consoleWith(["deleteMemories" in flags ? "cancel" : "n"]);
+      expect(await uninstall(input({ io: c.io, spawner: folding, ...flags }))).toBe("ok");
+      const said = text(c.out);
+      expect(said).not.toContain("database log");
+      if ("deleteMemories" in flags) {
+        sizes.push(/store\s+(\S+ \S+)\s+your memory/.exec(said)?.[1] ?? "?");
+      } else {
+        sizes.push(/— (\S+ \S+)\n/.exec(`${said}\n`)?.[1] ?? "?");
+      }
+    }
+    // The delete plan's store row and the park plan's total are different
+    // things (the park line counts the configuration too), so the check is that
+    // each is the AFTER-fold size of what it names — neither carries the log.
+    expect(statSync(join(storePath(), `${DATABASE_FILE}-wal`)).size).toBe(0);
+    expect(walBytes(storePath())).toBeLessThan(LOG_WORTH_SAYING);
+    expect(sizes[0]).toBe(humanBytes(dirSize(storePath())));
+    expect(sizes[1]).toBe(humanBytes(dirSize(base())));
   });
 
   test("a small log is not worth a sentence, and neither is a big store's", () => {

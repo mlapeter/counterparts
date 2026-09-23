@@ -451,6 +451,11 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "",
     "Both of those refuse while a Counterparts MCP server, worker or dashboard",
     "is running, and name what they found.",
+    "",
+    "The sizes they print are every byte under each path, taken just before the",
+    "plan is shown. Part of a store's size can be its database log (the -wal file",
+    "beside it), which shrinks by itself once it is folded into the database, so",
+    "when that part is a megabyte or more the plan says how much of it is log.",
   ],
 };
 
