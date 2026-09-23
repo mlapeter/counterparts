@@ -157,6 +157,20 @@ export interface RetentionJobReport {
   readonly code: string | null;
 }
 
+/** A run's counts before it has counted anything — the `STARTED` and
+ *  `LATCH_HELD` rows carry these. */
+const EMPTY_RETENTION: RetentionReport = {
+  reason: "NOTHING",
+  scopes: 0,
+  deleted: 0,
+  keptOwed: 0,
+  keptYoung: 0,
+  keptLive: 0,
+  failed: 0,
+  lines: 0,
+  bytes: 0,
+};
+
 /** Ceiling on the `adapter.ask` rows read once per date: a Stop each, ~90 lived
  *  days of them (the log's own retention). */
 const ASK_ROW_CEILING = 200_000;
@@ -221,9 +235,8 @@ export function retentionHost(store: Store): (session: string) => HostSessionEvi
  * The registry's word on one session. A record with no end is OPEN — never
  * deleted (review m10). A record that exists but will not read is treated as
  * open too: it may be a live session's, and the safe reading of "cannot tell"
- * is "keep". `nothingNewAt` is #186's mark, read DEFENSIVELY: until that PR
- * lands, the registry's parser does not carry the field, so it is also read
- * from the raw record.
+ * is "keep". `nothingNewAt` is #186's "nothing new" answer, read through the
+ * registry's own parser.
  */
 function registryFacts(
   dir: string,
@@ -233,18 +246,11 @@ function registryFacts(
   if (path === null || !existsSync(path)) return { open: false, endedAt: null, nothingNewAt: null };
   const rec = readSession(dir, session);
   if (rec === null) return { open: true, endedAt: null, nothingNewAt: null };
-  let mark: unknown = (rec as { nothingNewAt?: unknown }).nothingNewAt;
-  if (typeof mark !== "number") {
-    try {
-      mark = (JSON.parse(readFileSync(path, "utf8")) as { nothingNewAt?: unknown }).nothingNewAt;
-    } catch {
-      mark = undefined;
-    }
-  }
   return {
     open: rec.endedAt === null,
     endedAt: rec.endedAt,
-    nothingNewAt: typeof mark === "number" && Number.isFinite(mark) ? mark : null,
+    // #186's mark, through the registry's own parser now that it carries it.
+    nothingNewAt: typeof rec.nothingNewAt === "number" && Number.isFinite(rec.nothingNewAt) ? rec.nothingNewAt : null,
   };
 }
 
@@ -286,8 +292,40 @@ export function retentionJob(input: {
       host: retentionHost(store),
       firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
     });
-    const report = pruneRetention(counterpart.spans, sources, { date });
-    if (report.reason === "ALREADY_RAN") return { ...none, reason: "already-ran" };
+    // THE DATE IS VISIBLE FROM THE MOMENT IT IS HELD (re-review R7): a
+    // `STARTED` row goes in as soon as the latch is taken, before anything is
+    // planned, so a run the watchdog kills halfway leaves "started, never
+    // finished" rather than a date that is spent and silent.
+    const started = (): void => {
+      try {
+        store.appendEvent({
+          name: RETENTION_EVENT,
+          day: store.livedDay(),
+          payload: retentionRow({ ...EMPTY_RETENTION, reason: "STARTED" }, date),
+          dedupKey: `${RETENTION_EVENT}:${date}:started`,
+        });
+      } catch (err) {
+        emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+      }
+    };
+    const report = pruneRetention(counterpart.spans, sources, { date, onLatched: started });
+    if (report.reason === "ALREADY_RAN") {
+      // Held, and still no row for the date at all: a run died between taking
+      // the latch and writing its first row. Say so, once.
+      if (!retentionRuns(store).some((r) => r.date === date)) {
+        try {
+          store.appendEvent({
+            name: RETENTION_EVENT,
+            day: store.livedDay(),
+            payload: retentionRow({ ...EMPTY_RETENTION, reason: "LATCH_HELD" }, date),
+            dedupKey: `${RETENTION_EVENT}:${date}:held`,
+          });
+        } catch (err) {
+          emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+        }
+      }
+      return { ...none, reason: "already-ran" };
+    }
     // The latch itself would not take (an unwritable `spans/`): nothing was
     // planned or deleted, and no row is written, so the next worker today tries
     // again rather than finding the date spent.

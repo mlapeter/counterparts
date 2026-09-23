@@ -49,6 +49,7 @@ import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 
 import { grantSpanStrike } from "./owner-strike-seam.js";
+import { grantWriteUp } from "./write-up-seam.js";
 import { hashText } from "../store/prose.js";
 import { dataDir } from "../store/paths.js";
 import { isObserver } from "../observer.js";
@@ -154,8 +155,10 @@ export const WRITE_SITES = [
   // borrowed from `store/owner-op-seam.ts`).
   "strike",
   // The mark that a session which ended owing a write-up has been written up
-  // after the fact (`retention.ts`; the next-session write-up, roadmap C2). It
-  // closes that session's debt and starts its retention clock.
+  // after the fact (the next-session write-up, roadmap C2). It closes that
+  // session's debt and starts its retention clock — a deletion on a seven-day
+  // fuse — so it is reachable only by importing `write-up-seam.ts`, never by
+  // holding a `SpanBuffer` (PR #189 re-review, R1).
   "writeup",
 ] as const;
 export type WriteSite = (typeof WRITE_SITES)[number];
@@ -210,11 +213,12 @@ export interface CoverageMark {
   own: boolean;
 }
 
-/** A session written up after it ended — the mark that closes what it owed. */
+/** A session written up after it ended — the mark that closes what it owed.
+ *  Written only by `write-up-seam.ts`. */
 export interface WriteUpRecord {
   session: string;
   at: number;
-  /** Which session (or mechanism) wrote it up. Ids and names only, never text. */
+  /** Who wrote it up: one of `write-up-seam.ts#WRITE_UP_BY`, never free text. */
   by: string;
 }
 
@@ -304,21 +308,27 @@ export class SpanBuffer {
     // The destruction capability, handed over at construction the way `Store`
     // hands `owner-op-seam.ts` its own: holding a buffer does not let you strike
     // a span; importing the seam does, and a test pins who may import it.
-    grantSpanStrike(this, {
+    const access = {
       observer: this.observer,
       scopes: () => this.scopes(),
-      scopeDir: (scope) => this.scopeDir(scope),
-      path: (scope, name) => this.path(scope, name),
-      claimFiles: (scope) => this.claimFiles(scope),
-      streamPath: (scope, kind) => this.streamPath(scope, kind),
-      ensureScope: (scope) => this.ensureScope(scope),
-      readLines: (file) => this.readLines(file),
-      mutate: (site, fn) => this.mutate(site, fn),
-      emit: (name, ref, data) => this.emit(name, ref, data),
+      scopeDir: (scope: string) => this.scopeDir(scope),
+      path: (scope: string, name: string) => this.path(scope, name),
+      claimFiles: (scope: string) => this.claimFiles(scope),
+      streamPath: (scope: string, kind: SpanKind) => this.streamPath(scope, kind),
+      ensureScope: (scope: string) => this.ensureScope(scope),
+      readLines: <T>(file: string) => this.readLines<T>(file),
+      mutate: <T>(site: WriteSite, fn: () => T) => this.mutate(site, fn),
+      emit: (name: string, ref?: string, data?: Record<string, string | number | boolean | null>) =>
+        this.emit(name, ref, data),
       now: () => this.nowFn(),
       day: () => this.dayFn(),
-      trimLedger: (file) => this.trimLedger(file),
-    });
+      trimLedger: (file: string) => this.trimLedger(file),
+    };
+    grantSpanStrike(this, access);
+    // The write-up mark gets the same closures MINUS `ensureScope`: it may never
+    // add a scope (re-review R1). Not even present at runtime.
+    const { ensureScope: _ensure, day: _day, trimLedger: _trim, ...writeUpAccess } = access;
+    grantWriteUp(this, writeUpAccess);
   }
 
   now(): number {
@@ -633,23 +643,7 @@ export class SpanBuffer {
     return this.claimFiles(scope).flatMap((file) => this.readSpans(file));
   }
 
-  /**
-   * MARK A SESSION WRITTEN UP after it ended (`retention.ts#owesWriteUp`). The
-   * next-session write-up (roadmap C2) calls this once it has recorded the
-   * memories; from then on the session owes nothing and its captured text ages
-   * out 7 days after the later of its end and this mark. Ids only — the record
-   * carries no word of what was written.
-   */
-  recordWriteUp(input: { scope: string; session: string; by: string }): boolean {
-    const record: WriteUpRecord = { session: input.session, at: this.nowFn(), by: input.by };
-    const out = this.mutate("writeup", () => {
-      this.ensureScope(input.scope);
-      appendFileSync(this.path(input.scope, "writeups.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
-    });
-    if (out.ok) this.emit("remember.writeup", input.session, { by: input.by });
-    return out.ok;
-  }
-
+  /** Write-up marks recorded for this scope (`write-up-seam.ts` writes them). */
   writeUps(scope: string): WriteUpRecord[] {
     return this.readLines<WriteUpRecord>(this.path(scope, "writeups.jsonl")).filter(
       (r) => typeof r.session === "string" && typeof r.at === "number",

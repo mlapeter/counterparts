@@ -45,10 +45,12 @@
  * ── AND ONE THING THAT IS NOT A DEBT BUT STILL KEEPS ──────────────────────
  *
  * A session the host's registry still holds OPEN — a record with no end — is
- * never deleted, whatever its age (review m10): an idle-but-alive session is
- * not an ended one. The registry forgets a record 7 days after its last write
- * (`adapters/sessions.ts#pruneSessions`); from then on the ordinary rule
- * applies.
+ * not deleted while the registry holds it (review m10): an idle-but-alive
+ * session is not an ended one. That lasts only as long as the record does, and
+ * the registry forgets a record 7 days after its last write
+ * (`adapters/sessions.ts#pruneSessions`) — the same week as the retention clock
+ * (re-review R8). What actually protects a session active in the last week is
+ * the capture clock, which reads the buffer and nothing the registry keeps.
  *
  * ── THE CLOCK ─────────────────────────────────────────────────────────────
  *
@@ -60,6 +62,8 @@
  * counts as asked, an unreadable log as no answers, a missing ask time as "no
  * time-based answer can be proved".
  */
+import { Buffer } from "node:buffer";
+
 import { HANDOFF_CLEARED_EVENT, HANDOFF_WRITTEN_EVENT } from "../handoff/index.js";
 import type { Store } from "../store/index.js";
 
@@ -104,7 +108,13 @@ export interface EpisodeFactsReading {
 /** What the HOST knows about one session. Every field is optional evidence;
  *  `NO_HOST_EVIDENCE` is what a host that knows nothing says. */
 export interface HostSessionEvidence {
-  /** The host's registry holds this session with no end. Never deleted. */
+  /**
+   * The host's registry holds a record for this session with no end. Kept while
+   * it does — and ONLY while it does: the registry drops a record 7 days after
+   * its last write (`adapters/sessions.ts#pruneSessions`), the same week as the
+   * retention clock, so this is an extra guard, not the one that protects a
+   * recently active session. That one is the capture clock (`kept-young`).
+   */
   readonly open: boolean;
   /** The registry's end, epoch ms. */
   readonly endedAt: number | null;
@@ -281,10 +291,14 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
       const t = tally(span.session);
       if (t === null) return;
       const at = numberOr(span.at, 0);
+      // UTF-8 BYTES, the pacer's own unit (`hooks.ts#substanceOf`) — never UTF-16
+      // code units, which under-count every non-Latin script by up to three
+      // times and would read a substantive session as short (re-review R5).
+      const size = Buffer.byteLength(span.text, "utf8");
       t.scopes.add(scope);
       t.lines += 1;
-      t.bytes += span.text.length;
-      t.textBytes += span.text.length;
+      t.bytes += size;
+      t.textBytes += size;
       t.maxTo = Math.max(t.maxTo, numberOr(span.to, 0));
       if (captured) t.captured += 1;
       t.lastCaptureAt = Math.max(t.lastCaptureAt, at);
@@ -401,7 +415,11 @@ function maxOf(a: number | null, b: number | null): number | null {
 
 /** What one run came to. Counts only. */
 export interface RetentionReport {
-  readonly reason: "PRUNED" | "NOTHING" | "ALREADY_RAN" | "OBSERVER" | "IO_FAILED";
+  /** `STARTED` is the row a run writes the moment it holds the date's latch,
+   *  before it plans; `LATCH_HELD` is the row a later run writes when it finds
+   *  the latch held and no row at all for the date (re-review R7). Either one as
+   *  the NEWEST row for a date means that run did not finish. */
+  readonly reason: "PRUNED" | "NOTHING" | "ALREADY_RAN" | "OBSERVER" | "IO_FAILED" | "STARTED" | "LATCH_HELD";
   /** Scopes holding any session text at all. */
   readonly scopes: number;
   /** Sessions whose text was deleted this run. */

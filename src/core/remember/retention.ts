@@ -84,7 +84,13 @@ function takeLatch(buffer: SpanBuffer, date: string): "taken" | "held" | "failed
 export function pruneRetention(
   buffer: SpanBuffer,
   sources: RetentionSources,
-  opts: { date: string },
+  opts: {
+    date: string;
+    /** Called the moment the date's latch is held, BEFORE anything is planned
+     *  or deleted — where the worker writes its `STARTED` row, so a run that
+     *  dies after this point still leaves the date visible (re-review R7). */
+    onLatched?: () => void;
+  },
 ): RetentionReport {
   // An instrument writes nothing — not even the latch.
   if (buffer.observer) {
@@ -94,6 +100,7 @@ export function pruneRetention(
   const latch = takeLatch(buffer, opts.date);
   if (latch === "held") return { ...EMPTY_REPORT, reason: "ALREADY_RAN" };
   if (latch === "failed") return { ...EMPTY_REPORT, reason: "IO_FAILED" };
+  opts.onLatched?.();
 
   const plan = planRetention(buffer, sources);
   // Per scope: the strike runs one scope at a time, and a session deleted is

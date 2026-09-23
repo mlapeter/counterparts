@@ -47,8 +47,9 @@ import type {
 } from "../src/core/remember/index.js";
 // The deleting half, by path — the way only the worker may import it in `src/`.
 import { pruneRetention } from "../src/core/remember/retention.js";
+import { WRITE_UP_BY, recordWriteUp } from "../src/core/remember/write-up-seam.js";
 import { SELF_TUNABLES, episodeFacts } from "../src/core/self/index.js";
-import { recordSession, sessionPath } from "../src/adapters/sessions.js";
+import { markNothingNew, pruneSessions, recordSession, sessionPath } from "../src/adapters/sessions.js";
 import { retentionHost, retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
 
 const DAY = 86_400_000;
@@ -207,13 +208,16 @@ describe("the acceptance scenario: three sessions, exactly one deleted", () => {
     expect(job.report?.lines).toBe(2);
     expect(heldSessions(dir)).toEqual(["owes-old", "written-recent"]);
 
-    // THE ROW: one, with the counts, and no session id or word in it.
+    // THE ROWS: `STARTED` the moment the latch was held (re-review R7), then
+    // the result, with the counts — and no session id or word in either.
     const rows = b.c.store.eventLog({ name: RETENTION_EVENT });
-    expect(rows).toHaveLength(1);
-    const payload = JSON.parse(rows[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(rows.map((r) => (JSON.parse(r.payload ?? "{}") as { reason: string }).reason)).toEqual(["STARTED", "PRUNED"]);
+    const payload = JSON.parse(rows[1]?.payload ?? "{}") as Record<string, unknown>;
     expect(payload).toMatchObject({ date: "2026-09-23", reason: "PRUNED", deleted: 1, keptOwed: 1, keptYoung: 1, failed: 0, retentionDays: 7 });
-    expect(rows[0]?.payload).not.toContain("written-old");
-    expect(rows[0]?.payload).not.toContain("migration");
+    for (const row of rows) {
+      expect(row.payload).not.toContain("written-old");
+      expect(row.payload).not.toContain("migration");
+    }
     expect(lastRetentionRun(b.c.store)).toMatchObject({ date: "2026-09-23", deleted: 1, keptOwed: 1, keptYoung: 1 });
   });
 
@@ -248,12 +252,13 @@ describe("the acceptance scenario: three sessions, exactly one deleted", () => {
       expect(readFileSync(copied, "utf8")).not.toContain("(written-old)");
       expect(readFileSync(copied, "utf8")).toContain("(owes-old)");
 
-      // Once per date: a second worker the same day does nothing and adds no row.
+      // Once per date: a second worker the same day does nothing and adds no
+      // row — the date holds its STARTED row and its result, and that is all.
       const again = await runOnce({ config, date: "2026-09-23", env: {} });
       expect(again.retention?.reason).toBe("already-ran");
       const check = Counterpart.open({ dir });
       open.push(check);
-      expect(check.store.eventLog({ name: RETENTION_EVENT })).toHaveLength(1);
+      expect(check.store.eventLog({ name: RETENTION_EVENT })).toHaveLength(2);
     } finally {
       rmSync(snaps, { recursive: true, force: true });
     }
@@ -367,7 +372,7 @@ describe("THE PREDICATE — nothing deletes unless it says nothing is owed", () 
     const b = brain();
     await live(b, "late", NOW - 30 * DAY, { answer: null });
     b.set(NOW - 3 * DAY);
-    expect(b.c.spans.recordWriteUp({ scope: SCOPE, session: "late", by: "sess_next" })).toBe(true);
+    expect(recordWriteUp(b.c.spans, { scope: SCOPE, session: "late", by: "next-session" })).toBe("RECORDED");
     b.set(NOW);
     let [h] = planRetention(b.c.spans, sources(b.c));
     expect(h?.facts.writtenUp).toBe(true);
@@ -534,16 +539,13 @@ describe("the PR #189 review's findings, each held by a test", () => {
   });
 
   test("m3: #186's 'nothing new' mark is an answer when it came after the last ask — and not when it came before", async () => {
-    // #186 is not merged: the mark is written the way it will write it, on the
-    // raw registry record, and read defensively.
+    // #186 has landed: the mark is written by its own `markNothingNew` and read
+    // back through the registry's own parser.
     const withMark = async (markAfterAsk: boolean): Promise<string | undefined> => {
       const b = brain();
       await live(b, "nothing-new", NOW - 10 * DAY, { answer: null });
       recordSession(dir, { sessionId: "nothing-new", scope: SCOPE, phase: "end", at: NOW - 10 * DAY });
-      const path = sessionPath(dir, "nothing-new") as string;
-      const rec = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-      rec["nothingNewAt"] = markAfterAsk ? NOW - 10 * DAY + 60_000 : NOW - 11 * DAY;
-      writeFileSync(path, JSON.stringify(rec), "utf8");
+      expect(markNothingNew(dir, "nothing-new", markAfterAsk ? NOW - 10 * DAY + 60_000 : NOW - 11 * DAY)).not.toBeNull();
       b.set(NOW);
       const verdict = planRetention(b.c.spans, sources(b.c))[0]?.verdict;
       b.c.close();
@@ -569,9 +571,10 @@ describe("the PR #189 review's findings, each held by a test", () => {
     // The next date is its own, and the first run on it wins it.
     expect(pruneRetention(b.c.spans, sources(b.c), { date: "2026-09-24" }).deleted).toBe(1);
     expect(pruneRetention(b.c.spans, sources(b.c), { date: "2026-09-24" }).reason).toBe("ALREADY_RAN");
-    // The job reads a held latch as "already ran" and writes no row for it.
+    // The job reads a held latch as "already ran", deletes nothing — and, since
+    // the date has no row at all, leaves one saying the latch was held (R7).
     expect(retentionJob({ counterpart: b.c, date: "2026-09-24" }).reason).toBe("already-ran");
-    expect(b.c.store.eventLog({ name: RETENTION_EVENT })).toHaveLength(0);
+    expect(retentionRuns(b.c.store).map((r) => r.reason)).toEqual(["LATCH_HELD"]);
   });
 
   test("m6: latches stay bounded — a month of them, the oldest let go", () => {
@@ -583,6 +586,99 @@ describe("the PR #189 review's findings, each held by a test", () => {
     const latches = readdirSync(join(dir, "spans", "retention"));
     expect(latches.length).toBe(31);
     expect(latches.sort()[latches.length - 1]).toBe("2026-09-09.latch");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the re-review's residuals (R1, R5, R7, R8)", () => {
+  test("R1: the write-up mark is not on the buffer anyone holds; it refuses an unknown scope, a free-text `by` and a session with no text", async () => {
+    const b = brain();
+    await live(b, "owes", NOW - 1 * DAY, { answer: null, endNormally: false });
+    // The review's repro started with `c.spans.recordWriteUp(...)`: it is gone.
+    expect((b.c.spans as unknown as Record<string, unknown>)["recordWriteUp"]).toBeUndefined();
+    const legend = readFileSync(join(dir, "spans", "scopes.json"), "utf8");
+    expect(recordWriteUp(b.c.spans, { scope: "/nowhere/at/all", session: "owes", by: "next-session" })).toBe("UNKNOWN_SCOPE");
+    // ...and it never ADDS a scope: the legend and the directory are untouched.
+    expect(readFileSync(join(dir, "spans", "scopes.json"), "utf8")).toBe(legend);
+    expect(existsSync(join(dir, "spans", keyFor("/nowhere/at/all")))).toBe(false);
+    expect(recordWriteUp(b.c.spans, { scope: SCOPE, session: "owes", by: "anything" as never })).toBe("BAD_BY");
+    expect(recordWriteUp(b.c.spans, { scope: SCOPE, session: "no-such-session", by: "owner" })).toBe("NO_TEXT");
+    // Nothing moved: still owed.
+    b.set(NOW + 30 * DAY);
+    expect(planRetention(b.c.spans, sources(b.c))[0]?.verdict).toBe("kept-owed");
+    expect(b.c.spans.writeUps(SCOPE)).toEqual([]);
+    // The one accepted shape, and the record carries the fixed word.
+    expect(WRITE_UP_BY).toEqual(["next-session", "owner"]);
+    expect(recordWriteUp(b.c.spans, { scope: SCOPE, session: "owes", by: "next-session" })).toBe("RECORDED");
+    expect(b.c.spans.writeUps(SCOPE).map((w) => w.by)).toEqual(["next-session"]);
+  });
+
+  test("R5: substance is counted in UTF-8 BYTES, like the pacer — a session in Japanese is not read as short", () => {
+    // Eight turns of Japanese: ~5.5 KB in UTF-8, ~1.9 K in UTF-16 code units.
+    const line = "今日は移行計画について長く話し合い、どの索引を残してどれを落とすかを決めた。".repeat(6);
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      text: `${String(i)}: ${line}`,
+    }));
+    const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
+    buf.capture({ session: "nihongo", scope: SCOPE, turns });
+    buf.boundary({ session: "nihongo", scope: SCOPE, kind: "stop" });
+    const utf8 = turns.reduce((n, t) => n + Buffer.byteLength(t.text, "utf8"), 0);
+    expect(utf8).toBeGreaterThanOrEqual(SELF_TUNABLES.FIRST_ASK_BYTES);
+    expect(turns.reduce((n, t) => n + t.text.length, 0)).toBeLessThan(SELF_TUNABLES.FIRST_ASK_BYTES);
+    const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), fake({ status: "absent" }));
+    expect(h?.facts.asked).toBe(true);
+    expect(h?.verdict).toBe("kept-owed");
+  });
+
+  test("R7: a run that dies after taking the latch leaves a STARTED row; a held latch with no row leaves LATCH_HELD", async () => {
+    const b = brain();
+    await live(b, "old", NOW - 10 * DAY, { answer: "chapter" });
+    b.set(NOW);
+    // A healthy run: STARTED first, then the result — and the newest is the result.
+    expect(retentionJob({ counterpart: b.c, date: "2026-09-23" }).reason).toBe("ran");
+    expect(retentionRuns(b.c.store).map((r) => [r.date, r.reason])).toEqual([
+      ["2026-09-23", "PRUNED"],
+      ["2026-09-23", "STARTED"],
+    ]);
+    // A latch held by a run that died before its first row: the next worker
+    // says so rather than leaving the date spent and silent.
+    mkdirSync(join(dir, "spans", "retention"), { recursive: true });
+    writeFileSync(join(dir, "spans", "retention", "2026-09-24.latch"), "", "utf8");
+    expect(retentionJob({ counterpart: b.c, date: "2026-09-24" }).reason).toBe("already-ran");
+    expect(lastRetentionRun(b.c.store)).toMatchObject({ date: "2026-09-24", reason: "LATCH_HELD" });
+    // ...once: a third worker that day finds the row and adds nothing.
+    expect(retentionJob({ counterpart: b.c, date: "2026-09-24" }).reason).toBe("already-ran");
+    expect(retentionRuns(b.c.store).filter((r) => r.date === "2026-09-24")).toHaveLength(1);
+  });
+
+  test("R7: a run that throws after the latch is visible as STARTED, and its sessions are due again the next date", async () => {
+    const b = brain();
+    await live(b, "old", NOW - 10 * DAY, { answer: "chapter" });
+    b.set(NOW);
+    const throwing = { ...sources(b.c), host: (): never => { throw new Error("host went away"); } } as unknown as RetentionSources;
+    expect(() => pruneRetention(b.c.spans, throwing, {
+      date: "2026-09-25",
+      onLatched: () => {
+        b.c.store.appendEvent({ name: RETENTION_EVENT, day: 0, payload: { date: "2026-09-25", reason: "STARTED" } });
+      },
+    })).toThrow();
+    expect(lastRetentionRun(b.c.store)).toMatchObject({ date: "2026-09-25", reason: "STARTED" });
+    expect(heldSessions(dir)).toEqual(["old"]);
+    expect(prune(b.c.spans, sources(b.c)).deleted).toBe(1);
+  });
+
+  test("R8: a session with capture in the last week is kept by the CAPTURE clock, whatever the registry still holds", async () => {
+    const b = brain();
+    await live(b, "recent", NOW - 5 * DAY, { asked: false, endNormally: false });
+    recordSession(dir, { sessionId: "recent", scope: SCOPE, phase: "start", at: NOW - 5 * DAY });
+    b.set(NOW);
+    // The registry forgets it (as `pruneSessions` would, given a later clock)...
+    expect(pruneSessions(dir, NOW + 30 * DAY)).toBe(1);
+    // ...and it is still kept: it is young, and that reads the buffer alone.
+    const [h] = planRetention(b.c.spans, sources(b.c));
+    expect(h?.open).toBe(false);
+    expect(h?.verdict).toBe("kept-young");
   });
 });
 
@@ -654,7 +750,7 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
     const next = retentionJob({ counterpart: b.c, date: "2026-09-24" });
     expect(next.reason).toBe("ran");
     expect(next.report?.deleted).toBe(0);
-    expect(retentionRuns(b.c.store).map((r) => r.date)).toEqual(["2026-09-24", "2026-09-23"]);
+    expect(retentionRuns(b.c.store).filter((r) => r.reason !== "STARTED").map((r) => r.date)).toEqual(["2026-09-24", "2026-09-23"]);
   });
 
   test("the retention window is the owner's seven days", () => {
