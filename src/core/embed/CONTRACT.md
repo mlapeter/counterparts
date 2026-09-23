@@ -7,6 +7,11 @@ gives the semantic channel a source when no paid embedder is configured — whic
 2026-09-23, is every store including the owner's. One file, `static.ts`, zero
 dependencies.
 
+**Status (owner decision, 2026-09-23 night):** this table is the PRIMARY embedder. The
+paid Voyage seat (`adapters/claude-code/embed-client.ts`) is **frozen**: deprecated, not
+removed — its code and the store's protection of vectors it already paid for stay, and no
+new Voyage behaviour is written. Recall is retuned for this table (`keyless/recall-tune`).
+
 ## 2. Brain analog
 
 None worth claiming. A static table is a lookup of learned word meanings averaged over a

@@ -1139,7 +1139,7 @@ something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` an
   static table alike. Dropping paid vectors is the owner's decision, never an open's.
   The hold is DURABLE (`cache_meta.embedderHeld`), so every handle on the file — the MCP
   server's, the dashboard's, the console's — neither writes vectors nor ranks against
-  them. The ways out (`HELD_EXITS`): put the configuration back (released at the next
+  them. The ways out (`heldExits`): put the configuration back (released at the next
   open), or `counterparts verify --rebuild --drop-vectors --dir <store>`.
 - **Legacy (untagged) rows**: a paid seat adopts them only when every row has the seat's
   KNOWN width (`EMBED_MODEL_DIMS`); a static table drops and refills them only when every
@@ -1229,3 +1229,67 @@ table during that session would have that server rank 1,024-wide Voyage question
 against 256-wide static rows by their common prefix until the session restarts. The
 update notice (#187) is the remedy; it is named here because no code in this release can
 reach a process that is already running the old one.
+
+### 2026-09-23, re-review of #190 — the file is asked on every write and every ranking
+
+- **MAJOR A — a long-lived handle wrote under an identity it checked only at launch.**
+  Handing the MCP server's store the embedder (MAJOR 1's fix) let a session-long server
+  file a 256-wide static vector under `voyage-3-large@1024` after a hook reset the store
+  — the memory then "had" a vector, `missingVectors` skipped it, `nearest` skipped it by
+  width, and it left semantic recall silently. Same-width pairs (potion vs a retrained
+  table; full-width static-retrieval vs Voyage) ranked across two models outright. Now
+  every vector write (`admitVector`, inside the write's own transaction) and every
+  ranking (`Store.rankable` → `searchRefusal`) reads the file's claim — tag, hold, stamp:
+  one primary-key read, #187's per-call pattern — and compares it with the handle's own
+  identity. On a mismatch no vector is written (a revised memory's stale vector is
+  deleted with it, so the owning identity's backfill fills it), nothing is ranked, and
+  a `cache.vector.refused` event names the site and the reason (`held`, `cache-ahead`,
+  `identity-changed`). A backfill does not count such a refusal against the item.
+- **What an identity compares.** The model always; the width only for an inline table
+  (a 256-wide slice of a 1,024-wide table is another space). A paid seat's width is its
+  provider's, pinned by its model id: `EMBED_MODEL_DIMS` decides only whether untagged
+  rows may be adopted, and the tag records what the vectors measured. A file a paid seat
+  TAKES (fresh, or reset) is tagged with the model alone until its first vector, so a
+  process still running under the old identity sees at once that the file is no longer
+  its own.
+- **The one write a fresh store needs can lose the lock** (NIT 1): a decision that meets
+  another writer past the 5 s busy timeout now becomes `deferred` — nothing written, the
+  embedder withdrawn for that open, a durable row, and the next open decides again. A
+  lost lock costs the tag, never the open.
+- **The drop-vectors exit writes a durable row** (NIT 2): `rebuildCache` records what a
+  plain rebuild dropped and the hold it ended (`kind: "dropped", by: "rebuildCache"`), so
+  all five transitions leave a row in box 2.
+- **The exits a hold names are the ones that exist** (MINOR B; `heldExits`). Untagged
+  rows (a 0.2.0 store opened under the static table) have no recorded model to go back
+  to: the free exit is `embedder.kind` back to `"voyage"`, which adopts them at the seat's
+  known width. A recorded model: put `models.embed` back to it. The drop
+  (`verify --rebuild --drop-vectors`) is the other exit either way, and for a paid seat
+  it is a paid re-embed of every memory.
+- **The non-default `models.embed` upgrade case, stated** (MINOR B(2)). A 0.2.0 store
+  whose owner hand-set `models.embed` to an id this package does not list
+  (`voyage-context-3`, `voyage-law-2`, …) holds 1,024-wide untagged rows that NOTHING in
+  this release will adopt: the seat's width is unknown, so adoption is refused, and the
+  configuration already IS the model that wrote them, so "put it back" is not an exit.
+  The only way out today re-pays for every embedding. `models.embed` is undocumented and
+  `configObject` never writes it, so only a hand-edited configuration gets here. The
+  fixes, not built: list the id in `EMBED_MODEL_DIMS`, or an explicit "adopt these rows"
+  command for rows the owner vouches for (C3's `migrate-cache`). Re-loosening the width
+  check is not one — a keyed 0.2.0 process can leave single-width untagged rows of a
+  different model than the one configured now.
+- **Residual (the re-review's NIT 3).** static-retrieval-mrl-en-v1 at FULL width is 1,024,
+  the paid seat's width: a 0.2.0 process with a key writing Voyage rows into such a store
+  keeps the static tag through the stamp-down (the widths agree). Reachable only through
+  `COUNTERPARTS_STATIC_WEIGHTS_DIR` pointed at that table unsliced; the package ships
+  potion (256). Named, not handled.
+
+**Release note: 0.2.0 ignores `embedder.kind`.** A configuration that says
+`{"enabled": true, "kind": "static"}`, read by any 0.2.0 process — an unrestarted MCP
+server, a machine not yet upgraded — with a Voyage key saved, still embeds with Voyage:
+memory text still goes to Voyage until every process runs this release. Whoever writes
+the release notes for the static tier should say so.
+
+**Owner decision, 2026-09-23 (night): the static tier is the PRIMARY embedder; the Voyage
+seat is FROZEN — deprecated, not removed.** Its code stays, and so does everything in
+this module that protects vectors it already paid for (the paid-rows hold, adoption at
+its known width, `external` identities). No new Voyage behaviour is to be written; a
+future finding that would need some is documented here instead.

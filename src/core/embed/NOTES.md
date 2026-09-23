@@ -82,3 +82,11 @@ Revisit if a hook-latency measurement ever names it.
   refusal (whose `onEvent` goes nowhere) reaches doctor.
 - **Big-endian is a named refusal** (NIT 2).
 
+## 2026-09-23, night — the owner's decision
+
+The static tier is INCLUDED and becomes the primary tier; recall gets retuned for it (a
+separate PR, `keyless/recall-tune`, from `tools/bench/embedder-trial.ts` runs on both
+recall paths). The Voyage seat is FROZEN: deprecated, not removed. Its code stays, the
+store keeps holding its paid rows, and nothing new is written for it — a finding that
+would need new Voyage behaviour is documented rather than built.
+

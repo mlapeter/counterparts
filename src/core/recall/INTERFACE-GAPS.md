@@ -198,12 +198,24 @@ queries, a seeded store, 5 reseeds):
   question → worker rank → a follow-up that names no topic. At the shipped values: 9/30
   paraphrase targets delivered within two turns, identical to lexical-only. The lag adds
   less than the in-line vector does: +1 (10/30) at floor 0.25–0.15 / weight 3–6, **+3
-  (12/30) at floor 0 / weight 6**, 0 lost, items per turn 5.26 → 5.13. On this path floor
-  0 costs nothing measurable, where on the deliberate path it costs a delivery.
+  (12/30) at floor 0 / weight 6**, 0 lost on this arm, items per turn 5.26 → 5.13.
+  **That is the lag's CEILING, not its cost:** the arm embeds only the question (the real
+  lag text is the prompt plus up to 800 bytes of the reply), and its turn 2 is one
+  follow-up that stays on the question's topic. What a floor-0 lag does to a turn that
+  CHANGES topic — the lag then carries the previous subject into it — is **unmeasured,
+  not zero**.
 
-**The shape of the fix:** per-identity AND per-path tunables — the cache tag
-(`store.embedderVerdict`, `cache_meta.embedder`) now names the model, so the floor/weight
-can be looked up by it rather than being one pair for every model, and the two paths
-plainly want different floors. Not built here: the numbers are `recall/`'s to own, and one
-synthetic persona with builder-written queries is a first measurement, not a calibration
-(the recall-bench's labelled real prompts on a store copy should decide).
+**Caveats that travel with these numbers** (the write-up's, repeated here because this
+is where a calibration will be read from): one synthetic persona, 161 memories, 40
+queries written by the builder; the paraphrase set was written to avoid the target's
+words, which is the case the channel exists for and so flatters it; the per-turn arm is
+the ceiling described above; per-query ranks are over the activation ranking, and the
+gate's relative bar decides delivery.
+
+**The shape of the fix:** per-identity tunables — the cache tag (`store.embedderVerdict`,
+`cache_meta.embedder`) now names the model, so the floor/weight can be looked up by it
+rather than being one pair for every model — and very likely per-path ones, since the
+deliberate path loses a delivery at floor 0 and the per-turn path's floor-0 cost on a
+topic change is unknown. Not built here: the numbers are `recall/`'s to own, and this is a
+first measurement, not a calibration (the recall-bench's labelled real prompts on a store
+copy, with a topic-changing per-turn arm, should decide).

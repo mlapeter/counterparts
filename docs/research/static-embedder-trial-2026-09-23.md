@@ -31,8 +31,10 @@ Fernbrook/Halfmoon persona); no real store was opened. Working material, not a r
   - **Per-turn** (the hook: a turn is never embedded while it is answered; the worker's
     rank of the previous exchange is the next turn's lagged cue): **+1** within two turns
     (10/30) at floor 0.25–0.15 / weight 3–6, **+3 (12/30) at floor 0 / weight 6**, 0 lost,
-    items per turn 5.26 → 5.13. The lag adds less than the in-line vector, and floor 0
-    costs this path nothing measurable.
+    items per turn 5.26 → 5.13. The lag adds less than the in-line vector. No loss was
+    measured at floor 0 on this arm, but that is the lag's ceiling: the arm embeds only
+    the question and its turn 2 stays on topic, so a floor-0 lag's cost on a turn that
+    changes topic is unmeasured, not zero.
 
 **Recommendation: include potion-base-8M — embedder, identity tag, weights package —
 and do not claim a recall improvement until `recall/` moves its floor/weight for this
@@ -44,6 +46,12 @@ settings named above. The calibration is `recall/tunables.ts`'s (filed as
 new `<model>@<dim>` tag). Including the tier costs no lost delivery at shipped values and
 ~31 ms per hook process to load and verify the table, and gives every memory a vector at
 write time, so the calibration has data to work on.
+
+**Release note, for whoever ships this:** 0.2.0 does not know `embedder.kind`. A
+configuration that says `{"enabled": true, "kind": "static"}`, read by any 0.2.0 process
+(an unrestarted MCP server, a machine not yet upgraded) with a Voyage key saved, still
+embeds with Voyage — memory text still goes to Voyage until every process runs this
+release.
 
 Voyage was **not measured**: no `VOYAGE_API_KEY` in this process, and the brief said not to
 look for one. The bench runs a Voyage arm automatically when the key is present (a paid

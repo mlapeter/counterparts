@@ -102,7 +102,11 @@ ended up with canonical state spread across a prose store plus half a dozen side
      the configuration goes back or `verify --rebuild --drop-vectors` drops them. Every
      transition writes a durable `store.embedder.reconciled` row. A cache written by a
      NEWER build is left exactly as found: its version is never stamped down, the vector
-     channel is off by name (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`.
+     channel is off by name (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`. Every
+     vector write and every ranking re-reads the file's claim against the handle's own
+     identity, so a handle open all session never files or ranks under another model's
+     tag. *(2026-09-23: the local static table is the primary embedder; the paid Voyage
+     seat is FROZEN — deprecated, kept, and its paid-rows hold kept with it.)*
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them
