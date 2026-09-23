@@ -37,9 +37,13 @@ To set it up from a script, with no questions:
 
 ```
 counterparts install --budget 9000 --name "Your Name"
+counterparts connect
 ```
 
-Search by meaning is on for a script setup too; add `--no-embedder` to leave it off.
+A script setup doesn't change Claude Code's settings (it prints the hooks instead);
+`counterparts connect` is the step that does. Keep `--budget 9000`: only the questions
+fill in that size limit for you. Search by meaning is on for a script setup too; add
+`--no-embedder` to leave it off.
 
 ## Check it
 

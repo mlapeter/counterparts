@@ -371,33 +371,42 @@ export interface EmbedderBlock {
 }
 
 /**
- * WHICH `embedder` BLOCK AN INSTALL WRITES (roadmap C3; review of #190, MINOR 4).
+ * WHICH `embedder` BLOCK AN INSTALL WRITES (roadmap C3; review of #190, MINOR 4;
+ * review of #195, MAJOR 1).
  *
  * Static is the primary tier and Voyage is frozen (ROADMAP §"Amendments",
- * 2026-09-23): a new install turns on the local table and nothing here ever
- * turns Voyage on. But a configuration that already names Voyage is somebody's
- * paid arrangement, and `--force` is consent to rewrite a file, not to change
- * which embedder it names. So the kind is decided in this order:
+ * 2026-09-23): nothing here ever switches Voyage ON. A configuration where it
+ * is already on is somebody's paid arrangement, and `--force` is consent to
+ * rewrite a file, not to change which embedder it names — but a Voyage block
+ * that is OFF is not an arrangement anybody is running, and turning it on is
+ * a new egress, so it gets the local table. In full:
  *
- *   1. **A kind the old file names is kept** — `"static"` or `"voyage"`,
- *      whether the knob was on or off. `install --force --embedder` over a
- *      static configuration used to write `{ enabled: true }`, which reads as
- *      Voyage (absent `kind` means voyage) — the flip MINOR 4 named.
- *   2. **An old block with NO kind, beside a saved Voyage key, stays kind-less**
- *      — that is a 0.2.0 configuration that opted into Voyage, and absent
- *      `kind` is how it says so. Writing `"voyage"` would be new Voyage code;
- *      writing `"static"` would flip a paid setup behind the person's back.
- *   3. **Everything else gets `"static"`**: a new install, a configuration
- *      that never had a block, and a kind-less block with no Voyage key (which
- *      could never have embedded anything).
+ * **Turning it ON** (`--embedder`, or the terminal arm's default):
+ *   1. The replaced block was ON with `kind: "voyage"` → kept, `{ enabled: true,
+ *      kind: "voyage" }`. It is already sending; nothing is resurrected.
+ *   2. The replaced block was ON with NO kind, beside a saved Voyage key → kept
+ *      kind-less, `{ enabled: true }` — a running 0.2.0 Voyage setup; absent
+ *      `kind` is how it says so.
+ *   3. Everything else → `{ enabled: true, kind: "static" }`: a new install, a
+ *      configuration with no block, a static block, and **any block that was
+ *      OFF, whatever kind it records** — `{ enabled: false }` and
+ *      `{ enabled: false, kind: "voyage" }` both come back ON as the local
+ *      table, which is what doctor's `Turn on:` line promises. (Also a kind-less
+ *      ON block with no Voyage key, which could never have embedded anything.)
  *
- * `enabled` comes from the caller: `--embedder` → true, `--no-embedder` →
- * false, and the terminal arm's default (true, on a configuration being
- * created). `undefined` means nothing decided it, and the result is then
- * `undefined` too — no block is written and the carried one stands.
+ * **Turning it OFF** (`--no-embedder`): the kind the replaced block records is
+ * kept as recorded — `{ enabled: false, kind: "static" }`, `{ enabled: false,
+ * kind: "voyage" }`, or kind-less `{ enabled: false }` for a 0.2.0 Voyage block
+ * — and with no block at all, `{ enabled: false, kind: "static" }`. Turning it
+ * back on later is an OFF block going ON, so rule 3 makes it the local table.
  *
- * It reads the old file with `JSON.parse`, like `commands.ts#carryForward`:
- * what is wanted is what the file SAID, not what a loader made of it.
+ * `#190 MINOR 4` is rule 3's static case: `install --force --embedder` over a
+ * static configuration used to write `{ enabled: true }`, which reads as Voyage.
+ *
+ * `enabled` comes from the caller; `undefined` means nothing decided it, and
+ * the result is then `undefined` too — no block is written and the carried one
+ * stands. It reads the old file with `JSON.parse`, like
+ * `commands.ts#carryForward`: what is wanted is what the file SAID.
  */
 export function resolveEmbedderBlock(input: {
   readonly enabled: boolean | undefined;
@@ -408,14 +417,19 @@ export function resolveEmbedderBlock(input: {
 }): EmbedderBlock | undefined {
   if (input.enabled === undefined) return undefined;
   const was = embedderBlockIn(input.configPath);
-  const oldKind = was?.["kind"];
-  if (typeof oldKind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(oldKind)) {
-    return { enabled: input.enabled, kind: oldKind as EmbedderKind };
+  const recorded = was?.["kind"];
+  const oldKind =
+    typeof recorded === "string" && (EMBEDDER_KINDS as readonly string[]).includes(recorded)
+      ? (recorded as EmbedderKind)
+      : undefined;
+  if (!input.enabled) {
+    if (was === null) return { enabled: false, kind: "static" };
+    return oldKind === undefined ? { enabled: false } : { enabled: false, kind: oldKind };
   }
-  if (was !== null && oldKind === undefined && input.voyageKeySaved) {
-    return { enabled: input.enabled };
-  }
-  return { enabled: input.enabled, kind: "static" };
+  const wasOn = was !== null && was["enabled"] === true;
+  if (wasOn && oldKind === "voyage") return { enabled: true, kind: "voyage" };
+  if (wasOn && recorded === undefined && input.voyageKeySaved) return { enabled: true };
+  return { enabled: true, kind: "static" };
 }
 
 /** The old file's `embedder` object, or null when it has none (or none that

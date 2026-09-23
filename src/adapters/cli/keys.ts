@@ -57,10 +57,13 @@ import {
 import { dirname } from "node:path";
 
 import { API_KEY_ENV, EMBED_KEY_ENV, embedderKind } from "../claude-code/config.js";
-import type { AdapterConfig } from "../claude-code/config.js";
+import type { AdapterConfig, EmbedderSource } from "../claude-code/config.js";
 import type { Io } from "./commands.js";
 import { confirm } from "./ui.js";
 import type { Ui } from "./ui.js";
+// The layout sniffing `connect` uses on a settings file (#188, review n1), so a
+// configuration edited here keeps the indent and line endings it had.
+import { settingsBytes, sniffSettingsFormat } from "./wire.js";
 
 // ── the Anthropic key's one upgrade ─────────────────────────────────────────
 
@@ -139,10 +142,19 @@ export async function offerCrashWriteUp(
  *   - the configuration names Voyage (on, and `kind` is `"voyage"` or absent,
  *     which is how a 0.2.0 file says it): the key is used, and Voyage is
  *     deprecated;
+ *   - no block, and the file already held a Voyage key (`source` is
+ *     `absent-voyage-key`): recall by meaning is OFF, and the line says so;
  *   - anything else: nothing turns on with it, and the local table is what
  *     recall by meaning runs on.
  */
-export function voyageKeyLine(config: AdapterConfig): string {
+export function voyageKeyLine(config: AdapterConfig, source?: EmbedderSource): string {
+  // THE ONE CASE THE DEFAULT IS OFF (review of #195, MINOR 4): no block, and
+  // the credentials file ALREADY held a Voyage key before this save. The pin
+  // does not fire (nothing changes), so recall by meaning stays off — said so,
+  // with the command that turns the table on.
+  if (source === "absent-voyage-key") {
+    return `Recall by meaning is OFF here: this configuration names no embedder and a Voyage key is saved, so the local table is not assumed. Turn it on: counterparts install --force --embedder`;
+  }
   const named = config.embedder?.enabled === true && embedderKind(config) === "voyage";
   return named
     ? `This configuration names Voyage, so recall by meaning uses ${EMBED_KEY_ENV}. Voyage is deprecated; new installs use a local table instead.`
@@ -237,8 +249,19 @@ export function setConfigKeys(configPath: string, patch: Readonly<Record<string,
     return { ok: false, reason: `${configPath} does not hold a JSON object` };
   }
   const body = { ...(raw as Record<string, unknown>), ...patch };
+  // THE FILE KEEPS ITS LAYOUT (review of #195, NIT 7): its indent unit, its
+  // majority line ending and its final newline, read the way `connect` reads a
+  // settings file (#188, `wire.ts#sniffSettingsFormat`). One difference, on
+  // purpose: a configuration somebody wrote on ONE line stays on one line —
+  // for a settings file a one-liner is almost always the host's `{}`, but a
+  // one-line `claude-code.json` is a choice a person made.
+  const format = sniffSettingsFormat(text);
+  const oneLine = !/[\r\n]/.test(text.trimEnd());
+  const bytes = oneLine
+    ? `${JSON.stringify(body)}${/[\r\n][ \t]*$/.test(text) ? format.eol : ""}`
+    : settingsBytes(body, format);
   try {
-    replaceAtomically(configPath, `${JSON.stringify(body, null, 2)}\n`, mode);
+    replaceAtomically(configPath, bytes, mode);
   } catch (err) {
     return { ok: false, reason: String((err as Error).message ?? err) };
   }

@@ -28,7 +28,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -146,7 +146,15 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, embedderKind, loadConfig, withEmbedderDefault } from "../claude-code/config.js";
+import {
+  API_KEY_ENV,
+  EMBED_KEY_ENV,
+  embedderKind,
+  loadConfig,
+  resolveEmbedder,
+  withEmbedderDefault,
+} from "../claude-code/config.js";
+import type { EmbedderSource } from "../claude-code/config.js";
 // The local table's locator, for install's one check that the weights the new
 // configuration asks for are where the hooks will look.
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
@@ -836,7 +844,7 @@ const FLAG_HELP: Record<string, string> = {
   // The local table only (roadmap C3): Voyage is frozen, and nothing on this
   // line can turn it on. A configuration that already names it keeps it.
   embedder:
-    "turn recall by meaning on — the local table that ships with the package, where nothing leaves this machine (a configuration that already names Voyage keeps it). It is on by default; this is how to turn it back on after --no-embedder",
+    "turn recall by meaning on — the local table that ships with the package, where nothing leaves this machine (a Voyage setup that is already ON keeps Voyage; an OFF one comes back as the local table). It is on by default; this is how to turn it back on after --no-embedder",
   "no-embedder": "switch recall by meaning off: recall matches on words alone",
   force: "overwrite configuration this command already wrote once",
   kind: "self, person, entity, skill, place or fact",
@@ -7826,6 +7834,8 @@ function hostConfigFor(path: string): {
   reason: "loaded" | "absent" | "unreadable";
   /** The keys the loader named, when it could not read the file. */
   unreadableKeys?: readonly string[];
+  /** Where the effective embedder block came from (`config.ts#resolveEmbedder`). */
+  embedderSource?: EmbedderSource;
 } {
   let text: string;
   try {
@@ -7847,12 +7857,41 @@ function hostConfigFor(path: string): {
   // (`config.ts#resolveEmbedder`): an absent block is the local table unless the
   // credentials FILE holds a Voyage key. Names only, against a scratch
   // environment (`credentialsHeld`), so this console's shell never decides it.
-  const voyageKeySaved = credentialsHeld(credentialsPathFor(path, load.config)).includes(EMBED_KEY_ENV);
+  //
+  // THE FILE THE CONFIGURATION NAMES, AND NO OTHER (review of #195, MINOR 3).
+  // The entry points call `loadCredentials(config.credentialsFile)`, which reads
+  // nothing when the field is absent — config.ts's rule is "a file the config
+  // NAMES, never one found by convention". A sibling `credentials.env` a
+  // hand-written config does not name is not a key any hook has, so it may not
+  // decide the default here either.
+  const named = load.config.credentialsFile;
+  const voyageKeySaved = named === undefined ? false : credentialsHeld(named).includes(EMBED_KEY_ENV);
   return {
     config: withEmbedderDefault(load.config, voyageKeySaved),
+    embedderSource: resolveEmbedder(load.config, voyageKeySaved).source,
     reason: load.reason,
     ...(load.unreadableKeys === undefined ? {} : { unreadableKeys: load.unreadableKeys }),
   };
+}
+
+/**
+ * Is there a `claude` executable on this environment's PATH? A directory walk,
+ * never a spawn — doctor must not run somebody's program to grade them. Null
+ * when there is no PATH to search, which the fix line reads as "not looked".
+ */
+function claudeOnPath(env: Record<string, string | undefined>): boolean | null {
+  const path = env["PATH"];
+  if (path === undefined || path.trim().length === 0) return null;
+  for (const dir of path.split(delimiter)) {
+    if (dir.length === 0) continue;
+    try {
+      const st = statSync(join(dir, "claude"));
+      if (st.isFile() && (st.mode & 0o111) !== 0) return true;
+    } catch {
+      /* not here */
+    }
+  }
+  return false;
 }
 
 /** Where the credentials live for a given configuration: the file the config
@@ -7942,7 +7981,12 @@ function doctorCommand(
   const { config, reason, unreadableKeys } = unread
     ? { config: {} as AdapterConfig, reason: "not-read" as const, unreadableKeys: undefined }
     : hostConfigFor(configPath);
-  const credentialsPath = unread ? undefined : credentialsPathFor(configPath, config);
+  // THE FILE THE CONFIGURATION NAMES, AND NO FALLBACK (review of #195, MINOR 3).
+  // Doctor reports what the hooks will have, and the hooks read only a
+  // `credentialsFile` the configuration names (`config.ts`: "a file found by
+  // convention never") — so a sibling `credentials.env` a hand-written config
+  // does not name is graded as what it is to them: no file.
+  const credentialsPath = unread ? undefined : config.credentialsFile;
   const credentials = unread
     ? ({
         loaded: [],
@@ -7952,7 +7996,7 @@ function doctorCommand(
         mode: null,
         permissive: false,
       } satisfies CredentialLoad)
-    : loadCredentials(credentialsPath as string, {});
+    : loadCredentials(credentialsPath, {});
   const shellNames = CREDENTIAL_NAMES.filter((n) => (env[n] ?? "").trim().length > 0);
 
   // WHICH STORE, under the guard. `--dir` is a name. A config the CALLER named
@@ -8021,7 +8065,15 @@ function doctorCommand(
       // rather than inside `doctorFindings` for the reason `checkout` is: it is
       // four small reads of somebody else's files, outside this store, and the
       // hook must not pay for them.
-      host: readHost(home ?? homedir(), process.cwd(), env),
+      host: {
+        ...readHost(home ?? homedir(), process.cwd(), env),
+        // WHETHER `connect` COULD REGISTER THE MEMORY TOOLS FROM HERE, and the
+        // line it prints when it cannot (go-public Phase C walk): doctor's fix
+        // for a missing registration names that line rather than `connect`
+        // when there is no `claude` to run. A PATH search, never a spawn.
+        claudeOnPath: claudeOnPath(env),
+        mcpAddLine: mcpCommand(dir, undefined, customConfigPath(named, home ?? homedir())),
+      },
       ...(open === undefined ? {} : { open }),
     });
     if (parsed.flags["json"] === true) {
@@ -8065,7 +8117,7 @@ async function credentialsCommand(
   stdin?: { isTty: boolean; read: () => Promise<string> },
 ): Promise<number> {
   const configPath = named?.path ?? defaultConfigPath();
-  const { config } = hostConfigFor(configPath);
+  const { config, embedderSource } = hostConfigFor(configPath);
   const path = credentialsPathFor(configPath, config);
   const allowed = CREDENTIAL_NAMES.join(", ");
   const sub = parsed.positional[0];
@@ -8195,10 +8247,17 @@ async function credentialsCommand(
 
   // WHETHER THE FILE HELD A VOYAGE KEY BEFORE THIS WRITE — names only — so a
   // first Voyage key cannot silently switch the local-table default off
-  // (`keys.ts#pinLocalTable`, below).
+  // (`keys.ts#pinLocalTable`).
+  //
+  // THE PIN GOES FIRST (review of #195, MINOR 5): written after the key, any
+  // process starting between the two writes saw a key saved and no block —
+  // off — and a pin that failed left it off for good. Written first, the worst
+  // case is an explicit `{ enabled: true, kind: "static" }`, which is exactly
+  // what the default already meant. A key write that then fails leaves only
+  // that behind.
   const voyageHeldBefore = credentialsHeld(path).includes(EMBED_KEY_ENV);
-  writeCredential(path, name, value);
   const pinned = name === EMBED_KEY_ENV ? pinLocalTable(configPath, voyageHeldBefore) : "not-needed";
+  writeCredential(path, name, value);
   const pinLine =
     pinned === "pinned"
       ? `Recall by meaning stays on the local table: written into ${configPath}, because a saved Voyage key would otherwise switch that default off.`
@@ -8216,7 +8275,7 @@ async function credentialsCommand(
     // sentence that says so — on both arms: a script that sets the key and
     // expects the paid embedder is exactly the reader who needs it.
     if (name === EMBED_KEY_ENV) {
-      io.out(voyageKeyLine(config));
+      io.out(voyageKeyLine(config, embedderSource));
       if (pinLine !== null) io.out(pinLine);
     }
     return EXIT.ok;
@@ -8224,7 +8283,7 @@ async function credentialsCommand(
   const u = ui(io, env);
   u.ok(`set ${name} in ${path}`);
   if (name === EMBED_KEY_ENV) {
-    u.hint(voyageKeyLine(config));
+    u.hint(voyageKeyLine(config, embedderSource));
     if (pinLine !== null) u.hint(pinLine);
     return EXIT.ok;
   }

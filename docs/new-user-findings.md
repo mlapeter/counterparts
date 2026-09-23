@@ -244,7 +244,9 @@ reworded by C2 (the next session writes an ended session up; the key becomes an 
 this screen shows it as it was until that lands. `OFF Recall by meaning` is now only for a
 configuration that says `{ "enabled": false }` (or a 0.2.0 one beside a saved Voyage key):
 `switched off in the configuration. Recall works on words; the local table lets it match
-meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.*
+meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.
+That command turns any block that is off ON as the local table — never Voyage, whatever
+kind the block records; only a Voyage setup that is already ON is kept as Voyage.*
 
 ```
 counterparts doctor — 2026-09-23

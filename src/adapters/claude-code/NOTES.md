@@ -1335,6 +1335,21 @@ What the build settled, beyond the CONTRACT section:
   credentials load by `bin/hook.ts#hostConfig`, `bin/runner.ts#runnerConfig`,
   `mcp/bin/serve.ts#questionEmbedder` and the console; doctor re-resolves from its own
   `config` + `credentials`. `loadConfig` stays pure — it never sees the credentials file.
+- **Only the credentials file the configuration NAMES counts** (review of #195, MINOR 3).
+  The console's `hostConfigFor` and `doctor` used to fall back to a sibling
+  `credentials.env` for a hand-written config with no `credentialsFile`; the hooks, the
+  worker and the server never read one (`config.ts`: "a file found by convention
+  never"), so the two disagreed about "a Voyage key is saved". Doctor now grades what
+  the hooks have. (`credentials set` still WRITES the sibling for such a config — a file
+  no hook reads; pre-existing, noted, not changed.)
+- **`tools/parallel/preflight.ts:215` reads the raw `embedder` block** and so does not
+  know the default (review of #195, NIT 10). The parallel-run meter is retired; left.
+- **The Claude Code line's fix with no `claude` on the PATH** (go-public Phase C walk):
+  `connect` registers the memory tools by running `claude mcp add`, so "Run: counterparts
+  connect" named the command that had just failed. The console now passes
+  `HostReading.claudeOnPath` (a PATH walk, never a spawn) and the exact `claude mcp add …`
+  line `connect` prints; with `claudeOnPath === false` the fix is that line. Null (no PATH
+  to search) keeps `connect`.
 - **`Recall by meaning` speaks of the local table only.** `OFF` is now only for an
   explicit `{ "enabled": false }` (*switched off in the configuration…*) or a block-less
   configuration beside a saved Voyage key (*not switched on: a Voyage key is saved here

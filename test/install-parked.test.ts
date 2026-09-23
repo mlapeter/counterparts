@@ -722,16 +722,38 @@ describe("install and the embedder block: the local table, and a kind is never f
     expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
-  test("--force --embedder over a configuration that names voyage keeps voyage", async () => {
+  // REVIEW OF #195, MAJOR 1: turning an OFF block ON never resurrects Voyage.
+  // A Voyage kind — named or implied — is kept only when the block was ON.
+  test("--force --embedder over an OFF voyage block writes the LOCAL TABLE, never Voyage", async () => {
     await existing({ enabled: false, kind: "voyage" }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("--force --embedder over an OFF kind-less block beside a saved Voyage key writes the local table", async () => {
+    await existing({ enabled: false }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("a RUNNING 0.2.0 Voyage setup (kind-less, ON, key saved) is kept by --force --embedder — nothing is resurrected", async () => {
+    await existing({ enabled: true }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true });
+  });
+
+  test("a RUNNING voyage block is kept by --force --embedder", async () => {
+    await existing({ enabled: true, kind: "voyage" }, true);
     expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
     expect(read()["embedder"]).toEqual({ enabled: true, kind: "voyage" });
   });
 
-  test("a 0.2.0 kind-less block beside a saved Voyage key stays kind-less — a paid setup is not flipped", async () => {
-    await existing({ enabled: false }, true);
+  test("--force --no-embedder over a 0.2.0 Voyage setup keeps its kind as recorded; ON again is the local table", async () => {
+    await existing({ enabled: true }, true);
+    expect(await install(piped().io, ["--force", "--no-embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: false });
     expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
-    expect(read()["embedder"]).toEqual({ enabled: true });
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
   test("a kind-less block with NO Voyage key becomes the local table", async () => {

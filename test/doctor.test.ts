@@ -1490,6 +1490,42 @@ describe("the Host line reads the host's own files", () => {
     expect(finding.detail).toContain(join(root, ".claude.json"));
   });
 
+  /**
+   * GO-PUBLIC PHASE C WALK (2026-09-23): with no `claude` on the PATH, `connect`
+   * cannot register the memory tools — it prints the `claude mcp add …` line
+   * instead — so doctor's fix names THAT line, not `connect` again.
+   */
+  test("hooks in, memory tools missing, and no `claude` on the PATH: the fix is the `claude mcp add` line", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps({ mcp: false });
+    const line = 'claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR="/x/store" -- "/bun" run "/serve.ts"';
+    const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.severity).toBe("amber");
+    expect(finding.fix).toContain(line);
+    expect(finding.fix).toContain("`claude` is not on this PATH");
+    expect(finding.fix).not.toContain("Run: counterparts connect");
+    // Not looked (no PATH to search): the fix stays `connect`, as before.
+    const unknown = by(doctorFindings(input({ host: { ...host, claudeOnPath: null } })), "host");
+    expect(unknown.fix).toContain("Run: counterparts connect");
+    expect(unknown.fix).not.toContain(line);
+  });
+
+  test("nothing connected and no `claude`: connect for the hooks, the printed line for the tools", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const line = "claude mcp add counterparts -s user -- x";
+    const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.fix).toContain("Run: counterparts connect");
+    expect(finding.fix).toContain("adds the hooks");
+    expect(finding.fix).not.toContain("registers the memory tools");
+    expect(finding.fix).toContain(line);
+  });
+
   test("a PARTIAL paste is named event by event — the case a green doctor used to hide", () => {
     mintStore();
     writeConfig();

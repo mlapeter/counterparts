@@ -1716,10 +1716,14 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
 - **The kind has to be decided against the file being replaced, not against the flag.**
   `--embedder` used to write `{ enabled: true }`, which reads as Voyage because absent
   `kind` means voyage (`config.ts#embedderKind`). So `install --force --embedder` over a
-  static configuration flipped it (review of #190, MINOR 4). `resolveEmbedderBlock` keeps
-  a named kind, keeps a kind-less 0.2.0 block kind-less when a Voyage key is saved beside
-  it (writing `"voyage"` would be new Voyage code; writing `"static"` would flip a paid
-  setup), and writes `"static"` otherwise. The Voyage-key test reads the credentials FILE
+  static configuration flipped it (review of #190, MINOR 4). *Revised after the review of
+  #195 (MAJOR 1):* keeping a named or implied Voyage kind "on or off" meant `--embedder`
+  over an OFF Voyage block switched the paid embedder ON under a doctor line that promised
+  the local table. Now a Voyage kind survives turning it ON only when the replaced block
+  was already ON (`{enabled:true, kind:"voyage"}`, or kind-less `{enabled:true}` beside a
+  saved key); any OFF block comes back ON as `"static"`. Turning it OFF keeps the recorded
+  kind, so ON again is an OFF block going ON — the table. Trapped-`fetch` tests follow the
+  fix line from all three OFF shapes and count zero network calls. The Voyage-key test reads the credentials FILE
   (`credentialsHeld`), never the console's environment — the hooks' source, not the
   shell's.
 - **The terminal default applies only to a configuration being CREATED**, for the same
@@ -1738,6 +1742,18 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
   `openEmbedder` from `process.env` was rejected: the owner's shell exports the key and
   the hooks inherit no shell, so an env rule could put the hooks on the table and the
   server off it.
+- **The review of #195 (MINOR 3–5, NIT 7), in this file's terms.** `hostConfigFor`
+  and `doctorCommand` read only the `credentialsFile` a configuration names; the
+  Voyage-key line knows the one OFF case (`voyageKeyLine(config, source)`); the pin is
+  written before the key; `setConfigKeys` keeps the file's layout through `wire.ts`'s
+  `sniffSettingsFormat`/`settingsBytes`, except that a one-line configuration stays on
+  one line (for `settings.json` a one-liner is the host's `{}`; for a config it is a
+  person's choice).
+- **Go-public Phase C walk (2026-09-23):** QUICKSTART's scripted install gains
+  `counterparts connect` (the scripted arm prints the hooks block and applies nothing).
+  `--budget 9000` STAYS on that line: the scripted arm invents no ceiling (scar §2.18)
+  — only the conversation writes 9000 — so dropping the flag would leave the wake
+  unbounded. `package.json#homepage` is `https://counterparts.ai`.
 - **A first Voyage key would have switched the default off.** `credentials set
   VOYAGE_API_KEY` into a block-less configuration now writes the static block first
   (`pinLocalTable`) and says so, on both arms.

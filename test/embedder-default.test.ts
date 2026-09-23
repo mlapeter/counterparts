@@ -29,7 +29,8 @@ import { hostConfig } from "../src/adapters/claude-code/bin/hook.js";
 import { runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
 import { questionEmbedder } from "../src/adapters/mcp/bin/serve.js";
 import { Store } from "../src/core/store/index.js";
-import { run } from "../src/adapters/cli/index.js";
+import { EXIT, run } from "../src/adapters/cli/index.js";
+import { openEmbedder } from "../src/adapters/claude-code/embed-client.js";
 
 let root: string;
 let configPath: string;
@@ -183,5 +184,117 @@ describe("doctor, on a configuration with no embedder block", () => {
     expect(f?.fix).toBe("Turn on: counterparts install --force --embedder");
     // Nothing to embed, nothing to count.
     expect(findings.find((x) => x.key === "vectors")).toBeUndefined();
+  });
+});
+
+// ── review of #195, MAJOR 1: the fix line never switches Voyage on ─────────
+
+describe("following doctor's `Turn on:` line opens no socket", () => {
+  const VOYAGE_KEY_LINE = `${EMBED_KEY_ENV}=pa-not-a-real-key-0123`;
+
+  /** Run the command doctor's fix line names, piped (the scripted arm). */
+  async function followTheFixLine(): Promise<void> {
+    const out: string[] = [];
+    const code = await run(["install", "--config", configPath, "--force", "--embedder", "--budget", "9000"], {
+      io: { out: (l) => out.push(l), err: (l) => out.push(l) },
+      env: {},
+      home: root,
+    });
+    expect(code, out.join("\n")).toBe(EXIT.ok);
+  }
+
+  /**
+   * Every `fetch` counted, none answered. The config is loaded the way the hook
+   * loads it — the credentials file fills THIS process's environment, so the
+   * Voyage key really is present — and the embedder the hook would build is
+   * asked for a vector and a batch.
+   */
+  async function socketsAfter(): Promise<{ calls: number; kind: string | undefined }> {
+    const saved = process.env[EMBED_KEY_ENV];
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("{}", { status: 500 });
+    }) as unknown as typeof fetch;
+    try {
+      const { config } = hostConfig(configPath, process.env);
+      const embedder = openEmbedder(config);
+      if (embedder !== null) {
+        await embedder.vector("the espresso machine in the kitchen");
+        await embedder.warm(["postgres in dev listens on 5433", "a second memory"]);
+      }
+      return { calls, kind: config.embedder?.kind };
+    } finally {
+      globalThis.fetch = realFetch;
+      if (saved === undefined) delete process.env[EMBED_KEY_ENV];
+      else process.env[EMBED_KEY_ENV] = saved;
+    }
+  }
+
+  const shapes: readonly { name: string; block: Record<string, unknown> }[] = [
+    { name: "kind-less { enabled: false } beside a saved Voyage key", block: { enabled: false } },
+    { name: '{ enabled: false, kind: "voyage" }', block: { enabled: false, kind: "voyage" } },
+    { name: "a 0.2.0 Voyage setup switched OFF by --force --no-embedder", block: { enabled: true } },
+  ];
+
+  for (const shape of shapes) {
+    test(`${shape.name} → the local table, and ZERO network calls`, async () => {
+      writeConfig({ embedder: shape.block });
+      writeCreds([VOYAGE_KEY_LINE]);
+      if (shape.block["enabled"] === true) {
+        // The third shape is reached through the command a person would type.
+        const out: string[] = [];
+        expect(
+          await run(["install", "--config", configPath, "--force", "--no-embedder", "--budget", "9000"], {
+            io: { out: (l) => out.push(l), err: (l) => out.push(l) },
+            env: {},
+            home: root,
+          }),
+        ).toBe(EXIT.ok);
+      }
+      await followTheFixLine();
+      const after = await socketsAfter();
+      expect(after.kind).toBe("static");
+      expect(after.calls).toBe(0);
+    });
+  }
+
+  test("the trap is real: a RUNNING Voyage block does reach for the network (the control)", async () => {
+    writeConfig({ embedder: { enabled: true, kind: "voyage" } });
+    writeCreds([VOYAGE_KEY_LINE]);
+    const after = await socketsAfter();
+    expect(after.kind).toBe("voyage");
+    expect(after.calls).toBeGreaterThan(0);
+  });
+});
+
+// ── review of #195, MINOR 3: a config that names no credentials file ───────
+
+describe("a hand-written configuration with NO credentialsFile, and a sibling credentials.env", () => {
+  test("the hook, the worker, the server AND doctor agree: the sibling is not read, so the table is ON", async () => {
+    // Only `dataDir` and `owner` — install always writes `credentialsFile`, so
+    // this is the hand-written shape. The sibling holds a Voyage key that no
+    // hook reads (config.ts: a file the config NAMES, never one by convention).
+    writeFileSync(configPath, JSON.stringify({ dataDir: join(root, "store"), owner: true }, null, 2));
+    writeCreds([`${EMBED_KEY_ENV}=pa-not-a-real-key-0123`]);
+    const want = { enabled: true, kind: "static" as const };
+    expect(hostConfig(configPath, {}).config.embedder).toEqual(want);
+    expect(runnerConfig(configPath, {}).config.embedder).toEqual(want);
+    expect(questionEmbedder(configPath, {}).embedder).not.toBeNull();
+
+    Store.open({ dir: join(root, "store") }).close();
+    const out: string[] = [];
+    await run(["doctor", `--config=${configPath}`, "--json"], {
+      io: { out: (l) => out.push(l), err: () => {} },
+      env: {},
+      home: root,
+    });
+    const findings = (JSON.parse(out.join("\n")) as { findings: { key: string; optional?: boolean; detail: string }[] }).findings;
+    const embedder = findings.find((f) => f.key === "embedder");
+    expect(embedder?.optional).toBeUndefined();
+    expect(embedder?.detail).toContain("a local table");
+    // And the credentials line reports what the hooks have: no file.
+    expect(findings.find((f) => f.key === "credentials")?.detail).toContain("no credentialsFile in the config");
   });
 });

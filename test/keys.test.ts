@@ -219,6 +219,32 @@ describe("setConfigKeys", () => {
     expect((after.mode & 0o777).toString(8)).toBe((before.mode & 0o777).toString(8));
   });
 
+  // REVIEW OF #195, NIT 7: the file keeps its layout — the sniffing `connect`
+  // uses on a settings file (#188), plus: a one-line configuration stays one line.
+  test("a 4-space, CRLF, no-final-newline file keeps all three", () => {
+    const body = { dataDir: "/x", identity: { name: "A" } };
+    const text = JSON.stringify(body, null, 4).replace(/\n/g, "\r\n");
+    writeFileSync(configPath, text);
+    expect(setConfigKeys(configPath, { [CRASH_WRITE_UP_KEY]: CRASH_WRITE_UP_API }).ok).toBe(true);
+    const after = readFileSync(configPath, "utf8");
+    expect(after).toBe(
+      JSON.stringify({ ...body, [CRASH_WRITE_UP_KEY]: CRASH_WRITE_UP_API }, null, 4).replace(/\n/g, "\r\n"),
+    );
+  });
+
+  test("a tab-indented file stays tab-indented, with its final newline", () => {
+    const body = { dataDir: "/x" };
+    writeFileSync(configPath, `${JSON.stringify(body, null, "\t")}\n`);
+    expect(setConfigKeys(configPath, { a: 1 }).ok).toBe(true);
+    expect(readFileSync(configPath, "utf8")).toBe(`${JSON.stringify({ ...body, a: 1 }, null, "\t")}\n`);
+  });
+
+  test("a configuration written on ONE line stays on one line", () => {
+    writeFileSync(configPath, `{"dataDir":"/x","owner":true}\n`);
+    expect(setConfigKeys(configPath, { a: 1 }).ok).toBe(true);
+    expect(readFileSync(configPath, "utf8")).toBe(`{"dataDir":"/x","owner":true,"a":1}\n`);
+  });
+
   test("every other key survives, in its order; a new key is appended and an old one replaced", () => {
     writeConfig({ embedder: { enabled: true, kind: "static" }, [CRASH_WRITE_UP_KEY]: "old" });
     const keysBefore = Object.keys(configBody());
@@ -373,6 +399,23 @@ describe("counterparts credentials set, typed at a terminal", () => {
    * off on the next process. The block the default stood for is written first,
    * and the screen says so.
    */
+  /**
+   * REVIEW OF #195, MINOR 5: THE PIN GOES FIRST. A key write that fails after
+   * it (here: a dangling symlink where the credentials file should be) leaves
+   * the configuration pinned to what the default already meant — never a key
+   * saved beside no block, which is OFF.
+   */
+  test("the pin is written BEFORE the key: a key write that fails leaves the table pinned, and no key", async () => {
+    writeConfig();
+    symlinkSync(join(root, "not-there", "credentials.env"), credsPath);
+    const f = terminal({ hidden: [VOYAGE_KEY] });
+    const code = await set(f, EMBED_KEY_ENV);
+    expect(code).not.toBe(EXIT.ok);
+    expect(configBody()["embedder"]).toEqual({ enabled: true, kind: "static" });
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(root, "not-there"))).toBe(false);
+  });
+
   test("a first Voyage key into a configuration with NO block writes the local table, so nothing switches off", async () => {
     writeConfig();
     const f = terminal({ hidden: [VOYAGE_KEY] });
@@ -388,6 +431,11 @@ describe("counterparts credentials set, typed at a terminal", () => {
     expect(await set(f, EMBED_KEY_ENV)).toBe(EXIT.ok);
     expect(configBody()["embedder"]).toBeUndefined();
     expect(f.said()).not.toContain("stays on the local table");
+    // REVIEW OF #195, MINOR 4: this is the one case the default is OFF, and the
+    // line says so rather than "a local table by default".
+    expect(f.said()).toContain("Recall by meaning is OFF here");
+    expect(f.said()).toContain("counterparts install --force --embedder");
+    expect(f.said()).not.toContain("Nothing turns on");
 
     writeConfig({ embedder: { enabled: false } });
     rmSync(credsPath, { force: true });

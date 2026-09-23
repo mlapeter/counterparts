@@ -995,9 +995,10 @@ function embedderFindings(input: DoctorInput, history: KeyHistory, source: Embed
   const data = { enabled, key: haveKey, everEmbedded: history.embedded, source };
   // THE LOCAL TABLE IS WHAT "TURN ON" MEANS NOW (roadmap C3): Voyage is frozen,
   // so no fix line on this finding advises a Voyage key for a knob that is
-  // off. `install --embedder` keeps the kind a configuration already names
-  // (`install.ts#resolveEmbedderBlock`), so the same command is right for a
-  // store that ran Voyage and stopped.
+  // off, and the command it names turns ANY off block on as the local table —
+  // never Voyage (`install.ts#resolveEmbedderBlock`, review of #195 MAJOR 1).
+  // A store that ran Voyage and stopped gets the table, and its paid vectors
+  // are HELD, not dropped (`withdrawnFinding` then names the exits).
   const turnOn = `Turn on: ${EMBEDDER_ON_COMMAND}`;
   // THE STORE'S OWN VERDICT FIRST (review of #190, MAJOR 4): a hold or a newer
   // build's cache turns the channel off whatever the configuration says, and
@@ -3022,6 +3023,15 @@ export interface HostReading {
   readonly mcpFile: string;
   /** The MCP file exists but could not be read or parsed. */
   readonly mcpUnreadable: boolean;
+  /**
+   * Whether a `claude` executable is on the PATH the caller would run
+   * `counterparts connect` with (the go-public Phase C walk, 2026-09-23).
+   * `false` only when a PATH was there to search and held none; absent or null
+   * is "not looked", and the fix line stays `counterparts connect`.
+   */
+  readonly claudeOnPath?: boolean | null;
+  /** The exact `claude mcp add …` line `connect` prints when it cannot run it. */
+  readonly mcpAddLine?: string;
 }
 
 function hostFindings(reading: HostReading): Finding[] {
@@ -3092,15 +3102,27 @@ function hostFindings(reading: HostReading): Finding[] {
       `replaces the ${stale.length === 1 ? "stale entry" : "stale entries"} with the path this install actually has`,
     );
   }
-  if (!reading.mcp && !reading.mcpUnreadable) does.push("registers the memory tools");
-  const fixes =
-    does.length === 0
+  // `connect` REGISTERS THE MEMORY TOOLS BY RUNNING `claude mcp add` — so with
+  // no `claude` on the PATH, "Run: counterparts connect" names the very command
+  // that just failed to register them (go-public Phase C walk, 2026-09-23). In
+  // that one case the fix is the line `connect` itself prints: run it wherever
+  // `claude` works. The hooks half, if it is owed, is still `connect`'s.
+  const cannotRegister =
+    !reading.mcp && !reading.mcpUnreadable && reading.claudeOnPath === false && reading.mcpAddLine !== undefined;
+  if (!reading.mcp && !reading.mcpUnreadable && !cannotRegister) does.push("registers the memory tools");
+  const byHand = cannotRegister
+    ? `\`claude\` is not on this PATH, so \`counterparts connect\` cannot register the memory tools: run this where \`claude\` works — ${reading.mcpAddLine ?? ""} — then restart Claude Code.`
+    : "";
+  const fixes = [
+    ...(does.length === 0
       ? []
       : [
           `Run: counterparts connect — it backs up ~/.claude/settings.json, ${
             does.length === 1 ? does[0] : `${does.slice(0, -1).join(", ")} and ${does[does.length - 1] ?? ""}`
-          }. Then restart Claude Code.`,
-        ];
+          }.${cannotRegister ? "" : " Then restart Claude Code."}`,
+        ]),
+    ...(byHand.length === 0 ? [] : [byHand]),
+  ];
   // STALE FIRST. "GREEN while nothing fires" is the one outcome this line was
   // added to prevent, and a block pointing at a deleted checkout is exactly
   // that: it matches, it is installed, and every session start fails silently.

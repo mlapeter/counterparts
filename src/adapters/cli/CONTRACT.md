@@ -515,15 +515,21 @@ The standalone verb does not ask either: typing it is the yes.*
     "kind": "static" }` without a question — the table sends nothing anywhere, so there is
     no egress to consent to; `--no-embedder` says no. Off a terminal no block is written
     unless a flag is on the line, so the scripted arm's bytes do not move — and an absent
-    block reads as the table ON at runtime (guarantee 41). **A kind is
-    never flipped** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4): a kind the
-    replaced file names is kept, on or off; a kind-less 0.2.0 block beside a saved
-    `VOYAGE_API_KEY` stays kind-less (absent `kind` is how 0.2.0 says Voyage); everything
-    else is `"static"`. Nothing on this command line can newly name Voyage: `"voyage"` is
-    only ever carried from the file being replaced. A re-run keeps
+    block reads as the table ON at runtime (guarantee 41). **Voyage is never switched ON
+    by this command** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4; review
+    of #195, MAJOR 1). Turning it ON: a block that was ON with `kind: "voyage"` is kept as
+    `{ enabled: true, kind: "voyage" }`; a block that was ON with no kind, beside a saved
+    `VOYAGE_API_KEY`, is kept kind-less as `{ enabled: true }` (a running 0.2.0 Voyage
+    setup); everything else — a new install, no block, a static block, and **any block that
+    was OFF whatever kind it records** — becomes `{ enabled: true, kind: "static" }`.
+    Turning it OFF keeps the kind the replaced block records, as recorded (`{ enabled:
+    false, kind: … }`, or kind-less `{ enabled: false }`), and with no block writes `{
+    enabled: false, kind: "static" }`; turning that back on is an OFF block going ON, so it
+    becomes the local table. A re-run keeps
     the file it finds (rule 2); `install --force --embedder` is the command that turns the
     table on for an existing configuration, and it is the one `doctor`'s `Turn on:` line
-    names — for a configuration that says `{ "enabled": false }`, or a 0.2.0 one beside a
+    names — for a configuration that says `{ "enabled": false }` (any kind), or a 0.2.0 one
+    with no block beside a
     saved Voyage key (guarantee 41). `--embedder` with `--no-embedder` is refused before
     anything is written. When
     the configuration asks for the table and it is not where the hooks will look
@@ -542,8 +548,12 @@ The standalone verb does not ask either: typing it is the yes.*
     who needs it. A pipe, `--from-env`, `--stdin` and CI are asked nothing. **Saving a
     FIRST Voyage key into a configuration with no `embedder` block writes the block the
     default stood for** — `{ "enabled": true, "kind": "static" }` (`keys.ts#pinLocalTable`)
-    — and says so, because under guarantee 41 that key would otherwise switch recall by
-    meaning off on the next process.
+    — BEFORE the key (review of #195, MINOR 5: fail-safe — the worst case is the explicit
+    block the default already meant), and says so, because under guarantee 41 that key
+    would otherwise switch recall by meaning off on the next process. When the file
+    ALREADY held a Voyage key and there is no block, recall by meaning is off, and the line
+    says that instead (MINOR 4). Every configuration edit keeps the file's indent, line
+    endings and final newline, and a one-line file stays one line (NIT 7).
 41. **[M] An absent `embedder` block is the local table, ON — unless the credentials FILE
     holds `VOYAGE_API_KEY`** (coordinator's ruling 2026-09-23; `claude-code/config.ts#
     resolveEmbedder`). The privacy reason absent meant off was the paid seat; the table
@@ -551,7 +561,10 @@ The standalone verb does not ask either: typing it is the yes.*
     those installs on without a step. A block the file writes is used exactly as written,
     `{ "enabled": false }` included. With no block and a saved Voyage key, nothing is
     assumed (the 0.2.0 reading) and `doctor` says so, naming `install --force --embedder`.
-    "Saved" is the FILE (`loaded` or `skippedPresent`), never a process's environment. It
+    "Saved" is the FILE THE CONFIGURATION NAMES (`loaded` or `skippedPresent`) — never a
+    process's environment, and never a sibling `credentials.env` a configuration does not
+    name (review of #195, MINOR 3: the hooks read no such file, so neither `hostConfigFor`
+    nor `doctor` does; doctor's Credentials line reports "no credentialsFile"). It
     is applied by every process that builds a configuration — the hook (`bin/hook.ts#
     hostConfig`), the worker (`bin/runner.ts#runnerConfig`), the MCP server
     (`mcp/bin/serve.ts#questionEmbedder`), this console (`hostConfigFor`) — and doctor
