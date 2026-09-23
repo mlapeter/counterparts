@@ -265,10 +265,10 @@ an open never drops PAID vectors to refill them: those are held until the owner 
 
 ## The suite
 
-On a clean detached checkout of the branch head (after the review fixes): \`tsc --noEmit\`
-clean; \`bun test\` **3299 pass / 5 skip / 0 fail** without the weights (the five skips are
-the real-table tests), **3304 / 0** with \`COUNTERPARTS_STATIC_WEIGHTS_DIR\` and
-\`COUNTERPARTS_STATIC_RETRIEVAL_DIR\` set. The recall suites build their stores with stub embedders,
+On a clean detached checkout of the branch head (after the review fixes): `tsc --noEmit`
+clean; `bun test` **3299 pass / 5 skip / 0 fail** without the weights (the five skips are
+the real-table tests), **3304 / 0** with `COUNTERPARTS_STATIC_WEIGHTS_DIR` and
+`COUNTERPARTS_STATIC_RETRIEVAL_DIR` set. The recall suites build their stores with stub embedders,
 so "the recall tests with the static embedder wired" is honestly the bench above:
 `Recall.build`, `Recall.recall` and `activate` over a store whose every vector came from
 potion, with the no-regression half measured on both paths.
