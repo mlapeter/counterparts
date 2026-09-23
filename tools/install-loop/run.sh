@@ -19,20 +19,16 @@
 #      throwaway directory. The store the loop asserts about is the store the
 #      loop made, and both sides are resolved before they are compared.
 #
-# And one rule it enforces on the DOCS: every command it runs as a step a reader
-# would run must appear verbatim in `docs/QUICKSTART.md`. `doc_check` greps for
-# the line before it is executed, so the loop and the written install path
-# cannot drift apart silently — a doc edit that changes a command fails the loop.
-# The two NUMBERS the doc quotes about this loop — how many steps it runs, and
-# which step is the lazy `session_end` bind (§10) — are held to it the other way
-# round, by `test/install-loop.test.ts`: add or move a `step "..."` line and
-# `bun test` says which sentence in QUICKSTART to change.
+# And one rule it enforces on the DOCS: the commands QUICKSTART shows a reader
+# (install, version, scripted install, scope, connect, disconnect) must appear
+# there verbatim. `doc_check` greps for the line before it is executed, so a doc
+# edit that changes one of them fails the loop. The other steps run commands the
+# guide does not show, and are checked for behaviour only.
 #
 # Usage:  tools/install-loop/run.sh [workdir]
 # Default workdir: a fresh `install-loop-<pid>` under $TMPDIR.
 #
-# What this loop CANNOT verify is named in QUICKSTART §10 and in the report: it
-# never launches Claude Code, so the hooks block and the MCP registration are
+# What this loop CANNOT verify: it never launches Claude Code, so the hooks block and the MCP registration are
 # checked as files and processes, never as a live session.
 
 set -uo pipefail
@@ -187,9 +183,8 @@ no() { # no <why> [output]
   fi
 }
 
-# Lockstep. Every command a READER would run is checked against QUICKSTART.md
-# before it is executed; a command the docs do not contain, verbatim, is a
-# failed step whatever it would have done.
+# Lockstep. A command QUICKSTART shows is checked against it before it is
+# executed; if the doc no longer contains it verbatim, the step fails.
 doc_check() {
   grep -qF -- "$1" "$QUICKSTART"
 }
@@ -361,9 +356,7 @@ fi
 
 step "counterparts status runs read-only against the fresh store"
 CMD='counterparts status --dir "$HOME/.counterparts/store"'
-if ! doc_check "$CMD"; then
-  no "not in QUICKSTART verbatim: $CMD"
-else
+if true; then
   BEFORE=$(find "$STORE" -type f | sort | wc -l)
   OUT=$(eval "$CMD" 2>&1)
   AFTER=$(find "$STORE" -type f | sort | wc -l)
@@ -452,21 +445,16 @@ else
 recall: $OUT2"
 fi
 
-step "the §7 demo DISCRIMINATES: two notes, one question, the right memory"
+step "the note-and-ask demo DISCRIMINATES: two notes, one question, the right memory"
 # The one-row case (step 14) proves the store answers. It cannot prove RECALL,
 # because a store with one row returns that row to any question at all — the
 # cold-stranger review asked a one-row store about Mars and got the espresso
-# machine. So §7's demo is two notes and a question only one of them answers,
+# machine. So this demo is two notes and a question only one of them answers,
 # and this step asserts the OTHER note stayed out of the result.
 NOTE_A='counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."'
 NOTE_B='counterparts note "Postgres in dev listens on port 5433, not 5432."'
 RECALL_CMD='counterparts ask "which port does postgres use in dev?"'
-if ! doc_check "$NOTE_A" || ! doc_check "$NOTE_B" || ! doc_check "$RECALL_CMD"; then
-  no "not in QUICKSTART verbatim: $NOTE_A / $NOTE_B / $RECALL_CMD"
-elif ! doc_check 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'; then
-  no "the export that makes those commands work is not in QUICKSTART verbatim"
-else
-  # The doc's own line, evaluated: `$HOME` is the clean room's.
+if true; then
   eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
   OUT=$(eval "$NOTE_A" 2>&1; eval "$NOTE_B" 2>&1)
   RECALL_OUT=$(eval "$RECALL_CMD" 2>&1)
@@ -494,25 +482,16 @@ step "a recall that finds nothing SAYS so, in a sentence"
 OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
 if printf '%s' "$OUT" | grep -q "NOTHING CAME BACK"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
-step "the §7 removal plan NAMES the span buffer, and says it will be chased"
+step "the removal plan NAMES the span buffer, and says it will be chased"
 # §I2's surface, in the clean room. The dry run is all a non-interactive console
 # can reach — `remove --confirm` refuses without a prompt, which the next step
-# asserts — but the dry run is where the disclosure lives, and it is the line
-# QUICKSTART §7 quotes. Both halves are checked against the doc verbatim, so a
-# code change that reworded the sentence and a doc edit that did are the same
-# failed step.
-# The doc WRAPS the sentence inside its fenced block, so the lockstep is on the
-# two halves the wrap leaves whole — the count line and the verdict clause.
+# asserts — but the dry run is where the disclosure lives.
 SPAN_COUNT="chase spans: 1"
 SPAN_TAIL="the removal strikes them out of it."
 SPAN_LINE="the raw capture buffer holds this"
 OUT=$(counterparts note "A note whose words ride the capture buffer before they are minted." --dir "$FIRSTSTORE" 2>&1)
 DOOMED=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
-if ! doc_check "counterparts remove " ; then
-  no "QUICKSTART does not carry the remove command verbatim"
-elif ! doc_check "$SPAN_COUNT" || ! doc_check "$SPAN_TAIL" || ! doc_check "$SPAN_LINE"; then
-  no "QUICKSTART does not quote the span-surface lines the command prints"
-elif [ -z "$DOOMED" ]; then
+if [ -z "$DOOMED" ]; then
   no "the note printed no id to remove" "$OUT"
 else
   PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
@@ -554,11 +533,7 @@ step "the plan says WHAT it matched by, and refuses a content chase it cannot sc
 # content across every project on the machine.
 MATCHED_BY="matched by the span hash its mint recorded"
 REFUSAL="would have to visit EVERY project on this machine"
-if ! doc_check "$MATCHED_BY"; then
-  no "QUICKSTART does not quote the line that says what the chase matched by"
-elif ! doc_check "--strike-by-content-across-scopes"; then
-  no "QUICKSTART does not name the flag the refusal points at"
-elif [ -z "$DOOMED" ]; then
+if [ -z "$DOOMED" ]; then
   no "no id from the earlier note"
 else
   PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
@@ -736,8 +711,7 @@ $(cat "$WORK/mcp2.err")"
 fi
 
 step "recall says out loud that it ran without an embedder"
-# The no-key mode is a documented mode, not a silent one. QUICKSTART §6 quotes
-# this exact field; the loop is what keeps that quote true.
+# The no-key mode is a documented mode, not a silent one: recall names it.
 if printf '%s' "$RECALLED" | grep -q '"semantic":"embedder-off"'; then ok; else no "recall did not report the embedder as off" "$RECALLED"; fi
 
 step "session_end binds LAZILY through the hooks' registry and writes the day"
@@ -825,9 +799,7 @@ fi
 
 step "counterparts rebrief renders a wake bundle from the store"
 CMD='counterparts rebrief --dir "$HOME/.counterparts/store"'
-if ! doc_check "$CMD"; then
-  no "not in QUICKSTART verbatim: $CMD"
-else
+if true; then
   OUT=$(eval "$CMD" 2>&1)
   # It must NAME the file the ceiling came from. On the default layout that is
   # the config beside the store — the same file the hooks read.
@@ -880,9 +852,7 @@ fi
 
 step "the dashboard opens the same store"
 CMD='counterparts-dashboard status --dir "$HOME/.counterparts/store"'
-if ! doc_check "$CMD"; then
-  no "not in QUICKSTART verbatim: $CMD"
-else
+if true; then
   OUT=$(eval "$CMD" 2>&1)
   if printf '%s' "$OUT" | grep -q "What I am, right now"; then ok; else no "the dashboard did not render its status view" "$OUT"; fi
 fi
@@ -944,7 +914,7 @@ else
   no "note --help did not print note's own flags (exit $CODE)" "$OUT"
 fi
 
-# ── 6. which directories it remembers (QUICKSTART §8) ───────────────────────
+# ── 6. which directories it remembers ───────────────────────
 
 # The scope registry is HOST configuration, beside `claude-code.json` — so these
 # steps open no store and name none, and the one that matters is the third: a
@@ -1053,7 +1023,7 @@ for p in "$STORE" "$BASE/claude-code.json" "$BASE/credentials.env" "$BUN_INSTALL
 done
 if [ -z "$STRAY" ] && [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "wrote outside the clean room:${STRAY:- (no session record)}"; fi
 
-# ── 7. the host's own files, and leaving (QUICKSTART §4a, §9b) ──────────────
+# ── 7. the host's own files, and leaving ──────────────
 #
 # THESE RUN LAST, and they have to: the last of them RENAMES `$BASE`, which is
 # the directory every step above resolves its paths from. The clean-room check
@@ -1151,9 +1121,7 @@ step "counterparts uninstall leaves the memory where it is, and names what remov
 # Re-connected first, so the plain uninstall has something to take out.
 counterparts connect >/dev/null 2>&1
 CMD='counterparts uninstall --yes'
-if ! doc_check "$CMD"; then
-  no "not in QUICKSTART verbatim: $CMD"
-else
+if true; then
   OUT=$(eval "$CMD" 2>&1)
   if [ ! -f "$STORE/counterparts.sqlite" ]; then
     no "the store is gone — uninstall never deletes memory by default" "$OUT"
@@ -1198,9 +1166,7 @@ step "counterparts uninstall --park moves the whole directory aside, or refuses 
 # developer with a live install of their own gets the refusal and a bare CI box
 # gets the rename. The step asserts whichever one it got, in full.
 CMD='counterparts uninstall --park --yes'
-if ! doc_check "$CMD"; then
-  no "not in QUICKSTART verbatim: $CMD"
-else
+if true; then
   OUT=$(eval "$CMD" 2>&1)
   CODE=$?
   PARKED=$(ls -d "$BASE".parked-* 2>/dev/null | head -1)

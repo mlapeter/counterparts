@@ -237,7 +237,7 @@ export function serveRefusal(
     return (
       `Refused: 'serve' does not take the store from ${DATA_DIR_ENV} (${fromEnv}). ` +
       "Pass --dir <path> to name one, or --default-store to accept that variable. " +
-      "It is the variable QUICKSTART tells you to export with your live memory in it, and 'serve' " +
+      "That variable can name your live memory, and 'serve' " +
       "puts a whole store on a socket — so that choice is made in the command. Nothing was opened."
     );
   }
