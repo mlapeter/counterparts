@@ -41,7 +41,7 @@ import { join, resolve } from "node:path";
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
-import { reachesTheOwner } from "../src/adapters/claude-code/bin/hook.js";
+import { deliverTurn, reachesTheOwner, stampWhenOpened } from "../src/adapters/claude-code/bin/hook.js";
 import {
   BUSY_SESSION_START_MESSAGE,
   BUSY_TURN_MESSAGE,
@@ -61,6 +61,7 @@ import {
 } from "../src/adapters/claude-code/standdown.js";
 import type { StandDownMark } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
+import { UPDATE_NOTICE, installedBuild, readSession, recordServerLaunch } from "../src/adapters/sessions.js";
 import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
 import { makeBodyUnreadable } from "./store-fixture.js";
 
@@ -764,6 +765,99 @@ describe("a hook on a working store", () => {
     runHook("UserPromptSubmit", "h1-fixed-session");
     expect(existsSync(join(store, "sessions", "h1-fixed-session.standdown.json"))).toBe(false);
   });
+
+  /**
+   * ROADMAP E, END TO END (2026-09-23): a live MCP server in this session's
+   * directory recorded an OLDER build at its launch, and the real hook process
+   * — the installed build — says so in the terminal, once. The "server" is this
+   * test process: its pid is alive, which is all the hook checks.
+   */
+  test("a stale MCP server in this directory: the notice once, as a systemMessage, then quiet", () => {
+    runHook("SessionStart", "h1-update-session");
+    const build = { ...installedBuild(), version: "0.0.1" };
+    recordServerLaunch(store, { scope: work, build, pid: process.pid, hostPid: 1 });
+    const first = runHook("UserPromptSubmit", "h1-update-session");
+    expect(first.code).toBe(0);
+    expect(systemMessage(first)).toBe(UPDATE_NOTICE);
+    expect(readSession(store, "h1-update-session")?.updateNoticeShown).toBe(true);
+    for (let turn = 0; turn < 2; turn++) {
+      const later = runHook("UserPromptSubmit", "h1-update-session");
+      expect(later.code).toBe(0);
+      expect(later.stdout).toBe("");
+    }
+    // A NEW session in the same directory is told too — once, its own.
+    runHook("SessionStart", "h1-update-other");
+    expect(systemMessage(runHook("UserPromptSubmit", "h1-update-other"))).toBe(UPDATE_NOTICE);
+  });
+
+  test("the HOST match, through the real process: the hook's parent is the host, and the stamp says so", () => {
+    // spawnSync runs the hook with no shell, so its parent is THIS process —
+    // exactly the host a server this process started would record.
+    runHook("SessionStart", "h1-host-session");
+    expect(readSession(store, "h1-host-session")?.opened?.hookPpid).toBe(process.pid);
+    // This host's server is current; a stranger's in the same directory is not.
+    recordServerLaunch(store, { scope: work, build: installedBuild(), pid: process.pid, hostPid: process.pid });
+    recordServerLaunch(store, { scope: work, build: { ...installedBuild(), version: "0.0.1" }, pid: process.ppid, hostPid: 1 });
+    const quiet = runHook("UserPromptSubmit", "h1-host-session");
+    expect(quiet.stdout).toBe("");
+    expect(quiet.stderr).not.toContain("adapter.update.notice");
+    // Now this host's own server is the stale one: told, and the debug log
+    // says it was the host match that decided.
+    recordServerLaunch(store, { scope: work, build: { ...installedBuild(), version: "0.0.1" }, pid: process.pid, hostPid: process.pid });
+    const told = runHook("UserPromptSubmit", "h1-host-session");
+    expect(systemMessage(told)).toBe(UPDATE_NOTICE);
+    expect(told.stderr).toContain('"matchedBy":"host"');
+    expect(told.stderr).toContain('"reason":"shown"');
+  });
+
+  test("a session that opened before the stamp existed is told once, and a compaction does not stamp it", () => {
+    runHook("SessionStart", "h1-prestamp-session");
+    // What a session that began on the previous build looks like: no `opened`.
+    const path = join(store, "sessions", "h1-prestamp-session.json");
+    const { opened: _dropped, ...rest } = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify(rest));
+    runHook("SessionStart", "h1-prestamp-session", { source: "compact" });
+    expect(readSession(store, "h1-prestamp-session")?.opened).toBeUndefined();
+    const told = runHook("UserPromptSubmit", "h1-prestamp-session");
+    expect(systemMessage(told)).toBe(UPDATE_NOTICE);
+    expect(told.stderr).toContain('"matchedBy":"unstamped"');
+    expect(runHook("UserPromptSubmit", "h1-prestamp-session").stdout).toBe("");
+  });
+
+  /**
+   * THE RE-REVIEW'S N1 REPRO, which used to print a false "was updated": the
+   * directory is off when the session opens (so SessionStart writes nothing and
+   * the server records nothing), it is switched on mid-session, and the first
+   * record is created by a STOP. That record is this build's, so it carries
+   * this build's stamp — and with nothing stale anywhere, nothing is said.
+   */
+  test("off at open, on mid-session, record first created at a Stop: NO notice", () => {
+    const registry = scopesPath(configPath);
+    const setMode = (mode: "off" | "on"): void => {
+      writeFileSync(
+        registry,
+        `${JSON.stringify({ version: 1, scopes: { [canonicalScopePath(work)]: { mode, since: "2026-09-23T00:00:00.000Z" } } }, null, 2)}\n`,
+        "utf8",
+      );
+    };
+    setMode("off");
+    expect(runHook("SessionStart", "h1-flip-session").stdout).toBe("");
+    expect(existsSync(join(store, "sessions", "h1-flip-session.json"))).toBe(false);
+    setMode("on");
+    expect(runHook("Stop", "h1-flip-session").code).toBe(0);
+    expect(readSession(store, "h1-flip-session")?.opened?.build).toEqual(installedBuild());
+    const prompt = runHook("UserPromptSubmit", "h1-flip-session");
+    expect(systemMessage(prompt)).toBeNull();
+    expect(prompt.stderr).not.toContain("adapter.update.notice");
+  });
+
+  test("a current MCP server: nothing, and nothing marked", () => {
+    runHook("SessionStart", "h1-current-session");
+    recordServerLaunch(store, { scope: work, build: installedBuild(), pid: process.pid, hostPid: 1 });
+    const run = runHook("UserPromptSubmit", "h1-current-session");
+    expect(run.stdout).toBe("");
+    expect(readSession(store, "h1-current-session")?.updateNoticeShown).toBeUndefined();
+  });
 });
 
 // ── the vocabulary ──────────────────────────────────────────────────────────
@@ -1196,5 +1290,67 @@ describe("doctor reads the open, not just the directory", () => {
   test("no reading, no finding — which is the session-start notice's case", () => {
     const findings = doctorFindings(doctorInput());
     expect(findings.find((f) => f.key === "store-open")).toBeUndefined();
+  });
+});
+
+
+// ── the update notice can never cost the wake or the recall (#187 re-review, N4) ──
+
+describe("the update notice is fail-open", () => {
+  const throwing = {
+    updateNotice: (): string | null => {
+      throw new Error("forced-update-throw");
+    },
+    markUpdateNotice: (): boolean => {
+      throw new Error("forced-mark-throw");
+    },
+  };
+  const input = { sessionId: "n4", scope: "/tmp/n4" };
+
+  test("a throwing door at SessionStart: the wake prints byte for byte", () => {
+    expect(HEALTHY_SESSION_START_STDOUT.length).toBeGreaterThan(400);
+    const d = deliverTurn(
+      "session-start",
+      { injection: HEALTHY_SESSION_START_STDOUT, ask: null },
+      {},
+      [null, null],
+      "json",
+      throwing,
+      input,
+    );
+    expect(d.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+  });
+
+  test("a throwing decision or mark at a prompt: the recall prints, without the notice", () => {
+    const recall = "<counterparts-recall>the reservoir loop</counterparts-recall>";
+    const due = { updateNotice: (): string | null => "a notice", markUpdateNotice: throwing.markUpdateNotice };
+    for (const doors of [throwing, due]) {
+      const d = deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", doors, input);
+      expect(d.stdout).toBe(recall);
+    }
+    // And a mark that simply does not land is the same plain recall.
+    const unmarked = { updateNotice: (): string | null => "a notice", markUpdateNotice: (): boolean => false };
+    expect(deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", unmarked, input).stdout).toBe(recall);
+  });
+
+  test("a throwing stamp is swallowed, and it runs only on a session that opens", () => {
+    let calls = 0;
+    const stamp = (): never => {
+      calls += 1;
+      throw new Error("forced-stamp-throw");
+    };
+    expect(() => stampWhenOpened({ hook_event_name: "SessionStart", source: "startup" }, stamp)).not.toThrow();
+    stampWhenOpened({ hook_event_name: "SessionStart", source: "compact" }, stamp);
+    stampWhenOpened({ hook_event_name: "UserPromptSubmit" }, stamp);
+    expect(calls).toBe(1);
+  });
+
+  test("main writes the output BEFORE it stamps", () => {
+    const source = readFileSync(HOOK_SCRIPT, "utf8");
+    const main = source.slice(source.indexOf("async function runHook"));
+    const write = main.indexOf("process.stdout.write(delivery.stdout)");
+    const stamped = main.indexOf("stampWhenOpened(payload");
+    expect(write).toBeGreaterThan(0);
+    expect(stamped).toBeGreaterThan(write);
   });
 });

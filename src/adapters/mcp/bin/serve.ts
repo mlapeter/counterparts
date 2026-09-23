@@ -308,6 +308,11 @@ async function main(): Promise<void> {
     scopesFile,
     embedder,
   });
+  // THE BUILD THIS PROCESS WILL KEEP FOR THE REST OF THE SESSION, left where
+  // the hooks can compare it with the installed one every turn
+  // (`server.ts#recordLaunch`). Taken away again at a clean exit; a server the
+  // host kills outright leaves a record that reads as dead and is pruned.
+  server.recordLaunch();
   try {
     await serveStdio(server, process.stdin, {
       write: (chunk) => {
@@ -315,6 +320,7 @@ async function main(): Promise<void> {
       },
     });
   } finally {
+    server.forgetLaunch();
     server.counterpart.close();
   }
 }

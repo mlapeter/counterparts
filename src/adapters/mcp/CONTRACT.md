@@ -173,6 +173,36 @@ actually wrote (chapter), the written self page or the version a write to it pro
     is a gated entrance like every other: the gate's text, possibly redacted, is what
     lands.
 
+14. **[M] A store a newer build has migrated is never touched by this older one**
+    (2026-09-23, roadmap E). `SCHEMA_AHEAD` is decided at open, and this process opens
+    once per session while the hooks, on the installed build, may migrate the store under
+    it (LAUNCH-STATUS I36). So EVERY tool call first re-reads both schema stamps on the
+    handles it holds (`Store.schemaVersions()`), and either one ahead of the code this
+    process loaded refuses every tool — `scope` and `status` included — with one sentence,
+    naming the tool, before any tool body reads or writes. `recall`, `note` and
+    `session_end` can WAIT between that check and their writes (an embedding: in line
+    for `recall`, at write time and once per entry for the other two, whenever the
+    counterpart has a live embedder), so the store re-reads the stamps before EVERY write
+    it makes for this server (`Store.guardWrites`), and `recall` asks again after its
+    await; a refused write makes the whole answer the same refusal. A stamp that cannot be
+    read refuses under its own reason, and a store locked past the busy timeout under
+    another, with a retry rather than a reconnect. Behind is not refused: an older store is
+    the hooks' to migrate. The window left is between a write's check and its transaction
+    — microseconds (NOTES, 2026-09-23). It protects the upgrade AFTER the one that
+    installs it — the release constraint is in NOTES.
+15. **[M] The server leaves its build where the hooks can compare it** — once, at launch,
+    as `sessions/mcp-server@<pid>.json` in the live-session registry (package version,
+    store and cache schema versions, its pid, its host's pid, its scope), kept believed by
+    a heartbeat and removed at a clean exit. Not by an observer, and not while its
+    directory is set `off` or `paused` — the heartbeat re-reads the setting each tick,
+    takes the record away when it goes off and writes it back when it comes on. Not in the SESSION's record, which is
+    where the ruling put it: at launch this process does not know its session (guarantee
+    10); every session record a hook on this build CREATES carries this build instead
+    (`opened`), refreshed when the session opens, so a record without one is a pre-E
+    record and nothing else. The UserPromptSubmit hook
+    compares it with the installed build and says "Counterparts was updated" once per
+    session, as a `systemMessage` (`sessions.ts#decideUpdateNotice`, `claude-code/bin/hook.ts`).
+
 ### The residual risk of the lazy bind, named
 
 **Two live sessions in the same directory are told apart only by the id the ask names.**

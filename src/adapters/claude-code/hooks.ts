@@ -69,7 +69,15 @@ import {
 import type { ScopeVerdict } from "../scopes.js";
 import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
 import type { ExpansionsRead } from "../expansions.js";
-import { pruneSessions, readSession, recordSession } from "../sessions.js";
+import {
+  decideUpdateNotice,
+  installedBuild,
+  markUpdateNoticeShown,
+  pruneSessions,
+  readSession,
+  recordSession,
+  stampSessionOpened,
+} from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
 import {
@@ -1008,6 +1016,72 @@ export class ClaudeCodeAdapter {
         surfaced: decision.surfaced,
         footnotes: decision.footnotes,
       };
+    });
+  }
+
+  /**
+   * "COUNTERPARTS WAS UPDATED" — the line this session's terminal gets, once,
+   * when the MCP server it is talking to runs an older build than the one
+   * installed (roadmap E, owner decisions 2026-09-23).
+   *
+   * Asked at `user-prompt-submit`, after the turn, the way `notice()` is asked
+   * at `session-start` (`bin/hook.ts`): this process runs the INSTALLED build
+   * every turn, so it is the one that knows what current is. It decides and
+   * writes nothing (`sessions.ts#decideUpdateNotice`); `markUpdateNotice` is
+   * the other half, called only once the line is actually on its way out. An
+   * observer marks nothing, so it is never told.
+   *
+   * Never throws and never costs the turn: any failure is null.
+   */
+  updateNotice(input: HookInput): string | null {
+    if (this.observer || input.sessionId.length === 0) return null;
+    try {
+      const decision = decideUpdateNotice(this.counterpart.store.dir, {
+        sessionId: input.sessionId,
+        installed: installedBuild(),
+      });
+      // Ring rows only when there is something to say; `bin/hook.ts` copies
+      // them to stderr, because this process lives for one hook.
+      if (decision.reason === "due" || decision.reason === "failed") {
+        this.emit("adapter.update.notice", {
+          reason: decision.reason,
+          matchedBy: decision.matchedBy,
+          servers: decision.servers,
+          hookPpid: decision.hookPpid,
+        });
+      }
+      return decision.message;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Record that the update notice went out — FIRST, before the line is
+   * printed, and the line is printed only if this says true. So it is shown
+   * once per session, and a mark that will not write is silence rather than
+   * the same line every turn. One ring row either way.
+   */
+  markUpdateNotice(input: HookInput): boolean {
+    if (this.observer || input.sessionId.length === 0) return false;
+    const marked = markUpdateNoticeShown(this.counterpart.store.dir, input.sessionId);
+    this.emit("adapter.update.notice", { reason: marked ? "shown" : "mark-failed" });
+    return marked;
+  }
+
+  /**
+   * SessionStart's stamp on a session that OPENS (`bin/hook.ts` decides which
+   * sources do): the installed build and this hook's parent pid
+   * (`sessions.ts#SessionRecord.opened`). A session without one opened before
+   * any build stamped it, which is what lets the notice speak about a server
+   * that records nothing about itself. Merged into the record `sessionStart`
+   * just wrote; an observer writes nothing. Never throws.
+   */
+  stampOpened(input: HookInput): boolean {
+    if (this.observer || input.sessionId.length === 0) return false;
+    return stampSessionOpened(this.counterpart.store.dir, input.sessionId, {
+      build: installedBuild(),
+      hookPpid: process.ppid,
     });
   }
 

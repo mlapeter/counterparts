@@ -47,6 +47,8 @@ import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
+import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION, StoreError } from "../../core/store/index.js";
+import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
 import {
@@ -61,13 +63,20 @@ import {
 import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
 import {
   PAGE_WRITER_ENV,
+  RECONNECT_REMEDY,
+  SERVER_HEARTBEAT_MS,
   SESSION_TTL_MS,
   canonicalScope,
+  forgetServerLaunch,
+  installedBuild,
   isLive,
   markNothingNew,
   readSession,
+  recordServerLaunch,
+  refreshServerLaunch,
   sameScope,
 } from "../sessions.js";
+import type { ServerRecord } from "../sessions.js";
 import {
   JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
@@ -100,6 +109,46 @@ export const SERVER_NAME = "counterparts";
  * from disk so the server opens no file to answer its first message.
  */
 export const SERVER_VERSION = "0.2.0";
+
+/**
+ * THE ONE LINE EVERY TOOL ANSWERS WITH when the store on disk is a schema AHEAD
+ * of the code this process loaded — a newer build migrated it after this
+ * server started (`call`'s schema gate). The same sentence for all seven
+ * tools, ending in the same remedy the hook's update notice ends in.
+ */
+export const STALE_SERVER_REFUSAL = `Counterparts was updated and this server is still running the old version, so this tool did nothing. ${RECONNECT_REMEDY}`;
+
+/** The gate's refusal when the stamps could not be read at all. */
+export const SCHEMA_UNREADABLE_REFUSAL =
+  "This server could not read which version the memory store is at, so this tool did nothing. Run /mcp and Reconnect; if that does not help, run `counterparts doctor`.";
+
+/** And when the store was merely busy past the wait: a retry, not a reconnect. */
+export const STORE_BUSY_REFUSAL =
+  "The memory store was busy, so this tool did nothing. Try again in a moment.";
+
+/**
+ * Is a stamp read off the disk AHEAD of the code? Only a plain integer above it
+ * is. Absent, behind, or not a number all read as "not ahead" — today's
+ * behaviour, in which an older store is the hooks' to migrate.
+ */
+// TODO(#190): import the store's strict `schemaAhead` once #190 merges, and drop this copy.
+export function schemaAhead(found: string | null, code: number): boolean {
+  if (found === null || !/^[0-9]+$/.test(found)) return false;
+  return Number.parseInt(found, 10) > code;
+}
+
+/** What reading the two stamps said: fine, or one of the three refusals. */
+type SchemaVerdict =
+  | { readonly kind: "ok" }
+  | { readonly kind: "busy" }
+  | { readonly kind: "unreadable" }
+  | {
+      readonly kind: "ahead";
+      readonly store: string | null;
+      readonly cache: string | null;
+      readonly storeAhead: boolean;
+      readonly cacheAhead: boolean;
+    };
 
 /** Telemetry: ids, counts, reasons, flags. NEVER body text (store §5 G10). */
 export interface McpEvent {
@@ -299,6 +348,15 @@ export class McpServer {
   private initialized = false;
   /** The lazy bind's result: null until a claim is corroborated, then frozen. */
   private lazySession: string | null = null;
+  /** This server's launch record as fixed at launch — written or not, by the
+   *  scope setting — and the heartbeat that keeps it believed
+   *  (`sessions.ts#SERVER_STALE_MS`). */
+  private identity: ServerRecord | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  /** True while the scope setting says this directory is off: no record. */
+  private launchOff = false;
+  /** Set by the write guard when it refused a write in the current call. */
+  private writeTripped: SchemaVerdict | null = null;
 
   constructor(opts: McpServerOptions) {
     this.counterpart = opts.counterpart;
@@ -328,6 +386,12 @@ export class McpServer {
       source: this.scopeSource,
       boundSession: this.launchedSession !== null,
     });
+    // THE SAME CHECK AT EVERY WRITE (#187 re-review, N5): a tool checks the
+    // stamps on entry, but a deposit can `await` — the embedder, at write time,
+    // once per `session_end` entry — before it writes, and a migration can land
+    // in that wait. The store asks this before each write it makes for this
+    // server, and a stale stamp refuses the write (and so the call) there.
+    this.counterpart.store.guardWrites((site) => this.writeGuard(site));
   }
 
   /** The session this server may deposit under: the host's, else the bound claim. */
@@ -409,7 +473,29 @@ export class McpServer {
 
   /** Direct tool invocation, transport-free. The wire calls this; so do tests. */
   async call(name: string, args: Record<string, unknown>): Promise<ToolResult> {
-    // THE SCOPE GATE, BEFORE EVERYTHING — before the observer stand-down and
+    // THE SCHEMA GATE, FIRST OF ALL — before the scope gate, before the
+    // stand-down, before any argument is looked at. See `schemaGate`.
+    const stale = this.schemaGate(name);
+    if (stale !== null) return stale;
+    // AND AT EVERY WRITE, for a tool that waits between its entry and its
+    // writes (`writeGuard`). A write the guard refused makes the whole answer
+    // the gate's refusal, whatever the tool made of the error on its way out.
+    // Calls arrive one at a time over stdio, so one slot is enough.
+    this.writeTripped = null;
+    let result: ToolResult | null = null;
+    try {
+      result = await this.dispatch(name, args);
+    } catch (err) {
+      if (this.writeTripped === null) throw err;
+    }
+    const tripped = this.writeTripped;
+    this.writeTripped = null;
+    if (tripped !== null) return this.refusalFor(name, tripped, "write");
+    return result as ToolResult;
+  }
+
+  private async dispatch(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // THE SCOPE GATE, BEFORE EVERYTHING ELSE — before the observer stand-down and
     // before any session bind. A directory somebody switched `off` gets no
     // deposits, no reads and no census, and the refusal is NAMED (`scope-off`)
     // so it is not mistaken for a broken server, an unbound session or a
@@ -439,6 +525,211 @@ export class McpServer {
       default:
         return this.refuse(name, "unknown-tool", { tool: name });
     }
+  }
+
+  /**
+   * IS THE STORE STILL THE ONE THIS CODE WAS WRITTEN FOR? — asked on every
+   * tool call, because this process is the one that cannot find out any other
+   * way.
+   *
+   * A host starts this server once per session and keeps it; the hooks are
+   * fresh processes at every event. After an upgrade the hooks run the new
+   * build and this server keeps the one it loaded (LAUNCH-STATUS I36). If the
+   * new build migrated the store, `SCHEMA_AHEAD` — which is decided at OPEN —
+   * never runs again here: this process opened the store before the migration
+   * and holds the handle still. So the stamps are re-read here, on the handle
+   * it already has (`Store.schemaVersions`: two primary-key reads, no write),
+   * and a store or cache AHEAD of this code refuses EVERY tool — `scope` and
+   * `status` included — with one sentence, before any tool body has read or
+   * written a thing. Behind is not refused: an older store is the hooks' to
+   * migrate, exactly as before.
+   *
+   * It runs BEFORE the scope gate, so in a directory switched `off` it still
+   * reads the two stamps — a version number, not a memory, and nothing is
+   * written — and every tool there answers this one sentence rather than some
+   * `scope-off` and some not: a stale server is the more urgent thing to say.
+   *
+   * A read that throws refuses too, under its own reason: the point of the
+   * gate is to touch nothing when this code cannot know what it is touching.
+   * A LOCK is told apart from an unreadable stamp (`db.ts#isLocked`, the same
+   * test the hooks' stand-down uses): a store busy past the wait gets a retry,
+   * not a reconnect that would not fix it. No refusal writes — the event goes
+   * to this process's ring and the host's `onEvent`, never to the store.
+   *
+   * Entry is not the only moment that matters, because three tools can WAIT
+   * between here and their writes: `recall` embeds its question in line, and
+   * `note` and `session_end` embed at write time — once per entry, in a loop —
+   * whenever this server's counterpart has a live embedder (#187 re-review,
+   * N5). So the same verdict is asked again at EVERY store write, by the
+   * store itself (`writeGuard`, installed in the constructor), and `recall`
+   * also asks it right after its await (#187 review, MAJOR-3), before
+   * `deliberateRecall` and the host-state line its handle path writes.
+   *
+   * Cost, measured: `NOTES.md` ("The schema gate").
+   */
+  private schemaGate(tool: string): ToolResult | null {
+    const verdict = this.schemaVerdict();
+    return verdict.kind === "ok" ? null : this.refusalFor(tool, verdict, "entry");
+  }
+
+  /** The two stamps, read now, as a verdict. Never throws. */
+  private schemaVerdict(): SchemaVerdict {
+    let found;
+    try {
+      found = this.counterpart.store.schemaVersions();
+    } catch (err) {
+      return { kind: isLocked(err) ? "busy" : "unreadable" };
+    }
+    const storeAhead = schemaAhead(found.store, SCHEMA_VERSION);
+    const cacheAhead = schemaAhead(found.cache, CACHE_SCHEMA_VERSION);
+    if (!storeAhead && !cacheAhead) return { kind: "ok" };
+    return { kind: "ahead", store: found.store, cache: found.cache, storeAhead, cacheAhead };
+  }
+
+  /**
+   * THE WRITE GUARD the store runs before each write (`Store.guardWrites`): the
+   * same verdict, at the moment of the write. Anything but `ok` is remembered
+   * for `call` and thrown, so the write stages nothing.
+   */
+  private writeGuard(site: string): void {
+    const verdict = this.schemaVerdict();
+    if (verdict.kind === "ok") return;
+    this.writeTripped = verdict;
+    throw new StoreError("SCHEMA_AHEAD", { site, refusedBy: "mcp-write-guard", verdict: verdict.kind });
+  }
+
+  /** One refusal per verdict, the same sentence whether it was caught on
+   *  entry or at a write (`at` says which, for the ring). */
+  private refusalFor(tool: string, verdict: Exclude<SchemaVerdict, { kind: "ok" }>, at: "entry" | "write"): ToolResult {
+    if (verdict.kind === "busy") {
+      this.emit("mcp.schema.busy", undefined, { tool, at });
+      return this.refuse(tool, "store-busy", { detail: STORE_BUSY_REFUSAL });
+    }
+    if (verdict.kind === "unreadable") {
+      this.emit("mcp.schema.unreadable", undefined, { tool, at });
+      return this.refuse(tool, "schema-unreadable", { detail: SCHEMA_UNREADABLE_REFUSAL });
+    }
+    this.emit("mcp.schema.ahead", undefined, {
+      tool,
+      at,
+      store: verdict.store,
+      cache: verdict.cache,
+      storeExpected: SCHEMA_VERSION,
+      cacheExpected: CACHE_SCHEMA_VERSION,
+    });
+    return this.refuse(tool, "schema-ahead", {
+      detail: STALE_SERVER_REFUSAL,
+      store: { expected: SCHEMA_VERSION, found: verdict.store, ahead: verdict.storeAhead },
+      cache: { expected: CACHE_SCHEMA_VERSION, found: verdict.cache, ahead: verdict.cacheAhead },
+    });
+  }
+
+  // ── the launch record ──────────────────────────────────────────────────────
+
+  /**
+   * LEAVE THIS SERVER'S BUILD WHERE THE HOOKS CAN SEE IT — from launch
+   * (`bin/serve.ts`) to exit, as `sessions/mcp-server@<pid>.json` under the
+   * registry dir (`adapters/sessions.ts#recordServerLaunch`).
+   *
+   * It is not written into the SESSION's record, which is where the owner's
+   * ruling of 2026-09-23 put it, because at launch this process does not know
+   * its session: the host passes none (`bin/serve.ts`'s header), and the lazy
+   * bind happens at the first Stop ask this server answers. The UserPromptSubmit
+   * hook — which knows its session and runs the installed build — finds this
+   * record by scope and compares (`sessions.ts#decideUpdateNotice`).
+   *
+   * An observer writes nothing, this included — and nothing is written while
+   * this directory is set `off` or `paused` (#187 review, MAJOR-2): the refusal
+   * there says "nothing is recorded or read here", the hooks write no session
+   * record there (claude-code CONTRACT §19), and a notice could not reach that
+   * directory anyway, because its hooks return before asking.
+   *
+   * THE HEARTBEAT (`beat`, every `SERVER_HEARTBEAT_MS` on an unref'd timer, so
+   * it never keeps the process alive) does two things each tick. It pins the
+   * record to this process rather than to a pid the OS may reuse after a hard
+   * kill (`sessions.ts#serverBelieved`), by touching it. And it re-reads the
+   * scope setting (#187 re-review, N2): switched `off` or `paused` since the
+   * last tick, the record is taken away and not touched again; switched back
+   * on — or on for the first time, for a server launched in an off directory —
+   * the record is written. The record's identity (pid, host pid, start time,
+   * build) is fixed at launch, so the file that comes back is the one that
+   * went. `heartbeatMs: 0` turns the timer off, for a test. Never throws.
+   */
+  recordLaunch(opts: { pid?: number; hostPid?: number; heartbeatMs?: number } = {}): ServerRecord | null {
+    if (this.observer) return null;
+    this.identity = {
+      pid: opts.pid ?? process.pid,
+      hostPid: opts.hostPid ?? process.ppid,
+      scope: canonicalScope(this.scope),
+      startedAt: this.nowFn(),
+      build: installedBuild(),
+    };
+    const record = this.beat(true);
+    const every = opts.heartbeatMs ?? SERVER_HEARTBEAT_MS;
+    if (every > 0 && this.heartbeat === null) {
+      const timer = setInterval(() => {
+        this.beat(false);
+      }, every);
+      timer.unref?.();
+      this.heartbeat = timer;
+    }
+    this.emit("mcp.launch.recorded", undefined, {
+      recorded: record !== null,
+      ...(record === null ? { reason: this.launchOff ? "scope-off" : "not-written" } : {}),
+      version: this.identity.build.version,
+      storeSchema: SCHEMA_VERSION,
+      cacheSchema: CACHE_SCHEMA_VERSION,
+    });
+    return record;
+  }
+
+  /**
+   * One tick: the scope setting decides whether the record exists, and a record
+   * that should exists gets touched (or written, if it is missing). The FIRST
+   * write may make the `sessions/` directory; a tick never does
+   * (`sessions.ts#refreshServerLaunch`). Never throws.
+   */
+  private beat(first: boolean): ServerRecord | null {
+    const identity = this.identity;
+    if (identity === null) return null;
+    try {
+      const off = stanceOfMode(this.scopeVerdict().mode) === "off";
+      if (off) {
+        if (!this.launchOff || first) forgetServerLaunch(this.registryDir, identity.pid);
+        if (!this.launchOff && !first) this.emit("mcp.launch.scope", undefined, { recorded: false });
+        this.launchOff = true;
+        return null;
+      }
+      const wasOff = this.launchOff;
+      this.launchOff = false;
+      const written = first
+        ? recordServerLaunch(this.registryDir, {
+            scope: identity.scope,
+            build: identity.build,
+            pid: identity.pid,
+            hostPid: identity.hostPid,
+            at: identity.startedAt,
+          })
+        : refreshServerLaunch(this.registryDir, identity)
+          ? identity
+          : null;
+      if (wasOff && !first) this.emit("mcp.launch.scope", undefined, { recorded: written !== null });
+      return written;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Stop the heartbeat and take the launch record away at a clean exit.
+   *  Best-effort, never throws. */
+  forgetLaunch(): void {
+    if (this.heartbeat !== null) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
+    if (this.identity === null) return;
+    forgetServerLaunch(this.registryDir, this.identity.pid);
+    this.identity = null;
   }
 
   // ── the scope registry ─────────────────────────────────────────────────────
@@ -684,6 +975,14 @@ export class McpServer {
     // and says which.
     const asked = typeof question === "string" && question.trim().length > 0;
     const embedded = asked ? await this.embedQuestion(question) : { vector: null, semantic: "none" as SemanticSource };
+    // THE GATE AGAIN, after this tool's wait: a migration that committed
+    // during the embedding's round-trip must not be recalled past. The store's
+    // write guard would stop `noteRecall`'s row anyway; this also stops the
+    // read and the handle log before them.
+    if (asked) {
+      const moved = this.schemaGate("recall");
+      if (moved !== null) return moved;
+    }
     const result = deliberateRecall(
       this.counterpart,
       {

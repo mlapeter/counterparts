@@ -43,7 +43,7 @@ import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
-import type { Db } from "./db.js";
+import type { Db, Statement } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -397,6 +397,23 @@ export interface EventInput {
   payload?: Record<string, unknown> | null;
 }
 
+/**
+ * THE TWO SCHEMA STAMPS AS THEY STAND ON DISK RIGHT NOW — box 2's
+ * `meta.schemaVersion` and box 3's `cache_meta.schemaVersion`, each exactly as
+ * written (a string), or null when the row is not there.
+ *
+ * Read by `Store.schemaVersions()`, which exists for ONE caller shape: a process
+ * that opened this store long ago and has to ask, before it touches anything,
+ * whether a newer build has migrated it since. That is the MCP server — the one
+ * long-lived process a host starts once per session and never restarts on its
+ * own (the MCP adapter's schema gate; LAUNCH-STATUS I36). The core names no
+ * adapter, so the pointer is in words.
+ */
+export interface SchemaVersions {
+  readonly store: string | null;
+  readonly cache: string | null;
+}
+
 export interface RankingRow {
   id: string;
   strength: number;
@@ -732,6 +749,39 @@ export class Store {
     this.cache.close();
   }
 
+  /** Prepared once, on first use; see `schemaVersions`. */
+  private schemaReads: { store: Statement; cache: Statement } | undefined;
+
+  /**
+   * THE SCHEMA STAMPS ON DISK NOW, read fresh on this store's own two
+   * connections — two primary-key lookups, no transaction, no write, and
+   * nothing that changes under observer.
+   *
+   * `SCHEMA_AHEAD` is decided ONCE, at open (`operational.ts#openOperational`),
+   * and that is right for every process that opens a store and closes it again
+   * within one event. It is not enough for one that stays open: a hook running
+   * newer code can migrate the file underneath it, and nothing on the handle it
+   * already holds would say so. This is how such a process asks.
+   *
+   * It SEES the other process's migration because neither read runs inside a
+   * transaction: each one starts a fresh read on the connection and so reads
+   * whatever was last committed, WAL or not. Prepared once and kept, so the
+   * steady-state cost is two statement steps (measured, ~3 µs — the MCP
+   * adapter's NOTES). It may THROW — a table another build dropped, a
+   * disk that went away — and the caller decides what that means; the only
+   * caller today refuses its tool rather than guess.
+   */
+  schemaVersions(): SchemaVersions {
+    this.schemaReads ??= {
+      store: this.ops.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'"),
+      cache: this.cache.prepare("SELECT value FROM cache_meta WHERE key = 'schemaVersion'"),
+    };
+    return {
+      store: this.schemaReads.store.get<{ value: string }>()?.value ?? null,
+      cache: this.schemaReads.cache.get<{ value: string }>()?.value ?? null,
+    };
+  }
+
   // ── the seam ───────────────────────────────────────────────────────────────
 
   /**
@@ -754,6 +804,31 @@ export class Store {
       this.emit("store.observer.standdown", undefined, { site });
       throw new StoreError("OBSERVER_REFUSED", { site });
     }
+    // The caller's own check, when it installed one (`guardWrites`): AFTER the
+    // stance, so an instrument's refusal stays the observer's, and BEFORE any
+    // transaction, so a write it refuses has staged nothing.
+    this.writeGuard?.(site);
+  }
+
+  /** The one slot `guardWrites` fills. */
+  private writeGuard: ((site: string) => void) | null = null;
+
+  /**
+   * A CHECK RUN BEFORE EVERY WRITE THIS STORE MAKES — every `WRITE_METHODS` site
+   * and the owner-op seam's, through `assertWritable`, after the stance check
+   * and before the transaction. It refuses by THROWING; whatever it throws is
+   * what the writer sees, and nothing has been staged.
+   *
+   * It exists for the one long-lived caller (2026-09-23, roadmap E, #187
+   * re-review N5): the MCP server holds this store for a whole session while
+   * the hooks, on a newer build, may migrate it. Its tools check the schema
+   * stamps on entry, but a deposit can `await` (the embedder, at write time)
+   * between that check and its writes; the guard re-reads the stamps at the
+   * moment each write happens (`schemaVersions`, ~3 µs). One slot; null
+   * removes it. The store itself decides nothing with it.
+   */
+  guardWrites(check: ((site: string) => void) | null): void {
+    this.writeGuard = check;
   }
 
   private emit(
