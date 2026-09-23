@@ -8,7 +8,7 @@ is in **`docs/ROADMAP.md`** — read that, not this section. Headlines: go publi
 open; the Stop ask split into a short human line and a two-line model ask; keyless by default (potion
 static embedder as `counterparts-model-potion`, crash write-up moves to the next session); D closed as
 bun + npm; E = server re-checks the schema on every tool call and refuses while ahead. The owner runs
-the keyless tier (he never set a Voyage key). Wave 1 builders start from master `37e9518`.
+the keyless tier (he never set a Voyage key). Wave 1 builders started from master `37e9518`. Amendments of the same night are in ROADMAP §Amendments: static primary / Voyage frozen; README pass before the flip; 0.3.0 = quit every Claude Code session before installing.
 
 ## 2026-09-22, close of the long session — NEXT SESSION IS A ROADMAP CONVERSATION, THEN A COORDINATOR BUILDS
 

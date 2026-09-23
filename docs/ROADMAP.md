@@ -21,6 +21,14 @@ plan of record for boundary credit is built — `creditUse` is wired).*
 | E. Schema-change safety | Server records its version; the prompt hook shows one line on mismatch (`/mcp` → Reconnect). Server re-checks the store's schema version on **every tool call** and **refuses everything** while the store is ahead of it. |
 | F. Parked | Flat dashboard = the owner's own session. Three-way case study and a store outside the home dir stay parked. |
 
+## Amendments (2026-09-23, night — owner decisions during wave 1)
+
+- **A:** Phase A merged (#185). **Before the flip, the owner wants a README pass** (simplify; align with the coming-soon positioning on counterparts.ai) — a conversation, one section at a time, then the flip.
+- **C — static is primary; Voyage is FROZEN.** The static tier is included and recall is retuned for it per model and per path (`keyless/recall-tune`, a separate PR after #190, measured on both bench paths). Voyage stays only for configs that already name it: code and the paid-rows hold kept, marked deprecated, **no new Voyage code**; install and doctor surfaces (C3) speak of the static tier only. Removal is a later deletion PR on the owner's word.
+- **E — release order:** the gate and notice exist only in servers launched from a build that has them. 0.3.0 install instruction: quit every Claude Code session first. E also stamps the installed build into every session record so a pre-E session is told once.
+- **Process:** merged branches are deleted at merge time (`--delete-branch`) and their worktrees removed — standing permission from the owner. Detailed session records live in `~/counterparts-notes` (private), not here.
+- **B3 readings accepted:** a session owes a write-up only if the pacer asked (or substance reached the first-ask threshold with no ask record); raw text lives ≤7 days in the store and ≤21 counting the 14 daily snapshots.
+
 ## How the round is built (the coordinator pattern, as 09-22)
 
 - Opus builders in parallel, each in its own worktree on a branch from master, with **file ownership
@@ -178,7 +186,7 @@ old, written-up recent, unwritten old) deletes exactly one.
 1. **Identity tag:** `cache_meta.embedder = "<model>@<dim>"` written when vectors are; **at open only**
    (E's every-call check is E's alone), if the configured embedder's identity differs from the recorded one,
    drop `embeddings` and rebuild — inline for static (milliseconds), through the existing
-   `migrate-cache` typed confirm for Voyage (paid). Cache schema bump (v5) → E's rule applies.
+   `migrate-cache` typed confirm for Voyage (paid). Cache schema bump (v5). **E's rule protects only the upgrade AFTER the one that installs it**: a 0.2.0 server has neither the gate nor the notice, so the 0.3.0 install instruction is *quit every Claude Code session before installing*.
 2. **Embedder:** the 54-line zero-dependency proof (`docs/research/local-embeddings-2026-09-22.md`
    appendix 2) becomes `src/core/embed/static.ts` (host-agnostic core, its own CONTRACT stub): BERT
    basic tokenizer + WordPiece + row mean + L2; reads `model.safetensors` + `vocab.txt`. Load time on a
