@@ -274,8 +274,8 @@ an open never drops PAID vectors to refill them: those are held until the owner 
 ## The suite
 
 On a clean detached checkout of the branch head (after the re-review fixes, rebased on
-master `e5f70d7`): `tsc --noEmit` clean; `bun test` **3476 pass / 5 skip / 0 fail** without
-the weights (the five skips are the real-table tests), **3481 / 0** with
+master `8afddba`, with #187 merged): `tsc --noEmit` clean; `bun test` **3537 pass / 5 skip /
+0 fail** without the weights (the five skips are the real-table tests), **3542 / 0** with
 `COUNTERPARTS_STATIC_WEIGHTS_DIR` and `COUNTERPARTS_STATIC_RETRIEVAL_DIR` set. The recall suites build their stores with stub embedders,
 so "the recall tests with the static embedder wired" is honestly the bench above:
 `Recall.build`, `Recall.recall` and `activate` over a store whose every vector came from
