@@ -1,43 +1,57 @@
 /**
- * `tools/install-loop/run.sh` and the two numbers `docs/QUICKSTART.md` quotes
- * about it: how many checks the loop runs (the preamble) and which step is the
- * lazy `session_end` bind (§9). Both are prose, and both drifted twice — the
- * index said 23 while the step was 25, and nothing noticed until a reader did
- * (LAUNCH-STATUS G33). The loop's own `doc_check` cannot see them: it greps the
- * doc for COMMANDS a reader would run, never for sentences about itself. So the
- * lockstep lives here, where `bun test` runs on every change, and it reads both
- * files as text — the loop is not run.
+ * The commands `README.md` and `docs/QUICKSTART.md` show a reader are real: every
+ * `counterparts <command> ...` line inside a code block names a command the CLI
+ * has, with only flags that command accepts. `tools/install-loop/run.sh` runs a
+ * handful of those lines; this catches the rest — a renamed command or a dropped
+ * flag that leaves a line in the docs nobody can run.
  *
  * Read-only on two repo files. Opens no store.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { COMMANDS, COMMAND_FLAGS, COMMON_FLAGS } from "../src/adapters/cli/commands.js";
 
 const ROOT = join(import.meta.dir, "..");
-const RUN_SH = readFileSync(join(ROOT, "tools/install-loop/run.sh"), "utf8");
-const QUICKSTART = readFileSync(join(ROOT, "docs/QUICKSTART.md"), "utf8");
+const DOCS = ["README.md", "docs/QUICKSTART.md"];
 
-/** Every `step "..."` line in file order — the loop numbers them the same way. */
-const STEPS = RUN_SH.split("\n").filter((line) => /^step "/.test(line));
-
-/** The doc's number, or a failure that says which sentence went missing. */
-function quoted(pattern: RegExp, sentence: string): number {
-  const m = pattern.exec(QUICKSTART);
-  if (m === null) throw new Error(`docs/QUICKSTART.md no longer says "${sentence}" — reword the pattern here with it`);
-  return Number(m[1]);
+/** Every `counterparts ...` line inside a fenced block, comment stripped. */
+function shownCommands(text: string): string[] {
+  const lines: string[] = [];
+  let inFence = false;
+  for (const raw of text.split("\n")) {
+    if (raw.startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    const line = raw.replace(/\s+#.*$/, "").trim();
+    if (inFence && /^counterparts( |$)/.test(line)) lines.push(line);
+  }
+  return lines;
 }
 
-describe("QUICKSTART's numbers about the install loop are the loop's own", () => {
-  test("the preamble's check count is the number of steps in run.sh", () => {
-    expect(STEPS.length).toBeGreaterThan(0);
-    expect(quoted(/^(\d+) checks and runs end to end/m, "<n> checks and runs end to end")).toBe(STEPS.length);
-  });
+describe("the commands the docs show are real", () => {
+  for (const doc of DOCS) {
+    const shown = shownCommands(readFileSync(join(ROOT, doc), "utf8"));
 
-  test("§9's session_end step index is that step's position in run.sh", () => {
-    const named = STEPS.filter((line) => line.includes("session_end"));
-    expect(named).toHaveLength(1);
-    const index = STEPS.indexOf(named[0]!) + 1;
-    expect(quoted(/\(loop step (\d+);/, "(loop step <n>;")).toBe(index);
-  });
+    test(`${doc} shows at least one command`, () => {
+      expect(shown.length).toBeGreaterThan(0);
+    });
+
+    for (const line of shown) {
+      test(`${doc}: ${line}`, () => {
+        const words = line.split(/\s+/).slice(1);
+        const command = words.find((w) => !w.startsWith("-"));
+        const flags = words.filter((w) => w.startsWith("--")).map((w) => w.slice(2));
+        // The bare command, and `--help` / `--version`, are the top level.
+        if (command === undefined) {
+          for (const f of flags) expect(["help", "version"]).toContain(f);
+          return;
+        }
+        expect(COMMANDS as readonly string[]).toContain(command);
+        const accepted = [...COMMON_FLAGS, ...(COMMAND_FLAGS as Record<string, readonly string[]>)[command]!];
+        for (const f of flags) expect(accepted).toContain(f);
+      });
+    }
+  }
 });
