@@ -369,9 +369,12 @@ export function activate(
         ? store.nearestTo(input.vector, t.SEMANTIC_TOP_M)
         : null;
   // PER-EMBEDDER, PER-PATH (2026-09-23): the floor and weight are chosen for
-  // the model box 3 RECORDS, at query time, on the path this ranking came by —
-  // a static table's cosines sit lower and closer together than Voyage's, and
-  // a lagged cue can be about the previous subject (`tunables.ts`).
+  // the model box 3 RECORDS — read fresh from the file at every activation
+  // (`Store.rankingIdentity`) — on the path this ranking came by: a static
+  // table's cosines sit lower and closer together than Voyage's, and a lagged
+  // cue can be about the previous subject (`tunables.ts`). A lagged row ranked
+  // under another model never reaches here: `loadSessionSemantic` answers
+  // `other-model` for it.
   const path: SemanticPath = input.hits !== undefined ? "lagged" : "inline";
   const identity = recordedIdentity(store);
   const tuning: SemanticTuning = semanticTuning(t, identity, path);
@@ -536,24 +539,17 @@ export function activate(
 }
 
 /**
- * The identity box 3 records for its vectors, as this store handle knows it:
- * the tag its open reconciled (`match`, `tagged`, `reset`). Anything else — no
- * identity on the handle, a hold, a newer build's cache, a deferred decision —
- * is `null`, and the defaults apply; in the hold and ahead cases the ranking is
- * empty anyway (`Store.rankable`). The store re-reads the file's claim on every
- * ranking, so a tag that changed under a long-lived handle yields no hits
- * rather than hits scaled by the wrong model's calibration.
+ * The identity box 3 records for its vectors, read FRESH from the file at every
+ * activation (`Store.rankingIdentity`: one primary-key read) — the tag, when
+ * this handle may rank against it; null when it may not (a hold, a newer
+ * build's cache, a file now another identity's) or when nothing is recorded.
+ * Null means the defaults, and in the refused cases the ranking is empty anyway.
+ *
+ * Fresh, not the handle's open-time verdict (keyless/recall-tune review MINOR 2):
+ * a handle whose open was `deferred` by a lost lock, or one with no identity of
+ * its own, still ranks real vectors — and gets the calibration of the model
+ * that wrote them.
  */
 export function recordedIdentity(store: Store): string | null {
-  const v = store.embedderVerdict;
-  switch (v.kind) {
-    case "match":
-      return v.tag;
-    case "tagged":
-      return v.tag;
-    case "reset":
-      return v.to;
-    default:
-      return null;
-  }
+  return store.rankingIdentity();
 }

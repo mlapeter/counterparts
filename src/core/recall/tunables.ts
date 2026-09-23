@@ -82,9 +82,12 @@ export interface RecallTunables {
   CUE_DOC_CAP: number;
 
   // ── channels ─────────────────────────────────────────────────────────────
-  /** Weight on the embedding channel's contribution. CAL. */
+  /** Weight on the embedding channel's contribution — the FALLBACK since
+   *  2026-09-23: it applies only to an identity `SEMANTIC_BY_IDENTITY` does not
+   *  list (or to a store with no recorded identity). CAL. */
   SEMANTIC_WEIGHT: number;
-  /** Cosine below this is not a seed at all. [v1: 0.45] CAL. */
+  /** Cosine below this is not a seed at all — the FALLBACK, like
+   *  `SEMANTIC_WEIGHT`: listed identities use their own floor. [v1: 0.45] CAL. */
   SEMANTIC_SEED_FLOOR: number;
   /** Nearest-neighbour slice pulled from the vector index. [v1 top-M: 8] CAL. */
   SEMANTIC_TOP_M: number;
@@ -95,9 +98,12 @@ export interface RecallTunables {
    * also answers `voyage-3-large@1024`). An identity with no entry — an unknown
    * table, a store with no tag, a handle with no identity — gets
    * `SEMANTIC_SEED_FLOOR` / `SEMANTIC_WEIGHT`, the values every store had
-   * before this table existed. Looked up at QUERY time from the store the
-   * ranking reads (`activate.ts`), never from configuration: the cosines being
-   * scaled are the recorded model's, whatever a config file now says. CAL —
+   * before this table existed. The identity is read FRESH from the file at
+   * every activation (`Store.rankingIdentity`, one primary-key read), never
+   * from configuration and never from the handle's open-time snapshot: the
+   * cosines being scaled are the recorded model's. A LAGGED row ranked under
+   * another model than the file now records is dropped before it gets here
+   * (`session.ts`, source `other-model`). CAL —
    * `tools/bench/embedder-trial.ts`, `docs/research/static-embedder-trial-2026-09-23.md`.
    */
   SEMANTIC_BY_IDENTITY: Readonly<Record<string, SemanticProfile>>;
@@ -242,22 +248,25 @@ export const TUNABLES: RecallTunables = {
   SEMANTIC_TOP_M: 8,
   // PER-EMBEDDER, PER-PATH (CAL, 2026-09-23, keyless/recall-tune). Chosen from
   // `tools/bench/embedder-trial.ts`: 5 reseeds of the synthetic persona, 30
-  // paraphrase + 10 lexical queries, a 48-cell grid then a 36-cell refinement
-  // (`docs/research/static-embedder-trial-2026-09-23.md`, "2026-09-23 retune").
+  // paraphrase + 10 lexical queries, a 54-cell grid on both paths plus a
+  // topic-changing per-turn arm (`docs/research/static-embedder-trial-2026-09-23.md`,
+  // "the retune").
   //
   //   potion-base-8M@256, INLINE 0.15 / 6 — the deliberate path's best cell with
   //     no delivery lost: paraphrase targets delivered 11/30 against lexical-only's
-  //     6 (MRR 0.211 vs 0.169), lexical 10/10, ~7 rank slips among undelivered
-  //     targets, items per turn 4.90 → 5.03. One step past it loses a delivery
-  //     (weight 7; floor 0.08 at weight 6), so it sits at the edge the bench can see.
-  //   potion-base-8M@256, LAGGED 0.08 / 2 — lower weight, because on this path the
-  //     cue can be about the PREVIOUS subject: on-topic within two turns 10/30
-  //     against lexical-only's ~8.5 (8.4–8.6 across runs), and on a topic change
-  //     0 targets lost, 0 stale intrusions, turn-2 items ~4.2 → 4.05. The
-  //     ceiling traded away: 12–15/30 on topic at weight 6–8, which a topic
-  //     change prices at one lost target and 4–6 stale items. The deliberate choice (0.15 / 6) run as a lag
-  //     loses a topic-changed turn's target and brings 3 stale items; floor 0 at
-  //     weight 6 loses one and brings 4, at weight 8 loses one and brings 6.
+  //     6 (MRR 0.211 vs 0.169), lexical 10/10, items per turn 4.90 → 5.03, and
+  //     7–8 rank slips (targets lexical-only ranked higher: most delivered by
+  //     neither arm, two — ranks 3→6 and 3→4 — delivered by both). One step past
+  //     it loses a delivery (weight 7; floor 0.08 at weight 6): it sits at the
+  //     edge the bench can see.
+  //   potion-base-8M@256, LAGGED 0.05 / 1 — today's weight with potion's floor,
+  //     because on this path the cue can be about the PREVIOUS subject: on topic
+  //     9.8/30 within two turns against lexical-only's 8.4–9.0, and on a topic
+  //     change 0 targets lost and 1.2 stale items ADDED over 40 pairs (items the
+  //     lag brought that lexical-only did not deliver anyway). Heavier pairs buy
+  //     little on topic and pay in stale items: 0.08 / 2 reaches 10/30 for 2.6
+  //     added, weight 6 at floor 0.15 or below loses a topic-changed target and
+  //     adds 15–26, floor 0 at weight 8 reaches 14.8/30 for 39 added.
   //   voyage-3-large — UNMEASURED (no key in the bench; the seat is frozen): the
   //     values every Voyage store has always had, pinned here so the fallback is
   //     not the only thing standing between a paid store and a new default.
@@ -265,7 +274,7 @@ export const TUNABLES: RecallTunables = {
   // One synthetic persona with builder-written queries is a first measurement,
   // not a calibration; the recall-bench's labelled real prompts should re-earn it.
   SEMANTIC_BY_IDENTITY: {
-    "potion-base-8M@256": { inline: { floor: 0.15, weight: 6 }, lagged: { floor: 0.08, weight: 2 } },
+    "potion-base-8M@256": { inline: { floor: 0.15, weight: 6 }, lagged: { floor: 0.05, weight: 1 } },
     "voyage-3-large": { inline: { floor: 0.45, weight: 1.0 }, lagged: { floor: 0.45, weight: 1.0 } },
   },
   ARRIVAL_WEIGHT: 0.15,
@@ -394,8 +403,11 @@ export function withTunables(overrides: Partial<RecallTunables> = {}): RecallTun
 export function semanticTuning(t: RecallTunables, identity: string | null, path: SemanticPath): SemanticTuning {
   const table = t.SEMANTIC_BY_IDENTITY;
   if (identity !== null) {
+    // The model part, split exactly as the store's `parseIdentityTag` splits a
+    // tag: on the LAST `@`, and only when what follows is a positive integer.
     const at = identity.lastIndexOf("@");
-    const model = at > 0 ? identity.slice(0, at) : identity;
+    const suffix = at > 0 ? identity.slice(at + 1) : "";
+    const model = /^[1-9][0-9]*$/.test(suffix) ? identity.slice(0, at) : identity;
     const profile = Object.hasOwn(table, identity) ? table[identity] : Object.hasOwn(table, model) ? table[model] : undefined;
     if (profile !== undefined) return profile[path];
   }

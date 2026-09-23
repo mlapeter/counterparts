@@ -49,6 +49,7 @@ export * from "./session.js";
 export * from "./tunables.js";
 export { activate, isConfidential, isHandoff, isSelfPage, gatedSal, recordedIdentity } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
+import type { ActivationResult } from "./activate.js";
 
 /** Telemetry: ids, counts, scores, tiers, reasons. NEVER body text or turn text. */
 export interface RecallEvent {
@@ -207,6 +208,12 @@ export interface CreditResult {
 
 interface BuildOutput {
   decision: RecallDecision;
+  /**
+   * Which semantic calibration this build used (`ActivationResult.semantic`),
+   * when activation ran with a semantic input. NOT a decision-record field (that
+   * set is hashed); it rides the recording half's telemetry instead.
+   */
+  semantic?: ActivationResult["semantic"];
   injection: string;
   state: GateState;
   /** Cue tokens to carry into the next turn. State, not telemetry (see NOTES.md). */
@@ -454,6 +461,7 @@ export class Recall {
       carry,
       render: rendered,
       gateStatus: loaded.status,
+      semantic: act.semantic,
     };
   }
 
@@ -494,6 +502,19 @@ export class Recall {
     this.persist(next, "recall");
 
     this.emitTelemetry(d, built.render);
+    // WHICH PAIR RAN (review MINOR 2): the identity box 3 recorded at this
+    // activation, the path, and the floor/weight `semanticTuning` chose — on the
+    // telemetry ring, so a live row can say it, beside the decision record.
+    if (built.semantic !== undefined && built.semantic !== null) {
+      this.emit("recall.semantic.tuning", d.sessionId, {
+        turn: d.turn,
+        identity: built.semantic.identity,
+        path: built.semantic.path,
+        floor: built.semantic.floor,
+        weight: built.semantic.weight,
+        source: d.semanticSource,
+      });
+    }
     return { injection: built.injection, decision: d };
   }
 

@@ -2388,6 +2388,30 @@ export class Store {
   }
 
   /**
+   * The identity box 3 records for its vectors RIGHT NOW — read fresh, one
+   * primary-key read — when THIS handle may rank against them; null otherwise
+   * (a hold, a newer build's cache, a file now another identity's than this
+   * handle's, or no tag at all).
+   *
+   * It is what recall calibrates the semantic channel by (`recall/tunables.ts`
+   * `SEMANTIC_BY_IDENTITY`, keyless/recall-tune): the file's tag rather than the
+   * handle's open-time verdict, so a handle whose open was `deferred` (lost the
+   * lock) or that has no identity of its own still gets the calibration of the
+   * vectors it actually ranks — and a handle whose file moved to another model
+   * gets null, the defaults, while its ranking is refused anyway.
+   */
+  rankingIdentity(): string | null {
+    const v = this.embedderVerdict.kind;
+    if (v === "held" || v === "cache-ahead") return null;
+    try {
+      if (searchRefusal(this.cache, this.identity, this.identity?.dim ?? 0) !== null) return null;
+      return recordedEmbedder(this.cache)?.tag ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * May this handle take a cosine against box 3 RIGHT NOW? The at-open
    * verdict first (held, ahead), then the FILE's claim read fresh against this
    * handle's identity (`cache.ts#searchRefusal`) — one primary-key read, the
