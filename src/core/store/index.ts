@@ -94,11 +94,12 @@ import {
   nearest,
   nearestVectors,
   openCache,
+  reconcileEmbedder,
   resetCache,
   searchIndex,
   setEmbedding,
 } from "./cache.js";
-import type { Hit, LengthNorm } from "./cache.js";
+import type { EmbedderIdentity, EmbedderVerdict, Hit, LengthNorm } from "./cache.js";
 
 export * from "./errors.js";
 export * from "../observer.js";
@@ -137,7 +138,13 @@ export {
   decodeVector,
   encodeVector,
   vectorFormats,
+  EMBEDDER_META_KEY,
+  EMBEDDER_REBUILD_META_KEY,
+  identityTag,
+  parseIdentityTag,
+  recordedEmbedder,
 } from "./cache.js";
+export type { EmbedderIdentity, EmbedderVerdict, RecordedEmbedder } from "./cache.js";
 export type { ConvertBatchReport, Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
@@ -170,7 +177,17 @@ export interface StoreEvent {
  * missing embedder already was, and `tools/replay/INTERFACE-GAPS §4` asks for
  * the same shape ("a cache miss must be a counted `not-exercised`").
  */
-export type Embedder = (text: string) => number[] | null;
+export interface Embedder {
+  (text: string): number[] | null;
+  /**
+   * WHICH vectors this embedder produces (cache v5, roadmap C1). Optional, so a
+   * plain function is still an embedder — a test stub, a replay harness — and
+   * such an embedder is never checked against the cache's tag. A production
+   * embedder carries one, and `Store.open` reconciles it with
+   * `cache_meta.embedder` once, at open (`cache.ts#reconcileEmbedder`).
+   */
+  readonly identity?: EmbedderIdentity;
+}
 
 export interface StoreOptions extends Stance {
   /** Defaults to `dataDir()` — resolved at call time, so tests redirect via env. */
@@ -538,6 +555,32 @@ export type WriteMethod = (typeof WRITE_METHODS)[number];
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
 
+/** Rows per box-3 transaction in the at-open inline refill. CAL. */
+const REFILL_BATCH = 500;
+/**
+ * Wall budget for the at-open inline refill, checked between batches. CAL:
+ * measured 2026-09-23 (store NOTES) — a static table refills ~a thousand
+ * memories in well under this, and the worker's backfill finishes a larger
+ * store at the next boundary.
+ */
+const REFILL_BUDGET_MS = 1500;
+
+/** An `EmbedderVerdict` as telemetry: tags and counts, never text. */
+function verdictData(v: EmbedderVerdict): Record<string, string | number | boolean | null> {
+  switch (v.kind) {
+    case "none":
+      return { kind: v.kind };
+    case "match":
+      return { kind: v.kind, tag: v.tag };
+    case "tagged":
+      return { kind: v.kind, tag: v.tag, adopted: v.adopted };
+    case "reset":
+      return { kind: v.kind, from: v.from, to: v.to, dropped: v.dropped };
+    case "held":
+      return { kind: v.kind, recorded: v.recorded, configured: v.configured, rows: v.rows };
+  }
+}
+
 /** What `list()` and `countMemories()` both select on — one filter, one WHERE. */
 export interface MemoryFilter {
   type?: ProseType;
@@ -597,6 +640,13 @@ export class Store {
   private readonly ops: Db;
   private readonly cache: Db;
   private readonly embed: Embedder | undefined;
+  /**
+   * What the at-open identity check found (cache v5). `none` when this process
+   * configured no identified embedder. `held` means box 3 holds another paid
+   * model's vectors and this handle neither writes vectors nor ranks against
+   * them until the owner confirms the drop.
+   */
+  readonly embedderVerdict: EmbedderVerdict;
   /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
   private readonly nowFn: () => number;
   private readonly onEvent: ((e: StoreEvent) => void) | undefined;
@@ -690,6 +740,19 @@ export class Store {
       retentionDays: this.retentionDays,
     });
     this.cache = openCache(paths.cache(this.dir));
+    // THE AT-OPEN IDENTITY CHECK (cache v5, roadmap C1). Once per open, never
+    // per call, and never under observer: an instrument has no embedder, and
+    // "a recorded identity with no configured embedder" keeps the rows as they
+    // are. A HELD mismatch (two paid identities) takes the embedder away from
+    // this handle for writes, so a new model's vectors are never filed beside
+    // an old model's under one tag.
+    const identity = this.observer ? undefined : opts.embed?.identity;
+    this.embedderVerdict =
+      identity === undefined ? { kind: "none" } : reconcileEmbedder(this.cache, identity);
+    if (this.embedderVerdict.kind === "held") this.embed = undefined;
+    if (this.embedderVerdict.kind !== "none" && this.embedderVerdict.kind !== "match") {
+      this.emit("cache.embedder.reconciled", undefined, verdictData(this.embedderVerdict));
+    }
     // THE DAY THIS STORE BEGAN (`STORE_CREATED_KEY`, new-user finding 8). Only
     // the open that CREATED the file writes it, and `OR IGNORE` on top of that:
     // a store that was already here must never be stamped with a day it did not
@@ -738,6 +801,17 @@ export class Store {
       },
     });
     this.assertLayout();
+    // INLINE REBUILD, for an embedder that can: the tag was just (re)written,
+    // so every live memory is missing its vector, and a static table computes
+    // them in-process for nothing. The tag went down FIRST (inside
+    // `reconcileEmbedder`), so a process that dies part-way leaves rows that
+    // all match their tag, and the worker's backfill finishes the rest.
+    if (
+      identity?.rebuild === "inline" &&
+      (this.embedderVerdict.kind === "reset" || this.embedderVerdict.kind === "tagged")
+    ) {
+      this.refillVectorsInline();
+    }
   }
 
   static open(opts: StoreOptions = {}): Store {
@@ -2149,6 +2223,9 @@ export class Store {
   }
 
   nearestTo(vec: readonly number[], limit = 10): Hit[] {
+    // A held mismatch ranks nothing: the rows are another model's, and a
+    // cosine across two models is a number that means nothing (§2.15).
+    if (this.embedderVerdict.kind === "held") return [];
     return nearest(this.cache, vec, limit);
   }
 
@@ -2163,6 +2240,7 @@ export class Store {
    * number, which is the whole point of asking it this way.
    */
   neighbourVectors(vec: readonly number[], limit = 10): number[][] {
+    if (this.embedderVerdict.kind === "held") return [];
     return nearestVectors(this.cache, vec, limit);
   }
 
@@ -2373,6 +2451,61 @@ export class Store {
    * `remove` flow and `expandHandle`'s exact-title match all read the lexical
    * index, and none of them is a recall candidate path.
    */
+  /**
+   * Give every live memory its vector, in-process, right now — the INLINE half
+   * of the identity check, for an embedder whose sync face computes (a static
+   * table). Not a public door: it runs from the constructor, after a reset or
+   * a first tag, and only there.
+   *
+   * Batched: one box-3 transaction per `REFILL_BATCH` rows, because box 3 runs
+   * `synchronous = FULL` and a commit per row is an fsync per row. Bounded by
+   * `REFILL_BUDGET_MS` between batches: the first open after a switch is often
+   * a hook, and a store too large to refill inside the budget is finished by
+   * the worker's backfill rather than holding the hook. Reports what it did.
+   */
+  private refillVectorsInline(): void {
+    const embed = this.embed;
+    if (embed === undefined) return;
+    // A BUDGET timer, not a clock: `performance.now()` is monotonic and dates
+    // nothing, so the provenance rule (one ambient `Date.now` in this file,
+    // `two-clocks.test.ts`) is untouched.
+    const t0 = performance.now();
+    const ids = this.missingVectors(Number.MAX_SAFE_INTEGER);
+    let embedded = 0;
+    let skipped = 0;
+    let at = 0;
+    while (at < ids.length && performance.now() - t0 < REFILL_BUDGET_MS) {
+      const batch = ids.slice(at, at + REFILL_BATCH);
+      at += batch.length;
+      this.cache.transaction(() => {
+        for (const id of batch) {
+          let doc: ProseDoc;
+          try {
+            doc = this.readProse(id);
+          } catch {
+            skipped += 1;
+            continue;
+          }
+          // `missingVectors` already leaves out every `noVector` row; asked again
+          // here because this is a write path, and every write path asks.
+          const vec = noVector(doc.type, doc.meta["role"]) ? null : embed(indexText(doc));
+          if (vec === null) {
+            skipped += 1;
+            continue;
+          }
+          setEmbedding(this.cache, id, vec);
+          embedded += 1;
+        }
+      });
+    }
+    this.emit("cache.embedder.refilled", undefined, {
+      embedded,
+      skipped,
+      remaining: ids.length - at,
+      ms: Math.round(performance.now() - t0),
+    });
+  }
+
   private indexOne(doc: ProseDoc): void {
     const text = indexText(doc);
     const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(text) : null;
