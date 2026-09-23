@@ -252,8 +252,10 @@ export const TUNABLES: RecallTunables = {
   //     (weight 7; floor 0.08 at weight 6), so it sits at the edge the bench can see.
   //   potion-base-8M@256, LAGGED 0.08 / 2 — lower weight, because on this path the
   //     cue can be about the PREVIOUS subject: on-topic within two turns 10/30
-  //     against 8.6, and on a topic change 0 targets lost, 0 stale intrusions,
-  //     turn-2 items 4.20 → 4.05. The deliberate choice (0.15 / 6) run as a lag
+  //     against lexical-only's ~8.5 (8.4–8.6 across runs), and on a topic change
+  //     0 targets lost, 0 stale intrusions, turn-2 items ~4.2 → 4.05. The
+  //     ceiling traded away: 12–15/30 on topic at weight 6–8, which a topic
+  //     change prices at one lost target and 4–6 stale items. The deliberate choice (0.15 / 6) run as a lag
   //     loses a topic-changed turn's target and brings 3 stale items; floor 0 at
   //     weight 6 loses one and brings 4, at weight 8 loses one and brings 6.
   //   voyage-3-large — UNMEASURED (no key in the bench; the seat is frozen): the
