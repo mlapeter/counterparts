@@ -42,6 +42,7 @@ import {
   hasDayBefore,
   lastPageWriterRun,
   pageWriterAbout,
+  pageWriterNight,
   pageWriterClaimOpen,
   pageWriterDue,
   pageWriterRuns,
@@ -141,7 +142,7 @@ const PAGE = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n## ${PAGE_LATELY_
 
 /** Memories dated to the day the writer will be asked about. */
 function seedYesterday(c: Counterpart, bodies: readonly string[]): string[] {
-  const about = pageWriterAbout(c.store.today());
+  const about = pageWriterNight(c.store).about;
   return bodies.map((body) =>
     c.store.put({ type: "memory", kind: "fact", body, learnedOn: about }),
   );
@@ -179,7 +180,7 @@ describe("which day a run is about", () => {
     expect(hasDayBefore(c.store, c.store.today())).toBe(true);
     const due = c.pageWriterDue({ mode: "session" });
     expect(due.due).toBe(true);
-    expect(due.about).toBe(pageWriterAbout(c.store.today()));
+    expect(due.about).toBe(pageWriterNight(c.store).about);
   });
 });
 
@@ -201,7 +202,7 @@ describe("the once-a-night claim", () => {
   test("the first row claims the night; a second boundary is told so", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     expect(c.recordPageWriterRun({ about, mode: "session", outcome: "asked" })).toBe(true);
     const again = c.pageWriterDue({ mode: "session" });
     expect(again.due).toBe(true);
@@ -234,7 +235,7 @@ describe("the once-a-night claim", () => {
   test("ANY terminal row closes the night, including 'nothing to say'", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.recordPageWriterRun({ about, mode: "host", outcome: "nothing-to-say" });
     const due = c.pageWriterDue({ mode: "session" });
     expect(due.due === false ? due.reason : "").toBe("already-claimed");
@@ -243,7 +244,7 @@ describe("the once-a-night claim", () => {
   test("an observer records nothing at all — not even its own run row", () => {
     const writer = counterpart();
     seedYesterday(writer, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(writer.store.today());
+    const about = pageWriterNight(writer.store).about;
     writer.close();
     const o = counterpart({ observer: true });
     expect(o.recordPageWriterRun({ about, mode: "session", outcome: "asked" })).toBe(false);
@@ -256,7 +257,9 @@ describe("the once-a-night claim", () => {
 describe("how a night reads afterwards", () => {
   test("a claim made TODAY is a run in flight; one made on a day that ended is 'nothing to say', and says it is derived", () => {
     const c = counterpart();
-    const today = c.store.today();
+    // The writer's own calendar day (LOCAL, 2026-09-23): the claim's `on` is
+    // stamped with it, so the reading has to be taken on the same clock.
+    const today = c.self.calendarToday();
     const about = pageWriterAbout(today);
     c.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     const live = pageWriterStatus(c.store, about, today);
@@ -276,7 +279,7 @@ describe("how a night reads afterwards", () => {
   test("a long-lived store reads the NEWEST rows, not the oldest — `eventLog` cuts the wrong end", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // Six hundred rows of history, then today's claim. `store.eventLog` orders
     // by seq ASC and cuts at a limit, so an unbounded read of this name on a
     // store that has run for two years hands back the first rows ever written —
@@ -297,7 +300,7 @@ describe("how a night reads afterwards", () => {
 
   test("a terminal row wins over the claim it answers, and is never 'derived'", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     c.recordPageWriterRun({ about, mode: "session", outcome: "revised", bytesAfter: 120 });
     const status = c.pageWriterStatus(about);
@@ -315,7 +318,7 @@ describe("what the writer reads", () => {
     const c = counterpart();
     seedYesterday(c, ["Yesterday one.", "Yesterday two."]);
     c.store.put({ type: "memory", kind: "fact", body: "Today, which is not yet over." });
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const built = c.pageWriterInput({ about });
     expect(built.memories.map((m) => m.statement).sort()).toEqual([
       "Yesterday one.",
@@ -325,7 +328,7 @@ describe("what the writer reads", () => {
 
   test("confidential rows are held back, and the holding back is COUNTED", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.store.put({ type: "memory", kind: "fact", body: "An ordinary placeholder.", learnedOn: about });
     c.store.put({
       type: "memory",
@@ -352,7 +355,7 @@ describe("what the writer reads", () => {
 
   test("the budget cuts by salience, from the end, and what did not fit is counted", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     for (let i = 0; i < 6; i += 1) {
       c.store.put({
         type: "memory",
@@ -379,7 +382,7 @@ describe("what the writer reads", () => {
 
   test("SALIENCE FIRST, AND THE CUT IS DETERMINISTIC — nothing here claims 'newest'", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // Within one calendar day every row ties on every clock the store has:
     // `learned_on` is a date, `birth_day` is the lived day, and `newId` is six
     // random bytes. The old words said "newest and most salient first" and
@@ -407,7 +410,7 @@ describe("what the writer reads", () => {
 
   test("A ROOM TOO SMALL FOR THE BIGGEST MEMORY STILL CARRIES THE SMALL ONES — it does not drop the day", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.store.put({
       type: "memory",
       kind: "fact",
@@ -428,7 +431,7 @@ describe("what the writer reads", () => {
 
   test("...and when NOTHING fits, the block says 'I could not see the day', never 'the day was empty'", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     seedYesterday(c, Array.from({ length: 20 }, (_, i) => `Placeholder ${String(i)}: ${"padding ".repeat(20)}`));
     const built = c.pageWriterInput({ about, budgetBytes: 20 });
     expect(built.memories).toHaveLength(0);
@@ -448,7 +451,7 @@ describe("what the writer reads", () => {
       Array.from({ length: 20 }, (_, i) => `Placeholder memory ${String(i)}: ${"something learned at a realistic length. ".repeat(6)}`),
     );
     seeder.rebrief({ budgetBytes: 9000 });
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     const wake = seeder.wake(9000).bytes;
     seeder.close();
 
@@ -500,7 +503,7 @@ describe("what the writer reads", () => {
 
   test("a memory whose prose will not read is skipped, never a throw", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const ids = seedYesterday(c, ["Readable placeholder.", "About to become unreadable."]);
     // On the floor F5 laid there is no file to remove: a body is a column, and
     // `body = ''` with the hash still naming the words that were there is the
@@ -513,7 +516,7 @@ describe("what the writer reads", () => {
 
   test("A MEMORY CANNOT CLOSE THE BLOCK IT IS QUOTED IN, or issue instructions inside it", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // The reviewer's payload, verbatim in shape. A memory is model- and
     // user-authored content — exactly what the sweep proposes from a transcript
     // — so this is a first-class injection into the one prompt that revises the
@@ -540,7 +543,7 @@ describe("what the writer reads", () => {
 
   test("the wake's own sentinel markers are stripped from quoted material too", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.store.put({
       type: "memory",
       kind: "fact",
@@ -554,7 +557,7 @@ describe("what the writer reads", () => {
 
   test("a statement is ONE LINE here — a body carrying newlines cannot forge bullets", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     c.store.put({
       type: "memory",
       kind: "fact",
@@ -571,7 +574,7 @@ describe("what the writer reads", () => {
 describe("the instruction the writer reads", () => {
   test("it is context and not a command, and says that leaving the page alone is an answer", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
     expect(text.startsWith(PAGE_WRITER_OPEN)).toBe(true);
@@ -588,7 +591,7 @@ describe("the instruction the writer reads", () => {
     // A page big enough that repeating it would eat a realistic ceiling whole.
     const big = `## ${PAGE_CORE_HEADING}\n\n${"Placeholder core sentence that is long enough to matter. ".repeat(60)}\n\n## ${PAGE_LATELY_HEADING}\n\n${"Placeholder lately sentence. ".repeat(60)}`;
     c.revisePage(big, { reason: "a placeholder first page", by: "owner" });
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
     expect(text).not.toContain("Placeholder core sentence");
     expect(text).toContain("at the head of your wake");
@@ -601,7 +604,7 @@ describe("the instruction the writer reads", () => {
 
   test("it names the session id, so the write can be recorded as the night's", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const built = c.pageWriterInput({ about });
     expect(writerInstruction(built, { tool: "self_page", session: "sess_x" })).toContain(
       "`session: sess_x`",
@@ -613,7 +616,7 @@ describe("the instruction the writer reads", () => {
   test("the overhead is MEASURED with the same function, so the two cannot drift", () => {
     const c = counterpart();
     seedYesterday(c, ["One.", "Two.", "Three."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const framing = { tool: "self_page", session: "sess_x" };
     const built = c.pageWriterInput({ about });
     const empty = c.pageWriterInput({ about, budgetBytes: 0 });
@@ -634,7 +637,7 @@ describe("the instruction the writer reads", () => {
 
   test("a day with nothing in it says so rather than pretending", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // The store has SOMETHING before today, but nothing on the target date.
     c.store.put({ type: "memory", kind: "fact", body: "Older.", learnedOn: dayBefore(about) });
     const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
@@ -671,7 +674,7 @@ describe("session mode: the ask at SessionStart", () => {
   test("off writes no row at all; session mode claims the night and records the ask", () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.close();
 
     const offAdapter = adapter({ pageWriter: { mode: "off" } });
@@ -730,7 +733,7 @@ describe("session mode: the ask at SessionStart", () => {
       ),
     );
     seeder.rebrief({ budgetBytes: BUDGET_BYTES });
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.close();
 
     const a = adapter({ pageWriter: { mode: "session" } });
@@ -810,7 +813,7 @@ describe("the writer's own door on the page", () => {
   test("a marked session writes `by: writer` and closes the night as revised", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_w", scope: SCOPE, phase: "start", pageWriterFor: about });
@@ -828,7 +831,7 @@ describe("the writer's own door on the page", () => {
   test("AN UNBOUND SERVER — which is every real one — binds from the ask's own session id", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_u", scope: SCOPE, phase: "start", pageWriterFor: about });
@@ -870,7 +873,7 @@ describe("the writer's own door on the page", () => {
   test("THE MODE COMES FROM THE CLAIM, not from the channel the mark arrived by", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     // A SESSION-mode night, and a process that happens to carry the host-mode
     // environment variable. The variable used to assert `mode: "host"` on its
     // own, putting a lie on a durable row about a night nothing started in host
@@ -892,7 +895,7 @@ describe("the writer's own door on the page", () => {
   test("the `session` argument LABELS the write and does not bind the server to it", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_b", scope: SCOPE, phase: "start", pageWriterFor: about });
@@ -922,7 +925,7 @@ describe("the writer's own door on the page", () => {
   test("the mark cannot be forged from the tool call, and a closed night does not reopen", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     // The night is already answered, so the mark is stale.
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "revised" });
     seeder.close();
@@ -937,7 +940,7 @@ describe("the writer's own door on the page", () => {
   test("a REFUSED revision is recorded as the writer having run and been turned away", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_r", scope: SCOPE, phase: "start", pageWriterFor: about });
@@ -1329,7 +1332,7 @@ describe("host mode, proved against a stub `claude`", () => {
   test("the launcher's plan: one pre-approved tool, no window, the data dir pinned last", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const plan = planPageWriter({
       config: config({ pageWriter: { mode: "host", command: "/usr/local/bin/claude" } }),
       about,
@@ -1355,7 +1358,7 @@ describe("host mode, proved against a stub `claude`", () => {
 
   test("it refuses by NAME rather than starting something it cannot account for", () => {
     const c = counterpart();
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     expect(
       planPageWriter({ config: { ...host(), observer: true }, about, prompt: "x" }).reason,
     ).toBe("OBSERVER");
@@ -1374,7 +1377,7 @@ describe("host mode, proved against a stub `claude`", () => {
   test("a run against the stub claims the night, then closes it from the STORE and not from stdout", async () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const command = stub("exit 0");
     const outcome = await runPageWriter({
       counterpart: c,
@@ -1398,7 +1401,7 @@ describe("host mode, proved against a stub `claude`", () => {
   test("a SIGTERM-IGNORING CHILD does not hang the worker: SIGTERM, then SIGKILL, then stop waiting", async () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // The reviewer's payload. Both alarms sent SIGTERM and nothing else, and
     // the promise resolved only on `close`, so the worker sat in its `finally`
     // holding the store open for as long as the child lived — measured at 25
@@ -1424,7 +1427,7 @@ describe("host mode, proved against a stub `claude`", () => {
   test("a child that DID write the page closes the night as revised, read from the page and not from stdout", async () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     // The starter stands in for the child at the one seam that matters: it
     // writes the page through the real door, as the MCP tool inside a real
     // child would, and then exits clean. What proves the design is that
@@ -1445,7 +1448,7 @@ describe("host mode, proved against a stub `claude`", () => {
   test("the windowless child's own door: the pinned date, not the tool's word, is what writes `by: writer`", async () => {
     const seeder = counterpart();
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
-    const about = pageWriterAbout(seeder.store.today());
+    const about = pageWriterNight(seeder.store).about;
     seeder.recordPageWriterRun({ about, mode: "host", outcome: "started" });
     seeder.close();
     // No session record at all — a windowless child's id is minted by the host
@@ -1467,7 +1470,7 @@ describe("host mode, proved against a stub `claude`", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const command = stub("exit 3");
     const outcome = await runPageWriter({
       counterpart: c,
@@ -1482,7 +1485,7 @@ describe("host mode, proved against a stub `claude`", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
-    const about = pageWriterAbout(c.store.today());
+    const about = pageWriterNight(c.store).about;
     const controller = new AbortController();
     // A stub that would outlive the worker if nothing stopped it. The worker's
     // watchdog is five minutes and the child's ten; without the signal the

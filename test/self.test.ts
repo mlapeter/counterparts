@@ -1679,7 +1679,9 @@ describe("episodes", () => {
     // per session PER DAY.
     let at = Date.parse("2026-09-18T09:00:00Z");
     const s = store({ now: () => at });
-    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 } });
+    // The zone is PINNED so the dates below mean the same thing on every
+    // machine; which zone decides the day is its own test, below.
+    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 }, zone: "UTC" });
     expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
     expect(self.openChapter("s1", { turns: 18, bytes: 15_000 }, 4).asked).toBe(true);
     const capped = self.openChapter("s1", { turns: 40, bytes: 40_000 }, 4);
@@ -1730,7 +1732,8 @@ describe("episodes", () => {
     const ask = self.openChapter("s1", { turns: 60, bytes: 60_000 }, 4);
     expect(ask.asked).toBe(true);
     expect(self.episodeState("s1", 4).asksToday).toBe(1);
-    expect(self.episodeState("s1", 4).asksDay).toBe(s.today());
+    // Charged to the calendar day the cap is kept on — LOCAL since 2026-09-23.
+    expect(self.episodeState("s1", 4).asksDay).toBe(self.calendarToday());
   });
 
   test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {

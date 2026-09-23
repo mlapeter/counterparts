@@ -54,6 +54,17 @@ const NOT_REDACTED = "(?!\\[REDACTED:)";
  * so the bound changes what the family matches for no real URL.
  */
 const SCHEME_TAIL = "[a-z0-9+.-]{0,32}";
+/**
+ * An AWS secret access key's SHAPE: exactly 40 characters of base64's alphabet,
+ * fenced by lookarounds (`/`, `+` and `=` are not word characters, so `\b` would
+ * not fence it), carrying at least one upper- and one lower-case letter. Only
+ * ever used beside a context anchor — never on its own.
+ */
+const AWS_SECRET_TOKEN =
+  "(?<![A-Za-z0-9/+=])" +
+  NOT_REDACTED +
+  "((?=[A-Za-z0-9/+=]{0,39}[A-Z])(?=[A-Za-z0-9/+=]{0,39}[a-z])[A-Za-z0-9/+=]{40})" +
+  "(?![A-Za-z0-9/+=])";
 // The same lever exists one class later in `url-path-token`: an unbounded
 // host/path run (`[^\s"'<>]*`) retried across a comma-joined URL list was
 // quadratic too (179ms at 64KB, 2.8s at 256KB — PR-8 review). Bounded to 512:
@@ -86,6 +97,61 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     re: /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b/g,
     value: 0,
     why: "AWS key id prefixes.",
+  },
+  // THE OTHER HALF OF THE PAIR (handoff INTERFACE-GAPS §6, the 2026-09-20
+  // review): the id above was redacted and the SECRET beside it was stored
+  // verbatim, in a handoff, and in the journal and the self page by the same
+  // battery. The secret has no prefix — it is 40 characters of base64's
+  // alphabet — so its SHAPE alone would also match a CamelCase identifier or a
+  // path, and a bare-shape family is a declared non-goal (encode NOTES §15).
+  // It is caught by CONTEXT, three ways, and all three share one family name
+  // because they are one credential.
+  {
+    family: "aws-secret-access-key",
+    // 1. NAMED: `aws_secret_access_key = …`, `AWS_SECRET_ACCESS_KEY=…`, the JSON
+    //    `"SecretAccessKey": "…"`, `aws configure`'s `AWS Secret Access Key
+    //    [None]: …`. Keeps the name, redacts the value — the ops rule. The
+    //    catch-all below cannot see these: its `\b` fails before `secret` and
+    //    `access` when an underscore precedes them.
+    // Fenced by "no letter or digit before", not `\b`, so a prefixed name
+    // (`MY_AWS_SECRET_ACCESS_KEY`) is still a name.
+    re: new RegExp(
+      "(?<![A-Za-z0-9])((?:aws[_ \\t-]?secret[_ \\t-]?(?:access[_ \\t-]?)?key|secret[_ \\t-]?access[_ \\t-]?key)" +
+        "(?:[ \\t]*\\[[^\\]\\n]{0,24}\\])?[\"']?[ \\t]*[:=][ \\t]*[\"']?)" +
+        NOT_REDACTED +
+        "([A-Za-z0-9/+=]{16,})",
+      "gi",
+    ),
+    value: 2,
+    why: "An AWS secret access key under its own name (env, credentials file, JSON, `aws configure`).",
+  },
+  {
+    family: "aws-secret-access-key",
+    // 2. AFTER THE KEY ID, within 200 characters: the 09-20 review's own shape,
+    //    "…AKIA… and the secret wJalr…". Anchored on the id's PLACEHOLDER, which
+    //    the key-id family has already written by the time this runs — so text
+    //    an older build redacted half of is finished by a re-scan. The token must
+    //    carry BOTH cases: a 40-hex git SHA or an all-caps constant is not a
+    //    secret, and a random 40-character base64 string lacks either case about
+    //    once in a billion.
+    re: new RegExp(
+      "\\[REDACTED:aws-access-key-id\\][\\s\\S]{0,200}?" +
+        AWS_SECRET_TOKEN,
+      "g",
+    ),
+    value: 1,
+    why: "An AWS secret access key written beside its key id.",
+  },
+  {
+    family: "aws-secret-access-key",
+    // 3. BEFORE THE KEY ID, within 200 characters — the same pair, the other way
+    //    round ("secret wJalr…, id AKIA…").
+    re: new RegExp(
+      AWS_SECRET_TOKEN + "[\\s\\S]{0,200}?\\[REDACTED:aws-access-key-id\\]",
+      "g",
+    ),
+    value: 1,
+    why: "An AWS secret access key written before its key id.",
   },
   {
     family: "google-api-key",

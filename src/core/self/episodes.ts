@@ -258,14 +258,19 @@ export interface AskVerdict {
 /**
  * Asks this session has spent on `today` — what the cap is measured against.
  *
- * WHICH DAY: the CALENDAR date, and the store's own (`Store#today`, UTC), not the
- * lived day. The lived clock advances only inside the sleep cycle the detached
- * worker runs, and I32 is the scar: a worker that could not start froze that
- * clock for seven days while the calendar kept going, and a cap whose reset
- * depends on the machinery it is capping is a cap that can be spent forever. It
- * is the same key the old shared day cap settled on for the same reason. The
- * zone consequence is real and named rather than hidden (INTERFACE-GAPS): an
- * owner at UTC−6 gets the allowance back at 18:00 local.
+ * WHICH DAY: the CALENDAR date, not the lived day. The lived clock advances only
+ * inside the sleep cycle the detached worker runs, and I32 is the scar: a worker
+ * that could not start froze that clock for seven days while the calendar kept
+ * going, and a cap whose reset depends on the machinery it is capping is a cap
+ * that can be spent forever. It is the same key the old shared day cap settled
+ * on for the same reason.
+ *
+ * WHICH ZONE: the machine's LOCAL one (`Self#calendarToday`, `calendar.ts`;
+ * owner's ruling 2026-09-23). Until then it was `Store#today`, UTC, and an owner
+ * at UTC−6 got the allowance back at 18:00 local. The day of the change is the
+ * one day the two disagree: an `asksDay` stamped under UTC and read against a
+ * local `today` may refill the allowance once early (or hold it a few hours
+ * late), which the ruling accepted (self NOTES §22).
  *
  * A state written before the day stamp existed reads as ZERO spent rather than
  * as today's count. The wrong way round costs at most one extra allowance on the
