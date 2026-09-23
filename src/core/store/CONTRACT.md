@@ -95,12 +95,14 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `cache_meta.embedder = <model>@<dim>` beside `embedderRebuild = inline|external` — and
      `Store.open` checks that tag against the configured embedder's identity ONCE, at open
      (`cache.ts#reconcileEmbedder`, verdict on `Store.embedderVerdict`): a match touches
-     nothing; no embedder touches nothing; a mismatch under a static table (free to
-     recompute) drops the vectors and refills them inline, batched and time-bounded; a
-     mismatch between two paid identities is HELD — nothing dropped, ranked or written
-     until the owner confirms. A cache written by a NEWER build is left exactly as found:
-     its version is never stamped down, the vector channel is off by name
-     (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`.
+     nothing and takes no lock; no embedder touches nothing; a static table's rows under
+     another identity are dropped and refilled inline, batched and time-bounded; **paid
+     rows are never dropped at open** — any other identity configured HOLDS them, durably
+     (`cache_meta.embedderHeld`), so no handle on the file ranks or writes vectors until
+     the configuration goes back or `verify --rebuild --drop-vectors` drops them. Every
+     transition writes a durable `store.embedder.reconciled` row. A cache written by a
+     NEWER build is left exactly as found: its version is never stamped down, the vector
+     channel is off by name (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`.
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them

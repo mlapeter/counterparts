@@ -39,18 +39,25 @@ channel beside the lexical one (`recall/activate.ts` fuses the two), never the o
 
 - **G1 — Deterministic.** The same table and the same text give the same numbers, across
   loads and processes.
-- **G2 — Host-agnostic.** `node:fs`, `node:module`, `node:path` only. Little-endian hosts
-  only (every supported target); named in `readTable`.
+- **G2 — Host-agnostic.** `node:fs`, `node:module`, `node:path`, `node:os`, `node:crypto`
+  only. Little-endian hosts only (every supported target): a big-endian host is refused
+  by name (`BIG_ENDIAN`), not by a comment.
 - **G3 — Refusals by name.** A missing or malformed table throws `StaticEmbedderError`
   with a code (`MISSING_FILE`, `BAD_SAFETENSORS`, `NO_TENSOR`, `BAD_DTYPE`, `BAD_VOCAB`,
-  `BAD_DIM`); the adapter turns that into "no embedder here" plus an event, never a
-  failed hook.
+  `BAD_DIM`, `HASH_MISMATCH`, `BIG_ENDIAN`); the adapter turns that into an UNAVAILABLE
+  embedder (every ask answers null, no identity) whose code the worker's backfill row
+  carries durably, never a failed hook.
 - **G4 — Weights resolution, in order:** an explicit directory; `COUNTERPARTS_STATIC_WEIGHTS_DIR`;
   the installed `counterparts-model-potion` package, resolved from this module. Nothing
   else — no search of the filesystem, no download.
-- **G5 — Identity.** `model` comes from the caller, else the weights directory's
-  `package.json` `counterparts.model`, else the directory's name. A changed table must
-  come with a changed name (the weights package's README says so).
+- **G5 — Identity from the bytes** (review of #190, MAJOR 5). The sha256 of
+  `model.safetensors` and of `vocab.txt` are computed at every load (~10 ms for 30 MB);
+  the pair names the table through `KNOWN_TABLES` (`potion-base-8M`,
+  `static-retrieval-mrl-en-v1`), else `static-<12 hex of their combined hash>`. The same
+  bytes give the same identity through any directory, symlink or package; different
+  bytes never share one. A `package.json` that DECLARES a sha256 for a file is checked
+  (`HASH_MISMATCH` on a mismatch). `counterparts.model` and the caller's `label` are
+  display names only.
 - **G6 — Nothing leaves the process.** No network, no telemetry of text; the adapter's
   events carry hashes, model names, widths and timings only.
 

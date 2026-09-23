@@ -1126,21 +1126,27 @@ something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` an
 
 **The rules, and why each is where it is** (`cache.ts#reconcileEmbedder`):
 
+*(Rules as amended by the adversarial review — see "later" below for what changed.)*
+
 - **At open only**, by a process with an identified embedder, never under observer. The
-  steady state is a lock-free read; anything that writes re-reads and decides inside one
-  IMMEDIATE transaction, so two processes opening at once agree (tested).
-- **Mismatch + inline (static) → drop and refill at open.** Static rows cost nothing to
-  recompute, and a static query cannot use paid rows. The TAG goes down first, so a
-  process that dies part-way leaves rows that all match their tag.
-- **Mismatch between two external (paid) identities → HELD.** Dropping 13K paid vectors
-  is the owner's decision, never an open's. The handle then neither writes vectors
-  (`embed` is withdrawn) nor ranks against them (`nearestTo` answers `[]`). The confirm
-  surface is `migrate-cache`'s to grow (C3).
-- **Legacy (v4, untagged) rows**: adopted by a paid seat when every row has one width
-  that agrees — before v5 the paid seat was the only thing that ever wrote a vector;
-  dropped by a static table; held otherwise.
-- **The v4→v5 migration ERASES a tag** it finds on a cache stamped below 5 — the only way
-  one is there is a v5 build tagging it and an older build then writing beside it.
+  steady state is a lock-free read (a match; or a paid seat of unknown width meeting an
+  empty untagged table, which has nothing to decide); anything that writes re-reads and
+  decides inside one IMMEDIATE transaction, so two processes opening at once agree.
+- **Recorded rows a STATIC table's, another identity configured → drop and refill at
+  open.** They cost nothing to recompute. The TAG goes down first, so a process that
+  dies part-way leaves rows that all match their tag.
+- **Recorded rows PAID → HELD, whatever is configured** — a second paid model or the
+  static table alike. Dropping paid vectors is the owner's decision, never an open's.
+  The hold is DURABLE (`cache_meta.embedderHeld`), so every handle on the file — the MCP
+  server's, the dashboard's, the console's — neither writes vectors nor ranks against
+  them. The ways out (`HELD_EXITS`): put the configuration back (released at the next
+  open), or `counterparts verify --rebuild --drop-vectors --dir <store>`.
+- **Legacy (untagged) rows**: a paid seat adopts them only when every row has the seat's
+  KNOWN width (`EMBED_MODEL_DIMS`); a static table drops and refills them only when every
+  row has the table's own width (they are a static table's rows whose tag was lost);
+  anything else is held.
+- **The v4→v5 migration keeps a tag it finds on a cache stamped below 5 when every row
+  still has the tag's width**, and erases it otherwise (see mixed builds, below).
 - **The tag follows the writes**: the first vector a process writes under a registered
   identity re-tags when `<model>@<dim>` differs from what it last saw (memoized per
   handle, so once per process). A paid seat's width is learned this way.
@@ -1152,11 +1158,13 @@ something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` an
 **Held means no paid call can be wasted on it — where this change reaches.** The
 worker's two jobs (`adapters/claude-code/vectors.ts`) read `embedderVerdict` first and do
 nothing under `held` or `cache-ahead` (backfill reason `vectors-withdrawn`, the lag cue
-`embed-failed` with `withdrawn` beside it). Two callers outside this change still ask the
-paid seat for a vector the store will not use: the novelty seam at deposit
-(`counterpart.ts`'s `vectors.vector`) and the MCP server's deliberate question
-(`server.ts#embedQuestion`). Both are one-line checks of `store.embedderVerdict`, filed
-for their owners; the state is reachable only by changing a PAID seat's model id.
+`embed-failed` with `withdrawn` beside it). Two callers outside this change still ASK
+the paid seat for a vector under a hold: the novelty seam at deposit (`counterpart.ts`'s
+`vectors.vector`) and the MCP server's deliberate question (`server.ts#embedQuestion`).
+Neither can USE it any more — the hold is durable, and the server's store now reconciles
+with the configured identity (`mcp/index.ts#openServer`), so its `nearestTo` answers
+nothing — but the call is paid for. Both are one-line checks of `store.embedderVerdict`,
+filed for their owners.
 
 **A cache from a newer build is left as found** (found by roadmap E while building the
 every-call schema check): `openCache` used to stamp any version it did not recognize down
@@ -1176,3 +1184,48 @@ per run, one `embedOne` commit each) measured 200–233 ms.
 runs the check and the refill; `nearestTo`/`neighbourVectors` answer nothing while held or
 ahead; `embedderVerdict` is public. There was no way to check an identity "at open" from
 `cache.ts` alone — the constructor is the open, and the refill needs box 2's rows.
+
+### 2026-09-23, later — what the adversarial review of #190 changed
+
+- **BLOCKER 1 — the open took box 3's write lock every time for a vectorless paid
+  store.** A paid seat of unknown width has nothing to tag until its first vector, so the
+  "fresh" arm wrote a `DELETE` inside `BEGIN IMMEDIATE` on every open — and waited, then
+  threw `database is locked`, behind any other box-3 writer (measured 5,258 ms). That
+  arm now returns from the read. Tested with a second connection holding the lock.
+- **MAJOR 1 — the hold was per handle.** A store opened with no identity (the MCP
+  server's shape) read `none` and ranked a new model's question against the old model's
+  rows (measured: 3 hits). The hold is now a `cache_meta` row every open reads, and the
+  MCP server's store is opened with the embedder's identity.
+- **MAJOR 2 — a static configuration dropped paid vectors at open** (16,000 of them,
+  measured, with only an in-process event to show for it). Recorded paid rows are now
+  held whatever is configured, and every transition (reset, new hold, adoption, release)
+  writes `store.embedder.reconciled` to box 2's event log from INSIDE the store — the
+  hook's composition root passes no `onEvent`.
+- **MINOR 3 — a new identity starts the skip list over**: `embed.failed.<id>` counters
+  are not keyed by identity, so a reset clears them before the inline refill.
+
+**Mixed builds** (MINOR 2). Any older build — a 0.2.0 process, an unrestarted MCP server,
+a dev checkout — stamps box 3 back to v4 when it opens it. The next v5 open migrates it
+up again and looks at the tag: if every row still has the tag's width, nothing foreign
+was written and the tag is KEPT (no needless refill); if an older build wrote rows of
+another width (it can only have written paid ones), the tag is erased and the rows are
+judged as legacy — a static table refills rows of its own width and holds anything else,
+a paid seat adopts only its own known width. So under mixed builds a static store at
+worst refills (free), and a paid store at worst holds (never drops).
+
+**Two policies for one condition, and which wins** (MINOR 7). #187 makes the MCP server
+refuse EVERY tool while either box is ahead of its code; this change lets any other
+handle on an ahead cache keep reading and writing the lexical tables (vectors off by
+name). For the server, #187's policy takes precedence — its gate runs before any tool
+touches the store — and the lexical-continue behaviour applies only to non-server
+handles (hooks on a mixed install, the console, the dashboard). Both read "ahead" through
+ONE predicate, `schemaAhead` (a plain integer above the code; `"6-beta"` is not ahead),
+exported from here for #187 to import in place of its local copy.
+
+**Release timing** (MINOR 7). If this and #187 ship in one release, the PREVIOUS
+release's MCP server — still running in a session nobody restarted — has neither #187's
+gate nor this change's width filter in `nearest`. A person who switched to the static
+table during that session would have that server rank 1,024-wide Voyage questions
+against 256-wide static rows by their common prefix until the session restarts. The
+update notice (#187) is the remedy; it is named here because no code in this release can
+reach a process that is already running the old one.

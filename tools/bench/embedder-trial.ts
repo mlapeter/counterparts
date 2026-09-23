@@ -27,14 +27,28 @@
  *   - **lexical** — asks in the memory's own words. The no-regression half: a
  *     second channel must not push down what the first already found.
  *
+ * **Two recall paths, and they are not the same path.**
+ *
+ *   - **DELIBERATE** (the MCP `recall` tool's shape): the QUESTION's own vector
+ *     is handed to `Recall.build`, in line. Sections 1–2 below.
+ *   - **PER-TURN** (the hook's shape): a turn is NEVER embedded while it is
+ *     being answered. The worker embeds the previous exchange after the
+ *     boundary, ranks it, and the NEXT turn gets that ranking as its lagged
+ *     semantic cue (`recall/session.ts`). Section 4 below simulates exactly
+ *     that — turn 1 is the question with no lagged cue (as a first turn
+ *     has none), the worker's rank of the question is stored the way
+ *     `Counterpart.noteSessionSemantic` stores it, and turn 2 is a follow-up
+ *     that names no topic ("go on — what else do we know about that?"). What it
+ *     measures is what the lag can add the turn after a question.
+ *
  * Per arm (lexical-only; each static table; Voyage if a key is present):
  *
  *   1. the ACTIVATION RANKING — `recall.activate` over the whole store with no
  *      candidate cap, the turn's vector supplied (or not): rank of the first
  *      relevant memory → recall@1/3/5/10 and MRR;
- *   2. the DELIVERED set — `Recall.build`, the real gate with the shipped
- *      tunables: did a relevant memory reach the model, and how many items came
- *      with it (the noise a channel buys);
+ *   2. the DELIVERED set — `Recall.build`, the real gate: did a relevant memory
+ *      reach the model, and how many items came with it (the noise a channel
+ *      buys);
  *   3. the RAW semantic channel — `Store.nearestTo` alone, and the cosine
  *      distribution: best relevant vs best irrelevant, and how many queries'
  *      best relevant clears `SEMANTIC_SEED_FLOOR`. That floor (0.45) was set
@@ -48,7 +62,15 @@ import { join } from "node:path";
 import { createEmbedder, createStaticEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { loadStaticModel, resolveStaticWeights } from "../../src/core/embed/static.js";
-import { Recall, TUNABLES, activate, withTunables } from "../../src/core/recall/index.js";
+import {
+  Recall,
+  TUNABLES,
+  activate,
+  loadGateState,
+  loadSessionSemantic,
+  saveSessionSemantic,
+  withTunables,
+} from "../../src/core/recall/index.js";
 import { Store, indexTextOf } from "../../src/core/store/index.js";
 import { seedDemo } from "../demo/seed.js";
 
@@ -375,6 +397,109 @@ function runArm(store: Store, relevantIds: readonly Set<string>[], arm: Arm, vec
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// The per-turn (hook) path
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Turn 2's text: a continuation that names no topic, so anything it delivers came from the lag. */
+export const FOLLOW_UP = "go on — what else do we know about that?";
+
+export interface PerTurnResult {
+  readonly text: string;
+  readonly set: TrialQuery["set"];
+  /** A relevant memory was delivered on turn 1 (no lagged cue exists yet). */
+  readonly turn1: boolean;
+  /** …on turn 2, carried by the previous turn's lagged cue (or not at all). */
+  readonly turn2: boolean;
+  readonly items1: number;
+  readonly items2: number;
+}
+
+export interface PerTurnSummary {
+  readonly n: number;
+  /** Queries with a relevant memory delivered on turn 1 or turn 2. */
+  readonly withinTwo: number;
+  /** …of which only turn 2 delivered it — what the lag added. */
+  readonly byLag: number;
+  readonly itemsPerTurn: number;
+  /** Queries lexical-only delivered within two turns and this arm did not. */
+  readonly lost: number;
+}
+
+/**
+ * The hook's shape, two turns per query, through `Recall.recall` (the
+ * RECORDING half — per-session dedup and the one-turn lifetime of the lag row
+ * are live, exactly as in a session). The worker step is the two lines
+ * `Counterpart.noteSessionSemantic` runs: rank with `nearestTo(vec,
+ * SEMANTIC_TOP_M)` and `saveSessionSemantic` stamped with the served turn.
+ */
+function runPerTurnArm(
+  store: Store,
+  relevantIds: readonly Set<string>[],
+  arm: Arm,
+  vectors: readonly (number[] | null)[],
+): PerTurnResult[] {
+  const tunables = withTunables({ SEMANTIC_SEED_FLOOR: arm.floor, SEMANTIC_WEIGHT: arm.weight, BUDGET_MS: 600_000 });
+  const recall = new Recall({ store, owner: true, tunables });
+  const day = store.livedDay();
+  const out: PerTurnResult[] = [];
+  QUERIES.forEach((q, i) => {
+    const relevant = relevantIds[i] ?? new Set<string>();
+    const sessionId = `pt-${arm.name}-${arm.floor}-${arm.weight}-${i}`;
+    const t1 = recall.recall({ sessionId, text: q.text, owner: true, day }).decision;
+    const vector = vectors[i] ?? null;
+    if (vector !== null) {
+      // The worker, after the boundary: rank the exchange, stamp it for the next turn.
+      saveSessionSemantic(store, {
+        sessionId,
+        turn: loadGateState(store, sessionId).state.turn,
+        lastDay: day,
+        reason: "ok",
+        model: arm.name,
+        dim: vector.length,
+        hits: store.nearestTo(vector, tunables.SEMANTIC_TOP_M),
+      });
+    }
+    const lag = loadSessionSemantic(store, sessionId);
+    const t2 = recall.recall({
+      sessionId,
+      text: FOLLOW_UP,
+      owner: true,
+      day,
+      ...(lag.hits === null ? {} : { semanticHits: lag.hits }),
+      semanticSource: lag.source,
+    }).decision;
+    const d1 = [...t1.surfaced, ...t1.footnotes];
+    const d2 = [...t2.surfaced, ...t2.footnotes];
+    out.push({
+      text: q.text,
+      set: q.set,
+      turn1: d1.some((id) => relevant.has(id)),
+      turn2: d2.some((id) => relevant.has(id)),
+      items1: d1.length,
+      items2: d2.length,
+    });
+  });
+  return out;
+}
+
+export function summarizePerTurn(rows: readonly PerTurnResult[], lexical: readonly PerTurnResult[] | null): PerTurnSummary {
+  const n = rows.length;
+  return {
+    n,
+    withinTwo: rows.filter((r) => r.turn1 || r.turn2).length,
+    byLag: rows.filter((r) => !r.turn1 && r.turn2).length,
+    itemsPerTurn: n === 0 ? 0 : rows.reduce((a, r) => a + r.items1 + r.items2, 0) / (2 * n),
+    lost:
+      lexical === null
+        ? 0
+        : rows.filter((r, i) => {
+            const b = lexical[i];
+            return b !== undefined && (b.turn1 || b.turn2) && !(r.turn1 || r.turn2);
+          }).length,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // The run
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -407,6 +532,10 @@ export interface ArmReport {
   /** Queries (either set) this arm did worse on than lexical-only, this run. */
   readonly regressions: readonly string[];
   readonly rows: readonly QueryResult[];
+  /** The hook's path (section 4): paraphrase and lexical halves. */
+  readonly perTurnParaphrase: PerTurnSummary;
+  readonly perTurnLexical: PerTurnSummary;
+  readonly perTurnRows: readonly PerTurnResult[];
 }
 
 export interface ModelReport {
@@ -439,6 +568,8 @@ export interface AggregateArm {
   /** Mean regressions per run, and the most any run had. */
   readonly regressionsMean: number;
   readonly regressionsMax: number;
+  readonly perTurnParaphrase: PerTurnSummary;
+  readonly perTurnLexical: PerTurnSummary;
 }
 
 export interface TrialReport {
@@ -490,9 +621,23 @@ async function runOnce(
 
     const arms: ArmReport[] = [];
     const models: ModelReport[] = [];
-    const armOf = (name: string, identity: string, floor: number, weight: number, rows: QueryResult[], semantic: boolean): ArmReport => {
+    const armOf = (
+      name: string,
+      identity: string,
+      floor: number,
+      weight: number,
+      rows: QueryResult[],
+      semantic: boolean,
+      perTurn: PerTurnResult[],
+    ): ArmReport => {
       const lexRows = arms[0]?.rows ?? rows;
+      const lexTurns = arms[0]?.perTurnRows ?? null;
+      const para = (xs: readonly PerTurnResult[]): PerTurnResult[] => xs.filter((r) => r.set === "paraphrase");
+      const lex = (xs: readonly PerTurnResult[]): PerTurnResult[] => xs.filter((r) => r.set === "lexical");
       return {
+        perTurnParaphrase: summarizePerTurn(para(perTurn), lexTurns === null ? null : para(lexTurns)),
+        perTurnLexical: summarizePerTurn(lex(perTurn), lexTurns === null ? null : lex(lexTurns)),
+        perTurnRows: perTurn,
         name,
         identity,
         floor,
@@ -507,8 +652,10 @@ async function runOnce(
     };
 
     // ── lexical-only: no vector on the turn ──
-    const lexRows = runArm(bare, relevantIds, { name: "lexical-only", floor: TUNABLES.SEMANTIC_SEED_FLOOR, weight: TUNABLES.SEMANTIC_WEIGHT }, []);
-    arms.push(armOf("lexical-only", "—", TUNABLES.SEMANTIC_SEED_FLOOR, TUNABLES.SEMANTIC_WEIGHT, lexRows, false));
+    const lexArm: Arm = { name: "lexical-only", floor: TUNABLES.SEMANTIC_SEED_FLOOR, weight: TUNABLES.SEMANTIC_WEIGHT };
+    const lexRows = runArm(bare, relevantIds, lexArm, []);
+    const lexTurns = runPerTurnArm(bare, relevantIds, lexArm, []);
+    arms.push(armOf("lexical-only", "—", TUNABLES.SEMANTIC_SEED_FLOOR, TUNABLES.SEMANTIC_WEIGHT, lexRows, false, lexTurns));
     bare.close();
 
     // ── the static tables: the SAME store, reopened under each; the identity
@@ -520,7 +667,7 @@ async function runOnce(
         : [{ name: "static-retrieval-mrl-en-v1@256", dir: opts.retrieval, model: "static-retrieval-mrl-en-v1", dim: 256 }]),
     ];
     for (const t of tables) {
-      const model = loadStaticModel({ dir: t.dir, model: t.model, ...(t.dim === undefined ? {} : { dim: t.dim }) });
+      const model = loadStaticModel({ dir: t.dir, ...(t.dim === undefined ? {} : { dim: t.dim }) });
       const embedder = createStaticEmbedder(model);
       const store = Store.open({ dir, embed: embedder.embed });
       const refill = store.events("cache.embedder.refilled")[0]?.data;
@@ -537,7 +684,8 @@ async function runOnce(
       const vectors = QUERIES.map((q) => model.embed(q.text));
       for (const { floor, weight } of grid) {
         const rows = runArm(store, relevantIds, { name: t.name, floor, weight }, vectors);
-        arms.push(armOf(t.name, model.identity, floor, weight, rows, true));
+        const turns = runPerTurnArm(store, relevantIds, { name: t.name, floor, weight }, vectors);
+        arms.push(armOf(t.name, model.identity, floor, weight, rows, true, turns));
       }
       store.close();
     }
@@ -559,7 +707,8 @@ async function runOnce(
       const vectors = await Promise.all(QUERIES.map((q) => paid.vector(q.text)));
       for (const { floor, weight } of grid) {
         const rows = runArm(store, relevantIds, { name: "voyage", floor, weight }, vectors);
-        arms.push(armOf("voyage", paid.model, floor, weight, rows, true));
+        const turns = runPerTurnArm(store, relevantIds, { name: "voyage", floor, weight }, vectors);
+        arms.push(armOf("voyage", paid.model, floor, weight, rows, true, turns));
       }
       store.close();
       voyage = true;
@@ -581,6 +730,17 @@ function meanSummary(xs: readonly Summary[]): Summary {
     mrr: m((s) => s.mrr),
     deliveredHits: m((s) => s.deliveredHits),
     deliveredPerTurn: m((s) => s.deliveredPerTurn),
+  };
+}
+
+function meanPerTurn(xs: readonly PerTurnSummary[]): PerTurnSummary {
+  const m = (f: (s: PerTurnSummary) => number): number => xs.reduce((a, s) => a + f(s), 0) / Math.max(1, xs.length);
+  return {
+    n: xs[0]?.n ?? 0,
+    withinTwo: m((s) => s.withinTwo),
+    byLag: m((s) => s.byLag),
+    itemsPerTurn: m((s) => s.itemsPerTurn),
+    lost: m((s) => s.lost),
   };
 }
 
@@ -620,6 +780,8 @@ export async function runTrial(opts: TrialOptions): Promise<TrialReport> {
       paraDeliveredRange: [Math.min(...paraDel), Math.max(...paraDel)],
       regressionsMean: regs.reduce((s, x) => s + x, 0) / Math.max(1, regs.length),
       regressionsMax: Math.max(...regs),
+      perTurnParaphrase: meanPerTurn(same.map((x) => x.perTurnParaphrase)),
+      perTurnLexical: meanPerTurn(same.map((x) => x.perTurnLexical)),
     };
   });
   return {
@@ -655,7 +817,7 @@ export function renderTrial(report: TrialReport): string {
   }
   out.push("");
   out.push(
-    `**Through recall** — the activation ranking (\`recall.activate\`, no candidate cap; R@k = queries with a relevant memory in the top k, MRR over the first relevant) and the delivered set (\`Recall.build\`, the real gate). Paraphrase n=${lex?.paraphrase.n ?? 0}, lexical n=${lex?.lexical.n ?? 0}. floor = SEMANTIC_SEED_FLOOR (shipped ${report.shippedFloor}), weight = SEMANTIC_WEIGHT (shipped ${report.shippedWeight}) — bench parameters, neither changed in recall/. Regressions = queries (either set) ranked lower than lexical-only ranked them, or a delivery lexical-only made and this arm lost; mean per run (max).`,
+    `**Deliberate path (the MCP recall tool's shape: the question's own vector, in line)** — the activation ranking (\`recall.activate\`, no candidate cap; R@k = queries with a relevant memory in the top k, MRR over the first relevant) and the delivered set (\`Recall.build\`, the real gate). Paraphrase n=${lex?.paraphrase.n ?? 0}, lexical n=${lex?.lexical.n ?? 0}. floor = SEMANTIC_SEED_FLOOR (shipped ${report.shippedFloor}), weight = SEMANTIC_WEIGHT (shipped ${report.shippedWeight}) — bench parameters, neither changed in recall/. Regressions = queries (either set) ranked lower than lexical-only ranked them, or a delivery lexical-only made and this arm lost; mean per run (max).`,
   );
   out.push("");
   out.push("| arm | floor | weight | para R@1 | R@3 | R@5 | R@10 | MRR (range) | delivered (range) | items/turn | lex R@1 | R@3 | MRR | delivered | items/turn | regressions |");
@@ -668,6 +830,23 @@ export function renderTrial(report: TrialReport): string {
     const name = isLex ? "**lexical-only**" : shipped ? `**${a.name}** (shipped)` : a.name;
     out.push(
       `| ${name} | ${isLex ? "—" : a.floor} | ${isLex ? "—" : a.weight} | ${f1(p.r1)} | ${f1(p.r3)} | ${f1(p.r5)} | ${f1(p.r10)} | ${f3(p.mrr)} (${f3(a.paraMrrRange[0])}–${f3(a.paraMrrRange[1])}) | ${f1(p.deliveredHits)} (${a.paraDeliveredRange[0]}–${a.paraDeliveredRange[1]}) | ${f2(p.deliveredPerTurn)} | ${f1(l.r1)} | ${f1(l.r3)} | ${f3(l.mrr)} | ${f1(l.deliveredHits)} | ${f2(l.deliveredPerTurn)} | ${isLex ? "—" : `${f1(a.regressionsMean)} (${a.regressionsMax})`} |`,
+    );
+  }
+  out.push("");
+  out.push(
+    `**The per-turn (hook) path** — two turns per query through \`Recall.recall\`: turn 1 is the question (no lagged cue yet, as on any first turn), the worker ranks the question and stores it as the lagged cue, turn 2 is "${FOLLOW_UP}". within two = a relevant memory delivered on turn 1 or 2; by lag = delivered only on turn 2; lost = delivered within two turns by lexical-only and not by this arm. Means over ${report.runs} runs.`,
+  );
+  out.push("");
+  out.push("| arm | floor | weight | para within two | para by lag | para lost | lex within two | lex lost | items/turn (para) |");
+  out.push("|---|---|---|---|---|---|---|---|---|");
+  for (const a of report.aggregate) {
+    const isLex = a.name === "lexical-only";
+    const p = a.perTurnParaphrase;
+    const l = a.perTurnLexical;
+    const shipped = a.floor === report.shippedFloor && a.weight === report.shippedWeight;
+    const name = isLex ? "**lexical-only**" : shipped ? `**${a.name}** (shipped)` : a.name;
+    out.push(
+      `| ${name} | ${isLex ? "—" : a.floor} | ${isLex ? "—" : a.weight} | ${f1(p.withinTwo)}/${p.n} | ${f1(p.byLag)} | ${isLex ? "—" : f1(p.lost)} | ${f1(l.withinTwo)}/${l.n} | ${isLex ? "—" : f1(l.lost)} | ${f2(p.itemsPerTurn)} |`,
     );
   }
   out.push("");

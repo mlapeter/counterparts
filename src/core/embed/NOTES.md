@@ -63,3 +63,22 @@ config says `kind: "static"` pays ~20 ms (import + load) whether or not it embed
 ~2% of a cold hook and was left eager on purpose: lazy loading would move the "no weights
 here" refusal from the composition root to the first write, where nothing reports it.
 Revisit if a hook-latency measurement ever names it.
+
+## 2026-09-23, later — what the adversarial review changed here
+
+- **Identity from the bytes, not from a name** (MAJOR 5). The reviewer symlinked one table
+  into three directories and got three identities — and a store reset at every flip.
+  Now the name comes from the sha256 of both files (`KNOWN_TABLES`), and a declared
+  sha256 in the directory's `package.json` is verified. The full-file hash was chosen
+  over "header + first KB": it is 10 ms, and a retrained table can share its header and
+  its first row (the `[PAD]` row) with the old one.
+- **Load time, re-measured with the hash**: potion F32 **24.6–25.8 ms** (was 14.5 ms
+  without it), F16 25.5–27.8 ms; import ~6 ms; so ~31 ms per hook process that has
+  `kind: "static"`. F16 is now within 2 ms of F32 and half the size — still not
+  "clearly better", so F32 stays; the gap is worth re-measuring if the package's
+  30 MB ever matters.
+- **A table that will not load is an unavailable embedder, not null** (MAJOR 3): its
+  refusal code reaches the worker's durable backfill row, which is how a hook-process
+  refusal (whose `onEvent` goes nowhere) reaches doctor.
+- **Big-endian is a named refusal** (NIT 2).
+
