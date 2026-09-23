@@ -1326,3 +1326,50 @@ What the build settled, beyond the CONTRACT section:
   one with words still unread in another project (re-review MAJOR-A).
 - **Cost on the wake's path:** one `planRetention` pass per start whose allowance is not
   spent; measured and filed as a residual with its cheap fix (INTERFACE-GAPS §15).
+
+## 2026-09-23 — doctor's keyless lines (roadmap C3)
+
+- **An absent `embedder` block is the local table, ON** (coordinator's ruling,
+  2026-09-23) — unless the credentials FILE holds a Voyage key, which keeps a 0.2.0 setup
+  as it was. `config.ts#resolveEmbedder` / `withEmbedderDefault`, applied after the
+  credentials load by `bin/hook.ts#hostConfig`, `bin/runner.ts#runnerConfig`,
+  `mcp/bin/serve.ts#questionEmbedder` and the console; doctor re-resolves from its own
+  `config` + `credentials`. `loadConfig` stays pure — it never sees the credentials file.
+- **Only the credentials file the configuration NAMES counts** (review of #195, MINOR 3).
+  The console's `hostConfigFor` and `doctor` used to fall back to a sibling
+  `credentials.env` for a hand-written config with no `credentialsFile`; the hooks, the
+  worker and the server never read one (`config.ts`: "a file found by convention
+  never"), so the two disagreed about "a Voyage key is saved". Doctor now grades what
+  the hooks have. (`credentials set` still WRITES the sibling for such a config — a file
+  no hook reads; pre-existing, noted, not changed.)
+- **`tools/parallel/preflight.ts:215` reads the raw `embedder` block** and so does not
+  know the default (review of #195, NIT 10). The parallel-run meter is retired; left.
+- **The Claude Code line's fix with no `claude` on the PATH** (go-public Phase C walk):
+  `connect` registers the memory tools by running `claude mcp add`, so "Run: counterparts
+  connect" named the command that had just failed. The console now passes
+  `HostReading.claudeOnPath` (a PATH walk, never a spawn) and the exact `claude mcp add …`
+  line `connect` prints; with `claudeOnPath === false` the fix is that line. Null (no PATH
+  to search) keeps `connect`.
+- **`Recall by meaning` speaks of the local table only.** `OFF` is now only for an
+  explicit `{ "enabled": false }` (*switched off in the configuration…*) or a block-less
+  configuration beside a saved Voyage key (*not switched on: a Voyage key is saved here
+  and this configuration names no embedder…*); both say `Turn on: counterparts install
+  --force --embedder` (`doctor.ts#EMBEDDER_ON_COMMAND`). No line for a knob that is off
+  advises a Voyage key any more; a configuration that names
+  Voyage keeps its old amber for a missing key (frozen, not extended). The static green
+  line names where the weights came from in words (`the counterparts-model-potion
+  package`, `COUNTERPARTS_STATIC_WEIGHTS_DIR`), and with no worker row yet it checks for
+  the table FILE in what `resolveStaticWeights` found — a variable naming an empty folder
+  was green until the first worker row said `NO_WEIGHTS`.
+- **`Raw transcripts`** (`retentionFindings`, remember INTERFACE-GAPS §11): the policy
+  from `remember/`'s `RETENTION_MS` plus the configuration's `snapshots.keep`, then the
+  newest `remember.prune` row in sessions. Amber for `failed > 0`, or a
+  `STARTED`/`LATCH_HELD` row dated before today; green otherwise, including "not run yet".
+  Folds into `Background` while green (not a headline key).
+- **The Config line names the unreadable key** (`DoctorInput.configUnreadableKeys`, from
+  `LoadedConfig.unreadableKeys`; review of #190, MINOR 5): the console passes it; the hook
+  passes nothing (it refuses a bad configuration before it gets here).
+- **`Sweep` and `Crash write-up` were not touched.** On a keyless store that has lived,
+  the amber `Sweep … no-credential` and the `Crash write-up` line name the same command
+  (#188's report); C2 (#192) owns both lines and folds them with its `not-opted-in`
+  reason.

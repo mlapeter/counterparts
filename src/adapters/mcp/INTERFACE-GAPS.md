@@ -109,7 +109,16 @@ but dedup, so the blast radius is unchanged; the honest fix is also unchanged �
 key (or an explicitly session-free deliberate mode) is what would end the
 borrowing rather than narrowing it.
 
-## 7. `openServer` has no embedder socket — a memory noted through the tool gets no vector
+## 7. `openServer` has no embedder socket — a memory noted through the tool gets no vector — CLOSED 2026-09-23 (#190)
+
+**Closed by #190 (roadmap C1), option 1 below.** `OpenServerOptions` carries `embed?:
+Embedder` (a CORE type — no cross-adapter import), taken from the live embedder the entry
+point opened when not passed separately (`index.ts#embedOf`), and `bin/serve.ts` opens that
+embedder from the configuration it reads (`questionEmbedder` → `openEmbedder`). A memory
+noted through `note` or `session_end` gets its vector at write time in the server's own
+process — for the static tier with no key and no network, so the semantic channel is never
+dark waiting for the worker, which still backfills anything missing. The paid seat is wired
+the same way and is frozen (ROADMAP §"Amendments"). The text below is the gap as filed.
 
 The launch adapter now builds a Voyage client (`adapters/claude-code/embed-client.ts`)
 and passes both halves — the sync `Embedder` the store indexes with, and the live

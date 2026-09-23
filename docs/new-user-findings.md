@@ -218,10 +218,10 @@ Everyday
                 read at the start of every session
 
 Setup
-  install       First-time setup: your memory, Claude Code, your keys — safe to run again
+  install       First-time setup: your memory and Claude Code — safe to run again
   connect       Connect an AI to your memory (Claude Code today; more soon)
   disconnect    Disconnect an AI
-  credentials   Add or change your API keys (Anthropic, Voyage)
+  credentials   Add or change your API keys (optional upgrades)
   scope         Turn memory on or off for a directory
   uninstall     Remove Counterparts; keeps your memory unless you say otherwise
 
@@ -237,21 +237,30 @@ https://www.npmjs.com/package/counterparts
 
 **Doctor** (fresh store, both keys skipped, everything else fine)
 
-```
-counterparts doctor — 2026-09-22
+*Keyless round, 2026-09-23 (roadmap C3): recall by meaning is the local table, ON — written
+by a terminal install, and assumed for any configuration with no `embedder` block unless a
+Voyage key is saved — so on a fresh install that line reads green; and since #192
+`Crash write-up` is green `next session` with no key (the next session in that project writes
+an ended session up; the API is an opt-in), its old OFF line retired. `OFF Recall by meaning` is now only for a
+configuration that says `{ "enabled": false }` (or a 0.2.0 one beside a saved Voyage key):
+`switched off in the configuration. Recall works on words; the local table lets it match
+meaning too, and nothing leaves this machine.  Turn on: counterparts install --force --embedder`.
+That command turns any block that is off ON as the local table — never Voyage, whatever
+kind the block records; only a Voyage setup that is already ON is kept as Voyage.*
 
-OFF    Recall by meaning   optional. Recall works on words; a Voyage key lets it match
-                           meaning too.  Turn on: counterparts credentials set VOYAGE_API_KEY
-OFF    Crash write-up      optional. An Anthropic key lets a session that ended too soon
-                           get written up anyway.  Turn on: counterparts credentials set ANTHROPIC_API_KEY
+```
+counterparts doctor — 2026-09-23
 
 GREEN  Memory              ~/.counterparts/store — 32 memories, opens fine
 GREEN  Claude Code         connected: 5 hooks and the memory tools
+GREEN  Recall by meaning   on — a local table (potion-base-8M, weights from the
+                           counterparts-model-potion package); nothing leaves this machine
+GREEN  Crash write-up      next session
 GREEN  Background          the nightly worker ran today; nothing failed
-GREEN  Snapshots           last 2026-09-22, 2 kept
+GREEN  Snapshots           last 2026-09-23, 2 kept
 GREEN  Self page           not written yet — still forming
 
-0 red, 0 amber, 2 off, 5 green.   Every line: counterparts doctor --all
+0 red, 0 amber, 0 off, 7 green.   Every line: counterparts doctor --all
 ```
 
 **`uninstall --delete-memories`**
@@ -301,6 +310,15 @@ To remove the program too: bun remove -g counterparts
 
 **`install`** (first time, on a terminal)
 
+*Keyless round, 2026-09-23 (roadmap C3): the two key questions are gone — both keys are
+upgrades, added with `counterparts credentials set <NAME>` — and recall by meaning is switched
+on with the local table, which sends nothing anywhere. Where the key questions were, one line
+now says so, in the owner's words (his answer to the review's NIT 8, 2026-09-23). Nothing else
+on the screen changed. When the table's weights cannot be found (a from-source checkout, a
+dependency that did not install), a warning and its fix print there instead, and the last
+line stops promising all green. The top-level lines of this block are held to the rendered
+screen, in order, by `test/wire.test.ts`.*
+
 ```
 counterparts install
 
@@ -310,11 +328,7 @@ Nice to meet you, Mike.
 Connecting Claude Code…
   ok  connected — 5 hooks added to ~/.claude/settings.json (backup kept), memory tools registered
 
-Add an Anthropic key? Optional — lets a session that ended too soon get written up anyway. [y/N] y
-  Get one at https://console.anthropic.com/settings/keys
-  Paste it here (hidden):
-  ok  saved
-Add a Voyage key? Optional — lets recall match by meaning, not just words. [y/N] n
+Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.
 
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.

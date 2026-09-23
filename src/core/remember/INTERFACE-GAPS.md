@@ -197,7 +197,13 @@ forgetting, the strike is a mechanism for destroying on demand, and building the
 first inside the second would have made a removal PR into a change of what the
 system keeps.
 
-## 10. The `remember.prune` row is not in the dashboard's vocabulary, nor under a mechanism
+## 10. The `remember.prune` row is not in the dashboard's vocabulary, nor under a mechanism — CLOSED 2026-09-23 (C3)
+
+**Closed** by the keyless-surfaces PR (roadmap C3): `dashboard/registries.ts` (the
+`DurableEventName` union and its gloss), `web/flow.ts` (`EVENT_NODE` → `spans`),
+`web/narrate.ts` (a narrator: a finished pass calm, counting sessions; a failed deletion
+or a `LATCH_HELD` row amber; `STARTED` calm), `REF_KIND` `"none"`, and a `retention` row in
+`fired.ts`'s `MECHANISMS`. The text below is the gap as filed.
 
 **Owner:** `adapters/dashboard/` and `adapters/fired.ts` — NOT this module. Filed 2026-09-23.
 **Needed:** the retention job writes one durable `remember.prune` row per date
@@ -214,7 +220,13 @@ than wrong. To register it: `dashboard/registries.ts` (`DurableEventName` union 
 `store.appendEvent` directly, not `noteAdapterEvent`, because that method's name list is
 `counterpart.ts`'s.
 
-## 11. Doctor does not show it yet
+## 11. Doctor does not show it yet — CLOSED 2026-09-23 (C3)
+
+**Closed** by the keyless-surfaces PR: `doctor.ts#retentionFindings`, the `Raw transcripts`
+line, worded as drafted below; the week comes from `TUNABLES.RETENTION_MS` and the
+snapshot count from the configuration's `snapshots.keep` (so "up to 21" is `7 + 14` on a
+default install and moves with `keep`). Green folds into `Background`; amber prints in
+full. The text below is the gap as filed.
 
 **Owner:** `adapters/claude-code/doctor.ts`. Filed 2026-09-23.
 **Have:** `lastRetentionRun(store)` (exported from `remember/index.ts`) returns the newest
@@ -228,7 +240,10 @@ written up" means kept indefinitely, and the line should not imply otherwise. (C
 2026-09-23 with its own line, `Crash write-up`, which counts the sessions awaiting one
 from the plan; "kept until written up" is now true for every project that is reopened.)
 
-## 12. `export` still says nothing about `spans/`
+## 12. `export` still says nothing about `spans/` — CLOSED 2026-09-23 (C3)
+
+**Closed** by the keyless-surfaces PR: `cli/commands.ts`'s export prints the line below,
+verbatim, after `Kind:`. The text below is the gap as filed.
 
 **Owner:** `adapters/cli/` (LAUNCH-STATUS §I3). Filed again 2026-09-23 with the words
 retention makes true: after the export's `Kind:` line, one line —

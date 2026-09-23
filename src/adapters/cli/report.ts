@@ -78,7 +78,18 @@ function painter(p: Paint, grade: GradeWord): (s: string) => string {
  * (`doctor.ts#memoryDetail`); red or amber it prints, like every other
  * non-green, with its own code and its own repair.
  */
-const HEADLINE: readonly string[] = ["store", "host", "embedder", "crash-writeup", "snapshot", "self-page"];
+//
+// The crash write-up's line is #192's `crash-write-up` (`doctor.ts#
+// crashWriteUpFindings`). The older `crash-writeup` finding is retired (review of
+// #195, MINOR 6), so it is not listed.
+const HEADLINE: readonly string[] = [
+  "store",
+  "host",
+  "embedder",
+  "crash-write-up",
+  "snapshot",
+  "self-page",
+];
 
 /**
  * The order the GREEN rows read in, once they are folded — not worst-first (they
@@ -91,7 +102,19 @@ const HEADLINE: readonly string[] = ["store", "host", "embedder", "crash-writeup
  *  so it is spelled once, here, and collides with none of them. */
 const BACKGROUND_KEY = "background";
 
-const GREEN_ORDER: readonly string[] = ["store", "host", BACKGROUND_KEY, "snapshot", "self-page"];
+// The two optional features read right after the connection when they are ON
+// (roadmap C3): a fresh terminal install has recall by meaning switched on, so
+// its green line belongs beside the two things it depends on, not after the
+// self page.
+const GREEN_ORDER: readonly string[] = [
+  "store",
+  "host",
+  "embedder",
+  "crash-write-up",
+  BACKGROUND_KEY,
+  "snapshot",
+  "self-page",
+];
 
 export interface DoctorLayout {
   /** `--all`: print every line, folding nothing. */

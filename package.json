@@ -7,7 +7,7 @@
     "type": "git",
     "url": "git+https://github.com/mlapeter/counterparts.git"
   },
-  "homepage": "https://github.com/mlapeter/counterparts#readme",
+  "homepage": "https://counterparts.ai",
   "bugs": {
     "url": "https://github.com/mlapeter/counterparts/issues"
   },
@@ -51,6 +51,9 @@
     "README.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "counterparts-model-potion": "^0.1.0"
+  },
   "devDependencies": {
     "@types/bun": "^1.1.0",
     "playwright": "1.62.1",

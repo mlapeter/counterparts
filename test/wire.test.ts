@@ -1061,15 +1061,30 @@ describe("install, at a terminal", () => {
     };
   }
 
+  /**
+   * THE LOCAL TABLE, WHERE THE HOOKS WILL LOOK — pinned for every test here.
+   * `install` checks for it on this arm (`commands.ts`, the "no keys" step),
+   * and without the variable the answer would depend on whether the weights
+   * package happens to be installed in this checkout's `node_modules`. A folder
+   * with the table FILE in it is "found"; an empty folder is "not found".
+   */
+  function tableEnv(present: boolean): Record<string, string | undefined> {
+    const dir = join(home, present ? "table" : "no-table");
+    mkdirSync(dir, { recursive: true });
+    if (present) writeFileSync(join(dir, "model.safetensors"), "");
+    return { ...ENV, COUNTERPARTS_STATIC_WEIGHTS_DIR: dir };
+  }
+
   async function install(
     argv: readonly string[],
     answers: readonly string[],
     spawner: Spawner = spawnerThat(() => OK).spawner,
+    env: Record<string, string | undefined> = tableEnv(true),
   ): Promise<Console_> {
     const c = terminal(answers);
     const code = await run(["install", "--config", configPath(), ...argv], {
       io: c.io,
-      env: ENV,
+      env,
       home,
       spawner,
       processes: noProcesses,
@@ -1131,17 +1146,131 @@ describe("install, at a terminal", () => {
     expect(said).toContain("Done. Your memory lives at");
   });
 
-  test("the two keys are asked one at a time, y/N first, and Enter is no", async () => {
+  /**
+   * KEYLESS BY DEFAULT (roadmap C3, 2026-09-23). The name is the ONLY question:
+   * no key is asked about — both are upgrades, added with `credentials set` —
+   * and recall by meaning is switched on with the local table, which sends
+   * nothing anywhere, so there is nothing to consent to.
+   */
+  /**
+   * THE INSTALL SCREEN BLOCK IN docs/new-user-findings.md IS HELD TO THE SCREEN
+   * (the owner's answer to the review's NIT 8, 2026-09-23). Its TOP-LEVEL lines
+   * — everything but the indented `ok` receipt, whose exact spacing belongs to
+   * the terminal — must appear in the rendered transcript, as whole lines, in
+   * the same order, with the prompt and its answer on one line as a terminal
+   * shows them. A change to that block, or to the screen, fails here.
+   */
+  test("the doc's install screen, line by line, in order — including the recall-by-meaning line", async () => {
+    const DOC = "docs/new-user-findings.md";
+    const doc = readFileSync(join(import.meta.dir, "..", DOC), "utf8");
+    const anchor = "**`install`** (first time, on a terminal)";
+    const at = doc.indexOf(anchor);
+    expect(at, `${DOC} has no install screen block`).toBeGreaterThan(0);
+    const open = doc.indexOf("```\n", at) + 4;
+    const block = doc.slice(open, doc.indexOf("\n```", open)).split("\n");
+    const topLevel = block.filter((l) => l.length > 0 && !l.startsWith(" "));
+    expect(topLevel).toContain("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+
+    const transcript: string[] = [];
+    const answers = ["Mike"];
+    const io: Io = {
+      out: (l) => transcript.push(l),
+      err: (l) => transcript.push(l),
+      prompt: async (question: string): Promise<string> => {
+        const answer = answers.shift() ?? "";
+        transcript.push(`${question}${answer}`);
+        return answer;
+      },
+      promptHidden: async (): Promise<string> => "",
+      tty: { stdin: true, stdout: true, columns: 200 },
+    };
+    const code = await run(["install", "--config", configPath()], {
+      io,
+      env: { ...tableEnv(true), NO_COLOR: "1" },
+      home,
+      spawner: spawnerThat(() => OK).spawner,
+      processes: noProcesses,
+    });
+    expect(code).toBe(EXIT.ok);
+    let from = 0;
+    for (const line of topLevel) {
+      const found = transcript.indexOf(line, from);
+      expect(found, `"${line}" is not on the screen after line ${String(from)}:\n${transcript.join("\n")}`).toBeGreaterThanOrEqual(0);
+      from = found + 1;
+    }
+  });
+
+  test("the name is the only question: no key is asked about, and recall by meaning is on (static)", async () => {
     const c = await install([], ["Ada"], spawnerThat(() => OK).spawner);
+    expect(c.asked).toHaveLength(1);
     const asked = text(c.asked);
-    expect(asked).toContain("Add an Anthropic key?");
-    expect(asked).toContain("[y/N]");
-    expect(asked).toContain("Add a Voyage key?");
-    // Nothing was pasted, so nothing was written — and that is not an error.
-    expect(existsSync(join(home, ".counterparts", "credentials.env"))).toBe(true);
-    expect(readFileSync(join(home, ".counterparts", "credentials.env"), "utf8")).not.toContain(
-      "sk-ant-",
-    );
+    expect(asked).not.toContain("Anthropic");
+    expect(asked).not.toContain("Voyage");
+    expect(asked).not.toContain("key");
+    const said = text(c.out);
+    expect(said).not.toContain("Voyage");
+    expect(said).toContain("it should be all green");
+    // WHAT WAS SWITCHED ON IS SAID (the owner, NIT 8), before `Done.`.
+    const recall = c.out.indexOf("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+    expect(recall).toBeGreaterThanOrEqual(0);
+    expect(recall).toBeLessThan(c.out.findIndex((l) => l.startsWith("Done.")));
+    const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
+    // The template is still written, 0600, holding no key.
+    const creds = join(home, ".counterparts", "credentials.env");
+    expect(existsSync(creds)).toBe(true);
+    expect(readFileSync(creds, "utf8")).not.toMatch(/^[A-Z_]+=/m);
+  });
+
+  test("--no-embedder at a terminal leaves recall by meaning off, and still asks no key", async () => {
+    const c = await install(["--no-embedder"], ["Ada"], spawnerThat(() => OK).spawner);
+    expect(c.asked).toHaveLength(1);
+    const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(body["embedder"]).toEqual({ enabled: false, kind: "static" });
+  });
+
+  /**
+   * THE TABLE NOT WHERE THE HOOKS WILL LOOK: said once, with the fix, and the
+   * last line stops promising all green (review M1's rule — a promise needs
+   * every half it depends on).
+   */
+  test("a table that cannot be found is WARNED about, with the fix, and 'all green' is not promised", async () => {
+    const c = await install([], ["Ada"], spawnerThat(() => OK).spawner, tableEnv(false));
+    const said = text([...c.out, ...c.err]);
+    expect(said).toContain("its table was not found");
+    // Not "on": the line is said only when it is true.
+    expect(said).not.toContain("Recall by meaning: on.");
+    expect(said).toContain("bun add -g counterparts-model-potion");
+    expect(said).not.toContain("it should be all green");
+    expect(said).toContain("everything but recall by meaning should be green");
+    // The configuration still asks for it: the fix is the table, not the knob.
+    const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  /**
+   * A RE-RUN KEEPS THE FILE IT FINDS (install rule 2): a 0.2.0 configuration
+   * with no `embedder` block is not rewritten by a terminal re-run. It does not
+   * need to be: an absent block reads as the local table at runtime
+   * (`config.ts#resolveEmbedder`).
+   */
+  test("a re-run over a configuration with no embedder block leaves it exactly as it was", async () => {
+    mkdirSync(dirname(configPath()), { recursive: true });
+    await install(["--no-embedder"], ["Ada"], spawnerThat(() => OK).spawner);
+    const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    delete body["embedder"];
+    writeFileSync(configPath(), `${JSON.stringify(body, null, 2)}\n`);
+    const before = readFileSync(configPath(), "utf8");
+    const again = await install([], [], spawnerThat(() => OK).spawner);
+    expect(again.asked).toEqual([]);
+    expect(readFileSync(configPath(), "utf8")).toBe(before);
+    // …and a flag on that re-run is not silently dropped: it says it was not
+    // used, and names the command that would use it (the `--name` rule).
+    const flagged = await install(["--embedder"], [], spawnerThat(() => OK).spawner);
+    expect(readFileSync(configPath(), "utf8")).toBe(before);
+    const said = text([...flagged.out, ...flagged.err]).replace(/\s+/g, " ");
+    expect(said).toContain("--embedder was not used");
+    expect(said).toContain("install --force --embedder");
   });
 
   test("an empty name goes on without a core, and says how to add one", async () => {
@@ -1236,13 +1365,9 @@ describe("install, at a terminal", () => {
     expect(said).not.toContain("Restart Claude Code");
   });
 
-  test("--name and --yes ask nothing but the two optional keys", async () => {
+  test("--name and --yes ask nothing at all — no key questions are left to ask", async () => {
     const c = await install(["--yes", "--name", "Ada"], [], spawnerThat(() => OK).spawner);
-    expect(text(c.asked)).not.toContain("call you");
-    expect(text(c.asked)).not.toContain("Wire Claude Code now?");
-    // The keys are the only questions left, and they are always asked: a flag
-    // cannot answer for somebody about a secret.
-    expect(c.asked).toHaveLength(2);
+    expect(c.asked).toEqual([]);
     expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
   });
 
@@ -1573,12 +1698,12 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
   });
 
   /**
-   * THE SECOND PROMPT IS NOW A KEY QUESTION — the wiring is no longer asked
-   * about (item 9). What the abort must still do is report from the
-   * FILESYSTEM: the store is there, the host IS connected, and the exit is
-   * non-zero so a `&&` chain does not read this as a finished install.
+   * THERE IS NO SECOND PROMPT ANY MORE. It was a key question until 2026-09-23
+   * (roadmap C3: install asks about neither key), and before that the wiring
+   * question (item 9). A console that would abort at a second question is
+   * never asked one: the install finishes, and exits 0.
    */
-  test("at the first KEY question: what exists is named, and the exit is non-zero", async () => {
+  test("after the name, nothing else is asked — a second prompt that would abort is never reached", async () => {
     const c = aborting(1);
     const code = await run(["install", "--config", configPath()], {
       io: c.io,
@@ -1587,11 +1712,9 @@ describe("m4 — a cancelled prompt exits non-zero and says what exists", () => 
       spawner: spawnerThat(() => OK).spawner,
       processes: noProcesses,
     });
-    expect(code).not.toBe(EXIT.ok);
-    const said = text(c.out);
-    expect(said).toContain("stopped; nothing else was changed");
-    expect(said).toContain("Your memory is at");
-    expect(said).toContain("No key was written");
+    expect(code).toBe(EXIT.ok);
+    expect(c.asked).toHaveLength(1);
+    expect(text(c.out)).toContain("Done. Your memory lives at");
     expect(existsSync(join(home, ".counterparts", "store"))).toBe(true);
   });
 

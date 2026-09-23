@@ -54,7 +54,8 @@ export const DEFAULT_STORE_DIR = "store";
 // than retyped here — a template that named a third variable, or misspelled one
 // of these, would be a file the loader silently ignores and counts. The same
 // direction `mcp/bin/serve.ts` already takes for the same reason.
-import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, EMBEDDER_KINDS } from "../claude-code/config.js";
+import type { EmbedderKind } from "../claude-code/config.js";
 import { loadCredentials } from "../claude-code/credentials.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
 // `preRowsMarkersIn` reads FILENAMES and opens nothing, which is the only
@@ -315,7 +316,13 @@ export interface ConfigInput {
   readonly layout: InstallLayout;
   readonly budgetBytes?: number;
   readonly name?: string;
-  readonly embedder?: boolean;
+  /**
+   * The embedder block to write, exactly as `resolveEmbedderBlock` decided it
+   * — absent when nothing on the command line (or the terminal arm's default)
+   * said anything about it, which writes no block and leaves any carried one
+   * standing.
+   */
+  readonly embedder?: EmbedderBlock;
   /**
    * Keys carried forward from a configuration this write is REPLACING, and
    * only ones the command line did not supply (`commands.ts#carryForward`).
@@ -350,10 +357,95 @@ export function configObject(input: ConfigInput): Record<string, unknown> {
   // there starts being one.
   if (input.budgetBytes !== undefined) out["injectionBudgetBytes"] = input.budgetBytes;
   if (input.name !== undefined && input.name.length > 0) out["identity"] = { name: input.name };
-  // The egress knob. Absent means absent: no client is built and no socket
-  // opens, whatever a key in the environment says.
-  if (input.embedder === true) out["embedder"] = { enabled: true };
+  // The embedder knob, only when something decided it. Absent means absent: no
+  // embedder is built, whatever a key in the environment says.
+  if (input.embedder !== undefined) out["embedder"] = { ...input.embedder };
   return out;
+}
+
+/** The `embedder` block `install` writes: `{ enabled, kind? }`, the shape
+ *  `claude-code/config.ts#loadConfig` reads strictly. */
+export interface EmbedderBlock {
+  readonly enabled: boolean;
+  readonly kind?: EmbedderKind;
+}
+
+/**
+ * WHICH `embedder` BLOCK AN INSTALL WRITES (roadmap C3; review of #190, MINOR 4;
+ * review of #195, MAJOR 1).
+ *
+ * Static is the primary tier and Voyage is frozen (ROADMAP §"Amendments",
+ * 2026-09-23): nothing here ever switches Voyage ON. A configuration where it
+ * is already on is somebody's paid arrangement, and `--force` is consent to
+ * rewrite a file, not to change which embedder it names — but a Voyage block
+ * that is OFF is not an arrangement anybody is running, and turning it on is
+ * a new egress, so it gets the local table. In full:
+ *
+ * **Turning it ON** (`--embedder`, or the terminal arm's default):
+ *   1. The replaced block was ON with `kind: "voyage"` → kept, `{ enabled: true,
+ *      kind: "voyage" }`. It is already sending; nothing is resurrected.
+ *   2. The replaced block was ON with NO kind, beside a saved Voyage key → kept
+ *      kind-less, `{ enabled: true }` — a running 0.2.0 Voyage setup; absent
+ *      `kind` is how it says so.
+ *   3. Everything else → `{ enabled: true, kind: "static" }`: a new install, a
+ *      configuration with no block, a static block, and **any block that was
+ *      OFF, whatever kind it records** — `{ enabled: false }` and
+ *      `{ enabled: false, kind: "voyage" }` both come back ON as the local
+ *      table, which is what doctor's `Turn on:` line promises. (Also a kind-less
+ *      ON block with no Voyage key, which could never have embedded anything.)
+ *
+ * **Turning it OFF** (`--no-embedder`): the kind the replaced block records is
+ * kept as recorded — `{ enabled: false, kind: "static" }`, `{ enabled: false,
+ * kind: "voyage" }`, or kind-less `{ enabled: false }` for a 0.2.0 Voyage block
+ * — and with no block at all, `{ enabled: false, kind: "static" }`. Turning it
+ * back on later is an OFF block going ON, so rule 3 makes it the local table.
+ *
+ * `#190 MINOR 4` is rule 3's static case: `install --force --embedder` over a
+ * static configuration used to write `{ enabled: true }`, which reads as Voyage.
+ *
+ * `enabled` comes from the caller; `undefined` means nothing decided it, and
+ * the result is then `undefined` too — no block is written and the carried one
+ * stands. It reads the old file with `JSON.parse`, like
+ * `commands.ts#carryForward`: what is wanted is what the file SAID.
+ */
+export function resolveEmbedderBlock(input: {
+  readonly enabled: boolean | undefined;
+  /** The configuration being replaced, if any — read, never written. */
+  readonly configPath: string;
+  /** Whether that configuration's credentials file holds `VOYAGE_API_KEY`. */
+  readonly voyageKeySaved: boolean;
+}): EmbedderBlock | undefined {
+  if (input.enabled === undefined) return undefined;
+  const was = embedderBlockIn(input.configPath);
+  const recorded = was?.["kind"];
+  const oldKind =
+    typeof recorded === "string" && (EMBEDDER_KINDS as readonly string[]).includes(recorded)
+      ? (recorded as EmbedderKind)
+      : undefined;
+  if (!input.enabled) {
+    if (was === null) return { enabled: false, kind: "static" };
+    return oldKind === undefined ? { enabled: false } : { enabled: false, kind: oldKind };
+  }
+  const wasOn = was !== null && was["enabled"] === true;
+  if (wasOn && oldKind === "voyage") return { enabled: true, kind: "voyage" };
+  if (wasOn && recorded === undefined && input.voyageKeySaved) return { enabled: true };
+  return { enabled: true, kind: "static" };
+}
+
+/** The old file's `embedder` object, or null when it has none (or none that
+ *  reads as an object). Never throws. */
+function embedderBlockIn(configPath: string): Record<string, unknown> | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch {
+    return null;
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const block = (raw as Record<string, unknown>)["embedder"];
+  return block !== null && typeof block === "object" && !Array.isArray(block)
+    ? (block as Record<string, unknown>)
+    : null;
 }
 
 /**
@@ -389,17 +481,26 @@ export function credentialsHeld(path: string): string[] {
 
 /** The template written into a fresh `credentials.env`. Names, never values. */
 export function credentialsTemplate(): string {
+  // BOTH KEYS ARE UPGRADES (roadmap C, 2026-09-23): nothing needs either one.
+  // Recall by meaning runs on a local table with no key, and a session that
+  // ended before it was written up is written up by the next session in that
+  // project. The continuation lines keep the `#` + four-or-more-spaces shape,
+  // because `keys.ts#writeCredential` places a key AFTER its placeholder's
+  // indented block by exactly that pattern.
   return [
     "# Counterparts reads exactly two names from this file, and only to fill a",
-    "# gap: a value already exported in the environment always wins.",
+    "# gap: a value already exported in the environment always wins. Neither",
+    "# is needed — both are optional upgrades.",
     "#",
-    `# ${API_KEY_ENV}=...   the crash-recovery sweep's one model call.`,
-    "#                          Without it the worker still runs the day — clock,",
-    "#                          flush, cycle, briefing — and SKIPS the sweep, so a",
-    "#                          crashed session's spans stay uninterpreted.",
-    `# ${EMBED_KEY_ENV}=...      embeddings. Without it (or without`,
-    '#                          "embedder": { "enabled": true } in',
-    "#                          claude-code.json) recall is lexical-only.",
+    `# ${API_KEY_ENV}=...   lets the worker write up a session that ended`,
+    "#                          before it was written up at once, instead of",
+    "#                          waiting for the next session in that project.",
+    "#                          It sends that conversation to Anthropic, and is",
+    `#                          used only after \`counterparts credentials set`,
+    `#                          ${API_KEY_ENV}\` asks and you say yes.`,
+    `# ${EMBED_KEY_ENV}=...      deprecated. Used only by a configuration that`,
+    "#                          already names Voyage; recall by meaning runs on",
+    "#                          a local table by default, with no key.",
     "#",
     "# Anything else in this file is ignored and counted. Keep it 0600.",
     "",

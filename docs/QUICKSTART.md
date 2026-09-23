@@ -21,13 +21,15 @@ counterparts
 ```
 
 With nothing set up yet, this offers to set it up. `counterparts install` does the same
-thing and is safe to run again. It asks three things, and you can skip any of them:
+thing and is safe to run again. It asks two things, and you can skip either of them:
 
 - **Your name**, so the memory knows what to call you.
 - **Whether to connect Claude Code.** This adds five hooks to `~/.claude/settings.json`
   (it keeps a backup first) and registers the memory tools. Hooks from other tools are
   left alone.
-- **Two optional API keys.** See [Keys](#keys) below. Skipping both is fine.
+
+It doesn't ask for API keys. Search by meaning is turned on for you and runs on your
+machine; keys are optional upgrades (see [Keys](#keys) below).
 
 Your memory lives in `~/.counterparts/`.
 
@@ -35,7 +37,13 @@ To set it up from a script, with no questions:
 
 ```
 counterparts install --budget 9000 --name "Your Name"
+counterparts connect
 ```
+
+A script setup doesn't change Claude Code's settings (it prints the hooks instead);
+`counterparts connect` is the step that does. Keep `--budget 9000`: only the questions
+fill in that size limit for you. Search by meaning is on for a script setup too; add
+`--no-embedder` to leave it off.
 
 ## Check it
 
@@ -55,11 +63,13 @@ the memory tools after a restart.
 ## Keys
 
 Counterparts works without API keys, and nothing leaves your machine unless you add one.
+Search by meaning is built in: a small model that ships with the package runs on your
+machine.
 
 | key | what it adds | without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | If a session ends before the AI writes it up (a crash, a closed window), a model writes it up from the transcript instead. | That session isn't written up. |
-| `VOYAGE_API_KEY` | Search by meaning, not just by words. | Search matches words only. |
+| `ANTHROPIC_API_KEY` | If a session ends before the AI writes it up (a crash, a closed window), a model writes it up from the transcript right away. That sends the conversation to Anthropic, so after you add the key it asks before turning this on. | The next session you start in that project writes it up instead. |
+| `VOYAGE_API_KEY` | Deprecated. Used only if your setup already uses Voyage for search. | Search by meaning runs on your machine. |
 
 Add or change one at any time:
 
@@ -111,6 +121,15 @@ bun add -g counterparts@latest
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
+If you set it up before search by meaning was built in, it turns on by itself after the
+upgrade. (If you saved a Voyage key back then, it stays off; `counterparts doctor` says so.)
+To turn it on after switching it off, or beside a saved Voyage key (your name and other
+settings are kept):
+
+```
+counterparts install --force --embedder
+```
+
 ## Start over
 
 To set your memory aside and start with a blank one, close every Claude Code session and
@@ -135,6 +154,9 @@ happens to the memory:
 
 - `--park` renames `~/.counterparts` aside. `counterparts install` offers to bring it back.
 - `--delete-memories` deletes it, after asking you to type `DELETE MEMORIES`.
+
+Both show your memory's size first. Part of that can be a database log that shrinks on its
+own; nothing is lost when it does.
 
 To disconnect Claude Code without uninstalling, run `counterparts disconnect`.
 `counterparts connect` reconnects it.

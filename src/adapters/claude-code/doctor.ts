@@ -89,10 +89,23 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, pageWriterMode } from "./config.js";
-import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
+import {
+  API_KEY_ENV,
+  EMBED_KEY_ENV,
+  TUNABLES,
+  crashWriteUpMode,
+  embedderKind,
+  pageWriterMode,
+  resolveEmbedder,
+  withEmbedderDefault,
+} from "./config.js";
+import type { EmbedderSource } from "./config.js";
+import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
-import { SpanBuffer } from "../../core/remember/index.js";
+// Retention's own reading and its own week, so the Raw transcripts line cannot
+// promise a different number from the job that does the deleting. READ-ONLY:
+// `remember/index.ts` re-exports the plan and the readers, never the deleter.
+import { SpanBuffer, TUNABLES as REMEMBER_TUNABLES, lastRetentionRun } from "../../core/remember/index.js";
 import {
   awaitingWriteUp,
   progressKey,
@@ -186,6 +199,14 @@ export interface DoctorInput {
    * a configuration then says so instead of grading a file nobody read.
    */
   readonly configReason: "loaded" | "absent" | "unreadable" | "not-read" | null;
+  /**
+   * The keys `loadConfig` named when it could not read the file
+   * (`LoadedConfig.unreadableKeys` — today `embedder`, `embedder.enabled`,
+   * `embedder.kind`). Printed on the Config line so a person can fix the one
+   * key without reading the loader (review of #190, MINOR 5). Absent: the
+   * reader could not name one, or the caller did not pass it.
+   */
+  readonly configUnreadableKeys?: readonly string[];
   readonly config: AdapterConfig;
   /** The store this reading actually read. */
   readonly dir: string;
@@ -772,6 +793,22 @@ function budgetTruncatedPhases(p: Record<string, unknown>): string[] {
   return out;
 }
 
+/** ` (embedder.kind is not one it knows)`-shaped: the keys the loader named, or
+ *  nothing when it named none. */
+function unreadableClause(keys: readonly string[] | undefined): string {
+  if (keys === undefined || keys.length === 0) return "";
+  const known = keys.map((k) =>
+    k === "embedder.kind"
+      ? 'embedder.kind — it must be "static" or "voyage"'
+      : k === "embedder.enabled"
+        ? "embedder.enabled — it must be true or false"
+        : k === "embedder"
+          ? "embedder — it must be an object"
+          : k,
+  );
+  return ` (${known.join("; ")})`;
+}
+
 /** The config file itself: the one the hooks read, and whether it was readable. */
 function configFindings(input: DoctorInput): Finding[] {
   const out: Finding[] = [];
@@ -815,11 +852,17 @@ function configFindings(input: DoctorInput): Finding[] {
         "config",
         "red",
         "Config",
-        `${input.configPath} — ${reason === "absent" ? "no such file" : "unreadable, so every entry point stands down to observer"}`,
+        `${input.configPath} — ${reason === "absent" ? "no such file" : `unreadable${unreadableClause(input.configUnreadableKeys)}, so every entry point stands down to observer`}`,
         reason === "absent"
           ? "Run: counterparts install (or point --config at the file you meant)."
           : "Fix the JSON, or restore it from claude-code.json.bak beside it.",
-        { path: input.configPath, reason },
+        {
+          path: input.configPath,
+          reason,
+          ...(reason === "unreadable" && (input.configUnreadableKeys ?? []).length > 0
+            ? { keys: (input.configUnreadableKeys ?? []).join(",") }
+            : {}),
+        },
       ),
     );
   } else {
@@ -945,12 +988,18 @@ function memoryDetail(input: DoctorInput, n: number | null): string {
  *     has stopped. Amber, in the words that line has always used — never `OFF`,
  *     which claims nobody ever turned it on.
  */
-function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
+function embedderFindings(input: DoctorInput, history: KeyHistory, source: EmbedderSource): Finding[] {
   const enabled = input.config.embedder?.enabled === true;
   const present = [...input.credentials.loaded, ...input.credentials.skippedPresent];
   const haveKey = present.includes(EMBED_KEY_ENV);
-  const data = { enabled, key: haveKey, everEmbedded: history.embedded };
-  const turnOn = `Turn on: counterparts credentials set ${EMBED_KEY_ENV}`;
+  const data = { enabled, key: haveKey, everEmbedded: history.embedded, source };
+  // THE LOCAL TABLE IS WHAT "TURN ON" MEANS NOW (roadmap C3): Voyage is frozen,
+  // so no fix line on this finding advises a Voyage key for a knob that is
+  // off, and the command it names turns ANY off block on as the local table —
+  // never Voyage (`install.ts#resolveEmbedderBlock`, review of #195 MAJOR 1).
+  // A store that ran Voyage and stopped gets the table, and its paid vectors
+  // are HELD, not dropped (`withdrawnFinding` then names the exits).
+  const turnOn = `Turn on: ${EMBEDDER_ON_COMMAND}`;
   // THE STORE'S OWN VERDICT FIRST (review of #190, MAJOR 4): a hold or a newer
   // build's cache turns the channel off whatever the configuration says, and
   // it is read DURABLY — this handle is an observer and reconciles nothing.
@@ -991,11 +1040,27 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
       ),
     ];
   }
+  // NO BLOCK, AND A VOYAGE KEY SAVED (config.ts#resolveEmbedder): the one case
+  // where an absent block is NOT the local table. Said as what it is — a 0.2.0
+  // setup kept as it was — and the same command turns the table on
+  // (`resolveEmbedderBlock` writes `"static"` for a configuration with no block).
+  if (source === "absent-voyage-key") {
+    return [
+      off(
+        "embedder",
+        RECALL_TITLE,
+        "not switched on: a Voyage key is saved here and this configuration names no embedder, so the local table " +
+          "was not assumed. Recall works on words; the table lets it match meaning too, and nothing leaves this machine.",
+        turnOn,
+        data,
+      ),
+    ];
+  }
   return [
     off(
       "embedder",
       RECALL_TITLE,
-      `optional. Recall works on words; a Voyage key lets it match meaning too.${shellClause(input, EMBED_KEY_ENV, present)}`,
+      "switched off in the configuration. Recall works on words; the local table lets it match meaning too, and nothing leaves this machine.",
       turnOn,
       data,
     ),
@@ -1003,7 +1068,25 @@ function embedderFindings(input: DoctorInput, history: KeyHistory): Finding[] {
 }
 
 const RECALL_TITLE = "Recall by meaning";
-const CRASH_TITLE = "Crash write-up";
+
+/**
+ * THE COMMAND THAT TURNS RECALL BY MEANING ON for a configuration that exists
+ * (roadmap C3). `install` writes the block only when it creates the file, so an
+ * existing one — every 0.2.0 install, the owner's included — needs `--force`
+ * to be rewritten, and `--force` carries every other key forward
+ * (`commands.ts#carryForward`) and never replaces a credentials file that holds
+ * a key. One sentence, printed by doctor and quoted by QUICKSTART.
+ */
+export const EMBEDDER_ON_COMMAND = "counterparts install --force --embedder";
+
+/** Where a static table's weights came from, in words (`resolveStaticWeights`'
+ *  `source`, or the worker row's `weights`). */
+function weightsFrom(source: string): string {
+  if (source === "package") return `the ${STATIC_WEIGHTS_PACKAGE} package`;
+  if (source === "env") return STATIC_WEIGHTS_ENV;
+  if (source === "option") return "a directory named by the caller";
+  return source;
+}
 
 /**
  * A HOLD, or a cache from a newer build — the two states in which the store
@@ -1079,18 +1162,23 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       "embedder",
       "green",
       RECALL_TITLE,
-      `on — a local table (${str(row, "model") ?? "static"}, weights from the ${String(str(row, "weights"))}); nothing leaves this machine`,
+      `on — a local table (${str(row, "model") ?? "static"}, weights from ${weightsFrom(String(str(row, "weights")))}); nothing leaves this machine`,
       "",
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
   const found = resolveStaticWeights();
-  if (found === null) {
+  // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
+  // naming an empty or wrong folder is found by name and holds nothing, and a
+  // green here would last until the first worker row said NO_WEIGHTS.
+  if (found === null || !existsSync(join(found.dir, MODEL_FILE))) {
     return finding(
       "embedder",
       "amber",
       RECALL_TITLE,
-      "on (a local table), but its weights were not found — nothing will be embedded; recall still matches on words",
+      found === null
+        ? "on (a local table), but its weights were not found — nothing will be embedded; recall still matches on words"
+        : `on (a local table), but its weights were not found in ${tilde(found.dir)} (named by ${weightsFrom(found.source)}) — nothing will be embedded; recall still matches on words`,
       install,
       { ...data, kind: "static", weights: null },
     );
@@ -1099,7 +1187,7 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
     "embedder",
     "green",
     RECALL_TITLE,
-    `on — a local table, weights found (${found.source}); the next boundary's worker confirms what the hooks see`,
+    `on — a local table (weights from ${weightsFrom(found.source)}); nothing leaves this machine (the hooks confirm it when a session ends)`,
     "",
     { ...data, kind: "static", weights: found.source },
   );
@@ -1195,11 +1283,6 @@ export function keyHistory(store: Store | null): KeyHistory {
 /** How many backfill rows the "has a key ever worked here" read looks at. */
 const KEY_HISTORY_ROWS = 200;
 
-/** What a store with no key still does, in one sentence a new user can act on. */
-const WITHOUT_A_KEY =
-  "everything you and the assistant write by hand still lands — note, session_end, the journal, " +
-  "recall, the wake";
-
 /**
  * The credentials, BY NAME. The red is I32's own signature: no interpreter key
  * means the worker runs the day and interprets nothing — but see `keyHistory`
@@ -1246,34 +1329,14 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     );
   } else {
     out.push(finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data));
-    out.push(
-      missing.includes(API_KEY_ENV)
-        ? // THE CRASH SWEEP, AS THE THING IT BUYS. No key has ever been used
-          // here, which is a supported way to run — `WITHOUT_A_KEY` is the long
-          // form of that sentence, kept on the finding rather than printed as a
-          // warning on a screen where nothing is wrong.
-          off(
-            "crash-writeup",
-            CRASH_TITLE,
-            `optional. An Anthropic key lets a session that ended too soon get written up anyway.${shellClause(input, API_KEY_ENV, present)}`,
-            `Turn on: counterparts credentials set ${API_KEY_ENV}`,
-            { ...data, without: WITHOUT_A_KEY },
-          )
-        : // AND A GREEN ROW WHEN IT IS ON (coordinator, 2026-09-22), mirroring
-          // `Recall by meaning`'s. A feature that says `OFF` until you turn it
-          // on and then says nothing at all leaves the person who just added
-          // the key with no confirmation on the screen they were told to check
-          // — and the factual `Credentials` line, which does carry the name,
-          // only prints under `--all`.
-          finding(
-            "crash-writeup",
-            "green",
-            CRASH_TITLE,
-            "on — a session that ended too soon gets written up anyway",
-            "",
-            data,
-          ),
-    );
+    // NO CRASH WRITE-UP LINE HERE ANY MORE (review of #195, MINOR 6). This used
+    // to add `crash-writeup` — OFF with "an Anthropic key lets a session … get
+    // written up anyway", green once a key was saved. Since #192 a session
+    // that ended before it was written up is written up by the NEXT session in
+    // its project with no key at all, and the API is an opt-in
+    // (`crashWriteUp: "api"`), so that line's advice was the one C2 retired and
+    // it stood beside #192's own `crash-write-up` line saying the opposite.
+    // `crashWriteUpFindings` is the one line now.
   }
 
   // The mode is its own finding: a file that holds both keys and is world
@@ -1293,6 +1356,82 @@ function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] 
     );
   }
   return out;
+}
+
+/**
+ * RAW TRANSCRIPTS — how long the captured conversation is kept, and what the
+ * newest retention pass did (remember INTERFACE-GAPS §11; roadmap B3).
+ *
+ * The first clause is the POLICY, worded so it does not over-promise (PR #189
+ * review m4, m5): the text lives in the store for a week after a session ends,
+ * and each daily snapshot holds a copy of whatever was there that day, so the
+ * last copy is gone only after the snapshots rotate past it too. Both numbers
+ * are read — the week from `remember/`'s tunable, the snapshots from the
+ * configuration's `keep` — never retyped.
+ *
+ * The rest is the newest `remember.prune` row, in sessions. Grades:
+ *
+ *   - **green** with no row at all: a store the worker has not reached yet
+ *     has nothing to prune, and that is not a fault;
+ *   - **amber** when the newest pass could not delete something (`failed`), or
+ *     when it is a `STARTED` / `LATCH_HELD` row from a day before today — a
+ *     pass that took its latch and never wrote its result;
+ *   - **green** otherwise, `STARTED` today included (a pass is under way).
+ *
+ * "kept until written up" is a session that still owes its write-up (B3's
+ * predicate); it is kept until the next session in its project writes it up.
+ */
+function retentionFindings(input: DoctorInput, store: Store): Finding[] {
+  const TITLE = "Raw transcripts";
+  const days = Math.round(REMEMBER_TUNABLES.RETENTION_MS / 86_400_000);
+  const keep = keepOf(input.config.snapshots?.keep);
+  const policy = `${String(days)} days after a session ends (up to ${String(days + keep)} counting the daily snapshots)`;
+  const run = lastRetentionRun(store);
+  const base = { retentionDays: days, snapshotKeep: keep };
+  if (run === null) {
+    return [finding("retention", "green", TITLE, `${policy} · not run yet`, "", { ...base, ran: false })];
+  }
+  const data = {
+    ...base,
+    ran: true,
+    date: run.date,
+    reason: run.reason,
+    deleted: run.deleted,
+    keptOwed: run.keptOwed,
+    keptYoung: run.keptYoung,
+    keptLive: run.keptLive,
+    failed: run.failed,
+  };
+  const unfinished = run.reason === "STARTED" || run.reason === "LATCH_HELD";
+  if (unfinished && run.date < input.today) {
+    return [
+      finding(
+        "retention",
+        "amber",
+        TITLE,
+        `${policy} · the pass on ${run.date} started and did not finish, and none has run since`,
+        "Nothing is deleted without a finished pass. It runs again when a session ends; to watch it: counterparts doctor --all",
+        data,
+      ),
+    ];
+  }
+  if (unfinished) {
+    return [finding("retention", "green", TITLE, `${policy} · a pass started today`, "", data)];
+  }
+  const counts = `${String(run.deleted)} pruned ${run.date} · ${String(run.keptOwed)} kept until written up · ${String(run.keptLive)} still open`;
+  if (run.failed > 0) {
+    return [
+      finding(
+        "retention",
+        "amber",
+        TITLE,
+        `${policy} · ${counts} · ${String(run.failed)} could not be deleted`,
+        `The next pass tries again. Check the folder is writable: ls -ld ${tilde(input.dir)}/spans`,
+        data,
+      ),
+    ];
+  }
+  return [finding("retention", "green", TITLE, `${policy} · ${counts}`, "", data)];
 }
 
 /** The two clocks, and the gap that IS I32's signature. */
@@ -2858,6 +2997,15 @@ export interface HostReading {
   readonly mcpFile: string;
   /** The MCP file exists but could not be read or parsed. */
   readonly mcpUnreadable: boolean;
+  /**
+   * Whether a `claude` executable is on the PATH the caller would run
+   * `counterparts connect` with (the go-public Phase C walk, 2026-09-23).
+   * `false` only when a PATH was there to search and held none; absent or null
+   * is "not looked", and the fix line stays `counterparts connect`.
+   */
+  readonly claudeOnPath?: boolean | null;
+  /** The exact `claude mcp add …` line `connect` prints when it cannot run it. */
+  readonly mcpAddLine?: string;
 }
 
 function hostFindings(reading: HostReading): Finding[] {
@@ -2928,15 +3076,27 @@ function hostFindings(reading: HostReading): Finding[] {
       `replaces the ${stale.length === 1 ? "stale entry" : "stale entries"} with the path this install actually has`,
     );
   }
-  if (!reading.mcp && !reading.mcpUnreadable) does.push("registers the memory tools");
-  const fixes =
-    does.length === 0
+  // `connect` REGISTERS THE MEMORY TOOLS BY RUNNING `claude mcp add` — so with
+  // no `claude` on the PATH, "Run: counterparts connect" names the very command
+  // that just failed to register them (go-public Phase C walk, 2026-09-23). In
+  // that one case the fix is the line `connect` itself prints: run it wherever
+  // `claude` works. The hooks half, if it is owed, is still `connect`'s.
+  const cannotRegister =
+    !reading.mcp && !reading.mcpUnreadable && reading.claudeOnPath === false && reading.mcpAddLine !== undefined;
+  if (!reading.mcp && !reading.mcpUnreadable && !cannotRegister) does.push("registers the memory tools");
+  const byHand = cannotRegister
+    ? `\`claude\` is not on this PATH, so \`counterparts connect\` cannot register the memory tools: run this where \`claude\` works — ${reading.mcpAddLine ?? ""} — then restart Claude Code.`
+    : "";
+  const fixes = [
+    ...(does.length === 0
       ? []
       : [
           `Run: counterparts connect — it backs up ~/.claude/settings.json, ${
             does.length === 1 ? does[0] : `${does.slice(0, -1).join(", ")} and ${does[does.length - 1] ?? ""}`
-          }. Then restart Claude Code.`,
-        ];
+          }.${cannotRegister ? "" : " Then restart Claude Code."}`,
+        ]),
+    ...(byHand.length === 0 ? [] : [byHand]),
+  ];
   // STALE FIRST. "GREEN while nothing fires" is the one outcome this line was
   // added to prevent, and a block pointing at a deleted checkout is exactly
   // that: it matches, it is installed, and every session start fails silently.
@@ -3040,11 +3200,19 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   // configuration, so there is nothing to report on and the Config line above
   // has already said so.
   const history = unread ? { interpreted: false, embedded: false } : keyHistory(input.store);
+  // THE EMBEDDER THE HOOKS WILL ACTUALLY RUN (config.ts#resolveEmbedder): an
+  // absent block is the local table unless the credentials FILE holds a Voyage
+  // key. Resolved HERE, from this reading's own inputs, so the lines agree with
+  // the hooks whether or not the caller already applied the default — and not
+  // at all when no configuration was read.
+  const voyageKeySaved = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(EMBED_KEY_ENV);
+  const embedderSource = unread ? "explicit" : resolveEmbedder(input.config, voyageKeySaved).source;
+  if (!unread) input = { ...input, config: withEmbedderDefault(input.config, voyageKeySaved) };
   const out: Finding[] = [
     ...configFindings(input),
     // THE TWO OPTIONAL FEATURES, in the order the screen reads them: recall by
     // meaning first, because it is the one a person is most likely to want.
-    ...(unread ? [] : embedderFindings(input, history)),
+    ...(unread ? [] : embedderFindings(input, history, embedderSource)),
     ...(unread ? [] : credentialFindings(input, history)),
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
@@ -3078,6 +3246,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
       : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
+    // B3's week: one bounded read of the newest `remember.prune` row. Folds into
+    // `Background` while green.
+    ["retention", () => retentionFindings(input, store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

@@ -149,7 +149,7 @@ export function copyToFreeBackup(target: string, now: number): string {
  *
  * It was the preview's alone until 2026-09-22 — "everything this command
  * actually does is reported in full" — and the owner's answer to finding #27 is
- * that `/Users/mike/.claude/settings.json` on a screen is a path a person reads
+ * that `/Users/<you>/.claude/settings.json` on a screen is a path a person reads
  * character by character to check it is theirs, and `~/.claude/settings.json` is
  * one they recognise. So the ok lines use it too, and the backup path, which is
  * the one thing here somebody may have to type back, is still printed whole.

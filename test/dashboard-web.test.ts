@@ -704,6 +704,57 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     }
   });
 
+  /**
+   * RETENTION'S ROW IS IN THE VOCABULARY (remember INTERFACE-GAPS §10). A
+   * finished pass is calm and counts sessions; a pass that died holding its
+   * latch is amber and names where to look; the node is the raw capture.
+   */
+  test("remember.prune narrates: a finished pass calm, a held latch amber, on the spans node", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-web-prune-"));
+    const c = Counterpart.open({ dir, owner: true });
+    const counts = { scopes: 2, deleted: 3, keptOwed: 1, keptYoung: 0, keptLive: 1, failed: 0, lines: 9, bytes: 99, retentionDays: 7 };
+    try {
+      c.store.appendEvent({ name: "remember.prune", day: 1, payload: { date: "2026-09-22", reason: "PRUNED", ...counts } });
+      c.store.appendEvent({ name: "remember.prune", day: 1, payload: { date: "2026-09-23", reason: "LATCH_HELD", ...counts, deleted: 0 } });
+      const rows = c.store.eventLog({ name: "remember.prune", limit: 10 });
+      expect(rows.length).toBe(2);
+      const done = narrate(c.store, rows[0]!);
+      expect(done.tone).toBe("calm");
+      expect(done.text).toContain("3 sessions older than a week was let go");
+      expect(done.text).toContain("1 is kept until written up");
+      const held = narrate(c.store, rows[1]!);
+      expect(held.tone).toBe("amber");
+      expect(held.text).toContain("Raw transcripts");
+      expect(REF_KIND["remember.prune"]).toBe("none");
+      expect(nodeOf("remember.prune")).toBe("spans");
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("store.embedder.reconciled narrates: a reset calm, a hold amber, on the store node", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-web-reconciled-"));
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "reset", from: null, to: "potion-base-8M@256", dropped: 4 } });
+      c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "held", recorded: "voyage-3.5@1024", configured: "potion-base-8M@256", rows: 12 } });
+      const rows = c.store.eventLog({ name: "store.embedder.reconciled", limit: 10 });
+      expect(rows.length).toBe(2);
+      const reset = narrate(c.store, rows[0]!);
+      expect(reset.tone).toBe("calm");
+      expect(reset.text).toContain("potion-base-8M@256");
+      const held = narrate(c.store, rows[1]!);
+      expect(held.tone).toBe("amber");
+      expect(held.text).toContain("12 vectors");
+      expect(REF_KIND["store.embedder.reconciled"]).toBe("none");
+      expect(nodeOf("store.embedder.reconciled")).toBe("store");
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a recall decision resolves its refs BY TYPE — a session id is not a memory", () => {
     const d = open(richDir);
     try {

@@ -76,6 +76,7 @@ import {
   reportLines,
 } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding, GitRunner } from "../src/adapters/claude-code/index.js";
+import { EMBEDDER_ON_COMMAND } from "../src/adapters/claude-code/doctor.js";
 import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import {
   EXIT,
@@ -383,26 +384,22 @@ describe("doctor — the reading", () => {
     expect(f.detail).not.toContain("opens fine"); // no `open` reading was handed in
   });
 
-  test("a store that has NEVER had a key reads OFF, and the Credentials line stays factual (finding 1, #24)", () => {
-    // README: "No API keys are required." QUICKSTART §6: without the key the
-    // worker still runs the day and only skips the crash sweep. `doctor` on a
-    // brand-new keyless store printed a red and exited 1, so all three could
-    // not be true — and the first thing the product said to a new user was
-    // that their fresh install was broken. It then printed an amber, which the
-    // owner's own trial (#24) found was still three warnings for one skipped
-    // optional key. It is one OFF line now.
+  test("a store that has NEVER had a key: the Credentials line stays factual, and nothing about the key is red or OFF (finding 1, #24)", () => {
+    // README: "No API keys are required." `doctor` on a brand-new keyless store
+    // once printed a red and exited 1, then an amber, then (#24) one OFF line.
+    // Since #192 a session that ended before it was written up is written up by
+    // the NEXT session in its project, with no key, so the crash write-up's
+    // line is #192's green `next session` — and the old `crash-writeup` OFF
+    // finding, whose advice was the key, is retired (review of #195, MINOR 6).
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const findings = doctorFindings(input());
-    const crash = by(findings, "crash-writeup");
+    expect(findings.find((f) => f.key === "crash-writeup")).toBeUndefined();
+    const crash = by(findings, "crash-write-up");
     expect(crash.title).toBe("Crash write-up");
-    expect(crash.optional).toBe(true);
-    expect(crash.severity).toBe("amber");
-    expect(crash.detail).toContain("optional. An Anthropic key lets a session that ended too soon");
-    // THE FIX IS A COMMAND, and the command is the one that prompts (#2, #19).
-    expect(crash.fix).toBe(`Turn on: counterparts credentials set ${API_KEY_ENV}`);
-    expect(crash.fix).not.toContain(".json");
+    expect(crash.severity).toBe("green");
+    expect(crash.detail).toContain("next session");
 
     // The factual line keeps the file, the mode and the names, and it is green:
     // a name the file does not hold is a feature nobody turned on, not a fault.
@@ -415,47 +412,48 @@ describe("doctor — the reading", () => {
     // one line the product gets in the terminal every session — stays quiet.
     expect(anyRed(findings)).toBe(false);
     expect(noticeMessage(findings)).toBe(null);
-
     // The discriminator is on the row, so a reader can check the verdict.
     expect(cred.data["everInterpreted"]).toBe(false);
-    // What a store with no key still does, kept where a reader can find it.
-    expect(String(crash.data["without"])).toContain("note, session_end, the journal, recall, the wake");
   });
 
-  test("the key that IS there gets a green row of its own, mirroring Recall by meaning", () => {
-    // A feature that says OFF until you turn it on and then says nothing leaves
-    // the person who just added the key with no confirmation on the screen they
-    // were told to check (the coordinator, 2026-09-22). The factual Credentials
-    // line does name it, and that line only prints under `--all`.
+  test("a saved Anthropic key alone changes nothing on the crash write-up line; the API opt-in does", () => {
+    // The key is not the consent (#192, C3): `crashWriteUp: "api"` is.
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const findings = doctorFindings(input());
-    const crash = by(findings, "crash-writeup");
-    expect(crash.severity).toBe("green");
-    expect(crash.optional).toBeUndefined();
-    expect(crash.title).toBe("Crash write-up");
-    expect(crash.detail).toBe("on — a session that ended too soon gets written up anyway");
-    expect(crash.fix).toBe("");
-    // Its twin says the same kind of thing for the same kind of reason.
-    expect(by(findings, "embedder").severity).toBe("green");
-    expect(by(findings, "embedder").detail).toContain("on —");
+    const keyOnly = by(doctorFindings(input()), "crash-write-up");
+    expect(keyOnly.severity).toBe("green");
+    expect(keyOnly.detail).toContain("next session");
+    const optedIn = by(
+      doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath, crashWriteUp: "api" } })),
+      "crash-write-up",
+    );
+    expect(optedIn.severity).toBe("green");
+    expect(optedIn.detail).toContain("on (API)");
+    expect(doctorFindings(input()).find((f) => f.key === "crash-writeup")).toBeUndefined();
   });
 
   test("a missing embed key is ONE OFF line, not three ambers (finding #24)", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV]);
-    // The knob off AND the key skipped: the state the owner's trial was in.
-    const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
+    // The knob OFF and the key skipped. Since 2026-09-23 an ABSENT block is the
+    // local table (config.ts#resolveEmbedder), so "off" is an explicit block.
+    const findings = doctorFindings(
+      input({ config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+    );
     // Before: Embedder amber, Credentials amber, Vectors amber. After: one.
     const off = findings.filter((f) => f.optional === true);
     expect(off.map((f) => f.key)).toEqual(["embedder"]);
     expect(by(findings, "embedder").title).toBe("Recall by meaning");
+    // KEYLESS (roadmap C3): the local table is what "turn on" means now, and
+    // a Voyage key is never the advice for a knob that is off.
     expect(by(findings, "embedder").detail).toContain(
-      "optional. Recall works on words; a Voyage key lets it match meaning too.",
+      "switched off in the configuration. Recall works on words; the local table lets it match meaning too, and nothing leaves this machine.",
     );
-    expect(by(findings, "embedder").fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    expect(by(findings, "embedder").fix).toBe("Turn on: counterparts install --force --embedder");
+    expect(by(findings, "embedder").fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
+    expect(`${by(findings, "embedder").detail} ${by(findings, "embedder").fix}`).not.toContain("Voyage");
     expect(by(findings, "credentials").severity).toBe("green");
     // NOTHING TO EMBED, NOTHING TO SAY: the coverage line is not a reading while
     // the channel it measures is switched off.
@@ -493,7 +491,9 @@ describe("doctor — the reading", () => {
       payload: { embedded: 12, failed: 0, remaining: 0, skipped: 0, date: "2026-09-13" },
     });
     const f = by(
-      doctorFindings(input({ store: s, config: { dataDir: dir, credentialsFile: credsPath } })),
+      doctorFindings(
+        input({ store: s, config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+      ),
       "embedder",
     );
     expect(f.severity).toBe("amber");
@@ -536,10 +536,12 @@ describe("doctor — the reading", () => {
     // recall is a working channel, not a degraded mode, and a day-1 line that
     // reads like a broken install is what sends a new user to buy a key.
     expect(f.detail).toContain("Recall works on words");
-    // NEVER A JSON EDIT (#19). The key is saved and the switch offered by one
-    // command, and that command is the whole of the fix line.
-    expect(f.fix).toBe(`Turn on: counterparts credentials set ${EMBED_KEY_ENV}`);
+    // NEVER A JSON EDIT (#19): one command, and it is the whole of the fix
+    // line. Since 2026-09-23 it turns on the local table (a Voyage key saved
+    // here changes nothing: Voyage is frozen, roadmap C3).
+    expect(f.fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
     expect(f.fix).not.toContain("enabled");
+    expect(f.fix).not.toContain(EMBED_KEY_ENV);
   });
 
   test("no store at the dir is red, and the store-reading groups are not attempted", () => {
@@ -1478,6 +1480,42 @@ describe("the Host line reads the host's own files", () => {
     expect(finding.detail).toContain(join(root, ".claude.json"));
   });
 
+  /**
+   * GO-PUBLIC PHASE C WALK (2026-09-23): with no `claude` on the PATH, `connect`
+   * cannot register the memory tools — it prints the `claude mcp add …` line
+   * instead — so doctor's fix names THAT line, not `connect` again.
+   */
+  test("hooks in, memory tools missing, and no `claude` on the PATH: the fix is the `claude mcp add` line", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps({ mcp: false });
+    const line = 'claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR="/x/store" -- "/bun" run "/serve.ts"';
+    const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.severity).toBe("amber");
+    expect(finding.fix).toContain(line);
+    expect(finding.fix).toContain("`claude` is not on this PATH");
+    expect(finding.fix).not.toContain("Run: counterparts connect");
+    // Not looked (no PATH to search): the fix stays `connect`, as before.
+    const unknown = by(doctorFindings(input({ host: { ...host, claudeOnPath: null } })), "host");
+    expect(unknown.fix).toContain("Run: counterparts connect");
+    expect(unknown.fix).not.toContain(line);
+  });
+
+  test("nothing connected and no `claude`: connect for the hooks, the printed line for the tools", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const line = "claude mcp add counterparts -s user -- x";
+    const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.fix).toContain("Run: counterparts connect");
+    expect(finding.fix).toContain("adds the hooks");
+    expect(finding.fix).not.toContain("registers the memory tools");
+    expect(finding.fix).toContain(line);
+  });
+
   test("a PARTIAL paste is named event by event — the case a green doctor used to hide", () => {
     mintStore();
     writeConfig();
@@ -2351,8 +2389,9 @@ describe("counterparts doctor", () => {
    */
   test("--json is complete and unfolded, and an OFF finding is amber plus `optional`", async () => {
     mintStore();
-    // The owner's own trial state: no keys, the embedder knob off.
-    writeConfig({ embedder: undefined });
+    // No keys, and the embedder knob OFF — written, because since 2026-09-23 an
+    // absent block reads as the local table (config.ts#resolveEmbedder).
+    writeConfig({ embedder: { enabled: false } });
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     installHostSteps();
     const c = consoleWith();
@@ -2374,14 +2413,15 @@ describe("counterparts doctor", () => {
     for (const k of ["sweep", "sleep", "backfill", "clock", "spawn", "journal", "stance", "checkout"]) {
       expect(keys).toContain(k);
     }
-    // THE TWO OFF FINDINGS: amber underneath, so nothing that switches on a
+    // THE OFF FINDING: amber underneath, so nothing that switches on a
     // severity moves; `optional: true` for a reader that wants the new word.
+    // (One now: the crash write-up is #192's green `next session` line.)
     const offs = json.findings.filter((f) => f.optional === true);
-    expect(offs.map((f) => f.key)).toEqual(["embedder", "crash-writeup"]);
+    expect(offs.map((f) => f.key)).toEqual(["embedder"]);
     for (const f of offs) expect(f.severity).toBe("amber");
     // …and the counts at the top split them, so the JSON and the screen cannot
     // disagree about how many warnings there are.
-    expect(json.off).toBe(2);
+    expect(json.off).toBe(1);
     expect(json.amber).toBe(json.findings.filter((f) => f.severity === "amber" && f.optional !== true).length);
     expect(json.red + json.amber + json.off + json.green).toBe(json.findings.length);
     // AN OFF FINDING DOES NOT MOVE THE EXIT CODE: nothing is wrong.

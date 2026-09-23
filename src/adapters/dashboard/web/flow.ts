@@ -437,6 +437,12 @@ export const EVENT_NODE = {
   "journal.copy.written": "store",
   "journal.copy.failed": "store",
   "store.export": "store",
+  // Retention acts on the raw capture itself — the SPANS node, where every turn
+  // lands and from where the crash sweep reads. It deletes nothing a memory is.
+  "remember.prune": "spans",
+  // The identity check is upkeep on box 3 — the vectors themselves — so it is
+  // the store's, like the backfill that fills them.
+  "store.embedder.reconciled": "store",
   // A credited challenge, from either arm (belief or identity element).
   "revision.pressure": "schemas",
 } as const satisfies Record<DurableEventName, NodeKey>;

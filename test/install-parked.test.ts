@@ -605,7 +605,7 @@ describe("install --force over a configuration that is already there", () => {
     return parked;
   }
 
-  test("keeps the name, the egress opt-in and the ceiling — and SAYS it replaced the file", async () => {
+  test("keeps the name, the embedder setting and the ceiling — and SAYS it replaced the file", async () => {
     const parked = await parkRich();
     const before = readFileSync(join(parked, "claude-code.json"), "utf8");
     const c = terminal(["back"]);
@@ -616,7 +616,8 @@ describe("install --force over a configuration that is already there", () => {
     expect(readFileSync(configPath(), "utf8")).toBe(before);
     const body = JSON.parse(before) as Record<string, unknown>;
     expect(body["identity"]).toEqual({ name: "Ada" });
-    expect(body["embedder"]).toEqual({ enabled: true });
+    // `--embedder` means the local table since 2026-09-23 (roadmap C3).
+    expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
     expect(body["injectionBudgetBytes"]).toBe(40000);
 
     // AND THE REPLACEMENT IS NEVER SILENT, even on the quiet arm.
@@ -634,7 +635,7 @@ describe("install --force over a configuration that is already there", () => {
     expect(body["injectionBudgetBytes"]).toBe(1234);
     // …and everything it did not name is still there.
     expect(body["identity"]).toEqual({ name: "Ada" });
-    expect(body["embedder"]).toEqual({ enabled: true });
+    expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
   test("a key an owner added by hand survives a forced write too", async () => {
@@ -681,6 +682,119 @@ describe("install --force over a configuration that is already there", () => {
     expect(
       (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
     ).toBe(40000);
+  });
+});
+
+// ── which embedder a (forced) install writes (roadmap C3; #190 MINOR 4) ─────
+
+describe("install and the embedder block: the local table, and a kind is never flipped", () => {
+  const read = (): Record<string, unknown> =>
+    JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+
+  /** An existing install whose configuration says `embedder` = `block`, with a
+   *  Voyage key saved or not. Written by the scripted arm, then edited. */
+  async function existing(block: unknown, voyageKey: boolean): Promise<void> {
+    expect(await install(piped().io, ["--budget", "9000", "--name", "Ada"])).toBe(EXIT.ok);
+    const body = read();
+    if (block === undefined) delete body["embedder"];
+    else body["embedder"] = block;
+    writeFileSync(configPath(), `${JSON.stringify(body, null, 2)}\n`);
+    if (voyageKey) {
+      writeFileSync(join(base(), "credentials.env"), "VOYAGE_API_KEY=pa-not-a-real-key-0123\n", { mode: 0o600 });
+    }
+  }
+
+  // The FILE carries no block; at runtime an absent block reads as the local
+  // table unless a Voyage key is saved (test/embedder-default.test.ts).
+  test("a scripted install with no flag writes NO embedder block — the scripted arm's bytes do not move", async () => {
+    expect(await install(piped().io, ["--budget", "9000", "--name", "Ada"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toBeUndefined();
+  });
+
+  test("a scripted --embedder writes the local table", async () => {
+    expect(await install(piped().io, ["--budget", "9000", "--embedder"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("MINOR 4: --force --embedder over a STATIC configuration keeps static", async () => {
+    await existing({ enabled: true, kind: "static" }, false);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  // REVIEW OF #195, MAJOR 1: turning an OFF block ON never resurrects Voyage.
+  // A Voyage kind — named or implied — is kept only when the block was ON.
+  test("--force --embedder over an OFF voyage block writes the LOCAL TABLE, never Voyage", async () => {
+    await existing({ enabled: false, kind: "voyage" }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("--force --embedder over an OFF kind-less block beside a saved Voyage key writes the local table", async () => {
+    await existing({ enabled: false }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("a RUNNING 0.2.0 Voyage setup (kind-less, ON, key saved) is kept by --force --embedder — nothing is resurrected", async () => {
+    await existing({ enabled: true }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true });
+  });
+
+  test("a RUNNING voyage block is kept by --force --embedder", async () => {
+    await existing({ enabled: true, kind: "voyage" }, true);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "voyage" });
+  });
+
+  test("--force --no-embedder over a 0.2.0 Voyage setup keeps its kind as recorded; ON again is the local table", async () => {
+    await existing({ enabled: true }, true);
+    expect(await install(piped().io, ["--force", "--no-embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: false });
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("a kind-less block with NO Voyage key becomes the local table", async () => {
+    await existing({ enabled: true }, false);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+  });
+
+  test("a configuration with no block at all gets the local table from --force --embedder (the doctor fix line)", async () => {
+    await existing(undefined, false);
+    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+    // …and nothing else the file said was lost.
+    expect(read()["identity"]).toEqual({ name: "Ada" });
+  });
+
+  test("a Voyage configuration and its key are left ALONE by a plain --force, and by a terminal re-run", async () => {
+    await existing({ enabled: true, kind: "voyage" }, true);
+    const before = readFileSync(configPath(), "utf8");
+    expect(await install(piped().io, ["--force", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: true, kind: "voyage" });
+    expect(readFileSync(join(base(), "credentials.env"), "utf8")).toContain("VOYAGE_API_KEY=");
+    // A terminal re-run keeps the file byte for byte (install rule 2).
+    const now = readFileSync(configPath(), "utf8");
+    const again = terminal([]);
+    expect(await install(again.io)).toBe(EXIT.ok);
+    expect(readFileSync(configPath(), "utf8")).toBe(now);
+    expect(JSON.parse(before)["embedder"]).toEqual({ enabled: true, kind: "voyage" });
+  });
+
+  test("--no-embedder keeps the kind the file names, switched off", async () => {
+    await existing({ enabled: true, kind: "voyage" }, true);
+    expect(await install(piped().io, ["--force", "--no-embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: false, kind: "voyage" });
+  });
+
+  test("--embedder and --no-embedder together are refused before anything is written", async () => {
+    const c = piped();
+    expect(await install(c.io, ["--embedder", "--no-embedder", "--budget", "9000"])).toBe(EXIT.usage);
+    expect(text(c.err)).toContain("--embedder and --no-embedder");
+    expect(existsSync(base())).toBe(false);
   });
 });
 

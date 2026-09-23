@@ -18,7 +18,7 @@ outside `spans/`.**
 
 ## 2. Scope and session keys are hashes, with a legend
 
-A scope is a project path (`/Users/x/proj`). Pasted into `join()` it either explodes
+A scope is a project path (`/Users/<you>/proj`). Pasted into `join()` it either explodes
 into nested directories or escapes the data dir entirely, so the on-disk key is
 `hashText(scope).slice(0, 12)` and `spans/scopes.json` is the key → scope legend
 that makes `sweepAll()` able to enumerate. Cursor files are keyed the same way, as

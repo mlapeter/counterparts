@@ -714,6 +714,10 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "memories without a vector were given one by the background worker",
     module: "bin/runner.ts, store/cache.ts",
     evidence: { kind: "event", names: ["adapter.embed.backfill"] },
+    // The identity check (#190) is a state TRANSITION of the same vectors — a
+    // reset, a hold, a release — not a mechanism that fires on a schedule, so
+    // this row speaks for it rather than grading it on its own.
+    covers: ["store.embedder.reconciled"],
   },
   {
     id: "semantic-lag",
@@ -783,6 +787,17 @@ export const MECHANISMS: readonly Mechanism[] = [
     module: "adapters/snapshots.ts",
     evidence: { kind: "event", names: ["snapshot.failed"] },
     since: "2026-09-18",
+  },
+  {
+    // Raw-transcript retention (B3). One row per date, whatever the pass came
+    // to — `PRUNED`, `NOTHING`, `IO_FAILED`, or `STARTED` / `LATCH_HELD` for a
+    // pass that has not written its result — so a row is evidence the pass RAN;
+    // what it found is doctor's `Raw transcripts` line.
+    id: "retention",
+    label: "the raw transcript of a session that owes nothing was let go a week after it ended",
+    module: "remember/retention.ts (run by the worker)",
+    evidence: { kind: "event", names: ["remember.prune"] },
+    since: "2026-09-23",
   },
   {
     id: "backup",

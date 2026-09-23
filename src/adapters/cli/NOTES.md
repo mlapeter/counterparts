@@ -1707,3 +1707,78 @@ or caching them and finalizing at `close()`, would let every clean close fold it
 and the stores would stop carrying megabytes of stale log between sessions. Nothing is
 lost today — the next writer reuses the log — but the size a person sees depends on which
 program happened to touch the store last.
+
+## 2026-09-23 — keyless surfaces (roadmap C3)
+
+The owner's decision of 2026-09-23: install asks about **neither** key, and the static
+tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build learned:
+
+- **The kind has to be decided against the file being replaced, not against the flag.**
+  `--embedder` used to write `{ enabled: true }`, which reads as Voyage because absent
+  `kind` means voyage (`config.ts#embedderKind`). So `install --force --embedder` over a
+  static configuration flipped it (review of #190, MINOR 4). *Revised after the review of
+  #195 (MAJOR 1):* keeping a named or implied Voyage kind "on or off" meant `--embedder`
+  over an OFF Voyage block switched the paid embedder ON under a doctor line that promised
+  the local table. Now a Voyage kind survives turning it ON only when the replaced block
+  was already ON (`{enabled:true, kind:"voyage"}`, or kind-less `{enabled:true}` beside a
+  saved key); any OFF block comes back ON as `"static"`. Turning it OFF keeps the recorded
+  kind, so ON again is an OFF block going ON — the table. Trapped-`fetch` tests follow the
+  fix line from all three OFF shapes and count zero network calls. The Voyage-key test reads the credentials FILE
+  (`credentialsHeld`), never the console's environment — the hooks' source, not the
+  shell's.
+- **The terminal default applies only to a configuration being CREATED**, for the same
+  reason the ceiling default does (review B1 of 2026-09-22): an injected value on a forced
+  re-install would count as "supplied" and beat the carry-forward. *Superseded for the
+  0.2.0 case the same day:* an absent block now reads as the table ON at runtime unless a
+  Voyage key is saved (CONTRACT 41, `config.ts#resolveEmbedder`), so the owner's config
+  and every other 0.2.0 install need no step. `install --force --embedder` is the way
+  back after `--no-embedder`, and the fix for a 0.2.0 setup beside a saved Voyage key.
+  **A lighter `embedder on|off` command would be kinder than `--force`**; not built,
+  because it adds a command to the owner's help page.
+- **The default lives beside the reader, not in it.** `loadConfig(raw)` never sees the
+  credentials file — it is named BY the configuration — so each process applies
+  `withEmbedderDefault(config, voyageKeySaved)` after `loadCredentials`. Four seams
+  (hook, worker, server, console), each one line; doctor re-resolves. Deciding inside
+  `openEmbedder` from `process.env` was rejected: the owner's shell exports the key and
+  the hooks inherit no shell, so an env rule could put the hooks on the table and the
+  server off it.
+- **The review of #195 (MINOR 3–5, NIT 7), in this file's terms.** `hostConfigFor`
+  and `doctorCommand` read only the `credentialsFile` a configuration names; the
+  Voyage-key line knows the one OFF case (`voyageKeyLine(config, source)`); the pin is
+  written before the key; `setConfigKeys` keeps the file's layout through `wire.ts`'s
+  `sniffSettingsFormat`/`settingsBytes`, except that a one-line configuration stays on
+  one line (for `settings.json` a one-liner is the host's `{}`; for a config it is a
+  person's choice).
+- **Go-public Phase C walk (2026-09-23):** QUICKSTART's scripted install gains
+  `counterparts connect` (the scripted arm prints the hooks block and applies nothing).
+  `--budget 9000` STAYS on that line: the scripted arm invents no ceiling (scar §2.18)
+  — only the conversation writes 9000 — so dropping the flag would leave the wake
+  unbounded. `package.json#homepage` is `https://counterparts.ai`.
+- **A first Voyage key would have switched the default off.** `credentials set
+  VOYAGE_API_KEY` into a block-less configuration now writes the static block first
+  (`pinLocalTable`) and says so, on both arms.
+- **"Found" means the table FILE**, in install and in doctor's no-row path: a
+  `COUNTERPARTS_STATIC_WEIGHTS_DIR` naming an empty folder resolves by name and holds
+  nothing. Tests pin the answer with that variable (a folder with or without
+  `model.safetensors`), because otherwise it depends on whether the weights package
+  happens to be installed in the checkout's `node_modules`.
+- **`keys.ts` shrank.** `promptForKeys`, `askForKey`, `offerEmbedder`, `enableEmbedder`,
+  `embedderFixLine`, `KEY_QUESTIONS`/`KEY_LINKS`/`KEY_REASONS`/`KEY_PREFIX` had no caller
+  left and asked about or switched on Voyage, so they went, with their tests. The atomic
+  config edit is now `setConfigKeys(path, patch)`, used by the one upgrade a key still
+  offers (`offerCrashWriteUp` → `"crashWriteUp": "api"`, C2's knob, confirmed on #192).
+- **The weights package is the first runtime dependency, and it is not published yet.**
+  Until `counterparts-model-potion` is on npm, `bun install` in this repo and `bun add -g`
+  of a packed tarball both fail resolving it (measured: `GET
+  https://registry.npmjs.org/counterparts-model-potion - 404`). `bun.lock` is deliberately
+  NOT updated in this change — a lock entry for an unpublished tarball would pin an
+  integrity the published one may not match; the first `bun install` after publishing
+  writes it. The install loop was run against a one-package local registry serving the
+  real 0.1.0 tarball (`NPM_CONFIG_REGISTRY`), which bun honours for global installs.
+- **Doctor's green order** now puts `embedder` and the crash write-up right after
+  `Claude Code` (`report.ts#GREEN_ORDER`): a fresh terminal install has recall by meaning
+  on, and its line belongs beside what it depends on. They listed both `crash-writeup`
+  and #192's `crash-write-up` until #192 merged; after the rebase the old
+  `credentialFindings` `crash-writeup` finding is retired (review of #195, MINOR 6: on
+  the merged tree it printed an OFF "add a key" line beside #192's green `next session`),
+  and only `crash-write-up` is listed.

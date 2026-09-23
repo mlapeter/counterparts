@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "counterparts",
+      "dependencies": {
+        "counterparts-model-potion": "^0.1.0",
+      },
       "devDependencies": {
         "@types/bun": "^1.1.0",
         "playwright": "1.62.1",
@@ -17,6 +20,8 @@
     "@types/node": ["@types/node@26.3.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw=="],
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "counterparts-model-potion": ["counterparts-model-potion@0.1.0", "", {}, "sha512-6J3VEh1sV02rXF4uEkybDt3h9FZ/moMznzboGckjA8Z1GJn+47qTF5v3YWvpLFuOpmXi0m/6JQvXTbIP1QV2aQ=="],
 
     "fsevents": ["fsevents@2.3.2", "", { "os": "darwin" }, "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=="],
 
