@@ -1,5 +1,17 @@
 # Handoff — resume here
 
+## 2026-09-23, close — THE ROUND IS BUILT; 0.3.0 IS A TRIAL TARBALL, NOT PUBLISHED
+
+Every item of `docs/ROADMAP.md` (A–E, plus the amendments) is on master. Release commit `b2e0ca1`
+(3672 pass / 1 skip / 0 fail on a clean checkout; install loop 58/58 from npm). The trial tarball and
+the owner's sheet are in `~/counterparts-backups/2026-09-23-0.3.0-trial/`. **Publish only on his
+word**, from that file. Upgrade rule for every existing install: quit every Claude Code session first.
+The repo is public (2026-09-23); Phase C passed; `counterparts-model-potion@0.1.0` is on npm.
+Open for the owner: the Stop-ask shape pick (his one look), the Reconnect recipe (`src/adapters/mcp/NOTES.md`).
+Next rounds, in his order: a small one removing/hiding the key-adding options and code; then the site's
+"in development" list (prospective dates, schemas, gist, interference, similarity consolidation).
+Session-level detail is not in this repo any more (owner's rule, 2026-09-23).
+
 ## 2026-09-23 — THE ROADMAP IS WRITTEN: `docs/ROADMAP.md`; THIS SESSION COORDINATES THE BUILD
 
 The roadmap conversation happened (one item at a time, decisions in the conversation). Every

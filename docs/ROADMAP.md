@@ -21,6 +21,10 @@ plan of record for boundary credit is built — `creditUse` is wired).*
 | E. Schema-change safety | Server records its version; the prompt hook shows one line on mismatch (`/mcp` → Reconnect). Server re-checks the store's schema version on **every tool call** and **refuses everything** while the store is ahead of it. |
 | F. Parked | Flat dashboard = the owner's own session. Three-way case study and a store outside the home dir stay parked. |
 
+## Status (2026-09-23, close)
+
+Built and merged: A (#185, flip done, Phase C #196), B (#186 #188 #189), C (#190 #193 #192 #195), E (#187); D closed; release commit `b2e0ca1` = 0.3.0 trial tarball, unpublished. Follow-ups: the key-removal round; the site's in-development list; snapshot before a schema migration; `owner` write-up close command; `lastCaptureAt`/`lastAnswerAt` on HeldSession (m-E); the per-start plan cost.
+
 ## Amendments (2026-09-23, night — owner decisions during wave 1)
 
 - **A:** Phase A merged (#185). **Before the flip, the owner wants a README pass** (simplify; align with the coming-soon positioning on counterparts.ai) — a conversation, one section at a time, then the flip.
