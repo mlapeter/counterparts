@@ -61,6 +61,7 @@ import {
   sightSettings,
   sniffSettingsFormat,
   tilde,
+  unparsedSettingsWhy,
   unwire,
   userSettingsPath,
   wire,
@@ -1659,6 +1660,39 @@ describe("review n1 — a settings file keeps its layout", () => {
     expect(sniffSettingsFormat(`{\n${" ".repeat(12)}"a": 1\n}\n`).indent).toBe("  ");
   });
 
+  test("ONE pasted CRLF line does not make the whole file CRLF — the majority decides (#188 review M1)", async () => {
+    // The reviewer's repro: an LF file with one CRLF line. `includes("\r\n")`
+    // turned every line CRLF on the next write — five endings changed where
+    // master changed one.
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const raw = '{\n  "model": "opus",\r\n  "env": {\n    "A": "1"\n  }\n}\n';
+    writeFileSync(settingsFile(), raw);
+    expect((await wire(input())).outcome).toBe("ok");
+    expect(readFileSync(settingsFile(), "utf8")).not.toContain("\r");
+    expect((await unwire(input())).outcome).toBe("ok");
+    const after = readFileSync(settingsFile(), "utf8");
+    // Exactly one line ending changed: the odd one out, to the file's own LF.
+    expect(after).toBe(raw.replace("\r\n", "\n"));
+    const endings = (text: string): string[] => text.match(/\r\n|\r|\n/g) ?? [];
+    const before = endings(raw);
+    const now = endings(after);
+    expect(now).toHaveLength(before.length);
+    expect(now.filter((e, i) => e !== before[i])).toHaveLength(1);
+  });
+
+  test("a mostly-CRLF file stays CRLF, a bare-CR file stays CR, and a tie goes to LF", () => {
+    expect(sniffSettingsFormat('{\r\n  "a": 1,\n  "b": 2\r\n}\r\n').eol).toBe("\r\n");
+    expect(sniffSettingsFormat('{\r  "a": 1\r}\r')).toEqual({ indent: "  ", eol: "\r", finalNewline: true });
+    expect(sniffSettingsFormat('{\r\n  "a": 1\n}').eol).toBe("\n");
+    const bytes = settingsBytes({ a: 1 }, { indent: "  ", eol: "\r", finalNewline: true });
+    expect(bytes).toBe('{\r  "a": 1\r}\r');
+  });
+
+  test("spaces after the last newline still mean the file ends in one (#188 review NIT)", () => {
+    expect(sniffSettingsFormat('{\n  "a": 1\n}\n  ').finalNewline).toBe(true);
+    expect(sniffSettingsFormat('{\n  "a": 1\n}').finalNewline).toBe(false);
+  });
+
   test("a line break inside a string stays escaped under CRLF", () => {
     const bytes = settingsBytes({ a: "one\ntwo" }, { indent: "  ", eol: "\r\n", finalNewline: true });
     expect(bytes).toBe('{\r\n  "a": "one\\ntwo"\r\n}\r\n');
@@ -1692,6 +1726,28 @@ describe("review n2 — BOM, comments and trailing commas are named, and still r
       expect(backups()).toHaveLength(0);
     });
   }
+
+  test("single quotes are named as single quotes — not as comments, even with a URL inside (#188 review M3)", async () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsFile(), "{'apiKeyHelper': 'curl https://x'}");
+    const c = consoleWith();
+    expect((await wire(input({ io: c.io }))).outcome).toBe("refused");
+    const said = text(c.err);
+    expect(said).toContain("uses single quotes");
+    expect(said).toContain("plain JSON needs double quotes");
+    expect(said).not.toContain("comments");
+  });
+
+  test("an apostrophe inside a comment is a comment, not a single-quoted string", () => {
+    const why = unparsedSettingsWhy('{\n  // don\'t touch\n  "a": 1\n}\n') ?? "";
+    expect(why).toContain("holds comments");
+    expect(why).not.toContain("single");
+  });
+
+  test("comments AND single quotes are both named", () => {
+    const why = unparsedSettingsWhy("{\n  // mine\n  'a': 1\n}\n") ?? "";
+    expect(why).toContain("comments (// or /* */) and single-quoted strings");
+  });
 
   test("a `//` inside a string is not a comment — a URL in a setting still parses and wires", async () => {
     writeSettingsFile({ apiKeyHelper: "curl https://example.com/key" });

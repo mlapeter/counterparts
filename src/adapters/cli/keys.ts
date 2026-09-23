@@ -37,7 +37,18 @@
  * way `ui.ts` does, so `commands.ts` can import `writeCredential` and
  * `promptForKeys` back without minting an ESM cycle.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
@@ -426,16 +437,60 @@ export function tempSibling(path: string): string {
 }
 
 /**
- * Write `bytes` to a sibling at `mode`, then rename it over `path`. A failure
- * anywhere removes the sibling before it is reported, so a secret is never
- * left in a stray file beside the one that should have held it.
+ * WHERE A WRITE TO `path` ACTUALLY LANDS: the file itself, or — when `path` is
+ * a symbolic link — the file the link points at (review of #188, M4).
+ *
+ * A rename over a LINK replaces the link: `credentials.env -> ~/secrets/creds.env`
+ * became a plain 0600 file holding the key, the link was gone, and the file the
+ * person keeps their secrets in never saw the key. `wire.ts#sightSettings`
+ * already writes through a link for the same reason, and so does this now:
+ * the temp sibling is minted beside the TARGET (a rename is atomic only within
+ * one directory's filesystem) and renamed over the target, and the link stays
+ * exactly as it was.
+ *
+ * Unlike `wire.ts`, a target outside the home is NOT refused: nobody else's
+ * file is at stake here — the person linked their own credentials file to where
+ * they keep it, which is the whole point of the link. A DANGLING link is
+ * refused, as it is there: it is an arrangement part-way through being set up,
+ * and writing a file where the link was waiting is how that setup silently loses.
+ */
+export function writeTarget(path: string): string {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return path; // not there yet: this write is how it comes to exist
+  }
+  if (!stat.isSymbolicLink()) return path;
+  try {
+    return realpathSync(path);
+  } catch {
+    let pointsAt = "(unreadable)";
+    try {
+      pointsAt = readlinkSync(path);
+    } catch {
+      /* the sentence below still says what matters */
+    }
+    throw new Error(
+      `${path} is a symbolic link to ${pointsAt}, and nothing is there. Nothing was written: ` +
+        "put the file the link points at in place first (an empty one will do), or remove the link.",
+    );
+  }
+}
+
+/**
+ * Write `bytes` to a sibling at `mode`, then rename it over `path` — or over
+ * the file `path` links to (`writeTarget`). A failure anywhere removes the
+ * sibling before it is reported, so a secret is never left in a stray file
+ * beside the one that should have held it.
  */
 function replaceAtomically(path: string, bytes: string, mode: number): void {
-  const tmp = tempSibling(path);
+  const target = writeTarget(path);
+  const tmp = tempSibling(target);
   try {
     writeFileSync(tmp, bytes, { mode });
     chmodSync(tmp, mode);
-    renameSync(tmp, path);
+    renameSync(tmp, target);
   } catch (err) {
     try {
       rmSync(tmp, { force: true });
@@ -527,7 +582,8 @@ export function writeCredential(path: string, name: string, value: string): void
     out.push("");
   }
   // Sibling, then rename: see the note above — the target is never observed
-  // truncated, and the secret is never on disk at anything but 0600.
+  // truncated, and the secret is never on disk at anything but 0600. Through a
+  // link when `path` is one; `chmod` follows the link to the same file.
   replaceAtomically(path, out.join("\n"), 0o600);
-  chmodSync(path, 0o600);
+  chmodSync(writeTarget(path), 0o600);
 }

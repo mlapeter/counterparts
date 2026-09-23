@@ -192,14 +192,30 @@ export interface SettingsSight {
 export interface SettingsFormat {
   /** One level of indentation: `"  "`, `"    "`, `"\t"`. */
   readonly indent: string;
-  readonly eol: "\n" | "\r\n";
-  /** Whether the file ended with a line ending. */
+  readonly eol: "\n" | "\r\n" | "\r";
+  /** Whether the file ended with a line ending (trailing spaces after it count). */
   readonly finalNewline: boolean;
 }
 
 /** What a file that is not there yet — or is empty — is written with: two
  *  spaces, LF, one trailing newline, which is what the host's own file carries. */
 export const DEFAULT_SETTINGS_FORMAT: SettingsFormat = { indent: "  ", eol: "\n", finalNewline: true };
+
+/**
+ * THE FILE'S LINE ENDING, BY MAJORITY — not by "is there a CRLF anywhere"
+ * (review of #188, M1). One CRLF line pasted into an LF file used to turn the
+ * whole file CRLF on the next write: five line endings changed where the file
+ * had one odd one out, which is the very complaint n1 was fixing. Now the
+ * ending most of the file already uses wins, and a tie goes to LF.
+ */
+export function majorityEol(raw: string): SettingsFormat["eol"] {
+  const crlf = (raw.match(/\r\n/g) ?? []).length;
+  const lf = (raw.match(/(?<!\r)\n/g) ?? []).length;
+  const cr = (raw.match(/\r(?!\n)/g) ?? []).length;
+  if (crlf > lf && crlf >= cr) return "\r\n";
+  if (cr > lf && cr > crlf) return "\r";
+  return "\n";
+}
 
 /**
  * Read the layout off the bytes. The first indented line is one level deep in
@@ -214,44 +230,69 @@ export const DEFAULT_SETTINGS_FORMAT: SettingsFormat = { indent: "  ", eol: "\n"
  * line.
  */
 export function sniffSettingsFormat(raw: string): SettingsFormat {
-  const eol = raw.includes("\r\n") ? "\r\n" : "\n";
-  if (!raw.trimEnd().includes("\n")) return { ...DEFAULT_SETTINGS_FORMAT, eol };
-  const finalNewline = raw.endsWith("\n");
-  const unit = /\n([ \t]+)\S/.exec(raw)?.[1];
+  const eol = majorityEol(raw);
+  if (!/[\r\n]/.test(raw.trimEnd())) return { ...DEFAULT_SETTINGS_FORMAT, eol };
+  // Whitespace AFTER the last line ending is still a file that ends in one:
+  // `}\n  ` came back `}` with the newline dropped (review of #188, NIT).
+  const finalNewline = /[\r\n][ \t]*$/.test(raw);
+  const unit = /[\r\n]([ \t]+)\S/.exec(raw)?.[1];
   if (unit === undefined || unit.length > 10 || (unit.includes("\t") && unit.includes(" "))) {
     return { indent: DEFAULT_SETTINGS_FORMAT.indent, eol, finalNewline };
   }
   return { indent: unit, eol, finalNewline };
 }
 
-/** The text with every string literal's CONTENTS taken out, so a `//` inside
- *  a URL is not mistaken for a comment. */
-function outsideStrings(raw: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  for (const ch of raw) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') {
-        inString = false;
-        out += ch;
+/**
+ * The shapes of NOT-QUITE-JSON a hand-edited file takes, found by one pass that
+ * knows what a string is and what a comment is — so a `//` inside a URL is not
+ * a comment, a `//` inside a SINGLE-quoted value is not one either (review of
+ * #188, M3: `{'apiKeyHelper': 'curl https://x'}` was diagnosed as "holds
+ * comments"), and an apostrophe inside a comment is not a single-quoted string.
+ *
+ * `bare` is the text with every string's contents and every comment taken out
+ * (a string leaves `""` behind, so a comma after it still reads as a comma
+ * after a value).
+ */
+export function jsonNoise(raw: string): { comments: boolean; singleQuotes: boolean; bare: string } {
+  let bare = "";
+  let comments = false;
+  let singleQuotes = false;
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i] ?? "";
+    const next = raw[i + 1] ?? "";
+    if (ch === '"' || ch === "'") {
+      if (ch === "'") singleQuotes = true;
+      i += 1;
+      while (i < raw.length && raw[i] !== ch && raw[i] !== "\n") {
+        i += raw[i] === "\\" ? 2 : 1;
       }
+      i += 1;
+      bare += '""';
       continue;
     }
-    if (ch === '"') inString = true;
-    out += ch;
+    if (ch === "/" && next === "/") {
+      comments = true;
+      while (i < raw.length && raw[i] !== "\n") i += 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      comments = true;
+      const close = raw.indexOf("*/", i + 2);
+      i = close === -1 ? raw.length : close + 2;
+      continue;
+    }
+    bare += ch;
+    i += 1;
   }
-  return out;
+  return { comments, singleQuotes, bare };
 }
 
 /**
  * WHY THIS FILE DID NOT PARSE, in words a person can act on — or null when it
- * is none of the three shapes a hand-edited settings file usually takes
- * (review n2).
+ * is none of the shapes a hand-edited settings file usually takes (review n2).
  *
- * Still a refusal, all three: this command writes plain JSON, and writing a
+ * Still a refusal, every one: this command writes plain JSON, and writing a
  * commented file back would drop every comment in it. What changed is that the
  * refusal says what it found and what to do, where it used to print the
  * parser's own complaint about an unexpected character. It does NOT claim to
@@ -265,8 +306,22 @@ export function unparsedSettingsWhy(raw: string): string | null {
       'than "UTF-8 with BOM" and run this again'
     );
   }
-  const bare = outsideStrings(raw);
-  if (/\/\/|\/\*/.test(bare)) {
+  const noise = jsonNoise(raw);
+  if (noise.comments && noise.singleQuotes) {
+    return (
+      "holds comments (// or /* */) and single-quoted strings ('…'). This command reads and " +
+      "writes plain JSON only, which allows neither, and writing this file back would drop " +
+      "every comment in it. Move the comments out, put double quotes where the single ones " +
+      "are, and run this again"
+    );
+  }
+  if (noise.singleQuotes) {
+    return (
+      "uses single quotes ('…') around names or values, and plain JSON needs double quotes " +
+      '("…"). Change them and run this again'
+    );
+  }
+  if (noise.comments) {
     return (
       "holds comments (// or /* */). This command reads and writes plain JSON only, and " +
       "writing this file back would drop every comment in it. Move the comments out of the " +
@@ -275,7 +330,7 @@ export function unparsedSettingsWhy(raw: string): string | null {
   }
   // A comma AFTER A VALUE and before a close — `"a": 1, }` — and not the stray
   // one in `{ , }`, which is a different mistake and gets the parser's words.
-  if (/[^\s{[,]\s*,\s*[}\]]/.test(bare)) {
+  if (/[^\s{[,]\s*,\s*[}\]]/.test(noise.bare)) {
     return (
       "has a comma just before a closing } or ], which plain JSON does not allow. Remove it " +
       "and run this again"
@@ -789,14 +844,15 @@ export function mergeHooks(
  * dotfiles repository expects.
  *
  * `JSON.stringify` escapes a line break inside a string as `\\n`, so every
- * literal newline in its output is a line ending and CRLF is a plain replace.
+ * literal newline in its output is a line ending and CRLF (or a bare CR) is a
+ * plain replace.
  */
 export function settingsBytes(
   value: Record<string, unknown>,
   format: SettingsFormat = DEFAULT_SETTINGS_FORMAT,
 ): string {
   const text = JSON.stringify(value, null, format.indent);
-  const lines = format.eol === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
+  const lines = format.eol === "\n" ? text : text.replace(/\n/g, format.eol);
   return format.finalNewline ? `${lines}${format.eol}` : lines;
 }
 

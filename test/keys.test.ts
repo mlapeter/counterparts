@@ -28,7 +28,19 @@
  * a real credentials file.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -794,5 +806,66 @@ describe("review n4 — the temp file", () => {
     writeConfig();
     expect(enableEmbedder(configPath).ok).toBe(true);
     expect(temps()).toEqual([]);
+  });
+});
+
+// ── #188 review M4: a symlinked file is written THROUGH, never replaced ─────
+
+describe("a symlinked credentials or configuration file (#188 review M4)", () => {
+  test("writeCredential writes the key into the file the link points at, and the link survives", () => {
+    const secrets = join(root, "secrets");
+    mkdirSync(secrets);
+    const real = join(secrets, "creds.env");
+    writeFileSync(real, "# mine\n", { mode: 0o644 });
+    symlinkSync(real, credsPath);
+
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+
+    // The LINK is still a link, pointing where it pointed.
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(credsPath)).toBe(real);
+    // The key is in the real file, which is 0600 now, beside what was there.
+    expect(readFileSync(real, "utf8")).toBe(`# mine\n${API_KEY_ENV}=${ANTHROPIC_KEY}\n`);
+    expect((statSync(real).mode & 0o777).toString(8)).toBe("600");
+    // And no temp file is left in either directory.
+    for (const dir of [root, secrets]) {
+      expect(readdirSync(dir).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+    }
+  });
+
+  test("a second key through the same link replaces nothing but its own line", () => {
+    const real = join(root, "elsewhere.env");
+    writeFileSync(real, "", { mode: 0o600 });
+    symlinkSync(real, credsPath);
+    writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY);
+    writeCredential(credsPath, EMBED_KEY_ENV, VOYAGE_KEY);
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, "utf8")).toBe(
+      `${API_KEY_ENV}=${ANTHROPIC_KEY}\n${EMBED_KEY_ENV}=${VOYAGE_KEY}\n`,
+    );
+  });
+
+  test("a DANGLING link is refused by name, and nothing is created at either end", () => {
+    const missing = join(root, "not-mounted", "creds.env");
+    symlinkSync(missing, credsPath);
+    expect(() => writeCredential(credsPath, API_KEY_ENV, ANTHROPIC_KEY)).toThrow(
+      "is a symbolic link to",
+    );
+    expect(lstatSync(credsPath).isSymbolicLink()).toBe(true);
+    expect(existsSync(missing)).toBe(false);
+    expect(existsSync(join(root, "not-mounted"))).toBe(false);
+    expect(readdirSync(root).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("enableEmbedder writes through a symlinked configuration too, keeping its mode", () => {
+    const real = join(root, "dotfiles-config.json");
+    writeFileSync(real, `${JSON.stringify({ dataDir: "/x" }, null, 2)}\n`, { mode: 0o640 });
+    symlinkSync(real, configPath);
+    expect(enableEmbedder(configPath).ok).toBe(true);
+    expect(lstatSync(configPath).isSymbolicLink()).toBe(true);
+    const body = JSON.parse(readFileSync(real, "utf8")) as Record<string, unknown>;
+    expect(body["embedder"]).toEqual({ enabled: true });
+    expect(body["dataDir"]).toBe("/x");
+    expect((statSync(real).mode & 0o777).toString(8)).toBe("640");
   });
 });
