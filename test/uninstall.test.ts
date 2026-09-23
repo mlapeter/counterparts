@@ -28,7 +28,7 @@
  * Hermetic: a fresh temp HOME per test, removed in `afterEach`. No test runs
  * the real `claude` (the spawner is injected) and no test opens a real store.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -1391,20 +1391,41 @@ describe("finding #26 — the store's size, and what it is made of", () => {
     expect(row).toContain(humanBytes(size));
   });
 
-  test("the delete arm sizes the store BEFORE it opens it to count", async () => {
-    // Counting opens the store; the park arm never does. Sizing after the count
-    // would make the two arms measure different ground by construction.
+  test("the plan opens nothing, and the COUNT comes after the sizes the screen prints (#188 review)", async () => {
+    // The reviewer's mutation: make the count's open fold the log (what a
+    // future `store/` that finalizes its statements would do on close). With
+    // the count taken before the printed sizes, the delete screen lost its log
+    // line and its size moved while the park screen kept both — two sizes for
+    // one store again. Here `Store.open` folds the log before it opens, and the
+    // delete screen must still print the size and the log it had.
     await install();
     fattenLog();
     const size = dirSize(storePath());
-    const del = planUninstall({
-      configPath: configPath(),
-      config: { dataDir: storePath() },
-      home,
-      verb: "delete",
+    const plan = planUninstall({ configPath: configPath(), config: { dataDir: storePath() }, home, verb: "delete" });
+    expect(plan.census).toBeNull();
+    expect(walBytes(storePath())).toBe(plan.logBytes);
+
+    const original = Store.open.bind(Store);
+    let opened = 0;
+    const folding = spyOn(Store, "open").mockImplementation((opts) => {
+      opened += 1;
+      const db = new Database(join(storePath(), DATABASE_FILE));
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.close();
+      return original(opts);
     });
-    expect(del.census?.kind).toBe("memories");
-    expect(del.entries.find((e) => e.kind === "store")?.bytes).toBe(size);
+    try {
+      const c = consoleWith(["cancel"]);
+      expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
+      expect(opened).toBe(1); // the count, and nothing else
+      const said = text(c.out);
+      expect(said).toContain(`store             ${humanBytes(size)}`);
+      expect(said).toContain("of that is a database log that shrinks on its own;");
+      // The count is still on the store's line.
+      expect(said).toMatch(/your memory — (no memories in it yet|\d+ memor)/);
+    } finally {
+      folding.mockRestore();
+    }
   });
 
   test("the whole screens, both arms, carry it — and a fresh store's screens do not", async () => {
@@ -1480,6 +1501,9 @@ describe("finding #26 — the store's size, and what it is made of", () => {
     writeFileSync(join(d, "cache", "c.sqlite"), "x");
     writeFileSync(join(d, "cache", "c.sqlite-wal"), "z".repeat(50));
     writeFileSync(join(d, "orphan-wal"), "q".repeat(1000));
+    // Not ours: a backup's own log beside its backup (review of #188, NIT).
+    writeFileSync(join(d, "a.sqlite.bak"), "x");
+    writeFileSync(join(d, "a.sqlite.bak-wal"), "b".repeat(700));
     expect(walBytes(d)).toBe(150);
     expect(walBytes(join(home, "not-there"))).toBe(0);
   });

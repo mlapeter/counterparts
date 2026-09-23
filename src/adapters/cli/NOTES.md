@@ -1606,12 +1606,18 @@ Six items the owner agreed on 2026-09-23, one PR. What each one does now:
   the #24 shape. Whether a keyless sweep should read OFF rather than amber is a grading
   decision, and the keyless round (C3) is the one about to redraw that screen.
 - **#8 for stores 0.1.0 made.** With neither `store.created` nor `store.started`, the
-  window doctor STATES falls back to the oldest event row's `at` — the moment it was
-  written, which is the answer to the old objection that `rowDate` prefers a payload's
-  own date — and then to the database file's birth time (zero is "no answer", never
-  1970). Both can only make a store look older when they are wrong, never younger than
-  its rows; event pruning cannot bite, because a row goes only at 90 lived days, far
-  outside a seven-day window. The reading is untouched; this is still one string.
+  window doctor STATES falls back to the EARLIER of two readings: the smallest event
+  `at` (`eventLogCensus().oldestAt` — the moment a row was written, which answers the
+  old objection that `rowDate` prefers a payload's own date; and the smallest, not the
+  first row by insertion order) and the database file's birth time (zero, or a birth no
+  earlier than the change time, is "no answer"). **Corrected after the review of #188
+  (M2): both readings can make a store look YOUNGER, not older.** Each is the latest day
+  the store could have begun — `install` writes no event, so an installed-but-idle store
+  has its first row days after it began, and a restored copy is born the day it was
+  copied. Taking the earlier of the two answers the idle case; a store both restored
+  from a copy AND idle before its first row still gets a label that starts late and
+  hides those idle days. The reading is untouched either way (`windowShown` moves only
+  the words); event pruning adds no case, because a row goes only at 90 lived days.
 - **`help`'s Advanced group — already done.** The "collapse to a comma list, 39 → ~31
   lines" item was written 2026-09-21 (commit `ae1021d`) against the page before the 09-22
   split, which moved the whole Advanced group to `counterparts help advanced`. The short
@@ -1631,6 +1637,32 @@ Six items the owner agreed on 2026-09-23, one PR. What each one does now:
   write fails. **n5 was already gone**: the 09-22 screens replaced "Your memory, parked"
   with "Set aside" and took the census off the park arm; a test pins that the screen
   claims no memory when none moved.
+
+**What the review of #188 changed** (no BLOCKER, no MAJOR; four MINORs, all taken):
+M1 — the line ending is the majority's, not "is there a CRLF anywhere", so one pasted CRLF
+line no longer converts an LF file (bare-CR files keep CR, and spaces after the last
+newline still count as a final one). M2 — the #8 fallbacks take the earlier reading and
+say which way they can be wrong (above). M3 — `wire.ts#jsonNoise` is one pass that knows a
+string from a comment, so a single-quoted file is named as single quotes rather than as
+comments. M4 — `keys.ts#writeTarget`: a symlinked `credentials.env` or configuration is
+written THROUGH to the file it points at, atomically and at the right mode, and the link
+survives; a dangling link is refused by name and nothing is created (unlike `wire.ts`, a
+target outside the home is not refused — it is the person's own secret, linked where they
+keep it). And from the NITs: the delete arm's count now comes after the sizes it prints
+(`uninstall.ts#counted`, pinned by a test that makes the count's open fold the log);
+`walBytes` counts only `<name>.sqlite-wal`; the help golden names
+`docs/new-user-findings.md` in its title and failure message; CONTRACT 22 lists the
+content the parser changes, not only the layout, and CONTRACT 28 says "never opens the
+store" is true of this process only — the pre-flight's health check is a writer open.
+
+**Two NITs left, named so they are not mistaken for missed:** `wire` on a settings file
+that VANISHED while the question was up writes a new hooks-only file (no backup, outcome
+`ok`) — pre-existing, and a refusal there is the likely right answer for whoever next
+touches `wire`. And `test/cli.test.ts` › "NEW-MINOR-6: an abandoned scratch in the TEMP
+dir is swept" is FLAKY under the full suite: it shares `$TMPDIR/counterparts-export-*`
+with any export running at the same moment in another test file, and failed once in the
+reviewer's full run (218/0 alone). Pre-existing, not touched here; the fix is a scratch
+root of its own per test.
 
 ### #26, the two sizes — the cause, measured
 
@@ -1663,8 +1695,8 @@ Measured on throwaway stores, bun 1.3.10, macOS (Apple's SQLite 3.39.5):
 
 **The fix.** Both arms now take their sizes at the same point — after the pre-flight,
 right before the plan is printed (`uninstall.ts#remeasured`, `lstat` and `readdir` only, so
-the park arm still never opens the store) — and `planUninstall` itself sizes before its
-count. The number is every byte under the path, log included. When the log is a megabyte
+this process still never opens a store it parks; the pre-flight's health check, in another
+process, does) — and the delete arm counts (`counted`, an observer open) only after that. The number is every byte under the path, log included. When the log is a megabyte
 or more and a tenth or more of the store, both plans say so in the same two lines:
 `5.3 MB of that is a database log that shrinks on its own; / nothing is lost when it
 does.` A fresh store's log is a couple of hundred kilobytes, so the owner's screens are

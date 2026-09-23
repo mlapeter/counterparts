@@ -24,7 +24,17 @@
  * depended on the developer's own `git status` would pass and fail with it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -2842,8 +2852,8 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
 
   test("a store with no record of its beginning that dates itself AFTER today clamps nothing", () => {
     // Every store made before 2026-09-21 has no `store.created`, and since
-    // 2026-09-23 the reading falls back to the store's own evidence (the next
-    // three tests). Here that evidence — no events, and a database file born
+    // 2026-09-23 the reading falls back to the store's own evidence (the tests
+    // below). Here that evidence — no events, and a database file born
     // just now — lands after this test's `today`, which is a clock nobody
     // should trust, so the sentence is the one it always was.
     mintStore();
@@ -2882,6 +2892,40 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     expect(f.data["from"]).toBe("2026-09-08");
   });
 
+  test("the oldest event is the smallest `at`, not the first row written (#188 review M2)", () => {
+    // A row written LATER (higher seq) with an EARLIER clock — replay tooling,
+    // a clock that was wrong and was fixed — is the older evidence.
+    const later = Date.parse("2026-09-12T10:00:00Z");
+    const earlier = Date.parse("2026-09-10T10:00:00Z");
+    const c = Counterpart.open({ dir, now: () => later });
+    c.close();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const first = Store.open({ dir, now: () => later });
+    first.setMeta(STORE_CREATED_KEY, "");
+    first.appendEvent({ name: SWEEP_GATE_EVENT, day: first.livedDay(), payload: { reason: "ran" } });
+    first.close();
+    const s = Store.open({ dir, now: () => earlier });
+    stores.push(s);
+    s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
+    expect(s.eventLog({ limit: 1 })[0]?.at).toBe(later);
+    const f = by(doctorFindings(input({ store: s })), "authorship");
+    expect(f.detail.startsWith("2026-09-10→2026-09-14: ")).toBe(true);
+  });
+
+  /** Make the database file's change time later than its birth, as any store
+   *  that has been written since it was made has — a filesystem that keeps no
+   *  birth time reports one no earlier than the change time, which is read as
+   *  "no answer". */
+  function touchDatabase(): number {
+    const file = join(dir, DATABASE_FILE);
+    const at = new Date();
+    utimesSync(file, at, at);
+    const st = statSync(file);
+    expect(st.ctimeMs).toBeGreaterThan(st.birthtimeMs);
+    return st.birthtimeMs;
+  }
+
   test("no `store.created` and no events: the DATABASE FILE's birth time says when it began", () => {
     // The file is born now, so `today` three days on puts that birth inside
     // the window — which is exactly the store 0.1.0 made on a morning and was
@@ -2892,13 +2936,48 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "");
     expect(s.eventLog({ limit: 1 })).toHaveLength(0);
-    const born = statSync(join(dir, DATABASE_FILE)).birthtimeMs;
+    const born = touchDatabase();
     if (!(born > 0)) return; // a filesystem that keeps no birth time: nothing to read
     const bornOn = dateOf(born);
     const today = dateOf(born + 3 * 86_400_000);
     const f = by(doctorFindings(input({ store: s, today })), "authorship");
     expect(f.detail.startsWith(`${bornOn}→${today}: `)).toBe(true);
     expect(f.data["shownFrom"]).toBe(bornOn);
+  });
+
+  test("installed, then idle: the file's birth is EARLIER than the first event, and it wins (#188 review M2)", () => {
+    // `install` writes no event, so a 0.1.0 store installed on one day and first
+    // used days later has its oldest row on the later day. Taking that alone
+    // hid the idle days — the silence the Authorship line exists to show.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const born = touchDatabase();
+    if (!(born > 0)) return;
+    const firstUse = born + 4 * 86_400_000;
+    const s = Store.open({ dir, now: () => firstUse });
+    stores.push(s);
+    s.setMeta(STORE_CREATED_KEY, "");
+    s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
+    const today = dateOf(born + 6 * 86_400_000);
+    const f = by(doctorFindings(input({ store: s, today })), "authorship");
+    expect(f.detail.startsWith(`${dateOf(born)}→${today}: `)).toBe(true);
+  });
+
+  test("and when the event is the earlier of the two — a file restored from a copy — the event wins", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const born = touchDatabase();
+    if (!(born > 0)) return;
+    const firstRow = born - 3 * 86_400_000;
+    const s = Store.open({ dir, now: () => firstRow });
+    stores.push(s);
+    s.setMeta(STORE_CREATED_KEY, "");
+    s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
+    const today = dateOf(born + 2 * 86_400_000);
+    const f = by(doctorFindings(input({ store: s, today })), "authorship");
+    expect(f.detail.startsWith(`${dateOf(firstRow)}→${today}: `)).toBe(true);
   });
 
   test("a `store.created` that IS there wins: the fallbacks are fallbacks", () => {

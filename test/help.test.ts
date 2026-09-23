@@ -95,20 +95,25 @@ describe("the short page", () => {
     expect(page).toContain("counterparts help advanced");
   });
 
-  test("it is the page the owner drew, byte for byte", () => {
+  test("it is the \"Help page\" block in docs/new-user-findings.md, byte for byte — that block changes only on the owner's word", () => {
     // `docs/new-user-findings.md` §"The screens" is the acceptance criterion the
     // 2026-09-22 round was built to ("the five rendered screens below are the
     // acceptance criteria"), and the help page is the first of them. A change
     // to this page is a change to that screen: make it there too, on his word.
-    const doc = readFileSync(join(import.meta.dir, "..", "docs", "new-user-findings.md"), "utf8");
+    const DOC = "docs/new-user-findings.md";
+    const doc = readFileSync(join(import.meta.dir, "..", DOC), "utf8");
     // Anchored on the heading AND its fence: "**Help page**" also opens item 2
     // of the owner's answers, a hundred lines above the screen itself.
     const anchor = "**Help page**\n\n```\n";
     const at = doc.indexOf(anchor);
-    expect(at).toBeGreaterThan(0);
+    expect(at, `${DOC} has no "**Help page**" screen block (§"The screens") to hold the help page to`).toBeGreaterThan(0);
     const start = at + anchor.length;
     const end = doc.indexOf("\n```", start);
-    expect(shortHelp()).toBe(doc.slice(start, end));
+    expect(
+      shortHelp(),
+      `the help page no longer matches the "Help page" block in ${DOC} §"The screens" — ` +
+        "that block is the owner's approved screen and changes only on his word; change both, or neither",
+    ).toBe(doc.slice(start, end));
   });
 
   test("every description is one short line — or the two the owner wrote", () => {
