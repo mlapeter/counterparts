@@ -836,7 +836,7 @@ const FLAG_HELP: Record<string, string> = {
   // The local table only (roadmap C3): Voyage is frozen, and nothing on this
   // line can turn it on. A configuration that already names it keeps it.
   embedder:
-    "turn on recall by meaning — a local table that ships with the package; nothing leaves this machine (on by default at a terminal)",
+    "turn on recall by meaning — the local table that ships with the package, where nothing leaves this machine (a configuration that already names Voyage keeps it); on by default for a new install at a terminal",
   "no-embedder": "leave recall by meaning off: recall matches on words alone",
   force: "overwrite configuration this command already wrote once",
   kind: "self, person, entity, skill, place or fact",
@@ -3126,6 +3126,7 @@ async function installConversation(
   if (suppliedBudget === undefined && !existsSync(layout.config)) {
     flags["budget"] = String(DEFAULT_BUDGET_BYTES);
   }
+  const configExisted = existsSync(layout.config);
   const code = installCommand({ command: "install", positional: [], flags }, io, env, home_, named, {
     hostSteps: false,
     nameAlreadySaid: true,
@@ -3141,6 +3142,20 @@ async function installConversation(
     defaultEmbedder: true,
   });
   if (code !== EXIT.ok) return code;
+  // AN EMBEDDER FLAG OVER A KEPT CONFIGURATION CHANGES NOTHING, AND SAYS SO —
+  // the rule `--name` follows above. Rule 2 keeps the file; the scripted arm's
+  // "(an existing file is never rewritten…)" receipt is silenced on this arm,
+  // so without this line the flag would be accepted, ignored and invisible.
+  if (
+    configExisted &&
+    parsed.flags["force"] !== true &&
+    (parsed.flags["embedder"] === true || parsed.flags["no-embedder"] === true)
+  ) {
+    u.hint(
+      `${parsed.flags["embedder"] === true ? "--embedder" : "--no-embedder"} was not used: this configuration already exists and is kept. ` +
+        `\`${BIN.cli} install --force ${parsed.flags["embedder"] === true ? "--embedder" : "--no-embedder"}\` rewrites it, keeping every other setting.`,
+    );
+  }
 
   // ── Claude Code ───────────────────────────────────────────────────────────
   //

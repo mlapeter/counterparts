@@ -518,7 +518,8 @@ The standalone verb does not ask either: typing it is the yes.*
     never flipped** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4): a kind the
     replaced file names is kept, on or off; a kind-less 0.2.0 block beside a saved
     `VOYAGE_API_KEY` stays kind-less (absent `kind` is how 0.2.0 says Voyage); everything
-    else is `"static"`. Nothing on this command line can write `"voyage"`. A re-run keeps
+    else is `"static"`. Nothing on this command line can newly name Voyage: `"voyage"` is
+    only ever carried from the file being replaced. A re-run keeps
     the file it finds (rule 2); `install --force --embedder` is the command that turns the
     table on for an existing configuration, and it is the one `doctor`'s `Turn on:` line
     names. `--embedder` with `--no-embedder` is refused before anything is written. When

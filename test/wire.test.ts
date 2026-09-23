@@ -1209,6 +1209,13 @@ describe("install, at a terminal", () => {
     const again = await install([], [], spawnerThat(() => OK).spawner);
     expect(again.asked).toEqual([]);
     expect(readFileSync(configPath(), "utf8")).toBe(before);
+    // …and a flag on that re-run is not silently dropped: it says it was not
+    // used, and names the command that would use it (the `--name` rule).
+    const flagged = await install(["--embedder"], [], spawnerThat(() => OK).spawner);
+    expect(readFileSync(configPath(), "utf8")).toBe(before);
+    const said = text([...flagged.out, ...flagged.err]).replace(/\s+/g, " ");
+    expect(said).toContain("--embedder was not used");
+    expect(said).toContain("install --force --embedder");
   });
 
   test("an empty name goes on without a core, and says how to add one", async () => {
