@@ -1,5 +1,15 @@
 # Handoff — resume here
 
+## 2026-09-23 — THE ROADMAP IS WRITTEN: `docs/ROADMAP.md`; THIS SESSION COORDINATES THE BUILD
+
+The roadmap conversation happened (one item at a time, decisions in the conversation). Every
+decision and the build plan (waves, file ownership, acceptance, which PRs need adversarial review)
+is in **`docs/ROADMAP.md`** — read that, not this section. Headlines: go public with contributions
+open; the Stop ask split into a short human line and a two-line model ask; keyless by default (potion
+static embedder as `counterparts-model-potion`, crash write-up moves to the next session); D closed as
+bun + npm; E = server re-checks the schema on every tool call and refuses while ahead. The owner runs
+the keyless tier (he never set a Voyage key). Wave 1 builders start from master `37e9518`.
+
 ## 2026-09-22, close of the long session — NEXT SESSION IS A ROADMAP CONVERSATION, THEN A COORDINATOR BUILDS
 
 **Read this section, then the two below it (go-public plan; 0.2.0 published), then the docs listed under
