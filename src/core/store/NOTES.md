@@ -1149,6 +1149,15 @@ something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` an
   drop). The scan skips rows whose width differs from the query's: `cosine` reads a
   common prefix, so a 1,024-d query against a 256-d row used to produce a number.
 
+**Held means no paid call can be wasted on it — where this change reaches.** The
+worker's two jobs (`adapters/claude-code/vectors.ts`) read `embedderVerdict` first and do
+nothing under `held` or `cache-ahead` (backfill reason `vectors-withdrawn`, the lag cue
+`embed-failed` with `withdrawn` beside it). Two callers outside this change still ask the
+paid seat for a vector the store will not use: the novelty seam at deposit
+(`counterpart.ts`'s `vectors.vector`) and the MCP server's deliberate question
+(`server.ts#embedQuestion`). Both are one-line checks of `store.embedderVerdict`, filed
+for their owners; the state is reachable only by changing a PAID seat's model id.
+
 **A cache from a newer build is left as found** (found by roadmap E while building the
 every-call schema check): `openCache` used to stamp any version it did not recognize down
 to its own. Now an ahead cache is returned for reading only — no DDL, no stamp, no

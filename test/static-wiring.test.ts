@@ -17,7 +17,8 @@ import { EMBEDDER_KINDS, embedderKind, loadConfig } from "../src/adapters/claude
 import { STATIC_BACKFILL_LIMIT, backfillVectors, laggedSemantic } from "../src/adapters/claude-code/vectors.js";
 import { createEmbedder, createStaticEmbedder, openEmbedder, openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { loadStaticModel } from "../src/core/embed/static.js";
-import { EMBEDDER_META_KEY, Store, paths } from "../src/core/store/index.js";
+import { EMBEDDER_META_KEY, EMBED_SKIP_AFTER, Store, paths } from "../src/core/store/index.js";
+import type { LiveEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { openDb } from "../src/core/store/db.js";
 
 const VOCAB = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", "otter", "river", "holt", "survey", "rota", "ward", "shift"];
@@ -203,5 +204,93 @@ describe("vectors.ts — the worker's two jobs never ask a table for a Voyage ke
     const paid = createEmbedder({ client: async () => ({ model: "m", vectors: [], requested: 0, returned: 0, chunks: 0, failures: [] }) });
     const refused = await laggedSemantic({ counterpart: c, sessionId: "s1", scope: "proj", embedder: paid, hasCredential: false });
     expect(refused.reason).toBe("no-credentials");
+  });
+});
+
+describe("a withdrawn vector channel costs no call (held / cache-ahead)", () => {
+  /** A paid-shaped embedder whose every network half throws if touched. */
+  function tripwire(model: string): LiveEmbedder {
+    const identity = { model, dim: null, rebuild: "external" as const };
+    return {
+      model,
+      kind: "voyage",
+      needsCredential: true,
+      embed: Object.assign((): number[] | null => null, { identity }),
+      vector: async (): Promise<number[] | null> => {
+        throw new Error("PAID CALL: vector() on a withdrawn channel");
+      },
+      warm: async (): Promise<number> => {
+        throw new Error("PAID CALL: warm() on a withdrawn channel");
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
+    };
+  }
+
+  function heldCounterpart(): Counterpart {
+    // Paid model A wrote the vectors; the config now names paid model B.
+    const a = Object.assign((t: string): number[] | null => [t.length, 1, 2], {
+      identity: { model: "paid-a", dim: null, rebuild: "external" as const },
+    });
+    const s = Store.open({ dir, embed: a });
+    s.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
+    s.close();
+    const b = tripwire("paid-b");
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: b.embed, vectors: b });
+    opened.push(c);
+    expect(c.store.embedderVerdict.kind).toBe("held");
+    c.store.put({ type: "memory", kind: "fact", body: "A second memory, written while held." });
+    return c;
+  }
+
+  test("backfill: no warm(), reason vectors-withdrawn, the verdict named in codes", async () => {
+    const c = heldCounterpart();
+    const report = await backfillVectors({ counterpart: c, embedder: tripwire("paid-b"), hasCredential: true });
+    expect(report.reason).toBe("vectors-withdrawn");
+    expect(report.codes).toBe("held");
+    expect(report.attempted).toBe(0);
+  });
+
+  test("lagged cue: no vector(), recorded embed-failed with the verdict beside it", async () => {
+    const c = heldCounterpart();
+    c.captureSpans({
+      session: "s1",
+      scope: "proj",
+      turns: [
+        { role: "user", text: "Where is the otter holt?" },
+        { role: "assistant", text: "By the river." },
+      ],
+    });
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s1",
+      scope: "proj",
+      embedder: tripwire("paid-b"),
+      hasCredential: true,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    expect(lag.reason).toBe("embed-failed");
+    expect(events.find((e) => e.name === "vectors.lag")?.data).toMatchObject({ withdrawn: "held" });
+  });
+});
+
+describe("a static table's null is the item's, so the backfill retires it", () => {
+  test("a memory with no known token is skip-listed after EMBED_SKIP_AFTER runs and stops being offered", async () => {
+    const bare = Store.open({ dir });
+    const unknown = bare.put({ type: "memory", kind: "fact", body: "🙂🙂 ¿¿ zzqx" });
+    bare.close();
+    const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    opened.push(c);
+    // The at-open refill could not embed it either — it has no token the table knows.
+    expect(c.store.missingVectors(10)).toEqual([unknown]);
+    for (let run = 0; run < EMBED_SKIP_AFTER; run++) {
+      await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    }
+    expect(c.store.skippedVectorIds()).toEqual([unknown]);
+    expect(c.store.unembeddedCount()).toBe(0);
+    const after = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    expect(after.reason).toBe("nothing-missing");
+    expect(after.skipped).toBe(1);
   });
 });

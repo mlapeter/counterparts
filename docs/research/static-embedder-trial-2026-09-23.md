@@ -198,10 +198,10 @@ Measured on synthetic stores of ~1.2 KB memories (a scratch script, temp dirs):
 
 ## The suite
 
-Clean detached checkout of the branch head: see the PR for the final counts. With the
-real weights wired (`COUNTERPARTS_STATIC_WEIGHTS_DIR`, `COUNTERPARTS_STATIC_RETRIEVAL_DIR`)
-the whole suite, including the four real-table tests, passes (3269/0 at the time of this
-write-up). The recall suites themselves (`recall`, `recall-bench`, `probe`, `bridge`:
+On a clean detached checkout of the branch head: `tsc --noEmit` clean; `bun test`
+3268 pass / 4 skip / 0 fail (the four skips are the real-table tests, which need the
+weights named); with the real weights wired (`COUNTERPARTS_STATIC_WEIGHTS_DIR`,
+`COUNTERPARTS_STATIC_RETRIEVAL_DIR`) 3272 / 0. The recall suites themselves (`recall`, `recall-bench`, `probe`, `bridge`:
 85/0) build their stores with their own stub embedders, so "the recall tests with the
 static embedder wired" is honestly the bench above: `Recall.build` and `activate` over a
 store whose every vector came from potion, with the no-regression half measured.

@@ -94,6 +94,20 @@ function credentialMissing(embedder: LiveEmbedder, hasCredential: boolean): bool
   return embedder.needsCredential !== false && !hasCredential;
 }
 
+/**
+ * Has the store taken the vector channel away from this handle? `held` (box 3
+ * holds another PAID model's vectors, awaiting the owner's confirm) and
+ * `cache-ahead` (box 3 is a newer build's) both withdraw the store's embedder
+ * and answer every ranking with nothing (store CONTRACT, cache v5). Anything
+ * this worker embedded then could never land and never be ranked — so it must
+ * not embed at all: for the paid seat that is a silent paid call every run,
+ * reported as a row of failures with no code (I33's unreadable shape).
+ */
+function vectorsWithdrawn(counterpart: Counterpart): string | null {
+  const kind = counterpart.store.embedderVerdict.kind;
+  return kind === "held" || kind === "cache-ahead" ? kind : null;
+}
+
 export interface LagReport {
   readonly reason: SemanticReason;
   readonly stored: boolean;
@@ -128,14 +142,19 @@ export async function laggedSemantic(input: {
 }): Promise<LagReport> {
   const { counterpart, sessionId, scope } = input;
   const emit = input.onEvent ?? ((): void => {});
-  const note = (reason: SemanticReason, vector: number[] | null, bytes: number): LagReport => {
+  const note = (
+    reason: SemanticReason,
+    vector: number[] | null,
+    bytes: number,
+    detail: Record<string, string> = {},
+  ): LagReport => {
     const out = counterpart.noteSessionSemantic({
       sessionId,
       reason,
       vector,
       model: input.embedder?.model ?? null,
     });
-    emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes });
+    emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes, ...detail });
     // Durable through `noteAdapterEvent`, the ONE seam an adapter may write the
     // event log through — so tomorrow's coverage watch can count the turns whose
     // cue never got computed, and why, after this process is gone.
@@ -147,12 +166,18 @@ export async function laggedSemantic(input: {
         stored: out.stored,
         turn: out.turn,
         bytes,
+        ...detail,
       });
     }
     return { reason: out.reason, stored: out.stored, hits: out.hits, bytes };
   };
 
   if (input.embedder === null) return note("embedder-off", null, 0);
+  // Before the credential and before any text: a withdrawn channel is not worth
+  // one call. `embed-failed` is the closest word recall's closed vocabulary has;
+  // `withdrawn` names the store's verdict beside it, durably.
+  const withdrawn = vectorsWithdrawn(counterpart);
+  if (withdrawn !== null) return note("embed-failed", null, 0, { withdrawn });
   if (credentialMissing(input.embedder, input.hasCredential)) return note("no-credentials", null, 0);
 
   const text = lagText(counterpart, sessionId, scope);
@@ -212,7 +237,12 @@ export interface BackfillReport {
    *  a coverage watch reads; `skipped` is the other half of the same sum. */
   readonly remaining: number;
   readonly attempted: number;
-  readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer";
+  /**
+   * `vectors-withdrawn`: the store took the vector channel away at open (a HELD
+   * paid-model mismatch, or a cache from a newer build) — nothing was embedded,
+   * nothing was paid for, and `codes` names which verdict.
+   */
+  readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer" | "vectors-withdrawn";
   /**
    * WHY the failures failed: the distinct `code[:status]` pairs of this run,
    * joined by commas, or `""` when nothing failed.
@@ -304,6 +334,8 @@ export async function backfillVectors(input: {
 
   if (counterpart.observer) return done("observer", 0, 0, 0);
   if (input.embedder === null) return done("embedder-off", 0, 0, 0);
+  const withdrawn = vectorsWithdrawn(counterpart);
+  if (withdrawn !== null) return done("vectors-withdrawn", 0, 0, 0, withdrawn);
   if (credentialMissing(input.embedder, input.hasCredential)) return done("no-credentials", 0, 0, 0);
 
   const ids = store.missingVectors(limit);
@@ -348,7 +380,12 @@ export async function backfillVectors(input: {
   // fill that mixed an isolated 400 with a 500 elsewhere still charges the 500's
   // victims — strictly better than charging every failure, and the residue is
   // bounded by a run that saw poison at all. It is named in INTERFACE-GAPS.
-  const itemBlamed = itemAttributable(input.embedder);
+  //
+  // A LOCAL deterministic embedder (the static table) has only one way to miss:
+  // the text itself has no token it knows. Its null today is its null tomorrow,
+  // so every miss is the item's — without this, one emoji-only memory would be
+  // offered to every run forever and `remaining` would never reach zero.
+  const itemBlamed = itemAttributable(input.embedder) || input.embedder.needsCredential === false;
   // ONE read of the counters, not one per id — the same bargain `missingVectors`
   // makes two levels down.
   let counters: Map<string, string>;
