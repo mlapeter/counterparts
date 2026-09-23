@@ -98,6 +98,8 @@ import type {
 } from "../src/adapters/claude-code/index.js";
 import { hostConfig, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
+import { STOP_HUMAN_LINE } from "../src/adapters/claude-code/hooks.js";
+import { toolSpec } from "../src/adapters/mcp/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const BUDGET_BYTES = 9000;
@@ -3622,7 +3624,7 @@ describe("credentials — the environment first, then the ONE file the config na
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + exit 2 on Stop", () => {
+describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + exit 2 on Stop; JSON decision by default since B1", () => {
   const R = (over: Partial<{ injection: string | null; ask: string | null }>) => ({
     injection: null,
     ask: null,
@@ -3639,9 +3641,20 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
     expect(hostDelivery("user-prompt-submit", R({ injection: "recall" }), {}).exitCode).toBe(0);
   });
 
-  test("a Stop with an ask BLOCKS: the ask goes to stderr and the exit code is 2 (stdout reaches nobody on this host)", () => {
-    const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {});
+  test("a Stop with an ask BLOCKS, stderr shape: the ask goes to stderr and the exit code is 2 (plain stdout reaches nobody on this host)", () => {
+    const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {}, null, "stderr");
     expect(d).toEqual({ stdout: "", stderr: "Write what you learned, and the episode.", exitCode: 2, dropped: null });
+  });
+
+  test("a Stop with an ask BLOCKS, JSON shape (the default since B1): the decision is on stdout and the exit code is 0", () => {
+    const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {});
+    expect(d.exitCode).toBe(0);
+    expect(d.stderr).toBe("");
+    expect(JSON.parse(d.stdout)).toEqual({
+      decision: "block",
+      reason: "Write what you learned, and the episode.",
+      systemMessage: STOP_HUMAN_LINE,
+    });
   });
 
   test("a Stop with nothing to ask exits 0 and prints nothing", () => {
@@ -3649,8 +3662,10 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
   });
 
   test("the host's re-fired Stop (`stop_hook_active`) asks NOTHING — the anti-loop v1 carries for the same reason", () => {
-    const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true });
-    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
+    for (const shape of ["json", "stderr"] as const) {
+      const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true }, null, shape);
+      expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
+    }
   });
 });
 
@@ -3837,55 +3852,43 @@ describe("the one ask names the session and BOTH tools that take it", () => {
   test("the id is IN the ask, on both halves — it is what the server binds itself with", () => {
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
     expect(text.split("7c973b1c-d40a-47e5-92bb-8cdb1823a06d").length - 1).toBe(2);
-    expect(text).toContain("session_end");
+    expect(text).toContain("session_end tool");
     // The chapter door, which did not exist for the fortnight the ask named it.
     expect(text).toContain("chapter tool");
   });
 
-  test("`updates` is named as a FIELD, never as prose to write", () => {
+  test("`updates` and salience are the TOOL's to explain now, and it does (B1)", () => {
     // Four notes on the live host arrived as "updates: mem_x. …" in their own
-    // body text, unlinked, because the old ask said "say `updates: <id>`".
+    // body text, unlinked, because the old ask said "say `updates: <id>`". The
+    // ask no longer mentions either field; the description the model reads
+    // while filling them does, and must keep doing so.
     const text = stopAsk("s1", 1);
-    expect(text).toContain("FIELD");
-    expect(text).not.toContain("say `updates:");
+    expect(text).not.toContain("updates");
+    expect(text).not.toContain("salience");
+    const spec = JSON.stringify(toolSpec("session_end"));
+    expect(spec).toContain("`updates` is a FIELD on an entry, not prose");
+    expect(spec).toContain("A salience you claim is a floor");
+    expect(spec).toContain("An entry that claims no salience gets an ordinary default floor");
   });
 
-  test("salience is named as the author's to set, with the default said out loud", () => {
-    // An unclaimed authored memory takes a modest default floor, below the
-    // semantic band (`physics/`, 2026-09-04), and the author's claim is the only
-    // channel by which lived testimony outranks what a sweep noticed.
-    const text = stopAsk("s1", 1);
-    expect(text).toContain("`salience` (0-1)");
-    expect(text).toContain("modest default");
-  });
-
-  test("it keeps the two sentences that sanction an honest no", () => {
+  test("it keeps the sentence that sanctions an honest no, and names the empty answer", () => {
     const text = stopAsk("s1", 2);
     expect(text).toContain("Nothing worth keeping is a real answer");
-    expect(text).toContain("a short true episode beats a manufactured deep one");
+    expect(text).toContain("`memories: []`");
   });
 
-  test("a later chapter names its NUMBER, and the number is the store's", () => {
-    expect(stopAsk("s1", 3)).toContain("Add chapter 3");
-    expect(stopAsk("s1", 1)).not.toContain("Add chapter");
+  test("the chapter it asks for names its NUMBER, and the number is the store's", () => {
+    expect(stopAsk("s1", 3)).toContain("Write chapter 3 of");
+    expect(stopAsk("s1", 1)).toContain("Write chapter 1 of");
   });
 
-  test("it stays short — a model reads this at every Stop that is due one", () => {
+  test("it stays short — two lines, a model reads this at every Stop that is due one", () => {
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
-    expect(text.split("\n").length).toBeLessThanOrEqual(6);
-    // Shorter than the PAIR it replaces (~1,080 bytes across two texts), and
-    // asked far less often — the point of the budget is the blocked moment.
-    //
-    // RAISED 1,050 → 1,300 on 2026-09-20 (E1), and the raise is the honest half
-    // of the change: the handoff is a FIELD on the `session_end` call item 1
-    // already names, so it is still ONE ask and one pacer, but it is a third
-    // thing to say and it cost 187 characters. The owner's general rule is that
-    // a cap found cutting something off is reconsidered rather than worked
-    // around (spec §15 item 2); this one had 46 characters of headroom, so it
-    // was going to be the next line's problem whatever that line was. The
-    // properties the number defends — one screen, four numbered items at most,
-    // read at every blocked Stop — are the assertions above it, not this bound.
-    expect(text.length).toBeLessThan(1_300);
+    // B1 (2026-09-23): nine lines and ~1,250 characters became two lines, and
+    // the bound came down with it (was 1,300). The words themselves are pinned
+    // in `test/stop-ask-quiet.test.ts`.
+    expect(text.split("\n").length).toBe(2);
+    expect(text.length).toBeLessThanOrEqual(450);
   });
 
   test("the handoff is a FIELD on the call item 1 already names — not a third tool", () => {
@@ -3893,11 +3896,9 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     // not an ask: there is one pacer (`askAtStop` → `episodeAsk`), one text, and
     // the handoff names no tool of its own.
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
-    expect(text).toContain("`handoff`");
-    expect(text).toContain("that same session_end call");
-    expect(text).toContain("Not a memory");
-    // Exactly three numbered items, and no fourth tool named.
-    expect(text.match(/^\d\. /gm)?.length).toBe(3);
+    expect(text).toContain("set `handoff` on it only if work here is unfinished");
+    // Exactly two numbered items, and no third tool named.
+    expect(text.match(/(^|: )\d\) /gm)?.length).toBe(2);
     expect(text).not.toContain("handoff tool");
   });
 

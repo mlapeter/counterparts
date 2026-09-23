@@ -1053,3 +1053,129 @@ budget.
 The `SessionStart` notice goes quiet with it, because a notice needs a red. That closes
 finding 8 (the truncated fix sentence) sideways rather than by shortening it — the sentence
 would still truncate on a store that HAS lost its key, which is worth fixing on its own.
+
+## 2026-09-23 — the Stop ask: shorter, quieter, rarer (B1; findings #28 and #13)
+
+The owner's four decisions, built as stated: the person reads one line and the model two;
+two emission shapes behind a switch; pacing counts what the person typed; "nothing new"
+is an answer. Thresholds, the day cap and the one pacer are untouched (§13 G3: one ask,
+one pacer — nothing here adds a second).
+
+### What the host writes user-role
+
+Measured 2026-09-23 on Claude Code 2.1.28x, reading **shapes only** (keys, flags, the
+first few characters of host frames) across every transcript under `~/.claude/projects/`;
+no content was copied. `parseTranscript` reads only entries with a `message.role`.
+
+| what | the entry's own metadata | text opens with | now |
+|---|---|---|---|
+| the person, typed or pasted | `origin.kind: "human"`, `promptSource` `typed` / `queued` / `suggestion_accepted` | anything | `conversation` |
+| a headless prompt | `promptSource: "sdk"`, no origin | anything | `conversation` (no metadata → text rule) |
+| a subagent's hand-back (254 seen) | `isMeta: true`, `origin.kind: "peer"` (`from`, `senderTaskId`, `body`, `handback`) | `Another Claude session sent a message:\n<agent-message from="…">\n[Subagent hand-back] …` | `injected` (was `conversation`) |
+| a task notification (266 seen) | `origin.kind: "task-notification"`, **no** `isMeta` | `<task-notification>` | `injected` (was `conversation`) |
+| Stop hook feedback (179 seen) | `isMeta: true`, no origin | `Stop hook feedback:\n["<command>"]: …` | `ritual`, unchanged — refusals are checked before metadata |
+| `/context` output, local-command caveat, skill bodies, image captions, idle notice, scheduled prompts | `isMeta: true` (some with `turnCompanion`, `sourceToolUseID`, `promptSource: "system"`) | various | `injected` |
+| the compaction summary | `isCompactSummary: true`, `isVisibleInTranscriptOnly` | `This session is being continued…` | `injected` (was `conversation`) |
+| slash-command echo, `!`-command | no metadata | `<command-name>`, `<local-command-stdout>`, `<bash-input>`, `<bash-stdout>` | unchanged text rule; `<bash-stdout>`/`<bash-stderr>` now `injected` |
+| an interrupt | `interruptedMessageId`, no origin | `[Request interrupted by user]` | `injected` |
+| hook output (`UserPromptSubmit hook success`, `hook_additional_context`, `hook_system_message`) | `type: "attachment"`, **no role** | — | never a turn (unchanged) |
+| an API error written as the assistant | `isApiErrorMessage: true`, `model: "<synthetic>"` | `API Error: …` | `injected` (was `conversation`) |
+
+So "UserPromptSubmit hook success" was never counted by this reader: it is how the host
+*renders* an attachment to the model, and attachments carry no role. The misreadings
+that paced the ask were the hand-back and the task notification. The rule
+(`transcript.ts#pieceOf`): foreign → ritual → metadata → text markers → conversation.
+A block the person typed is `conversation` even if it contains a marker (a pasted
+`<system-reminder>` is still something they pasted). Text markers were added for the
+metadata-less case too (`<task-notification>`, `<agent-message>`, the hand-back and
+interrupt openers, `… hook success` frames), so an older build paces the same way.
+
+**Unchanged on purpose:** the assistant's real replies still pace. The pacer has always
+counted both roles' conversation, and counting the person alone would have moved the
+thresholds, which this round does not do.
+
+**A gap left open:** an `<agent-message>` hand-back gets no `attributePeers` rewrite, so
+capture keeps its wrapper verbatim, labelled only by `injected`. It is out of pacing
+either way; whether capture should label it the way a `<cross-session-message>` is
+labelled is a capture-quality question for another round.
+
+### The Stop ask's two shapes, and the owner's one-turn look
+
+What the host's reference says (https://code.claude.com/docs/en/hooks, read 2026-09-23):
+
+- Stop `decision: "block"` + `reason`: `"block"` "prevents Claude from stopping";
+  `reason` "Tells Claude why it should continue". And, for blocking decisions generally:
+  "You see it as a warning in the transcript, and it stays in the conversation".
+- `systemMessage`: "Warning message shown to the user."
+- Exit 2: "A hook that blocks by exiting 2 routes the same way as `reason`: Claude receives
+  the stderr message as the explanation for why it should continue."
+- A THIRD route exists and is **not built** (the decision was two shapes):
+  `hookSpecificOutput.additionalContext` on Stop is "Non-error feedback for Claude … unlike
+  `decision: "block"` it is shown in the transcript as hook feedback rather than a hook
+  error", with the same loop protections. If both built shapes turn out loud, that is the
+  one the docs call quiet.
+
+So the JSON shape may show the person their one line AND the model's two lines as a
+warning. Nobody can tell from here — `claude -p` draws no banner — which is why the owner
+looks.
+
+**The recipe (one turn each; after this round's restart):**
+
+1. The switch is a top-level key in the `claude-code.json` the hooks read (the one
+   `counterparts doctor` reports). **JSON is the default: add nothing.** Each hook
+   re-reads the file, so a change applies at the next Stop with no restart.
+2. Start a fresh Claude Code session in any directory and send one prompt that earns
+   the first ask in a single turn, e.g. *"Write a 2,500-word short story about a
+   lighthouse keeper."* (The first ask fires at ≥6 turns and ≥4,000 bytes, or at
+   ≥12,000 bytes alone; a 2,500-word reply is about 14,000.)
+3. When the reply ends, look at the terminal under it. **One line or two?** You should see
+   `Counterparts: asking the assistant to write up this session's memories.` The question
+   is whether a `Stop hook` warning/error line carrying the two-line ask
+   (`Counterparts, before this session closes: 1) …`) shows as well.
+4. Then set `"stopAskShape": "stderr"` in the same file, open ANOTHER fresh session
+   (the first ask fires once per session), same prompt. Expect `Stop hook error:` and the
+   two-line ask — the person reads the model's text in this shape; it has one channel.
+5. Pick. Delete the key for JSON, or leave `"stderr"`. The other shape is removed next
+   round. Answer each ask however you like — `memories: []` mints nothing.
+
+A value other than the exact string `"stderr"` is the default, and never makes the
+config unreadable: a typo in a display preference must not stand the adapter down.
+
+One behaviour differs between the shapes and is accepted: if closing the store throws
+AFTER the delivery is printed, the stderr shape exits 0 (master's rule, which drops the
+ask) while the JSON shape's printed decision still blocks. The pacer committed the ask
+before either, so the JSON behaviour is the more consistent one.
+
+### "Nothing new" is an answer
+
+`session_end` with `memories: []` and no handoff returns `reason: "nothing-new"`, no
+`isError`, mints nothing, and writes `nothingNewAt` (epoch ms) on the session's registry
+record via `sessions.ts#markNothingNew` — the MCP server's first write to that registry,
+deliberately narrow: no phase, no clock moved, no record created. A handoff-only answer
+marks it too. A call that leaves `memories` out is still `memories-required`; a refused
+handoff still refuses the call. Not a durable event row: a new durable event name is a
+core change (`AdapterDurableEventName`).
+
+It cannot cause an immediate re-ask, and nothing had to change for that:
+`self/index.ts#openChapter` commits `askedAtTurns`/`askedAtBytes` when the ask goes OUT,
+so the next Stop sees only the answer's own small reply against the ≥8 turns AND ≥8,000
+bytes a re-ask needs. `test/stop-ask-quiet.test.ts` walks it: ask, `memories: []`, next
+Stop `paced`, and the hook's rewrite of the record at that Stop carries the mark forward.
+
+For the owed-a-write-up predicate (roadmap B3/C2): a session has answered when it wrote
+memories or a chapter, or its registry record carries `nothingNewAt` later than its last
+`adapter.ask` row with `asked: true`.
+
+### I40
+
+The scope registry's SessionStart warning went to stderr, which at exit 0 reaches only
+the host's debug log. It now rides the SessionStart `systemMessage` (joined above any
+doctor notice, `bin/hook.ts#joinNotices`); the stderr copy stays for the log and for the
+one case the envelope drops the notice to keep the wake whole.
+
+### Left for others
+
+`tools/parallel/bin/daily.ts` feeds `stopAsk("<session>", 1)` to the parallel-run meter
+as v2's ritual probe, one line per probe. Both lines now carry the session id, so the
+meter would find no session-free line to recognise. The parallel run is retired; noted,
+not changed.

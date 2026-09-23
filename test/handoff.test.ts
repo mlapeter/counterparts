@@ -804,13 +804,18 @@ describe("the field on the session_end ask", () => {
     expect(s.counterpart.readHandoff(HERE)).toBeNull();
   });
 
-  test("NEITHER is still refused — an empty list on its own asks for nothing", async () => {
+  test("an empty list on its own is 'nothing new' — an ANSWER since B1 (2026-09-23); leaving the field out still is not", async () => {
     const s = mcp();
     const result = await s.call("session_end", { session: SESSION, memories: [] });
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBeUndefined();
     const out = payload(result);
-    expect(out["reason"]).toBe("memories-required");
+    expect(out["reason"]).toBe("nothing-new");
+    expect(out["deposited"]).toBe(0);
     expect(out["handoff"]).toBeUndefined();
+    // NEITHER — no memories field and no handoff — is still refused.
+    const missing = await s.call("session_end", { session: SESSION });
+    expect(missing.isError).toBe(true);
+    expect(payload(missing)["reason"]).toBe("memories-required");
   });
 
   test("a REFUSED handoff with no memories is still memories-required — nothing landed", async () => {

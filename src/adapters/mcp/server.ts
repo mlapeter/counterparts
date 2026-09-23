@@ -64,6 +64,7 @@ import {
   SESSION_TTL_MS,
   canonicalScope,
   isLive,
+  markNothingNew,
   readSession,
   sameScope,
 } from "../sessions.js";
@@ -1099,15 +1100,33 @@ export class McpServer {
     //     before. So is a `memories` that is not an array: a caller who sent the
     //     wrong TYPE wants to be told, and the field is still `required` in the
     //     published schema.
+    //
+    // AND A FOURTH, 2026-09-23 (B1, owner's decision 4): `memories: []` with NO
+    // handoff is "nothing new" — accepted, minting nothing, and RECORDED, so an
+    // honest empty answer is no longer the same silence as no answer at all.
+    // Only an explicit empty ARRAY: a call that left the field out has not
+    // answered anything, and stays `memories-required`. A handoff that was sent
+    // and refused still refuses the call — the fix is to resend it.
+    //
+    // The record is a mark on the session's registry entry (`nothingNewAt`),
+    // not a durable event row: a new durable event NAME is a core change
+    // (`AdapterDurableEventName`), and the registry is where "did this session
+    // answer" is already read from. Every success with no memories leaves it,
+    // handoff-only included. It does not move pacing and does not need to — the
+    // pacer advanced when the ask went out (`self/index.ts#openChapter`).
     const session = this.session as string;
     const landed = handoff !== null && handoff["written"] === true;
     const noMemories = raw === undefined || (Array.isArray(raw) && raw.length === 0);
-    if (landed && noMemories) {
+    const nothingNew = handoff === null && Array.isArray(raw) && raw.length === 0;
+    if ((landed && noMemories) || nothingNew) {
+      const marked = markNothingNew(this.registryDir, session, this.nowFn()) !== null;
       this.emit("mcp.session_end", session, {
         entries: 0,
         deposited: 0,
         refused: 0,
-        handoff: true,
+        handoff: landed,
+        nothingNew: true,
+        recorded: marked,
       });
       return this.result(
         {
@@ -1116,8 +1135,8 @@ export class McpServer {
           deposited: 0,
           refused: 0,
           outcomes: [],
-          reason: "handoff-only",
-          handoff,
+          reason: landed ? "handoff-only" : "nothing-new",
+          ...(landed ? { handoff } : {}),
         },
         false,
       );

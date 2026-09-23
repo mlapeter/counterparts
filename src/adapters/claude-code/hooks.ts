@@ -88,7 +88,7 @@ import type { CheckoutReading } from "./doctor.js";
 import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
-import { NO_ARRIVAL, readWakeArrival } from "./transcript.js";
+import { NO_ARRIVAL, STOP_ASK_OPENER, readWakeArrival } from "./transcript.js";
 import type { Expansion, WakeArrival } from "./transcript.js";
 
 /** Every hook this adapter installs, by the name it is wired under. */
@@ -352,7 +352,7 @@ export const SCOPE_PATIENCE_DEFERRALS = 1;
  * Stops. Measured 2026-09-04: about a dozen asks in a 13-turn evening. They are
  * one text on one pacer here, and the pacer is the chapter's.
  *
- * The other three corrections, all measured the same day:
+ * The other corrections, all measured the same day:
  *
  *   - **It names the session id and both tools.** The host's MCP servers are
  *     launched from a static config and never learn which session they are
@@ -361,50 +361,62 @@ export const SCOPE_PATIENCE_DEFERRALS = 1;
  *     Without it the model reached for `note` 34 times in one session and no
  *     session's dump ever landed. On the Stops where only the episode half
  *     fired, the model got no id and no tool name at all.
- *   - **`updates` is a FIELD, and the ask says so.** The old wording said
- *     "say `updates: <id>`", and four notes duly arrived with `updates: mem_x.`
- *     as the first words of their prose — unlinked, because prose is not a
- *     field. It is a field on a `session_end` entry AND on `note`.
+ *   - **`updates` is a FIELD.** The old wording said "say `updates: <id>`",
+ *     and four notes duly arrived with `updates: mem_x.` as the first words of
+ *     their prose — unlinked, because prose is not a field. It is a field on a
+ *     `session_end` entry AND on `note`, and since B1 it is the tool
+ *     description that says so, not this text.
  *   - **The chapter number is the store's.** It is one past what was WRITTEN,
  *     never one past what was asked, so an unanswered ask does not silently
  *     renumber the journal.
- *   - **It says salience is the author's to set.** An unclaimed authored memory
- *     takes a modest default floor, deliberately below the semantic band
- *     (`physics/`, 2026-09-04), and the author's own claim is the only channel
- *     by which lived testimony outranks something a sweep noticed — the sweep's
- *     claim is capped where the author's is not.
+ *   - **Salience is the author's to set.** An unclaimed authored memory takes
+ *     a modest default floor, deliberately below the semantic band (`physics/`,
+ *     2026-09-04), and the author's own claim is the only channel by which
+ *     lived testimony outranks something a sweep noticed — the sweep's claim is
+ *     capped where the author's is not. Since B1 the `salience` field's own
+ *     description carries this.
  *
- * Short on purpose: a model reads this at every Stop that is due one.
+ * **SPLIT IN TWO, AND SHORT (B1, owner 2026-09-23).** The person used to read
+ * all nine lines of this after every due Stop, printed as `Stop hook error:`,
+ * though every word was written for the model (new-user finding #28). Now:
+ *
+ *   - the PERSON gets `STOP_HUMAN_LINE` — one plain line saying what is
+ *     happening, carried as the hook's `systemMessage` in the JSON shape
+ *     (`bin/hook.ts#hostDelivery`);
+ *   - the MODEL gets this: two numbered lines, both naming the session id and
+ *     the tool that takes it, plus the two clauses that are about WHETHER to
+ *     write — `handoff` only if work here is unfinished (it is a field on the
+ *     same `session_end` call, not a third tool and not a second ask: §13 G3),
+ *     and "nothing worth keeping is a real answer", which the server now
+ *     accepts as `memories: []`.
+ *
+ * Everything else the old text said — `updates` is a FIELD, salience is a floor
+ * and the author's to claim, what an episode is for, what a handoff is — is
+ * in the tools' own descriptions (`mcp/tools.ts`), where the model reads it at
+ * the moment it fills the fields. Saying it again at every Stop is what made
+ * this a wall.
+ *
+ * It opens with `STOP_ASK_OPENER` (`transcript.ts`), which is how the reader
+ * recognises this text coming home on a host-written entry and refuses it from
+ * capture (`ritual`, CONTRACT §5 G11) whichever emission shape carried it.
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    "Before this session closes, two things, both yours to write — and a third only if you are leaving work unfinished here:",
-    `1. What did you LEARN here that is worth keeping? Your own words, one idea per memory, the way you would want to find it again. Hand them back with the counterparts session_end tool, session: ${sessionId}. \`updates\` is a FIELD on an entry (and on note), never prose: the id of the memory that entry revises. Set \`salience\` (0-1) on anything that should last: unset entries take a modest default, and your claim is the only way what you lived outranks what a sweep noticed.`,
-    chapter === 1
-      ? `2. Write this session's episode with the counterparts chapter tool, session: ${sessionId} — first person, your voice, any length: what happened and what mattered, how it felt, what you learned about them and about yourself, what is still open. For the next you, not a report; append in the moment when something happens later.`
-      : `2. Add chapter ${String(chapter)} to this session's episode with the counterparts chapter tool, session: ${sessionId} — this stretch, in the moment, in your own voice. Not a recap of the earlier chapters.`,
-    HANDOFF_LINE,
-    "Nothing worth keeping is a real answer, and a short true episode beats a manufactured deep one.",
+    `${STOP_ASK_OPENER} 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: ${sessionId} — set \`handoff\` on it only if work here is unfinished.`,
+    `2) Write chapter ${String(chapter)} of this session's episode with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
   ].join("\n");
 }
 
 /**
- * THE THIRD LINE, AND STILL ONE ASK (E1). The handoff is a FIELD on the
- * `session_end` call the line above already names — not a third tool, not a
- * second moment, and not a second pacer: the whole of §13 G3's scar is that the
- * blocked moment carries a single ask, and a field is not an ask.
+ * WHAT THE PERSON SEES WHEN THE STOP ASK GOES OUT — one line, theirs (B1).
  *
- * It is numbered `3.` rather than folded into item 1 because item 1 is about
- * MEMORIES — what will still be true next week — and a handoff is the opposite
- * claim: what is true only for the next fortnight, in this directory. Reading
- * them as one sentence is what would produce handoffs filed as memories.
- *
- * Short on purpose, and deliberately conditional in its own words ("if you are
- * leaving anything unfinished"): a session that finished what it started should
- * leave no pointer, and the ask should not push one out of politeness.
+ * The owner's rule, 2026-09-23: "whatever we display in terminal should be
+ * short and useful to the user since they're the one seeing it". It says what
+ * is happening and who is doing it, and nothing the person has to act on.
+ * Carried as `systemMessage` in the JSON shape; the stderr shape has no second
+ * channel, so there the person reads the model's two lines instead.
  */
-export const HANDOFF_LINE =
-  "3. Set `handoff` on that same session_end call: where this directory stands and what to pick up next. Not a memory — the next session HERE sees a line of it, and it expires.";
+export const STOP_HUMAN_LINE = "Counterparts: asking the assistant to write up this session's memories.";
 
 const EVENT_RING = 500;
 

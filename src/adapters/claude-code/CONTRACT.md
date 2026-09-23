@@ -137,7 +137,19 @@ owner's (measured 2026-09-04, `fix/transcript-peer-speakers`):
   classified `injected` as the conservative reading of a shape not yet measured.
 - **`Stop hook feedback: …`** — the host returning a blocking Stop hook's stderr to the
   model. It carries **this adapter's own asks**, so it is `ritual` and enters nothing
-  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first.
+  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first. A
+  host-written block (below) that opens with the ask's own first words
+  (`transcript.ts#STOP_ASK_OPENER`) is `ritual` too, whichever emission shape carried it.
+
+**And who wrote a user-role line is read from the entry's own metadata first** (B1,
+2026-09-23; shapes measured on 2.1.28x, table in `NOTES.md`): `origin.kind: "human"` is the
+person — typed, queued, or pasted; `isMeta`, `isCompactSummary`, and any other
+`origin.kind` (`peer` for a subagent's hand-back, `task-notification`) are the host, and
+are `injected` — kept in capture, out of pacing. The text markers decide only for an
+entry that carries no metadata. The two refusals (`foreign`, `ritual`) come before the
+metadata, so hook feedback on an `isMeta` entry is still refused, not merely unpaced. An
+assistant line the host synthesised (`isApiErrorMessage`, `model: "<synthetic>"`) is
+`injected` as well; the assistant's real replies pace, as they always have.
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
 execution ceiling, socket lifetime, credential availability AND which source answered —
@@ -228,6 +240,13 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     half fired, the model got neither an id nor a tool name. The ask's text is the same
     text G11 refuses when the host hands it back — delivered by the hook, recorded by
     `adapter.ask`, never by its transcript copy.
+    **Amended 2026-09-23 (B1, owner's decision):** the ask still names the session id and
+    both tools, now in TWO lines, with two clauses about whether to write (`handoff` only
+    if work here is unfinished; nothing worth keeping is a real answer, `memories: []`).
+    `updates`-is-a-field and salience-is-a-floor moved to the `session_end` tool
+    description, where the model reads them while filling the fields
+    (`test/stop-ask-quiet.test.ts` asserts they are there). The PERSON reads one line of
+    their own, `hooks.ts#STOP_HUMAN_LINE`; both texts are pinned word for word.
 15. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
     embedding a turn's recall consults is computed by the detached worker AFTER the
     previous turn and read out of per-session gate state on the next one — the same
@@ -291,6 +310,17 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     handoffs filed as memories. The text's length bound moved 1,050 -> 1,300 with it; the
     properties the bound defends — one screen, at most four numbered items, the session id
     exactly twice — are asserted on their own.
+    **B1 (2026-09-23) shortened it without adding a pacer:** two numbered lines, bound 450,
+    the handoff a clause on line 1. Emission is a switch, `stopAskShape` in
+    `claude-code.json` (`bin/hook.ts#hostDelivery`): `json` (default) prints
+    `{"decision":"block","reason":<ask>,"systemMessage":<the person's line>}` and exits 0;
+    `stderr` is the day-0 channel, the ask on stderr and exit 2. Both block, both refuse
+    the re-fire. The owner picks one after looking at one Stop (recipe in `NOTES.md`); the
+    other goes. Pacing is unchanged — thresholds, cap, the one pacer — except that what it
+    counts is now what the person typed (§5 Inputs, above). A `session_end` with
+    `memories: []` is an answer: accepted, minting nothing, recorded as `nothingNewAt` on
+    the session's registry record; it cannot cause a re-ask, because the pacer advanced
+    when the ask went out.
 
     **AND THE WAKE GAINED A THIRD DELIVERY-TIME FACT.** `sessionStart` passes the session's
     directory and id to `counterpart.wake(budget, delivery, here)`, beside the date it
@@ -392,7 +422,9 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     `describeScopeTrouble` puts one line on the hook's stderr at **SessionStart
     only** — after the `off` return, so an off directory's silence stays
     byte-for-byte — with `scopeRegistry: "unreadable" | "partial" | null` on the
-    session-start row for the day after. Both writers refuse rather than dropping
+    session-start row for the day after. **Since I40 (2026-09-23) the same line is the
+    SessionStart `systemMessage`** (joined above any doctor notice), because stderr at
+    exit 0 reaches only the host's debug log; the stderr copy stays for that log. Both writers refuse rather than dropping
     an entry they could not read: the console unless `--force`, the MCP tool always.
 24. **[M] A stand-down that is a FAULT reaches the owner's terminal; one that is
     DELIBERATE stays as quiet as it was.** G2 is why every failure is swallowed;

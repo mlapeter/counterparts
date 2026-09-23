@@ -151,6 +151,27 @@ export interface SessionRecord {
    * Still host state, still no content: one date beside the id and the scope.
    */
   readonly pageWriterFor?: string;
+  /**
+   * WHEN THIS SESSION LAST ANSWERED THE STOP ASK WITH "NOTHING NEW" (B1,
+   * 2026-09-23) — epoch ms, written by the MCP server when `session_end` arrives
+   * with `memories: []` and no handoff.
+   *
+   * "Nothing worth keeping is a real answer", and until now the only trace an
+   * answer left was what it minted, so an honest empty answer and no answer at
+   * all were the same silence. This is the difference, kept where the next
+   * reader of "did this session answer its ask" will look: the owed-a-write-up
+   * predicate (roadmap B3/C2) reads it beside the memories and chapters a
+   * session wrote. The time rather than a flag, so it can be compared with the
+   * ask it answered (`adapter.ask` rows are stamped). Newest wins.
+   *
+   * It does NOT touch pacing. The pacer advances at ASK time
+   * (`self/index.ts#openChapter` commits `askedAtTurns`/`askedAtBytes` before
+   * the ask blocks), so an answer of any kind — this one included — can never
+   * cause an immediate re-ask; it only has to be recorded.
+   *
+   * Still host state, still no content: a number.
+   */
+  readonly nothingNewAt?: number;
 }
 
 /**
@@ -269,6 +290,9 @@ export function recordSession(
     /** The date the nightly page writer asked this session to write about
      *  (S2). Carried forward like `config`; the newest answer wins. */
     pageWriterFor?: string;
+    /** When `session_end` last answered "nothing new" (B1). Carried forward
+     *  like `config`; the newest answer wins. */
+    nothingNewAt?: number;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -319,8 +343,21 @@ export function recordSession(
       : prior?.pageWriterFor !== undefined
         ? { pageWriterFor: prior.pageWriterFor }
         : {}),
+    // Carried like `config`, and it MUST be: every Stop rewrites this record
+    // whole, and the Stop right after an answer is the host's re-fire, so a
+    // field the hook did not know to carry would be erased within the second.
+    ...(input.nothingNewAt !== undefined && Number.isFinite(input.nothingNewAt)
+      ? { nothingNewAt: input.nothingNewAt }
+      : prior?.nothingNewAt !== undefined
+        ? { nothingNewAt: prior.nothingNewAt }
+        : {}),
   };
 
+  return writeRecord(dataDir, path, record);
+}
+
+/** The atomic write both writers share: a temp sibling, then `rename`. */
+function writeRecord(dataDir: string, path: string, record: SessionRecord): SessionRecord | null {
   try {
     mkdirSync(sessionsDir(dataDir), { recursive: true });
     const tmp = `${path}.${String(process.pid)}.tmp`;
@@ -330,6 +367,24 @@ export function recordSession(
     return null;
   }
   return record;
+}
+
+/**
+ * MARK A "NOTHING NEW" ANSWER on a session that is already recorded (B1).
+ *
+ * The one write into this registry that is not a hook's, and deliberately
+ * narrower than `recordSession`: it is not a phase, so it moves no clock — an
+ * answer is not a boundary, and `lastBoundaryAt` is what liveness is measured
+ * from. It never creates a record either: the MCP server only accepts a
+ * `session_end` for a session the hooks recorded, so a missing one is a race
+ * with pruning, and the honest answer is `null`, not a record with no start.
+ */
+export function markNothingNew(dataDir: string, sessionId: string, at: number = Date.now()): SessionRecord | null {
+  const path = sessionPath(dataDir, sessionId);
+  if (path === null || !Number.isFinite(at)) return null;
+  const prior = readSession(dataDir, sessionId);
+  if (prior === null) return null;
+  return writeRecord(dataDir, path, { ...prior, nothingNewAt: at });
 }
 
 /**
@@ -397,6 +452,11 @@ function parseRecord(raw: unknown): SessionRecord | null {
     // cannot talk the MCP server into writing `by: "writer"`.
     ...(typeof rec["pageWriterFor"] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rec["pageWriterFor"])
       ? { pageWriterFor: rec["pageWriterFor"] }
+      : {}),
+    // Optional for the same reason; a value that is not a finite number is no
+    // mark at all.
+    ...(typeof rec["nothingNewAt"] === "number" && Number.isFinite(rec["nothingNewAt"])
+      ? { nothingNewAt: rec["nothingNewAt"] }
       : {}),
   };
 }
