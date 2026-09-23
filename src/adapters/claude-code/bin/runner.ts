@@ -29,6 +29,12 @@
  *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing;
+ *   3b. RAW TRANSCRIPT RETENTION (owner's ruling 2026-09-23): once per date, a
+ *      session's captured text is deleted 7 days after it ended when it owes no
+ *      write-up (`remember/retention.ts`), and one `remember.prune` row says
+ *      what was deleted, what is waiting on a write-up and what is simply
+ *      younger than a week. Keyless, like every step but the sweep. BEFORE the
+ *      snapshot on purpose: raw text in every backup is the reason it exists;
  *   4. the DAILY ROTATING SNAPSHOT (`adapters/snapshots.ts`), last and outside
  *      the cycle. Last because it copies the state the three steps above just
  *      left; outside because sleep must not learn that the floor is changing —
@@ -52,6 +58,15 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
+import {
+  RETENTION_EVENT,
+  pruneRetention,
+  retentionRow,
+  retentionRuns,
+  retentionSources,
+} from "../../../core/remember/index.js";
+import type { RetentionReport } from "../../../core/remember/index.js";
+import { episodeFacts } from "../../../core/self/index.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 
 import {
@@ -115,6 +130,84 @@ export interface RunReport {
   /** The day's copy of the store, or what stopped it. Null when the run refused
    *  before it opened a store at all. */
   readonly snapshot: SnapshotRunReport | null;
+  /** The day's retention pass, or why it did not run. Null when the run refused
+   *  before it opened a store at all. */
+  readonly retention: RetentionJobReport | null;
+}
+
+/** What the retention step came to on one worker run. */
+export interface RetentionJobReport {
+  /** `ran` — it planned and pruned (possibly nothing); `already-ran` — this
+   *  date's row exists, so this run did nothing; `observer` / `failed` — named. */
+  readonly reason: "ran" | "already-ran" | "observer" | "failed";
+  readonly date: string;
+  readonly report: RetentionReport | null;
+  /** Whether the `remember.prune` row landed. */
+  readonly recorded: boolean;
+  readonly code: string | null;
+}
+
+/**
+ * THE RETENTION STEP — once per calendar date, keyless, and it never throws.
+ *
+ * ONCE PER DATE because the worker runs at every boundary and the rule is
+ * measured in days: a pass per Stop would read every scope's streams hundreds of
+ * times a day to find the same answer. The latch is the durable row itself —
+ * this date's `remember.prune` row exists, so the pass has happened — with a
+ * `dedupKey` beneath it so two workers racing past the check still leave one
+ * row. A run that FAILED leaves its row too, with `failed` counted, and is
+ * retried the next date: sessions it could not delete stay due.
+ *
+ * What it may delete is decided by `remember/retention.ts` and nothing here: the
+ * pacer's record (`self/episodes.ts#episodeFacts`) and the handoff rows are the
+ * facts, and a session that owes a write-up is never in any request.
+ */
+export function retentionJob(input: {
+  counterpart: Counterpart;
+  date: string;
+  onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
+}): RetentionJobReport {
+  const { counterpart, date } = input;
+  const emit = input.onEvent ?? ((): void => {});
+  const none = { date, report: null, recorded: false, code: null } as const;
+  if (counterpart.observer) return { ...none, reason: "observer" };
+  const store = counterpart.store;
+  try {
+    if (retentionRuns(store).some((r) => r.date === date)) return { ...none, reason: "already-ran" };
+    const sources = retentionSources(store, (session) => episodeFacts(store, session));
+    const report = pruneRetention(counterpart.spans, sources);
+    let recorded = false;
+    try {
+      store.appendEvent({
+        name: RETENTION_EVENT,
+        day: store.livedDay(),
+        payload: retentionRow(report, date),
+        dedupKey: `${RETENTION_EVENT}:${date}`,
+      });
+      recorded = true;
+    } catch (err) {
+      emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
+    emit("runner.retention", {
+      reason: report.reason,
+      deleted: report.deleted,
+      keptOwed: report.keptOwed,
+      keptYoung: report.keptYoung,
+      failed: report.failed,
+      lines: report.lines,
+      recorded,
+    });
+    return { reason: "ran", date, report, recorded, code: null };
+  } catch (err) {
+    const code =
+      err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
+        ? (err as { code: string }).code
+        : err instanceof Error
+          ? err.name
+          : "UNKNOWN";
+    emit("retention.failed", { code });
+    return { ...none, reason: "failed", code };
+  }
 }
 
 /**
@@ -148,13 +241,13 @@ export async function runOnce(input: {
   const emit = input.onEvent ?? ((): void => {});
   if (config.dataDir === undefined || config.dataDir.trim().length === 0) {
     emit("runner.refused", { reason: "no-data-dir" });
-    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
+    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null, retention: null };
   }
   if (config.observer === true) {
     // A cycle advances the clock, decays the store and rewrites the briefing:
     // the instrument mutating what it measures (§15 G3).
     emit("runner.refused", { reason: "observer" });
-    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
+    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null, retention: null };
   }
 
   // The embedder, when the owner switched it on. This is the composition root
@@ -247,6 +340,7 @@ export async function runOnce(input: {
   // the two results the boundary produced. A `let` rather than a fourth return
   // arm because the copy must happen on BOTH paths and before `close()`.
   let snapshotReport: SnapshotRunReport | null = null;
+  let retentionReport: RetentionJobReport | null = null;
   let result: RunReport;
   try {
     // NO INTERPRETER IS BUILT when there is no key. Not a client that would
@@ -283,7 +377,7 @@ export async function runOnce(input: {
       carriedRows: report.carried?.rows ?? 0,
       interpret: hasInterpretCredential,
     });
-    result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null };
+    result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null, retention: null };
   } catch (err) {
     const code =
       err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
@@ -294,8 +388,20 @@ export async function runOnce(input: {
     // the boundary is the failure a person most needs to be able to read
     // tomorrow, and this process's stderr goes nowhere (I32).
     noteFailure(counterpart, emit, code, "sessionEnd", today);
-    result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null };
+    result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null, retention: null };
   } finally {
+    // 3b. RETENTION — on the failed path as well as the good one (a day whose
+    // sweep broke still ages the week-old text of sessions that owe nothing),
+    // and BEFORE the copy below, so the day's backup never carries raw text
+    // past its week. Its own try: a retention pass may not cost the snapshot.
+    try {
+      retentionReport = retentionJob({ counterpart, date: today, onEvent: emit });
+      if (retentionReport.reason === "failed") {
+        noteFailure(counterpart, emit, retentionReport.code ?? "UNKNOWN", "retention", today);
+      }
+    } catch (err) {
+      emit("retention.threw", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
     // 4. THE DAY'S COPY OF THE STORE — after everything above has written, on
     // the failed path as well as the good one, and before the store is closed.
     // It never throws by construction (`adapters/snapshots.ts`); the try is
@@ -345,7 +451,7 @@ export async function runOnce(input: {
     }
     counterpart.close();
   }
-  return { ...result, snapshot: snapshotReport };
+  return { ...result, snapshot: snapshotReport, retention: retentionReport };
 }
 
 /**

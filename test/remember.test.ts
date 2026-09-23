@@ -455,6 +455,7 @@ describe("observer (G8)", () => {
     o.restore(fake);
     o.noteFailures(SCOPE, [fakeSpan()], "THREW");
     strikeSpans(o, { scope: SCOPE, hashes: ["deadbeef"] });
+    o.recordWriteUp({ scope: SCOPE, session: "s1", by: "sess_later" });
     await sweep(o, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
 
     const sites = new Set(o.events("remember.observer.standdown").map((e) => String(e.data?.site)));

@@ -103,7 +103,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   // verbatim, in a handoff, and in the journal and the self page by the same
   // battery. The secret has no prefix — it is 40 characters of base64's
   // alphabet — so its SHAPE alone would also match a CamelCase identifier or a
-  // path, and a bare-shape family is a declared non-goal (encode NOTES §15).
+  // path, and a bare-shape family is a declared non-goal (encode NOTES, item 18).
   // It is caught by CONTEXT, three ways, and all three share one family name
   // because they are one credential.
   {

@@ -38,6 +38,7 @@ export type {
   Turn,
   TurnSource,
   WriteSite,
+  WriteUpRecord,
 } from "./spans.js";
 
 export {
@@ -101,3 +102,26 @@ export type {
 } from "./fallback.js";
 
 export { TUNABLES, validateWatchdog } from "./tunables.js";
+
+// Retention (2026-09-23): the owes-a-write-up predicate, defined once, and the
+// 7-day rule that reads it. `pruneRetention` destroys through the owner's
+// strike seam, which this index still does not re-export.
+export {
+  RETENTION_EVENT,
+  lastRetentionRun,
+  owesWriteUp,
+  planRetention,
+  pruneRetention,
+  retentionRow,
+  retentionRuns,
+  retentionSources,
+} from "./retention.js";
+export type {
+  EpisodeFactsReading,
+  HeldSession,
+  RetentionReport,
+  RetentionRun,
+  RetentionSources,
+  RetentionVerdict,
+  WriteUpFacts,
+} from "./retention.js";

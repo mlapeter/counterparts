@@ -442,6 +442,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
     o.restore(fake);
     o.noteFailures("seams", [fakeSpan("seams")], "THREW");
     strikeSpans(o, { scope: "seams", hashes: ["deadbeef"] });
+    o.recordWriteUp({ scope: "seams", session: "s1", by: "sess_later" });
     await sweep(o, { scope: "seams", interpret: async () => ({ proposals: [] }) });
     const rememberSites = new Set(
       o.events("remember.observer.standdown").map((e) => String(e.data?.site)),

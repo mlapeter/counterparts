@@ -4621,12 +4621,15 @@ describe("the destruction path is importable from this directory only", () => {
 
   test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
     // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
-    // Two files in `src/` may reach `remember/owner-strike-seam.ts`:
+    // THREE files in `src/` may reach `remember/owner-strike-seam.ts`:
     // `remember/spans.ts`, which HANDS OVER the capability in its constructor
-    // and never calls the strike, and `adapters/cli/removal.ts`, the one
-    // implementation of the destruction path. A `Counterpart` — which the MCP
-    // server holds, and a model talks to — holds a `SpanBuffer` and reaches
-    // nothing (§16 G2, and `store/owner-op-seam.ts`'s own reasoning).
+    // and never calls the strike; `adapters/cli/removal.ts`, the owner's
+    // destruction path; and — since 2026-09-23, a DECISION and not an import —
+    // `remember/retention.ts`, the 7-day rule the owner set, which names only
+    // sessions its own predicate says owe nothing and are a week past their
+    // end. A `Counterpart` — which the MCP server holds, and a model talks to —
+    // holds a `SpanBuffer` and reaches nothing (§16 G2, and
+    // `store/owner-op-seam.ts`'s own reasoning).
     const root = join(import.meta.dir, "..", "src");
     const offenders: string[] = [];
     const walk = (path: string): void => {
@@ -4643,6 +4646,7 @@ describe("the destruction path is importable from this directory only", () => {
           if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
           if (full.includes(join("adapters", "cli"))) continue;
           if (full.endsWith(join("core", "remember", "spans.ts"))) continue;
+          if (full.endsWith(join("core", "remember", "retention.ts"))) continue;
           offenders.push(`${full}: ${line.trim()}`);
         }
       }

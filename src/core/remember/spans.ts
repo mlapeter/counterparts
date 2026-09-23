@@ -17,6 +17,8 @@
  *     <key>/consumed.jsonl       bounded hash ledger — dedup layer 2 after a claim dies
  *     <key>/failures.jsonl       bounded {hash, at, code} ledger — the retry bound
  *     <key>/quarantine.jsonl     spans that failed MAX_SPAN_FAILURES times, in full
+ *     <key>/writeups.jsonl       sessions written up AFTER they ended — {session, at, by}
+ *     <key>/strikes.jsonl        what the strike and retention destroyed — counts only
  *     <key>/claims/<id>.jsonl    a claim, renamed ASIDE from the buffer
  *
  * Four structural properties, each load-bearing (contract §5 G3):
@@ -151,6 +153,10 @@ export const WRITE_SITES = [
   // `owner-strike-seam.ts`, never by holding a `SpanBuffer` (§5 G2's shape,
   // borrowed from `store/owner-op-seam.ts`).
   "strike",
+  // The mark that a session which ended owing a write-up has been written up
+  // after the fact (`retention.ts`; the next-session write-up, roadmap C2). It
+  // closes that session's debt and starts its retention clock.
+  "writeup",
 ] as const;
 export type WriteSite = (typeof WRITE_SITES)[number];
 
@@ -202,6 +208,14 @@ export interface CoverageMark {
   /** True for the proposal's OWN span, which is withheld from the sweep outright
    *  (§4.1 G4) rather than merely marked. */
   own: boolean;
+}
+
+/** A session written up after it ended — the mark that closes what it owed. */
+export interface WriteUpRecord {
+  session: string;
+  at: number;
+  /** Which session (or mechanism) wrote it up. Ids and names only, never text. */
+  by: string;
 }
 
 /** One recorded interpretation failure. The hash is the buffer's own span hash —
@@ -303,6 +317,7 @@ export class SpanBuffer {
       emit: (name, ref, data) => this.emit(name, ref, data),
       now: () => this.nowFn(),
       day: () => this.dayFn(),
+      trimLedger: (file) => this.trimLedger(file),
     });
   }
 
@@ -609,6 +624,36 @@ export class SpanBuffer {
 
   boundaries(scope: string): BoundaryRecord[] {
     return this.readLines<BoundaryRecord>(this.path(scope, "boundaries.jsonl"));
+  }
+
+  /** Spans held in CLAIM FILES right now — a sweep in flight, or a crashed
+   *  run's orphans. Read-only; `retention.ts` counts them as text a session
+   *  still holds, so nothing in flight can make a session look empty. */
+  claimedSpans(scope: string): Span[] {
+    return this.claimFiles(scope).flatMap((file) => this.readSpans(file));
+  }
+
+  /**
+   * MARK A SESSION WRITTEN UP after it ended (`retention.ts#owesWriteUp`). The
+   * next-session write-up (roadmap C2) calls this once it has recorded the
+   * memories; from then on the session owes nothing and its captured text ages
+   * out 7 days after the later of its end and this mark. Ids only — the record
+   * carries no word of what was written.
+   */
+  recordWriteUp(input: { scope: string; session: string; by: string }): boolean {
+    const record: WriteUpRecord = { session: input.session, at: this.nowFn(), by: input.by };
+    const out = this.mutate("writeup", () => {
+      this.ensureScope(input.scope);
+      appendFileSync(this.path(input.scope, "writeups.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+    });
+    if (out.ok) this.emit("remember.writeup", input.session, { by: input.by });
+    return out.ok;
+  }
+
+  writeUps(scope: string): WriteUpRecord[] {
+    return this.readLines<WriteUpRecord>(this.path(scope, "writeups.jsonl")).filter(
+      (r) => typeof r.session === "string" && typeof r.at === "number",
+    );
   }
 
   /**

@@ -234,6 +234,27 @@ export function loadEpisodeState(
   }
 }
 
+/**
+ * THE PACER'S RECORD OF ONE SESSION, for a reader outside `self/` —
+ * `remember/retention.ts#owesWriteUp` asks "did the pacer find substance here,
+ * and did a chapter answer it?". `asks > 0` is the pacer's own verdict that the
+ * session crossed its threshold (an ask is committed only when one was due);
+ * `chapters` is what the model actually wrote. `unreadable` is returned as
+ * such, so the caller can take the safe direction rather than read a corrupt
+ * state as "never asked".
+ */
+export function episodeFacts(
+  store: Store,
+  sessionId: string,
+): { status: "loaded" | "absent" | "unreadable"; asks: number; chapters: number } {
+  try {
+    const { state, status } = loadEpisodeState(store, sessionId, 0);
+    return { status, asks: state.asks, chapters: state.chapters };
+  } catch {
+    return { status: "unreadable", asks: 0, chapters: 0 };
+  }
+}
+
 // ── pacing (§13 G1) ─────────────────────────────────────────────────────────
 
 export type AskReason =
