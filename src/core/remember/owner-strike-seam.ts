@@ -1,6 +1,15 @@
 /**
  * THE STRIKE — the one place in `remember/` that destroys lived experience.
  *
+ * **Two callers, one door** (2026-09-23). The owner's removal (the console's
+ * `remove`, in `adapters/cli/`) and the RETENTION rule the owner set that day —
+ * a session's captured text goes 7 days after it ended, when nothing is owed
+ * (`retention.ts`). Retention names whole SESSIONS rather than hashes, records
+ * itself as `by: "retention"`, and bounds the ledger it writes; everything
+ * else — the rename-aside choreography, the recovery pass, the record with no
+ * word and no hash in it — is the same code for both, so there is still exactly
+ * one path that destroys a span.
+ *
  * It is the span buffer's half of the destruction path, and it exists because
  * "anything can be removed loudly" (constitution 6/7) was not true of a note.
  * A note is CAPTURED before it is minted: `captureJot` appends the verbatim text
@@ -88,6 +97,8 @@ export interface SpanStrikeAccess {
   emit(name: string, ref?: string, data?: Record<string, string | number | boolean | null>): void;
   now(): number;
   day(): number;
+  /** Bound a ledger file to the buffer's own maximum — the one `consume()` uses. */
+  trimLedger(file: string): void;
 }
 
 const GRANTS = new WeakMap<object, SpanStrikeAccess>();
@@ -116,6 +127,20 @@ export interface StrikeRequest {
    * never leaves the caller — this module receives a function, not a string.
    */
   predicate?: (text: string) => boolean;
+  /**
+   * Whole SESSIONS, by identity — every span whose `session` is one of these,
+   * of every kind (conversation, jot, the assistant's own turns, quarantine,
+   * claims). Retention's request (`retention.ts`); like `hashes` it names what
+   * it destroys, so the jot-only rule for `predicate` does not apply.
+   */
+  sessions?: readonly string[];
+  /**
+   * Who asked, for the record. `owner` (the default) is the removal path;
+   * `retention` is the 7-day rule, whose ledger append is also trimmed to the
+   * consumed ledger's bound — a retention run can name thousands of spans, and
+   * a keyless store never runs the `consume()` that would otherwise trim it.
+   */
+  by?: "owner" | "retention";
 }
 
 /** What one strike touched. Counts and file names — never contents (§16 G9). */
@@ -170,8 +195,10 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
     return { ...EMPTY, reason: "OBSERVER" };
   }
   const hashes = new Set(request.hashes ?? []);
+  const sessions = new Set(request.sessions ?? []);
   const predicate = request.predicate;
-  if (hashes.size === 0 && predicate === undefined) return EMPTY;
+  const by = request.by ?? "owner";
+  if (hashes.size === 0 && sessions.size === 0 && predicate === undefined) return EMPTY;
 
   // A HASH names one span. A PREDICATE names a shape, and the only shape it is
   // ever allowed to name is a JOT — the memory's own words, deposited as
@@ -182,6 +209,7 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
   // that cannot be got round by calling the seam directly.
   const matches = (span: Span): boolean => {
     if (hashes.has(span.hash)) return true;
+    if (typeof span.session === "string" && sessions.has(span.session)) return true;
     if (predicate === undefined || typeof span.text !== "string") return false;
     return span.kind === "jot" && predicate(span.text);
   };
@@ -248,6 +276,9 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
           `${fresh.map((hash) => JSON.stringify({ hash, at })).join("\n")}\n`,
           "utf8",
         );
+        // RETENTION ONLY: bounded like `consume()` bounds it. The owner's strike
+        // names a handful of hashes and is left exactly as it was.
+        if (by === "retention") access.trimLedger(file);
       }
       return fresh.length;
     });
@@ -286,7 +317,7 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
         `${JSON.stringify({
           at: access.now(),
           day: access.day(),
-          by: "owner",
+          by,
           files: scopeFiles,
           struck: scopeStruck,
           ledgered: ledger.value,
@@ -309,6 +340,7 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
   if (reason !== "NOTHING") {
     // The durable record's twin on the ring. Counts only, here too.
     access.emit("remember.span.struck", undefined, {
+      by,
       reason,
       struck,
       files: files.length,

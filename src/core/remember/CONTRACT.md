@@ -105,10 +105,10 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
     model deposited. A session that ends normally is never swept, so anything after its
     last authored deposit is forgotten — by design (constitution 3: forget the trials),
     but it is a real loss and it is this rule's price.
-  - **Those spans stay in the buffer.** Nothing consumes the spans of a session that
-    ended normally, so `buffer.jsonl` grows with every such session. Bounded growth is
-    not designed for here; it is named as open question 5 rather than pre-solved
-    (constitution 15).
+  - **Those spans stay in the buffer — for a week.** Nothing consumes the spans of a
+    session that ended normally; since 2026-09-23 RETENTION deletes them 7 days after
+    the session ended, when it owes no write-up (§5 G15, `retention.ts`). Until then this
+    was open question 5 and the buffer grew without bound.
   - **An idle-but-alive session past the window is indistinguishable from a crash** and
     will be swept. If its author later writes, that stretch has twins after all — which
     is the measurement `CRASH_STALE_MS` owes: count sessions swept-then-authored. The
@@ -214,7 +214,9 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     used, so "no sweep today" is a fact about the day and not a silence that could also
     be a dead worker (constitution 16, scar §2.4). The gate is answered **before** the
     claim, so a scope with nothing crashed costs no rename and no model call.
-14. **[M] A span can be destroyed on the owner's say-so, and only on the owner's say-so.**
+14. **[M] A span can be destroyed on the owner's say-so, or by the retention rule the owner
+    set (G15) — and by nothing else.** *(Amended 2026-09-23: it read "and only on the
+    owner's say-so"; the rule is the owner's too, and it destroys through this same door.)*
     The buffer holds lived experience verbatim, so "anything can be removed loudly"
     (constitution 6/7) has to be true of it too — it was not, and a removed note's words
     survived in `jots.jsonl` where a later backup copied them (LAUNCH-STATUS §I2). The
@@ -231,6 +233,29 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     and belongs to no single memory. It records counts and never a hash or a word
     (§16 G9). One window is NAMED rather than closed: a worker already holding a claim in
     memory finishes its arc (NOTES §14).
+15. **[M] Raw transcript is kept 7 days after a session ends, unless it owes a write-up
+    or the host still holds it open** (owner's ruling 2026-09-23; `owes.ts`,
+    `retention.ts`, NOTES §16). ONE predicate decides what is owed — `owesWriteUp`, judged
+    once per session across every scope: the session still holds captured text; the pacer
+    found substance in it (an ask was committed, or its substance reached the first-ask
+    threshold with no ask on record); and either no answer came AFTER ITS LAST ASK (a
+    chapter that caught up with the ask count, a `session_end` memory, a handoff, a
+    "nothing new" mark) or it has no normal end after its last capture in any scope or the
+    host's registry; and it has not been marked written up since. A short session owes
+    nothing. A session that owes is kept however old, and one the host's registry still
+    holds open is kept for as long as the registry keeps its record; one that owes nothing
+    loses every text line — its turns, jots, the assistant's
+    replies, quarantine, claims — 7 days after the latest thing known about it. The
+    deletion goes through the strike (G14) naming whole sessions, recorded
+    `by: "retention"` with counts only, from the background worker alone
+    (`remember/index.ts` does not export it; a test pins its one importer), once per date
+    behind an `O_EXCL` latch, before the day's snapshot, leaving one `remember.prune` row
+    (`deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`). Cursors, boundaries,
+    coverage, proposals and the ledgers are not text and are kept. Raw text therefore lives
+    up to 7 days in the store and up to 21 counting the 14 daily snapshots. The only way
+    out of owing — the write-up mark — is a grant behind a pinned seam
+    (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
+    no text, and a run is visible from the moment it holds its date (`STARTED`).
 
 ## 6. Scars honored
 
@@ -261,8 +286,9 @@ declarable field carries an admission test and a named negative example — v1's
    degrades to content matching. But showing a census of ids is precisely what produced
    v1's confabulation incident (scar §2.5: 7 of 8 rejected thread ids existed in the
    schema, in a different section, in the identical `- [el_id]` format).
-5. **What retires the spans of a session that ended normally?** (Opened 2026-09-04 by the
-   crash gate.) Nothing does: they are never claimed, so the buffer keeps them. On the
+5. **What retires the spans of a session that ended normally?** *ANSWERED 2026-09-23:
+   retention, G15 — age, on the calendar, gated by the owes-a-write-up predicate rather
+   than by coverage.* (Opened 2026-09-04 by the crash gate.) As it stood: nothing did: they are never claimed, so the buffer keeps them. On the
    parallel run's volume that is kilobytes a day and a file the owner can read, which is
    why no pruner is built here (constitution 15) — but the growth is real, unbounded, and
    should be watched. The candidate answers, in order of preference: a coverage-driven

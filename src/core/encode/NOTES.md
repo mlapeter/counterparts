@@ -124,6 +124,84 @@ line 13: decisions are defaults).
     stand-down is logged (`encode.observer.standdown`), so a stood-down instrument
     stays distinguishable from a broken hook (scar E7, observer-mode G5/G6).
 
+18. **The AWS SECRET access key is caught by context, never by shape alone** (2026-09-23,
+    handoff INTERFACE-GAPS §6; hardened by the PR #189 review). The key id has a prefix
+    (`AKIA…`) and always had a family; the 40-character secret beside it has none — it is
+    base64's alphabet, and that shape alone also matches a CamelCase identifier or a path.
+    The 09-20 review measured the consequence: id redacted, secret stored verbatim, in a
+    handoff and, by the same battery, the journal and the self page.
+    `aws-secret-access-key` is three patterns under one family name:
+    (a) the value under its own NAME — `aws_secret_access_key`, `AWS_SECRET_ACCESS_KEY`,
+    `"SecretAccessKey"`, `aws configure`'s prompt, and the four forms with no `=` (review
+    M4): `aws configure set aws_secret_access_key …`, a Dockerfile `ENV …`,
+    `os.environ["…"] = "…"`, XML `<SecretAccessKey>…`. The value must carry a digit, `/`
+    or `+` as well as a letter, so a prose word after the name is not taken (review m8);
+    (b) a fenced, mixed-case 40-character token within 200 characters AFTER a key id; (c)
+    the same BEFORE one. (b) and (c) anchor on the id's PLACEHOLDER — so text an older
+    build half-redacted is finished by a re-scan — through a LOOKBEHIND and a LOOKAHEAD,
+    not inside the match: the first version consumed its anchor, so one id redacted one
+    token and a repeated secret, an old and a new one, or two ids followed by two secrets
+    left the second verbatim (review M3). And every value any of the three captures is
+    then redacted EVERYWHERE else it stands, in one linear pass over the text's maximal
+    base64 runs (`propagate`): one verbatim copy further down is the whole leak.
+    Near a key id, two kinds of PATH are left alone (review m8): a run straight after `~`
+    or `.`, and one that starts at a well-known absolute root (`/Users/`, `/home/`, …). A
+    bare leading `/` is NOT excluded — one real secret in 64 begins with one, and the cost
+    of the other error is a redacted path. A bare 40-character token with no name and no
+    id nearby is LEFT ALONE: a declared non-goal. Proved in `test/secrets-aws.test.ts`,
+    including every entrance.
+
+19. **The catch-all's fence was the ROOT cause, and is fixed for every name** (2026-09-23,
+    PR #189 review M5). `assigned-credential` began with `\b`, and an underscore is a word
+    character, so it never fired inside a snake_case name: `DB_PASSWORD=…`, `JWT_SECRET=…`,
+    `AWS_SESSION_TOKEN=…`, `HF_TOKEN=…` were stored verbatim through every entrance. It is
+    fenced now by "no letter or digit before" (`(?<![A-Za-z0-9])`), the JSON form's closing
+    quote may sit before the `:`, and `session_token` joins the list. The TRAILING `\b`
+    stays and is the false-positive guard: a name must END in the keyword, so
+    `MAX_TOKENS`, `TOKEN_URL`, `SECRET_ROTATION_DAYS` and `PASSWORD_MIN_LENGTH` never match.
+    A value that is a small integer (five digits or fewer), a boolean or a null word is a
+    setting, not a credential, and is left alone; six digits or more under a
+    password-shaped name is still redacted, because a numeric password is a password. A
+    QUOTED placeholder is recognised as a placeholder too — without that, the widened
+    fence let this family re-redact the AWS family's own `KEY="[REDACTED:…]"`.
+
+20. **The re-review's residuals (PR #189, R2–R4, R6, R10), and the trades they cost**
+    (2026-09-23).
+    - **Every copy, as a literal** (R2). Propagation now replaces every LITERAL
+      occurrence of a caught value, fenced only by "no letter, digit or `+` either side",
+      so a copy glued on by `=`, `/`, `?`, `&`, `:` or `@` (`export SK=S1`, `?sk=S1&`,
+      `s3://bucket/S1/obj`) is taken; the run-match it replaces never saw those. And
+      beside a key id, a token straight after `identifier=` (`key=S`, `sk=S`) is the
+      pair's first copy. Values travel only if `propagatable`: eight characters or more,
+      no whitespace, and a digit, both cases, or a symbol other than `-_.` — so
+      `secret: "production"` does not take every "production" in the text with it.
+      Propagation now covers every NAMED family, not only AWS (R4).
+    - **Hard-coded fallbacks** (R3): the AWS name may be followed by `, "…"`, `|| "…"` or
+      `?? "…"` (`os.getenv("…", "S")`, `process.env.X || "S"`). The generic catch-all takes
+      `||` and `??` but NOT the `, "…"` form: with names as common as `token`, it matched
+      every JSON array of strings and every `"family":"…-key","count"` telemetry row, found
+      the first time the store-walk test ran. So `os.getenv("DB_PASSWORD", "x")` is caught
+      only if its value is caught some other way.
+    - **More names** (R4): passwords get their own pattern — four characters are enough,
+      and `,` / `;` may be inside one; `pgpassword` and `secret_key_base` are keywords; a
+      case-SENSITIVE pattern takes camelCase (`dbPassword`, `apiToken`, `webhookSecret`) and
+      SCREAMING prefixes glued to PASSWORD (`MYSQLPASSWORD`). A bare camelCase `Key` is
+      not a keyword (`primaryKey`, `sortKey`, `cacheKey`).
+    - **Settings, not secrets** (R6), in code (`isSetting`) rather than a lookahead: a
+      boolean or null word; a number — EXCEPT six digits or more under a password-shaped
+      name, which is a PIN (a deliberate difference from "purely numeric is a setting":
+      `input_token = 123456` stays, `DB_PASSWORD=12345678` is redacted); unquoted, a code
+      reference whose first identifier has no digit (`self._refresh`,
+      `settings.DB_PASSWORD`, `Optional[str]`, `os.environ["X"]`); unquoted after a `:`, a
+      type name (`str`, `SecretStr`, a CamelCase word of letters only). The trade: a
+      password that is itself a digit-free dotted word (`my.pass.word`) or, after `:`, a
+      two-part CamelCase word (`HunterTwo`) is read as code and left alone.
+    - **Letters-only secrets** (R10): the named form also takes exactly 40 mixed-case
+      letters — the ~1 in 4,000 AWS secrets with no digit, `/` or `+`. A prose word after
+      the name is never 40 letters.
+    - **Left**: a 40-character RELATIVE path beside a key id (`src/…`, review N2) is still
+      redacted — over-redaction, the safe direction.
+
 ## Calibration status (scar §2.8, guarantee 13)
 
 Every threshold in `tunables.ts` carries the v1 measurement it inherits and a

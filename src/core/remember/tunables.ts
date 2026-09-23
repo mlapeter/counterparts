@@ -91,6 +91,14 @@ export const TUNABLES = {
    * fallback that writes as a stranger again, which is the whole point.
    */
   SWEEP_WAKE_BYTES: null as number | null,
+  /**
+   * How long a session's CAPTURED TEXT is kept after it ended, when it owes
+   * nothing (`retention.ts`). Owner's ruling 2026-09-23: seven days. Not CAL —
+   * it is a decision about how long raw transcript may sit on disk and in every
+   * backup, not a threshold a corpus could calibrate. A session that OWES a
+   * write-up is kept past it, however old, until it is written up.
+   */
+  RETENTION_MS: 7 * 24 * 60 * 60_000,
 } as const;
 
 /**

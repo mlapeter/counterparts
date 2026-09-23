@@ -33,6 +33,7 @@ import { hashText } from "../src/core/store/prose.js";
 // The buffer's destruction seam, imported ON PURPOSE — holding a `SpanBuffer`
 // does not reach it (`remember/owner-strike-seam.ts`, the WeakMap grant).
 import { strikeSpans } from "../src/core/remember/owner-strike-seam.js";
+import { recordWriteUp } from "../src/core/remember/write-up-seam.js";
 import {
   ALREADY_AUTHORED_MARK,
   BOUNDARY_KINDS,
@@ -455,6 +456,7 @@ describe("observer (G8)", () => {
     o.restore(fake);
     o.noteFailures(SCOPE, [fakeSpan()], "THREW");
     strikeSpans(o, { scope: SCOPE, hashes: ["deadbeef"] });
+    recordWriteUp(o, { scope: SCOPE, session: "s1", by: "next-session" });
     await sweep(o, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
 
     const sites = new Set(o.events("remember.observer.standdown").map((e) => String(e.data?.site)));

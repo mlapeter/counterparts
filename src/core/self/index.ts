@@ -110,6 +110,7 @@ import {
   dayMemories,
   pageWriterClaimOpen,
   pageWriterDue,
+  pageWriterNight,
   pageWriterRuns,
   pageWriterStatus,
 } from "./writer.js";
@@ -154,8 +155,10 @@ import {
 import type { JournalCopyOutcome } from "./journal-file.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
+import { calendarDate } from "./calendar.js";
 
 export * from "./briefing.js";
+export * from "./calendar.js";
 export * from "./journal-file.js";
 export * from "./page.js";
 export * from "./writer.js";
@@ -197,6 +200,12 @@ export interface SelfOptions {
   gate?: EpisodeGate;
   onEvent?: (e: SelfEvent) => void;
   now?: () => number;
+  /**
+   * The IANA zone the CALENDAR day is taken in — the ask cap's day and the page
+   * writer's night (`calendar.ts`). Absent: the machine's own zone, which is the
+   * owner's ruling of 2026-09-23. A test pins it so it passes on any machine.
+   */
+  zone?: string;
 }
 
 /** An arriving occasion. `prospective/` owns the ordering (INTERFACE-GAPS #3). */
@@ -448,6 +457,7 @@ export class Self {
   private readonly gate: EpisodeGate;
   private readonly onEvent: ((e: SelfEvent) => void) | undefined;
   private readonly now: () => number;
+  private readonly zone: string | undefined;
   private readonly ring: SelfEvent[] = [];
   /** Observer-only state that may never be deposited (observer-mode G3/G6). */
   private readonly volatileState = new Map<string, EpisodeState>();
@@ -460,6 +470,19 @@ export class Self {
     this.gate = opts.gate ?? NO_GATE;
     this.onEvent = opts.onEvent;
     this.now = opts.now ?? (() => Date.now());
+    this.zone = opts.zone;
+  }
+
+  /**
+   * TODAY, AS THE PERSON LIVES IT — the calendar date in the local zone, read off
+   * the store's own provenance clock (`calendar.ts`). The ask cap and the page
+   * writer's schedule read THIS; every PROVENANCE date (`revisedOn`,
+   * `learnedOn`, a clearing's `on`) still reads `store.today()`, which is UTC,
+   * because those are `store/`'s and a date a row was stamped with is compared
+   * against dates stamped the same way.
+   */
+  calendarToday(): string {
+    return calendarDate(this.store.now(), this.zone);
   }
 
   // ── the briefing ─────────────────────────────────────────────────────────
@@ -902,9 +925,14 @@ export class Self {
    * this says `already-claimed`.
    */
   pageWriterDue(opts: { mode: PageWriterMode; today?: string }): PageWriterDue {
+    // The night is ours to decide unless the caller named a day: the LOCAL
+    // calendar, held back to a provenance date that has closed (`writer.ts#
+    // pageWriterNight`). A caller that passes `today` gets the plain rule.
+    const night = opts.today === undefined ? pageWriterNight(this.store, this.zone) : null;
     return pageWriterDue(this.store, {
       mode: opts.mode,
-      today: opts.today ?? this.store.today(),
+      today: opts.today ?? (night as { today: string }).today,
+      ...(night === null ? {} : { about: night.about }),
       observer: this.observer,
       asksPerDay: this.tunables.PAGE_WRITER_ASKS_PER_DAY,
     });
@@ -938,7 +966,7 @@ export class Self {
     });
     return {
       about: opts.about,
-      today: opts.today ?? this.store.today(),
+      today: opts.today ?? this.calendarToday(),
       page: this.page(),
       memories: picked.memories,
       dropped: picked.dropped,
@@ -973,8 +1001,10 @@ export class Self {
     const payload = {
       about: run.about,
       // The date the run HAPPENED on, beside the one it is about: a claim is
-      // only in flight while the day that made it is still running.
-      on: this.store.today(),
+      // only in flight while the day that made it is still running. The LOCAL
+      // calendar day, because `pageWriterStatus`/`pageWriterClaimOpen` compare
+      // it against the local `today` — one clock on both sides of the `<`.
+      on: this.calendarToday(),
       mode: run.mode,
       outcome: run.outcome,
       detail: run.detail ?? "",
@@ -1009,7 +1039,7 @@ export class Self {
 
   /** How a date came out, with the derivation named. Pure. */
   pageWriterStatus(about: string, today?: string): PageWriterStatus {
-    return pageWriterStatus(this.store, about, today ?? this.store.today());
+    return pageWriterStatus(this.store, about, today ?? this.calendarToday());
   }
 
   /** Every recorded attempt, newest first. Pure. */
@@ -1020,7 +1050,7 @@ export class Self {
   /** Is that night's claim still open — the question the page's door asks
    *  before it writes `by: "writer"` on a revision. Pure. */
   pageWriterClaimOpen(about: string, today?: string): boolean {
-    return pageWriterClaimOpen(this.store, about, today ?? this.store.today());
+    return pageWriterClaimOpen(this.store, about, today ?? this.calendarToday());
   }
 
   /**
@@ -1576,7 +1606,7 @@ export class Self {
     const d = day ?? this.store.livedDay();
     return askDue(this.episodeState(sessionId, d), substance, this.tunables, {
       observer: this.observer,
-      today: this.store.today(),
+      today: this.calendarToday(),
     });
   }
 
@@ -1589,8 +1619,9 @@ export class Self {
     const d = day ?? this.store.livedDay();
     // The CALENDAR day the allowance is charged to, read once so the verdict and
     // the advance cannot straddle midnight (`episodes.ts#asksSpentOn` carries
-    // why it is the calendar date and not the lived one).
-    const today = this.store.today();
+    // why it is the calendar date and not the lived one). LOCAL midnight since
+    // 2026-09-23 (`calendar.ts`), not UTC's.
+    const today = this.calendarToday();
     const state = this.episodeState(sessionId, d);
     const verdict = askDue(state, substance, this.tunables, {
       observer: this.observer,
@@ -1613,6 +1644,9 @@ export class Self {
       asks: state.asks + 1,
       asksToday: asksSpentOn(state, today) + 1,
       asksDay: today,
+      // WHEN, as well as how many: an answer counts only if it came after the
+      // last ask (`remember/owes.ts`, PR #189 review M1).
+      lastAskAt: this.store.now(),
       askedAtTurns: substance.turns,
       askedAtBytes: substance.bytes,
       lastDay: d,

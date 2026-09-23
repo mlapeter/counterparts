@@ -119,6 +119,23 @@ dependencies and moves cleanly; what must not happen is two copies.
 
 ## 3. Not a gap, but the coordinator owns it: the caller-side universality test
 
+**Partly landed 2026-09-23** (`test/secrets-aws.test.ts`, "every entrance takes BOTH halves
+out"): a credential pair is pushed through every model-facing door that writes canonical
+text — `note`, `session_end` (memories and its `handoff` field), `chapter`, `self_page` —
+and through the crash fallback's mint, each read back from the store, and then every byte
+of the store outside `spans/` is walked for either half. What it does NOT do is the
+source-scan half — enumerate entrances from the code so a NEW one fails the test by
+existing — which stays the coordinator's.
+
+**Observed while there, not this module's:** the crash fallback's outgoing PROMPT is the
+raw transcript (`fallback.ts#renderForSweep` → `interpret-client.ts`), and nothing puts it
+through this battery before it leaves the machine; only the vector text is redacted
+(`counterpart.ts#sweepFallback`). With the key-based sweep becoming an opt-in (roadmap C2)
+it matters less, but a credential spoken in a crashed session is sent to the interpreter
+as spoken.
+
+*As filed:*
+
 Encode §5 G1's full form source-scans **every caller** of the paths where text
 becomes canonical, "including every outpost". Encode's own suite proves the half
 that does not need callers (no disable flag exists; every text-returning export

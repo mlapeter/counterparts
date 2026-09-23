@@ -17,6 +17,8 @@
  *     <key>/consumed.jsonl       bounded hash ledger — dedup layer 2 after a claim dies
  *     <key>/failures.jsonl       bounded {hash, at, code} ledger — the retry bound
  *     <key>/quarantine.jsonl     spans that failed MAX_SPAN_FAILURES times, in full
+ *     <key>/writeups.jsonl       sessions written up AFTER they ended — {session, at, by}
+ *     <key>/strikes.jsonl        what the strike and retention destroyed — counts only
  *     <key>/claims/<id>.jsonl    a claim, renamed ASIDE from the buffer
  *
  * Four structural properties, each load-bearing (contract §5 G3):
@@ -47,6 +49,7 @@ import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 
 import { grantSpanStrike } from "./owner-strike-seam.js";
+import { grantWriteUp } from "./write-up-seam.js";
 import { hashText } from "../store/prose.js";
 import { dataDir } from "../store/paths.js";
 import { isObserver } from "../observer.js";
@@ -151,6 +154,12 @@ export const WRITE_SITES = [
   // `owner-strike-seam.ts`, never by holding a `SpanBuffer` (§5 G2's shape,
   // borrowed from `store/owner-op-seam.ts`).
   "strike",
+  // The mark that a session which ended owing a write-up has been written up
+  // after the fact (the next-session write-up, roadmap C2). It closes that
+  // session's debt and starts its retention clock — a deletion on a seven-day
+  // fuse — so it is reachable only by importing `write-up-seam.ts`, never by
+  // holding a `SpanBuffer` (PR #189 re-review, R1).
+  "writeup",
 ] as const;
 export type WriteSite = (typeof WRITE_SITES)[number];
 
@@ -202,6 +211,15 @@ export interface CoverageMark {
   /** True for the proposal's OWN span, which is withheld from the sweep outright
    *  (§4.1 G4) rather than merely marked. */
   own: boolean;
+}
+
+/** A session written up after it ended — the mark that closes what it owed.
+ *  Written only by `write-up-seam.ts`. */
+export interface WriteUpRecord {
+  session: string;
+  at: number;
+  /** Who wrote it up: one of `write-up-seam.ts#WRITE_UP_BY`, never free text. */
+  by: string;
 }
 
 /** One recorded interpretation failure. The hash is the buffer's own span hash —
@@ -290,20 +308,27 @@ export class SpanBuffer {
     // The destruction capability, handed over at construction the way `Store`
     // hands `owner-op-seam.ts` its own: holding a buffer does not let you strike
     // a span; importing the seam does, and a test pins who may import it.
-    grantSpanStrike(this, {
+    const access = {
       observer: this.observer,
       scopes: () => this.scopes(),
-      scopeDir: (scope) => this.scopeDir(scope),
-      path: (scope, name) => this.path(scope, name),
-      claimFiles: (scope) => this.claimFiles(scope),
-      streamPath: (scope, kind) => this.streamPath(scope, kind),
-      ensureScope: (scope) => this.ensureScope(scope),
-      readLines: (file) => this.readLines(file),
-      mutate: (site, fn) => this.mutate(site, fn),
-      emit: (name, ref, data) => this.emit(name, ref, data),
+      scopeDir: (scope: string) => this.scopeDir(scope),
+      path: (scope: string, name: string) => this.path(scope, name),
+      claimFiles: (scope: string) => this.claimFiles(scope),
+      streamPath: (scope: string, kind: SpanKind) => this.streamPath(scope, kind),
+      ensureScope: (scope: string) => this.ensureScope(scope),
+      readLines: <T>(file: string) => this.readLines<T>(file),
+      mutate: <T>(site: WriteSite, fn: () => T) => this.mutate(site, fn),
+      emit: (name: string, ref?: string, data?: Record<string, string | number | boolean | null>) =>
+        this.emit(name, ref, data),
       now: () => this.nowFn(),
       day: () => this.dayFn(),
-    });
+      trimLedger: (file: string) => this.trimLedger(file),
+    };
+    grantSpanStrike(this, access);
+    // The write-up mark gets the same closures MINUS `ensureScope`: it may never
+    // add a scope (re-review R1). Not even present at runtime.
+    const { ensureScope: _ensure, day: _day, trimLedger: _trim, ...writeUpAccess } = access;
+    grantWriteUp(this, writeUpAccess);
   }
 
   now(): number {
@@ -611,6 +636,20 @@ export class SpanBuffer {
     return this.readLines<BoundaryRecord>(this.path(scope, "boundaries.jsonl"));
   }
 
+  /** Spans held in CLAIM FILES right now — a sweep in flight, or a crashed
+   *  run's orphans. Read-only; `retention.ts` counts them as text a session
+   *  still holds, so nothing in flight can make a session look empty. */
+  claimedSpans(scope: string): Span[] {
+    return this.claimFiles(scope).flatMap((file) => this.readSpans(file));
+  }
+
+  /** Write-up marks recorded for this scope (`write-up-seam.ts` writes them). */
+  writeUps(scope: string): WriteUpRecord[] {
+    return this.readLines<WriteUpRecord>(this.path(scope, "writeups.jsonl")).filter(
+      (r) => typeof r.session === "string" && typeof r.at === "number",
+    );
+  }
+
   /**
    * THE MECHANICAL DEFINITION OF "CRASHED" (owner ruling 2026-09-04, adapter
    * CONTRACT open question 3). A session is crashed when all three hold:
@@ -790,8 +829,10 @@ export class SpanBuffer {
     return new Map([...days.entries()].map(([hash, set]) => [hash, set.size]));
   }
 
-  /** Spans the sweep gave up on, in full. Nothing is ever dropped: this file is
-   *  the owner's copy, readable in any editor (constitution line 16). */
+  /** Spans the sweep gave up on, in full. The sweep never drops them: this file
+   *  is the owner's copy, readable in any editor (constitution line 16), until
+   *  RETENTION ages a line out — 7 days after its session ended, and only when
+   *  that session owes no write-up (`retention.ts`). */
   quarantined(scope: string): Span[] {
     return this.readSpans(this.path(scope, "quarantine.jsonl"));
   }

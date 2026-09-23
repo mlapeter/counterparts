@@ -67,10 +67,11 @@ import {
   JOURNAL_COPY_WRITTEN_EVENT,
 } from "../../core/self/journal-file.js";
 import {
+  dayBefore,
   hasDayBefore,
   lastPageWriterRun,
-  pageWriterAbout,
   pageWriterDue,
+  pageWriterNight,
   pageWriterStatus,
 } from "../../core/self/writer.js";
 import type { AskReason } from "../../core/self/episodes.js";
@@ -2267,8 +2268,11 @@ export function selfPageFindings(store: Store): Finding[] {
  */
 export function pageWriterFindings(store: Store, config: AdapterConfig): Finding[] {
   const mode = pageWriterMode(config);
-  const today = dateOf(store.now());
-  const about = pageWriterAbout(today);
+  // THE MECHANISM'S OWN NIGHT, not one this line derives (PR #189 review, M2):
+  // the local calendar day, held back east of UTC to a provenance date that has
+  // closed — the one function `Self`, host mode and this line all read, so the
+  // claim's local `on` is never compared with a UTC `today`.
+  const { today, about } = pageWriterNight(store);
   const last = lastPageWriterRun(store);
   const page = readSelfPage(store);
   const data = {
@@ -2316,7 +2320,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
     // NEVER RUN. On a store with no yesterday that is the correct state and
     // says so; on one that has lived a day it is still green, because the
     // mechanism runs at the NEXT session start and has not been given a turn.
-    const young = !hasDayBefore(store, today);
+    const young = !hasDayBefore(store, dayBefore(about, -1));
     return [
       finding(
         "page-writer",
@@ -2341,6 +2345,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
   const owed = pageWriterDue(store, {
     mode,
     today,
+    about,
     observer: store.observer,
     asksPerDay: SELF_TUNABLES.PAGE_WRITER_ASKS_PER_DAY,
   });

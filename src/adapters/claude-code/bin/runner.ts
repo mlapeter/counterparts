@@ -29,6 +29,15 @@
  *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing;
+ *   3b. RAW TRANSCRIPT RETENTION (owner's ruling 2026-09-23): once per date —
+ *      behind an `O_EXCL` latch under `spans/retention/` — a session's captured
+ *      text is deleted 7 days after it ended when it owes no write-up and the
+ *      registry does not hold it open (`remember/owes.ts` decides,
+ *      `remember/retention.ts` deletes, and this file is the only one that may
+ *      import the second), and one `remember.prune` row says what was deleted,
+ *      what is waiting on a write-up, what is younger than a week and what is
+ *      still open. Keyless, like every step but the sweep. BEFORE the snapshot on
+ *      purpose: raw text in every backup is the reason it exists;
  *   4. the DAILY ROTATING SNAPSHOT (`adapters/snapshots.ts`), last and outside
  *      the cycle. Last because it copies the state the three steps above just
  *      left; outside because sleep must not learn that the floor is changing —
@@ -47,12 +56,27 @@
  *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
+import { ADAPTER_ASK_EVENT, Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
+import {
+  NO_HOST_EVIDENCE,
+  RETENTION_EVENT,
+  retentionRow,
+  retentionRuns,
+  retentionSources,
+} from "../../../core/remember/index.js";
+import type { HostSessionEvidence, RetentionReport } from "../../../core/remember/index.js";
+// THE DELETING HALF, by path, and from this file alone (PR #189 review, B1):
+// `remember/index.ts` does not re-export it, and `test/cli.test.ts` pins every
+// importer — nothing that holds a `Counterpart` can reach it.
+import { pruneRetention } from "../../../core/remember/retention.js";
+import { episodeFacts } from "../../../core/self/index.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
+import type { Store } from "../../../core/store/index.js";
+import { readSession, sessionPath } from "../../sessions.js";
 
 import {
   configLine,
@@ -115,6 +139,232 @@ export interface RunReport {
   /** The day's copy of the store, or what stopped it. Null when the run refused
    *  before it opened a store at all. */
   readonly snapshot: SnapshotRunReport | null;
+  /** The day's retention pass, or why it did not run. Null when the run refused
+   *  before it opened a store at all. */
+  readonly retention: RetentionJobReport | null;
+}
+
+/** What the retention step came to on one worker run. */
+export interface RetentionJobReport {
+  /** `ran` — it planned and pruned (possibly nothing); `already-ran` — this
+   *  date's row exists, or another worker holds this date's latch, so this run
+   *  did nothing; `observer` / `failed` — named. */
+  readonly reason: "ran" | "already-ran" | "observer" | "failed";
+  readonly date: string;
+  readonly report: RetentionReport | null;
+  /** Whether the `remember.prune` row landed. */
+  readonly recorded: boolean;
+  readonly code: string | null;
+}
+
+/** A run's counts before it has counted anything — the `STARTED` and
+ *  `LATCH_HELD` rows carry these. */
+const EMPTY_RETENTION: RetentionReport = {
+  reason: "NOTHING",
+  scopes: 0,
+  deleted: 0,
+  keptOwed: 0,
+  keptYoung: 0,
+  keptLive: 0,
+  failed: 0,
+  lines: 0,
+  bytes: 0,
+};
+
+/** Ceiling on the `adapter.ask` rows read once per date: a Stop each, ~90 lived
+ *  days of them (the log's own retention). */
+const ASK_ROW_CEILING = 200_000;
+const ASK_ROW_LOOKBACK_DAYS = 90;
+
+/**
+ * WHAT THIS HOST KNOWS ABOUT A SESSION, for `remember/owes.ts`: its registry
+ * record (`adapters/sessions.ts` — open or ended, and #186's "nothing new"
+ * mark) and its `adapter.ask` rows (when the last ask was issued, and the
+ * substance the pacer measured at its newest evaluation). Read once per run;
+ * never throws. Every read that fails reads as the fact that KEEPS text.
+ */
+export function retentionHost(store: Store): (session: string) => HostSessionEvidence {
+  const asks = new Map<
+    string,
+    { lastAskedAt: number | null; lastEvaluation: { at: number; turns: number; bytes: number } | null }
+  >();
+  try {
+    const rows = store.eventLog({
+      name: ADAPTER_ASK_EVENT,
+      sinceDay: Math.max(0, store.livedDay() - ASK_ROW_LOOKBACK_DAYS),
+      limit: ASK_ROW_CEILING,
+    });
+    for (const row of rows) {
+      let p: Record<string, unknown>;
+      try {
+        p = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const session = p["session"];
+      if (typeof session !== "string" || session.length === 0) continue;
+      const cur = asks.get(session) ?? { lastAskedAt: null, lastEvaluation: null };
+      if (p["asked"] === true) cur.lastAskedAt = Math.max(cur.lastAskedAt ?? 0, row.at);
+      const turns = p["turns"];
+      const bytes = p["bytes"];
+      if (
+        typeof turns === "number" &&
+        typeof bytes === "number" &&
+        (cur.lastEvaluation === null || row.at >= cur.lastEvaluation.at)
+      ) {
+        cur.lastEvaluation = { at: row.at, turns, bytes };
+      }
+      asks.set(session, cur);
+    }
+  } catch {
+    /* no ask rows: the pacer's own state and the substance count still decide */
+  }
+  const dir = store.dir;
+  return (session) => {
+    const a = asks.get(session);
+    return {
+      ...NO_HOST_EVIDENCE,
+      ...registryFacts(dir, session),
+      lastAskedAt: a?.lastAskedAt ?? null,
+      lastEvaluation: a?.lastEvaluation ?? null,
+    };
+  };
+}
+
+/**
+ * The registry's word on one session. A record with no end is OPEN — never
+ * deleted (review m10). A record that exists but will not read is treated as
+ * open too: it may be a live session's, and the safe reading of "cannot tell"
+ * is "keep". `nothingNewAt` is #186's "nothing new" answer, read through the
+ * registry's own parser.
+ */
+function registryFacts(
+  dir: string,
+  session: string,
+): Pick<HostSessionEvidence, "open" | "endedAt" | "nothingNewAt"> {
+  const path = sessionPath(dir, session);
+  if (path === null || !existsSync(path)) return { open: false, endedAt: null, nothingNewAt: null };
+  const rec = readSession(dir, session);
+  if (rec === null) return { open: true, endedAt: null, nothingNewAt: null };
+  return {
+    open: rec.endedAt === null,
+    endedAt: rec.endedAt,
+    // #186's mark, through the registry's own parser now that it carries it.
+    nothingNewAt: typeof rec.nothingNewAt === "number" && Number.isFinite(rec.nothingNewAt) ? rec.nothingNewAt : null,
+  };
+}
+
+/**
+ * THE RETENTION STEP — once per calendar date, keyless, and it never throws.
+ *
+ * ONCE PER DATE because the worker runs at every boundary and the rule is
+ * measured in days. Two latches: this date's `remember.prune` row (the cheap
+ * check), and beneath it the one that is atomic — `retention.ts` creates
+ * `spans/retention/<date>.latch` with `O_EXCL` before it plans or deletes
+ * anything, so two workers racing past the row check cannot both prune (PR
+ * #189 review, m6). A run that FAILED leaves its row with `failed` counted and
+ * is retried the next date: sessions it could not delete stay due. The date is
+ * the worker's run date, which is UTC like every date this worker stamps — so
+ * for a Pacific owner the pass happens at the first boundary after 17:00 local
+ * (review n1, named rather than moved).
+ *
+ * What it may delete is decided by `remember/owes.ts` and nothing here: the
+ * pacer's record (`self/episodes.ts#episodeFacts`), the handoff rows, and this
+ * host's registry and ask rows (`retentionHost`) are the facts, and a session
+ * that owes a write-up, or that the registry holds open, is never in any
+ * request.
+ */
+export function retentionJob(input: {
+  counterpart: Counterpart;
+  date: string;
+  onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
+}): RetentionJobReport {
+  const { counterpart, date } = input;
+  const emit = input.onEvent ?? ((): void => {});
+  const none = { date, report: null, recorded: false, code: null } as const;
+  if (counterpart.observer) return { ...none, reason: "observer" };
+  const store = counterpart.store;
+  try {
+    if (retentionRuns(store).some((r) => r.date === date)) return { ...none, reason: "already-ran" };
+    const t = counterpart.self.tunables;
+    const sources = retentionSources(store, {
+      episode: (session) => episodeFacts(store, session),
+      host: retentionHost(store),
+      firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+    });
+    // THE DATE IS VISIBLE FROM THE MOMENT IT IS HELD (re-review R7): a
+    // `STARTED` row goes in as soon as the latch is taken, before anything is
+    // planned, so a run the watchdog kills halfway leaves "started, never
+    // finished" rather than a date that is spent and silent.
+    const started = (): void => {
+      try {
+        store.appendEvent({
+          name: RETENTION_EVENT,
+          day: store.livedDay(),
+          payload: retentionRow({ ...EMPTY_RETENTION, reason: "STARTED" }, date),
+          dedupKey: `${RETENTION_EVENT}:${date}:started`,
+        });
+      } catch (err) {
+        emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+      }
+    };
+    const report = pruneRetention(counterpart.spans, sources, { date, onLatched: started });
+    if (report.reason === "ALREADY_RAN") {
+      // Held, and still no row for the date at all: a run died between taking
+      // the latch and writing its first row. Say so, once.
+      if (!retentionRuns(store).some((r) => r.date === date)) {
+        try {
+          store.appendEvent({
+            name: RETENTION_EVENT,
+            day: store.livedDay(),
+            payload: retentionRow({ ...EMPTY_RETENTION, reason: "LATCH_HELD" }, date),
+            dedupKey: `${RETENTION_EVENT}:${date}:held`,
+          });
+        } catch (err) {
+          emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+        }
+      }
+      return { ...none, reason: "already-ran" };
+    }
+    // The latch itself would not take (an unwritable `spans/`): nothing was
+    // planned or deleted, and no row is written, so the next worker today tries
+    // again rather than finding the date spent.
+    if (report.reason === "IO_FAILED" && report.failed === 0 && report.scopes === 0) {
+      return { ...none, reason: "failed", code: "LATCH_FAILED" };
+    }
+    let recorded = false;
+    try {
+      store.appendEvent({
+        name: RETENTION_EVENT,
+        day: store.livedDay(),
+        payload: retentionRow(report, date),
+        dedupKey: `${RETENTION_EVENT}:${date}`,
+      });
+      recorded = true;
+    } catch (err) {
+      emit("retention.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
+    emit("runner.retention", {
+      reason: report.reason,
+      deleted: report.deleted,
+      keptOwed: report.keptOwed,
+      keptYoung: report.keptYoung,
+      keptLive: report.keptLive,
+      failed: report.failed,
+      lines: report.lines,
+      recorded,
+    });
+    return { reason: "ran", date, report, recorded, code: null };
+  } catch (err) {
+    const code =
+      err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
+        ? (err as { code: string }).code
+        : err instanceof Error
+          ? err.name
+          : "UNKNOWN";
+    emit("retention.failed", { code });
+    return { ...none, reason: "failed", code };
+  }
 }
 
 /**
@@ -148,13 +398,13 @@ export async function runOnce(input: {
   const emit = input.onEvent ?? ((): void => {});
   if (config.dataDir === undefined || config.dataDir.trim().length === 0) {
     emit("runner.refused", { reason: "no-data-dir" });
-    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
+    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null, retention: null };
   }
   if (config.observer === true) {
     // A cycle advances the clock, decays the store and rewrites the briefing:
     // the instrument mutating what it measures (§15 G3).
     emit("runner.refused", { reason: "observer" });
-    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
+    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null, retention: null };
   }
 
   // The embedder, when the owner switched it on. This is the composition root
@@ -247,6 +497,7 @@ export async function runOnce(input: {
   // the two results the boundary produced. A `let` rather than a fourth return
   // arm because the copy must happen on BOTH paths and before `close()`.
   let snapshotReport: SnapshotRunReport | null = null;
+  let retentionReport: RetentionJobReport | null = null;
   let result: RunReport;
   try {
     // NO INTERPRETER IS BUILT when there is no key. Not a client that would
@@ -283,7 +534,7 @@ export async function runOnce(input: {
       carriedRows: report.carried?.rows ?? 0,
       interpret: hasInterpretCredential,
     });
-    result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null };
+    result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null, retention: null };
   } catch (err) {
     const code =
       err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
@@ -294,8 +545,20 @@ export async function runOnce(input: {
     // the boundary is the failure a person most needs to be able to read
     // tomorrow, and this process's stderr goes nowhere (I32).
     noteFailure(counterpart, emit, code, "sessionEnd", today);
-    result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null };
+    result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null, retention: null };
   } finally {
+    // 3b. RETENTION — on the failed path as well as the good one (a day whose
+    // sweep broke still ages the week-old text of sessions that owe nothing),
+    // and BEFORE the copy below, so the day's backup never carries raw text
+    // past its week. Its own try: a retention pass may not cost the snapshot.
+    try {
+      retentionReport = retentionJob({ counterpart, date: today, onEvent: emit });
+      if (retentionReport.reason === "failed") {
+        noteFailure(counterpart, emit, retentionReport.code ?? "UNKNOWN", "retention", today);
+      }
+    } catch (err) {
+      emit("retention.threw", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
     // 4. THE DAY'S COPY OF THE STORE — after everything above has written, on
     // the failed path as well as the good one, and before the store is closed.
     // It never throws by construction (`adapters/snapshots.ts`); the try is
@@ -345,7 +608,7 @@ export async function runOnce(input: {
     }
     counterpart.close();
   }
-  return { ...result, snapshot: snapshotReport };
+  return { ...result, snapshot: snapshotReport, retention: retentionReport };
 }
 
 /**

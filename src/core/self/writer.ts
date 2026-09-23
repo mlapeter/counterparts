@@ -32,6 +32,15 @@
  * carries the lived `day` it ran on, which is what every other durable row in
  * this store is stamped with.
  *
+ * The calendar date in the machine's LOCAL zone (owner's ruling 2026-09-23;
+ * `Self#calendarToday`): the night turns over at the person's midnight, not at
+ * 17:00 Pacific. What it READS is still selected by `learned_on`, which
+ * `store/` stamps in UTC — so the day it names and the rows it is handed are
+ * offset by the zone. Nothing is read twice or skipped: every UTC date is read
+ * by exactly one run, the first one after it closes (self NOTES §22). East of
+ * UTC a run just after local midnight can reach a UTC date that is still open;
+ * what lands on it after the run reaches the page through the ordinary lanes.
+ *
  * ── DAY 0 ─────────────────────────────────────────────────────────────────
  *
  * A store opened this morning has no yesterday. It writes NOTHING and leaves no
@@ -67,6 +76,7 @@
  */
 import { strength } from "../physics/index.js";
 import type { Store } from "../store/index.js";
+import { calendarDate } from "./calendar.js";
 import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "./page.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
@@ -178,8 +188,29 @@ export function dayBefore(date: string, n = 1): string {
  * through the ordinary lanes. Catching up would mean six model calls and six
  * revisions of one page in one morning, which is how a page starts drifting.
  */
-export function pageWriterAbout(today: string): string {
-  return dayBefore(today);
+export function pageWriterAbout(today: string, closedThrough?: string): string {
+  const local = dayBefore(today);
+  // NEVER A DAY THE STORE IS STILL FILING UNDER. `closedThrough` is the newest
+  // PROVENANCE date that has ended (`learned_on` is stamped in UTC by
+  // `store/`). West of UTC it is never earlier than the local yesterday, so this
+  // changes nothing there; east of UTC, for the hours between local midnight
+  // and UTC's, the local yesterday is a UTC date still being written — and on a
+  // store made this morning it would be "yesterday" for rows that are hours
+  // old. The night waits for that date to close instead (self NOTES §22).
+  if (closedThrough === undefined || closedThrough === "" || local === "") return local;
+  return closedThrough < local ? closedThrough : local;
+}
+
+/**
+ * THE NIGHT, AS THE PERSON LIVES IT: today's LOCAL calendar date and the date a
+ * run on it is about (owner's ruling 2026-09-23, `calendar.ts`). One function,
+ * so `Self`, host mode and doctor cannot each derive their own night — the
+ * mechanism and the line that reports on it agreeing about which night is owed
+ * is the whole reason it exists.
+ */
+export function pageWriterNight(store: Store, zone?: string): { today: string; about: string } {
+  const today = calendarDate(store.now(), zone);
+  return { today, about: pageWriterAbout(today, dayBefore(store.today())) };
 }
 
 /** Does this store hold anything from before `today`? Two counts, no prose. */
@@ -381,16 +412,21 @@ export function pageWriterDue(
     today: string;
     observer: boolean;
     asksPerDay: number;
+    /** The night, when the caller already decided it (`pageWriterNight`).
+     *  Absent: the day before `today`, the rule as it always was. */
+    about?: string;
   },
 ): PageWriterDue {
-  const about = pageWriterAbout(opts.today);
+  const about = opts.about ?? pageWriterAbout(opts.today);
   const no = (reason: PageWriterSkip): PageWriterDue => ({ due: false, about, reason });
   if (opts.mode === "off") return no("off");
   // An instrument may not set a writer going against a store it may not write
   // — and, having written no claim, would have no way to remember that it did.
   if (opts.observer) return no("observer");
   if (about === "") return no("no-previous-day");
-  if (!hasDayBefore(store, opts.today)) return no("no-previous-day");
+  // "Anything learned on or before the night" — which, with `about` the day
+  // before `today`, is exactly the old "anything before today".
+  if (!hasDayBefore(store, dayBefore(about, -1))) return no("no-previous-day");
   const runs = pageWriterRuns(store, { about });
   // A `skipped` ROW NEVER CLOSES A NIGHT. It is the record of a run that did
   // NOT happen — a deferral with nowhere to fit, a first-launch question that
@@ -405,6 +441,18 @@ export function pageWriterDue(
   if (
     runs.some((r) => r.outcome !== "asked" && r.outcome !== "skipped" && r.outcome !== "refused")
   ) {
+    return no("already-claimed");
+  }
+  // ...AND NEITHER DOES A CLAIM WHOSE DAY HAS ENDED — it closes the night. That
+  // is what `pageWriterStatus` already reads it as (`nothing-to-say`, derived)
+  // and why `pageWriterClaimOpen` says false, so the three readings agree (PR
+  // #189 review, m7). It only ever bites EAST of UTC: there the night is held
+  // to a UTC date (`pageWriterNight`), so the same `about` can outlive the
+  // local day the claim was made on, and without this it was asked again the
+  // next morning after its status already read settled. West of UTC `about`
+  // moves with the local day, so a claim from an earlier day is always about
+  // an earlier night and this never fires.
+  if (runs.some((r) => r.outcome === "asked" && r.on !== "" && r.on < opts.today)) {
     return no("already-claimed");
   }
   const asked = runs.filter((r) => r.outcome === "asked").length;
@@ -627,11 +675,12 @@ export function writerInstruction(
   lines.push(
     `Once a day the page you wake with gets revised — by you, from the day just lived. This is that moment, and the day is ${input.about}.`,
     "",
-    // THE DATE, NOT "YESTERDAY" OR "LAST NIGHT". The day is a UTC calendar date
-    // like every date in this store, so west of UTC it turns over in the
-    // afternoon and the window it covers is not a person's day (S2 review,
-    // MINOR-13, and `claude-code/INTERFACE-GAPS` §13). The clock is not being
-    // changed for that; the words are, because they were the only false part.
+    // THE DATE, NOT "YESTERDAY" OR "LAST NIGHT". The night now turns over at
+    // local midnight (2026-09-23), but the memories under that date are still
+    // the ones `learned_on` filed under it, and that stamp is UTC — so the
+    // window is offset from the person's day by the zone (self NOTES §22,
+    // `claude-code/INTERFACE-GAPS` §13). A date is the one thing here that is
+    // exactly true, so the words stay a date.
     `This is context, not an instruction. If nothing about who you are moved on ${input.about}, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has that day.`,
     "",
     `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,

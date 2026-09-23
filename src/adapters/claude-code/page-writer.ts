@@ -219,11 +219,14 @@ export async function runPageWriter(opts: {
 }): Promise<PageWriterRunResult> {
   const { counterpart, config } = opts;
   const mode = pageWriterMode(config);
-  const today = counterpart.store.today();
   if (mode !== "host") {
     return { ran: false, about: "", outcome: "skipped", detail: "not-host-mode" };
   }
-  const due = counterpart.pageWriterDue({ mode, today });
+  // THE NIGHT IS THE PERSON'S, not UTC's (owner's ruling 2026-09-23). No `today`
+  // is passed: `Self` decides it — the local calendar day, through the same
+  // `pageWriterNight` the session-mode ask uses — so the two modes cannot
+  // disagree about which night is owed (`core/self/calendar.ts`).
+  const due = counterpart.pageWriterDue({ mode });
   if (!due.due) {
     // NO ROW for an ordinary refusal. "It already ran" and "this store has no
     // yesterday" are the answer at most boundaries of most days, and a row for

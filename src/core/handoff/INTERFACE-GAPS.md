@@ -75,7 +75,19 @@ same, once per directory the owner works in.
 here: adding a second read path for one row would be machinery bought against a failure that
 is already being fixed at its root.
 
-## 6. An AWS SECRET access key survives the shared battery
+## 6. An AWS SECRET access key survives the shared battery — CLOSED 2026-09-23
+
+**Fixed in `core/encode/secrets.ts`, where every entrance gets it at once** (encode NOTES,
+item 18): a new `aws-secret-access-key` family catches the secret under its own name and
+within 200 characters of its key id, either way round, by context and shape together —
+and, since the PR #189 review, every copy of a caught value wherever it stands. The
+review's own sentence now stores as `[REDACTED:aws-access-key-id] and the secret
+[REDACTED:aws-secret-access-key]`, and `test/secrets-aws.test.ts` proves it through the
+handoff field of `session_end` beside every other door. A handoff an older build stored
+half-redacted is not rewritten in place; a re-scan of it finishes the job (the family
+anchors on the id's placeholder), which is what a revision of that row would do.
+
+*As filed:*
 
 **Owner:** `core/encode/secrets.ts`, through `bridge.episodeGate()` — NOT this module, and
 NOT fixed here.

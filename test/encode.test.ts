@@ -157,6 +157,15 @@ const SPECIMENS: { family: string; text: string; marker: string }[] = [
     text: "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA9\n-----END RSA PRIVATE KEY-----",
     marker: "MIIEowIBAAKCAQEA9",
   },
+  // LAST, because other tests index this table by position.
+  {
+    // AWS's own documented example secret (never a real key). The 2026-09-20
+    // review found it stored verbatim beside a redacted id; its three shapes
+    // are proved one by one in `test/secrets-aws.test.ts`.
+    family: "aws-secret-access-key",
+    text: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    marker: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  },
 ];
 
 const REAL_SPAN =
@@ -265,7 +274,10 @@ describe("guarantee 1 — the secrets gate is NOT ABLATABLE", () => {
   });
 
   test("every declared family has a specimen — the table is total, not a sample", () => {
-    const declared = SECRET_FAMILIES.map((f) => f.family).sort();
+    // A family may be caught by more than one pattern (`aws-secret-access-key`
+    // has three: by name, and beside its key id either way round), so the
+    // table is total over family NAMES.
+    const declared = [...new Set(SECRET_FAMILIES.map((f) => f.family))].sort();
     const covered = [...new Set(SPECIMENS.map((s) => s.family))].sort();
     // `private-key-header` is the truncated form of `private-key-block`; the block
     // specimen proves both cannot pass, so it is covered by its own case below.

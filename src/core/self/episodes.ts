@@ -173,6 +173,14 @@ export interface EpisodeState {
   asksDay: string | null;
   /** The ask index at the last append: how "is a new chapter open?" is decided. */
   appendedAtAsk: number;
+  /**
+   * WHEN the last ask was committed, epoch ms on the store's clock — null
+   * until one is, and on every state written before 2026-09-23. Read by
+   * `remember/owes.ts`: an answer counts only if it came AFTER the last ask,
+   * so one early answer cannot cover the asks that followed it (PR #189
+   * review, M1).
+   */
+  lastAskAt: number | null;
   /** Substance at the last COMMITTED ask (committed before the ask blocks). */
   askedAtTurns: number;
   askedAtBytes: number;
@@ -197,6 +205,7 @@ export function freshEpisodeState(sessionId: string, day: number): EpisodeState 
     asksToday: 0,
     asksDay: null,
     appendedAtAsk: 0,
+    lastAskAt: null,
     askedAtTurns: 0,
     askedAtBytes: 0,
     lastDay: day,
@@ -234,6 +243,42 @@ export function loadEpisodeState(
   }
 }
 
+/**
+ * THE PACER'S RECORD OF ONE SESSION, for a reader outside `self/` —
+ * `remember/retention.ts#owesWriteUp` asks "did the pacer find substance here,
+ * and did a chapter answer it?". `asks > 0` is the pacer's own verdict that the
+ * session crossed its threshold (an ask is committed only when one was due);
+ * `chapters` is what the model actually wrote. `unreadable` is returned as
+ * such, so the caller can take the safe direction rather than read a corrupt
+ * state as "never asked".
+ */
+export function episodeFacts(
+  store: Store,
+  sessionId: string,
+): {
+  status: "loaded" | "absent" | "unreadable";
+  asks: number;
+  chapters: number;
+  /** The ask count when a chapter was last appended: a chapter answers the
+   *  LAST ask only when this has caught up with `asks`. */
+  appendedAtAsk: number;
+  lastAskAt: number | null;
+} {
+  try {
+    const { state, status } = loadEpisodeState(store, sessionId, 0);
+    return {
+      status,
+      asks: state.asks,
+      chapters: state.chapters,
+      appendedAtAsk: state.appendedAtAsk,
+      lastAskAt:
+        typeof state.lastAskAt === "number" && Number.isFinite(state.lastAskAt) ? state.lastAskAt : null,
+    };
+  } catch {
+    return { status: "unreadable", asks: 0, chapters: 0, appendedAtAsk: 0, lastAskAt: null };
+  }
+}
+
 // ── pacing (§13 G1) ─────────────────────────────────────────────────────────
 
 export type AskReason =
@@ -258,14 +303,19 @@ export interface AskVerdict {
 /**
  * Asks this session has spent on `today` — what the cap is measured against.
  *
- * WHICH DAY: the CALENDAR date, and the store's own (`Store#today`, UTC), not the
- * lived day. The lived clock advances only inside the sleep cycle the detached
- * worker runs, and I32 is the scar: a worker that could not start froze that
- * clock for seven days while the calendar kept going, and a cap whose reset
- * depends on the machinery it is capping is a cap that can be spent forever. It
- * is the same key the old shared day cap settled on for the same reason. The
- * zone consequence is real and named rather than hidden (INTERFACE-GAPS): an
- * owner at UTC−6 gets the allowance back at 18:00 local.
+ * WHICH DAY: the CALENDAR date, not the lived day. The lived clock advances only
+ * inside the sleep cycle the detached worker runs, and I32 is the scar: a worker
+ * that could not start froze that clock for seven days while the calendar kept
+ * going, and a cap whose reset depends on the machinery it is capping is a cap
+ * that can be spent forever. It is the same key the old shared day cap settled
+ * on for the same reason.
+ *
+ * WHICH ZONE: the machine's LOCAL one (`Self#calendarToday`, `calendar.ts`;
+ * owner's ruling 2026-09-23). Until then it was `Store#today`, UTC, and an owner
+ * at UTC−6 got the allowance back at 18:00 local. The day of the change is the
+ * one day the two disagree: an `asksDay` stamped under UTC and read against a
+ * local `today` may refill the allowance once early (or hold it a few hours
+ * late), which the ruling accepted (self NOTES §22).
  *
  * A state written before the day stamp existed reads as ZERO spent rather than
  * as today's count. The wrong way round costs at most one extra allowance on the

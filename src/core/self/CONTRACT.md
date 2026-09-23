@@ -62,8 +62,9 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   calendar day held refused 196 of 264 Stops, and the crash-fallback sweep wrote 888
   memories to the author's 193 — the author was not losing a fight, it was almost never
   invited. Amended 2026-09-18: spent over a session's whole life the same cap starved the
-  long sessions instead, so the count starts over with the store's calendar date. The
-  conjunction, not the count, is what holds the cadence.*
+  long sessions instead, so the count starts over with the calendar date. The
+  conjunction, not the count, is what holds the cadence. Amended 2026-09-23 (owner's
+  ruling): that date is the machine's LOCAL one (`calendar.ts`), not UTC's — see NOTES §22.*
 - **Episodes are context and source, in that order**, ingested once as ordinary self-kind
   memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
   *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
@@ -318,7 +319,10 @@ proposals and their archive; render and delivery telemetry.
     the page row by name and points at it.
 19. **[M]** **THE NIGHTLY PAGE WRITER RUNS ON THE CALENDAR, AT MOST ONCE, AND IS NOT A
     SECOND PACER** (`writer.ts`, S2, 2026-09-20 — true for now). A run is ABOUT one
-    calendar date, always yesterday, and never chases a backlog. It is keyed to the
+    calendar date, always yesterday, and never chases a backlog. Since 2026-09-23 the
+    night turns over at LOCAL midnight (`writer.ts#pageWriterNight`, which doctor reads
+    too), held back only east of UTC until the provenance date it reads has closed, and a
+    claim whose day has ended closes its night (NOTES §22). It is keyed to the
     calendar and not the lived day for I32's reason: the lived clock advances inside the
     cycle the detached worker runs, and a nightly mechanism keyed to a clock the night
     itself advances can miss every night and look on time. **The first durable row for a

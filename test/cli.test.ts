@@ -4619,16 +4619,23 @@ describe("the destruction path is importable from this directory only", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
-    // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
-    // Two files in `src/` may reach `remember/owner-strike-seam.ts`:
-    // `remember/spans.ts`, which HANDS OVER the capability in its constructor
-    // and never calls the strike, and `adapters/cli/removal.ts`, the one
-    // implementation of the destruction path. A `Counterpart` — which the MCP
-    // server holds, and a model talks to — holds a `SpanBuffer` and reaches
-    // nothing (§16 G2, and `store/owner-op-seam.ts`'s own reasoning).
-    const root = join(import.meta.dir, "..", "src");
+  /**
+   * EVERY WAY A FILE CAN REACH A MODULE, for the seam pins below (PR #189
+   * re-review, N1): `from "…"` and `from '…'` (an `import` or an `export … from`),
+   * a dynamic `import("…")`, and `require("…")`. Type-only imports carry no code
+   * and are not counted. Returns `file: line` for every hit whose file is not
+   * allowed.
+   */
+  function seamImporters(
+    root: string,
+    module: string,
+    allowed: (full: string) => boolean,
+  ): { offenders: string[]; allowedHits: string[] } {
+    const esc = module.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const spec = `["'][^"'\\n]*\\/${esc}["']`;
+    const reach = new RegExp(`(?:\\bfrom\\s+${spec}|\\bimport\\s*\\(\\s*${spec}|\\brequire\\s*\\(\\s*${spec})`);
     const offenders: string[] = [];
+    const allowedHits: string[] = [];
     const walk = (path: string): void => {
       for (const name of readdirSync(path)) {
         const full = join(path, name);
@@ -4637,18 +4644,120 @@ describe("the destruction path is importable from this directory only", () => {
           continue;
         }
         if (!name.endsWith(".ts")) continue;
+        if (full.endsWith(join("remember", module.replace(/\.js$/, ".ts")))) continue;
         const body = readFileSync(full, "utf8");
         for (const line of body.split("\n")) {
-          if (!/from\s+"[^"]*owner-strike-seam\.js"/.test(line)) continue;
+          if (!reach.test(line)) continue;
           if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
-          if (full.includes(join("adapters", "cli"))) continue;
-          if (full.endsWith(join("core", "remember", "spans.ts"))) continue;
-          offenders.push(`${full}: ${line.trim()}`);
+          if (allowed(full)) allowedHits.push(full);
+          else offenders.push(`${full}: ${line.trim()}`);
         }
       }
     };
     walk(root);
+    return { offenders, allowedHits };
+  }
+
+  const SRC = join(import.meta.dir, "..", "src");
+  const STRIKE_ALLOWED = (full: string): boolean =>
+    full.includes(join("adapters", "cli")) ||
+    full.endsWith(join("core", "remember", "spans.ts")) ||
+    full.endsWith(join("core", "remember", "retention.ts"));
+  const RETENTION_ALLOWED = (full: string): boolean =>
+    full.endsWith(join("adapters", "claude-code", "bin", "runner.ts"));
+  /** `remember/` itself (the grantor), and the ONE path the next-session
+   *  write-up's door (roadmap C2) will live at. That file does not exist yet;
+   *  C2 puts its door there, or changes this line on purpose. */
+  const WRITE_UP_C2_DOOR = join("adapters", "mcp", "write-up.ts");
+  const WRITE_UP_ALLOWED = (full: string): boolean =>
+    full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR);
+
+  test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
+    // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
+    // THREE files in `src/` may reach `remember/owner-strike-seam.ts`:
+    // `remember/spans.ts`, which HANDS OVER the capability in its constructor
+    // and never calls the strike; `adapters/cli/removal.ts`, the owner's
+    // destruction path; and — since 2026-09-23, a DECISION and not an import —
+    // `remember/retention.ts`, the deleting half of the 7-day rule the owner
+    // set. That third file is itself pinned below: `remember/index.ts` does not
+    // re-export it and only the background worker imports it (PR #189 review,
+    // B1 — an index export once let anything holding a `Counterpart` delete
+    // spans with facts of its own making). So a `Counterpart` — which the MCP
+    // server holds, and a model talks to — holds a `SpanBuffer` and reaches the
+    // strike by neither road (§16 G2, and `store/owner-op-seam.ts`'s own
+    // reasoning).
+    expect(seamImporters(SRC, "owner-strike-seam.js", STRIKE_ALLOWED).offenders).toEqual([]);
+  });
+
+  test("the RETENTION delete is imported by the background worker only, and no index re-exports it", async () => {
+    // `remember/retention.ts#pruneRetention` takes a buffer and a set of facts
+    // and deletes through the strike. Reached through `remember/index.ts` —
+    // which the MCP server and the hooks import — it let any holder of the
+    // public `Counterpart.spans` delete a session that owed a write-up by
+    // handing it facts that said otherwise (PR #189 review, B1). ONE file in
+    // `src/` may import it: the worker that runs the once-a-date pass.
+    const { offenders, allowedHits } = seamImporters(SRC, "retention.js", RETENTION_ALLOWED);
     expect(offenders).toEqual([]);
+    // NOT VACUOUS: the worker really does import it.
+    expect(allowedHits.length).toBe(1);
+    const index = readFileSync(join(SRC, "core", "remember", "index.ts"), "utf8");
+    expect(/["']\.\/retention\.js["']/.test(index)).toBe(false);
+    const exported = Object.keys(await import("../src/core/remember/index.js"));
+    expect(exported).not.toContain("pruneRetention");
+    expect(exported).not.toContain("strikeSpans");
+  });
+
+  test("the WRITE-UP mark is reached from remember/ and the future C2 door only, and no index re-exports it", async () => {
+    // `remember/write-up-seam.ts#recordWriteUp` ends a session's debt, which
+    // makes its text deletable 7 days later — a deletion on a fuse. It was a
+    // public `SpanBuffer` method, so everything holding a `Counterpart` could
+    // light it (PR #189 re-review, R1). Now it is a grant, like the strike:
+    // `remember/spans.ts` hands it over, and the only other file that may import
+    // it is the next-session write-up's door (roadmap C2) at
+    // `adapters/mcp/write-up.ts`, which does not exist yet.
+    const { offenders, allowedHits } = seamImporters(SRC, "write-up-seam.js", WRITE_UP_ALLOWED);
+    expect(offenders).toEqual([]);
+    // NOT VACUOUS: the grantor imports it.
+    expect(allowedHits.some((f) => f.endsWith(join("core", "remember", "spans.ts")))).toBe(true);
+    const index = readFileSync(join(SRC, "core", "remember", "index.ts"), "utf8");
+    expect(/["']\.\/write-up-seam\.js["']/.test(index)).toBe(false);
+    const exported = Object.keys(await import("../src/core/remember/index.js"));
+    expect(exported).not.toContain("recordWriteUp");
+    expect(exported).not.toContain("grantWriteUp");
+  });
+
+  test("the pins CATCH a stray importer — double quotes, single quotes, a dynamic import(), a require()", () => {
+    // Proved against a scratch tree rather than trusted: each module a stray
+    // file might use to reach a seam, in every spelling the scanner claims to see.
+    const scratch = mkdtempSync(join(tmpdir(), "counterparts-pin-"));
+    try {
+      const stray = join(scratch, "core", "self");
+      mkdirSync(stray, { recursive: true });
+      const spellings = (module: string): string[] => [
+        `import { x } from "../remember/${module}";`,
+        `import { x } from '../remember/${module}';`,
+        `export * from "../remember/${module}";`,
+        `const m = await import("../remember/${module}");`,
+        `const m = await import('../remember/${module}');`,
+        `const m = require("../remember/${module}");`,
+      ];
+      const pins: [string, (full: string) => boolean][] = [
+        ["owner-strike-seam.js", STRIKE_ALLOWED],
+        ["retention.js", RETENTION_ALLOWED],
+        ["write-up-seam.js", WRITE_UP_ALLOWED],
+      ];
+      for (const [module, allowed] of pins) {
+        const lines = spellings(module);
+        lines.forEach((line, i) => writeFileSync(join(stray, `stray-${module}-${String(i)}.ts`), `${line}\n`, "utf8"));
+        const { offenders } = seamImporters(scratch, module, allowed);
+        expect({ module, caught: offenders.length }).toEqual({ module, caught: lines.length });
+        // ...and a TYPE-only import is not a reach.
+        writeFileSync(join(stray, `typed-${module}.ts`), `import type { X } from "../remember/${module}";\n`, "utf8");
+        expect(seamImporters(scratch, module, allowed).offenders.length).toBe(lines.length);
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 
   test("the WALKING read is imported by two files, and is on no class anyone holds", () => {
