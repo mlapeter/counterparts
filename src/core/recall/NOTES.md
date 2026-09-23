@@ -470,3 +470,15 @@ protected flag — which is a fact about the writers, not a property of the enum
 turn that delivers a chapter AND lands within 9 bytes of `BUDGET_BYTES` trims one more item
 than it used to. That is recorded in `trimmed` like any other trim. Measured on the
 fixture: the same turn renders 225 bytes before and 234 after.
+
+## 15. A second embedder, and what the shipped fusion does with it — 2026-09-23
+
+The C1 trial ran recall end to end with a local static table (potion-base-8M) wired in
+the embedder seat, on a seeded store, against lexical-only. Nothing in this module
+changed. What it learned belongs here because the finding is about this module's
+tunables: at the shipped `SEMANTIC_SEED_FLOOR`/`SEMANTIC_WEIGHT` the static channel is
+**inert** — not harmful, not helpful — because its cosines rarely clear 0.45 and a scaled
+contribution of at most 1.0 is small beside a rare cue's informativeness. The raw ranking
+is good (paraphrase MRR 0.40 against lexical's 0.17). INTERFACE-GAPS §8 carries the grid
+and the proposed shape (per-identity floor/weight, keyed by the cache's new tag).
+

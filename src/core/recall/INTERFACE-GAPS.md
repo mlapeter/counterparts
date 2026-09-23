@@ -136,6 +136,15 @@ permanently dark semantic channel, and the only sign is `semanticSource` staying
 become a choice rather than a constraint. Not built: constitution line 15, and one
 measured failure is not yet a case for an index.
 
+**Addendum 2026-09-23 (roadmap C1) — the static tier needs no worker for its writes.**
+With `embedder.kind: "static"`, the store's sync `embed` COMPUTES (a local table,
+~0.03 ms a text), so every memory gets its vector at write time in whatever process
+writes, and the lagged cue needs no key. What is still worker-only for this tier: the
+lagged cue itself (the hook does not embed the turn — `hooks.ts`'s to change, and at
+0.03 ms it now could), and vectors for memories written by a process with no embedder
+(the MCP server's `note`: mcp INTERFACE-GAPS §7, whose fix is `serve.ts` passing
+`embedder.embed` into the server's `Counterpart`).
+
 ## 7. Box 3 is 278 MB and 65% of it is JSON punctuation — NAMED, not fixed here
 
 **Owner:** `store/` (box 3).
@@ -160,4 +169,26 @@ table are the same fact seen twice: the scan is slow BECAUSE every row is parsed
 than a number that quietly gets worse. Related and cheap: the same 278 MB is what makes the
 FIRST recall in a fresh hook process cost ~800 ms of page-cache warming (`BUDGET_MS`'s day-0
 recalibration).
+
+## 8. The semantic fusion is calibrated for ONE embedder's cosine scale — OPEN (2026-09-23)
+
+**Owner:** `recall/` (`tunables.ts`: `SEMANTIC_SEED_FLOOR`, `SEMANTIC_WEIGHT`, `SEMANTIC_TOP_M`).
+**Needed:** a semantic hit's contribution that means the same thing whichever model
+produced the cosine.
+**Had:** `SEMANTIC_SEED_FLOOR = 0.45` and `SEMANTIC_WEIGHT = 1.0`, chosen when Voyage was
+the only embedder. A static table's cosines sit lower and closer together (potion-base-8M:
+related pairs 0.42–0.58, mean best-relevant 0.43 vs mean best-other 0.43 on the seeded
+bench), so at the shipped values the channel is **inert**: on the C1 bench
+(`tools/bench/embedder-trial.ts`, 30 paraphrase + 10 lexical queries on a seeded store,
+5 reseeds) potion's raw ranking is strong (paraphrase MRR 0.404 vs lexical-only's 0.169
+through recall) and through recall at the shipped values it changes nothing at all (MRR
+0.169, 6/30 delivered — identical to lexical-only, and no regression either). At floor
+0.15, weight 6 it delivers 11/30 paraphrase targets (vs 6), keeps 10/10 lexical, adds
+~0.1 items per turn and loses no delivery — but ~7 targets per run slip a few ranks (six
+undelivered paraphrase targets, and one lexical target 3→4, still delivered); at floor 0
+one delivery is lost. `docs/research/static-embedder-trial-2026-09-23.md` has the grid.
+**The shape of the fix:** per-identity tunables — the cache tag (`store.embedderVerdict`,
+`cache_meta.embedder`) now names the model, so the floor/weight can be looked up by it
+rather than being one number for every model. Not built here: the numbers are `recall/`'s
+to own, and one synthetic persona is a first measurement, not a calibration.
 

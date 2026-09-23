@@ -1115,3 +1115,55 @@ table box 3 already publishes costs nothing to keep here.
 transaction — refusing by throwing, so a refused write stages nothing. The store decides
 nothing with it; the MCP server installs the schema re-read there, because its deposits can
 `await` an embedder between the tool's entry check and their writes. `null` removes it.
+
+## 2026-09-23 — cache v5: the vectors carry their model's name (roadmap C1)
+
+**Why now.** Two embedders exist (the paid Voyage seat and the local potion table), and
+switching between them is an ordinary act — so "a vector's generation is part of its
+identity" (`embed-client.ts` §2.15) had to become something box 3 enforces rather than
+something a pinned config id hopes for. `cache_meta.embedder = <model>@<dim>` and
+`embedderRebuild = inline|external`; the table's shape is unchanged.
+
+**The rules, and why each is where it is** (`cache.ts#reconcileEmbedder`):
+
+- **At open only**, by a process with an identified embedder, never under observer. The
+  steady state is a lock-free read; anything that writes re-reads and decides inside one
+  IMMEDIATE transaction, so two processes opening at once agree (tested).
+- **Mismatch + inline (static) → drop and refill at open.** Static rows cost nothing to
+  recompute, and a static query cannot use paid rows. The TAG goes down first, so a
+  process that dies part-way leaves rows that all match their tag.
+- **Mismatch between two external (paid) identities → HELD.** Dropping 13K paid vectors
+  is the owner's decision, never an open's. The handle then neither writes vectors
+  (`embed` is withdrawn) nor ranks against them (`nearestTo` answers `[]`). The confirm
+  surface is `migrate-cache`'s to grow (C3).
+- **Legacy (v4, untagged) rows**: adopted by a paid seat when every row has one width
+  that agrees — before v5 the paid seat was the only thing that ever wrote a vector;
+  dropped by a static table; held otherwise.
+- **The v4→v5 migration ERASES a tag** it finds on a cache stamped below 5 — the only way
+  one is there is a v5 build tagging it and an older build then writing beside it.
+- **The tag follows the writes**: the first vector a process writes under a registered
+  identity re-tags when `<model>@<dim>` differs from what it last saw (memoized per
+  handle, so once per process). A paid seat's width is learned this way.
+- `resetCache({ keepEmbeddings })` keeps the tag with the vectors (it used to drop
+  `cache_meta` whole, which would have left untagged rows for the next static open to
+  drop). The scan skips rows whose width differs from the query's: `cosine` reads a
+  common prefix, so a 1,024-d query against a 256-d row used to produce a number.
+
+**A cache from a newer build is left as found** (found by roadmap E while building the
+every-call schema check): `openCache` used to stamp any version it did not recognize down
+to its own. Now an ahead cache is returned for reading only — no DDL, no stamp, no
+reconcile — the verdict is `cache-ahead` (event `cache.schema.ahead`), vectors are neither
+written nor ranked, lexical reads and writes go on (its tables are the plain ones every
+version has had), and `rebuildCache` refuses `SCHEMA_AHEAD`, box 2's code.
+
+**The inline refill, measured** (bun 1.3.10, M3 Pro, potion-base-8M, ~1.2 KB bodies):
+1,000 memories in 118 ms, 5,000 in 563 ms (~0.11 ms each: read, embed, insert, in
+500-row transactions). `REFILL_BUDGET_MS = 1500` therefore covers ~13K memories at
+open; a larger store is finished by the worker's backfill, whose static bound (1,000
+per run, one `embedOne` commit each) measured 200–233 ms.
+
+**This file's index.ts footprint**, named because the builder's brief listed only
+`cache.ts`: `Embedder` became an interface with an optional `identity`; the constructor
+runs the check and the refill; `nearestTo`/`neighbourVectors` answer nothing while held or
+ahead; `embedderVerdict` is public. There was no way to check an identity "at open" from
+`cache.ts` alone — the constructor is the open, and the refill needs box 2's rows.

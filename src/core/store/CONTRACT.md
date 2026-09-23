@@ -91,7 +91,16 @@ ended up with canonical state spread across a prose store plus half a dozen side
      (measured; `NOTES.md`). "Reconstructible" is honest for the text index and partly
      dishonest for the vectors: those cost a paid network call each, which is why
      `rebuildCache({ keepVectors })` and `counterparts migrate-cache` exist rather than a
-     rebuild.
+     rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
+     `cache_meta.embedder = <model>@<dim>` beside `embedderRebuild = inline|external` — and
+     `Store.open` checks that tag against the configured embedder's identity ONCE, at open
+     (`cache.ts#reconcileEmbedder`, verdict on `Store.embedderVerdict`): a match touches
+     nothing; no embedder touches nothing; a mismatch under a static table (free to
+     recompute) drops the vectors and refills them inline, batched and time-bounded; a
+     mismatch between two paid identities is HELD — nothing dropped, ranked or written
+     until the owner confirms. A cache written by a NEWER build is left exactly as found:
+     its version is never stamped down, the vector channel is off by name
+     (`cache-ahead`), and a rebuild refuses `SCHEMA_AHEAD`.
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them
