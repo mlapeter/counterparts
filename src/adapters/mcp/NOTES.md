@@ -587,7 +587,7 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
   anyway still gets the words. **Unmeasured on the real host:** no live session has yet
   shown whether Claude Code's model leaves `memories` out, sends `[]`, or both; either
   works, and the first real write-up is the measurement.
-- **Whose words a write-up's memories cover is core's to say** (`DepositContext.cover`,
+- **Whose words a write-up's memories cover is core's to say** (`SessionEndDepositContext.cover`,
   MAJOR 4). The door passes `false` on an earlier part — nothing covered, or parts not yet
   served would read as kept — and the ENDED session on the last part in a project, so the
   memories claim its words there under their own proposal ids and never the writer's own.

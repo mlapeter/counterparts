@@ -76,6 +76,7 @@ import {
   owedWriteUps,
   progressKey,
   pruneSessions,
+  pruneWriteUpProgress,
   readSession,
   readWriteUpProgress,
   recordSession,
@@ -381,7 +382,10 @@ export const SCOPE_PATIENCE_DEFERRALS = 1;
  * under it). With a notice, `hostDelivery`'s own rule drops the notice when the
  * envelope would not fit — the wake and its asks win, as always. A pointer that
  * does not fit DEFERS, claims nothing, and says so durably
- * (`sessions.ts#WRITE_UP_POINTER_KEY`), which doctor reads.
+ * (`sessions.ts#WRITE_UP_POINTER_KEY`), which doctor reads. The count is BYTES
+ * against a cap in characters — accepted (PR #192 re-review, NIT): it is the
+ * safe direction, and it defers early only for a multi-byte wake over ~9,575
+ * bytes, which is already past the 9,000-byte budget `install` writes.
  *
  * **Once per session, and the day's allowance.** A compaction re-firing
  * SessionStart points at nothing; at most `WRITE_UP_ASKS_PER_DAY` sessions a
@@ -1085,6 +1089,8 @@ export class ClaudeCodeAdapter {
         spans: this.counterpart.spans,
         firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
       });
+      // Entries whose session stopped owing some other way go first.
+      pruneWriteUpProgress(store, plan);
       const inFlight = readWriteUpProgress(store);
       const owed = owedWriteUps(plan, dir, input.scope, now, {
         exclude: input.sessionId,
@@ -1101,16 +1107,22 @@ export class ClaudeCodeAdapter {
       const key = progressKey(held.session, here);
       const progress = inFlight[key];
       const chunk = progress?.chunk ?? WRITE_UP_PART_BYTES;
-      const parts = writeUpParts(entries, chunk);
-      if (parts.length === 0) return "";
-      const done = Math.min(progress?.done ?? 0, parts.length);
+      // ONCE THE LAST PART HAS COME BACK (`answer` set, the mark still to
+      // land), the count is frozen: the words now read as kept, their marks
+      // lengthen the text, and a recount could find a part that was never
+      // served (re-review, m-B). The fetch finishes the mark.
+      const finished = progress !== undefined && progress.answer !== undefined;
+      const cut = finished ? [] : writeUpParts(entries, chunk);
+      if (!finished && cut.length === 0) return "";
+      const partsCount = finished ? progress.parts : cut.length;
+      const done = finished ? progress.parts : Math.min(progress?.done ?? 0, partsCount);
       const text = writeUpPointer({
         waiting: owed.length,
         ended: held.session,
         endedOn: calendarDate(held.clockFrom),
-        bytes: parts.slice(done).reduce((n, p) => n + Buffer.byteLength(p, "utf8"), 0),
-        part: Math.min(done + 1, parts.length),
-        of: parts.length,
+        bytes: cut.slice(done).reduce((n, p) => n + Buffer.byteLength(p, "utf8"), 0),
+        part: Math.min(done + 1, partsCount),
+        of: partsCount,
         live: input.sessionId,
       });
       const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
@@ -1136,7 +1148,7 @@ export class ClaudeCodeAdapter {
       const saved = saveWriteUpProgress(store, key, {
         ...(progress ?? {}),
         chunk,
-        parts: parts.length,
+        parts: partsCount,
         done,
         handedAt: now,
       });
@@ -1164,8 +1176,8 @@ export class ClaudeCodeAdapter {
       outcome("pointed");
       this.emit("adapter.writeup.ask", {
         ended: held.session,
-        part: Math.min(done + 1, parts.length),
-        of: parts.length,
+        part: Math.min(done + 1, partsCount),
+        of: partsCount,
         bytes,
         owed: owed.length,
       });

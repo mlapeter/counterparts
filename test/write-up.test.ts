@@ -19,7 +19,8 @@
  *      the old one; an empty answer that closes it too; B3's retention reading
  *      both marks;
  *   3. the sweep — off without the knob, on with it and a key; it skips what
- *      the next session wrote up and marks what it swept, quarantine included;
+ *      the next session wrote up, and marks what it swept only when every word
+ *      in every project was read — never a quarantined session;
  *   4. doctor — the `Crash write-up` line.
  *
  * Hermetic: a fresh temp directory per test, removed after. The only key any
@@ -27,7 +28,7 @@
  * needs the sweep to run.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,6 +49,8 @@ import {
   WRITE_UP_PART_BYTES,
   markNothingNew,
   progressKey,
+  saveWriteUpProgress,
+  writeUpEntries,
   readSession,
   readWriteUpPointer,
   readWriteUpProgress,
@@ -609,6 +612,35 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(own.covers).toEqual([mine]);
   });
 
+  test("`submitJot` never takes `cover`: a jot always covers its own words", async () => {
+    const c = Counterpart.open({ dir: storeDir, owner: true });
+    open.push(c);
+    c.captureSpans({ session: "jotter", scope: PROJ, turns: [{ role: "user", text: "The jotter's own words about the pump." }] });
+    c.captureSpans({ session: "other", scope: PROJ, turns: [{ role: "user", text: "Another session's words about the valve." }] });
+    const mine = c.spans.spans(PROJ).find((x) => x.session === "jotter")?.hash as string;
+    const out = await c.submitJot({ content: "A jot about the pump.", kind: "fact" }, {
+      session: "jotter",
+      scope: PROJ,
+      cover: { session: "other" },
+    } as unknown as Parameters<Counterpart["submitJot"]>[1]);
+    expect(out.covers).toEqual([mine]);
+  });
+
+  test("progress entries of a session that stopped owing another way are pruned at the next pointer", () => {
+    const seed = seeder();
+    ended(seed, "old-1", { at: Date.now() - 2 * DAY });
+    ended(seed, "answered", { at: Date.now() - 2 * DAY, answered: true });
+    seed.done();
+    const c = Counterpart.open({ dir: storeDir, owner: true });
+    saveWriteUpProgress(c.store, progressKey("answered", PROJ), { chunk: WRITE_UP_PART_BYTES, parts: 1, done: 0, handedAt: 1 });
+    saveWriteUpProgress(c.store, progressKey("nobody", PROJ), { chunk: WRITE_UP_PART_BYTES, parts: 2, done: 1, handedAt: 1 });
+    c.close();
+    expect(start("new-1").ask ?? "").toContain("writeUp: old-1");
+    const d = Counterpart.open({ dir: storeDir, owner: true });
+    expect(Object.keys(readWriteUpProgress(d.store)).sort()).toEqual([progressKey("old-1", PROJ)]);
+    d.close();
+  });
+
   test("a failed final mark is finished by the NEXT session's fetch, depositing nothing (MAJOR 2)", async () => {
     const seed = seeder();
     ended(seed, "old-1", { at: Date.now() - 2 * DAY });
@@ -634,6 +666,42 @@ describe("the door: `session_end` with `writeUp`", () => {
     open.splice(open.indexOf(later.s.counterpart), 1);
     newDay();
     for (const id of ["new-3", "new-4"]) expect(start(id).ask ?? "").not.toContain("writeUp: old-1");
+  });
+
+  test("near the 24 KB boundary, a failed final mark is still finished by the next fetch — the kept marks do not add a part (m-B)", async () => {
+    const seed = seeder();
+    ended(seed, "near", { at: Date.now() - 2 * DAY, bytes: 23_200, captures: 60 });
+    seed.done();
+    const first = start("new-1").ask ?? "";
+    expect(first).toContain("writeUp: near");
+    expect(first).not.toContain(", part ");
+    const s = server();
+    expect(payload(await s.call("session_end", { session: "new-1", writeUp: "near" }))).toMatchObject({ reason: "part", part: 1, of: 1 });
+    const marksFile = join(storeDir, "spans", keyFor(PROJ), "writeups.jsonl");
+    mkdirSync(marksFile, { recursive: true });
+    expect(payload(await s.call("session_end", { session: "new-1", writeUp: "near", memories: [MEMORY] }))).toMatchObject({
+      reason: "written-up",
+      marked: false,
+    });
+    rmSync(marksFile, { recursive: true, force: true });
+    // THE REVIEW'S CONDITION HOLDS: every word now reads as kept, and the marks
+    // push a recount over the part size.
+    const recount = writeUpParts(writeUpEntries(s.counterpart.spans, { session: "near", scopes: [PROJ] }), WRITE_UP_PART_BYTES);
+    expect(recount.length).toBe(2);
+    s.counterpart.close();
+    open.splice(open.indexOf(s.counterpart), 1);
+
+    // The next session is not handed "part 2 of 2": its fetch finishes the mark.
+    newDay();
+    const again = start("new-2").ask ?? "";
+    expect(again).toContain("writeUp: near");
+    expect(again).not.toContain("part 2");
+    const t = server();
+    expect(payload(await t.call("session_end", { session: "new-2", writeUp: "near" }))).toMatchObject({
+      reason: "written-up",
+      marked: true,
+      deposited: 0,
+    });
   });
 
   test("a session with words in TWO projects: each project's writer is served only its own, and the mark waits for both (MAJOR 6)", async () => {
@@ -928,6 +996,82 @@ describe("the sweep is an opt-in upgrade, and it and the write-up know each othe
     ]);
   });
 
+  test("the re-review's MAJOR-A repro: one project swept is not the session finished — its words in another are read later, never retired unread", async () => {
+    // `two` talked in OTHER two days ago, then was resumed in PROJ two hours ago.
+    const seed = seeder();
+    const early = Date.now() - 2 * DAY;
+    const late = Date.now() - 2 * HOUR;
+    seed.set(early);
+    recordSession(storeDir, { sessionId: "two", scope: OTHER, phase: "start", at: early });
+    seed.c.captureSpans({
+      session: "two",
+      scope: OTHER,
+      turns: [
+        { role: "user", text: wordsOf("OTHER-WORDS", 600) },
+        { role: "assistant", text: "(two, in OTHER) understood." },
+      ],
+    });
+    seed.c.boundary({ session: "two", scope: OTHER, kind: "stop" });
+    seed.set(late);
+    recordSession(storeDir, { sessionId: "two", scope: PROJ, phase: "start", at: late });
+    seed.c.captureSpans({
+      session: "two",
+      scope: PROJ,
+      turns: [
+        { role: "user", text: wordsOf("PROJ-WORDS", 600) },
+        { role: "assistant", text: "(two, in PROJ) understood." },
+      ],
+    });
+    expect(seed.c.episodeAsk("two", { turns: 9, bytes: 6_000 }).asked).toBe(true);
+    seed.c.boundary({ session: "two", scope: PROJ, kind: "stop" });
+    seed.done();
+
+    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
+    const prompts: string[] = [];
+    const reading = async (_url: string, init: RequestInit): Promise<Response> => {
+      prompts.push((JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[0]?.content ?? "");
+      return reply();
+    };
+    const liveIn = (scope: string): number => {
+      const c = Counterpart.open({ dir: storeDir, owner: true });
+      try {
+        return c.spans.spans(scope).filter((x) => x.session === "two").length;
+      } finally {
+        c.close();
+      }
+    };
+
+    // Run 1: OTHER is stale and swept; PROJ is two hours old and is not.
+    await runOnce({ config: config({ crashWriteUp: "api" }), date: "2026-09-23", env: KEY, fetch: reading });
+    expect(prompts.length).toBe(1);
+    expect(prompts[0]).toContain("OTHER-WORDS");
+    expect(prompts[0]).not.toContain("PROJ-WORDS");
+    // NOT marked: PROJ still holds its words, so the session is not finished.
+    expect(marks()).toEqual([]);
+    const c = Counterpart.open({ dir: storeDir, owner: true });
+    expect(c.spans.writeUps(OTHER)).toEqual([]);
+    expect(planRetention(c.spans, writeUpSources(c.store, FIRST_ASK)).find((h) => h.session === "two")?.facts.writtenUp).toBe(false);
+    c.close();
+    expect(liveIn(PROJ)).toBe(1);
+
+    // Later: PROJ goes stale too. Its words are READ — not retired unread — and
+    // only now is the session marked.
+    const bounds = join(storeDir, "spans", keyFor(PROJ), "boundaries.jsonl");
+    const aged = readFileSync(bounds, "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => {
+        const r = JSON.parse(l) as { at: number };
+        return JSON.stringify({ ...r, at: r.at - 13 * HOUR });
+      });
+    writeFileSync(bounds, `${aged.join("\n")}\n`, "utf8");
+    await runOnce({ config: config({ crashWriteUp: "api" }), date: "2026-09-24", env: KEY, fetch: reading });
+    expect(prompts.length).toBe(2);
+    expect(prompts[1]).toContain("PROJ-WORDS");
+    expect(liveIn(PROJ)).toBe(0);
+    expect(marks()).toEqual([["two", "api"]]);
+  });
+
   test("the review's 401-for-4-days repro: a QUARANTINED session is NOT marked — still owed, offered to a next session, never deleted (MAJOR 5)", async () => {
     crashed();
     process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
@@ -1039,6 +1183,41 @@ describe("doctor: one line, `Crash write-up`", () => {
       detail: "on (API) — 1 session awaiting a write-up",
     });
     expect(line().detail).toBe("next session — 2 sessions awaiting a write-up, 1 older than 3 days");
+  });
+
+  test("a session finished here and waiting on another project names that project (m-C)", async () => {
+    const seed = seeder();
+    const at = Date.now() - 5 * DAY;
+    seed.set(at);
+    recordSession(storeDir, { sessionId: "multi", scope: PROJ, phase: "start", at });
+    seed.c.captureSpans({ session: "multi", scope: PROJ, turns: [{ role: "user", text: wordsOf("PROJ-WORDS", 600) }] });
+    seed.c.captureSpans({ session: "multi", scope: OTHER, turns: [{ role: "user", text: wordsOf("OTHER-WORDS", 600) }] });
+    expect(seed.c.episodeAsk("multi", { turns: 9, bytes: 6_000 }).asked).toBe(true);
+    seed.c.boundary({ session: "multi", scope: PROJ, kind: "stop" });
+    seed.c.boundary({ session: "multi", scope: PROJ, kind: "session-end" });
+    recordSession(storeDir, { sessionId: "multi", scope: PROJ, phase: "end", at: at + 1000 });
+    seed.done();
+    const { s } = await pointAndFetch("proj-writer");
+    expect(payload(await s.call("session_end", { session: "proj-writer", writeUp: "multi", memories: [] }))["reason"]).toBe("written-up-here");
+    s.counterpart.close();
+    open.splice(open.indexOf(s.counterpart), 1);
+    const c = Counterpart.open({ dir: storeDir, owner: true });
+    open.push(c);
+    const f = doctorFindings({
+      configPath: join(root, "claude-code.json"),
+      configReason: "loaded",
+      config: config(),
+      dir: storeDir,
+      credentials: { loaded: [], skippedPresent: [], ignored: 0, file: null } as never,
+      credentialsPath: undefined,
+      store: c.store,
+      today: "2026-09-23",
+      refusals: {},
+    }).find((x) => x.key === "crash-write-up");
+    expect(f?.severity).toBe("amber");
+    expect(f?.detail).toContain(`session multi is finished in ${PROJ} and waiting on words it left in ${OTHER}`);
+    expect(f?.fix).toContain(`Open a session in ${OTHER}`);
+    expect(f?.fix).toContain("no command yet to close a session by hand");
   });
 
   test("counts the sessions awaiting a write-up, and turns amber once one has waited past 3 days", () => {

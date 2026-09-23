@@ -611,7 +611,11 @@ door and doctor all read:
   that);
 - a session the registry still holds OPEN that ANSWERED its last ask is never pointed at:
   B3 counts it as owing (no normal end), but while its record stands it is most likely a
-  terminal nobody has closed (MAJOR 3);
+  terminal nobody has closed (MAJOR 3). **Known, and accepted as the default:** words it
+  captured AFTER that answer, at a later Stop that asked nothing, wait with it — invisible
+  to the pointer and to doctor's count — until the registry forgets the record, up to a
+  week after its last write; then it is pointed at and the fetch carries them
+  (INTERFACE-GAPS §17);
 - with the API sweep on, a crashed session whose words the sweep will still read is the
   sweep's (`sweepOwns`); one whose only words left are in quarantine is not (MAJOR 5);
 - **in its project** means the session holds words filed under this project's scope. A
@@ -655,18 +659,22 @@ knob reads any other value as `next-session` and names it (`crashWriteUpIgnored`
 by doctor) — never observer (m3). The worker hands the sweep an interpreter that knows the
 write-up marks (`bin/runner.ts#sweepAware`): a session already marked written up is not
 read again (a chunk of only such sessions is retired with no model call; in a mixed chunk
-their words are marked already-authored), and a session every one of whose words was read
-and came back ok is marked written up `by: "api"`. A session with words left live, in a
-claim, or in QUARANTINE is not marked (MAJOR 5): quarantine is what the sweep failed to
-read, and the next session is offered it. Not opted in, the sweep builds no interpreter
+their words are marked already-authored), and a session every one of whose words — in
+EVERY project it left words in — was read and came back ok is marked written up `by:
+"api"`. A session with words left live, in a claim, or in QUARANTINE, in any project, is
+not marked (MAJOR 5; re-review MAJOR-A): quarantine is what the sweep failed to read, and
+the next session is offered it; and B3 reads a mark for the whole session, so a mark after
+one project's sweep would end the debt of words a resumed session left in another, which
+the next run would then retire unread. Not opted in, the sweep builds no interpreter
 and its gate row says `not-opted-in`; opted in with no key, `no-credential`;
 `runner.done` says `sweep: next-session | no-key | api`.
 
 **[M] Doctor: `Crash write-up`, and the `Sweep` line knows the knob.** `Crash write-up`:
 `next session` green by default; `on (API)` with the knob and the key in the credentials
 file; amber with the knob and no key (its fix is the command); amber when the knob held
-an unknown value (named); amber when the newest pointer outcome is a DEFERRAL and sessions
-are waiting — saying the wake was too full, by how many bytes, and to lower
+an unknown value (named); amber when a session is finished in one project and waiting on words it left in
+another, naming that project (re-review m-C); amber when the newest pointer outcome is a
+DEFERRAL and sessions are waiting — saying the wake was too full, by how many bytes, and to lower
 `injectionBudgetBytes` by that much (never "open a session", which would defer again);
 amber when a session has waited past `WRITE_UP_WAIT_DAYS` (3). Counted with the pointer's
 own eligibility, so under `api` the sweep's sessions are not counted (m4). Never red; not

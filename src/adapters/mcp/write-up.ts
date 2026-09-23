@@ -27,7 +27,7 @@
  *     `by: "next-session"`, which starts its seven-day retention clock; how it
  *     was answered (`memories` / `nothing-new`) is recorded on the writing
  *     session's record. A write-up's memories claim NO coverage of the
- *     writer's own words (MAJOR 4): through core's `DepositContext.cover` seam
+ *     writer's own words (MAJOR 4): through core's `SessionEndDepositContext.cover` seam
  *     they claim nothing on an earlier part, and the ENDED session's words here
  *     on the last one.
  *
@@ -140,7 +140,7 @@ export interface WriteUpDoorInput {
   readonly now: number;
   readonly args: Record<string, unknown>;
   /** `session_end`'s own per-entry loop, under the WRITING session's name,
-   *  covering whose words `cover` says (`DepositContext.cover`). */
+   *  covering whose words `cover` says (`SessionEndDepositContext.cover`). */
   readonly deposit: (raw: readonly unknown[], cover: false | { readonly session: string }) => Promise<WriteUpDeposits>;
 }
 
@@ -225,11 +225,14 @@ async function handOver(
   // POINTED AT THIS SESSION, by the hook — evidence the model cannot write.
   // Without it, any live session could read any owed session's words.
   if (pointer !== ended) return refused("not-asked", { writeUp: ended });
-  // EVERY PART HERE CAME BACK AND THE MARK DID NOT LAND (an IO failure): this
-  // fetch finishes it, whoever answered — nothing deposited twice (MAJOR 2).
+  // THE LAST PART HERE CAME BACK AND THE MARK DID NOT LAND (an IO failure):
+  // this fetch finishes it, whoever answered — nothing deposited twice (MAJOR
+  // 2). Keyed on `answer`, which only the last part's answer sets, and never on
+  // a part count: once the words here read as kept, their marks lengthen the
+  // text and a recount can find a part more than was served (re-review, m-B).
   const p = st.progress;
-  if (p !== undefined && p.done >= p.parts && p.waiting !== true) {
-    return finish(input, ended, st, p.parts, p.answer ?? "memories", NO_DEPOSITS, true);
+  if (p !== undefined && p.answer !== undefined && p.waiting !== true) {
+    return finish(input, ended, st, p.parts, p.answer, NO_DEPOSITS, true);
   }
   if (mine?.answer !== undefined) {
     return refused("part-already-written", {
@@ -269,7 +272,7 @@ async function handOver(
       next:
         `Hand back what is worth keeping from this part with session_end: session: ${input.session}, ` +
         `writeUp: ${ended}, part: ${String(part)}, memories: [...] — in your own words, as this session's. ` +
-        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} it handed back itself.` +
+        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up.` +
         (part < parts.length ? " The rest comes at later session starts here." : ""),
       // What was said to that session here, and what it jotted. Never its replies.
       text: parts[part - 1] as string,
@@ -300,12 +303,12 @@ async function takeBack(
   }
   const final = part >= p.parts;
 
-  if (p.done >= part) {
-    // THE LAST PART CAME BACK AND ITS MARK DID NOT LAND: any session holding a
-    // fetch of it finishes it, depositing nothing (MAJOR 2).
-    if (final && p.waiting !== true) return finish(input, ended, st, part, p.answer ?? mine.answer ?? "memories", NO_DEPOSITS, true);
-    return refused("part-already-written", { writeUp: ended, part, of: p.parts });
+  // THE LAST PART CAME BACK AND ITS MARK DID NOT LAND: any session holding a
+  // fetch of it finishes it, depositing nothing (MAJOR 2, m-B).
+  if (p.answer !== undefined && p.waiting !== true) {
+    return finish(input, ended, st, p.parts, p.answer, NO_DEPOSITS, true);
   }
+  if (p.done >= part) return refused("part-already-written", { writeUp: ended, part, of: p.parts });
 
   if (!Array.isArray(raw)) return refused("memories-required", { writeUp: ended, part });
   // NOTHING WORTH KEEPING IS A REAL ANSWER HERE TOO (owner, 2026-09-23): the

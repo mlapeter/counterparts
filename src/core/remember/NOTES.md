@@ -579,6 +579,11 @@ coordinator ruled that out as a runtime patch of core state, and this seam repla
   proposal's id; never an own span (the own span is only ever the depositor's).
 - `cover: false`: nothing claimed, `covers: []`.
 
+It rides on `submitSessionEnd`'s context only (`SessionEndDepositContext`): `submitJot`
+takes the plain `DepositContext` and rebuilds it field by field, so a jot — always its own
+session's words — cannot be told to cover another's, even by a caller outside TypeScript
+(PR #192 re-review, NIT).
+
 The proposal record, its `session`, and the minted memory's `origin_session` are the
 depositor's in all three — so B3 still reads a write-up's memories as the WRITER's
 answers, never as the ended session's. The door passes `false` on every part but the last

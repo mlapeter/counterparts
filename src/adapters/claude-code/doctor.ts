@@ -93,7 +93,15 @@ import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, crashWriteUpMode, embedderKind, p
 import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
 import { SpanBuffer } from "../../core/remember/index.js";
-import { awaitingWriteUp, readWriteUpPointer, writeUpPlan } from "../sessions.js";
+import {
+  awaitingWriteUp,
+  progressKey,
+  readWriteUpPointer,
+  readWriteUpProgress,
+  sameScope,
+  writeUpEntries,
+  writeUpPlan,
+} from "../sessions.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -3127,6 +3135,9 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
   const now = store.now();
   let waiting: number | null = null;
   let stale = 0;
+  /** Sessions FINISHED in one project and waiting on words they left in
+   *  another (the door's `written-up-here`), stale ones first. */
+  const shares: { session: string; here: string; elsewhere: string[]; stale: boolean }[] = [];
   try {
     // READ-ONLY by construction: an observer buffer writes nothing, and it
     // is B3's own reader (`planRetention`) that opens the files.
@@ -3145,6 +3156,24 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
     const owed = awaitingWriteUp(plan, store.dir, now, { sweep: api ? spans : null });
     waiting = owed.length;
     stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
+    const progress = readWriteUpProgress(store);
+    for (const [key, p] of Object.entries(progress)) {
+      if (p.waiting !== true) continue;
+      const bar = key.indexOf("|");
+      const session = key.slice(0, bar);
+      const here = key.slice(bar + 1);
+      const h = plan.find((x) => x.session === session);
+      if (h === undefined || !h.owes) continue;
+      const elsewhere = h.scopes.filter(
+        (scope) =>
+          !sameScope(scope, here) &&
+          progress[progressKey(session, scope)]?.waiting !== true &&
+          writeUpEntries(spans, { session, scopes: [scope] }).length > 0,
+      );
+      if (elsewhere.length === 0) continue;
+      shares.push({ session, here, elsewhere, stale: now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000 });
+    }
+    shares.sort((a, b) => Number(b.stale) - Number(a.stale));
   } catch {
     waiting = null;
   }
@@ -3206,6 +3235,23 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
           ? `The wake is too full: lower "injectionBudgetBytes" in ${tilde(input.configPath)} by ${String(short)} or more.`
           : "The session registry under the store could not be written; read the Store line.",
         data,
+      ),
+    ];
+  }
+  // A SHARE WAITING ON ANOTHER PROJECT (re-review, m-C): name the project, and
+  // say the session is finished here — opening a session HERE does nothing.
+  const share = shares.find((x) => x.stale);
+  if (share !== undefined) {
+    const where = share.elsewhere.map((x) => tilde(x)).join(", ");
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        "Crash write-up",
+        `${who}${count} — session ${share.session} is finished in ${tilde(share.here)} and waiting on words it left in ${where}` +
+          (shares.length > 1 ? ` (${String(shares.length)} such sessions)` : ""),
+        `Open a session in ${where}: its start points at the rest. A directory set off never will, and there is no command yet to close a session by hand.`,
+        { ...data, sharesWaiting: shares.length },
       ),
     ];
   }

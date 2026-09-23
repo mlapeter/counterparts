@@ -1405,8 +1405,9 @@ export class McpServer {
     //     stands and the handoff's own outcome rides out on it.
     //   - Neither — no handoff and no memories → `memories-required`, as
     //     before. So is a `memories` that is not an array: a caller who sent the
-    //     wrong TYPE wants to be told, and the field is still `required` in the
-    //     published schema.
+    //     wrong TYPE wants to be told. (The published schema no longer marks
+    //     `memories` required — the write-up fetch leaves it out, PR #192 m2 —
+    //     so this refusal is where the rule is enforced.)
     //
     // AND A FOURTH, 2026-09-23 (B1, owner's decision 4): `memories: []` is
     // "nothing new" WHATEVER happened to the handoff — accepted, minting
@@ -1498,7 +1499,7 @@ export class McpServer {
   private async depositEntries(
     raw: readonly unknown[],
     session: string,
-    /** Whose words the entries cover (`DepositContext.cover`). Absent: this
+    /** Whose words the entries cover (`SessionEndDepositContext.cover`). Absent: this
      *  session's own — every caller but the write-up door. */
     cover?: false | { readonly session: string },
   ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {

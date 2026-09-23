@@ -592,9 +592,9 @@ export async function runOnce(input: {
  *     and if that tail is not where it should be the chunk goes through as it
  *     came — a possible duplicate, never a loss.
  *   - **A session the sweep has finished with is marked written up**, `by:
- *     "api"`, in every scope it read: finished means every one of its words
- *     was read and came back ok — none left in the live buffer, a claim, or
- *     QUARANTINE. A quarantined session is NOT marked (PR #192 review, MAJOR
+ *     "api"`, in every scope it read: finished means every one of its words,
+ *     in EVERY project it left words in, was read and came back ok — none left
+ *     in the live buffer, a claim, or QUARANTINE, anywhere. A quarantined session is NOT marked (PR #192 review, MAJOR
  *     5): the sweep failed to read it, and the next-session pointer offers it
  *     instead (`sessions.ts#sweepOwns` hands it back once only quarantine is
  *     left). A session whose spans were put back for a retry is not marked.
@@ -663,7 +663,15 @@ export function sweepAware(
           // would delete it a week later with nothing minted (PR #192 review,
           // MAJOR 5). A quarantined session stays owed and is offered to the
           // next session in its project instead (`sessions.ts#sweepOwns`).
-          const left = [...scopes].some(
+          //
+          // AND IN EVERY PROJECT, not only the ones read this run (PR #192
+          // re-review, MAJOR-A). B3 reads a write-up mark for the WHOLE session,
+          // so a mark after sweeping one project's words would end the debt of
+          // words the session left in another — `claude --resume` from another
+          // directory files one id under two scopes, and the first goes stale
+          // first — and the next run would retire those unread. The door waits
+          // for every project's share the same way (`written-up-here`).
+          const left = spans.scopes().some(
             (scope) =>
               spans.spans(scope).some((s) => s.session === session) ||
               spans.claimedSpans(scope).some((s) => s.session === session && s.kind !== "assistant") ||

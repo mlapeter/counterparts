@@ -687,7 +687,8 @@ is not, pacing as one and two turns respectively.
 
 **Measured, not guessed.** Beside the wake, the words of an ended session must fit both
 the reported budget and the host's 10,000-character cap on a hook's whole output
-(`WRITE_UP_HOST_OUTPUT_CHARS` keeps 500 characters of margin). With ~800 bytes of block
+(the first build kept 500 characters of margin for JSON escaping; the pointer, below, is
+held to the plain 10,000). With ~800 bytes of block
 furniture, under the 9,000-byte budget `install` writes:
 
 | wake | words per start |
@@ -736,3 +737,35 @@ down to observer; absent is `next-session`). The API sweep runs only with both t
 and the key (`config.ts#apiSweepOn`). Doctor's two lines — `Crash write-up` and `Sweep` —
 are C2's and already read the knob (`not-opted-in` on the gate row, core's second skip
 reason); nothing there is owed to C3.
+
+## 17. An open-and-answered session's later words wait up to a week (2026-09-23, C2 re-review m-E)
+
+**What happens.** A session answers its Stop ask (memories, a chapter, a handoff, or
+"nothing new"), then captures more words at a later Stop that asks nothing, then goes
+silent with no SessionEnd. B3 judges `answered` against the last ASK, so its facts are
+`answered: true, endedNormally: false` — it owes. The write-up's open-and-answered rule
+(`sessions.ts#openAndAnswered`, the coordinator's default for MAJOR 3) declines it while
+the registry holds its record open: not pointed at, and not in doctor's count. The record
+is pruned 7 days after its last write; from then on it is pointed at, and the fetch
+carries every word it left (those an answer covered marked `[already written up]`).
+Nothing is lost — B3 keeps it (`kept-live`, then `kept-owed`) — but it is invisible for up
+to a week.
+
+**Why it is not fixed here.** The right rule is "open and answered, AND nothing captured
+after the last answer". That needs the time of the last answer, which B3 computes and
+does not expose: `owes.ts#planRetention` reads accepted `session_end` proposal times,
+handoff rows and the "nothing new" mark — and a chapter answer, which has no time at all
+(`episodeFacts` gives `appendedAtAsk`, not when). `HeldSession` carries `facts` and
+`clockFrom` only. Re-deriving the answer times in `sessions.ts` would be a second
+definition of "answered", which is the drift B3's one-predicate rule exists to prevent.
+
+**Ask (remember, `INTERFACE-GAPS` §16):** `HeldSession` gains `lastCaptureAt` and
+`lastAnswerAt` (for a chapter-only answer, the last ask's time — the chapter is written
+after it, so it is a lower bound). Then the rule is one predicate in
+`sessions.ts#openAndAnswered`: `answered && lastCaptureAt <= lastAnswerAt`.
+
+**And the owner's hand (re-review m-C):** a share finished in one project and waiting on
+words the session left in another (`written-up-here`) owes until a session opens there.
+Doctor's `Crash write-up` line names that project. A directory set `off` never opens
+one; closing such a session by hand needs a console command that marks `by: "owner"`
+(`WRITE_UP_BY` has the word; nothing may import the seam to use it) — filed, not built.

@@ -1502,8 +1502,10 @@ export function owedWriteUps(
  * at every start.
  */
 export const WRITE_UP_PART_BYTES = 24 * 1024;
-/** What marks words the ended session had already handed back itself. */
-export const WRITE_UP_KEPT_MARK = "[already written up by that session]";
+/** What marks words already written up — by that session's own answer, or by
+ *  an earlier write-up of it (a session written up once that resumed and owes
+ *  again). The instruction is the same either way: do not write them twice. */
+export const WRITE_UP_KEPT_MARK = "[already written up]";
 /** What marks a note the ended session jotted, rather than something said. */
 export const WRITE_UP_JOT_MARK = "[a note it jotted]";
 const WRITE_UP_SEPARATOR = "\n\n---\n\n";
@@ -1605,8 +1607,10 @@ export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: numbe
  * made, how many have come back, when it was last pointed at or fetched, and —
  * once every part here has come back — how the last one was answered and
  * whether it is `waiting` on another project's share. ONE meta key in box 2,
- * not one per session — nothing mows meta, and a session's entries are REMOVED
- * when it is marked written up, so the map holds only the write-ups in flight.
+ * not one per session — nothing mows meta, so a session's entries are REMOVED
+ * when the door marks it, and by the pointer (`pruneWriteUpProgress`) once the
+ * plan no longer holds it as owing for any other reason: the map holds the
+ * write-ups in flight, and at most a day's worth of ones that ended elsewhere.
  *
  * Written by the hook (when it points) and by the MCP door (when a part is
  * fetched, and when it comes back). Not locked: two processes writing it within
@@ -1673,6 +1677,34 @@ export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<strin
     }
   }
   return out;
+}
+
+/**
+ * FORGET THE WRITE-UPS THAT ENDED ANOTHER WAY (PR #192 re-review, NIT). The door
+ * removes a session's entries when it marks it; a session that stops owing by
+ * any other road — the API sweep's mark, its own answer after a resume, a share
+ * left `waiting` when another project's mark lands — would keep them for good.
+ * Called with the plan the pointer already read: every entry whose session the
+ * plan no longer holds as owing is dropped. Never throws; returns how many.
+ */
+export function pruneWriteUpProgress(
+  store: Pick<Store, "getMeta" | "setMeta">,
+  plan: readonly HeldSession[],
+): number {
+  try {
+    const all = readWriteUpProgress(store);
+    const owing = new Set(plan.filter((h) => h.owes).map((h) => h.session));
+    let dropped = 0;
+    for (const key of Object.keys(all)) {
+      if (owing.has(key.slice(0, key.indexOf("|")))) continue;
+      delete all[key];
+      dropped += 1;
+    }
+    if (dropped > 0) store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
+    return dropped;
+  } catch {
+    return 0;
+  }
 }
 
 /**

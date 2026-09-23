@@ -265,8 +265,20 @@ sentence for `no-credential` and none yet for `not-opted-in`.
 ## 15. A deposit cannot say whose words it covers — CLOSED 2026-09-23 (C2)
 
 **Built:** `SubmitContext.cover` (`remember/proposals.ts`), passed through
-`DepositContext.cover` (`core/counterpart.ts#deposit`): absent is the depositor's own
+`SessionEndDepositContext.cover` (`core/counterpart.ts#submitSessionEnd` → `deposit`; not
+`submitJot`): absent is the depositor's own
 spans (unchanged), `{ session }` another session's in the same scope, `false` none — the
 proposal and the memory stay the depositor's. The next-session write-up's door passes
 `false` on an earlier part and the ended session on the last; the instance-level
 shadowing of `SpanBuffer#claimCoverage` it replaced is gone (NOTES §17).
+
+## 16. `HeldSession` does not say when a session last answered, or last spoke
+
+**Owner:** `remember/owes.ts#planRetention`. Filed 2026-09-23 (C2 re-review m-E).
+`planRetention` computes the time of every answer it counts (proposal times, handoff rows,
+the "nothing new" mark) and every capture, and hands out only `facts` and `clockFrom`.
+The next-session write-up needs one comparison it cannot make without re-deriving
+"answered": whether a session that answered its last ask captured words AFTER that answer
+(claude-code `INTERFACE-GAPS` §17). **Ask:** add `lastCaptureAt` and `lastAnswerAt` to
+`HeldSession` — for a chapter-only answer, which carries no time, the last ask's time as a
+lower bound — so the rule is one predicate on the plan's own facts.

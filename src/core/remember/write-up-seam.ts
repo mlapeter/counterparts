@@ -27,9 +27,10 @@ import type { Span, SpanKind, WriteSite, WriteUpRecord } from "./spans.js";
 
 /** Who may be recorded as having written a session up. A fixed set, so the
  *  record never carries a word a caller chose. `api` is the opt-in crash sweep
- *  (roadmap C2, 2026-09-23): the worker marks a crashed session it has swept —
- *  to the last span, quarantine included — so a session the sweep could not
- *  read does not stay owed for ever. */
+ *  (roadmap C2, 2026-09-23): the worker marks a crashed session only when every
+ *  one of its words, in every project, was read and came back ok. A session
+ *  with words in QUARANTINE — what the sweep failed to read — is NOT marked; it
+ *  stays owed and is offered to the next session instead. */
 export const WRITE_UP_BY = ["next-session", "owner", "api"] as const;
 export type WriteUpBy = (typeof WRITE_UP_BY)[number];
 

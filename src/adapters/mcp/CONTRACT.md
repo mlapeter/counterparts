@@ -212,7 +212,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
     road each entry takes (`server.ts#depositEntries`, extracted rather than copied: gate
     battery, redaction, authored channel, per-entry isolation) — so the memories are
     recorded under the writing session, never the ended one — except WHOSE words they
-    cover, which the door says through core's `DepositContext.cover`: none on an earlier
+    cover, which the door says through core's `SessionEndDepositContext.cover`: none on an earlier
     part, the ENDED session's on the last, and never the writer's own (MAJOR 4). Two calls:
     **FETCH** (`writeUp`, no `memories` — or `memories: []` with no fetch on record, m2;
     `memories` is not in the schema's `required`) returns the next unwritten part of the

@@ -187,7 +187,8 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
 5. **[M] The engine claims coverage, never the author** — the author cannot see the buffer.
    By default a deposit covers the DEPOSITING session's own uncovered spans. One caller may
    say otherwise, through the engine and never through the draft: `SubmitContext.cover`
-   (`DepositContext.cover` on `Counterpart`) — `{ session }` covers another session's
+   (`SessionEndDepositContext.cover` on `Counterpart#submitSessionEnd` — never on
+   `submitJot`, whose words are always its own) — `{ session }` covers another session's
    uncovered spans in the scope, `false` covers none — while the proposal, its record and
    the memory stay the depositor's (roadmap C2, 2026-09-23). Its one caller is the
    next-session write-up's door: `false` on an earlier part, the ENDED session on the last,
@@ -269,7 +270,10 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     `by: "next-session"` when the last part of an owed session's words, fetched by the
     session the SessionStart hook pointed at it, comes back answered — memories, or
     nothing worth keeping; and the worker's opt-in API sweep (`claude-code/bin/runner.ts`),
-    which marks `by: "api"` a crashed session it has finished with, quarantine included.
+    which marks `by: "api"` a crashed session only when every one of its words, in every
+    project it left words in, was read and came back ok — never one with words left in
+    quarantine, which stays owed and is offered to the next session (PR #192 reviews,
+    MAJOR 5 and MAJOR-A).
 
 ## 6. Scars honored
 
