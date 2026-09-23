@@ -653,3 +653,32 @@ The real fix, if the owner wants one, is the one `self/INTERFACE-GAPS` §9's nei
 for: a per-owner zone read wherever a day is decided — one clock, moved once — and not a
 second clock bolted onto this mechanism. Until then it belongs on the findings list for the
 first blank-store trial, where it is a thing to notice rather than a thing to fix.
+
+## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3)
+
+**Pre-existing; found by the adversarial review of PR #186, measured on the owner's
+machine (shapes only).** When the person types while the model is still working, Claude
+Code writes the prompt as an ATTACHMENT, not a user entry:
+
+- `type: "attachment"`, `attachment.type: "queued_command"`, `attachment.commandMode:
+  "prompt"`, `attachment.origin.kind: "human"`, the text in `attachment.prompt` (a string,
+  or an object when an image was pasted), plus `source_uuid` and sometimes `humanTurn`,
+  with `rendered` / `renderedInHumanTurn` on the entry;
+- 76 seen. **58 appear nowhere else in their file**; 18 are later written again as an
+  ordinary user entry.
+
+`parseTranscript` reads only entries with a `message.role`, so those 58 are the person's
+own words missing from BOTH pacing and capture — about 6% of typed turns on this machine.
+(The same attachment type also carries `commandMode: "task-notification"` and `peer`
+prompts; those are host-written and are correctly not the person.)
+
+**Why it was not fixed in B1.** Reading them means inserting new turns into the list, and
+the per-session capture cursor indexes into that list: a session that spans the deploy
+would have its uncaptured tail re-sliced, the failure `transcript.ts`'s header names. It
+also needs a dedupe against the later user entry for the 18 that are written twice —
+by uuid (`source_uuid` → the later entry, if the link holds; unmeasured) or by exact text.
+
+**What a fix needs:** (1) a cursor that survives turns being inserted before it (an
+entry-uuid cursor rather than an index, which is `remember/`'s to offer); (2) the dedupe
+rule, measured; (3) a fixture with one queued prompt that is later duplicated and one that
+is not, pacing as one and two turns respectively.

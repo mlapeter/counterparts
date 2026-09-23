@@ -137,20 +137,26 @@ owner's (measured 2026-09-04, `fix/transcript-peer-speakers`):
   classified `injected` as the conservative reading of a shape not yet measured.
 - **`Stop hook feedback: …`** — the host returning a blocking Stop hook's stderr to the
   model. It carries **this adapter's own asks**, so it is `ritual` and enters nothing
-  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first. Any
-  line the person did not type (below) that opens with the ask's own first words, bare or
-  behind any `<Event> hook <word>:` frame (`transcript.ts#OWN_ASK`), is `ritual` too —
-  the JSON shape's return frame is unmeasured, and this keeps it out of capture either way.
+  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first. A
+  user-role line whose metadata says the HOST wrote it (below) and that opens with the
+  ask's own first words, bare or behind any `<Event> hook <word>:` frame
+  (`transcript.ts#OWN_ASK`), is `ritual` too — the JSON shape's return frame is
+  unmeasured, and this keeps it out of capture either way. Never a line with no metadata
+  (it may be the person) and never the assistant's own text.
 
 **And who wrote a user-role line is read from the entry's own metadata first** (B1,
 2026-09-23; shapes measured on 2.1.28x, table in `NOTES.md`): `origin.kind: "human"` is the
 person — typed, queued, or pasted; `isMeta`, `isCompactSummary`, and any other
 `origin.kind` (`peer` for a subagent's hand-back, `task-notification`) are the host, and
-are `injected` — kept in capture, out of pacing. The text markers decide only for an
-entry that carries no metadata. The two refusals (`foreign`, `ritual`) come before the
+are `injected` — kept in capture, out of pacing. The new text markers (anchored at the
+start of the block) decide only for a USER-role entry that carries no metadata; the
+assistant's text is never reclassified by a marker, and `classifyBlock` — the rule both
+roles share — is unchanged. The two refusals (`foreign`, `ritual`) come before the
 metadata, so hook feedback on an `isMeta` entry is still refused, not merely unpaced. An
 assistant line the host synthesised (`isApiErrorMessage`, `model: "<synthetic>"`) is
-`injected` as well; the assistant's real replies pace, as they always have.
+`injected` as well; the assistant's real replies pace, as they always have. **Known gap**
+(`INTERFACE-GAPS.md` §14): a prompt the person types while the model is working is
+written as an `attachment` (`queued_command`), which this reader does not read.
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
 execution ceiling, socket lifetime, credential availability AND which source answered —
@@ -318,9 +324,11 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     `stderr` is the day-0 channel, the ask on stderr and exit 2. Both block, both refuse
     the re-fire. The owner picks one after looking at one Stop (recipe in `NOTES.md`); the
     other goes. Pacing is unchanged — thresholds, cap, the one pacer — except that what it
-    counts is now what the person typed (§5 Inputs, above). A `session_end` with
-    `memories: []` is an answer: accepted, minting nothing, recorded as `nothingNewAt` on
-    the session's registry record; it cannot cause a re-ask, because the pacer advanced
+    counts is now what the person typed and the assistant's replies, and no longer what
+    the host wrote on the user side (§5 Inputs, above). A `session_end` with
+    `memories: []` is an answer whatever happened to a handoff sent with it: accepted,
+    minting nothing, recorded as `nothingNewAt` on the session's registry record, the
+    handoff's own outcome beside it; it cannot cause a re-ask, because the pacer advanced
     when the ask went out.
 
     **AND THE WAKE GAINED A THIRD DELIVERY-TIME FACT.** `sessionStart` passes the session's
@@ -423,9 +431,10 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     `describeScopeTrouble` puts one line on the hook's stderr at **SessionStart
     only** — after the `off` return, so an off directory's silence stays
     byte-for-byte — with `scopeRegistry: "unreadable" | "partial" | null` on the
-    session-start row for the day after. **Since I40 (2026-09-23) the same line is the
-    SessionStart `systemMessage`** (joined above any doctor notice), because stderr at
-    exit 0 reaches only the host's debug log; the stderr copy stays for that log. Both writers refuse rather than dropping
+    session-start row for the day after. **Since I40 (2026-09-23) the same line also rides
+    the SessionStart `systemMessage`**, because stderr at exit 0 reaches only the host's
+    debug log — AFTER the doctor notice and only if it still fits the envelope, since the
+    doctor notice has no other route and this line keeps its stderr copy. Both writers refuse rather than dropping
     an entry they could not read: the console unless `--force`, the MCP tool always.
 24. **[M] A stand-down that is a FAULT reaches the owner's terminal; one that is
     DELIBERATE stays as quiet as it was.** G2 is why every failure is swallowed;

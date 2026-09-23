@@ -109,8 +109,10 @@ export const ENVELOPE_MAX_CHARS = 9500;
  * host (measured day 0 of the parallel run; `config.ts#credentialsFile`), and
  * because the file is re-read by every hook — so a flip takes effect at the next
  * Stop with no restart. It is read here, beside the rest of `hostConfig`, and
- * leniently: anything but the exact string `"stderr"` is the default, because a
- * typo in a display preference must not stand the adapter down to observer the
+ * leniently ON PURPOSE: `"stderr"` in any case and with any surrounding spaces
+ * picks stderr (a person typing a preference by hand writes `"STDERR"` or
+ * `"stderr "`), and anything else — a typo, a number, nothing — is the default,
+ * because a display preference must not stand the adapter down to observer the
  * way a typo in `dataDir` does.
  */
 export const STOP_ASK_SHAPE_KEY = "stopAskShape";
@@ -120,7 +122,8 @@ export const DEFAULT_STOP_ASK_SHAPE: StopAskShape = "json";
 /** The shape a parsed `claude-code.json` asks for. Total: never throws. */
 export function stopAskShapeOf(raw: unknown): StopAskShape {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_STOP_ASK_SHAPE;
-  return (raw as Record<string, unknown>)[STOP_ASK_SHAPE_KEY] === "stderr" ? "stderr" : DEFAULT_STOP_ASK_SHAPE;
+  const value = (raw as Record<string, unknown>)[STOP_ASK_SHAPE_KEY];
+  return typeof value === "string" && value.trim().toLowerCase() === "stderr" ? "stderr" : DEFAULT_STOP_ASK_SHAPE;
 }
 
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
@@ -643,9 +646,9 @@ async function runHook(
   // exits 0 goes to the host's debug log and nowhere else, so this line was
   // written for nobody. It now rides the SessionStart `systemMessage` — the
   // channel the doctor notice already uses, and the one the owner's probe
-  // measured displaying (`SAYS_SO_HOOKS`) — joined to that notice below. The
-  // stderr copy stays, for the debug log and for the one case the envelope
-  // cannot carry it (`ENVELOPE_MAX_CHARS`: the wake wins).
+  // measured displaying (`SAYS_SO_HOOKS`) — AFTER that notice and only if it
+  // still fits (`hostDelivery`'s priority order). The stderr copy stays, for the
+  // debug log and for the morning the envelope has no room for it.
   const trouble = name === "session-start" ? describeScopeTrouble(read, scopesPath(choice.path)) : null;
   if (trouble !== null) process.stderr.write(`${trouble}\n`);
   const { config: loaded, credentials, reason, stopAskShape } = hostConfig(choice.path);
@@ -740,8 +743,11 @@ async function runHook(
     // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`
     // is red-only, bounded, and returns null rather than throwing, so the line
     // below cannot change what the wake does on a healthy day.
-    const notice = name === "session-start" ? joinNotices(trouble, adapter.notice(input)) : null;
-    const delivery = hostDelivery(name, result, payload, notice, stopAskShape);
+    // In PRIORITY order (review M1): the doctor notice first, because it has no
+    // other route to the owner; the registry line second, because it also has
+    // stderr. A line that does not fit is left out, never the wake.
+    const notices = name === "session-start" ? [adapter.notice(input), trouble] : null;
+    const delivery = hostDelivery(name, result, payload, notices, stopAskShape);
     // A notice the envelope could not carry leaves a row rather than nothing:
     // "the terminal said nothing" and "there was nothing to say" are different
     // facts about the same morning (scar §2.4).
@@ -801,7 +807,8 @@ export interface Delivery {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: 0 | 2;
-  /** Non-null when the notice was dropped to keep the wake whole. */
+  /** Non-null when a notice was left out to keep the wake whole — all of them,
+   *  or (with several) the lower ones that no longer fit. */
   readonly dropped: { readonly noticeChars: number; readonly envelopeChars: number; readonly limitChars: number } | null;
 }
 
@@ -809,32 +816,48 @@ export function hostDelivery(
   name: HookName,
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
-  /** The owner-facing warning, or null. Only SessionStart carries one. */
-  notice: string | null = null,
+  /**
+   * The owner-facing warning(s), or null. Only SessionStart carries any. A LIST
+   * is a priority order (review M1): each is added only while the envelope
+   * still fits, so a lower line can never cost a higher one its place.
+   */
+  notice: string | null | readonly (string | null)[] = null,
   /** How a due Stop ask leaves (`STOP_ASK_SHAPE_KEY`). Ignored off Stop. */
   stopShape: StopAskShape = DEFAULT_STOP_ASK_SHAPE,
 ): Delivery {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
     const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
-    if (name === "session-start" && notice !== null && notice.length > 0) {
-      const envelope = JSON.stringify({
-        systemMessage: notice,
-        hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
-      });
+    const notices = (typeof notice === "string" || notice === null ? [notice] : notice).filter(
+      (n): n is string => n !== null && n.length > 0,
+    );
+    if (name === "session-start" && notices.length > 0) {
+      const envelopeOf = (message: string): string =>
+        JSON.stringify({
+          systemMessage: message,
+          hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
+        });
       // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
       // whole string with a preview, the JSON would stop parsing, and the
       // session would start with no memory at all — a worse outcome than not
       // seeing the warning, which `counterparts doctor` prints on request.
-      if (envelope.length > ENVELOPE_MAX_CHARS) {
-        return {
-          stdout: out,
-          stderr: "",
-          exitCode: 0,
-          dropped: { noticeChars: notice.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS },
-        };
+      // And the notices go in in the order given, each only if it still fits.
+      const kept: string[] = [];
+      const left: string[] = [];
+      for (const n of notices) {
+        if (envelopeOf([...kept, n].join("\n")).length <= ENVELOPE_MAX_CHARS) kept.push(n);
+        else left.push(n);
       }
-      return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
+      const dropped =
+        left.length === 0
+          ? null
+          : {
+              noticeChars: left.join("\n").length,
+              envelopeChars: envelopeOf(notices.join("\n")).length,
+              limitChars: ENVELOPE_MAX_CHARS,
+            };
+      if (kept.length === 0) return { stdout: out, stderr: "", exitCode: 0, dropped };
+      return { stdout: envelopeOf(kept.join("\n")), stderr: "", exitCode: 0, dropped };
     }
     return { stdout: out, stderr: "", exitCode: 0, dropped: null };
   }
@@ -855,16 +878,6 @@ export function hostDelivery(
     exitCode: 0,
     dropped: null,
   };
-}
-
-/**
- * The SessionStart owner-facing text: the scope registry's trouble line (I40)
- * above the doctor notice, either alone, or null when neither has anything to
- * say. Exported so the join is provable without a process.
- */
-export function joinNotices(...parts: readonly (string | null)[]): string | null {
-  const said = parts.filter((p): p is string => p !== null && p.length > 0);
-  return said.length === 0 ? null : said.join("\n");
 }
 
 /** True only when this file is the process entry point — so a test may import

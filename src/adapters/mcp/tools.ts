@@ -423,7 +423,7 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing and is recorded against this session as answered (with a `handoff`, the answer says the handoff was written). Only a call that leaves `memories` out and lands no handoff, or whose handoff was refused, is refused.",
+        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing and is recorded against this session as answered, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
       mechanizedBy:
         "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew",
     },

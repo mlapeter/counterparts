@@ -25,9 +25,9 @@ import { join, resolve } from "node:path";
 
 import {
   DEFAULT_STOP_ASK_SHAPE,
+  ENVELOPE_MAX_CHARS,
   STOP_ASK_SHAPE_KEY,
   hostDelivery,
-  joinNotices,
   stopAskShapeOf,
 } from "../src/adapters/claude-code/bin/hook.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
@@ -36,9 +36,9 @@ import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { ClaudeCodeAdapter } from "../src/adapters/claude-code/index.js";
 import { STOP_ASK_OPENER, entryAuthor, parseTranscript } from "../src/adapters/claude-code/transcript.js";
-import { openServer } from "../src/adapters/mcp/index.js";
+import { openServer, renderDescription, toolSpec } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { scopesPath } from "../src/adapters/scopes.js";
+import { describeScopeTrouble, readScopes, scopesPath } from "../src/adapters/scopes.js";
 import { markNothingNew, readSession, recordSession } from "../src/adapters/sessions.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
@@ -187,7 +187,6 @@ describe("pacing counts only what the person typed (decision 3)", () => {
       `Stop hook blocking error:\n- ${ask}`,
     ]) {
       expect(parseTranscript(jsonl([metaEntry(framed)])).turns[0]?.source).toBe("ritual");
-      expect(parseTranscript(jsonl([bareEntry(framed)])).turns[0]?.source).toBe("ritual");
     }
     // A hand-back that merely QUOTES the ask is a hand-back.
     const quoting = `${HANDBACK_TEXT}\nThe ask read: ${ask}`;
@@ -213,6 +212,45 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(only?.text).toBe("[message from another Claude session, builder]: The suite is green.");
     const [mixed] = parseTranscript(jsonl([typedEntry(`Look at this: ${peer}`)])).turns;
     expect(mixed?.source).toBe("conversation");
+  });
+
+  test("review m1: with NO metadata the person may be speaking — the new markers never refuse or unpace their words", () => {
+    const rows: [Record<string, unknown>, string][] = [
+      // Quoting the ask's opener: the own-ask rule is for HOST-written entries only.
+      [bareEntry("Counterparts, before this session closes: 1) what does this mean?"), "conversation"],
+      // A headless prompt about the person's own broken hook.
+      [{ ...bareEntry("PreToolUse hook error: my linter blocks every edit, can you see why?"), promptSource: "sdk" }, "conversation"],
+      // Mentioning a wrapper mid-sentence: the new tags are anchored.
+      [bareEntry("Why does the hand-back arrive as an <agent-message> wrapper?"), "conversation"],
+      [bareEntry("What is a <task-notification> and who writes it?"), "conversation"],
+    ];
+    for (const [entry, want] of rows) {
+      const text = String((entry["message"] as Record<string, unknown>)["content"]);
+      expect(`${text} -> ${String(parseTranscript(jsonl([entry])).turns[0]?.source)}`).toBe(`${text} -> ${want}`);
+    }
+  });
+
+  test("review m2: the assistant's own text is never reclassified by a marker — it paces and earns credit as on master", () => {
+    const texts = [
+      "The host wraps it in `<task-notification>` and the reader now tags it.",
+      "Its output arrives as `<bash-stdout>`, which is why it is excluded.",
+      "Stop hook error is what the terminal prints for exit 2.",
+      `${STOP_ASK_OPENER} is how the ask opens, so the reader can recognise it.`,
+      "<agent-message> is the wrapper a hand-back uses.",
+    ];
+    const read = parseTranscript(jsonl(texts.map((t) => assistantEntry(t))));
+    expect(read.turns.map((t) => t.source)).toEqual(texts.map(() => "conversation"));
+    expect(substanceOf(read.turns).turns).toBe(texts.length);
+  });
+
+  test("review m5: a line that is literally `null` (or any non-object JSON) is counted and skipped, never thrown on", () => {
+    const raw = ["null", "42", "[1,2]", '"text"', JSON.stringify(typedEntry(TYPED))].join("\n");
+    let read: ReturnType<typeof parseTranscript> | undefined;
+    expect(() => {
+      read = parseTranscript(raw);
+    }).not.toThrow();
+    expect(read?.turns.length).toBe(1);
+    expect(read?.corrupt).toBe(4);
   });
 
   test("every other host-written user line is injected: compaction summary, /context output, image captions, idle notice", () => {
@@ -320,16 +358,41 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     expect(stopAsk("s1", 4)).toContain("Write chapter 4 of");
   });
 
-  test("the field detail the ask dropped is carried by the tool descriptions instead", async () => {
-    const { toolSpec } = await import("../src/adapters/mcp/index.js");
-    const spec = toolSpec("session_end");
-    const described = JSON.stringify(spec);
-    expect(described).toContain("`updates` is a FIELD");
-    expect(described).toContain("A salience you claim is a floor");
-    expect(described).toContain("your claim is the only way what you lived outranks what a sweep noticed");
-    expect(described).toContain("`handoff` is a FIELD on this call and NEVER a memory");
-    expect(described).toContain("An EMPTY `memories` array is a real answer");
-    expect(JSON.stringify(toolSpec("chapter"))).toContain("a short true chapter beats a deep-sounding one");
+  /**
+   * AGAINST WHAT THE HOST SERVES, not the source (review m3). Claude Code cuts
+   * each MCP tool description at 2,048 characters (code.claude.com/docs/en/mcp,
+   * "For MCP server authors"), and `session_end`'s rendered description is
+   * past 3,000 — so a claim that lives only after the cut is a claim the model
+   * never reads. What the model does read in full is the input schema, one
+   * short description per field.
+   */
+  const HOST_DESCRIPTION_CAP = 2_048;
+  const fieldDescription = (tool: string, ...path: string[]): string => {
+    let node = toolSpec(tool)?.inputSchema as Record<string, unknown> | undefined;
+    for (const key of path) node = (node?.[key] as Record<string, unknown> | undefined) ?? undefined;
+    return String(node?.["description"] ?? "");
+  };
+
+  test("the field detail the ask dropped is where the model reads it — inside the host's cut, or on the field itself", () => {
+    const served = renderDescription(toolSpec("session_end")!).slice(0, HOST_DESCRIPTION_CAP);
+    // Inside the 2,048 characters the host serves:
+    expect(served).toContain("`updates` is a FIELD");
+    expect(served).toContain("A salience you claim is a floor");
+    expect(served).toContain("An entry that claims no salience gets an ordinary default floor");
+    // On the fields themselves, which the host serves whole:
+    const item = ["properties", "memories", "items", "properties"];
+    expect(fieldDescription("session_end", ...item, "updates")).toContain("A field — never written into `content`");
+    expect(fieldDescription("session_end", ...item, "salience")).toContain(
+      "your claim is the only way what you lived outranks what a sweep noticed",
+    );
+    expect(fieldDescription("session_end", "properties", "memories")).toContain(
+      "Send `[]` when nothing here is worth keeping",
+    );
+    expect(fieldDescription("session_end", "properties", "handoff")).toContain("not a memory");
+    // The chapter's "short and true" is in its first screen.
+    expect(renderDescription(toolSpec("chapter")!).slice(0, HOST_DESCRIPTION_CAP)).toContain(
+      "a short true chapter beats a deep-sounding one",
+    );
   });
 });
 
@@ -392,8 +455,11 @@ describe("the two emission shapes, both blocking (decision 2)", () => {
   });
 
   test("the switch is read leniently: only the exact string picks stderr, and it never makes a config unreadable", () => {
-    expect(stopAskShapeOf({ stopAskShape: "stderr" })).toBe("stderr");
-    for (const raw of [undefined, null, [], "stderr", {}, { stopAskShape: "json" }, { stopAskShape: "STDERR" }, { stopAskShape: 2 }]) {
+    // Case and surrounding spaces are forgiven ON PURPOSE: a person types this.
+    for (const value of ["stderr", "STDERR", " stderr ", "Stderr\n"]) {
+      expect(stopAskShapeOf({ stopAskShape: value })).toBe("stderr");
+    }
+    for (const raw of [undefined, null, [], "stderr", {}, { stopAskShape: "json" }, { stopAskShape: "std err" }, { stopAskShape: 2 }]) {
       expect(stopAskShapeOf(raw)).toBe("json");
     }
     // A display preference must not stand the adapter down to observer.
@@ -508,12 +574,55 @@ describe("I40 — the scope registry's warning reaches the person", () => {
     expect(run.stdout.startsWith("{")).toBe(false);
   });
 
-  test("joinNotices: the registry line first, then the doctor notice; null when neither speaks", () => {
-    expect(joinNotices(null, null)).toBeNull();
-    expect(joinNotices("", null)).toBeNull();
-    expect(joinNotices("registry", null)).toBe("registry");
-    expect(joinNotices(null, "doctor")).toBe("doctor");
-    expect(joinNotices("registry", "doctor")).toBe("registry\ndoctor");
+  /**
+   * REVIEW M1. At the 9,038-character wake the `ENVELOPE_MAX_CHARS` comment
+   * measured, a doctor notice (173) fits and a registry line (177) fits, but the
+   * two JOINED did not — and the whole notice was dropped, taking the doctor
+   * line, which has no other route to the owner. Now they are fitted in
+   * priority order: the doctor's first, the registry's only if it still fits.
+   */
+  test("M1: at a 9,038-char wake the doctor notice survives, and the registry line is left out rather than costing it", () => {
+    const wake = { injection: `${"w".repeat(68)}\n`.repeat(133).slice(0, 9_038), ask: null };
+    expect(wake.injection.length).toBe(9_038);
+    const tail = "\nrun: counterparts doctor for details";
+    const doctor = `counterparts: ${"d".repeat(173 - "counterparts: ".length - tail.length)}${tail}`;
+    expect(doctor.length).toBe(173);
+    writeFileSync(join(work, "scopes.json"), "{ broken", "utf8");
+    // The real sentence, naming the path an ordinary install has (the temp path
+    // this test reads from is longer than any real one).
+    const registry = describeScopeTrouble(readScopes(join(work, "scopes.json")), "/Users/owner/.counterparts/scopes.json") ?? "";
+    expect(registry.length).toBeGreaterThan(150);
+    expect(registry.length).toBeLessThan(230);
+
+    // Each alone fits.
+    expect(hostDelivery("session-start", wake, {}, [doctor]).dropped).toBeNull();
+    expect(hostDelivery("session-start", wake, {}, [registry]).dropped).toBeNull();
+    // Together they would not.
+    const both = hostDelivery("session-start", wake, {}, [doctor, registry]);
+    const parsed = JSON.parse(both.stdout) as Record<string, unknown>;
+    expect(parsed["systemMessage"]).toBe(doctor);
+    expect(both.stdout.length).toBeLessThanOrEqual(ENVELOPE_MAX_CHARS);
+    expect(String((parsed["hookSpecificOutput"] as Record<string, unknown>)["additionalContext"])).toBe(wake.injection);
+    // The left-out line is reported, so the silence is explicable.
+    expect(both.dropped?.noticeChars).toBe(registry.length);
+    expect(both.dropped?.envelopeChars).toBeGreaterThan(ENVELOPE_MAX_CHARS);
+  });
+
+  test("M1: with room for both, the doctor notice comes first; with room for neither, the wake goes plain", () => {
+    const small = { injection: "WAKE", ask: null };
+    const both = hostDelivery("session-start", small, {}, ["doctor line", "registry line"]);
+    expect((JSON.parse(both.stdout) as Record<string, unknown>)["systemMessage"]).toBe("doctor line\nregistry line");
+    expect(both.dropped).toBeNull();
+    // A null doctor notice leaves the registry line alone.
+    const onlyRegistry = hostDelivery("session-start", small, {}, [null, "registry line"]);
+    expect((JSON.parse(onlyRegistry.stdout) as Record<string, unknown>)["systemMessage"]).toBe("registry line");
+    // Nothing fits: the plain wake, and both reported.
+    const full = { injection: "w".repeat(ENVELOPE_MAX_CHARS), ask: null };
+    const none = hostDelivery("session-start", full, {}, ["doctor line", "registry line"]);
+    expect(none.stdout).toBe(full.injection);
+    expect(none.dropped?.noticeChars).toBe("doctor line\nregistry line".length);
+    // Nothing to say at all is the plain wake with nothing dropped.
+    expect(hostDelivery("session-start", small, {}, [null, null])).toEqual(hostDelivery("session-start", small, {}));
   });
 });
 
@@ -567,6 +676,7 @@ describe("'nothing new' is an answer (decision 4)", () => {
     expect(out["reason"]).toBe("nothing-new");
     expect(out["entries"]).toBe(0);
     expect(out["deposited"]).toBe(0);
+    expect(out["recorded"]).toBe(true);
     expect(out["handoff"]).toBeUndefined();
     expect(s.counterpart.store.list({ type: "memory" }).length).toBe(before);
     const mark = readSession(store, SESSION)?.nothingNewAt;
@@ -605,6 +715,35 @@ describe("'nothing new' is an answer (decision 4)", () => {
     expect(result.isError).toBeUndefined();
     expect((result.structuredContent as Record<string, unknown>)["reason"]).toBe("handoff-only");
     expect(typeof readSession(store, SESSION)?.nothingNewAt).toBe("number");
+  });
+
+  /**
+   * REVIEW M2 — the three repro rows. `memories: []` is an answer WHATEVER
+   * happened to the handoff sent with it: recorded, reason `nothing-new`, the
+   * handoff's outcome beside it. `nothing-to-clear` is a no-op, not an error.
+   */
+  test("M2: `memories: []` with a refused handoff is still the answer, recorded, with the handoff's outcome beside it", async () => {
+    const rows: [unknown, string, boolean][] = [
+      ["", "nothing-to-clear", false],
+      ["x".repeat(200 * 1024), "too-large", true],
+      [42, "not-text", true],
+    ];
+    for (const [handoff, handoffReason, isError] of rows) {
+      const id = `s-m2-${handoffReason}`;
+      recordSession(store, { sessionId: id, scope: project, phase: "start" });
+      const s = server();
+      const result = await s.call("session_end", { session: id, memories: [], handoff });
+      const out = (result.structuredContent ?? {}) as Record<string, unknown>;
+      expect({ handoffReason, reason: out["reason"], isError: result.isError === true }).toEqual({
+        handoffReason,
+        reason: "nothing-new",
+        isError,
+      });
+      expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe(handoffReason);
+      expect(out["recorded"]).toBe(true);
+      expect(out["deposited"]).toBe(0);
+      expect(typeof readSession(store, id)?.nothingNewAt).toBe("number");
+    }
   });
 
   test("the mark moves no clock and creates no record", () => {

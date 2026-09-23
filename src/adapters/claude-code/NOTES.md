@@ -1057,8 +1057,8 @@ would still truncate on a store that HAS lost its key, which is worth fixing on 
 ## 2026-09-23 — the Stop ask: shorter, quieter, rarer (B1; findings #28 and #13)
 
 The owner's four decisions, built as stated: the person reads one line and the model two;
-two emission shapes behind a switch; pacing counts what the person typed; "nothing new"
-is an answer. Thresholds, the day cap and the one pacer are untouched (§13 G3: one ask,
+two emission shapes behind a switch; on the user side pacing counts only what the person
+typed (the assistant's replies pace as before); "nothing new" is an answer. Thresholds, the day cap and the one pacer are untouched (§13 G3: one ask,
 one pacer — nothing here adds a second).
 
 ### What the host writes user-role
@@ -1073,22 +1073,38 @@ no content was copied. `parseTranscript` reads only entries with a `message.role
 | a headless prompt | `promptSource: "sdk"`, no origin | anything | `conversation` (no metadata → text rule) |
 | a subagent's hand-back (254 seen) | `isMeta: true`, `origin.kind: "peer"` (`from`, `senderTaskId`, `body`, `handback`) | `Another Claude session sent a message:\n<agent-message from="…">\n[Subagent hand-back] …` | `injected` (was `conversation`) |
 | a task notification (266 seen) | `origin.kind: "task-notification"`, **no** `isMeta` | `<task-notification>` | `injected` (was `conversation`) |
+| a coordinator's message (review: 104 user entries, plus 42 queued) | `isMeta: true`, `origin.kind: "coordinator"` | various | `injected` (caught by `isMeta` and by the non-human kind) |
 | Stop hook feedback (179 seen) | `isMeta: true`, no origin | `Stop hook feedback:\n["<command>"]: …` | `ritual`, unchanged — refusals are checked before metadata |
 | `/context` output, local-command caveat, skill bodies, image captions, idle notice, scheduled prompts | `isMeta: true` (some with `turnCompanion`, `sourceToolUseID`, `promptSource: "system"`) | various | `injected` |
 | the compaction summary | `isCompactSummary: true`, `isVisibleInTranscriptOnly` | `This session is being continued…` | `injected` (was `conversation`) |
 | slash-command echo, `!`-command | no metadata | `<command-name>`, `<local-command-stdout>`, `<bash-input>`, `<bash-stdout>` | unchanged text rule; `<bash-stdout>`/`<bash-stderr>` now `injected` |
 | an interrupt | `interruptedMessageId`, no origin | `[Request interrupted by user]` | `injected` |
 | hook output (`UserPromptSubmit hook success`, `hook_additional_context`, `hook_system_message`) | `type: "attachment"`, **no role** | — | never a turn (unchanged) |
+| **a prompt typed while the model works** (review M3: 76 seen, 58 never written again) | `type: "attachment"`, `attachment.type: "queued_command"`, `commandMode: "prompt"`, `origin.kind: "human"` | — | **never a turn — the person's own words, missed.** Pre-existing; `INTERFACE-GAPS.md` §14 |
 | an API error written as the assistant | `isApiErrorMessage: true`, `model: "<synthetic>"` | `API Error: …` | `injected` (was `conversation`) |
 
 So "UserPromptSubmit hook success" was never counted by this reader: it is how the host
 *renders* an attachment to the model, and attachments carry no role. The misreadings
 that paced the ask were the hand-back and the task notification. The rule
-(`transcript.ts#pieceOf`): foreign → ritual → metadata → text markers → conversation.
-A block the person typed is `conversation` even if it contains a marker (a pasted
-`<system-reminder>` is still something they pasted). Text markers were added for the
-metadata-less case too (`<task-notification>`, `<agent-message>`, the hand-back and
-interrupt openers, `… hook success` frames), so an older build paces the same way.
+(`transcript.ts#pieceOf`): foreign → ritual (master's `classifyBlock`, both roles,
+unchanged) → metadata → the new text markers → conversation.
+
+- A block the person typed is `conversation` even if it contains a marker (a pasted
+  `<system-reminder>` is still something they pasted).
+- The new markers (`<task-notification>`, `<agent-message>`, `<bash-stdout>`,
+  `<bash-stderr>`, `<local-command-caveat>`, the hand-back and interrupt openers,
+  `… hook success:` frames) are **anchored at the start of the block and apply only to a
+  user-role entry with no metadata** — a person who mentions `<agent-message>` or their
+  own `PreToolUse hook error` mid-sentence is still speaking (review m1). `hook error`
+  frames are deliberately not markers, for that reason.
+- **The assistant's text is never reclassified by a marker** (review m2): a reply that
+  explains `<task-notification>` or quotes the ask's opener paces and earns recall credit
+  exactly as on master. Only an entry the metadata says the host synthesised changes.
+- The own-ask rule (`OWN_ASK`) applies only when the metadata says the HOST wrote the
+  line, never to an entry with none.
+- A line that is JSON but not an object (`null`, a number, an array) is counted as
+  `corrupt` and skipped; before this it threw, which lost the boundary's capture (review
+  m5, pre-existing on master).
 
 **Unchanged on purpose:** the assistant's real replies still pace. The pacer has always
 counted both roles' conversation, and counting the person alone would have moved the
@@ -1128,6 +1144,11 @@ not type that opens with the ask's first words, bare or behind any `<Event> hook
 frame, is `ritual` (`transcript.ts#OWN_ASK`). After the owner's look, a session can
 confirm it: the Stop boundary row's `excluded` count should include the returned ask.
 
+**The default is the shape the docs predict is the louder one** (they name
+`additionalContext` as the route with "no hook error notification", implying `decision:
+"block"` has one). That is right for the look; if a release is cut before the owner has
+looked, npm users get it. Say so in the release notes, or cut after the look.
+
 **The recipe (one turn each; after this round's restart):**
 
 1. The switch is a top-level key in the `claude-code.json` the hooks read (the one
@@ -1150,8 +1171,11 @@ confirm it: the Stop boundary row's `excluded` count should include the returned
 5. Pick. Delete the key for JSON, or leave `"stderr"`. The other shape is removed next
    round. Answer each ask however you like — `memories: []` mints nothing.
 
-A value other than the exact string `"stderr"` is the default, and never makes the
-config unreadable: a typo in a display preference must not stand the adapter down.
+`"stderr"` is recognised in any case and with surrounding spaces (`"STDERR"`,
+`"stderr "`) on purpose, because a person types it by hand. Anything else is the default,
+and no value makes the config unreadable: a typo in a display preference must not stand
+the adapter down. `counterparts doctor` does not yet say which shape is live (doctor.ts
+is another builder's this round) — the look at one Stop is the confirmation.
 
 One behaviour differs between the shapes and is accepted: if closing the store throws
 AFTER the delivery is printed, the stderr shape exits 0 (master's rule, which drops the
@@ -1160,13 +1184,23 @@ before either, so the JSON behaviour is the more consistent one.
 
 ### "Nothing new" is an answer
 
-`session_end` with `memories: []` and no handoff returns `reason: "nothing-new"`, no
-`isError`, mints nothing, and writes `nothingNewAt` (epoch ms) on the session's registry
-record via `sessions.ts#markNothingNew` — the MCP server's first write to that registry,
-deliberately narrow: no phase, no clock moved, no record created. A handoff-only answer
-marks it too. A call that leaves `memories` out is still `memories-required`; a refused
-handoff still refuses the call. Not a durable event row: a new durable event name is a
-core change (`AdapterDurableEventName`).
+`session_end` with `memories: []` returns `reason: "nothing-new"`, mints nothing, and
+writes `nothingNewAt` (epoch ms) on the session's registry record via
+`sessions.ts#markNothingNew` — the MCP server's first write to that registry, deliberately
+narrow: no phase, no clock moved, no record created. The result carries `recorded`, so a
+mark that could not be written is visible to the caller rather than only to the ring.
+
+**Whatever happened to a handoff sent with it** (review M2): the handoff's own outcome
+rides beside the answer. `nothing-to-clear` (`handoff: ""` where no pointer stands — which
+the field's description invites exactly when the work is finished) is a no-op, not an
+error. Any other refusal (`too-large`, `not-text`, `no-scope`) sets `isError`, because
+something sent did not land and resending can fix it — but the reason stays
+`nothing-new` and the answer is recorded. Before the review, all three came back
+`memories-required`, naming a field the caller HAD sent: new-user finding #12's
+mechanism, reopened. A landed handoff with no memories is still `handoff-only`, and it is
+marked too — so `nothingNewAt` means "answered with no memories", handoff or not. A call
+that leaves `memories` out and lands no handoff is still `memories-required`. Not a
+durable event row: a new durable event name is a core change (`AdapterDurableEventName`).
 
 It cannot cause an immediate re-ask, and nothing had to change for that:
 `self/index.ts#openChapter` commits `askedAtTurns`/`askedAtBytes` when the ask goes OUT,
@@ -1178,12 +1212,52 @@ For the owed-a-write-up predicate (roadmap B3/C2): a session has answered when i
 memories or a chapter, or its registry record carries `nothingNewAt` later than its last
 `adapter.ask` row with `asked: true`.
 
+### Where the moved field detail is actually read (review m3)
+
+Claude Code serves each MCP tool description cut at 2,048 characters
+(code.claude.com/docs/en/mcp, "For MCP server authors"; raisable from 2.1.280 with
+`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`). `session_end`'s rendered description is about
+3,050, so part of it is never read. Of what the ask dropped: "`updates` is a FIELD"
+(starts at ~1,240) and "A salience you claim is a floor" (~1,690) are inside the cut; the
+handoff-is-not-a-memory claim (~2,080) and the empty-array claim (~2,730) are past it and
+**survive only in the input schema's per-field descriptions**, which are served whole:
+`memories` ("Send `[]` when nothing here is worth keeping"), `handoff` ("not a memory"),
+`salience` ("your claim is the only way what you lived outranks what a sweep noticed"),
+`updates` ("A field — never written into `content`"). That is acceptable — the model
+reads a field's description while filling that field — and the test asserts against what
+is served (the rendered text sliced at 2,048, and the schema), not the source.
+
+### Deploy note: sessions resumed across this deploy (review m4)
+
+The pacer keeps a watermark (`askedAtTurns`/`askedAtBytes`) at the substance it saw when it
+last asked, and a re-ask needs `substance − watermark` ≥ 8 turns AND ≥ 8,000 bytes
+(`self/episodes.ts#askDue`, `max(0, …)`). A session whose last ask was committed under
+master's counting — hand-backs, notifications and compaction summaries included, often
+several KB each — and that is RESUMED on this build carries a watermark above anything the
+new counting reaches for a while, so it will not be re-asked until the person's text and
+the assistant's replies alone pass the old total. Worst for coordinator sessions with heavy
+hand-back traffic. New sessions are unaffected; the day cap and first ask are unaffected.
+
+**Proposal for `self/episodes.ts`'s owner (not this builder's file):** in `openChapter`,
+when `substance.turns < state.askedAtTurns` or `substance.bytes < state.askedAtBytes` —
+which only a change in the counting rule or a rewritten transcript can produce — persist
+`askedAtTurns = min(askedAtTurns, substance.turns)` and
+`askedAtBytes = min(askedAtBytes, substance.bytes)` once, so the re-ask pair measures from
+now instead of waiting to overtake the old total.
+
 ### I40
 
 The scope registry's SessionStart warning went to stderr, which at exit 0 reaches only
-the host's debug log. It now rides the SessionStart `systemMessage` (joined above any
-doctor notice, `bin/hook.ts#joinNotices`); the stderr copy stays for the log and for the
-one case the envelope drops the notice to keep the wake whole.
+the host's debug log. It now also rides the SessionStart `systemMessage`, fitted in
+PRIORITY order (`bin/hook.ts#hostDelivery` takes a list): the doctor notice first, because
+it has no other route to the owner; the registry line after it and only if the envelope
+still fits `ENVELOPE_MAX_CHARS`. The first cut joined them the other way round into one
+string, and the review measured the cost: at the 9,038-character wake the envelope's own
+comment records, a 173-character doctor notice fits alone and so does the registry line,
+but the two joined made a 9,616-character envelope, the whole notice was dropped, and the
+one line with nowhere else to go was lost (review M1). A line left out is reported as
+`dropped` (the `adapter.notice.dropped` ring event), and the registry line keeps its
+stderr copy for the log.
 
 ### Left for others
 
