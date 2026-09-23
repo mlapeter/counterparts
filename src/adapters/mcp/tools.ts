@@ -423,8 +423,9 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "A call that sets `handoff` and sends an EMPTY `memories` array is a success, not an error: nothing worth keeping is a real answer, and the answer says the handoff was written and that no memories were sent. Only a call that lands neither is refused.",
-      mechanizedBy: "src/adapters/mcp/server.ts#sessionEndTool (handoff-only)",
+        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing and is recorded against this session as answered, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
+      mechanizedBy:
+        "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew",
     },
   ],
   inputSchema: {
@@ -442,7 +443,8 @@ const SESSION_END: ToolSpec = {
       },
       memories: {
         type: "array",
-        description: "One entry per thing learned. An entry that is refused does not fail its siblings.",
+        description:
+          "One entry per thing learned — one idea each, in the words you would want to find it by again. Send `[]` when nothing here is worth keeping. An entry that is refused does not fail its siblings.",
         items: {
           type: "object",
           properties: {
@@ -457,7 +459,7 @@ const SESSION_END: ToolSpec = {
               minimum: 0,
               maximum: 1,
               description:
-                "Optional floor, 0-1. Omit it and an ordinary default floor applies; say a number and yours is kept.",
+                "Optional floor, 0-1. Omit it and an ordinary default floor applies; say a number and yours is kept. Set it on anything that should last: your claim is the only way what you lived outranks what a sweep noticed.",
             },
             relevance: {
               type: "number",
@@ -479,7 +481,8 @@ const SESSION_END: ToolSpec = {
             },
             updates: {
               type: "string",
-              description: "The id or handle of a memory this revises, if it revises one.",
+              description:
+                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`.",
             },
           },
           required: ["content"],

@@ -2230,11 +2230,20 @@ describe("hostDelivery — the notice's channel", () => {
     expect(out.stdout).toBe("recall");
   });
 
-  test("Stop keeps its blocking channel untouched", () => {
+  test("Stop keeps its blocking channel, and the notice never rides it", () => {
+    // stderr shape: the ask alone, exit 2 — exactly as before B1.
+    const legacy = hostDelivery("stop", { injection: null, ask: "write the episode" }, {}, "a notice", "stderr");
+    expect(legacy.stdout).toBe("");
+    expect(legacy.stderr).toBe("write the episode");
+    expect(legacy.exitCode).toBe(2);
+    // JSON shape (the default since B1): the Stop's own one line is the
+    // `systemMessage`, never the SessionStart notice.
     const out = hostDelivery("stop", { injection: null, ask: "write the episode" }, {}, "a notice");
-    expect(out.stdout).toBe("");
-    expect(out.stderr).toBe("write the episode");
-    expect(out.exitCode).toBe(2);
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout) as Record<string, unknown>;
+    expect(parsed["decision"]).toBe("block");
+    expect(parsed["reason"]).toBe("write the episode");
+    expect(parsed["systemMessage"]).not.toContain("a notice");
   });
 });
 

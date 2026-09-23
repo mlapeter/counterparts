@@ -40,6 +40,7 @@ import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
 import type { CredentialLoad } from "../credentials.js";
 import { HOOKS, openAdapter } from "../index.js";
+import { STOP_HUMAN_LINE } from "../hooks.js";
 import type { HookInput, HookName } from "../hooks.js";
 import {
   CONFIG_REFUSED,
@@ -81,6 +82,49 @@ export const HOST_SESSION_START = "SessionStart";
  * what gets dropped, never the memory. `counterparts doctor` still prints it.
  */
 export const ENVELOPE_MAX_CHARS = 9500;
+
+/**
+ * HOW A DUE STOP ASK LEAVES THIS PROCESS — two shapes behind one switch (B1,
+ * owner 2026-09-23), because what the host's terminal RENDERS for each is a
+ * question no agent can measure (`claude -p` draws no banner). The owner looks
+ * at one Stop in his own terminal and picks; the losing shape goes next round.
+ * The recipe is in `../NOTES.md` §"The Stop ask's two shapes".
+ *
+ *   - **`json`** (the default) — exit 0 and one JSON object on stdout:
+ *     `{"decision":"block","reason":<the model's ask>,"systemMessage":<the
+ *     person's line>}`. The host's reference: `reason` "Tells Claude why it
+ *     should continue"; `systemMessage` is a "Warning message shown to the
+ *     user". It also says a blocking `reason` is seen "as a warning in the
+ *     transcript" — so whether the person reads ONE line here or both is
+ *     exactly what the look is for.
+ *   - **`stderr`** — the channel proven on this host since day 0: the ask on
+ *     stderr, exit 2. The host shows it to the person as `Stop hook error:` and
+ *     hands the same text to the model. It has one channel, so the person
+ *     reads the model's two lines.
+ *
+ * Both BLOCK; both are refused on the host's re-fire (`stop_hook_active`).
+ *
+ * **The switch is a key in `claude-code.json`, not an environment variable**,
+ * because a hook process does not carry the login shell's environment on this
+ * host (measured day 0 of the parallel run; `config.ts#credentialsFile`), and
+ * because the file is re-read by every hook — so a flip takes effect at the next
+ * Stop with no restart. It is read here, beside the rest of `hostConfig`, and
+ * leniently ON PURPOSE: `"stderr"` in any case and with any surrounding spaces
+ * picks stderr (a person typing a preference by hand writes `"STDERR"` or
+ * `"stderr "`), and anything else — a typo, a number, nothing — is the default,
+ * because a display preference must not stand the adapter down to observer the
+ * way a typo in `dataDir` does.
+ */
+export const STOP_ASK_SHAPE_KEY = "stopAskShape";
+export type StopAskShape = "json" | "stderr";
+export const DEFAULT_STOP_ASK_SHAPE: StopAskShape = "json";
+
+/** The shape a parsed `claude-code.json` asks for. Total: never throws. */
+export function stopAskShapeOf(raw: unknown): StopAskShape {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_STOP_ASK_SHAPE;
+  const value = (raw as Record<string, unknown>)[STOP_ASK_SHAPE_KEY];
+  return typeof value === "string" && value.trim().toLowerCase() === "stderr" ? "stderr" : DEFAULT_STOP_ASK_SHAPE;
+}
 
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
 const HOST_HOOKS: Record<string, HookName> = {
@@ -129,7 +173,7 @@ async function readStdin(): Promise<string> {
 export function hostConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
+): { config: AdapterConfig; credentials: CredentialLoad; reason: string; stopAskShape: StopAskShape } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -154,6 +198,7 @@ export function hostConfig(
     config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() },
     credentials,
     reason: load.reason,
+    stopAskShape: stopAskShapeOf(raw),
   };
 }
 
@@ -596,11 +641,17 @@ async function runHook(
   // for one turn. So: one line, on SessionStart ONLY (UserPromptSubmit fires
   // every turn and this is a warning, not a nag), AFTER the `off` return above
   // so that the silence of an off directory stays byte-for-byte.
-  if (name === "session-start") {
-    const trouble = describeScopeTrouble(read, scopesPath(choice.path));
-    if (trouble !== null) process.stderr.write(`${trouble}\n`);
-  }
-  const { config: loaded, credentials, reason } = hostConfig(choice.path);
+  //
+  // AND WHERE THE OWNER CAN SEE IT (I40, 2026-09-23). stderr from a hook that
+  // exits 0 goes to the host's debug log and nowhere else, so this line was
+  // written for nobody. It now rides the SessionStart `systemMessage` — the
+  // channel the doctor notice already uses, and the one the owner's probe
+  // measured displaying (`SAYS_SO_HOOKS`) — AFTER that notice and only if it
+  // still fits (`hostDelivery`'s priority order). The stderr copy stays, for the
+  // debug log and for the morning the envelope has no room for it.
+  const trouble = name === "session-start" ? describeScopeTrouble(read, scopesPath(choice.path)) : null;
+  if (trouble !== null) process.stderr.write(`${trouble}\n`);
+  const { config: loaded, credentials, reason, stopAskShape } = hostConfig(choice.path);
   // THE THIRD ARM, and it is answered BEFORE anything reads under `dataDir`: a
   // named file that parses but whose fields do not typecheck resolves to
   // observer, and an observer with no `dataDir` reads the DEFAULT store.
@@ -692,8 +743,11 @@ async function runHook(
     // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`
     // is red-only, bounded, and returns null rather than throwing, so the line
     // below cannot change what the wake does on a healthy day.
-    const notice = name === "session-start" ? adapter.notice(input) : null;
-    const delivery = hostDelivery(name, result, payload, notice);
+    // In PRIORITY order (review M1): the doctor notice first, because it has no
+    // other route to the owner; the registry line second, because it also has
+    // stderr. A line that does not fit is left out, never the wake.
+    const notices = name === "session-start" ? [adapter.notice(input), trouble] : null;
+    const delivery = hostDelivery(name, result, payload, notices, stopAskShape);
     // A notice the envelope could not carry leaves a row rather than nothing:
     // "the terminal said nothing" and "there was nothing to say" are different
     // facts about the same morning (scar §2.4).
@@ -725,6 +779,11 @@ async function runHook(
  *     as "Stop hook feedback" and lets it continue. The host then re-fires Stop
  *     with `stop_hook_active: true`; that re-fire must ask NOTHING or the ask
  *     loops forever (v1's anti-loop, kept here for the same reason).
+ *     **Since B1 (2026-09-23) that is one of TWO shapes** (`StopAskShape`): the
+ *     default is the host's documented JSON decision — `decision: "block"`,
+ *     the model's ask as `reason`, one line for the person as `systemMessage`
+ *     — and stderr + exit 2 stays behind the switch until the owner has looked
+ *     at both.
  *
  * **The fourth channel, added 2026-09-14 for I32: `systemMessage`.** Documented
  * at https://code.claude.com/docs/en/hooks (formerly
@@ -748,7 +807,8 @@ export interface Delivery {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: 0 | 2;
-  /** Non-null when the notice was dropped to keep the wake whole. */
+  /** Non-null when a notice was left out to keep the wake whole — all of them,
+   *  or (with several) the lower ones that no longer fit. */
   readonly dropped: { readonly noticeChars: number; readonly envelopeChars: number; readonly limitChars: number } | null;
 }
 
@@ -756,30 +816,48 @@ export function hostDelivery(
   name: HookName,
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
-  /** The owner-facing warning, or null. Only SessionStart carries one. */
-  notice: string | null = null,
+  /**
+   * The owner-facing warning(s), or null. Only SessionStart carries any. A LIST
+   * is a priority order (review M1): each is added only while the envelope
+   * still fits, so a lower line can never cost a higher one its place.
+   */
+  notice: string | null | readonly (string | null)[] = null,
+  /** How a due Stop ask leaves (`STOP_ASK_SHAPE_KEY`). Ignored off Stop. */
+  stopShape: StopAskShape = DEFAULT_STOP_ASK_SHAPE,
 ): Delivery {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
     const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
-    if (name === "session-start" && notice !== null && notice.length > 0) {
-      const envelope = JSON.stringify({
-        systemMessage: notice,
-        hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
-      });
+    const notices = (typeof notice === "string" || notice === null ? [notice] : notice).filter(
+      (n): n is string => n !== null && n.length > 0,
+    );
+    if (name === "session-start" && notices.length > 0) {
+      const envelopeOf = (message: string): string =>
+        JSON.stringify({
+          systemMessage: message,
+          hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
+        });
       // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
       // whole string with a preview, the JSON would stop parsing, and the
       // session would start with no memory at all — a worse outcome than not
       // seeing the warning, which `counterparts doctor` prints on request.
-      if (envelope.length > ENVELOPE_MAX_CHARS) {
-        return {
-          stdout: out,
-          stderr: "",
-          exitCode: 0,
-          dropped: { noticeChars: notice.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS },
-        };
+      // And the notices go in in the order given, each only if it still fits.
+      const kept: string[] = [];
+      const left: string[] = [];
+      for (const n of notices) {
+        if (envelopeOf([...kept, n].join("\n")).length <= ENVELOPE_MAX_CHARS) kept.push(n);
+        else left.push(n);
       }
-      return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
+      const dropped =
+        left.length === 0
+          ? null
+          : {
+              noticeChars: left.join("\n").length,
+              envelopeChars: envelopeOf(notices.join("\n")).length,
+              limitChars: ENVELOPE_MAX_CHARS,
+            };
+      if (kept.length === 0) return { stdout: out, stderr: "", exitCode: 0, dropped };
+      return { stdout: envelopeOf(kept.join("\n")), stderr: "", exitCode: 0, dropped };
     }
     return { stdout: out, stderr: "", exitCode: 0, dropped: null };
   }
@@ -788,7 +866,18 @@ export function hostDelivery(
   if (payload["stop_hook_active"] === true || ask === null) {
     return { stdout: "", stderr: "", exitCode: 0, dropped: null };
   }
-  return { stdout: "", stderr: ask, exitCode: 2, dropped: null };
+  if (stopShape === "stderr") return { stdout: "", stderr: ask, exitCode: 2, dropped: null };
+  // EXIT 0, because the JSON is the decision: the host reads stdout as JSON on
+  // every exit code, but exit 2 would make STDERR the blocking message and
+  // turn this back into the other shape. One line, no trailing newline, so the
+  // whole of stdout is the object. The ask is ~430 characters, far inside the
+  // host's 10,000-character cap on a `reason`.
+  return {
+    stdout: JSON.stringify({ decision: "block", reason: ask, systemMessage: STOP_HUMAN_LINE }),
+    stderr: "",
+    exitCode: 0,
+    dropped: null,
+  };
 }
 
 /** True only when this file is the process entry point — so a test may import

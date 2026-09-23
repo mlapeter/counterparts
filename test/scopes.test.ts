@@ -663,6 +663,12 @@ describe("a registry that could not be read says so, where somebody can read it"
       expect(`${label}: ${r.stderr}`).toContain("[counterparts] scope registry");
       expect(`${label}: ${r.stderr}`).toContain(scopesFile);
       expect(`${label}: ${r.stderr}`).toContain("reads as unset (on)");
+      // I40 (2026-09-23): stderr at exit 0 reaches only the host's debug log,
+      // so the same line now rides the SessionStart `systemMessage`, which the
+      // terminal shows. The stderr copy above stays for the log.
+      const said = String((JSON.parse(r.stdout) as Record<string, unknown>)["systemMessage"]);
+      expect(`${label}: ${said}`).toContain("[counterparts] scope registry");
+      expect(`${label}: ${said}`).toContain(scopesFile);
       // The hook still WORKS — the line is a warning, never a stand-down (§5 G2).
       expect(`${label}: ${r.stdout}`).toContain("has not lived a boundary");
       // ONE event only. `UserPromptSubmit` fires every turn, and a line per turn
@@ -698,6 +704,7 @@ describe("a registry that could not be read says so, where somebody can read it"
     const loud = runHook("SessionStart", "ordinary-session", unset);
     expect(loud.code).toBe(0);
     expect(loud.stderr).toContain(join(work, "typo"));
+    expect(String((JSON.parse(loud.stdout) as Record<string, unknown>)["systemMessage"])).toContain(join(work, "typo"));
     expect(loud.stderr).toContain("IGNORED");
     expect(loud.stdout).toContain("has not lived a boundary");
     // The durable half, on the row this session-start already writes.

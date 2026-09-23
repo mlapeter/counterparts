@@ -804,25 +804,35 @@ describe("the field on the session_end ask", () => {
     expect(s.counterpart.readHandoff(HERE)).toBeNull();
   });
 
-  test("NEITHER is still refused — an empty list on its own asks for nothing", async () => {
+  test("an empty list on its own is 'nothing new' — an ANSWER since B1 (2026-09-23); leaving the field out still is not", async () => {
     const s = mcp();
     const result = await s.call("session_end", { session: SESSION, memories: [] });
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBeUndefined();
     const out = payload(result);
-    expect(out["reason"]).toBe("memories-required");
+    expect(out["reason"]).toBe("nothing-new");
+    expect(out["deposited"]).toBe(0);
     expect(out["handoff"]).toBeUndefined();
+    // NEITHER — no memories field and no handoff — is still refused.
+    const missing = await s.call("session_end", { session: SESSION });
+    expect(missing.isError).toBe(true);
+    expect(payload(missing)["reason"]).toBe("memories-required");
   });
 
-  test("a REFUSED handoff with no memories is still memories-required — nothing landed", async () => {
+  test("a REFUSED handoff with an empty list: the empty list is still the answer, and the refusal rides beside it", async () => {
     // The store's own directory is the one scope a handoff may not have, so
-    // this is a handoff that was SENT and did not land. Nothing landed at all,
-    // so the refusal stands and the handoff's outcome rides out on it.
+    // this is a handoff that was SENT and did not land. Since B1's review (M2)
+    // `memories: []` is "nothing new" whatever happened to the handoff: the
+    // reason names the answer, not a field the caller did send, and `isError`
+    // says something sent did not land.
     const s = mcp({ scope: dir });
     const result = await s.call("session_end", { session: SESSION, memories: [], handoff: BODY });
     expect(result.isError).toBe(true);
     const out = payload(result);
-    expect(out["reason"]).toBe("memories-required");
+    expect(out["reason"]).toBe("nothing-new");
     expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("no-scope");
+    // Leaving `memories` OUT with a refused handoff has answered nothing.
+    const missing = payload(await s.call("session_end", { session: SESSION, handoff: BODY }));
+    expect(missing["reason"]).toBe("memories-required");
   });
 
   test("a server the host named no directory for writes none — a pointer for everywhere is for nowhere", async () => {

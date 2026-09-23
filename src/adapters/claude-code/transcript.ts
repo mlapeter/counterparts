@@ -56,6 +56,15 @@
  *   visible. A `Stop hook feedback:` block carrying a v1 marker is still
  *   `foreign` — foreign is checked first, so the canary's agreement holds.
  *
+ *   **B1 — on the user side, pacing counts what the PERSON typed, decided from
+ *   the entry's own metadata first** (2026-09-23; the assistant's replies pace
+ *   as they always did). A subagent's hand-back and a task notification arrive
+ *   user-role and read like conversation; both paced the Stop ask as if the
+ *   owner had spoken. The host marks who wrote a line —
+ *   `origin.kind`, `isMeta`, `isCompactSummary` — so `entryAuthor` reads that,
+ *   and the text markers above only decide for an entry that carries none. The
+ *   refusals (`foreign`, `ritual`) still come first, whatever the metadata says.
+ *
  * Nothing here throws. A transcript we cannot read yields no turns, which costs
  * a boundary's capture; a transcript that throws would cost the session.
  *
@@ -88,6 +97,40 @@ import type { Turn, TurnSource } from "../../core/remember/index.js";
  */
 const INJECTED =
   /<(system-reminder|command-name|command-message|local-command-stdout|cross-session-[a-z-]+)\b/i;
+
+/**
+ * HOST FRAMES, for a USER-ROLE entry that carries no metadata to say who wrote
+ * it (2026-09-23, B1). Every one is ANCHORED at the start of the block, like
+ * `STOP_HOOK_FEEDBACK`: a line that merely mentions `<agent-message>` or a
+ * hook mid-sentence is somebody talking about the mechanism, and a person's
+ * words are the thing this reader may least afford to misfile (review m1). They
+ * are never applied to the assistant's text (review m2) — `classifyBlock`, the
+ * rule both roles share, is master's and unchanged. Every one is host-written:
+ *
+ *   - `<task-notification>`, `<agent-message …>`, `<bash-stdout>`,
+ *     `<bash-stderr>`, `<local-command-caveat>` — wrappers the host puts at the
+ *     very start of the line;
+ *   - `Another Claude session sent a message:` — how 2.1.28x delivers a
+ *     subagent's hand-back (the `<agent-message …>` wrapper follows it);
+ *   - `[Subagent hand-back]` — the same hand-back's own opening line;
+ *   - `[Request interrupted by user…]` — the host's marker for an interrupt;
+ *   - `<Event> hook success:` / `… hook additional context:` / `… hook system
+ *     message:` — how the host RENDERS hook output to the model. In the file
+ *     these are `attachment` entries, which carry no role and never reach this
+ *     reader; the anchor is here in case a build ever writes one as user text.
+ *     `hook error` is deliberately NOT here: it is what a person types when
+ *     their own hook breaks.
+ *
+ * `Stop hook feedback:` is not in this list on purpose: `classifyBlock` checks
+ * it earlier, as `ritual`, because what it carries is this adapter's own ask.
+ */
+const HOST_FRAMES: readonly RegExp[] = [
+  /^<(?:task-notification|agent-message|bash-stdout|bash-stderr|local-command-caveat)\b/i,
+  /^Another Claude session sent a message:/,
+  /^\[Subagent hand-back\]/,
+  /^\[Request interrupted by user/,
+  /^[A-Z][A-Za-z]+ hook (?:success|additional context|system message):/,
+];
 
 /**
  * The host's blocking-Stop channel, which returns a hook's own stderr to the
@@ -206,6 +249,80 @@ export function classifyBlock(text: string): TurnSource {
   return INJECTED.test(text) ? "injected" : "conversation";
 }
 
+/** True when a user-role block with no metadata opens with a host frame. */
+function hostFramed(text: string): boolean {
+  const probe = text.trimStart();
+  return HOST_FRAMES.some((frame) => frame.test(probe));
+}
+
+/**
+ * WHO WROTE A LINE, AS THE TRANSCRIPT ENTRY ITSELF SAYS (2026-09-23, B1).
+ *
+ * Measured on Claude Code 2.1.28x, across every transcript on the owner's
+ * machine (shapes only; `NOTES.md` §"What the host writes user-role"):
+ *
+ *   - **typed by the person** — `origin: { kind: "human" }`, with `promptSource`
+ *     `typed`, `queued`, `suggestion_accepted` (and `sdk` with no origin for a
+ *     headless prompt, which is also the person). Pasted text is part of the
+ *     typed entry and IS the person;
+ *   - **a subagent's hand-back** — `isMeta: true`, `origin: { kind: "peer" }`,
+ *     text `Another Claude session sent a message:\n<agent-message …>`;
+ *   - **a task notification** — `origin: { kind: "task-notification" }` and NO
+ *     `isMeta`, so only the origin catches it;
+ *   - **hook feedback, `/context` output, image captions, skill bodies, the
+ *     local-command caveat, the idle notice** — `isMeta: true`;
+ *   - **the compaction summary** — `isCompactSummary: true`;
+ *   - **an API error the host wrote as the assistant** — `isApiErrorMessage`,
+ *     `model: "<synthetic>"`.
+ *
+ * `human` and `host` are the two answers metadata can give; `unknown` is an
+ * entry that carries none of it (an older build, a slash-command echo, a
+ * `!`-command's output), and there the text markers decide, as they always did.
+ */
+export type EntryAuthor = "human" | "host" | "unknown";
+
+export function entryAuthor(entry: Record<string, unknown>, role: "user" | "assistant"): EntryAuthor {
+  if (role === "assistant") {
+    const message = entry["message"] as Record<string, unknown> | undefined;
+    if (entry["isApiErrorMessage"] === true || message?.["model"] === "<synthetic>") return "host";
+    return "unknown";
+  }
+  if (entry["isMeta"] === true || entry["isCompactSummary"] === true) return "host";
+  const origin = entry["origin"];
+  if (origin !== null && typeof origin === "object" && !Array.isArray(origin)) {
+    const kind = (origin as Record<string, unknown>)["kind"];
+    if (typeof kind === "string") return kind === "human" ? "human" : "host";
+  }
+  return "unknown";
+}
+
+/**
+ * THIS ADAPTER'S OWN STOP ASK, recognised by its first words (2026-09-23, B1).
+ * The ask now reaches the model either as exit-2 stderr or as a JSON `reason`
+ * (`bin/hook.ts#hostDelivery`), and the host documents the two as routed the
+ * same way — measured for stderr only, as `Stop hook feedback:` on an
+ * `isMeta` entry. Should the JSON route ever be written WITHOUT that prefix,
+ * the metadata rule would call the block `injected` and our own wording would
+ * enter capture (CONTRACT §5 G11). So a block the HOST wrote (`entryAuthor` ⇒
+ * `host`) that opens with the ask's own first words — bare, or behind a hook
+ * frame (`OWN_ASK`) — is `ritual` too. Only a host-written one: an entry with no
+ * metadata may be the person, and the person quoting the ask back is
+ * conversation (review m1). The assistant's own text is never tested (m2).
+ */
+export const STOP_ASK_OPENER = "Counterparts, before this session closes:";
+
+/**
+ * The opener, bare or behind whatever frame the host puts in front of a hook's
+ * blocking message: `<Event> hook <word>:`, an optional bullet, an optional
+ * `["<command>"]: `. Measured for one frame only (`Stop hook feedback:\n["…"]: `);
+ * how a JSON `reason` comes back is NOT measured, and the docs call a block a
+ * "hook error", so the frame word is left open rather than guessed. Anchored at
+ * the start, so a hand-back that merely QUOTES the ask stays `injected`.
+ */
+const OWN_ASK = new RegExp(
+  `^(?:[A-Z][A-Za-z]+ hook [A-Za-z ]+:\\s*(?:-\\s*)?(?:\\[[^\\n]*?\\]:\\s*)?)?${STOP_ASK_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+);
+
 /**
  * One deliberate-recall tool call, as evidence for reference resolution
  * (recall CONTRACT §9.2). `atTurn` is the index of the NEXT conversational
@@ -225,7 +342,7 @@ export interface TranscriptRead {
   readonly turns: Turn[];
   readonly ok: boolean;
   readonly reason: "read" | "absent" | "unreadable";
-  /** Lines that were not JSON. Counted, never silently swallowed (scar §2.4). */
+  /** Lines that were not a JSON object. Counted, never silently swallowed (scar §2.4). */
   readonly corrupt: number;
   /** Deliberate-recall calls, in order, positioned against `turns`. */
   readonly expansions: Expansion[];
@@ -264,6 +381,11 @@ export function readTranscript(path: string | undefined): TranscriptRead {
   return parseTranscript(raw);
 }
 
+/** A parsed line that can be read as an entry: a plain object, nothing else. */
+function isEntry(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Exported so the parse is testable without a file (and it is the whole rule). */
 export function parseTranscript(raw: string): TranscriptRead {
   const turns: Turn[] = [];
@@ -278,11 +400,20 @@ export function parseTranscript(raw: string): TranscriptRead {
       corrupt += 1;
       continue;
     }
+    // A line that parses to something that is not an object (`null`, a number,
+    // an array) is not an entry, and reading a field off it would THROW — the
+    // one thing this file promises not to do (review m5; master had the same
+    // hole). Counted with the unparseable lines, never silently swallowed.
+    if (!isEntry(entry)) {
+      corrupt += 1;
+      continue;
+    }
     const message = entry["message"] as Record<string, unknown> | undefined;
     const role = (message?.["role"] ?? entry["role"]) as unknown;
     if (role !== "user" && role !== "assistant") continue;
     const content = message?.["content"] ?? entry["content"];
-    for (const piece of blocksOf(content, role)) {
+    const author = entryAuthor(entry, role);
+    for (const piece of blocksOf(content, role, author)) {
       // A recall call is the assistant's turn, kept as EVIDENCE beside the
       // turn list rather than in it (see `Expansion`). Only the assistant
       // calls tools; a user-role block never carries one.
@@ -309,18 +440,48 @@ type Piece = { text: string; source: TurnSource; expansion?: string[] };
  * in this session spoke). A MIXED block stays `conversation`: the owner did
  * speak in that turn, and the label separates the two voices inside it.
  */
-function pieceOf(text: string, role: "user" | "assistant"): Piece {
+function pieceOf(text: string, role: "user" | "assistant", author: EntryAuthor): Piece {
+  // Master's rule, shared by both roles and unchanged: foreign → ritual →
+  // injected → conversation, from the text alone.
   const source = classifyBlock(text);
-  if (role !== "user" || source === "foreign" || source === "ritual") return { text, source };
+  // THE ORDER IS THE RULE (B1). The two refusals come first whatever the
+  // metadata says: an `isMeta` Stop-hook block read as `injected` would ENTER
+  // capture, which is G11 broken by a step meant only to keep it out of pacing.
+  if (source === "foreign" || source === "ritual") return { text, source };
+  // THE ASSISTANT'S TEXT IS NEVER RECLASSIFIED BY A MARKER (review m2): its own
+  // replies pace and earn recall credit exactly as on master. The one change is
+  // an entry the host SYNTHESISED as the assistant (an API error), which the
+  // metadata names.
+  if (role !== "user") return { text, source: author === "host" ? "injected" : source };
+  if (author === "host") {
+    if (OWN_ASK.test(text.trimStart())) return { text, source: "ritual" };
+    // Kept in capture — a hand-back or a notification is real experience — and
+    // out of pacing, because nobody in this session typed it. The peer rewrite
+    // still applies, so a wrapper is labelled rather than read as the owner.
+    const attributed = attributePeers(text);
+    return { text: attributed.peers > 0 ? attributed.text : text, source: "injected" };
+  }
+  // The person typed it. Metadata answers, and the text markers — which exist
+  // for entries that carry none — do not get a second vote: a pasted
+  // `<system-reminder>` is still something the person pasted. A block that is
+  // NOTHING but a peer wrapper is still `injected` whatever the entry claims —
+  // the peer rule predates the metadata and is kept whole.
+  if (author === "human") {
+    const attributed = attributePeers(text);
+    const peerOnly = attributed.peers > 0 && !attributed.ownerText;
+    return { text: attributed.text, source: peerOnly ? "injected" : "conversation" };
+  }
+  // No metadata: master's rule, plus the anchored host frames.
+  if (source === "conversation" && hostFramed(text)) return { text, source: "injected" };
   const attributed = attributePeers(text);
   if (attributed.peers === 0) return { text, source };
   return { text: attributed.text, source: attributed.ownerText ? "conversation" : "injected" };
 }
 
 /** One transcript entry's content, flattened into typed pieces. */
-function blocksOf(content: unknown, role: "user" | "assistant"): Piece[] {
+function blocksOf(content: unknown, role: "user" | "assistant", author: EntryAuthor): Piece[] {
   if (typeof content === "string") {
-    return [pieceOf(content, role)];
+    return [pieceOf(content, role, author)];
   }
   if (!Array.isArray(content)) return [];
   const out: Piece[] = [];
@@ -329,7 +490,7 @@ function blocksOf(content: unknown, role: "user" | "assistant"): Piece[] {
     const b = block as Record<string, unknown>;
     const type = b["type"];
     if (type === "text" && typeof b["text"] === "string") {
-      out.push(pieceOf(b["text"], role));
+      out.push(pieceOf(b["text"], role, author));
       continue;
     }
     // Everything below is the DECLARED blind spot, tagged rather than dropped
@@ -629,6 +790,10 @@ export function readWakeArrival(
     try {
       entry = JSON.parse(line) as Record<string, unknown>;
     } catch {
+      corrupt += 1;
+      continue;
+    }
+    if (!isEntry(entry)) {
       corrupt += 1;
       continue;
     }

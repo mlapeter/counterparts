@@ -64,6 +64,7 @@ import {
   SESSION_TTL_MS,
   canonicalScope,
   isLive,
+  markNothingNew,
   readSession,
   sameScope,
 } from "../sessions.js";
@@ -1099,15 +1100,44 @@ export class McpServer {
     //     before. So is a `memories` that is not an array: a caller who sent the
     //     wrong TYPE wants to be told, and the field is still `required` in the
     //     published schema.
+    //
+    // AND A FOURTH, 2026-09-23 (B1, owner's decision 4): `memories: []` is
+    // "nothing new" WHATEVER happened to the handoff — accepted, minting
+    // nothing, and RECORDED, so an honest empty answer is no longer the same
+    // silence as no answer at all. Only an explicit empty ARRAY: a call that
+    // left the field out has not answered anything, and stays
+    // `memories-required`.
+    //
+    // A handoff that came with it rides out beside the answer, whatever its
+    // outcome (review M2: a refused handoff used to turn the whole call into
+    // `memories-required`, naming a field the caller HAD sent — new-user
+    // finding #12's mechanism, reopened). `nothing-to-clear` — `handoff: ""`
+    // where no pointer stands — is a no-op, not an error: the field's own
+    // description invites `""` exactly when the work is finished. Any other
+    // refusal (`too-large`, `not-text`, `no-scope`, …) sets `isError`, because
+    // something the caller sent did not land and resending it can fix that —
+    // but the reason stays `nothing-new` and the answer is recorded either way.
+    //
+    // The record is a mark on the session's registry entry (`nothingNewAt`),
+    // not a durable event row: a new durable event NAME is a core change
+    // (`AdapterDurableEventName`), and the registry is where "did this session
+    // answer" is already read from. Every success with no memories leaves it,
+    // handoff-only included. It does not move pacing and does not need to — the
+    // pacer advanced when the ask went out (`self/index.ts#openChapter`).
     const session = this.session as string;
     const landed = handoff !== null && handoff["written"] === true;
     const noMemories = raw === undefined || (Array.isArray(raw) && raw.length === 0);
-    if (landed && noMemories) {
+    const emptyList = Array.isArray(raw) && raw.length === 0;
+    if ((landed && noMemories) || emptyList) {
+      const marked = markNothingNew(this.registryDir, session, this.nowFn()) !== null;
+      const handoffFailed = handoff !== null && !landed && handoff["reason"] !== "nothing-to-clear";
       this.emit("mcp.session_end", session, {
         entries: 0,
         deposited: 0,
         refused: 0,
-        handoff: true,
+        handoff: landed,
+        nothingNew: true,
+        recorded: marked,
       });
       return this.result(
         {
@@ -1116,10 +1146,14 @@ export class McpServer {
           deposited: 0,
           refused: 0,
           outcomes: [],
-          reason: "handoff-only",
-          handoff,
+          reason: landed ? "handoff-only" : "nothing-new",
+          // Whether the answer reached the session's record. `false` means the
+          // registry could not be written (or the record was pruned): the
+          // answer still stands, and the caller can see it was not kept.
+          recorded: marked,
+          ...(handoff === null ? {} : { handoff }),
         },
-        false,
+        handoffFailed,
       );
     }
     if (!Array.isArray(raw) || raw.length === 0) {
