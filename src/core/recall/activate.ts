@@ -43,7 +43,8 @@ import type { Hit, ProseDoc, Store } from "../store/index.js";
 import { confidentialByMeta, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
-import type { RecallTunables } from "./tunables.js";
+import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
+import { semanticTuning } from "./tunables.js";
 
 export interface Candidate {
   readonly id: string;
@@ -124,6 +125,12 @@ export interface ActivationResult {
    *  hashed surface set the parallel run carries ratings across, and a new
    *  column there would invalidate a live instrument mid-run. */
   readonly capped: number;
+  /**
+   * Which semantic calibration this pass used — the recorded identity, the path,
+   * and the floor/weight `semanticTuning` chose — or null when no semantic input
+   * came at all. Reported, not recorded (the same reason as `capped`).
+   */
+  readonly semantic: { identity: string | null; path: SemanticPath; floor: number; weight: number } | null;
 }
 
 /**
@@ -361,13 +368,20 @@ export function activate(
       : input.vector !== undefined && input.vector.length > 0
         ? store.nearestTo(input.vector, t.SEMANTIC_TOP_M)
         : null;
+  // PER-EMBEDDER, PER-PATH (2026-09-23): the floor and weight are chosen for
+  // the model box 3 RECORDS, at query time, on the path this ranking came by —
+  // a static table's cosines sit lower and closer together than Voyage's, and
+  // a lagged cue can be about the previous subject (`tunables.ts`).
+  const path: SemanticPath = input.hits !== undefined ? "lagged" : "inline";
+  const identity = recordedIdentity(store);
+  const tuning: SemanticTuning = semanticTuning(t, identity, path);
   if (ranked !== null) {
     if (ranked.length === 0) semanticDegraded = true;
-    const floor = t.SEMANTIC_SEED_FLOOR;
+    const floor = tuning.floor;
     for (const h of ranked.slice(0, t.SEMANTIC_TOP_M)) {
       if (h.score < floor) continue;
       const scaled = floor >= 1 ? h.score : (h.score - floor) / (1 - floor);
-      semScore.set(h.id, t.SEMANTIC_WEIGHT * scaled);
+      semScore.set(h.id, tuning.weight * scaled);
     }
   }
 
@@ -517,5 +531,29 @@ export function activate(
     skipped,
     semanticDegraded,
     capped,
+    semantic: ranked === null ? null : { identity, path, floor: tuning.floor, weight: tuning.weight },
   };
+}
+
+/**
+ * The identity box 3 records for its vectors, as this store handle knows it:
+ * the tag its open reconciled (`match`, `tagged`, `reset`). Anything else — no
+ * identity on the handle, a hold, a newer build's cache, a deferred decision —
+ * is `null`, and the defaults apply; in the hold and ahead cases the ranking is
+ * empty anyway (`Store.rankable`). The store re-reads the file's claim on every
+ * ranking, so a tag that changed under a long-lived handle yields no hits
+ * rather than hits scaled by the wrong model's calibration.
+ */
+export function recordedIdentity(store: Store): string | null {
+  const v = store.embedderVerdict;
+  switch (v.kind) {
+    case "match":
+      return v.tag;
+    case "tagged":
+      return v.tag;
+    case "reset":
+      return v.to;
+    default:
+      return null;
+  }
 }

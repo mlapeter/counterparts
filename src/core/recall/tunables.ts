@@ -14,6 +14,33 @@
  * the observer refusal.
  */
 
+/** One embedder's semantic-channel calibration on one recall path. */
+export interface SemanticTuning {
+  /** Cosine below this is not a seed at all; above it, `(score − floor) / (1 − floor)`. */
+  readonly floor: number;
+  /** Multiplier on that scaled score — the channel's weight against the cue channel. */
+  readonly weight: number;
+}
+
+/**
+ * The two recall paths, and why they are calibrated apart (measured, 2026-09-23):
+ *
+ *   - `inline` — the DELIBERATE path: the caller embedded THIS text and hands
+ *     the vector in (the MCP `recall` tool). The ranking is of the question
+ *     itself, so a low floor mostly adds the right memory.
+ *   - `lagged` — the PER-TURN path: the hook never embeds the turn it is
+ *     answering; the worker ranked the PREVIOUS exchange, and that ranking is
+ *     this turn's cue (`session.ts`). When the conversation has moved on, every
+ *     lagged hit is about the last subject, so the same floor costs differently.
+ */
+export type SemanticPath = "inline" | "lagged";
+
+/** A per-path calibration for one embedder identity. */
+export interface SemanticProfile {
+  readonly inline: SemanticTuning;
+  readonly lagged: SemanticTuning;
+}
+
 export interface RecallTunables {
   // ── cue extraction ───────────────────────────────────────────────────────
   /** Minimum cue token length. Shorter tokens are noise, not names. [v1: 3] */
@@ -61,6 +88,19 @@ export interface RecallTunables {
   SEMANTIC_SEED_FLOOR: number;
   /** Nearest-neighbour slice pulled from the vector index. [v1 top-M: 8] CAL. */
   SEMANTIC_TOP_M: number;
+  /**
+   * PER-EMBEDDER, PER-PATH floor and weight, keyed by the identity box 3
+   * RECORDS for its vectors (`cache_meta.embedder`, cache v5): the exact tag
+   * (`potion-base-8M@256`) first, then its model alone (`voyage-3-large`, which
+   * also answers `voyage-3-large@1024`). An identity with no entry — an unknown
+   * table, a store with no tag, a handle with no identity — gets
+   * `SEMANTIC_SEED_FLOOR` / `SEMANTIC_WEIGHT`, the values every store had
+   * before this table existed. Looked up at QUERY time from the store the
+   * ranking reads (`activate.ts`), never from configuration: the cosines being
+   * scaled are the recorded model's, whatever a config file now says. CAL —
+   * `tools/bench/embedder-trial.ts`, `docs/research/static-embedder-trial-2026-09-23.md`.
+   */
+  SEMANTIC_BY_IDENTITY: Readonly<Record<string, SemanticProfile>>;
   /** Weight on base-level activation (strength). The recency/arrival channel:
    *  it can make a memory warm, never loud. [v1: 0.15] CAL. */
   ARRIVAL_WEIGHT: number;
@@ -200,6 +240,32 @@ export const TUNABLES: RecallTunables = {
   SEMANTIC_WEIGHT: 1.0,
   SEMANTIC_SEED_FLOOR: 0.45,
   SEMANTIC_TOP_M: 8,
+  // PER-EMBEDDER, PER-PATH (CAL, 2026-09-23, keyless/recall-tune). Chosen from
+  // `tools/bench/embedder-trial.ts`: 5 reseeds of the synthetic persona, 30
+  // paraphrase + 10 lexical queries, a 48-cell grid then a 36-cell refinement
+  // (`docs/research/static-embedder-trial-2026-09-23.md`, "2026-09-23 retune").
+  //
+  //   potion-base-8M@256, INLINE 0.15 / 6 — the deliberate path's best cell with
+  //     no delivery lost: paraphrase targets delivered 11/30 against lexical-only's
+  //     6 (MRR 0.211 vs 0.169), lexical 10/10, ~7 rank slips among undelivered
+  //     targets, items per turn 4.90 → 5.03. One step past it loses a delivery
+  //     (weight 7; floor 0.08 at weight 6), so it sits at the edge the bench can see.
+  //   potion-base-8M@256, LAGGED 0.08 / 2 — lower weight, because on this path the
+  //     cue can be about the PREVIOUS subject: on-topic within two turns 10/30
+  //     against 8.6, and on a topic change 0 targets lost, 0 stale intrusions,
+  //     turn-2 items 4.20 → 4.05. The deliberate choice (0.15 / 6) run as a lag
+  //     loses a topic-changed turn's target and brings 3 stale items; floor 0 at
+  //     weight 6 loses one and brings 4, at weight 8 loses one and brings 6.
+  //   voyage-3-large — UNMEASURED (no key in the bench; the seat is frozen): the
+  //     values every Voyage store has always had, pinned here so the fallback is
+  //     not the only thing standing between a paid store and a new default.
+  //
+  // One synthetic persona with builder-written queries is a first measurement,
+  // not a calibration; the recall-bench's labelled real prompts should re-earn it.
+  SEMANTIC_BY_IDENTITY: {
+    "potion-base-8M@256": { inline: { floor: 0.15, weight: 6 }, lagged: { floor: 0.08, weight: 2 } },
+    "voyage-3-large": { inline: { floor: 0.45, weight: 1.0 }, lagged: { floor: 0.45, weight: 1.0 } },
+  },
   ARRIVAL_WEIGHT: 0.15,
 
   // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs
@@ -315,6 +381,23 @@ export const TUNABLES: RecallTunables = {
 
 export function withTunables(overrides: Partial<RecallTunables> = {}): RecallTunables {
   return { ...TUNABLES, ...overrides };
+}
+
+/**
+ * The floor and weight for THIS store's recorded embedder on THIS path: the
+ * exact identity tag, then its model alone, then the global defaults. `identity`
+ * is what box 3 records (`recordedIdentity` in `activate.ts`), never a
+ * configured one.
+ */
+export function semanticTuning(t: RecallTunables, identity: string | null, path: SemanticPath): SemanticTuning {
+  const table = t.SEMANTIC_BY_IDENTITY;
+  if (identity !== null) {
+    const at = identity.lastIndexOf("@");
+    const model = at > 0 ? identity.slice(0, at) : identity;
+    const profile = Object.hasOwn(table, identity) ? table[identity] : Object.hasOwn(table, model) ? table[model] : undefined;
+    if (profile !== undefined) return profile[path];
+  }
+  return { floor: t.SEMANTIC_SEED_FLOOR, weight: t.SEMANTIC_WEIGHT };
 }
 
 /**
