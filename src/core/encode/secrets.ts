@@ -40,9 +40,19 @@ export interface SecretPattern {
   /**
    * Redact every OTHER occurrence of a value this pattern captured, anywhere in
    * the text. For a credential caught by its context — a name, a nearby key id
-   * — whose second copy has no context of its own (PR #189 review, M3).
+   * — whose second copy has no context of its own (PR #189 review, M3; for
+   * every family that has a name, re-review R4). See `propagatable`.
    */
   propagate?: boolean;
+  /**
+   * The false-positive guard that a regular expression cannot say clearly: a
+   * match whose VALUE is a setting rather than a secret — a small number, a
+   * boolean, a code reference, a type annotation — is left exactly as it was
+   * and not counted (re-review R6). Given the value, the whole match and the
+   * NAME it was caught under. It can only ever make the gate redact LESS for a
+   * match its own family already made, never skip a family.
+   */
+  skip?: (value: string, match: string, name: string) => boolean;
   /** Why this family exists — lineage where there is any. */
   why: string;
 }
@@ -73,7 +83,10 @@ const SCHEME_TAIL = "[a-z0-9+.-]{0,32}";
  * leading `/` is NOT excluded, because one real secret in 64 begins with one.
  */
 const AWS_SECRET_SHAPE =
-  "(?<![A-Za-z0-9/+=~.])" +
+  // Fenced by "no base64 character, `~` or `.` before" — OR straight after an
+  // `identifier=`, so `key=S` and `sk=S` beside a key id are the pair's first
+  // copy too (re-review R2).
+  "(?:(?<![A-Za-z0-9/+=~.])|(?<=(?:^|[^A-Za-z0-9/+=~.])[A-Za-z_][A-Za-z0-9_]{0,40}=))" +
   NOT_REDACTED +
   "(?!/(?:Users|home|usr|var|tmp|opt|etc|private|Volumes|mnt|srv|root|Library|Applications|System)/)" +
   "(?=[A-Za-z0-9/+=]{0,39}[A-Z])(?=[A-Za-z0-9/+=]{0,39}[a-z])(?=[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]))";
@@ -83,13 +96,60 @@ const AWS_SECRET_TOKEN_BEFORE_ID =
   AWS_SECRET_SHAPE + "([A-Za-z0-9/+=]{40})(?=[\\s\\S]{0,200}\\[REDACTED:aws-access-key-id\\])";
 
 /**
- * A value that is a small number, a boolean or a null word is a SETTING, not a
- * credential — `TOKEN_LIMIT: "4096"`, `SECRET="false"` — and is left alone by
- * the catch-all below. Six digits or more under a password-shaped name is still
- * redacted: a numeric password or a PIN is a credential.
+ * IS THIS VALUE A SETTING RATHER THAN A SECRET? The catch-all's guard (review M5,
+ * re-review R6), in code rather than in a lookahead nobody could read:
+ *
+ *   - a boolean or a null word (`true`, `none`, `undefined`, …);
+ *   - a NUMBER — except under a password-shaped name, where six digits or more
+ *     is a PIN or a numeric password and stays redacted (`input_token = 123456`
+ *     is a setting; `DB_PASSWORD=12345678` is not);
+ *   - unquoted, a CODE REFERENCE: a dotted, indexed or called identifier
+ *     (`self._refresh`, `settings.DB_PASSWORD`, `Optional[str]`,
+ *     `os.environ["X"]`) — a real secret has no `.x` attribute and no brackets;
+ *   - unquoted and after a `:`, a TYPE NAME: a builtin (`str`, `bytes`, …), a
+ *     pydantic secret type, or a CamelCase word of letters only (`SecretStr`) —
+ *     `db_password: SecretStr` is an annotation. After `=` the CamelCase rule
+ *     does not apply: a bare word assigned is a value.
+ *
+ * It can only make a family redact LESS on a match that family already made.
  */
-const NOT_A_PLAIN_VALUE =
-  "(?![\"']?(?:\\d{1,5}|true|false|null|none|nil|yes|no|on|off|undefined)[\"']?(?![^\\s,;}\\])]))";
+const PLAIN_WORDS = /^(?:true|false|null|none|nil|yes|no|on|off|undefined)$/i;
+// The first identifier carries no digit (`self`, `os`, `settings`, `config`) — a
+// password like `hunter2.x` is not taken for a reference — and a trailing `[` or
+// `(` is allowed because the value class stops at a quote (`os.environ["X"]`).
+const CODE_REFERENCE =
+  /^[A-Za-z_$][A-Za-z_$]*(?:(?:(?:\.|::|->)[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]\n]{0,60}\]|\([^)\n]{0,80}\))+[[(]?|[[(])[,;]?$/;
+const TYPE_NAME =
+  /^(?:str|int|bytes|bool|float|dict|list|tuple|set|object|Any|None|SecretStr|SecretBytes|string|number|boolean|[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+)[,;]?$/;
+const PASSWORD_NAME = /(?:password|passwd|pwd)$/i;
+
+function isSetting(value: string, match: string, name: string): boolean {
+  const quoted = /^["']/.test(value);
+  const v = quoted ? value.slice(1, -1) : value.replace(/[,;]+$/, "");
+  if (PLAIN_WORDS.test(v)) return true;
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(v)) {
+    return !(PASSWORD_NAME.test(name) && v.replace(/\D/g, "").length >= 6);
+  }
+  if (quoted) return false;
+  if (CODE_REFERENCE.test(v)) return true;
+  const sep = /[:=]/.exec(match.slice(name.length))?.[0];
+  return sep === ":" && TYPE_NAME.test(v);
+}
+
+/** The separators a name may be followed by in the catch-all: `=`/`:` (with a
+ *  closing quote allowed first — the JSON form), or a hard-coded fallback after
+ *  `||`/`??` (`process.env.API_TOKEN || "…"`). NOT the `, "…"` of a getenv
+ *  default: here, with names as common as `token` and `secret`, it matched every
+ *  JSON array of strings and every `"family":"…-key","count"` telemetry row. The
+ *  strict AWS family keeps it, where the value itself must look like a key. */
+const ASSIGNED_SEPARATOR = "(?:[\"']?\\s*[:=]|\\s*(?:\\|\\||\\?\\?))\\s*";
+/** Never a placeholder, quoted or not. */
+const NOT_A_PLACEHOLDER = "(?![\"']?\\[REDACTED:)";
+/** A password: four characters or more, and `,` / `;` may be part of it. */
+const PASSWORD_VALUE = "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n]{4,})";
+/** Any other credential: six or more, and a `,` or `;` ends it. */
+const CREDENTIAL_VALUE = "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n,;]{6,})";
+
 // The same lever exists one class later in `url-path-token`: an unbounded
 // host/path run (`[^\s"'<>]*`) retried across a comma-joined URL list was
 // quadratic too (179ms at 64KB, 2.8s at 256KB — PR-8 review). Bounded to 512:
@@ -149,9 +209,16 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     re: new RegExp(
       "(?<![A-Za-z0-9])((?:aws[_ \\t-]?secret[_ \\t-]?(?:access[_ \\t-]?)?key|secret[_ \\t-]?access[_ \\t-]?key)" +
         "(?:[ \\t]*\\[[^\\]\\n]{0,24}\\])?" +
-        "(?:[\"']?\\]?[ \\t]*[:=>][ \\t]*[\"']?|[\"']?[ \\t]+[\"']?))" +
+        // The separators: `=`, `:` and XML's `>`; a hard-coded FALLBACK — `, "…"`,
+        // `|| "…"`, `?? "…"` (re-review R3: `os.getenv("…", "S")`,
+        // `process.env.X || "S"`); and bare whitespace (`ENV`, `aws configure set`).
+        "(?:[\"']?\\]?[ \\t]*(?:[:=>]|,|\\|\\||\\?\\?)[ \\t]*[\"']?|[\"']?[ \\t]+[\"']?))" +
         NOT_REDACTED +
-        "((?=[A-Za-z0-9/+=]{0,200}?[0-9/+])(?=[A-Za-z0-9/+=]{0,200}?[A-Za-z])[A-Za-z0-9/+=]{16,})",
+        // A value with a digit, `/` or `+` in it; OR exactly 40 mixed-case
+        // letters — the one in ~4,000 real secrets with none of the three
+        // (re-review R10). A prose word after the name is never 40 letters.
+        "((?=[A-Za-z0-9/+=]{0,200}?[0-9/+])(?=[A-Za-z0-9/+=]{0,200}?[A-Za-z])[A-Za-z0-9/+=]{16,}" +
+        "|(?=[A-Za-z]{0,39}[A-Z])(?=[A-Za-z]{0,39}[a-z])[A-Za-z]{40}(?![A-Za-z0-9/+=]))",
       "gi",
     ),
     value: 2,
@@ -270,32 +337,71 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
       "whole (its Gap A: `url-credentials` only matches user:pass@host). Scoped to " +
       "auth-shaped path words so a commit hash in a repo URL does not fire it.",
   },
+  // THE CATCH-ALL, three ways, one family. Every one keeps the KEY NAME and
+  // redacts only the value — a name is not a claim (§3, the ops rule) — and
+  // every one is FENCED by "no letter or digit before", not `\b` (review M5):
+  // an underscore is a word character, so `\b` never fired inside a
+  // snake_case name. The TRAILING `\b` stays and is the first false-positive
+  // guard: a name must END in its keyword, so `MAX_TOKENS`, `TOKEN_URL` and
+  // `PASSWORD_MIN_LENGTH` never match. The second guard is `isSetting`.
   {
     family: "assigned-credential",
-    // FENCED BY "NO LETTER OR DIGIT BEFORE", NOT `\b` (PR #189 review, M5). An
-    // underscore is a word character, so `\b` never fired inside a snake_case
-    // name and `DB_PASSWORD=…`, `JWT_SECRET=…`, `AWS_SESSION_TOKEN=…` and
-    // `HF_TOKEN=…` were stored verbatim through every entrance. The TRAILING
-    // `\b` stays, and it is the false-positive guard: `MAX_TOKENS`,
-    // `TOKEN_URL`, `SECRET_ROTATION_DAYS` do not end in the keyword, so they
-    // never match. A closing quote may sit between the name and the `:` — the
-    // JSON form (`"SessionToken": "…"`) — and a small number or a boolean is a
-    // setting, not a credential (`NOT_A_PLAIN_VALUE`).
+    // 1. PASSWORDS. Four characters are enough, and `,` / `;` may be inside
+    //    one (re-review R4: `DB_PASSWORD=abc,defghij`, `DB_PASSWORD=Ab3$x`).
+    //    `pgpassword` is Postgres's own variable, glued with no separator.
     re: new RegExp(
-      "(?<![A-Za-z0-9])(password|passwd|pwd|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|" +
-        "client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|" +
-        "bearer[_-]?token|secret|token|credential)\\b[\"']?\\s*[:=]\\s*" +
-        // A QUOTED placeholder is still a placeholder: without the optional quote
-        // a re-scan re-redacted `KEY="[REDACTED:…]"`, and once the fence let this
-        // family reach `ACCESS_KEY` inside `AWS_SECRET_ACCESS_KEY`, it took the
-        // AWS family's own mark for a value.
-        "(?![\"']?\\[REDACTED:)" +
-        NOT_A_PLAIN_VALUE +
-        "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n,;]{6,})",
+      "(?<![A-Za-z0-9])(pgpassword|password|passwd|pwd)\\b" +
+        ASSIGNED_SEPARATOR +
+        NOT_A_PLACEHOLDER +
+        PASSWORD_VALUE,
       "gi",
     ),
     value: 2,
+    propagate: true,
+    skip: isSetting,
+    why: "A password under its own name, in any of the ways code and config spell it.",
+  },
+  {
+    family: "assigned-credential",
+    // 2. EVERY OTHER CREDENTIAL NAME. `secret_key_base` is Rails's, whose
+    //    keyword is not last (re-review R4).
+    re: new RegExp(
+      "(?<![A-Za-z0-9])(api[_-]?key|apikey|access[_-]?key|secret[_-]?key[_-]?base|secret[_-]?key|" +
+        "client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|" +
+        "bearer[_-]?token|secret|token|credentials?)\\b" +
+        ASSIGNED_SEPARATOR +
+        NOT_A_PLACEHOLDER +
+        CREDENTIAL_VALUE,
+      "gi",
+    ),
+    value: 2,
+    propagate: true,
+    skip: isSetting,
     why: "The catch-all assignment form. Keeps the KEY NAME, redacts only the value: a name is not a claim (§3, the ops rule).",
+  },
+  {
+    family: "assigned-credential",
+    // 3. NAMES GLUED ON WITH NO SEPARATOR (re-review R4), which need case to
+    //    see: camelCase (`dbPassword`, `apiToken`, `webhookSecret`) — a
+    //    lowercase letter or digit, then a capitalised keyword — and a
+    //    SCREAMING prefix glued to PASSWORD (`MYSQLPASSWORD`). CASE-SENSITIVE,
+    //    because under the `i` flag `[A-Z]` is every letter. A bare `Key` is not
+    //    a keyword here: `primaryKey`, `sortKey` and `cacheKey` are not secrets.
+    re: new RegExp(
+      "((?<=[a-z0-9])(?:Password|Passwd|Pwd|Secret|Token|ApiKey|SecretKey|AccessKey|PrivateKey|Credentials?)" +
+        "|(?<![A-Za-z0-9])[A-Z][A-Z0-9]*(?:PASSWORD|PASSWD))\\b" +
+        ASSIGNED_SEPARATOR +
+        NOT_A_PLACEHOLDER +
+        PASSWORD_VALUE,
+      "g",
+    ),
+    value: 2,
+    propagate: true,
+    skip: (value, match, name) =>
+      isSetting(value, match, name) ||
+      // A password may be four characters; anything else needs six.
+      (!/(?:password|passwd|pwd)$/i.test(name) && value.replace(/^["']|["']$/g, "").length < 6),
+    why: "A credential under a camelCase or glued name.",
   },
 ];
 
@@ -320,20 +426,56 @@ function redactOne(
   const re = new RegExp(p.re.source, p.re.flags);
   return text.replace(re, (...args: unknown[]): string => {
     const match = String(args[0] ?? "");
-    hit();
     const mark = `[REDACTED:${p.family}]`;
     if (p.value === 0) {
+      hit();
       captured?.(match);
       return mark;
     }
     const raw = args[p.value];
     const val = typeof raw === "string" ? raw : "";
+    const name = typeof args[1] === "string" ? args[1] : "";
+    // A setting, not a secret: left exactly as it was, and not counted.
+    if (val.length > 0 && p.skip?.(val, match, name) === true) return match;
+    hit();
     if (val.length === 0) return mark;
     captured?.(val);
     const at = match.lastIndexOf(val);
     if (at < 0) return mark;
     return `${match.slice(0, at)}${mark}${match.slice(at + val.length)}`;
   });
+}
+
+function unquote(value: string): string {
+  return /^(["']).*\1$/s.test(value) ? value.slice(1, -1) : value.replace(/[,;]+$/, "");
+}
+
+/**
+ * Which captured values are carried to their other copies. Eight characters at
+ * least, and something no ordinary word has — a digit, both cases, or a symbol
+ * other than `-`, `_` and `.` — so `secret: "production"` never takes every
+ * "production" in the text with it.
+ */
+function propagatable(value: string): boolean {
+  if (value.length < 8 || /\s/.test(value)) return false;
+  return /\d/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value)) || /[^A-Za-z0-9._-]/.test(value);
+}
+
+const COPY_FENCE = /[A-Za-z0-9+]/;
+
+/** Replace every fenced literal occurrence of `value`. Linear per value. */
+function replaceLiteral(text: string, value: string, mark: () => string): string {
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf(value); at !== -1; at = text.indexOf(value, at + 1)) {
+    if (at < from) continue;
+    const before = at > 0 ? text[at - 1] ?? "" : "";
+    const after = text[at + value.length] ?? "";
+    if (COPY_FENCE.test(before) || COPY_FENCE.test(after)) continue;
+    out += text.slice(from, at) + mark();
+    from = at + value.length;
+  }
+  return from === 0 ? text : out + text.slice(from);
 }
 
 /** Everything this module wrote, removed — used to answer "is there anything left?". */
@@ -371,22 +513,24 @@ export function scanSecrets(text: string, site = "body"): SecretsScan {
         : undefined,
     );
   }
-  // EVERY COPY, NOT THE FIRST ONE (review M3). A value caught by its context is
-  // taken out wherever else it stands. ONE linear pass over the text's maximal
-  // base64 runs with a set lookup — never a regex per value, which on a text of
-  // a thousand pairs would be a thousand passes. Every propagating family
-  // captures a maximal run (greedy, or fenced), so an exact run match is the
-  // same value and a longer token that merely contains it is left alone.
-  // Sixteen characters at least, so no common word can ever be propagated.
+  // EVERY COPY, NOT THE FIRST ONE (review M3, re-review R2/R4). A value caught
+  // by its context is taken out wherever else it stands — as a LITERAL, not as
+  // a run of base64: a copy glued on by `=`, `/`, `?`, `&`, `:` or `@`
+  // (`export SK=S1`, `?sk=S1&`, `s3://bucket/S1/obj`) sits inside a longer run
+  // and a run match never saw it. A copy is fenced only by "no letter, digit or
+  // `+` either side", so a longer token that merely CONTAINS the value is left to
+  // its own families. `propagatable` decides which values travel at all.
   if (spread.size > 0) {
     const familyOf = new Map<string, string>();
     for (const [family, values] of spread) {
-      for (const value of values) if (value.length >= 16) familyOf.set(value, family);
+      for (const value of values) {
+        const bare = unquote(value);
+        if (propagatable(bare)) familyOf.set(bare, family);
+      }
     }
-    if (familyOf.size > 0) {
-      out = out.replace(/(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{16,}(?![A-Za-z0-9/+=])/g, (run) => {
-        const family = familyOf.get(run);
-        if (family === undefined) return run;
+    // Longest first, so a value that contains another is taken whole.
+    for (const [value, family] of [...familyOf.entries()].sort((a, b) => b[0].length - a[0].length)) {
+      out = replaceLiteral(out, value, () => {
         bump(family);
         return `[REDACTED:${family}]`;
       });

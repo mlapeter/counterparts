@@ -267,6 +267,105 @@ describe("the ROOT cause, fixed for every name — the catch-all's fence (review
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe("the re-review's residuals (R2, R3, R4, R6, R10)", () => {
+  test("R2: a copy GLUED on by = / ? & : @ is still a copy, and `key=S` beside an id is the first one", () => {
+    const text = [
+      `id ${KEY_ID} secret ${SECRET}`,
+      `export SK=${SECRET}`,
+      `https://x.example/?sk=${SECRET}&a=1`,
+      `s3://bucket/${SECRET}/obj`,
+      `user:${SECRET}@host`,
+    ].join("\n");
+    const out = redactSecrets(text);
+    expect(out).not.toContain("EXAMPLEKEY");
+    expect(out).toContain(`export SK=${SECRET_MARK}`);
+    expect(out).toContain(`?sk=${SECRET_MARK}&a=1`);
+    expect(out).toContain(`s3://bucket/${SECRET_MARK}/obj`);
+    for (const first of [`${KEY_ID} key=${SECRET}`, `aws_access_key_id=${KEY_ID} sk=${SECRET}`]) {
+      const once = redactSecrets(first);
+      expect({ first, once }).toEqual({ first, once: first.replace(KEY_ID, ID_MARK).replace(SECRET, SECRET_MARK) });
+    }
+  });
+
+  test("R3: a hard-coded FALLBACK after the name is the secret too", () => {
+    const cases: [string, string][] = [
+      [`os.getenv("AWS_SECRET_ACCESS_KEY", "${SECRET}")`, `os.getenv("AWS_SECRET_ACCESS_KEY", "${SECRET_MARK}")`],
+      [`os.environ.get('AWS_SECRET_ACCESS_KEY', '${SECRET}')`, `os.environ.get('AWS_SECRET_ACCESS_KEY', '${SECRET_MARK}')`],
+      [`process.env.AWS_SECRET_ACCESS_KEY || "${SECRET}"`, `process.env.AWS_SECRET_ACCESS_KEY || "${SECRET_MARK}"`],
+      [`process.env.AWS_SECRET_ACCESS_KEY ?? "${SECRET}"`, `process.env.AWS_SECRET_ACCESS_KEY ?? "${SECRET_MARK}"`],
+      ['process.env.API_TOKEN || "tok_abc123XYZ"', "process.env.API_TOKEN || [REDACTED:assigned-credential]"],
+    ];
+    for (const [input, expected] of cases) {
+      expect({ input, out: redactSecrets(input) }).toEqual({ input, out: expected });
+    }
+    // The generic `, "…"` form is NOT taken by the catch-all: with names as
+    // common as `token`, it matched every JSON array of strings.
+    const json = '{"families":["secret","token","password"],"family":"aws-secret-access-key","count":1}';
+    expect(redactSecrets(json)).toBe(json);
+  });
+
+  test("R4: camelCase, glued and keyword-not-last names; short and punctuated passwords; non-AWS second copies", () => {
+    const cases: [string, string][] = [
+      ['dbPassword: "Xk9mP2vLq7"', "dbPassword: [REDACTED:assigned-credential]"],
+      ['apiToken = "Xk9mP2vLq7ab"', "apiToken = [REDACTED:assigned-credential]"],
+      ['secretKey: "Xk9mP2vLq7ab"', "secretKey: [REDACTED:assigned-credential]"],
+      ['webhookSecret: "whsec_Xk9mP2vLq7"', "webhookSecret: [REDACTED:assigned-credential]"],
+      ["PGPASSWORD=hunter2x", "PGPASSWORD=[REDACTED:assigned-credential]"],
+      ["MYSQLPASSWORD=hunter2x", "MYSQLPASSWORD=[REDACTED:assigned-credential]"],
+      ["SECRET_KEY_BASE=abcdef0123456789", "SECRET_KEY_BASE=[REDACTED:assigned-credential]"],
+      ["DB_PASSWD=hunter22x", "DB_PASSWD=[REDACTED:assigned-credential]"],
+      ["DB_PASSWORD=abc,defghij", "DB_PASSWORD=[REDACTED:assigned-credential]"],
+      ["DB_PASSWORD=abcd;efgh1234", "DB_PASSWORD=[REDACTED:assigned-credential]"],
+      ["DB_PASSWORD=Ab3$x", "DB_PASSWORD=[REDACTED:assigned-credential]"],
+      [
+        "DB_PASSWORD=Xk9mP2vLq7 and later psql with Xk9mP2vLq7 again",
+        "DB_PASSWORD=[REDACTED:assigned-credential] and later psql with [REDACTED:assigned-credential] again",
+      ],
+    ];
+    for (const [input, expected] of cases) {
+      expect({ input, out: redactSecrets(input) }).toEqual({ input, out: expected });
+    }
+    // An ordinary WORD caught as a value does not travel: `production` stays
+    // everywhere else it stands.
+    expect(redactSecrets('secret: "production" and production again')).toBe(
+      "secret: [REDACTED:assigned-credential] and production again",
+    );
+    // A bare `Key` is not a camelCase keyword.
+    for (const clean of ['primaryKey: "user_id"', 'sortKey = "createdAt"', 'cacheKey: "v2:users"']) {
+      expect(redactSecrets(clean)).toBe(clean);
+    }
+  });
+
+  test("R6: a TYPE annotation, a code reference or a plain number is a setting, not a secret", () => {
+    for (const clean of [
+      "openai_api_key: Optional[str] = None",
+      "db_password: SecretStr",
+      "api_token: str",
+      "input_token = 123456",
+      "refresh_token = self._refresh",
+      "password = settings.DB_PASSWORD",
+      'secret = os.environ["APP_SECRET"]',
+      "access_token = get_token(user)",
+    ]) {
+      expect({ clean, out: redactSecrets(clean) }).toEqual({ clean, out: clean });
+    }
+    // ...but a numeric PASSWORD of six digits or more is a PIN, and a bare word
+    // ASSIGNED is a value.
+    expect(redactSecrets("DB_PASSWORD=12345678")).toBe("DB_PASSWORD=[REDACTED:assigned-credential]");
+    expect(redactSecrets("password = HunterTwo")).toBe("password = [REDACTED:assigned-credential]");
+  });
+
+  test("R10: a 40-character LETTERS-ONLY secret in the whitespace and XML forms", () => {
+    const letters = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMn";
+    expect(redactSecrets(`<SecretAccessKey>${letters}</SecretAccessKey>`)).toBe(`<SecretAccessKey>${SECRET_MARK}</SecretAccessKey>`);
+    expect(redactSecrets(`ENV AWS_SECRET_ACCESS_KEY ${letters}`)).toBe(`ENV AWS_SECRET_ACCESS_KEY ${SECRET_MARK}`);
+    // Not a 26-letter prose word.
+    const prose = "SecretAccessKey: ConfigurationDocumentation is the page to read";
+    expect(redactSecrets(prose)).toBe(prose);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Every entrance — the real tool doors, read back from the store
 // ═══════════════════════════════════════════════════════════════════════════
 const ENV = "COUNTERPARTS_DATA_DIR";
