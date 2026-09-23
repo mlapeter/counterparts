@@ -1,6 +1,6 @@
 # Adversarial review — step 2 batch (PRs #119 / #120 / #121 / #122)
 
-Checkout: `/Users/mlapeter/counterparts/.claude/worktrees/step2-trial` @ `755c5b6`
+Checkout: `~/counterparts/.claude/worktrees/step2-trial` @ `755c5b6`
 (merge of the three branches + the end-to-end test). Baseline `f34f8c6`.
 Full suite at this head: **2136 pass / 0 fail** (`bun test`, 30.5 s).
 All my own tests are hermetic (temp dirs, fake interpreter, no socket, no real store).
@@ -354,7 +354,7 @@ pins that the old meta rows are left untouched rather than migrated.
 
 ## 4. Artefacts
 
-All under `/private/tmp/claude-501/-Users-mlapeter-counterparts/4ebf5615-350d-449b-80e7-173622c4bc2d/scratchpad/adversarial/`:
+All under `<scratchpad>/adversarial/`:
 
 | file | what it proves |
 |---|---|

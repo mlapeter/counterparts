@@ -165,7 +165,7 @@ M5's fix landed in `planStartFresh` only. **I ran this** with `{"dataDir": "rela
 and `--undo`:
 
 ```
-Store:  /Users/mlapeter/counterparts/.claude/worktrees/agent-af67b643889a09532/relative-store
+Store:  ~/counterparts/.claude/worktrees/agent-af67b643889a09532/relative-store
 ```
 
 — the CLI's cwd, not the fake home. It refused only because no `relative-store.parked-*`

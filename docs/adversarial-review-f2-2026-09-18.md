@@ -112,7 +112,7 @@ first and checks second.
 
 **Status: PROVED BY PARTS, not end to end.** I could not run the whole chain, and I did not try:
 `os.homedir()` under bun **ignores `process.env.HOME`** (measured — setting it to a temp path
-still returns `/Users/mlapeter`), so the forbidden roots cannot be relocated into a temp tree,
+still returns `/Users/<owner>`), so the forbidden roots cannot be relocated into a temp tree,
 and the only way to run the real case would be to point the code at the owner's actual
 `~/.bansai`. By rule, I did not. The three parts, each proved hermetically:
 
@@ -395,7 +395,7 @@ busy timeout) **before or with** this one, and to re-measure after.
   `realpathSync`es the owner's *real* home directory. Read-only, so it is not a hermeticity
   breach — but it is worth a comment. What I measured is narrower than "bun ignores `$HOME`":
   under bun, **mutating `process.env.HOME` at runtime does not move `os.homedir()`** (it still
-  returned `/Users/mlapeter`). Setting `HOME` at process *spawn* time is untested — the harness
+  returned `/Users/<owner>`). Setting `HOME` at process *spawn* time is untested — the harness
   refused that command and I did not work around it — and a spawned child with `HOME` set at
   startup is the likely route if the builder wants a hermetic regression test for MAJOR-1. As it
   stands, that is why MAJOR-1 is proved by parts rather than end to end.

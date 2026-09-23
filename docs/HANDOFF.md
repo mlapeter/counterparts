@@ -873,7 +873,7 @@ read from the live wiring on 2026-09-16 (read-only).
 1. `~/random/only-counterparts`: add the path to `bansai-optout.txt`. Nothing else (counterparts is on by default;
    engram is not wired).
 2. `~/random/only-bansai`: `counterparts scope ~/random/only-bansai --off`; a `.claude/settings.json` there with an
-   `env` block `MEMORY_AB_DIR=/Users/mlapeter/random/only-bansai/.memory-ab` and an `assignment.json` in it with
+   `env` block `MEMORY_AB_DIR=~/random/only-bansai/.memory-ab` and an `assignment.json` in it with
    `override: "bansai"`; optionally `claude mcp add --scope project` for bansai's server
    (`~/bansai/src/mcp/server.ts`, config preserved in `mcp-servers-removed.json`).
 3. `~/random/only-engram`: `counterparts scope ~/random/only-engram --off`; add the path to `bansai-optout.txt`; a

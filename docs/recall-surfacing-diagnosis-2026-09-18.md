@@ -482,7 +482,7 @@ outcome. **This is the one item here I would call a fault rather than a tuning q
 ## Queries run (all read-only, counts and aggregates only)
 
 ```
-sqlite3 -readonly "file:/Users/mlapeter/.counterparts/store/operational.sqlite?immutable=1" "<q>"
+sqlite3 -readonly "file:$HOME/.counterparts/store/operational.sqlite?immutable=1" "<q>"
 ```
 
 1. `select count(*) from memories where archived=0 and superseded_by is null;` → 15597

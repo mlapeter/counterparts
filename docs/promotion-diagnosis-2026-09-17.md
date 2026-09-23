@@ -1,6 +1,6 @@
 # Why nothing reaches the identity band — diagnosis, 2026-09-17
 
-Read-only. Code read at `/Users/mlapeter/counterparts/.claude/worktrees/step1-trial`; store read only as
+Read-only. Code read at `~/counterparts/.claude/worktrees/step1-trial`; store read only as
 `sqlite3 -readonly "file:~/.counterparts/store/operational.sqlite?immutable=1"`. Computation:
 `scratchpad/promotion/eval.ts` (imports the pure physics functions; opens no store). Lived day today = 191.
 

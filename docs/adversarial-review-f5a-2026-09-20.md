@@ -529,7 +529,7 @@ not, and refuse (MINOR-4 is the one ordering wrinkle).
 
 ## Method, for the record
 
-Worktree: `/Users/mlapeter/counterparts/.claude/worktrees/agent-a8f18d029967ef19e`, detached
+Worktree: `~/counterparts/.claude/worktrees/agent-a8f18d029967ef19e`, detached
 at `20adaf6`. Master read via `git archive 40f92ae | tar -x` into the session scratchpad —
 no `git worktree add`, so nothing was registered in the live checkout's `.git`. All probe
 scripts lived in the scratchpad and were never added to the tree; `git status` shows only
