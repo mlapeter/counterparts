@@ -1182,6 +1182,13 @@ export function markWriteUpFetched(dataDir: string, sessionId: string, writeUpFo
 // facts it reads and adds the two things only a host can know — whether the
 // session is still running, and which project it belongs to.
 
+/**
+ * What an `adapter.ask` row's `turns` counts, stamped on every row since
+ * 2026-09-24: typed turns. A row without it counted both roles' text pieces,
+ * so only its bytes are read.
+ */
+export const ASK_ROW_COUNTING = "typed";
+
 /** Ceiling on the `adapter.ask` rows read at once: a Stop each, ~90 lived days
  *  of them (the log's own retention). */
 const ASK_ROW_CEILING = 200_000;
@@ -1227,7 +1234,7 @@ export function hostSessionEvidence(store: Store): (session: string) => HostSess
         typeof bytes === "number" &&
         (cur.lastEvaluation === null || row.at >= cur.lastEvaluation.at)
       ) {
-        cur.lastEvaluation = { at: row.at, turns, bytes };
+        cur.lastEvaluation = { at: row.at, turns: p["counting"] === ASK_ROW_COUNTING ? turns : 0, bytes };
       }
       asks.set(session, cur);
     }

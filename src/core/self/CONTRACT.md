@@ -56,15 +56,15 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   [v1 §13 G1–G5] *Broken and restored 2026-09-04: v2 raised a second ask (authorship) on a
   second pacer beside this one, and the two fired on different Stops — about a dozen asks
   in a 13-turn evening. The pacing itself had drifted too: v1 re-asked on bytes AND turns,
-  v2 on bytes OR turns with a byte threshold a third of v1's. One ask, one pacer, a
-  conjunction — and a cap each SESSION spends on itself alone, per calendar day
-  (`MAX_ASKS_PER_SESSION`). Measured 2026-09-17: a cap of four shared by every session a
-  calendar day held refused 196 of 264 Stops, and the crash-fallback sweep wrote 888
-  memories to the author's 193 — the author was not losing a fight, it was almost never
-  invited. Amended 2026-09-18: spent over a session's whole life the same cap starved the
-  long sessions instead, so the count starts over with the calendar date. The
-  conjunction, not the count, is what holds the cadence. Amended 2026-09-23 (owner's
-  ruling): that date is the machine's LOCAL one (`calendar.ts`), not UTC's — see NOTES §22.*
+  v2 on bytes OR turns with a byte threshold a third of v1's. One ask, one pacer — and a
+  cap each SESSION spends on itself alone, per calendar day (`MAX_ASKS_PER_SESSION`).
+  Measured 2026-09-17: a cap of four shared by every session a calendar day held refused
+  196 of 264 Stops, and the crash-fallback sweep wrote 888 memories to the author's 193.
+  Amended 2026-09-18: spent over a session's whole life the same cap starved the long
+  sessions instead, so the count starts over with the calendar date — the machine's LOCAL
+  one since 2026-09-23 (`calendar.ts`, NOTES §22). Since 2026-09-24 turns are the ones the
+  PERSON typed, and an ask is due on typed turns OR conversation text from both roles,
+  whichever comes first (NOTES §23).*
 - **Episodes are context and source, in that order**, ingested once as ordinary self-kind
   memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
   *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
@@ -418,10 +418,9 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_WRITER_MEMORY_BYTES` | 8,192 | Bytes of the day just gone the nightly writer is handed. It reads one day, not a life, and what did not fit is counted on the run's row. |
 | `PAGE_WRITER_MEMORY_MAX` | 40 | ...and a ceiling on the count, so a day of very short memories cannot become a hundred bullets. |
 | `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
-| `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
-| `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
-| `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
-| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17); over a session's whole life it starved a session that spanned days (2026-09-18). |
+| `FIRST_ASK_TURNS` / `FIRST_ASK_TEXT_BYTES` | 6 / 24,000 | The first ask: turns the person typed, OR bytes of conversation text from both roles, whichever comes first — so a one-prompt agentic session still journals. |
+| `REASK_TURNS` / `REASK_TEXT_BYTES` | 8 / 24,000 | A later ask: typed turns OR text bytes since the last ask, whichever comes first. |
+| `MAX_ASKS_PER_SESSION` | 12 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence. |
 
 `PAGE_FLOOR_RESERVE_BYTES` (512) and `PAGE_MIN_RENDER_BYTES` (240) are **not** tunable, for
 the reason `PREFACE_RESERVE_BYTES` is not: the first is the room the wake's own furniture

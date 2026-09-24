@@ -2177,8 +2177,9 @@ export class Counterpart {
     sessionId: string,
     substance: { turns: number; bytes: number },
     day?: number,
+    opts: { rebase?: boolean } = {},
   ): ChapterAsk {
-    return this.self.openChapter(sessionId, substance, day);
+    return this.self.openChapter(sessionId, substance, day, opts);
   }
 
   /**
@@ -2358,8 +2359,9 @@ export class Counterpart {
     sessionId: string,
     substance: { turns: number; bytes: number },
     day?: number,
+    opts: { rebase?: boolean } = {},
   ): void {
-    this.self.noteOrphanTail(sessionId, substance, day);
+    this.self.noteOrphanTail(sessionId, substance, day, opts);
   }
 
   /**

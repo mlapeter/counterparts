@@ -383,7 +383,8 @@ have done real work first — the substance pacer is untouched, and it is the pa
 not the count, that spaces asks out: six of them need roughly 6 + 5×8 turns AND the
 bytes to match. The 2026-09-04 measurement against per-session (six asks in one
 evening) was taken under the OLD re-ask rule, an OR across two pacers with a byte
-half a third of v1's; the AND landed the same day.
+half a third of v1's; the AND landed the same day. (Superseded 2026-09-24: 12 a
+day, and a pacer on typed turns OR text — §23.)
 
 **Which day, and why that one.** The store's CALENDAR date (`Store#today`, UTC),
 not the lived day — I32's argument unchanged: the lived clock is advanced by the
@@ -1124,3 +1125,28 @@ of UTC `about` moves with the local day, so this never fires there. Boundary cas
 UTC−7 at 23:30, UTC+9 at 08:00, 00:10 local, both DST days, and the review's two repros —
 are in `test/local-day.test.ts`.
 
+
+## 23. The pacer counts what the person typed (2026-09-24)
+
+Measured 2026-09-24: the Stop ask fired after the owner's second message. Turns were every
+conversation text piece from both roles, and each assistant text block between tool calls
+was its own piece — one session had 8 assistant blocks (8.6 KB) against his 2 messages
+(2.3 KB), so the assistant's own writing paced the ask.
+
+Now `Substance.turns` is messages the person typed (the host counts them:
+`claude-code/hooks.ts#substanceOf`) and `Substance.bytes` is conversation text from both
+roles. An ask is due on either, whichever comes first — first ask `FIRST_ASK_TURNS` or
+`FIRST_ASK_TEXT_BYTES`, later ones `REASK_TURNS` or `REASK_TEXT_BYTES` since the last. The
+old AND was there to stop the assistant's reply re-asking on its own; with turns typed-only
+and a larger byte threshold that job is done by the counting. `MAX_ASKS_PER_SESSION` went
+to 12, since typed-turn pacing spaces asks further apart. All five numbers are tunables to
+move as the owner's days show.
+
+**Sessions in progress.** A watermark committed under the old counting sits above what
+typed-turn counting reaches for a while. Byte counting did not change, so such a session
+reads exactly one way: bytes at or past the watermark, turns below it. On that pattern
+only, `openChapter` pulls the turn watermark down to today's count
+(`episodes.ts#rebasedWatermark`, one persisted write, ring event `self.episode.rebased`),
+and `askDue`/`noteOrphanTail` read the same re-based state. Any other reading below the
+watermark — an empty one from a transcript that would not read — moves nothing, and a
+caller can say its count is not real with `rebase: false`.

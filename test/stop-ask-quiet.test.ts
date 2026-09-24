@@ -25,7 +25,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
+import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { STOP_HUMAN_LINE, stopAsk, substanceOf } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
@@ -36,6 +36,7 @@ import { openServer, renderDescription, toolSpec } from "../src/adapters/mcp/ind
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { describeScopeTrouble, readScopes, scopesPath } from "../src/adapters/scopes.js";
 import { markNothingNew, readSession, recordSession } from "../src/adapters/sessions.js";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const UUID = "7c973b1c-d40a-47e5-92bb-8cdb1823a06d";
@@ -264,7 +265,7 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     }
   });
 
-  test("review m2: the assistant's own text is never reclassified by a marker — it paces and earns credit as on master", () => {
+  test("review m2: the assistant's own text is never reclassified by a marker — it stays conversation (bytes, never turns)", () => {
     const texts = [
       "The host wraps it in `<task-notification>` and the reader now tags it.",
       "Its output arrives as `<bash-stdout>`, which is why it is excluded.",
@@ -274,7 +275,10 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     ];
     const read = parseTranscript(jsonl(texts.map((t) => assistantEntry(t))));
     expect(read.turns.map((t) => t.source)).toEqual(texts.map(() => "conversation"));
-    expect(substanceOf(read.turns).turns).toBe(texts.length);
+    expect(substanceOf(read.turns)).toEqual({
+      turns: 0,
+      bytes: texts.reduce((n, t) => n + Buffer.byteLength(t, "utf8"), 0),
+    });
   });
 
   test("review m5: a line that is literally `null` (or any non-object JSON) is counted and skipped, never thrown on", () => {
@@ -317,10 +321,7 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(read.turns[0]?.source).toBe("conversation");
   });
 
-  test("the assistant's own replies still pace, as they always have; an API error the HOST wrote does not", () => {
-    // Thresholds are unchanged this round (roadmap B1 §5): the pacer has
-    // always counted the assistant's conversational text, so this fix stays on
-    // the user side, where the misreading was.
+  test("the assistant's own replies add bytes but never turns; an API error the HOST wrote adds neither", () => {
     const reply = "Done — the parser is in its own module now.";
     const read = parseTranscript(
       jsonl([
@@ -332,7 +333,7 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     );
     expect(read.turns.map((t) => t.source)).toEqual(["conversation", "conversation", "injected", "injected"]);
     expect(substanceOf(read.turns)).toEqual({
-      turns: 2,
+      turns: 1,
       bytes: Buffer.byteLength(TYPED, "utf8") + Buffer.byteLength(reply, "utf8"),
     });
   });
@@ -347,6 +348,176 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(entryAuthor(bareEntry("x"), "user")).toBe("unknown");
     expect(entryAuthor({ ...bareEntry("x"), origin: "human" }, "user")).toBe("unknown");
     expect(entryAuthor(assistantEntry("x"), "assistant")).toBe("unknown");
+  });
+});
+
+// ── the pace: typed turns, or text from both roles (2026-09-24) ─────────────
+
+describe("the pace is what the person typed; conversation text from both roles is the other door", () => {
+  const T = SELF_TUNABLES;
+  let store: string;
+  let project: string;
+
+  beforeEach(() => {
+    store = join(work, "store");
+    project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+  });
+
+  function adapter(): ClaudeCodeAdapter {
+    const a = openAdapter(
+      { dataDir: store, injectionBudgetBytes: 9000, owner: true },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
+    );
+    closers.push(() => a.counterpart.close());
+    return a;
+  }
+
+  /** A Stop on a transcript, the way the hook reads it. */
+  function stopOn(a: ClaudeCodeAdapter, session: string, entries: readonly Record<string, unknown>[]): string | null {
+    recordSession(store, { sessionId: session, scope: project, phase: "start" });
+    const read = parseTranscript(jsonl(entries));
+    return a.stop({ sessionId: session, scope: project, turns: read.turns, at: "2026-09-24" }).ask;
+  }
+
+  const toolCall = (i: number): Record<string, unknown>[] => [
+    { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: `t${String(i)}`, name: "Bash", input: {} }] } },
+    { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `t${String(i)}`, content: "ok" }] } },
+  ];
+
+  /**
+   * The measured shape: a few typed messages, and after each the assistant
+   * writing in separate text blocks between tool calls. `assistantBytes` is
+   * spread evenly over `blocks` blocks.
+   */
+  function session(typed: number, blocks: number, assistantBytes: number): Record<string, unknown>[] {
+    const per = Math.ceil(assistantBytes / blocks);
+    const entries: Record<string, unknown>[] = [];
+    let block = 0;
+    for (let m = 0; m < typed; m += 1) {
+      entries.push(typedEntry(`Message ${String(m)}: let's keep going on the parser.`));
+      const here = m === typed - 1 ? blocks - block : Math.floor(blocks / typed);
+      for (let b = 0; b < here; b += 1, block += 1) {
+        entries.push(assistantEntry(`Block ${String(block)}: ${"w".repeat(per)}`));
+        entries.push(...toolCall(block));
+      }
+    }
+    return entries;
+  }
+
+  const bytesOf = (entries: readonly Record<string, unknown>[]): number => substanceOf(parseTranscript(jsonl(entries)).turns).bytes;
+
+  test("ACCEPTANCE: 2 typed messages + 10 assistant blocks of ~9 KB is NOT an ask; the same writing with enough typed messages is", () => {
+    const quiet = session(2, 10, 9_000);
+    const read = parseTranscript(jsonl(quiet));
+    expect(substanceOf(read.turns).turns).toBe(2);
+    // The fixture's premise, from the tunables: under both first-ask doors.
+    expect(2).toBeLessThan(T.FIRST_ASK_TURNS);
+    expect(bytesOf(quiet)).toBeLessThan(T.FIRST_ASK_TEXT_BYTES);
+    const a = adapter();
+    expect(stopOn(a, "s-two", quiet)).toBeNull();
+
+    const busy = session(T.FIRST_ASK_TURNS, 10, 9_000);
+    expect(bytesOf(busy)).toBeLessThan(T.FIRST_ASK_TEXT_BYTES);
+    expect(stopOn(a, "s-six", busy)).toBe(stopAsk("s-six", 1));
+  });
+
+  test("ACCEPTANCE: combined text past the threshold asks with only 2 typed messages (the coordinator's day)", () => {
+    const long = session(2, 10, T.FIRST_ASK_TEXT_BYTES);
+    expect(bytesOf(long)).toBeGreaterThanOrEqual(T.FIRST_ASK_TEXT_BYTES);
+    expect(stopOn(adapter(), "s-long", long)).toBe(stopAsk("s-long", 1));
+  });
+
+  test("one typed message is one turn, however many text blocks it holds", () => {
+    const entry = {
+      ...typedEntry(""),
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "Here is the screenshot" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+          { type: "text", text: "and the log below it." },
+        ],
+      },
+    };
+    const read = parseTranscript(jsonl([entry, typedEntry(TYPED)]));
+    // Two blocks from the first entry stay two turns for the cursor...
+    expect(read.turns.length).toBe(3);
+    // ...and pace as ONE message.
+    expect(substanceOf(read.turns).turns).toBe(2);
+  });
+
+  test("hand-backs, notifications and our own ask never count as turns, however many arrive", () => {
+    const entries: Record<string, unknown>[] = [typedEntry(TYPED)];
+    for (let i = 0; i < T.FIRST_ASK_TURNS * 2; i += 1) {
+      entries.push(handbackEntry(HANDBACK_TEXT), notificationEntry(NOTIFICATION_TEXT), metaEntry(FEEDBACK_TEXT));
+    }
+    expect(substanceOf(parseTranscript(jsonl(entries)).turns)).toEqual({ turns: 1, bytes: Buffer.byteLength(TYPED, "utf8") });
+    expect(stopOn(adapter(), "s-handbacks", entries)).toBeNull();
+  });
+
+  test("every ask row says what its `turns` counts", () => {
+    const a = adapter();
+    stopOn(a, "s-stamp", session(1, 1, 100));
+    const row = a.counterpart.store.eventLog({ name: "adapter.ask", limit: 5 }).at(-1);
+    expect((JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)["counting"]).toBe("typed");
+  });
+
+  test("an unreadable transcript at one Stop moves no watermark, and the next Stop is not due", () => {
+    const a = adapter();
+    const id = "s-unread";
+    recordSession(store, { sessionId: id, scope: project, phase: "start" });
+    const path = join(work, "unread.jsonl");
+    const start = session(T.FIRST_ASK_TURNS, 2, 400);
+    writeFileSync(path, `${jsonl(start)}\n`, "utf8");
+    const stopAt = (transcript: string): string | null =>
+      a.stop(toHookInput({ session_id: id, transcript_path: transcript }, { scope: project })).ask;
+    expect(stopAt(path)).toBe(stopAsk(id, 1));
+
+    // A path that will not read (a directory): no turns, and flagged as unread.
+    const broken = join(work, "not-a-file");
+    mkdirSync(broken);
+    const unread = toHookInput({ session_id: id, transcript_path: broken }, { scope: project });
+    expect(unread.turnsUnread).toBe(true);
+    expect(unread.turns).toEqual([]);
+    expect(a.stop(unread).ask).toBeNull();
+
+    // A few more typed messages — enough to pass REASK_TURNS counted from zero,
+    // not enough counted from the ask.
+    const extra = Math.max(1, T.REASK_TURNS - T.FIRST_ASK_TURNS);
+    expect(extra).toBeLessThan(T.REASK_TURNS);
+    const more = Array.from({ length: extra }, (_, i) => [typedEntry(`More ${String(i)}.`), assistantEntry("Ok.")]).flat();
+    writeFileSync(path, `${jsonl([...start, ...more])}\n`, "utf8");
+    expect(stopAt(path)).toBeNull();
+    expect(a.counterpart.self.episodeState(id).askedAtTurns).toBe(T.FIRST_ASK_TURNS);
+  });
+
+  test("ACCEPTANCE: re-ask on typed turns OR text since the last ask; neither is paced", () => {
+    const a = adapter();
+    const start = session(T.FIRST_ASK_TURNS, 2, 400);
+    const shortReply = (i: number): Record<string, unknown> => assistantEntry(`Reply ${String(i)}: done.`);
+    const typedMore = (n: number): Record<string, unknown>[] =>
+      Array.from({ length: n }, (_, i) => [typedEntry(`Follow-up ${String(i)}.`), shortReply(i)]).flat();
+
+    // Typed turns: REASK_TURNS short messages since the ask.
+    expect(stopOn(a, "s-turns", start)).toBe(stopAsk("s-turns", 1));
+    expect(stopOn(a, "s-turns", [...start, ...typedMore(T.REASK_TURNS)])).toBe(stopAsk("s-turns", 1));
+
+    // Text: 2 typed messages, but the assistant wrote past REASK_TEXT_BYTES.
+    expect(stopOn(a, "s-bytes", start)).toBe(stopAsk("s-bytes", 1));
+    const bytesMore = typedMore(2);
+    bytesMore.push(assistantEntry(`Long reply: ${"w".repeat(T.REASK_TEXT_BYTES)}`));
+    expect(stopOn(a, "s-bytes", [...start, ...bytesMore])).toBe(stopAsk("s-bytes", 1));
+
+    // Neither: 2 typed messages and a little text.
+    expect(stopOn(a, "s-neither", start)).toBe(stopAsk("s-neither", 1));
+    expect(stopOn(a, "s-neither", [...start, ...typedMore(2)])).toBeNull();
+    const outcomes = a.counterpart.store
+      .eventLog({ name: "adapter.ask", limit: 20 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>)
+      .filter((r) => r["session"] === "s-neither")
+      .map((r) => r["outcome"]);
+    expect(outcomes).toEqual(["asked", "paced"]);
   });
 });
 
@@ -516,7 +687,7 @@ function runHook(configPath: string, payload: Record<string, unknown>): HookRun 
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/** Twelve real turns and ~7 KB: past `FIRST_ASK_TURNS` and `FIRST_ASK_BYTES`. */
+/** Six typed turns (and ~7 KB of text): enough for the first ask on turns. */
 function writeTranscript(): string {
   const path = join(work, "transcript.jsonl");
   const entries: Record<string, unknown>[] = [];
@@ -699,7 +870,7 @@ describe("'nothing new' is an answer (decision 4)", () => {
 
     // The model's one-line reply to the ask, and the host's next Stop. The
     // pacer advanced when the ask went out, so an answer — this one included —
-    // cannot open the next ask; only eight more turns AND 8 KB can.
+    // cannot open the next ask; only more typed turns or much more text can.
     const again = a.stop(stopInput([...(BIG ?? []), { role: "assistant", text: "Nothing new worth keeping from this stretch." }]));
     expect(again.ask).toBeNull();
     const outcomes = a.counterpart.store

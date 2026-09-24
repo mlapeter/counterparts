@@ -207,8 +207,7 @@ export function retentionJob(input: {
     // up are one set, by construction rather than by two copies agreeing.
     const sources = writeUpSources(store, {
       turns: t.FIRST_ASK_TURNS,
-      bytes: t.FIRST_ASK_BYTES,
-      soloBytes: t.SOLO_ASK_BYTES,
+      textBytes: t.FIRST_ASK_TEXT_BYTES,
     });
     // THE DATE IS VISIBLE FROM THE MOMENT IT IS HELD (re-review R7): a
     // `STARTED` row goes in as soon as the latch is taken, before anything is

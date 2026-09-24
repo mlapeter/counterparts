@@ -92,11 +92,9 @@ export const TUNABLES = {
    * through the MCP door.
    */
   WRITE_UP_HOST_OUTPUT_CHARS: 10_000,
-  // The Stop ask's pacing is NOT here any more, and that is the point: it was a
-  // second pacer beside `self/`'s, and two pacers on one blocked moment is how
-  // 13 owner turns drew about a dozen asks (2026-09-04). The one pair lives in
-  // `self/tunables.ts` — REASK_TURNS / REASK_BYTES — which is also where the
-  // numbers below were copied from when this knob was introduced.
+  // The Stop ask's pacing is NOT here: two pacers on one blocked moment drew
+  // about a dozen asks in 13 owner turns (2026-09-04). The one pacer lives in
+  // `self/tunables.ts` (FIRST_ASK_* / REASK_*).
 } as const;
 
 /**

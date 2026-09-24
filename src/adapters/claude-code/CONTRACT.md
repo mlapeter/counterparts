@@ -308,20 +308,20 @@ row, saying which source answered, existed until the keys were removed — §1a.
     "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
 
 18. **[M] ONE ask, on ONE pacer, capped per SESSION PER DAY, and the re-fire advances
-    nothing.** The pacer is `self/`'s and nothing else: first ask on the first real
-    substance (`FIRST_ASK_*`, or `SOLO_ASK_BYTES` alone so a one-prompt agentic session
-    still journals), re-ask on `REASK_TURNS` **and** `REASK_BYTES` since the last ask —
-    a conjunction, the way v1 re-asked, where v2 shipped a disjunction whose byte half
-    was a third of v1's. The cap is `MAX_ASKS_PER_SESSION` and each session spends only
+    nothing.** The pacer is `self/`'s and nothing else: first ask on `FIRST_ASK_TURNS`
+    turns the person typed OR `FIRST_ASK_TEXT_BYTES` of conversation text from both roles
+    (so a one-prompt agentic session still journals), re-ask on `REASK_TURNS` OR
+    `REASK_TEXT_BYTES` since the last ask. The assistant's text adds bytes and never
+    turns (`hooks.ts#substanceOf`), so its own writing cannot pace the ask turn by turn.
+    The cap is `MAX_ASKS_PER_SESSION` and each session spends only
     its own, and only for the day it is spending: this host opens a session per
     invocation, and a cap of four shared across every session a calendar day held refused
     196 of 264 Stops while the crash-fallback sweep wrote 888 memories to the author's 193
     (2026-09-17) — while spent over a session's whole life the same six starved a session
     that worked through a day and into the evening, whose handoff was never offered the
     pen (2026-09-18, the day the allowance started resetting with the store's calendar
-    date). The conjunction holds the cadence — six asks in one day is roughly 46 real
-    turns — so the count is a backstop, and a session that has done no real work is still
-    refused, on substance.
+    date). The pacer holds the cadence, so the count is a backstop, and a session that has
+    done no real work is still refused, on substance.
     The coverage read stays, as a RECORD of the unaskable tail and never as a second
     condition. Exactly ONE durable row per Stop (`adapter.ask`) carries the outcome —
     `asked` | `paced` | `capped` — and its date, so "how often was it asked today" is a

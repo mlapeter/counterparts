@@ -122,7 +122,9 @@ export interface HostSessionEvidence {
   readonly nothingNewAt: number | null;
   /** The newest ask the host recorded as ISSUED, epoch ms. */
   readonly lastAskedAt: number | null;
-  /** The host's newest pacer evaluation — when, and the substance it measured. */
+  /** The host's newest pacer evaluation — when, and the substance it measured.
+   *  `turns` is typed turns, or 0 when the host cannot say what its row counted
+   *  (then the bytes decide alone). */
   readonly lastEvaluation: { readonly at: number; readonly turns: number; readonly bytes: number } | null;
 }
 
@@ -135,11 +137,10 @@ export const NO_HOST_EVIDENCE: HostSessionEvidence = {
 };
 
 /** The pacer's first-ask thresholds (`self/tunables.ts`), passed in so this
- *  module never re-derives them. */
+ *  module never re-derives them: typed turns OR conversation text bytes. */
 export interface FirstAskThreshold {
   readonly turns: number;
-  readonly bytes: number;
-  readonly soloBytes: number;
+  readonly textBytes: number;
 }
 
 /**
@@ -337,8 +338,8 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
 
   const out: HeldSession[] = [];
   const first = sources.firstAsk;
-  const paced = (turns: number, bytes: number): boolean =>
-    (turns >= first.turns && bytes >= first.bytes) || bytes >= first.soloBytes;
+  // The pacer's own rule (`self/episodes.ts#askDue`), whichever comes first.
+  const paced = (turns: number, bytes: number): boolean => turns >= first.turns || bytes >= first.textBytes;
 
   for (const [session, t] of [...tallies.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     // A session that holds no text anywhere has nothing to delete and nothing
@@ -352,10 +353,11 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
     let asked = committed;
     if (!asked) {
       const ev = host.lastEvaluation;
+      // The pacer saw everything captured: its word. It did not: the bytes
+      // decide alone — the cursor counts every piece of both roles, which is
+      // no measure of what the person typed.
       asked =
-        ev !== null && ev.at >= t.lastCaptureAt
-          ? paced(ev.turns, ev.bytes) // the pacer saw everything captured: its word
-          : paced(t.maxTo, t.textBytes); // it did not: an upper-bound count decides
+        ev !== null && ev.at >= t.lastCaptureAt ? paced(ev.turns, ev.bytes) : paced(0, t.textBytes);
     }
 
     // ANSWERED — later than the last ask (review M1).

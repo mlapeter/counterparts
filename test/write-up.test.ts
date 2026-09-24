@@ -42,7 +42,7 @@ import { WRITE_UP_ASK_COUNT_KEY, WRITE_UP_ASK_DATE_KEY, WRITE_UP_OPEN } from "..
 import { TUNABLES, loadConfig } from "../src/adapters/claude-code/config.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/config.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
-import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
+import { WRITE_UP_WAIT_DAYS, doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { openServer, toolSpec } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/server.js";
 import {
@@ -65,8 +65,7 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const FIRST_ASK = {
   turns: SELF_TUNABLES.FIRST_ASK_TURNS,
-  bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
-  soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+  textBytes: SELF_TUNABLES.FIRST_ASK_TEXT_BYTES,
 };
 
 let root: string;
@@ -961,5 +960,36 @@ describe("doctor: one line, `Crash write-up`", () => {
       severity: "amber",
       detail: "next session — 2 sessions awaiting a write-up, 1 older than 3 days",
     });
+  });
+
+  test("Authorship carries the owed count as detail and stays green — the loss is Crash write-up's one amber", () => {
+    const lines = (): { authorship: { severity: string; detail: string; stale: unknown }; crash: string } => {
+      const c = Counterpart.open({ dir: storeDir, owner: true });
+      open.push(c);
+      const findings = doctorFindings({
+        configPath: join(root, "claude-code.json"),
+        configReason: "loaded",
+        config: config(),
+        dir: storeDir,
+        store: c.store,
+        today: "2026-09-23",
+        refusals: {},
+      });
+      c.close();
+      open.pop();
+      const f = findings.find((x) => x.key === "authorship");
+      return {
+        authorship: { severity: f?.severity ?? "missing", detail: f?.detail ?? "", stale: f?.data["owedStale"] },
+        crash: findings.find((x) => x.key === "crash-write-up")?.severity ?? "missing",
+      };
+    };
+    const t = seeder();
+    ended(t, "stale", { at: Date.now() - (WRITE_UP_WAIT_DAYS + 2) * DAY, scope: OTHER });
+    t.done();
+    const late = lines();
+    expect(late.crash).toBe("amber");
+    expect(late.authorship.severity).toBe("green");
+    expect(late.authorship.stale).toBe(1);
+    expect(late.authorship.detail).toContain(`1 session awaiting a write-up, 1 older than ${String(WRITE_UP_WAIT_DAYS)} days`);
   });
 });

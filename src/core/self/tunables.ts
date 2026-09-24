@@ -154,51 +154,21 @@ export interface SelfTunables {
   SCHEMA_BYTES_PRESSURE: number;
 
   // ── episodes (behavioral-spec §13, all TUNABLE by name) ───────────────────
-  /** First ask needs this many real turns AND `FIRST_ASK_BYTES`... CAL. */
+  /** The first ask is due at this many turns the PERSON typed... CAL. */
   FIRST_ASK_TURNS: number;
-  /** ...or this many real bytes... CAL. */
-  FIRST_ASK_BYTES: number;
-  /** ...or bytes alone past this point, so a one-prompt agentic session still
-   *  journals (§13 G1). CAL. */
-  SOLO_ASK_BYTES: number;
-  /** Further substance since the last ask, in turns, before another chapter —
-   *  AND the byte threshold below, never or. CAL. */
+  /** ...or at this many bytes of conversation text from both roles, whichever
+   *  comes first — so a one-prompt agentic session still journals (§13 G1). CAL. */
+  FIRST_ASK_TEXT_BYTES: number;
+  /** A later ask is due at this many typed turns since the last one... CAL. */
   REASK_TURNS: number;
-  /** Further substance since the last ask, in bytes, before another chapter. CAL. */
-  REASK_BYTES: number;
+  /** ...or at this many bytes of conversation text since it, whichever comes
+   *  first. CAL. */
+  REASK_TEXT_BYTES: number;
   /**
-   * Asks ONE SESSION may raise ON ONE CALENDAR DAY. A backstop on the COUNT; the
-   * re-ask pair is what bounds the cadence, and the orphanable tail is measured
-   * against that pair, never hidden (§13 known gap). CAL.
-   *
-   * **The measurement against per-session, and why it no longer holds.** On
-   * 2026-09-04 a per-session cap of 6 was reached inside ONE evening
-   * conversation, and the cap moved to the lived day (later the calendar date,
-   * I32) at v1's day calibration: "a work day gets about three". That evening
-   * was measured under the OLD re-ask rule — two pacers, an OR, and a byte half
-   * a third of v1's, so the model's own chapter-writing reply could re-trigger
-   * the ask. The SAME DAY the rule became one pacer and an AND
-   * (`episodes.ts#askDue`: `sinceTurns >= REASK_TURNS && sinceBytes >=
-   * REASK_BYTES`). Under the AND, six asks in one session need roughly
-   * 6 + 5×8 = 46 real turns AND the bytes to go with them, so frequency is held
-   * by the pacer and this number is only a ceiling on a very long session.
-   *
-   * **What the day cap cost, measured 2026-09-17**
-   * (`docs/finding-12-diagnosis-2026-09-17.md`): shared across every session a
-   * calendar day held, it refused 196 of 264 Stop moments, and the crash-fallback
-   * sweep wrote 888 memories against the author's 193. The owner runs five or
-   * more sessions a day, so the day's four asks were spent before most sessions
-   * began — the author was not losing a fight, it was never invited. Per
-   * session, keeping the substance pacer, is the owner's ruling of 2026-09-17.
-   *
-   * **And why the session's whole life was too long a window, 2026-09-18.** A
-   * coordinating session spent all six inside one working day; its end-of-day
-   * handoff — the stretch most worth writing — was never offered the pen, and
-   * nothing could give the allowance back short of a new session. So the count
-   * is per session PER CALENDAR DAY (owner's ruling), on the store's own date
-   * rather than the lived day, for the reason I32 gave. Exhausting it inside one
-   * day still binds; for now that is accepted, and the pacer means six asks in a
-   * day is already about 46 real turns.
+   * Asks ONE SESSION may raise ON ONE CALENDAR DAY — a backstop on the count;
+   * the re-ask pair sets the cadence. Per session per calendar day, so no other
+   * session can spend it and a session that spans days gets it back (the
+   * history is in self NOTES, "The cap moved off the lived day"). CAL.
    */
   MAX_ASKS_PER_SESSION: number;
   /** Lived days an episode may be re-ingested after its first ingest. The window
@@ -231,11 +201,13 @@ export const SELF_TUNABLES: SelfTunables = {
   SCHEMA_BYTES_PRESSURE: 0.75,
 
   FIRST_ASK_TURNS: 6,
-  FIRST_ASK_BYTES: 4_000,
-  SOLO_ASK_BYTES: 12_000,
+  // 24 KB, not 12 KB: a replay showed 12 KB still fired the first ask at typed turn 1–3 in ~40% of sessions.
+  FIRST_ASK_TEXT_BYTES: 24_000,
   REASK_TURNS: 8,
-  REASK_BYTES: 8_000,
-  MAX_ASKS_PER_SESSION: 6,
+  // 24 KB, not 8 KB: under the OR a long reply alone should not re-ask.
+  REASK_TEXT_BYTES: 24_000,
+  // 12, not 6: typed-turn pacing spaces asks further apart, so the backstop can be looser.
+  MAX_ASKS_PER_SESSION: 12,
   REGROW_WINDOW_DAYS: 3,
 };
 

@@ -691,9 +691,7 @@ export const NARRATORS = {
   "adapter.ask": (t) => {
     const outcome = s(t, "outcome");
     if (outcome === "capped") {
-      return amber(
-        `I had already asked as often as a day allows, so I did not ask again. Whatever was learned in that session, I did not write.`,
-      );
+      return calm(`Ask limit reached for today, so I did not ask again this time.`);
     }
     if (outcome === "paced") {
       return calm(`There was not enough new substance to be worth asking for, so I let the session end quietly.`);

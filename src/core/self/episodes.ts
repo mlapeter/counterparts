@@ -9,9 +9,9 @@
  * The five properties that are structural, and the incidents behind them
  * (behavioral-spec §13):
  *
- *   - **Substance-paced, never wall-clock-paced.** The first ask needs real
- *     turns AND real bytes, *or* enough bytes alone so a one-prompt agentic
- *     session still journals.
+ *   - **Substance-paced, never wall-clock-paced.** An ask is due on turns the
+ *     person typed OR on conversation text from both roles, whichever comes
+ *     first — so a one-prompt agentic session still journals.
  *   - **Live append.** The ritual hands the model its chapter for the REST of the
  *     session. v1's once-per-session ask fired at the first stop, so everything
  *     after turn one was first-person-invisible; one session's episode missed the
@@ -138,10 +138,19 @@ export const NO_GATE: EpisodeGate = () => ({
 // ── per-session chapter state ───────────────────────────────────────────────
 
 export interface Substance {
-  /** Real turns — injected context and tool noise excluded by the caller. */
+  /** Messages the PERSON typed. The assistant's text, injected context and
+   *  tool noise are excluded by the caller. */
   readonly turns: number;
-  /** Real bytes, same exclusion. */
+  /** UTF-8 bytes of conversation text from BOTH roles — injected context and
+   *  tool noise still excluded. */
   readonly bytes: number;
+}
+
+/** How the pacer may treat a substance reading. `rebase: false` is for a
+ *  caller whose count is not real — a transcript it could not read — so no
+ *  watermark is moved on its account. */
+export interface PaceOptions {
+  readonly rebase?: boolean;
 }
 
 export interface EpisodeState {
@@ -310,12 +319,9 @@ export interface AskVerdict {
  * that can be spent forever. It is the same key the old shared day cap settled
  * on for the same reason.
  *
- * WHICH ZONE: the machine's LOCAL one (`Self#calendarToday`, `calendar.ts`;
- * owner's ruling 2026-09-23). Until then it was `Store#today`, UTC, and an owner
- * at UTC−6 got the allowance back at 18:00 local. The day of the change is the
- * one day the two disagree: an `asksDay` stamped under UTC and read against a
- * local `today` may refill the allowance once early (or hold it a few hours
- * late), which the ruling accepted (self NOTES §22).
+ * WHICH ZONE: the machine's LOCAL one (`Self#calendarToday`, `calendar.ts`),
+ * since 2026-09-23; before that UTC, which gave an owner at UTC−6 the allowance
+ * back at 18:00 local (self NOTES §22).
  *
  * A state written before the day stamp existed reads as ZERO spent rather than
  * as today's count. The wrong way round costs at most one extra allowance on the
@@ -350,34 +356,41 @@ export function askDue(
   // instrument runs leave no episode.
   if (opts.observer) return no("observer");
   if (state.sessionId.trim().length === 0) return no("anonymous-session");
-  // The cap is THIS SESSION'S OWN, PER CALENDAR DAY, and it is a backstop, not
-  // the cadence: the re-ask pair below is what spaces the asks out. Shared
-  // across a whole calendar day, this cap refused 196 of 264 Stops on the live
-  // store and left the crash fallback writing four and a half times what the
-  // author wrote (2026-09-17; owner's ruling the same day). Spent over a
-  // session's whole life, it starved the long ones instead: a coordinating
-  // session on 2026-09-17 used all six inside one working day and its
-  // end-of-day handoff was never offered the pen (owner's ruling 2026-09-18).
-  // Same-day exhaustion still binds; for now that is accepted. A session that
-  // did no real work is still refused — by substance, one gate down.
+  // The cap is this session's own, per calendar day, and a backstop: the pacing
+  // below sets the cadence. A session that did no real work is refused by
+  // substance, one gate down.
   if (asksSpentOn(state, opts.today) >= t.MAX_ASKS_PER_SESSION) return no("session-ask-cap");
 
+  // Turns OR text, whichever comes first. Turns are what the person typed, so
+  // the assistant's own writing reaches an ask only through the (larger) text
+  // threshold. History: AND-paced until 2026-09-24, both roles counted as turns.
   if (state.asks === 0) {
-    const paced =
-      (substance.turns >= t.FIRST_ASK_TURNS && substance.bytes >= t.FIRST_ASK_BYTES) ||
-      substance.bytes >= t.SOLO_ASK_BYTES;
+    const paced = substance.turns >= t.FIRST_ASK_TURNS || substance.bytes >= t.FIRST_ASK_TEXT_BYTES;
     return paced
       ? { due: true, reason: "due-first", chapter, sinceTurns, sinceBytes }
       : no("not-enough-substance");
   }
-  // AND, not OR — measured 2026-09-04. v1 re-asked on `reaskBytes` AND
-  // `reaskTurns`; v2 shipped an OR whose byte half was a third of v1's, and the
-  // model's own chapter-writing reply could satisfy it on its own. One evening
-  // of 13 owner turns drew about a dozen asks across the two pacers.
-  const paced = sinceTurns >= t.REASK_TURNS && sinceBytes >= t.REASK_BYTES;
+  const paced = sinceTurns >= t.REASK_TURNS || sinceBytes >= t.REASK_TEXT_BYTES;
   return paced
     ? { due: true, reason: "due-substance", chapter, sinceTurns, sinceBytes }
     : no("not-enough-substance");
+}
+
+/**
+ * A TURN WATERMARK LEFT BY THE OLD COUNTING, pulled down to today's count — or
+ * null when the state does not show that pattern.
+ *
+ * On 2026-09-24 turns went from both roles' text pieces to typed messages, and
+ * byte counting did not change. So a session still on an old watermark reads
+ * exactly this way: bytes caught up with it, turns below it. Left alone,
+ * `sinceTurns` would read 0 until typed turns overtook the old total; re-based,
+ * the re-ask measures from now. Anything else — bytes below the watermark too,
+ * which is what a transcript that could not be read looks like — is left
+ * alone, so a failed read can never zero the watermark.
+ */
+export function rebasedWatermark(state: EpisodeState, substance: Substance): EpisodeState | null {
+  if (!(substance.bytes >= state.askedAtBytes && substance.turns < state.askedAtTurns)) return null;
+  return { ...state, askedAtTurns: substance.turns };
 }
 
 /**
