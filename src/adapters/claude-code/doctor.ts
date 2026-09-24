@@ -1459,12 +1459,12 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  *   - **the memories** (`memories.source`): the week's live memories the
  *     session wrote itself, against those the fallback sweep wrote for it.
  *
- * AMBER only when something was actually lost: a session that owes a
- * write-up (B3's predicate, the count the `Crash write-up` line shows) still
- * unwritten past `WRITE_UP_WAIT_DAYS`. Cap refusals and the sweep's share are
- * counts, not colours — a refused ask is not a lost session. Never red. The
- * session-start reading does not read the owed sessions (it walks every
- * scope's words), so there the line is counts only.
+ * GREEN, with counts: cap refusals and the sweep's share are not losses, and
+ * the one loss it could name — a session that owes a write-up (B3's
+ * predicate) unwritten past `WRITE_UP_WAIT_DAYS` — is the `Crash write-up`
+ * line's amber. This line carries that count as detail, or says "unknown"
+ * when it could not be read. The session-start reading does not read the owed
+ * sessions (it walks every scope's words), so there the line omits them.
  *
  * The window is CALENDAR days, from the payload's own `date` (else the row's
  * wall clock), never the lived-day column; `sinceDay` only keeps the SQL cheap.
@@ -1637,7 +1637,7 @@ function rowsInWindow(
   };
 }
 
-function authorshipFindings(input: DoctorInput, store: Store, owedReading: () => OwedReading | null): Finding[] {
+function authorshipFindings(input: DoctorInput, store: Store, owedReading: OwedSource): Finding[] {
   const livedDay = store.livedDay();
   // Inclusive of today: seven calendar days means today and the six before it.
   const from = daysBefore(input.today, AUTHORSHIP_DAYS - 1);
@@ -1692,9 +1692,18 @@ function authorshipFindings(input: DoctorInput, store: Store, owedReading: () =>
   const shown = windowShown(from, input.today, storeFirstDay(store));
   // "of that week" is part of the same claim, and has to go with it.
   const span = shown === from ? "of that week" : "in that time";
-  const owed = owedReading();
-  const lost = owed?.stale ?? 0;
   const plural = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
+  const owed = owedReading();
+  const read = owed !== null && owed !== "failed" ? owed : null;
+  const owedPhrase =
+    owed === null
+      ? ""
+      : owed === "failed"
+        ? "; sessions awaiting a write-up: unknown (could not be read)"
+        : owed.waiting === 0
+          ? ""
+          : `; ${plural(owed.waiting, "session", "sessions")} awaiting a write-up` +
+            (owed.stale === 0 ? "" : `, ${String(owed.stale)} older than ${String(WRITE_UP_WAIT_DAYS)} days`);
   const detail =
     `${windowPhrase(shown, input.today)}: invited to write ${plural(asked, "time", "times")}, ` +
     `${plural(paced, "Stop", "Stops")} paced out, ${String(capped)} over the day's allowance` +
@@ -1702,7 +1711,7 @@ function authorshipFindings(input: DoctorInput, store: Store, owedReading: () =>
     `${plural(deposits.rows.length, "deposit", "deposits")}; ` +
     `${String(authored)} live ${authored === 1 ? "memory" : "memories"} ${span} ${authored === 1 ? "is" : "are"} its own, ` +
     `${String(fallback)} the fallback sweep's` +
-    `${lost === 0 ? "" : `; ${plural(lost, "session has", "sessions have")} waited more than ${String(WRITE_UP_WAIT_DAYS)} days for a write-up`}` +
+    owedPhrase +
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
   const data = {
     from,
@@ -1718,22 +1727,17 @@ function authorshipFindings(input: DoctorInput, store: Store, owedReading: () =>
     deposits: deposits.rows.length,
     authored,
     fallback,
-    // Null when the owed sessions were not read (the session-start reading).
-    owedWaiting: owed?.waiting ?? null,
-    owedStale: owed === null ? null : lost,
+    // Null when the owed sessions were not read (the session-start reading)
+    // or could not be.
+    owedWaiting: read?.waiting ?? null,
+    owedStale: read?.stale ?? null,
     truncated: asks.truncated || deposits.truncated,
     livedDay,
   };
-  return [
-    finding(
-      "authorship",
-      lost > 0 ? "amber" : "green",
-      "Authorship",
-      detail,
-      lost > 0 ? "Read the Crash write-up line: it names where to open a session so the next one writes them up." : "",
-      data,
-    ),
-  ];
+  // Green, always: a session waiting too long for its write-up is the one
+  // loss this line could name, and the Crash write-up line already turns amber
+  // on it — one loss, one amber line.
+  return [finding("authorship", "green", "Authorship", detail, "", data)];
 }
 
 /**
@@ -2906,8 +2910,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   // The sessions awaiting a write-up: read at most once, and only outside the
   // session-start reading (it walks every scope's captured words).
   const owedAllowed = !unread && input.budgetMs === undefined;
-  let owedCache: { value: OwedReading | null } | null = null;
-  const owedReading = (): OwedReading | null => {
+  let owedCache: { value: OwedReading | "failed" } | null = null;
+  const owedReading: OwedSource = () => {
     if (!owedAllowed) return null;
     owedCache ??= { value: readOwed(store) };
     return owedCache.value;
@@ -2994,9 +2998,9 @@ interface OwedReading {
   readonly stale: number;
 }
 
-/** Null when it cannot be read. It reads every scope's captured words, so the
- *  budgeted session-start reading never calls it. */
-function readOwed(store: Store): OwedReading | null {
+/** `failed` when it cannot be read. It reads every scope's captured words, so
+ *  the budgeted session-start reading never calls it. */
+function readOwed(store: Store): OwedReading | "failed" {
   try {
     const now = store.now();
     // READ-ONLY by construction: an observer buffer writes nothing, and it
@@ -3015,11 +3019,15 @@ function readOwed(store: Store): OwedReading | null {
     const stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
     return { spans, plan, now, waiting: owed.length, stale };
   } catch {
-    return null;
+    return "failed";
   }
 }
 
-function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: () => OwedReading | null): Finding[] {
+/** The shared owed reading as a line asks for it: `null` when this reading
+ *  does not take it (the budgeted session-start reading). */
+type OwedSource = () => OwedReading | "failed" | null;
+
+function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: OwedSource): Finding[] {
   const who = "next session";
   let waiting: number | null = null;
   let stale = 0;
@@ -3028,7 +3036,7 @@ function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: () 
   const shares: { session: string; here: string; elsewhere: string[]; stale: boolean }[] = [];
   try {
     const reading = owedReading();
-    if (reading === null) throw new Error("owed reading unavailable");
+    if (reading === null || reading === "failed") throw new Error("owed reading unavailable");
     const { spans, plan, now } = reading;
     waiting = reading.waiting;
     stale = reading.stale;

@@ -977,6 +977,35 @@ describe("doctor — the reading", () => {
       expect(f.detail).toContain("20 the fallback sweep's");
     });
 
+    test("an owed reading that fails says unknown rather than reading as none", () => {
+      mintStore();
+      writeConfig();
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      // The owed reading is the first to take the store's clock in a reading
+      // (the Authorship group asks for it); make that first read fail.
+      let clockReads = 0;
+      const failing = new Proxy(s, {
+        get(target, key, receiver) {
+          if (key === "now") {
+            return () => {
+              clockReads += 1;
+              if (clockReads === 1) throw new Error("clock unavailable");
+              return target.now();
+            };
+          }
+          const value: unknown = Reflect.get(target, key, receiver);
+          return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      const findings = doctorFindings(input({ store: failing }));
+      const f = by(findings, "authorship");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("sessions awaiting a write-up: unknown");
+      expect(f.data["owedStale"]).toBeNull();
+      expect(by(findings, "crash-write-up").detail).toContain("could not count the sessions waiting");
+    });
+
     test("the session-start reading does not read the owed sessions, and says counts only", () => {
       mintStore();
       writeConfig();

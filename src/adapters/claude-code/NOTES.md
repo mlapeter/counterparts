@@ -536,12 +536,13 @@ notices.
 Amber on two comparisons — the day's cap refusing more asks than it raises, the fallback
 out-writing the author — and never red: this is a balance, not a fault.
 
-**Since 2026-09-24, amber only on a loss:** a session that owes a write-up (B3's predicate,
-the count the `Crash write-up` line shows) still unwritten past `WRITE_UP_WAIT_DAYS`. The
-two ratios became plain counts in the detail — a refused ask is not a lost session, and the
-"too new to grade" clamp went with them. The owed reading walks every scope's words, so it
-is read once per doctor run, shared with `Crash write-up`, and skipped by the budgeted
-session-start reading (there the line is counts only).
+**Since 2026-09-24, green with counts.** The two ratios became plain counts in the detail —
+a refused ask is not a lost session — and the "too new to grade" clamp went with them. The
+one loss the line could name, a session owed a write-up past `WRITE_UP_WAIT_DAYS`, is the
+`Crash write-up` line's amber; Authorship carries the same count as detail (or "unknown"
+when it could not be read), so one loss shows as one amber line. The owed reading walks
+every scope's words, so it is read once per doctor run, shared by both lines, and skipped
+by the budgeted session-start reading.
 
 ## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
 
@@ -1335,13 +1336,17 @@ Why: the ask fired after the owner's second message in a session where the assis
 written 8 separate text blocks between tool calls. The thresholds moved with it (self NOTES
 §23): typed turns OR text, 12 asks a session a day.
 
-What else reads the new meaning: `noteOrphanTail` (the same `askDue`), the `adapter.ask`
-row's `turns` field (typed turns from now on; rows before today counted both roles), and
-`remember/owes.ts`'s "asked" test, which uses the same OR on the row's numbers — old rows
-over-count turns, which errs toward keeping text and asking for a write-up. Its fallback
-when no evaluation covers the last capture uses the cursor (`maxTo`, every piece of both
-roles) as the turn count, an upper bound that under an OR reads most sessions of six or
-more pieces as asked — also the keeping direction.
+What else reads the new meaning: `noteOrphanTail` (the same `askDue`, the same re-based
+watermark), the `adapter.ask` row's `turns` field — stamped `counting: "typed"` from now
+on — and `remember/owes.ts`'s "asked" test, which uses the same OR. It reads an unstamped
+row's turns as 0 (`sessions.ts#hostSessionEvidence`), because those counted both roles.
+When no evaluation covers the last capture it decides on bytes alone: the cursor counts
+every piece of both roles and is no measure of what the person typed.
+
+**A transcript that will not read** (`bin/hook.ts#toHookInput` sets `turnsUnread`) is
+not an empty conversation: the Stop ask and the tail pass `rebase: false`, and the re-base
+itself fires only on the migration pattern (bytes caught up, turns below the watermark), so
+a failed read cannot zero a session's watermark and make the next Stop due.
 
 ### I40
 

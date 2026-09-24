@@ -1143,7 +1143,10 @@ to 12, since typed-turn pacing spaces asks further apart. All five numbers are t
 move as the owner's days show.
 
 **Sessions in progress.** A watermark committed under the old counting sits above what
-typed-turn counting reaches for a while. `openChapter` re-bases a watermark that is above
-the substance it is handed (`episodes.ts#rebasedWatermark`, one persisted write, ring event
-`self.episode.rebased`), so the re-ask measures from that Stop instead of waiting for the
-new count to overtake the old total.
+typed-turn counting reaches for a while. Byte counting did not change, so such a session
+reads exactly one way: bytes at or past the watermark, turns below it. On that pattern
+only, `openChapter` pulls the turn watermark down to today's count
+(`episodes.ts#rebasedWatermark`, one persisted write, ring event `self.episode.rebased`),
+and `askDue`/`noteOrphanTail` read the same re-based state. Any other reading below the
+watermark — an empty one from a transcript that would not read — moves nothing, and a
+caller can say its count is not real with `rebase: false`.
