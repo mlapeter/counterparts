@@ -42,7 +42,7 @@ import { WRITE_UP_ASK_COUNT_KEY, WRITE_UP_ASK_DATE_KEY, WRITE_UP_OPEN } from "..
 import { TUNABLES, loadConfig } from "../src/adapters/claude-code/config.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/config.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
-import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
+import { WRITE_UP_WAIT_DAYS, doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { openServer, toolSpec } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/server.js";
 import {
@@ -960,5 +960,36 @@ describe("doctor: one line, `Crash write-up`", () => {
       severity: "amber",
       detail: "next session — 2 sessions awaiting a write-up, 1 older than 3 days",
     });
+  });
+
+  test("Authorship goes amber on the same loss: an owed session unwritten past the wait, and only then", () => {
+    const authorship = (): { severity: string; detail: string; stale: unknown } => {
+      const c = Counterpart.open({ dir: storeDir, owner: true });
+      open.push(c);
+      const f = doctorFindings({
+        configPath: join(root, "claude-code.json"),
+        configReason: "loaded",
+        config: config(),
+        dir: storeDir,
+        store: c.store,
+        today: "2026-09-23",
+        refusals: {},
+      }).find((x) => x.key === "authorship");
+      c.close();
+      open.pop();
+      return { severity: f?.severity ?? "missing", detail: f?.detail ?? "", stale: f?.data["owedStale"] };
+    };
+    const s = seeder();
+    ended(s, "fresh", { at: Date.now() - 1 * DAY });
+    s.done();
+    // Waiting, but inside the window: nothing lost yet.
+    expect(authorship()).toMatchObject({ severity: "green", stale: 0 });
+    const t = seeder();
+    ended(t, "stale", { at: Date.now() - (WRITE_UP_WAIT_DAYS + 2) * DAY, scope: OTHER });
+    t.done();
+    const late = authorship();
+    expect(late.severity).toBe("amber");
+    expect(late.stale).toBe(1);
+    expect(late.detail).toContain(`1 session has waited more than ${String(WRITE_UP_WAIT_DAYS)} days for a write-up`);
   });
 });

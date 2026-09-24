@@ -881,9 +881,8 @@ describe("doctor — the reading", () => {
 
   /**
    * FINDING 12'S OWN READING — who did the week's writing, in rows the store
-   * already keeps. The two comparisons that go amber are the two the diagnosis
-   * of 2026-09-17 measured: the session's own ask allowance refusing more asks
-   * than it raises, and the fallback sweep out-writing the author.
+   * already keeps. Counts only; the line goes amber when a session owed a
+   * write-up has waited past its window (`test/write-up.test.ts` seeds that).
    */
   describe("authorship — a week of who wrote the memory", () => {
     /** One `adapter.ask` row, on a calendar date, with an outcome and — for a
@@ -922,8 +921,8 @@ describe("doctor — the reading", () => {
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("green");
       expect(f.detail).toBe(
-        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 on a cap and 3 for pacing; " +
-          "it answered with 3 deposits; 6 live memories of that week are its own, 1 was written for it by the fallback sweep",
+        "2026-09-08→2026-09-14: invited to write 3 times, 3 Stops paced out, 0 over the day's allowance; " +
+          "3 deposits; 6 live memories of that week are its own, 1 the fallback sweep's",
       );
       expect(f.fix).toBe("");
       expect(f.data["asked"]).toBe(3);
@@ -931,7 +930,7 @@ describe("doctor — the reading", () => {
       expect(f.data["fallback"]).toBe(1);
     });
 
-    test("AMBER when a session's own ask allowance refuses more than it raises", () => {
+    test("refusals on the day's allowance are a count, never amber — a refused ask is not a lost session", () => {
       mintStore();
       writeConfig();
       const s = store();
@@ -940,24 +939,14 @@ describe("doctor — the reading", () => {
       for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped", "session-ask-cap");
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
-      expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance for the day)");
-      // The mechanism the hint sends the reader after must be the one that
-      // exists: per session since 2026-09-17, per session per day since
-      // 2026-09-18, never a ration SHARED by the day.
-      expect(f.fix).toContain("A session's own allowance for the day (6 asks)");
-      expect(f.fix).not.toContain("shared");
-      expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("9 over the day's allowance");
+      expect(f.fix).toBe("");
+      expect(f.data["cappedBySession"]).toBe(9);
+      expect(f.data["owedStale"]).toBe(0);
     });
 
-    /**
-     * THE SPLIT. Until 2026-09-17 a `capped` row meant the ration four sessions
-     * of one lived day shared (`day-chapter-cap`); since then it means this
-     * session's own allowance (`session-ask-cap`). Both spellings are inside a
-     * seven-day window right now, and a line that added them together blamed the
-     * per-session allowance for refusals it never made.
-     */
-    test("the two caps are counted apart, and only the NEW one can raise the amber", () => {
+    test("the old shared day cap is still counted apart in the data", () => {
       mintStore();
       writeConfig();
       const s = store();
@@ -968,66 +957,14 @@ describe("doctor — the reading", () => {
       ask(s, "2026-09-14", "capped");
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
-      expect(f.detail).toContain(
-        "refused 11 on a cap (1 by a session's own allowance for the day, 9 by the old shared day cap, 1 naming no cap)",
-      );
+      expect(f.detail).toContain("11 over the day's allowance");
       expect(f.data["capped"]).toBe(11);
       expect(f.data["cappedBySession"]).toBe(1);
       expect(f.data["cappedByDay"]).toBe(9);
-      // Nine old-cap refusals against one invitation do NOT amber: that rule is
-      // not in force any more, and its rows only age out of the window.
       expect(f.severity).toBe("green");
-      expect(f.fix).toBe("");
     });
 
-    test("neither amber fires on a store too new to grade (finding 2)", () => {
-      // Both of this line's ambers are RATIOS — "the cap refused more often
-      // than it offered", "the sweep wrote more than the session did" — and a
-      // ratio over a handful of rows is not a reading. The SENTENCE still
-      // stands; only the colour and the hint stand down.
-      mintStore();
-      writeConfig();
-      const s = store();
-      ask(s, "2026-09-14", "asked");
-      memory(s, "2026-09-14", "authored", 2);
-      memory(s, "2026-09-13", "fallback", 20);
-      const f = by(doctorFindings(input({ store: s })), "authorship");
-      expect(f.severity).toBe("green");
-      expect(f.detail).toContain("20 were written for it by the fallback sweep");
-      expect(f.detail).toContain("too new to grade");
-      expect(f.fix).toBe("");
-      expect(f.data["young"]).toBe(true);
-    });
-
-    test("a store whose WORKER died still gets graded — the young rule uses two clocks (MINOR 8)", () => {
-      /**
-       * The lived clock is advanced ONLY by the sleep cycle
-       * (`store.advanceClock()` has one caller). Sessions ask and deposit at
-       * every boundary whether or not the worker ever runs. So a store whose
-       * worker has been dead since day 1 — spawn refused, no credential, a
-       * broken checkout — piles up a fortnight of asks and deposits with a
-       * perfectly meaningful cap/sweep ratio, and read GREEN "too new to grade"
-       * for ever on the one-clock rule. That is the exact store
-       * `FiredReport.young`'s two-clock rule was written to protect.
-       */
-      mintStore();
-      writeConfig();
-      const s = store();
-      // livedDay stays 0: nothing here advances the clock.
-      expect(s.livedDay()).toBe(0);
-      ask(s, "2026-09-09", "asked");
-      memory(s, "2026-09-09", "authored", 2);
-      memory(s, "2026-09-09", "fallback", 20);
-
-      const f = by(doctorFindings(input({ store: s })), "authorship");
-      expect(f.data["livedDay"]).toBe(0);
-      expect(f.data["young"]).toBe(false);
-      expect(f.severity).toBe("amber");
-      expect(f.detail).not.toContain("too new to grade");
-      expect(f.fix).toContain("session-end boundary");
-    });
-
-    test("AMBER when the fallback sweep out-writes the author", () => {
+    test("the fallback sweep out-writing the author is a count, not amber", () => {
       mintStore();
       writeConfig();
       const s = store();
@@ -1036,9 +973,18 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 2);
       memory(s, "2026-09-13", "fallback", 20);
       const f = by(doctorFindings(input({ store: s })), "authorship");
-      expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("20 were written for it by the fallback sweep");
-      expect(f.fix).toContain("session-end boundary");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("20 the fallback sweep's");
+    });
+
+    test("the session-start reading does not read the owed sessions, and says counts only", () => {
+      mintStore();
+      writeConfig();
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      const f = by(doctorFindings(input({ store: s, budgetMs: 60_000 })), "authorship");
+      expect(f.severity).toBe("green");
+      expect(f.data["owedStale"]).toBeNull();
     });
 
     test("the window is CALENDAR days, and a row with no outcome is counted apart", () => {

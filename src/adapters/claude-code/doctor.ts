@@ -77,7 +77,7 @@ import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
-import { STATE_MEANING, YOUNG_LIVED_DAYS, daysBetween, firedReport } from "../fired.js";
+import { STATE_MEANING, daysBetween, firedReport } from "../fired.js";
 // The one name the "no configuration was read" line needs, from the module that
 // owns it — so the sentence here and the refusal it replaced name the same var.
 import { CONFIG_ENV } from "../config-path.js";
@@ -1444,59 +1444,38 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
 }
 
 /**
- * WHO IS DOING THE WRITING — one week of it, in the owner's own words.
+ * WHO IS DOING THE WRITING — one week of it, in plain counts.
  *
- * **The finding this answers (finding 12, diagnosed 2026-09-17).** Over the run
- * the crash fallback out-wrote the session itself 4.5 : 1, and every visible
- * surface read healthy while it happened: capture captured, deposits were
- * accepted, nothing was red. The two facts that would have shown it are not
- * hard to read and were simply never read out — how often the session was
- * OFFERED the pen, and how much of the week's memory it actually wrote. Both
- * come out of rows the store already keeps (constitution 11: the system itself
- * shows what fired).
+ * Finding 12 (2026-09-17): the crash fallback out-wrote the session 4.5 : 1
+ * while every surface read healthy, because nobody read out how often the
+ * session was OFFERED the pen and how much of the week it wrote. Both come out
+ * of rows the store already keeps (constitution 11):
  *
- * Three readings, seven calendar days, nothing computed and nothing guessed:
+ *   - **the asks, by `outcome`** (`adapter.ask`): `asked` went out, `paced` was
+ *     refused by the pacer, `capped` by the session's allowance for the day
+ *     (`reason: session-ask-cap`; rows before 2026-09-17 say `day-chapter-cap`,
+ *     the old shared cap, and are counted apart in `data`);
+ *   - **the answers** (`gate.deposit`);
+ *   - **the memories** (`memories.source`): the week's live memories the
+ *     session wrote itself, against those the fallback sweep wrote for it.
  *
- *   - **The asks, by `outcome`** (`adapter.ask`). `asked` is an invitation that
- *     went out; `capped` is one refused because an allowance was spent; `paced`
- *     is one the substance pacer refused.
+ * AMBER only when something was actually lost: a session that owes a
+ * write-up (B3's predicate, the count the `Crash write-up` line shows) still
+ * unwritten past `WRITE_UP_WAIT_DAYS`. Cap refusals and the sweep's share are
+ * counts, not colours — a refused ask is not a lost session. Never red. The
+ * session-start reading does not read the owed sessions (it walks every
+ * scope's words), so there the line is counts only.
  *
- *     The capped ones are SPLIT BY `reason`, because two different rules wear
- *     that one outcome: rows written before 2026-09-17 carry
- *     `day-chapter-cap` — the old ration four sessions of one day shared, whose
- *     clock only the worker advanced — and rows since carry `session-ask-cap`,
- *     this session's own allowance for the day
- *     (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`, which starts over with the calendar
- *     date from 2026-09-18).
- *     Counting them together let the line blame the per-session allowance for
- *     refusals it never made, which is a diagnostic naming the wrong door. The
- *     amber hint therefore keys on the NEW reason alone; the old one is still
- *     counted and named, because the days it recorded are still in the window.
- *   - **The answers** (`gate.deposit`): what the session handed back.
- *   - **The memories** (`memories.source`): how many live memories of the week
- *     the session wrote itself, against how many were written for it later.
- *
- * AMBER on either of two comparisons, and never red — this is a balance, not a
- * fault, and nothing here means the machine is broken.
- *
- * The window is CALENDAR days, taken from the payload's own `date` (else the
- * row's wall clock), never the lived-day column: the lived clock is advanced by
- * the worker and has run seven lived days across fifteen calendar ones on this
- * very store. `sinceDay` is used only to keep the SQL cheap, and a lived day is
- * never longer than a calendar day, so `livedDay - 7` cannot miss a row inside
- * the window.
+ * The window is CALENDAR days, from the payload's own `date` (else the row's
+ * wall clock), never the lived-day column; `sinceDay` only keeps the SQL cheap.
  */
 export const AUTHORSHIP_DAYS = 7;
 
-/** The cap in force. Declared `satisfies AskReason` rather than typed loose, so
- *  a rename in `self/episodes.ts` fails `tsc` here instead of quietly reading
- *  zero one morning. */
+/** The cap in force. Declared `satisfies AskReason` so a rename in
+ *  `self/episodes.ts` fails `tsc` here instead of quietly reading zero. */
 const SESSION_ASK_CAP = "session-ask-cap" satisfies AskReason;
 
-/** The cap that WAS in force until 2026-09-17 — one ration shared by every
- *  session of a lived day. Nothing writes it now and it is not in `AskReason`
- *  any more, but the rows it wrote are still inside a seven-day window and a
- *  count that folded them into the new cap would name the wrong door. */
+/** The shared day cap in force until 2026-09-17. Nothing writes it now. */
 const DAY_CHAPTER_CAP = "day-chapter-cap";
 
 /** The ceiling on one authorship read. A week of the owner's busiest recorded
@@ -1658,21 +1637,7 @@ function rowsInWindow(
   };
 }
 
-/** The oldest calendar date among the rows this line actually read — the second
- *  clock for "too new to grade". Null when it read none at all. */
-function oldestAuthorshipDate(
-  asks: readonly EventRow[],
-  deposits: readonly EventRow[],
-): string | null {
-  let oldest: string | null = null;
-  for (const row of [...asks, ...deposits]) {
-    const date = rowDate(row);
-    if (date !== null && (oldest === null || date < oldest)) oldest = date;
-  }
-  return oldest;
-}
-
-function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
+function authorshipFindings(input: DoctorInput, store: Store, owedReading: () => OwedReading | null): Finding[] {
   const livedDay = store.livedDay();
   // Inclusive of today: seven calendar days means today and the six before it.
   const from = daysBefore(input.today, AUTHORSHIP_DAYS - 1);
@@ -1727,40 +1692,21 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const shown = windowShown(from, input.today, storeFirstDay(store));
   // "of that week" is part of the same claim, and has to go with it.
   const span = shown === from ? "of that week" : "in that time";
-  // The NEW reason alone decides the hint: the old shared day cap stopped being
-  // written on 2026-09-17 and its rows only age out of the window, so keying on
-  // the total would go on blaming a rule nothing enforces any more.
-  const capBinds = cappedBySession > asked;
-  const sweepWins = fallback > authored;
-  const cappedSplit = [
-    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance for the day`,
-    cappedByDay === 0 ? "" : `${String(cappedByDay)} by the old shared day cap`,
-    capped - cappedBySession - cappedByDay === 0
-      ? ""
-      : `${String(capped - cappedBySession - cappedByDay)} naming no cap`,
-  ].filter((s) => s.length > 0);
+  const owed = owedReading();
+  const lost = owed?.stale ?? 0;
+  const plural = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
   const detail =
-    `${windowPhrase(shown, input.today)}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
-    `refused ${String(capped)} on a cap${cappedSplit.length === 0 ? "" : ` (${cappedSplit.join(", ")})`} ` +
-    `and ${String(paced)} for pacing` +
+    `${windowPhrase(shown, input.today)}: invited to write ${plural(asked, "time", "times")}, ` +
+    `${plural(paced, "Stop", "Stops")} paced out, ${String(capped)} over the day's allowance` +
     `${unlabelled === 0 ? "" : ` (${String(unlabelled)} older rows name no outcome)`}; ` +
-    `it answered with ${String(deposits.rows.length)} ${deposits.rows.length === 1 ? "deposit" : "deposits"}; ` +
+    `${plural(deposits.rows.length, "deposit", "deposits")}; ` +
     `${String(authored)} live ${authored === 1 ? "memory" : "memories"} ${span} ${authored === 1 ? "is" : "are"} its own, ` +
-    `${String(fallback)} ${fallback === 1 ? "was" : "were"} written for it by the fallback sweep` +
+    `${String(fallback)} the fallback sweep's` +
+    `${lost === 0 ? "" : `; ${plural(lost, "session has", "sessions have")} waited more than ${String(WRITE_UP_WAIT_DAYS)} days for a write-up`}` +
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
-  const fixes = [
-    capBinds
-      ? `A session's own allowance for the day (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it within a day, and that number is worth a look.`
-      : "",
-    sweepWins
-      ? "The sweep writes what the session did not: check that sessions reach a session-end boundary in the scope they captured in, and that the Stop ask is reaching the model."
-      : "",
-  ].filter((s) => s.length > 0);
   const data = {
     from,
     // The window the SENTENCE names, beside the one the counts were taken over.
-    // They differ only on a store younger than seven days, and a consumer that
-    // wants the reading rather than the wording keeps reading `from`.
     shownFrom: shown,
     to: input.today,
     asked,
@@ -1772,38 +1718,20 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     deposits: deposits.rows.length,
     authored,
     fallback,
+    // Null when the owed sessions were not read (the session-start reading).
+    owedWaiting: owed?.waiting ?? null,
+    owedStale: owed === null ? null : lost,
     truncated: asks.truncated || deposits.truncated,
+    livedDay,
   };
-  // TOO NEW TO GRADE (2026-09-20, finding 2). Both ambers here are RATIOS —
-  // "the cap refused more often than it offered", "the sweep wrote more than
-  // the session did" — and a ratio over a handful of rows is not a reading. On
-  // a store that has not lived a day or two, the sentence stands and the colour
-  // does not: there is nothing here to fix that waiting will not answer.
-  //
-  // **TWO CLOCKS, the same rule `FiredReport.young` keeps.** An earlier version
-  // used the lived clock alone, arguing that these ambers are about how a
-  // session behaved and so cannot predate the clock moving. That premise is
-  // false: `store.advanceClock()` has exactly one caller, the sleep cycle, and
-  // sessions ask and deposit at every boundary whether or not the worker ever
-  // runs. So a store whose worker has been dead since day 1 — spawn refused, no
-  // credential, a broken checkout — piles up a fortnight of asks and deposits
-  // with a perfectly meaningful cap/sweep ratio and read GREEN, "too new to
-  // grade", for ever. That is the exact store the two-clock rule exists to
-  // protect, one finding over.
-  const young =
-    livedDay < YOUNG_LIVED_DAYS &&
-    daysBetween(oldestAuthorshipDate(asks.rows, deposits.rows) ?? input.today, input.today) <
-      YOUNG_LIVED_DAYS;
   return [
     finding(
       "authorship",
-      !young && (capBinds || sweepWins) ? "amber" : "green",
+      lost > 0 ? "amber" : "green",
       "Authorship",
-      young && (capBinds || sweepWins)
-        ? `${detail} — too new to grade: this store is on lived day ${String(livedDay)}`
-        : detail,
-      young ? "" : fixes.join(" "),
-      { ...data, young, livedDay },
+      detail,
+      lost > 0 ? "Read the Crash write-up line: it names where to open a session so the next one writes them up." : "",
+      data,
     ),
   ];
 }
@@ -2975,11 +2903,20 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   const store = input.store;
   if (store === null) return worstFirst(out);
 
+  // The sessions awaiting a write-up: read at most once, and only outside the
+  // session-start reading (it walks every scope's captured words).
+  const owedAllowed = !unread && input.budgetMs === undefined;
+  let owedCache: { value: OwedReading | null } | null = null;
+  const owedReading = (): OwedReading | null => {
+    if (!owedAllowed) return null;
+    owedCache ??= { value: readOwed(store) };
+    return owedCache.value;
+  };
   const groups: (readonly [string, () => Finding[]])[] = [
     ["spawn", () => spawnFindings(input, store)],
     ["clock", () => clockFindings(input, store)],
     ["rows", () => rowFindings(input, store)],
-    ["authorship", () => authorshipFindings(input, store)],
+    ["authorship", () => authorshipFindings(input, store, owedReading)],
     ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(input, store)],
     // The snapshot policy lives in the configuration, so with none read this
@@ -2991,7 +2928,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // is all that notice prints, and it reads every scope's captured words.
     ...(unread || input.budgetMs !== undefined
       ? []
-      : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store)] as const]),
+      : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store, owedReading)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
     // B3's week: one bounded read of the newest `remember.prune` row. Folds into
@@ -3045,15 +2982,23 @@ export const WRITE_UP_WAIT_DAYS = 3;
  * is where that shows. Never red: nothing is lost while a session waits, which
  * is what the wait is for.
  */
-function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
-  const who = "next session";
-  const now = store.now();
-  let waiting: number | null = null;
-  let stale = 0;
-  /** Sessions FINISHED in one project and waiting on words they left in
-   *  another (the door's `written-up-here`), stale ones first. */
-  const shares: { session: string; here: string; elsewhere: string[]; stale: boolean }[] = [];
+/** The sessions awaiting a write-up, read once per reading and shared by the
+ *  `Crash write-up` and `Authorship` lines. */
+interface OwedReading {
+  readonly spans: SpanBuffer;
+  readonly plan: ReturnType<typeof writeUpPlan>;
+  readonly now: number;
+  /** Sessions awaiting a write-up (B3's count, `sessions.ts#awaitingWriteUp`). */
+  readonly waiting: number;
+  /** ...of which have waited past `WRITE_UP_WAIT_DAYS`. */
+  readonly stale: number;
+}
+
+/** Null when it cannot be read. It reads every scope's captured words, so the
+ *  budgeted session-start reading never calls it. */
+function readOwed(store: Store): OwedReading | null {
   try {
+    const now = store.now();
     // READ-ONLY by construction: an observer buffer writes nothing, and it
     // is B3's own reader (`planRetention`) that opens the files.
     const spans = new SpanBuffer({ dir: store.dir, observer: true, now: () => now });
@@ -3067,8 +3012,26 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
     });
     // The same eligibility the pointer uses.
     const owed = awaitingWriteUp(plan, store.dir, now);
-    waiting = owed.length;
-    stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
+    const stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
+    return { spans, plan, now, waiting: owed.length, stale };
+  } catch {
+    return null;
+  }
+}
+
+function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: () => OwedReading | null): Finding[] {
+  const who = "next session";
+  let waiting: number | null = null;
+  let stale = 0;
+  /** Sessions FINISHED in one project and waiting on words they left in
+   *  another (the door's `written-up-here`), stale ones first. */
+  const shares: { session: string; here: string; elsewhere: string[]; stale: boolean }[] = [];
+  try {
+    const reading = owedReading();
+    if (reading === null) throw new Error("owed reading unavailable");
+    const { spans, plan, now } = reading;
+    waiting = reading.waiting;
+    stale = reading.stale;
     const progress = readWriteUpProgress(store);
     for (const [key, p] of Object.entries(progress)) {
       if (p.waiting !== true) continue;
