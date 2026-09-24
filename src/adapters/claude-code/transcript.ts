@@ -65,13 +65,19 @@
  *   and the text markers above only decide for an entry that carries none. The
  *   refusals (`foreign`, `ritual`) still come first, whatever the metadata says.
  *
+ *   **Prompts typed mid-turn are the person too** (2026-09-24). The host writes
+ *   a prompt typed while the model works as an `attachment` entry
+ *   (`queued_command`, `commandMode: "prompt"`, `origin.kind: "human"`), not a
+ *   user entry. It is read as a typed turn where it stands; every other
+ *   attachment is still skipped. NOTES §"What the host writes user-role".
+ *
  * Nothing here throws. A transcript we cannot read yields no turns, which costs
  * a boundary's capture; a transcript that throws would cost the session.
  *
  * The file also holds the WAKE-ARRIVAL READER (bottom of this file), which reads
  * the same transcript for a different question and keeps its own, bounded, pass:
- * capture wants conversation and skips attachments, delivery wants exactly the
- * attachment and skips conversation.
+ * capture wants conversation and skips attachments (queued prompts aside),
+ * delivery wants exactly the hook's attachment and skips conversation.
  */
 import {
   closeSync,
@@ -416,6 +422,9 @@ export function parseTranscript(raw: string): TranscriptRead {
   const expansions: Expansion[] = [];
   let corrupt = 0;
   let ordinal = -1;
+  // Queued prompts already emitted, by their text. Open until a twin consumes
+  // one or the person sends anything else.
+  let pending: string[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: Record<string, unknown>;
@@ -433,13 +442,41 @@ export function parseTranscript(raw: string): TranscriptRead {
       corrupt += 1;
       continue;
     }
+    // A prompt typed while the model worked: a turn of its own, where it
+    // stands in the file. A twin written later is skipped below, so the first
+    // appearance is the one kept and the list only grows.
+    if (entry["type"] === "attachment") {
+      const queued = queuedPromptOf(entry);
+      if (queued === undefined) continue;
+      ordinal += 1;
+      const pieces = blocksOf(queued, "user", "human");
+      const said = typedText(pieces);
+      if (said.length > 0) pending.push(said);
+      for (const piece of pieces) {
+        if (piece.text.trim().length === 0) continue;
+        turns.push({ role: "user", text: piece.text, source: piece.source, entry: ordinal });
+      }
+      continue;
+    }
     const message = entry["message"] as Record<string, unknown> | undefined;
     const role = (message?.["role"] ?? entry["role"]) as unknown;
     if (role !== "user" && role !== "assistant") continue;
     const content = message?.["content"] ?? entry["content"];
     const author = entryAuthor(entry, role);
+    const pieces = blocksOf(content, role, author);
+    // A twin, if the host ever writes one, is the person's NEXT sent entry: the
+    // same words, marked queued. Anything else the person sends closes the
+    // window. Assistant lines do not: the turn goes on after the attachment.
+    if (role === "user" && author === "human" && pending.length > 0) {
+      const twin = entry["promptSource"] === "queued" ? pending.indexOf(typedText(pieces)) : -1;
+      if (twin !== -1) {
+        pending.splice(twin, 1);
+        continue;
+      }
+      pending = [];
+    }
     ordinal += 1;
-    for (const piece of blocksOf(content, role, author)) {
+    for (const piece of pieces) {
       // A recall call is the assistant's turn, kept as EVIDENCE beside the
       // turn list rather than in it (see `Expansion`). Only the assistant
       // calls tools; a user-role block never carries one.
@@ -451,6 +488,32 @@ export function parseTranscript(raw: string): TranscriptRead {
     }
   }
   return { turns, ok: true, reason: "read", corrupt, expansions };
+}
+
+/**
+ * The prompt of a `queued_command` attachment the PERSON typed mid-turn, or
+ * undefined. Host-queued work (task notifications, hand-backs, anything
+ * `isMeta`) and other modes (`bash`, …) are not the person speaking to the
+ * model. `prompt` is a string, or content blocks when an image was pasted.
+ */
+function queuedPromptOf(entry: Record<string, unknown>): unknown {
+  const att = entry["attachment"];
+  if (!isEntry(att) || att["type"] !== "queued_command" || att["commandMode"] !== "prompt") return undefined;
+  if (att["isMeta"] === true || entry["isMeta"] === true) return undefined;
+  const origin = att["origin"];
+  if (!isEntry(origin) || origin["kind"] !== "human") return undefined;
+  const prompt = att["prompt"];
+  return typeof prompt === "string" || Array.isArray(prompt) ? prompt : undefined;
+}
+
+/** What the person said in one entry, whitespace collapsed, for matching a queued prompt to its twin. */
+function typedText(pieces: readonly Piece[]): string {
+  return pieces
+    .filter((p) => p.source === "conversation")
+    .map((p) => p.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 type Piece = { text: string; source: TurnSource; expansion?: string[] };
@@ -546,8 +609,8 @@ function blocksOf(content: unknown, role: "user" | "assistant", author: EntryAut
 // `parseTranscript` refuses to answer: did the wake this system printed at
 // SessionStart actually reach the session's context?
 //
-// `parseTranscript` skips attachment entries because injected context is not
-// conversation, and that stays exactly as it is. The check below wants the
+// `parseTranscript` skips hook attachments because injected context is not
+// conversation (it reads only the person's queued prompts). The check below wants the
 // opposite half of the file: the host records a SessionStart hook's output as an
 // entry of its own (`type: "attachment"`, `attachment.type: "hook_success"`),
 // carrying what the hook PRINTED (`stdout`) beside what the host says it
