@@ -168,6 +168,8 @@ const ZERO_DIMS: DimensionsInput = { relevance: 0, emotional: 0, predictive: 0 }
 export class Schemas {
   readonly store: Store;
   private readonly index = new AliasIndex();
+  /** Cards the fade archived, by their handles, so a saved memory naming one can bring it back (NOTES §15). */
+  private readonly faded = new AliasIndex();
   private readonly meta = new Map<string, MetaRecord>();
   private readonly byEntity = new Map<string, Set<string>>();
   private readonly birthsPerChunk = new Map<string, number>();
@@ -228,6 +230,8 @@ export class Schemas {
       this.remember(id, rec);
       if (rec.role === "entity" && row.archived === 0) {
         this.index.register(id, rec.name ?? "", rec.aliases ?? []);
+      } else if (rec.role === "entity" && row.archived_reason === TUNABLES.FADE_REASON) {
+        this.faded.register(id, rec.name ?? "", rec.aliases ?? []);
       }
     }
   }
@@ -293,24 +297,7 @@ export class Schemas {
       aliasesDeclared: input.aliases?.length ?? 0,
     });
 
-    const refuse = (reason: BirthReason, collidedWith: string[] = []): BirthOutcome => {
-      this.emit("schema.birth.refused", input.chunkRef, {
-        nameHash,
-        kind: input.kind,
-        reason,
-        collided: collidedWith.length,
-      });
-      return {
-        ok: false,
-        reason,
-        id: null,
-        born: false,
-        collidedWith,
-        droppedAliases: [],
-        keptAliases: [],
-        reinforced: false,
-      };
-    };
+    const refuse = (reason: BirthReason): BirthOutcome => this.refuseBirth(input, nameHash, reason);
 
     // Layer 1 of "never a second self", checked FIRST and independently of every
     // other ground: one identity core, and a second is a category error no
@@ -323,27 +310,69 @@ export class Schemas {
     // The ONE whole-word rule, the same call preselection makes (SEAMS §7).
     if (!occursAsWholeWord(input.source, name)) return refuse("name-not-in-source");
 
+    return this.settle(name, input.kind, input, nameHash, true);
+  }
+
+  /**
+   * What a mention does once its name is admitted: the existing card, a
+   * refusal, or a birth. Shared by the title path and a body mention of a
+   * faded card, so both bring a card back the same way. A revival skips the
+   * per-chunk cap — it brings back a card that existed rather than inventing one.
+   */
+  private settle(
+    name: string,
+    kind: BirthKind,
+    input: MentionInput,
+    nameHash: string,
+    capped: boolean,
+  ): BirthOutcome {
     const exact = this.liveHolders(name);
-    if (exact.length > 1) return refuse("ambiguous-existing-name", exact);
+    if (exact.length > 1) return this.refuseBirth(input, nameHash, "ambiguous-existing-name", exact);
     const hit = exact[0];
     if (hit !== undefined) {
       const row = this.store.row(hit);
       // Layer 2: a name that resolves to the identity core is not a birth site,
       // whatever kind the mention claimed.
-      if (row?.kind === "self") return refuse("second-self-refused", [hit]);
-      if (row !== undefined && row.kind !== input.kind) {
-        return refuse("collision-exact-different-kind", [hit]);
+      if (row?.kind === "self") return this.refuseBirth(input, nameHash, "second-self-refused", [hit]);
+      if (row !== undefined && row.kind !== kind) {
+        return this.refuseBirth(input, nameHash, "collision-exact-different-kind", [hit]);
       }
       return this.reMention(hit, input, nameHash);
     }
 
     const near = this.nearCollisions(name);
-    if (near.length > 0) return refuse("collision-near", near);
+    if (near.length > 0) return this.refuseBirth(input, nameHash, "collision-near", near);
 
     const used = this.birthsPerChunk.get(input.chunkRef) ?? 0;
-    if (used >= TUNABLES.MAX_BIRTHS_PER_CHUNK) return refuse("birth-cap-per-chunk");
+    if (capped && used >= TUNABLES.MAX_BIRTHS_PER_CHUNK) {
+      return this.refuseBirth(input, nameHash, "birth-cap-per-chunk");
+    }
 
-    return this.birth(name, input.kind, input, nameHash);
+    return this.birth(name, kind, input, nameHash);
+  }
+
+  private refuseBirth(
+    input: MentionInput,
+    nameHash: string,
+    reason: BirthReason,
+    collidedWith: string[] = [],
+  ): BirthOutcome {
+    this.emit("schema.birth.refused", input.chunkRef, {
+      nameHash,
+      kind: input.kind,
+      reason,
+      collided: collidedWith.length,
+    });
+    return {
+      ok: false,
+      reason,
+      id: null,
+      born: false,
+      collidedWith,
+      droppedAliases: [],
+      keptAliases: [],
+      reinforced: false,
+    };
   }
 
   /**
@@ -357,29 +386,43 @@ export class Schemas {
   }
 
   /**
-   * A saved memory that names a live card in its title or body counts as that
-   * card being used (NOTES §15). Only existing live cards are credited: nothing
-   * is born here, and a faded card stays faded (re-birth is `mention`'s job).
-   * An ambiguous handle credits no one; the identity core is left alone, as the
-   * title path leaves it. Physics' once-per-lived-day rule applies as for any use.
+   * A saved memory that names a card in its title or body counts as that card
+   * being used (NOTES §15). A live card is credited; a card the fade archived
+   * comes back the way a title mention brings it back — a fresh birth tagged
+   * `schema.birth.after-fade` — carrying its old name and aliases. Nothing that
+   * never existed is born, and a card pruned or removed stays gone. A handle
+   * held by two cards, live or faded, credits and revives neither; the identity
+   * core is left alone. Physics' once-per-lived-day rule applies as for any use.
    */
   creditNamedIn(input: NamedInTextInput): NamedInTextReport {
-    const report: NamedInTextReport = { credited: [], refused: [], ambiguous: 0 };
+    const report: NamedInTextReport = { credited: [], refused: [], revived: [], ambiguous: 0 };
     if (input.text.trim().length === 0) return report;
     const except = new Set(input.except ?? []);
-    const named = new Set<string>();
-    const ambiguous = new Set<string>();
+    // Live terms first: a card faded by another process moves to `faded` on its
+    // first lookup, so the faded pass below can see it.
+    const terms = new Map<string, string>();
     for (const hit of this.index.matchesIn(input.text)) {
-      const key = handleKey(hit.term);
-      if (key.length < TUNABLES.NAME_MIN_CHARS || ambiguous.has(key)) continue;
-      const holders = this.liveHolders(hit.term);
-      if (holders.length > 1) {
-        ambiguous.add(key);
+      this.liveHolders(hit.term);
+      terms.set(handleKey(hit.term), hit.term);
+    }
+    for (const hit of this.faded.matchesIn(input.text)) terms.set(handleKey(hit.term), hit.term);
+
+    const named = new Set<string>();
+    const fading = new Set<string>();
+    let denied: Set<string> | undefined;
+    const removedIds = (): Set<string> => (denied ??= new Set(this.store.deniedIds()));
+    for (const [key, term] of terms) {
+      if (key.length < TUNABLES.NAME_MIN_CHARS) continue;
+      const live = this.liveHolders(term);
+      const faded = this.fadedHolders(term, removedIds);
+      if (live.length + faded.length > 1) {
+        report.ambiguous += 1;
         continue;
       }
-      if (holders[0] === hit.id) named.add(hit.id);
+      if (live[0] !== undefined) named.add(live[0]);
+      if (faded[0] !== undefined) fading.add(faded[0]);
     }
-    report.ambiguous = ambiguous.size;
+
     for (const id of [...named].sort()) {
       if (except.has(id) || this.store.row(id)?.kind === "self") continue;
       const credit = this.store.reinforce(id, input.day, TUNABLES.MENTION_TIER);
@@ -391,7 +434,67 @@ export class Schemas {
         creditReason: credit.reason,
       });
     }
+    for (const priorId of [...fading].sort()) {
+      const out = this.revive(priorId, input);
+      if (out === null) continue;
+      if (out.born) report.revived.push(out.id as string);
+      else if (out.reason === "existing") (out.reinforced ? report.credited : report.refused).push(out.id as string);
+    }
     return report;
+  }
+
+  /**
+   * The faded cards a handle names, one per name. A faded card whose name a
+   * live card now holds is that card's past life, not a second holder. Of
+   * several faded cards with one name, the latest-born speaks for them.
+   */
+  private fadedHolders(term: string, removedIds: () => Set<string>): string[] {
+    const ids = this.faded.lookup(term);
+    if (ids.length === 0) return [];
+    const denied = removedIds();
+    const byName = new Map<string, { id: string; birth: number }>();
+    for (const id of ids) {
+      const rec = this.meta.get(id);
+      const row = this.store.row(id);
+      if (rec === undefined || row === undefined || row.archived !== 1 || this.removed(id, row, denied)) {
+        this.faded.unregister(id);
+        continue;
+      }
+      const key = handleKey(rec.name ?? "");
+      if (this.liveHolders(rec.name ?? "").some((l) => handleKey(this.meta.get(l)?.name ?? "") === key)) continue;
+      const prev = byName.get(key);
+      if (prev === undefined || row.birth_day > prev.birth || (row.birth_day === prev.birth && id > prev.id)) {
+        byName.set(key, { id, birth: row.birth_day });
+      }
+    }
+    return [...byName.values()].map((v) => v.id).sort();
+  }
+
+  /**
+   * Bring a faded card back through the title path's own birth. Its old aliases
+   * come along: they passed the gate when declared, so the old card's handles
+   * are the source they are checked against here.
+   */
+  private revive(priorId: string, input: NamedInTextInput): BirthOutcome | null {
+    const rec = this.meta.get(priorId);
+    const kind = this.store.row(priorId)?.kind;
+    if (rec === undefined || kind === undefined || !isBirthKind(kind)) return null;
+    const name = rec.name ?? "";
+    const aliases = rec.aliases ?? [];
+    const out = this.settle(
+      name,
+      kind,
+      { name, kind, source: [name, ...aliases].join("\n"), chunkRef: input.ref, aliases, day: input.day },
+      hashText(handleKey(name)),
+      false,
+    );
+    this.emit("schema.mention.revived", out.id ?? priorId, {
+      day: input.day,
+      ref: input.ref,
+      priorId,
+      reason: out.reason,
+    });
+    return out;
   }
 
   /** An entity archived by the fade (not pruned) that held this exact name, if any. */
@@ -413,8 +516,13 @@ export class Schemas {
    * rather than a reinforcement of a card nothing surfaces (NOTES §14).
    */
   private fadedElsewhere(id: string): boolean {
-    if (this.store.row(id)?.archived !== 1) return false;
+    const row = this.store.row(id);
+    if (row?.archived !== 1) return false;
     this.index.unregister(id);
+    const rec = this.meta.get(id);
+    if (rec !== undefined && row.archived_reason === TUNABLES.FADE_REASON) {
+      this.faded.register(id, rec.name ?? "", rec.aliases ?? []);
+    }
     return true;
   }
 
@@ -1256,6 +1364,7 @@ export class Schemas {
       if (dryRun) continue;
       this.store.archive(id, TUNABLES.FADE_REASON);
       this.index.unregister(id);
+      this.faded.register(id, rec.name ?? "", rec.aliases ?? []);
       this.emit("schema.faded", id, {
         day,
         kind: row.kind,

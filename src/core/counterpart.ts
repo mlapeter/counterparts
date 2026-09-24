@@ -3874,9 +3874,9 @@ export class Counterpart {
   }
 
   /**
-   * A saved memory that names a live card anywhere in its title or body counts
-   * as a use of that card, so someone talked about every day keeps their card
-   * (schemas NOTES §15). The card the title path just handled is skipped. Every
+   * A saved memory that names a card anywhere in its title or body counts as a
+   * use of that card, so someone talked about every day keeps their card, and
+   * one who faded comes back (schemas NOTES §15). The card the title path just handled is skipped. Every
    * door that mints calls this: a deposit, a sweep, an episode ingestion.
    * Fail-open: the memory has already landed.
    */
@@ -3896,11 +3896,12 @@ export class Counterpart {
         ref: memoryId,
         ...(titled === null ? {} : { except: [titled] }),
       });
-      if (out.credited.length + out.refused.length + out.ambiguous === 0) return;
+      if (out.credited.length + out.refused.length + out.revived.length + out.ambiguous === 0) return;
       this.emit("counterpart.mention.named", memoryId, {
         door,
         credited: out.credited.length,
         refused: out.refused.length,
+        revived: out.revived.length,
         ambiguous: out.ambiguous,
         day,
       });
