@@ -85,6 +85,7 @@ import {
   RECALL_RESULT_CHARS,
   boundMemories,
   deliberateRecall,
+  embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
 import {
@@ -972,7 +973,9 @@ export class McpServer {
     // is a NAME, not a narrower answer — `deliberateRecall` degrades to lexical
     // and says which.
     const asked = typeof question === "string" && question.trim().length > 0;
-    const embedded = asked ? await this.embedQuestion(question) : { vector: null, semantic: "none" as SemanticSource };
+    // One embedding call, and every way it can decline, by name
+    // (`deliberate.ts#embedQuestion`, which the console's `ask` shares).
+    const embedded = asked ? await embedQuestion(this.embedder, question) : { vector: null, semantic: "none" as SemanticSource };
     // THE GATE AGAIN, after this tool's wait: a migration that committed
     // during the embedding's round-trip must not be recalled past. The store's
     // write guard would stop `noteRecall`'s row anyway; this also stops the
@@ -1163,24 +1166,6 @@ export class McpServer {
       at: this.nowFn(),
     });
     return written && id !== null;
-  }
-
-  /**
-   * One embedding call, and every way it can decline, by name. This file only
-   * ever sees vectors or null.
-   */
-  private async embedQuestion(
-    question: string,
-  ): Promise<{ vector: number[] | null; semantic: SemanticSource }> {
-    if (this.embedder === null) return { vector: null, semantic: "embedder-off" };
-    try {
-      const vector = await this.embedder.vector(question);
-      return vector === null || vector.length === 0
-        ? { vector: null, semantic: "embed-failed" }
-        : { vector, semantic: "in-line" };
-    } catch {
-      return { vector: null, semantic: "embed-failed" };
-    }
   }
 
   /**

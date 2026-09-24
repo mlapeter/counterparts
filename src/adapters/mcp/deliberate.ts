@@ -306,6 +306,28 @@ export interface DeliberateOptions {
   readonly semantic?: SemanticSource;
 }
 
+/**
+ * ONE EMBEDDING OF A DELIBERATE QUESTION, and every way it can decline, by name
+ * — the round trip `DeliberateOptions.vector` expects the caller to have made.
+ * Shared by the two callers that ask deliberately: the MCP `recall` tool and
+ * the console's `ask` (2026-09-24). Structural on the embedder (`vector()` is
+ * all it needs), so this file still imports no other adapter. Never throws.
+ */
+export async function embedQuestion(
+  embedder: { vector(text: string): Promise<number[] | null> } | null,
+  question: string,
+): Promise<{ vector: number[] | null; semantic: SemanticSource }> {
+  if (embedder === null) return { vector: null, semantic: "embedder-off" };
+  try {
+    const vector = await embedder.vector(question);
+    return vector === null || vector.length === 0
+      ? { vector: null, semantic: "embed-failed" }
+      : { vector, semantic: "in-line" };
+  } catch {
+    return { vector: null, semantic: "embed-failed" };
+  }
+}
+
 const EMPTY = {
   semantic: "none" as SemanticSource,
   memories: [] as readonly Recalled[],
