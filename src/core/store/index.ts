@@ -43,8 +43,8 @@ import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
-import type { Db, Statement } from "./db.js";
-import { isLocked } from "./db.js";
+import type { Db, Statement, WalFold } from "./db.js";
+import { foldWal, isLocked, wroteOn } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -112,7 +112,7 @@ export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
 export * from "./render.js";
-export type { Db, Statement } from "./db.js";
+export type { Db, Statement, WalFold } from "./db.js";
 export type {
   MemoryRow,
   VersionRow,
@@ -983,9 +983,57 @@ export class Store {
     return new Store(opts);
   }
 
+  private closed = false;
+
+  /**
+   * Close both boxes. A handle that WROTE folds the write-ahead log of each box
+   * it wrote to first (`db.ts#foldWal`, cli INTERFACE-GAPS §13), so a clean close
+   * leaves a `-wal` of zero bytes (or none) rather than one at its high-water
+   * size.
+   *
+   * **Only a box this handle wrote** (`db.ts#wroteOn`, SQLite's
+   * `total_changes()` on this connection). A writable handle that only read —
+   * a dry run, a report opened without `observer` — leaves the files exactly as
+   * it found them, which is what the dry-run suites' byte fingerprints assert;
+   * a log some other process left is that process's to fold on ITS close.
+   *
+   * **Never under observer.** A checkpoint moves committed pages from the `-wal`
+   * into the database file — bytes of the canonical box change even though no
+   * row does — and the byte-identity suites hash the file WITH its `-wal`
+   * around an instrument's open and close to prove it wrote nothing (NOTES §8).
+   * An instrument leaves the log for the next writer.
+   *
+   * **Never waits, never throws.** A reader holding an older snapshot (the MCP
+   * server, the worker, the dashboard) makes the fold partial: whatever could be
+   * copied is, the log keeps its size, and the ring carries
+   * `store.wal.checkpoint` with `busy: true`. One event per box either way,
+   * emitted AFTER both handles are closed so a listener cannot write a frame
+   * back into a log that was just folded.
+   *
+   * A second call is harmless and folds nothing.
+   */
   close(): void {
+    const folds: [string, WalFold][] = [];
+    if (!this.closed && !this.observer) {
+      if (wroteOn(this.ops)) folds.push(["store", foldWal(this.ops)]);
+      if (wroteOn(this.cache)) folds.push(["cache", foldWal(this.cache)]);
+    }
+    this.closed = true;
     this.ops.close();
     this.cache.close();
+    for (const [box, f] of folds) {
+      try {
+        this.emit("store.wal.checkpoint", undefined, {
+          box,
+          busy: f.busy,
+          log: f.log,
+          checkpointed: f.checkpointed,
+          ...(f.error === undefined ? {} : { error: f.error }),
+        });
+      } catch {
+        // A listener that throws costs its own event, never the close.
+      }
+    }
   }
 
   /** Prepared once, on first use; see `schemaVersions`. */

@@ -16,6 +16,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -57,7 +58,7 @@ import {
   vectorFormats,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
-import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../src/core/store/db.js";
+import { BUSY_TIMEOUT_MS, foldWal, journalModeOf, openDb } from "../src/core/store/db.js";
 import { readProseWalking } from "../src/core/store/walk-seam.js";
 import { bodyOf, makeBodyUnreadable, versionBodies } from "./store-fixture.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
@@ -1788,11 +1789,15 @@ describe("observer mode is enforced at the store seam", () => {
     // The canonical bytes are the DATABASE's now, so "deposits nothing" is
     // asserted against a hash of the file rather than of one memory's prose —
     // a stricter claim than the one it replaces, since it covers every row.
+    // Hashed AFTER the writer closes: a writer's clean close folds its
+    // write-ahead log into the file (cli INTERFACE-GAPS §13), so the file is
+    // whole — every row in it, none left in the `-wal` — and the writer's own
+    // last write is not charged to the observer below.
+    writer.close();
+    open.length = 0;
     const snapshot = createHash("sha256")
       .update(readFileSync(paths.operational(dir)))
       .digest("hex");
-    writer.close();
-    open.length = 0;
     return { id, snapshot };
   }
 
@@ -2321,6 +2326,142 @@ describe("WAL, the busy timeout, and I39", () => {
     // writer, exactly as the live store is.
     expect(copy.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode).toBe("delete");
     copy.close();
+  });
+});
+
+// ── a clean close folds the write-ahead log (cli INTERFACE-GAPS §13, #26) ──────
+
+describe("a writer's clean close folds the write-ahead log", () => {
+  const walOf = (path: string): number => (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  const both = (): { box2: number; box3: number } => ({
+    box2: walOf(paths.operational(dir)),
+    box3: walOf(paths.cache(dir)),
+  });
+  const folds = (s: Store) => s.events("store.wal.checkpoint").map((e) => e.data);
+  function seed(s: Store, n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) ids.push(s.put(mem(`row ${i} ${"padding words for the log ".repeat(20)}`)));
+    return ids;
+  }
+
+  test("write, close: both boxes' -wal files are gone or zero bytes, and nothing is lost", () => {
+    const s = store();
+    const ids = seed(s, 300);
+    s.appendEvent({ name: "probe", day: 0 });
+    const before = both();
+    // The finding's shape: a log at its high-water size while the handle is open.
+    expect(before.box2).toBeGreaterThan(0);
+    expect(before.box3).toBeGreaterThan(0);
+
+    s.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+    expect(folds(s)).toEqual([
+      { box: "store", busy: false, log: 0, checkpointed: 0 },
+      { box: "cache", busy: false, log: 0, checkpointed: 0 },
+    ]);
+    // A second close is harmless and folds nothing new.
+    s.close();
+    expect(folds(s).length).toBe(2);
+
+    // Every row is in the database file now, read back through a fresh handle.
+    const again = store({ observer: true });
+    expect(again.countMemories()).toBe(300);
+    for (const id of [ids[0]!, ids[150]!, ids[299]!]) expect(again.has(id)).toBe(true);
+    expect(again.eventLog({ name: "probe" }).length).toBe(1);
+  });
+
+  test("an OBSERVER's close folds nothing: the database and its -wal are byte-identical", () => {
+    const writer = store();
+    seed(writer, 50);
+    const box2 = paths.operational(dir);
+    const box3 = paths.cache(dir);
+    const hashed = { box2: databaseBytes(box2), box3: databaseBytes(box3) };
+    expect(walOf(box2)).toBeGreaterThan(0);
+
+    const obs = store({ observer: true });
+    expect(obs.countMemories()).toBe(50);
+    obs.close();
+    expect(folds(obs)).toEqual([]);
+    expect({ box2: databaseBytes(box2), box3: databaseBytes(box3) }).toEqual(hashed);
+
+    // The writer that owns the log folds it when IT closes.
+    writer.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+  });
+
+  test("a WRITABLE handle that only read folds nothing — a log another handle left is that handle's", () => {
+    const writer = store();
+    seed(writer, 50);
+    const box2 = paths.operational(dir);
+    const box3 = paths.cache(dir);
+    const hashed = { box2: databaseBytes(box2), box3: databaseBytes(box3) };
+    expect(walOf(box2)).toBeGreaterThan(0);
+
+    // A dry run: opened writable, asked questions, closed.
+    const dry = store();
+    expect(dry.countMemories()).toBe(50);
+    expect(dry.eventCounts().length).toBeGreaterThanOrEqual(0);
+    dry.close();
+    expect(folds(dry)).toEqual([]);
+    expect({ box2: databaseBytes(box2), box3: databaseBytes(box3) }).toEqual(hashed);
+
+    // One write, to box 2 only: box 2 folds, box 3 is left to its writer.
+    const one = store();
+    one.appendEvent({ name: "probe", day: 0 });
+    one.close();
+    expect(folds(one)).toEqual([{ box: "store", busy: false, log: 0, checkpointed: 0 }]);
+    expect(walOf(box2)).toBe(0);
+    expect(walOf(box3)).toBeGreaterThan(0);
+    writer.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+  });
+
+  test("a READER holding a snapshot makes the fold partial — close neither waits nor throws, and says so", () => {
+    const s = store();
+    seed(s, 100);
+    // Another connection (the MCP server, the worker, the dashboard) mid-read:
+    // a plain deferred BEGIN plus a SELECT takes a read snapshot that uses the
+    // log. NOT `Db.transaction`, which is BEGIN IMMEDIATE — a write lock.
+    const reader = openDb(paths.operational(dir));
+    reader.exec("BEGIN");
+    expect(reader.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories")?.n).toBe(100);
+
+    const t0 = performance.now();
+    expect(() => s.close()).not.toThrow();
+    const took = performance.now() - t0;
+    // Without the zero timeout this waits the full BUSY_TIMEOUT_MS for the reader.
+    expect(took).toBeLessThan(BUSY_TIMEOUT_MS / 5);
+    const [box2, box3] = folds(s);
+    expect(box2).toMatchObject({ box: "store", busy: true });
+    // Every frame the reader's snapshot allowed was still copied; the log keeps
+    // its size only because the reader is standing in it.
+    expect(box2?.["checkpointed"]).toBe(box2?.["log"]);
+    expect(walOf(paths.operational(dir))).toBeGreaterThan(0);
+    // Box 3 had no reader and folded.
+    expect(box3).toEqual({ box: "cache", busy: false, log: 0, checkpointed: 0 });
+
+    // The reader still sees its snapshot, whole; nothing was lost to anyone.
+    expect(reader.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories")?.n).toBe(100);
+    reader.exec("COMMIT");
+
+    // The next writer's clean close finishes the job.
+    const next = store();
+    next.put(mem("one more"));
+    next.close();
+    reader.close();
+    expect(walOf(paths.operational(dir))).toBe(0);
+    expect(folds(next)[0]).toEqual({ box: "store", busy: false, log: 0, checkpointed: 0 });
+  });
+
+  test("foldWal never throws, and on a file not in WAL it does nothing", () => {
+    const plain = openDb(join(scratch(), "plain.sqlite"));
+    plain.exec("CREATE TABLE t (x)");
+    expect(foldWal(plain)).toEqual({ busy: false, log: -1, checkpointed: -1 });
+    plain.close();
+    // A closed handle: named, not thrown.
+    const after = foldWal(plain);
+    expect(after.busy).toBe(false);
+    expect(typeof after.error).toBe("string");
   });
 });
 
