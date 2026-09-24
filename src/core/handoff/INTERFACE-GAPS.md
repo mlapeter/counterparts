@@ -63,6 +63,8 @@ to decide in advance (constitution line 15).
 
 ## 5. Every handoff row is one more file `Schemas.load` reads at open
 
+**Closed 2026-09-24** — F5 landed (store schema v6): bodies are rows, so there is no prose file to go missing; `MEMORY_BODY_MISSING` replaced `PROSE_FILE_MISSING` (`store/errors.ts`).
+
 **Owner:** `store/` (F5 closes it).
 **Needed:** nothing — this is recorded, not worked around.
 **Have:** `Schemas.load` reads every `type: "schema"` row's prose at open, and on a v5 store

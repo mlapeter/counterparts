@@ -7,6 +7,8 @@ listed below. Nothing in this list is implemented in `remember/`, on purpose.*
 
 ## 1. `store/paths.ts` — `LAYOUT` must classify `spans/` (BLOCKING at integration)
 
+**Closed 2026-09-24** — `store/paths.ts` LAYOUT classifies `spans` (backup: true).
+
 The span buffer lives at `<dataDir>/spans/`. `Store` asserts every top-level path is
 classified, so **as of today `Store.open()` on a data dir that has captured spans
 throws `LAYOUT_UNCLASSIFIED`.** The entry to add:
@@ -29,6 +31,8 @@ the floor, 2026-09-20, it is
 the bodies became rows.)
 
 ## 2. `encode/` — the `GateFn` (the gate battery)
+
+**Closed 2026-09-24** — `core/bridge.ts#batteryGate` is the injected gate (`counterpart.ts`).
 
 `remember/` never gates. It calls an injected function and honors the verdict:
 
@@ -98,6 +102,8 @@ gate reads.
 
 ## 4. `store/` + `schemas/` — `updates:` candidates and id resolution
 
+**Closed 2026-09-24** — `counterpart.ts#resolveUpdatesFor` binds `resolveId` (`store.resolve`) and `candidates` (`store.search`). `UPDATES_FLOOR` / `UPDATES_MARGIN` are still uncalibrated.
+
 ```ts
 type IdResolver = (id: string) => string | null | Promise<string | null>;
 type CandidateSource = (q: { scope: string; content: string; limit: number })
@@ -118,6 +124,8 @@ interface Candidate { id: string; text: string; aliases?: readonly string[] }
 
 ## 5. `observer.ts` should now be hoisted to `src/core/observer.ts`
 
+**Closed 2026-09-24** — `src/core/observer.ts`; `remember/spans.ts` imports it, and `test/seams.test.ts` enumerates `WRITE_SITES`.
+
 `store/observer.ts`'s own header says: *"when a second core module needs it, MOVE
 this file"*. `remember/` is that second consumer — it imports `isObserver` from
 `../store/observer.js` today. The move is a move, not a rewrite (the file imports
@@ -135,6 +143,8 @@ whoever calls the gate must consume `span.text`. Crossing those two wires is the
 failure this guarantee exists to prevent.
 
 ## 7. Whoever mints memories from proposals — the salience floor
+
+**Closed 2026-09-24** — `core/mint.ts` applies `clampSalienceAtSeam` once and emits `salience.lifted`.
 
 A `Proposal` carries `salience.claimed` (nullable) and per-dimension hints, and
 `remember/` never re-judges either. The clamp is

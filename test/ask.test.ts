@@ -178,24 +178,24 @@ describe("ask is short by default", () => {
   });
 
   test("the quiet line: kind, chapter, the date, the lived day, the id — the heading's date first, else learnedOn", () => {
-    const base = { id: "mem_2db9908dca81", kind: "self", journal: false };
+    const base = { id: "mem_0a1b2c3d4e5f", kind: "self", journal: false };
     expect(askMeta({ ...base, body: "## chapter 1 — lived day 2\n\nMike opened." }, "2026-09-23")).toBe(
-      "self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_2db9908dca81",
+      "self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_0a1b2c3d4e5f",
     );
     // The heading's own (local) date outranks the UTC provenance date.
     expect(askMeta({ ...base, body: "## chapter 1 — Thu 24 Sep 2026 · lived day 3\n\nLate." }, "2026-09-25")).toBe(
-      "self · chapter 1 · Thu 24 Sep 2026 · lived day 3 · mem_2db9908dca81",
+      "self · chapter 1 · Thu 24 Sep 2026 · lived day 3 · mem_0a1b2c3d4e5f",
     );
     // A journal opens with `journal`, and a multi-chapter one names the span.
     expect(
       askMeta(
-        { id: "epi_ecd049e55b2f", kind: "self", journal: true, body: "## chapter 1 — lived day 2\n\nA.\n\n## chapter 3 — lived day 2\n\nB." },
+        { id: "epi_0f1e2d3c4b5a", kind: "self", journal: true, body: "## chapter 1 — lived day 2\n\nA.\n\n## chapter 3 — lived day 2\n\nB." },
         "2026-09-23",
       ),
-    ).toBe("journal · chapters 1–3 · Wed 23 Sep 2026 · lived day 2 · epi_ecd049e55b2f");
+    ).toBe("journal · chapters 1–3 · Wed 23 Sep 2026 · lived day 2 · epi_0f1e2d3c4b5a");
     // A plain memory: kind, date, id.
-    expect(askMeta({ id: "mem_f96682ea3d25", kind: "entity", journal: false, body: "Han asked." }, "2026-09-23")).toBe(
-      "entity · Wed 23 Sep 2026 · mem_f96682ea3d25",
+    expect(askMeta({ id: "mem_5a4b3c2d1e0f", kind: "entity", journal: false, body: "Han asked." }, "2026-09-23")).toBe(
+      "entity · Wed 23 Sep 2026 · mem_5a4b3c2d1e0f",
     );
     // No date to say: none is invented.
     expect(askMeta({ id: "mem_x", kind: "fact", journal: false, body: "b" }, null)).toBe("fact · mem_x");

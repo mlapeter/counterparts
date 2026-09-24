@@ -50,11 +50,29 @@ a badge or softer copy when the site is next touched.
    the static embedder's tuning on real turns. Also a bug: schema cards never fade (`fadeSweep` has
    no caller). Prospective needs a date field, which is a schema change, so the Reconnect recipe
    (E) and a snapshot before migration come first.
+   - Later: interactive `counterparts ask` in the terminal (arrow keys, Enter expands; the
+     owner's idea, after the ask-readable change lands).
+
+**Status (2026-09-24, afternoon).** Steps 1 and 2 are built and in 0.3.0: #207 (pacing counts
+what the person typed; first ask at 6 typed turns or 24 KB of combined text, then 8 more or 24 KB
+more; 12 a day; doctor amber only on loss), #204 (store reads, WAL fold), #208 (`note` embeds on
+write). The owner confirmed all nine 09-20 defaults. #211 marked 31 closed gap entries.
+
+**Near term, beside the dashboard work:**
+- In flight: prompts typed mid-turn (`queued_command` attachments, ~7% of typed prompts) are
+  captured and paced; a snapshot before any schema migration; entity cards fade gently (lived
+  and calendar floors, people slowest; wired into sleep).
+- The model version on each journal chapter (the owner wants it; path in `self/NOTES.md` §24).
+- **Windows.** Untested, and the code assumes Unix in places: `pgrep`, `0600` permissions,
+  POSIX signals, rename semantics, the hook command lines install writes, and nothing checks for
+  `win32`. Try WSL first (it is Linux, and Linux is untested too), then native Windows. Until
+  then the site says Mac, with Linux untested.
 
 **How it runs.** One coordinator session holds this plan. Builders are Opus agents, each in its
 own worktree with file ownership drawn, and adversarial review on anything that touches a store,
 a person's config, or the boundary rituals. The owner talks with the coordinator one topic at a
-time while builders run. The owner merges; publishes and deploys happen on his word. When the
+time while builders run. The coordinator merges what it has verified (suite and typecheck on a
+clean checkout, a review where one is due); publishes and deploys happen on the owner's word. When the
 coordinator's context grows long, it writes a handoff and a fresh session picks up from here.
 
 ---
@@ -83,6 +101,8 @@ plan of record for boundary credit is built — `creditUse` is wired).*
 | F. Parked | Flat dashboard = the owner's own session. Three-way case study and a store outside the home dir stay parked. |
 
 ## Status (2026-09-23, close)
+
+**2026-09-24: `counterparts@0.3.0` is on npm** (master `ee9438c`), with the keys removed, the quiet Stop ask, and `ask` by meaning.
 
 Built and merged: A (#185, flip done, Phase C #196), B (#186 #188 #189), C (#190 #193 #192 #195), E (#187); D closed; release commit `b2e0ca1` = 0.3.0 trial tarball, unpublished. **2026-09-24: Voyage and the Anthropic key path were removed** (owner's word; keyless only — no keys, no credentials file, no `credentials` command, and the page writer's command is no longer configurable). Follow-ups: the site's in-development list; snapshot before a schema migration; `owner` write-up close command; `lastCaptureAt`/`lastAnswerAt` on HeldSession (m-E); the per-start plan cost.
 
