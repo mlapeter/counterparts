@@ -10,7 +10,7 @@ its memories itself, and they fade and grow the way yours do. It runs today with
 
 ## Install
 
-You need [bun](https://bun.sh) 1.3 or newer.
+You need [bun](https://bun.sh) 1.3 or newer (`npm install` won't work; it needs bun).
 
 ```
 curl -fsSL https://bun.sh/install | bash     # if you don't have bun
@@ -18,8 +18,8 @@ bun add -g counterparts
 counterparts
 ```
 
-`counterparts` walks you through setup: your name and connecting Claude Code. Then
-restart Claude Code and check it:
+`counterparts` walks you through setup: your name and connecting Claude Code. No API
+keys. Then restart Claude Code and check it:
 
 ```
 counterparts doctor
@@ -45,7 +45,7 @@ to be deleted. The full walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART
 - **Things come to mind.** As you talk, related memories surface quietly, the way one
   thing reminds you of another.
 - **It's yours.** Everything lives on your machine in one SQLite file you can read,
-  export or delete.
+  export or delete. No API keys, no accounts, nothing sent anywhere.
 
 ## Who it's for
 
