@@ -111,6 +111,8 @@ database, not the store's abstraction of it.
 
 ## 6. The CLI CONTRACT §5 G6 and the store's LAYOUT disagree about `versions/`
 
+**Closed 2026-09-24** — the floor (store schema v6) removed the `versions/` directory; versions are rows in `counterparts.sqlite`, and CLI CONTRACT §5 says so.
+
 **G6:** "the archive tree is deliberately excluded from snapshots — archive-on-
 overwrite history is itself the redundancy layer, and snapshotting it copies an
 unbounded, already-redundant tree into every snapshot."
@@ -148,6 +150,8 @@ cold start still mints normally); the CLI's `storeExists` guards already
 answered before opening.
 
 ## 8. Entity birth (`schemas.mention`) has no adapter path at all
+
+**Closed 2026-09-24** — `counterpart.ts#mentionFromProposal` calls `schemas.mention` when an authored or swept entity/person/place proposal lands.
 
 **Filed 2026-08-25** from the live-verification run, for the coordinator. Neither
 `adapters/mcp/` nor `adapters/cli/` calls `Schemas.mention()`; grep finds it only

@@ -299,7 +299,10 @@ JSON" was narrowed to what stays true: never without a notice, and never the doc
 
 **Also filed from this build, for the modules that own them.**
 
-- **`store/cache.ts#openCache` stamps an AHEAD cache backwards.** It re-runs the DDL and
+- **Closed 2026-09-24** — `store/cache.ts#openCache` now leaves a cache from a newer build
+  as found (`cacheAhead`, #190).
+
+  **`store/cache.ts#openCache` stamps an AHEAD cache backwards.** It re-runs the DDL and
   rewrites `cache_meta.schemaVersion` whenever the stamp DIFFERS, so a build opening a cache
   a newer build wrote writes the older number over it instead of refusing, the way
   `operational.ts` refuses `SCHEMA_AHEAD`. Not this server's hole (it never reopens) — a
