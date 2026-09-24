@@ -1350,8 +1350,10 @@ and finalization would have touched every call site in this module.
   connection). The first cut folded on every writable close and broke three dry-run
   suites' byte fingerprints: a writable handle that only read was moving the file's
   bytes by folding a log some other process left. That log is its writer's to fold.
-  **This is a deviation from "a clean close checkpoints", taken on purpose.** Two
-  consequences: `total_changes()` also counts rows a later ROLLBACK undid, so a handle
+  **This is a deviation from "a clean close checkpoints", taken on purpose.** Three
+  consequences: `total_changes()` counts ROW changes only, so a schema-only write (an
+  open that migrated or tagged and changed no row) does not fold, and its frames wait
+  for the next writer's fold; it also counts rows a later ROLLBACK undid, so a handle
   that wrote and rolled back still folds (the pre-gate behaviour, harmless); and if the
   last writer to a store CRASHES, its log stays until the next handle that writes
   closes — the hooks write every turn, so in practice that is one turn.
@@ -1379,3 +1381,5 @@ close that is no longer always a fold; not built.
 
 **Not verified:** `node:sqlite`. `foldWal` and `wroteOn` use only `exec`/`get`, which
 the adapter maps identically, and it typechecks; nobody has run it under Node.
+`Store.close()` returns early on a second call, so neither handle is closed twice —
+`node:sqlite` throws on a double close where `bun:sqlite` shrugs.

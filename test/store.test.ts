@@ -19,7 +19,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -1786,19 +1785,12 @@ describe("observer mode is enforced at the store seam", () => {
     const writer = store();
     const id = writer.put(mem("Mike prefers plain chat over chips"));
     writer.advanceClock("2026-08-25");
-    // The canonical bytes are the DATABASE's now, so "deposits nothing" is
-    // asserted against a hash of the file rather than of one memory's prose —
-    // a stricter claim than the one it replaces, since it covers every row.
-    // Hashed AFTER the writer closes: a writer's clean close folds its
-    // write-ahead log into the file (cli INTERFACE-GAPS §13), so the file is
-    // whole — every row in it, none left in the `-wal` — and the writer's own
-    // last write is not charged to the observer below.
+    // "Deposits nothing" is asserted against the DATABASE — the file and its
+    // `-wal` (`databaseBytes`) — so it covers every row wherever it sits, and
+    // does not depend on the writer's close having folded the log.
     writer.close();
     open.length = 0;
-    const snapshot = createHash("sha256")
-      .update(readFileSync(paths.operational(dir)))
-      .digest("hex");
-    return { id, snapshot };
+    return { id, snapshot: databaseBytes(paths.operational(dir)) };
   }
 
   test("every write method refuses, names the site, and leaves a stand-down event", () => {
@@ -1820,9 +1812,7 @@ describe("observer mode is enforced at the store seam", () => {
     }
     expect(s.events("store.observer.standdown").length).toBe(WRITE_METHODS.length);
     // Deposits nothing: the canonical database is byte-identical afterwards.
-    expect(createHash("sha256").update(readFileSync(paths.operational(dir))).digest("hex")).toBe(
-      snapshot,
-    );
+    expect(databaseBytes(paths.operational(dir))).toBe(snapshot);
     expect(s.list()).toEqual([id]);
     expect(s.livedDay()).toBe(1);
   });
