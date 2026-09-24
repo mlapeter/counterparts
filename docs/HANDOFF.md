@@ -1,5 +1,17 @@
 # Handoff — resume here
 
+## 2026-09-24, evening — 0.3.0 IS ON NPM
+
+`counterparts@0.3.0` published by the owner from `~/counterparts-backups/2026-09-24-0.3.0-final/`
+(master `ee9438c`; registry shasum `4c3877d0…cbcad954` = the tested tarball). His machine runs those
+bytes. In it: no API keys (#201), the quiet Stop ask via `additionalContext` (#203; verified live: the
+model receives it and answers), `ask` by meaning, numbered and dated (#203, #209), typed-turn pacing
+(#207), `note` embeds on write (#208), store reads + WAL fold (#204), dated chapter headings (#209).
+Next, outward and on his word: the site's install block and its two stale lines (files-demo caption;
+the status note on "the two ways anything leaves your machine"), then Reddit. The next round is the
+counterparts-e9 session's plan (ROADMAP top section); it has taken the model version per chapter
+(`src/core/self/NOTES.md` §24).
+
 ## 2026-09-24 — 0.3.0 SECOND CUT IS A TRIAL TARBALL; PUBLISH ON THE OWNER'S WORD
 
 The owner's trial of yesterday's cut surfaced three things, and all three are merged (master `1d91841`):
