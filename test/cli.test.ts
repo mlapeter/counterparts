@@ -3746,8 +3746,8 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     // A fat `-wal` beside it, with not one byte of garbage in the database: two
     // passes that rewrite every page and commit, below SQLite's autocheckpoint.
-    // (`SET dim = dim` alone writes nothing — SQLite skips a cell that is byte
-    // for byte what it was — and the compaction above left the `-wal` at zero.)
+    // (Measured: `SET dim = dim` alone left the `-wal` at zero, now that the
+    // compaction above folds its own.)
     const db = openCache(paths.cache(dir));
     db.exec("UPDATE embeddings SET dim = dim + 1");
     db.exec("UPDATE embeddings SET dim = dim - 1");
