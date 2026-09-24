@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
-import { ASK_GIST_CHARS, ASK_SHOWN, EXIT, askGist, printAskList, run } from "../src/adapters/cli/commands.js";
+import { ASK_GIST_CHARS, ASK_SHOWN, EXIT, askGist, askMeta, printAskList, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/static.js";
 import { Store, paths } from "../src/core/store/index.js";
@@ -104,27 +104,45 @@ function seedLighthouse(embed?: Embedder): string[] {
   }
 }
 
+/** The header sentence: how many, and by which channel. */
+const HEADER = /^(\d+) (memory|memories) found, by (meaning and words|words only — .+)\.( The top \d+:)?$/;
+
+/** The ids on the answer's quieter lines, in the order shown. */
+function shownIds(out: readonly string[]): string[] {
+  return out.flatMap((l) => {
+    const m = / · ((?:mem|epi)_\S+)$/.exec(l);
+    return m === null || !l.startsWith("     ") ? [] : [m[1] as string];
+  });
+}
+
 describe("ask is short by default", () => {
-  test("a header in plain words, then the answers — one line each: id, kind, title or first words", async () => {
+  test("a header sentence, then the answers numbered — the words, and a quieter line under them", async () => {
     seedLighthouse();
     const r = await ask(["the lighthouse at Fernbrook Point"]);
     expect(r.code).toBe(EXIT.ok);
     expect(r.out[0]).toBe(`Store: ${dir}`);
-    const found = Number(/^(\d+) found /.exec(r.out[1] ?? "")?.[1] ?? "0");
+    expect(r.out[1]).toMatch(HEADER);
+    const found = Number(HEADER.exec(r.out[1] ?? "")?.[1] ?? "0");
     expect(found).toBeGreaterThan(0);
-    expect(r.out[1]).toMatch(/^\d+ found \(by (meaning and words|words only — [^)]+)\)/);
-    const rows = r.out.slice(2).filter((l) => /^ {2}mem_/.test(l));
-    expect(rows.length).toBe(Math.min(found, ASK_SHOWN));
-    for (const row of rows) {
-      expect(row).toMatch(/^ {2}mem_\S+ {2}\S+ +\S.*$/);
-      expect(row.includes("\n")).toBe(false);
+    const shown = Math.min(found, ASK_SHOWN);
+    // Header, then per answer a blank line, the words and the quiet line, then
+    // a blank line and the one "More:" line.
+    expect(r.out.length).toBe(2 + shown * 3 + 2);
+    for (let i = 0; i < shown; i += 1) {
+      expect(r.out[2 + i * 3]).toBe("");
+      expect(r.out[3 + i * 3]).toMatch(new RegExp(`^ {2}${String(i + 1)}\\. \\S`));
+      // Not a TTY here: plain, no escape anywhere.
+      expect(r.out[4 + i * 3]).toMatch(/^ {5}(fact|place) · \w{3} \d{1,2} \w{3} \d{4} · mem_\S+$/);
     }
-    // Nothing else but, at most, the one leads-not-answers line.
-    const rest = r.out.slice(2).filter((l) => !/^ {2}mem_/.test(l));
-    expect(rest.length).toBeLessThanOrEqual(1);
-    for (const line of rest) expect(line).toContain("treat these as leads");
-    // None of the full page's machinery.
+    expect(shownIds(r.out).length).toBe(shown);
+    expect(r.out[r.out.length - 1]).toMatch(/^More: --full for /);
     const printed = r.out.join("\n");
+    expect(printed).not.toContain("\u001b[");
+    // The leads-not-answers line is gone from the short answer (owner,
+    // 2026-09-24); --full's tier legend keeps it.
+    expect(printed).not.toContain("treat these as leads");
+    expect(printed).not.toContain("vividly");
+    // None of the full page's machinery.
     expect(printed).not.toContain("considered ");
     expect(printed).not.toContain("vivid = ");
   });
@@ -140,7 +158,66 @@ describe("ask is short by default", () => {
     expect(askGist(null, "short\nbody")).toBe("short body");
   });
 
-  test("more than five: 'showing 5', the first five in the answer's own order, and --full named", () => {
+  test("the gist takes a chapter's heading off the front — either form, stacked or not — and heading marks off", () => {
+    // The two shapes the owner's live store printed on 2026-09-24.
+    expect(askGist(null, "## chapter 1 — lived day 2\n\nMike opened by telling me my memory had been swapped.")).toBe(
+      "Mike opened by telling me my memory had been swapped.",
+    );
+    expect(askGist(null, "## chapter 1 — lived day 3\n\n## chapter 1\n\nMike opened a planning session.")).toBe(
+      "Mike opened a planning session.",
+    );
+    // The form written since.
+    expect(askGist(null, "## chapter 2 — Wed 23 Sep 2026 · lived day 2\n\nThe evening.")).toBe("The evening.");
+    // Other markdown headings lose their marks, not their words.
+    expect(askGist(null, "# The plan\n\n### step one\nread it")).toBe("The plan step one read it");
+    expect(askGist("## A titled chapter", "## chapter 1 — lived day 0\n\nbody")).toBe("A titled chapter");
+    // Words that merely mention a chapter are left alone.
+    expect(askGist(null, "chapter 3 of the book was slow")).toBe("chapter 3 of the book was slow");
+  });
+
+  test("the quiet line: kind, chapter, the date, the lived day, the id — the heading's date first, else learnedOn", () => {
+    const base = { id: "mem_2db9908dca81", kind: "self", journal: false };
+    expect(askMeta({ ...base, body: "## chapter 1 — lived day 2\n\nMike opened." }, "2026-09-23")).toBe(
+      "self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_2db9908dca81",
+    );
+    // The heading's own (local) date outranks the UTC provenance date.
+    expect(askMeta({ ...base, body: "## chapter 1 — Thu 24 Sep 2026 · lived day 3\n\nLate." }, "2026-09-25")).toBe(
+      "self · chapter 1 · Thu 24 Sep 2026 · lived day 3 · mem_2db9908dca81",
+    );
+    // A journal opens with `journal`, and a multi-chapter one names the span.
+    expect(
+      askMeta(
+        { id: "epi_ecd049e55b2f", kind: "self", journal: true, body: "## chapter 1 — lived day 2\n\nA.\n\n## chapter 3 — lived day 2\n\nB." },
+        "2026-09-23",
+      ),
+    ).toBe("journal · chapters 1–3 · Wed 23 Sep 2026 · lived day 2 · epi_ecd049e55b2f");
+    // A plain memory: kind, date, id.
+    expect(askMeta({ id: "mem_f96682ea3d25", kind: "entity", journal: false, body: "Han asked." }, "2026-09-23")).toBe(
+      "entity · Wed 23 Sep 2026 · mem_f96682ea3d25",
+    );
+    // No date to say: none is invented.
+    expect(askMeta({ id: "mem_x", kind: "fact", journal: false, body: "b" }, null)).toBe("fact · mem_x");
+  });
+
+  test("on a terminal the quiet line is dim; NO_COLOR and a pipe keep it plain", async () => {
+    seedLighthouse();
+    const run2 = async (tty: boolean, e: Record<string, string | undefined>): Promise<string[]> => {
+      const c = consoleOf();
+      const io: Io = { ...c.io, tty: { stdin: false, stdout: tty } };
+      await run(["ask", "the lighthouse at Fernbrook Point", "--dir", dir], { io, env: e, home: join(work, "home") });
+      return c.out;
+    };
+    const lit = await run2(true, env({ TERM: "xterm" }));
+    const quiet = lit.filter((l) => l.startsWith("     "));
+    expect(quiet.length).toBeGreaterThan(0);
+    for (const l of quiet) expect(l).toMatch(/^ {5}\u001b\[2m.* · mem_\S+\u001b\[0m$/);
+    // Only the quiet line: the words line is never painted.
+    for (const l of lit.filter((l) => /^ {2}\d\. /.test(l))) expect(l).not.toContain("\u001b[");
+    expect((await run2(true, env({ TERM: "xterm", NO_COLOR: "1" }))).join("\n")).not.toContain("\u001b[");
+    expect((await run2(false, env({ TERM: "xterm" }))).join("\n")).not.toContain("\u001b[");
+  });
+
+  test("more than five: 'The top 5', the first five in the answer's own order, and --full named", () => {
     // A fresh store's answers are all `dim`, and the dim tier is capped at five
     // (`DELIBERATE_DIM_CAP`), so a lived-in store's longer answer is built here.
     const memories = Array.from({ length: 8 }, (_, i) => ({
@@ -163,25 +240,42 @@ describe("ask is short by default", () => {
       ambiguous: [],
     } as unknown as DeliberateResult;
     const c = consoleOf();
-    printAskList(c.io, result, "by meaning and words", "ask");
-    expect(c.out[0]).toBe("8 found (by meaning and words) · showing 5 — --full for all, --id <id> for one");
-    expect(c.out.slice(1)).toEqual([
-      "  mem_000000000000  fact     Title 0",
-      "  mem_000000000001  fact     Body 1 second line",
-      "  mem_000000000002  fact     Title 2",
-      "  mem_000000000003  place    Body 3 second line",
-      "  mem_000000000004  journal  Title 4",
+    printAskList(c.io, result, "by meaning and words", "ask", {
+      learnedOn: (id) => (id.endsWith("3") ? "2026-09-23" : null),
+    });
+    expect(c.out).toEqual([
+      "8 memories found, by meaning and words. The top 5:",
+      "",
+      "  1. Title 0",
+      "     fact · mem_000000000000",
+      "",
+      "  2. Body 1 second line",
+      "     fact · mem_000000000001",
+      "",
+      "  3. Title 2",
+      "     fact · mem_000000000002",
+      "",
+      "  4. Body 3 second line",
+      "     place · Wed 23 Sep 2026 · mem_000000000003",
+      "",
+      "  5. Title 4",
+      "     journal · mem_000000000004",
+      "",
+      "More: --full for all of them with detail, or --id <id> for one in full.",
     ]);
   });
 
-  test("five or fewer: no 'showing', and every one is listed", async () => {
+  test("five or fewer: no 'top', and every one is listed", async () => {
     const s = Store.open({ dir });
     for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
     const id = s.put({ type: "memory", kind: "fact", title: "Fernbrook Point", body: "The lighthouse at Fernbrook Point stopped turning in 1974." });
     s.close();
     const r = await ask(["the lighthouse at Fernbrook Point"]);
-    expect(r.out[1]).toMatch(/^\d found \(by [^)]+\) — --full for detail, --id <id> for one$/);
-    expect(r.out.some((l) => l.startsWith(`  ${id}  fact  Fernbrook Point`))).toBe(true);
+    expect(r.out[1]).toMatch(/^\d (memory|memories) found, by [^:]+\.$/);
+    expect(r.out[r.out.length - 1]).toBe("More: --full for detail, or --id <id> for one in full.");
+    const at = r.out.findIndex((l) => / {2}\d\. Fernbrook Point$/.test(l));
+    expect(at).toBeGreaterThan(0);
+    expect(r.out[at + 1]).toMatch(new RegExp(`^ {5}fact · \\w{3} \\d{1,2} \\w{3} \\d{4} · ${id}$`));
   });
 
   test("nothing found is still an answer, and says what to try next", async () => {
@@ -237,20 +331,20 @@ describe("ask searches by meaning", () => {
     const config = join(work, "claude-code.json");
     writeFileSync(config, JSON.stringify({ dataDir: dir, embedder: { enabled: false } }));
     const r = await ask(["the lighthouse at Fernbrook Point"], env({ COUNTERPARTS_CONFIG: config }));
-    expect(r.out[1]).toContain("(by words only — recall by meaning is off)");
+    expect(r.out[1]).toContain("found, by words only — recall by meaning is off.");
     const full = await ask(["the lighthouse at Fernbrook Point", "--full"], env({ COUNTERPARTS_CONFIG: config }));
     expect(full.out[1]).toContain("semantic embedder-off");
     // The flag names the same file the variable does.
     const flagged = await ask(["the lighthouse at Fernbrook Point", "--config", config]);
     expect(flagged.code).toBe(EXIT.ok);
-    expect(flagged.out[1]).toContain("(by words only — recall by meaning is off)");
+    expect(flagged.out[1]).toContain("found, by words only — recall by meaning is off.");
   });
 
   test("a configuration that will not resolve is not a reason to refuse a question", async () => {
     seedLighthouse();
     const r = await ask(["the lighthouse at Fernbrook Point"], env({ COUNTERPARTS_CONFIG: "relative/claude-code.json" }));
     expect(r.code).toBe(EXIT.ok);
-    expect(r.out[1]).toMatch(/^\d+ found \(by /);
+    expect(r.out[1]).toMatch(HEADER);
   });
 
   test.skipIf(WEIGHTS === null)(
@@ -273,8 +367,8 @@ describe("ask searches by meaning", () => {
       expect(shared.filter((w) => !["the", "for", "my", "me", "did", "which"].includes(w))).toEqual([]);
 
       const r = await ask([question], env({}));
-      expect(r.out[1]).toMatch(/^\d+ found \(by meaning and words\)/);
-      expect(r.out.some((l) => l.startsWith(`  ${target}  `))).toBe(true);
+      expect(r.out[1]).toMatch(/^\d+ (memory|memories) found, by meaning and words\./);
+      expect(shownIds(r.out)).toContain(target);
 
       // And by words alone the same question does not reach it: the meaning did.
       const config = join(work, "off.json");
@@ -340,8 +434,8 @@ describe("note embeds on write", () => {
       expect(held.tag).toBe(`${table.model}@${String(table.embed.identity?.dim)}`);
 
       const r = await ask([QUESTION]);
-      expect(r.out[1]).toMatch(/^\d+ found \(by meaning and words\)/);
-      expect(r.out.some((l) => l.startsWith(`  ${id}  `))).toBe(true);
+      expect(r.out[1]).toMatch(/^\d+ (memory|memories) found, by meaning and words\./);
+      expect(shownIds(r.out)).toContain(id);
 
       // By words alone the same question does not reach it: the note's vector did.
       const config = join(work, "off.json");
@@ -361,7 +455,7 @@ describe("note embeds on write", () => {
     const id = idOf(n.out);
     expect(box3(id).dims).toEqual([]);
     const r = await ask(["physician antibiotics chest infection"], NO_TABLE());
-    expect(r.out.some((l) => l.startsWith(`  ${id}  `))).toBe(true);
+    expect(shownIds(r.out)).toContain(id);
   });
 
   test("recall by meaning switched off in the configuration: the note writes no vector", async () => {

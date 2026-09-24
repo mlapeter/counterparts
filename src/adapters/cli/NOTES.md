@@ -1826,6 +1826,22 @@ is unchanged. A fresh store answers at most five (every answer is `dim`, and the
 tier is capped at five), so "showing 5" is a lived-in store's line; `test/ask.test.ts`
 builds that answer directly.
 
+**Readable (2026-09-24, the same day, from the owner's first run on his real store).**
+The one-line rows were hard to read: ids first, `## chapter 1 — lived day 2` repeated
+inside the text (doubled when the model had written its own `## chapter 1` under the
+journal's), and no date. Now: a header sentence (`7 memories found, by meaning and
+words. The top 5:`), then the answers NUMBERED, two lines each with a blank line between
+— the words (title, else the first words: heading marks off, a chapter heading of either
+form taken off the front however stacked, cut at 90 characters), and under them a
+quieter line: `self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_…`. That line is
+dim through `ui.ts#paint`, so never on a pipe or under `NO_COLOR` (FORCE_COLOR can ask
+for it). The date is the chapter heading's own when it has one (local, see
+`self/episodes.ts#chapterHeading`); otherwise `learnedOn`, which is a UTC day — a row
+keeps no instant to convert, so an evening memory west of Greenwich can read a day late.
+The leads line is gone from the short answer: on the owner's store it read as doubt about
+an answer that was right. `--full`'s tier legend keeps it, unchanged. The footer is one
+`More:` line naming `--full` and `--id`.
+
 **`note` embeds on write (2026-09-24).** `note` opened its store with no embedder, so a
 CLI note had no vector until the worker's backfill ran, and QUICKSTART's note→ask demo
 found a paraphrase only by the words it shared. It now opens its store with the same

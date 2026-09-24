@@ -5106,7 +5106,7 @@ describe("note and recall", () => {
     expect(printed).toContain("Rancilio Silvia");
     // The answer says which channel ran, in words (2026-09-24: `ask` embeds
     // the question when the local table is there, and says so when it is not).
-    expect(printed).toMatch(/\d+ found \(by (meaning and words|words only — [^)]+)\)/);
+    expect(printed).toMatch(/\d+ (memory|memories) found, by (meaning and words|words only — [^\n]+)\./);
   });
 
   test("the denominator is labelled LIVE ROWS, and counts the identity core", async () => {
