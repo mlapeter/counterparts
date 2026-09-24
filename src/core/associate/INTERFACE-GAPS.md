@@ -15,6 +15,8 @@ redefined here.
 
 ## 1. `recall/` has no fourth channel yet — the traversal is exported, not wired
 
+**Closed 2026-09-24** — hops modulate only (answer a): `recall/activate.ts` adds `spread(seeds, day)` contributions to existing candidates; wired by `core/retrieval.ts#composeTurn`.
+
 **Owner:** `recall/` (its NOTES.md §7 already names the seam: "when `associate/`
 ships, its hops feed a fourth channel and the gate does not change").
 **Have:** `spread(input, tunables)` — a pure function — and `Associate.spreadFrom()`,
@@ -107,6 +109,8 @@ counts and ids sitting in `sessions/association/claims/`.
 
 ## 4. Nobody calls `retargetOnSupersede` — supersede does not know about edges
 
+**Closed 2026-09-24** — `counterpart.ts` injects `retargetOnSupersede` into both `supersede` callers (`Schemas.open`'s `retarget`, and `applyRevision` in `core/revision.ts`).
+
 **Owner:** `store/` and whoever owns revision (scar §2.2: "supersede retargets edges
 too — v1's `gist.merge` set `merged_into` and nothing re-pointed the edges, so
 successors started cold").
@@ -120,6 +124,8 @@ consolidation supersedes). **Until someone wires it, every supersede leaves the
 successor cold**, which is the scar, live again.
 
 ## 5. The credit tiers arrive from a reference-resolution step that has no home
+
+**Closed 2026-09-24** — `Counterpart.creditReferences` (tiers from `recall/reference.ts`) feeds `coactivate`; the flush crosses processes via `pending.ts`.
 
 **Owner:** the boundary adapter (`recall/INTERFACE-GAPS.md` §5 records the same gap
 from the other side).
@@ -166,6 +172,8 @@ rather than unimplemented. Recorded rather than invented — a flag minted here 
 be a second vocabulary for a concept another module owns.
 
 ## 8. The observer predicate still lives in `store/`
+
+**Closed 2026-09-24** — the predicate lives in `src/core/observer.ts` (hoisted 2026-08-25).
 
 Not a defect, and recorded so nobody "fixes" it: `Associate.observer` reads
 `store.observer` and never re-derives it. `docs/SEAMS.md` queued item 4 already says

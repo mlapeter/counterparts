@@ -50,6 +50,8 @@ a badge or softer copy when the site is next touched.
    the static embedder's tuning on real turns. Also a bug: schema cards never fade (`fadeSweep` has
    no caller). Prospective needs a date field, which is a schema change, so the Reconnect recipe
    (E) and a snapshot before migration come first.
+   - Later: interactive `counterparts ask` in the terminal (arrow keys, Enter expands; the
+     owner's idea, after the ask-readable change lands).
 
 **How it runs.** One coordinator session holds this plan. Builders are Opus agents, each in its
 own worktree with file ownership drawn, and adversarial review on anything that touches a store,

@@ -10,6 +10,8 @@ of debt that goes silent if it is not written down.
 
 ## §1 — A read-only open still writes. `store/cache.ts`, `openCache`
 
+**Closed 2026-09-24** — `store/cache.ts#openCache` writes the version row only when it differs, and leaves a cache from a newer build as found (`cacheAhead`, #190). The dashboard test's box-3 split may now be tightened.
+
 **Found by:** the byte-identical test, on its first run.
 
 **Have:** `Store.open` constructs box 3 through `openCache`, which unconditionally
@@ -70,6 +72,8 @@ records are not, so the two are not interchangeable for an old cycle.
 ---
 
 ## §3 — `self.enumerate` drops what it cannot read
+
+**Closed 2026-09-24** — `self/identity.ts#enumerate` returns `absences` (`removed` / `unreadable`, and whether the row was protected, from the row or its tombstone). A `list({ protected: true })` filter is still absent.
 
 **Found by:** the identity-view test that removes a protected element.
 

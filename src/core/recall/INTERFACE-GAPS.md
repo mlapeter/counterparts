@@ -5,6 +5,8 @@ entry names the owner, the workaround now in the code, and what the real fix loo
 
 ## 1. `store/` has no meta enumeration or expiry — gate-state rows are unbounded
 
+**Closed 2026-09-24** — gate state is the `gate_session` table, one row per record with `last_day` (`store/operational.ts`), swept by `Store#pruneGateSessions`.
+
 **Owner:** `store/`.
 **Needed:** per-session gate state with a defined store AND lifetime (recall contract §5
 G12).
@@ -68,6 +70,8 @@ constants, so the cue channel no longer has to pretend every document is the sam
 `df` half above is unchanged.
 
 ## 3a. `doc_tokens` outlives the memory — removed rows still count in `df` and `avgLen`
+
+**Closed 2026-09-24** — `store/cache.ts#deindexDoc` drops `doc_tokens` and `doc_lens` at archive and supersede; a removal rebuilds the cache (`cli/removal.ts`). A dead row's vector is a separate note (`recall/NOTES.md` §13).
 
 **Owner:** `store/` (box 3).
 **Have:** removal takes an id dark in box 2 and `activate` filters it with `deniedIds()`,
@@ -147,6 +151,8 @@ identity (mcp INTERFACE-GAPS §7's option 1, taken in #190 — that page still d
 the gap as open and is its owner's to close).
 
 ## 7. Box 3 is 278 MB and 65% of it is JSON punctuation — NAMED, not fixed here
+
+**Closed 2026-09-24** — `embeddings.vec` is a float32 BLOB since cache v4 (`store/cache.ts`, `migrate-cache` converts in place).
 
 **Owner:** `store/` (box 3).
 **Measured 2026-09-04**, on the live cache (`dbstat`, 15,421 indexed documents):

@@ -5,6 +5,8 @@ entry names the owner, the workaround now in the code, and what the real fix loo
 
 ## 1. The wiring into `recall/` — and the `arrival` NAME COLLISION
 
+**Closed 2026-09-24** — a temporal cue enters through `core/retrieval.ts#composeTurn` → `recall/activate.ts` (the `temporal` channel, counted as cue in `cueFraction`); the footnote cap is `recall/gate.ts` `cue-only-temporal`.
+
 **Owner:** the coordinator (a seam pass), not this module and not `recall/`.
 **Needed:** contract §5 G1 — "a temporal cue enters `recall/` through the same activation
 and gate path as any other cue; a test asserts no second injection path exists."
@@ -70,6 +72,8 @@ state, next to `surfaced` and `credited`, and this module reads them through the
 seam it will use for the wiring in gap #1.
 
 ## 4. `store.revise` cannot patch `happenedOn`, so a reschedule cannot complete here
+
+**Closed 2026-09-24** — `Store#revise` takes `happenedOn` in its patch (`store/index.ts`, schema v6). `Prospective.reschedule()` still leaves that revise to its caller.
 
 **Owner:** `store/`.
 **Needed:** §12 G8 — the correction "names the exact current value, carries a reason, and

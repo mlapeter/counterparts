@@ -5,6 +5,8 @@ entry names the owner, the workaround now in the code, and what the real fix loo
 
 ## 0. The identity core's home row — `schemas/`'s requirement, ADOPTED with one caveat
 
+**Closed 2026-09-24** — the owed seam test is `test/seams.test.ts` (mints via `ensureIdentityCore`, asserts `status-on-identity-refused`).
+
 **Owner:** this module (`schemas/INTERFACE-GAPS.md` §5 filed it here, mid-build).
 **Needed:** `schemas/` refuses to birth `kind: "self"` in two independent layers, so the
 row that says *the self exists as an entity here* can only come from `self/`. Without it,
@@ -86,6 +88,8 @@ wake path. A read that is not a delivery still pays exactly one meta row.
 
 ## 3. `prospective/` does not exist — the horizon is caller-supplied
 
+**Closed 2026-09-24** — `Prospective.horizon()` feeds the lane through `core/briefing.ts`.
+
 **Owner:** `prospective/`.
 **Needed:** "arriving occasions" is a briefing lane (behavioral-spec §1, contract §5
 INPUTS: *the prospective horizon*).
@@ -118,6 +122,8 @@ which is the same two lines.
 
 ## 5. The episode gate is injected, and its default REFUSES
 
+**Closed 2026-09-24** — `core/bridge.ts#episodeGate` is wired in `counterpart.ts`, so the refusing default is unreachable in production.
+
 **Owner:** `encode/` (the gate battery: secrets, precision, the emotion exemption).
 **Needed:** "ingestion is ordinary and the gates apply — a first-person reflection is not
 exempt from never durably encoding a credential" (contract §3, scar §2.7: episode
@@ -133,6 +139,8 @@ event already carries the gate name, so the day the battery is wired the telemet
 distinguishes "refused by the real gate" from "nobody wired one".
 
 ## 6. `sleep/` expects a `RenderFn`; `Self.boundary` is it, minus the budget
+
+**Closed 2026-09-24** — `budgetBytes` is a cycle option (`sleep/cycle.ts`) passed to `runBriefing`.
 
 **Owner:** the coordinator (both modules were built in parallel and neither imports the
 other — `sleep/briefing.ts` says so in its header, and a test on each side asserts it).
@@ -154,6 +162,8 @@ Until then: whoever writes that line owns the number, and a wrong one is visible
 under-floor ceiling fires `self.briefing.overbudget` at every boundary.
 
 ## 7. Reference resolution for confirmations has no caller yet
+
+**Closed 2026-09-24** — `core/mint.ts` routes a self-claim confirmation to `self.noteSelfConfirmation`.
 
 `Self.noteSelfConfirmation` is the freeze seam: whoever decides that a fallback sweep has
 produced a confirmation against an existing element calls it, and it resolves, decides,
