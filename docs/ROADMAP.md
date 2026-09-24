@@ -65,7 +65,7 @@ write). The owner confirmed all nine 09-20 defaults. #211 marked 31 closed gap e
   - #215: entity cards fade gently, and the prune no longer archives them or the identity core.
   - #217: the model version on each chapter.
   - #218: a card named in a saved memory counts as used.
-  - Next, then a small release: a faded card named in a saved memory comes back.
+  - #220: a faded card named in a saved memory comes back. A small release of these is on the owner's word.
 - Next: **the dashboard conversation (step 3)** in a fresh session. See `docs/HANDOFF.md` top
   and `docs/research/mechanism-audit-2026-09-24.md`.
 - Also found: peer hand-backs that arrive mid-turn are missed by capture, like queued prompts

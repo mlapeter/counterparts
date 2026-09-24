@@ -16,10 +16,9 @@ boundary rituals or capture. The owner's settings for all of this are light work
   cards now fade only through a gentle `fade` phase in sleep: lived and calendar floors, 180 days, 365 for people.
 - #217: each journal chapter records the model that wrote it.
 - #218: a card named in a saved memory's text counts as used.
-- In flight at close: a faded card named in a saved memory comes back (the owner said yes). It's on
-  branch `schemas/body-mention-revives`. If it has no PR yet, re-run it from this brief: the
-  revival goes through the same path a title mention uses; never `pruned` or owner-removed rows;
-  ambiguity credits neither; observer writes nothing.
+- #220: a faded card named in a saved memory comes back (the owner said yes). Known gap in
+  schemas NOTES §15: a long-lived process (the MCP server) does not hear of a revival made
+  elsewhere, so two live cards with one name are possible. It needs a meta query (INTERFACE-GAPS §2).
 - Earlier today and in 0.3.0: #204 (store reads for the dashboard: `eventLog({order:"desc"})`,
   `eventCounts`, `eventNames`, `ReadOnlyStore`; WAL fold on close), #207 (Stop pacing on typed turns:
   first ask at 6 typed turns or 24 KB of combined text, then 8 more or 24 KB more; 12 a day; doctor amber only on
