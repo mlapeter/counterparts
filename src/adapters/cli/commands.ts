@@ -87,7 +87,7 @@ import {
   paths,
   storeExists,
 } from "../../core/store/index.js";
-import type { EventLogCensus, VectorFormatCensus } from "../../core/store/index.js";
+import type { Embedder, EventLogCensus, VectorFormatCensus } from "../../core/store/index.js";
 // The owner-op seam's REPAIR half — the one door that un-archives, and only for
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
@@ -101,7 +101,7 @@ import type { Band, Kind } from "../../core/types.js";
 // re-implemented: a console with its own question path would be a second set of
 // rules about what recall means. `mcp/deliberate.ts` imports nothing from here,
 // so the direction stays one-way.
-import { deliberateRecall } from "../mcp/deliberate.js";
+import { deliberateRecall, embedQuestion } from "../mcp/deliberate.js";
 // The ONE rule for "which host configuration": the console resolves it with the
 // same function the hook, the worker and the MCP server do.
 import {
@@ -144,6 +144,10 @@ import {
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
 import { loadConfig, withEmbedderDefault } from "../claude-code/config.js";
+// The one answer to "is there an embedder", shared with the hook, the worker and
+// the MCP server's entry point — `ask` embeds its question with it.
+import { openEmbedder } from "../claude-code/embed-client.js";
+import type { LiveEmbedder } from "../claude-code/embed-client.js";
 // The local table's locator, for install's one check that the weights the new
 // configuration asks for are where the hooks will look.
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
@@ -630,8 +634,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   note: ["kind", "title", "salience"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
-  ask: ["id", "json"],
-  recall: ["id", "json"],
+  ask: ["id", "json", "full", "config"],
+  recall: ["id", "json", "full", "config"],
   export: [
     "out",
     "passphrase",
@@ -814,6 +818,7 @@ const FLAG_HELP: Record<string, string> = {
   title: "a title for the memory, instead of one taken from its first line",
   salience: "0..1 — how much this one matters",
   id: "one memory, by id, instead of a question",
+  full: "every answer in full, with how the question was answered and what each tier means — not just the top five, one line each",
   // TWO COMMANDS, ONE SENTENCE (`recall --json` is the MCP tool's payload,
   // `doctor --json` is the findings): the table is keyed by flag NAME, so the
   // sentence has to be true of both.
@@ -855,7 +860,7 @@ const FLAG_HELP: Record<string, string> = {
   all:
     "print every line, including the mechanisms a store this new has had nothing to do with yet",
   config:
-    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask reads whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
   "dry-run": "say the default out loud: plan and print, change nothing",
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
@@ -1199,6 +1204,7 @@ export function parse(argv: readonly string[]): Parsed {
       salience: { type: "string" },
       id: { type: "string" },
       json: { type: "boolean" },
+      full: { type: "boolean" },
       apply: { type: "boolean" },
       // `verify`'s two: the rebuild is opt-in, and dropping vectors this console
       // cannot recompute is opt-in on top of that. Declared rather than left to
@@ -1417,7 +1423,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // and the rest touch no configuration at all, and a stale
   // `COUNTERPARTS_CONFIG` in somebody's shell must not refuse a command that
   // would never have looked at it — a guard that fires on the innocent case is
-  // one people learn to unset rather than to read.
+  // one people learn to unset rather than to read. (`ask` reads one knob from a
+  // configuration since 2026-09-24 — whether recall by meaning is on — and so
+  // resolves it LENIENTLY, in `askEmbedder`, never refusing on its account.)
   const readsConfig =
     command === "install" ||
     // The three host-editing verbs read one to learn which store to name in the
@@ -1658,7 +1666,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       // there is no arm where one spelling can behave differently from the other.
       case "ask":
       case "recall":
-        return recallCommand(dir, io, parsed);
+        return await recallCommand(dir, io, parsed, env, opts.home ?? homedir());
       case "verify":
         return verifyCommand(dir, io, parsed.flags);
       case "migrate-cache":
@@ -4789,8 +4797,10 @@ function livenessRefusal(io: Io, plan: StartFreshPlan, when = "", showRecent = t
  * `deliberateRecall`, the same dispatcher, so the console cannot drift into a
  * softer question path than the model gets.
  *
- * What is NOT shared is the embedder: the console builds none and opens no
- * socket, so a question here is answered on the lexical channel and says so.
+ * The embedder is shared too since 2026-09-24 (`askEmbedder`): `ask` embeds its
+ * question with the local table the configuration turns on, exactly as the MCP
+ * `recall` does, and says which channel answered when it could not. (`note`
+ * still opens its store without one; the worker's backfill embeds that row.)
  *
  * Why these exist at all: the cold-stranger review of 2026-09-04 reached the end
  * of the install page having verified that a store existed and was empty, with
@@ -4854,8 +4864,79 @@ async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number>
   }
 }
 
-/** The deliberate look, in plain lines. Writes nothing. */
-function recallCommand(dir: string, io: Io, parsed: Parsed): number {
+/**
+ * THE EMBEDDER `ask` EMBEDS ITS QUESTION WITH (2026-09-24), or null when
+ * recall by meaning is off.
+ *
+ * Until now the console passed no vector at all — a leftover from when the only
+ * embedder was a network seat. The local table is local, so `ask` does what the
+ * MCP server's entry point does (`mcp/bin/serve.ts#questionEmbedder`): read the
+ * configuration, apply the embedder default, `openEmbedder`. Missing weights come
+ * back as an UNAVAILABLE embedder whose every answer is null, and the question
+ * is then answered by words and says so (`embed-failed`).
+ *
+ * The configuration is read for this ONE knob, the way `rebrief` reads a budget
+ * number — never to locate a store — and LENIENTLY: a configuration this cannot
+ * use is not a reason to refuse a question. So a `--config` or
+ * `COUNTERPARTS_CONFIG` that will not resolve, or a default one the explicit-dir
+ * guard says nobody named (`implicitConfigRefusal`), is not read, and the
+ * default applies: the local table, on.
+ */
+export function askEmbedder(
+  flags: Parsed["flags"],
+  env: Record<string, string | undefined>,
+  home: string,
+): LiveEmbedder | null {
+  const choice = resolveConfigPath(
+    typeof flags["config"] === "string" ? [`${CONFIG_FLAG}=${flags["config"]}`] : [],
+    env,
+    home,
+  );
+  const readable = choice.refusal === null && implicitConfigRefusal(choice, env) === null;
+  const config = withEmbedderDefault(readable ? hostConfigFor(choice.path).config : {});
+  return openEmbedder(config, { env });
+}
+
+/** How many answers `ask` lists before `--full` (2026-09-24). */
+export const ASK_SHOWN = 5;
+/** How much of a memory's text stands in for a missing title on that list. */
+export const ASK_GIST_CHARS = 100;
+
+/** A memory's one line on `ask`'s list: its title, or its first words. */
+export function askGist(title: string | null, body: string): string {
+  const said = (title ?? body).replace(/\s+/g, " ").trim();
+  return said.length <= ASK_GIST_CHARS ? said : `${said.slice(0, ASK_GIST_CHARS).trimEnd()}…`;
+}
+
+/**
+ * Which channel answered, in plain words for `ask`'s header. The store's own
+ * verdict has the last word: a store whose meaning index is held (another
+ * model's vectors) or ahead of this build ranks on words alone whatever vector
+ * it was handed — the no-mixing rule (`store/cache.ts#reconcileEmbedder`).
+ */
+function askChannel(
+  semantic: string,
+  verdict: string,
+  embedder: LiveEmbedder | null,
+): string {
+  if (verdict === "held" || verdict === "cache-ahead" || verdict === "deferred") {
+    return "by words only — this store's meaning index is on hold; see counterparts doctor";
+  }
+  if (semantic === "in-line") return "by meaning and words";
+  if (semantic === "embedder-off") return "by words only — recall by meaning is off";
+  if (embedder?.unavailable === "NO_WEIGHTS") return "by words only — the meaning table is not installed";
+  if (embedder?.unavailable !== undefined) return "by words only — the meaning table could not be loaded";
+  return "by words only — the question could not be embedded";
+}
+
+/** The deliberate look, in plain lines. Writes nothing of its own. */
+async function recallCommand(
+  dir: string,
+  io: Io,
+  parsed: Parsed,
+  env: Record<string, string | undefined>,
+  home: string,
+): Promise<number> {
   // THE SPELLING THE PERSON TYPED IS THE SPELLING THEY GET BACK. `ask` is the
   // listed name and `recall` the older one, and a refusal that answered
   // `counterparts ask` with "counterparts recall takes a question" would be
@@ -4878,25 +4959,43 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     return EXIT.failed;
   }
 
-  const counterpart = openCounterpart(dir);
+  // THE EMBEDDER, for a question only: `--id` is an exact address, and
+  // embedding it would buy nothing (the MCP path's rule).
+  const embedder = question.length > 0 ? askEmbedder(parsed.flags, env, home) : null;
+  // Opened WITH the embedder's identity, the way `mcp/index.ts#openServer`
+  // opens the server's store: the store reconciles box 3's tag at open, so a
+  // held or mismatched meaning index ranks nothing rather than a cosine across
+  // two models. That open may write the tag once, as every hook's open does.
+  const counterpart = openCounterpart(dir, false, undefined, embedder?.embed);
   try {
     // Same rule as `note` and `status`: say which store answered.
     if (parsed.flags["json"] !== true) io.out(`Store: ${counterpart.store.dir}`);
+    // In line, and every way it can decline said by name (§9.1 G5) — the same
+    // call the MCP `recall` makes (`mcp/deliberate.ts#embedQuestion`).
+    const embedded =
+      question.length > 0
+        ? await embedQuestion(embedder, question)
+        : { vector: null, semantic: "embedder-off" as const };
     const result = deliberateRecall(
       counterpart,
       idFlag.length > 0 ? { handle: idFlag } : { question },
       {
         sessionId: "console",
         owner: true,
-        vector: null,
-        // The console opens no socket, so the semantic channel never ran, and
-        // the answer says which channel did (§9.1 G5).
-        semantic: "embedder-off",
+        vector: embedded.vector,
+        semantic: embedded.semantic,
       },
     );
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(result, null, 2));
       return result.memories.length > 0 ? EXIT.ok : EXIT.ok;
+    }
+    // SHORT BY DEFAULT (2026-09-24): a header in plain words and the top few,
+    // one line each. `--full` is the page this command printed before, and
+    // `--id` is always a whole memory.
+    if (parsed.flags["full"] !== true && idFlag.length === 0) {
+      printAskList(io, result, askChannel(result.semantic, counterpart.store.embedderVerdict.kind, embedder), said);
+      return EXIT.ok;
     }
     io.out(
       `${result.path} · ${result.reason} · semantic ${result.semantic} · ` +
@@ -4956,6 +5055,49 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     return EXIT.ok;
   } finally {
     counterpart.close();
+  }
+}
+
+/**
+ * `ask`'s short answer: one header line, then at most `ASK_SHOWN` memories,
+ * one line each — id, kind, and the title or the first words. What `--full`
+ * adds is the path, the reason, the considered/stored numbers, every body in
+ * full and the tier legend. The legend's one warning survives here as one
+ * line: when nothing came back vividly, these are leads, not answers.
+ */
+export function printAskList(
+  io: Io,
+  result: ReturnType<typeof deliberateRecall>,
+  how: string,
+  said: string,
+): void {
+  const found = result.memories.length;
+  if (found === 0) {
+    io.out(`Nothing found (${how}).`);
+    io.out(
+      result.considered === 0
+        ? "  Nothing in the store came near the question, so no memory was even scored."
+        : `  ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} scored and none was close enough to show.`,
+    );
+    io.out(`  Try words the memory itself would use, or ask for it by id: ${BIN.cli} ${said} --id <mem_...>`);
+    return;
+  }
+  const shown = result.memories.slice(0, ASK_SHOWN);
+  io.out(
+    found > ASK_SHOWN
+      ? `${found} found (${how}) · showing ${ASK_SHOWN} — --full for all, --id <id> for one`
+      : `${found} found (${how}) — --full for detail, --id <id> for one`,
+  );
+  // A chapter is never presented as a memory (LAUNCH-STATUS §I14): its kind
+  // column says `journal`.
+  const kindOf = (m: (typeof shown)[number]): string => (m.journal ? "journal" : m.kind);
+  const kindWidth = Math.max(...shown.map((m) => kindOf(m).length));
+  const idWidth = Math.max(...shown.map((m) => m.id.length));
+  for (const m of shown) {
+    io.out(`  ${m.id.padEnd(idWidth)}  ${kindOf(m).padEnd(kindWidth)}  ${askGist(m.title, m.body)}`);
+  }
+  if (!result.memories.some((m) => m.tier === "vivid")) {
+    io.out("  Nothing came back vividly — treat these as leads; --full says how each was reached.");
   }
 }
 
@@ -7705,12 +7847,20 @@ export function openCounterpart(
   dir: string,
   observer = false,
   identity?: { readonly name: string },
+  embed?: Embedder,
 ): Counterpart {
   // `identity` goes through the SAME door the host adapter uses —
   // `Counterpart.open`'s own option, which calls `self.ensureIdentityCore`. The
   // console does not get a second way to mint an identity core; it gets the
   // one way, with a name from a flag instead of from `claude-code.json`.
-  return Counterpart.open({ dir, observer, ...(identity === undefined ? {} : { identity }) });
+  // `embed` likewise: the option every composition root hands its embedder's
+  // sync face through (`ask`, 2026-09-24).
+  return Counterpart.open({
+    dir,
+    observer,
+    ...(identity === undefined ? {} : { identity }),
+    ...(embed === undefined ? {} : { embed }),
+  });
 }
 
 // ── doctor ──────────────────────────────────────────────────────────────────
