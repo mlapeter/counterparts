@@ -278,7 +278,13 @@ is what lets a memory whose prose is already gone still be chased. Only ONE
 blind spot is left — prose gone AND no hash — and it is still `unknown`, still
 counted `unchased: 1`.)*
 
-## 10. `Store.eventLog` orders ASCENDING, so "the newest row of this name" is not a query
+## 10. `Store.eventLog` orders ASCENDING, so "the newest row of this name" is not a query — STORE SIDE BUILT 2026-09-24
+
+**Status (2026-09-24):** `eventLog` takes `order: "asc" | "desc"` (default `asc`, so no
+caller changed), and `eventLog({ name, order: "desc", limit: 1 })` is the newest row of
+a name in one query (`test/store.test.ts` › "event log reads"). **Still open on this
+side:** `claude-code/doctor.ts#newestRows` keeps its ladder until whoever owns doctor
+collapses it to that call — not touched here, another session owned the file.
 
 `doctor` (2026-09-14) asks the store one question over and over: what is the
 NEWEST `sleep.cycle` / `sweep.gate` / `adapter.embed.backfill` /
@@ -300,7 +306,16 @@ behaviour, and it is the only reason that ladder exists.
 
 ---
 
-## 11. `Store` has no GROUP BY, so the what-fired view counts rows in JavaScript
+## 11. `Store` has no GROUP BY, so the what-fired view counts rows in JavaScript — (a) BUILT 2026-09-24
+
+**Status (2026-09-24):** ask (a) is built as `Store.eventCounts({ sinceDay?, sinceAt? })`
+→ `{ name, count, newestAt, newestDay, newestSeq }[]`, one `GROUP BY`, sorted by name;
+plus `eventNames()`. **`fired.ts#readLog` is NOT rewired to it, deliberately**: its
+windows date each row by `payload.date` (falling back to `at`), and its refusal columns
+read payloads, so neither half is a `GROUP BY` on a column. A payload-free column the
+writers fill (a `date` column on `events`) would make it one; until then the one-pass
+read stays. The dashboard's own per-name counts do use it (dashboard §5). (b) and (c)
+are not built.
 
 `adapters/fired.ts` (2026-09-17) asks two questions of every mechanism: how many
 rows of this name landed in each of two seven-day windows, and when did the
@@ -349,7 +364,17 @@ Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 
 **What is already bounded:** the DATABASE export streams through `VACUUM INTO`
 and holds one file, so the ordinary export is unaffected by any of this.
 
-## 13. A clean `close()` does not fold the write-ahead log — OPEN 2026-09-23 (#26)
+## 13. A clean `close()` does not fold the write-ahead log — BUILT 2026-09-24 (#26)
+
+**Status (2026-09-24):** built as an explicit checkpoint rather than statement
+finalization. `Store.close()` runs `PRAGMA wal_checkpoint(TRUNCATE)` (`db.ts#foldWal`)
+on each box THIS handle wrote to (`total_changes() > 0`), never under observer, with the
+connection's busy timeout at 0 so a reader holding a snapshot makes the fold partial
+instead of stalling the close for five seconds. Measured cost and the reasons are in
+`store/NOTES.md` (2026-09-24). The `migrate-cache --apply` compaction and the removal
+reclaim run on raw `openDb` handles and are unchanged: their VACUUM'd pages still wait
+in the `-wal` for the next checkpoint unless they checkpoint themselves (the removal
+does; the compaction does not — a one-line `foldWal` call in `commands.ts` would).
 
 `store/db.ts#openDb` prepares a new statement on every `get`/`run`/`all` and never
 finalizes one, so when a `Store` closes, bun's `close()` finds statements still open and

@@ -1305,3 +1305,70 @@ They never compete for the slot, and both fire in one server
 the store's single `schemaAhead` (re-exported from `server.ts` for its readers); its local
 copy is gone.
 
+
+## 2026-09-24 — the dashboard's reads, `ReadOnlyStore`, and the fold on close
+
+Four things a redesigned dashboard needs from this module, built together (cli
+INTERFACE-GAPS §10, §11, §13; dashboard INTERFACE-GAPS §4, §5).
+
+**Newest first.** `eventLog` takes `order: "asc" | "desc"`, default `asc`, so none of
+the ~30 existing callers moved. `{ name, order: "desc", limit: 1 }` is the newest row of
+a name in one query. `doctor.ts#newestRows` still climbs its ladder; collapsing it is
+doctor's owner's change.
+
+**Counted by name, in SQL.** `eventCounts({ sinceDay?, sinceAt? })` is one `GROUP BY
+name` over `events` (the `events_name` index covers it), returning each name's count
+and its newest `at`, `day` and `seq`, sorted by name. A name with nothing in the window
+is ABSENT, not zero. `eventNames()` is the distinct-name read. Neither reads a payload,
+which is why `adapters/fired.ts` is not rewired: it windows rows by `payload.date` and
+reads refusals out of payloads, so its tally is not a `GROUP BY` on any column. The
+dashboard's per-name counts (activity vocabulary, health records) are, and now use it.
+
+**`ReadOnlyStore`** = `Omit<Store, WriteMethod | "close" | "guardWrites">`. Defined by
+SUBTRACTION, so the `WRITE_METHODS` totality test is what keeps it true: a new write
+method drops out the day it is listed. `close` and `guardWrites` are out because they
+are not a reader's to call (one ends a handle the reader does not own, the other can
+remove the guard a composition root installed). It is a type, not a wrapper — a cast
+gets round it; the stance is still what the seam refuses on. `DashboardSource.store`
+is typed against it; to make that compile, two functions the dashboard hands its store
+to were widened from `Store` (pure loosening): `adapters/fired.ts#firedReport` and
+`core/self/identity.ts#findIdentityCore`. **Other candidates, not touched** — reader
+functions still typed `Store` in `adapters/sessions.ts`, `adapters/snapshots.ts`,
+`adapters/cli/export.ts`, `core/self/journal-file.ts`, `core/recall/*` (the read
+halves), and doctor. Each is a one-word change when its owner wants the compile-time
+guarantee.
+
+**A writer's clean close folds the write-ahead log.** The cause #26 found: `openDb`
+never finalizes a statement, so bun's `close()` defers the real close and skips
+SQLite's last-connection checkpoint; the `-wal` stayed at its high-water size (1.38 MB
+after 300 puts, measured again here) until some other process folded it. Fixed with an
+explicit `PRAGMA wal_checkpoint(TRUNCATE)` in `Store.close()` (`db.ts#foldWal`) rather
+than statement finalization: it is independent of driver and of statement lifecycle,
+and finalization would have touched every call site in this module.
+
+- **Only a box this handle WROTE** (`db.ts#wroteOn`: `total_changes()` on that
+  connection). The first cut folded on every writable close and broke three dry-run
+  suites' byte fingerprints: a writable handle that only read was moving the file's
+  bytes by folding a log some other process left. That log is its writer's to fold.
+- **Never under observer** — a checkpoint changes the canonical file's bytes, and the
+  byte-identity suites hash file-plus-`-wal` around an instrument (§8).
+- **Never waits.** RESTART/TRUNCATE run the busy handler while readers stand in the log,
+  and this connection's is 5 s. Measured: with a reader holding a snapshot and the
+  timeout left in place, `close()` took 5.3 s. So the timeout goes to 0 first (the
+  handle is closing; nothing runs on it after), and a contended fold degrades to
+  PASSIVE: every frame the readers allow is copied, `busy: true` is reported, the log
+  keeps its size, and the next writer's close finishes it. Nothing is lost.
+- **Never throws.** Any throw is caught into `WalFold.error`; one
+  `store.wal.checkpoint` ring event per folded box, emitted after both handles close so
+  a listener cannot write a frame back into a log just folded.
+
+**What it costs a hook turn** (measured, bun 1.3.10, macOS APFS, a 2,000-memory store,
+open → put → appendEvent → close, median of 40): **~6 ms with the fold, ~0.7 ms
+without** — the close itself ~3.8 ms (the checkpoint's writes and fsyncs under
+`synchronous = FULL`), the rest the next open re-starting a truncated log. A turn that
+only reads pays nothing (it folds nothing). If that ever matters on a slower disk, the
+lever is a floor — fold only when the `-wal` is past some size — at the price of a
+close that is no longer always a fold; not built.
+
+**Not verified:** `node:sqlite`. `foldWal` and `wroteOn` use only `exec`/`get`, which
+the adapter maps identically, and it typechecks; nobody has run it under Node.
