@@ -50,6 +50,12 @@ a badge or softer copy when the site is next touched.
    the static embedder's tuning on real turns. Also a bug: schema cards never fade (`fadeSweep` has
    no caller). Prospective needs a date field, which is a schema change, so the Reconnect recipe
    (E) and a snapshot before migration come first.
+   - Contradictions nobody declared (raised on Reddit, 09-24). A conflict resolves only when
+     the writer marks it with `updates:`. Two memories that disagree without that link both
+     stay live, and recall can surface both. A possible fix, if it shows up in real use: a
+     sleep pass that finds close neighbours whose content disagrees and puts the pair in front
+     of the writer at the next boundary (reconsolidation). The gauge counts how many such
+     pairs it finds and how many get resolved.
    - Later: interactive `counterparts ask` in the terminal (arrow keys, Enter expands; the
      owner's idea, after the ask-readable change lands).
 
