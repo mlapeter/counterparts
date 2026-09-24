@@ -1010,11 +1010,13 @@ export class Store {
    * emitted AFTER both handles are closed so a listener cannot write a frame
    * back into a log that was just folded.
    *
-   * A second call is harmless and folds nothing.
+   * A second call returns at once: nothing folds and neither handle is closed
+   * again (`node:sqlite` throws on a double close).
    */
   close(): void {
+    if (this.closed) return;
     const folds: [string, WalFold][] = [];
-    if (!this.closed && !this.observer) {
+    if (!this.observer) {
       if (wroteOn(this.ops)) folds.push(["store", foldWal(this.ops)]);
       if (wroteOn(this.cache)) folds.push(["cache", foldWal(this.cache)]);
     }
