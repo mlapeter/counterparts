@@ -3062,8 +3062,7 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
       spans,
       firstAsk: {
         turns: SELF_TUNABLES.FIRST_ASK_TURNS,
-        bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
-        soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+        textBytes: SELF_TUNABLES.FIRST_ASK_TEXT_BYTES,
       },
     });
     // The same eligibility the pointer uses.

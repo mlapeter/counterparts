@@ -211,7 +211,7 @@ const TURNS = [
 /**
  * Enough substance for the FIRST ask. The old authorship ask fired on the first
  * Stop of any session that had anything uncovered; the one pacer is the
- * chapter's, so a Stop now has to have earned it — real turns AND real bytes.
+ * chapter's, so a Stop now has to have earned it — here, seven typed turns.
  */
 const BIG_TURNS: HookInput["turns"] = Array.from({ length: 14 }, (_, i) => ({
   role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
@@ -822,7 +822,7 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
       JSON.stringify({ type: "user", message: { role: "user", content: "hello" } }),
     ].join("\n");
     const read = parseTranscript(raw);
-    expect(read.turns).toEqual([{ role: "user", text: "hello", source: "conversation" }]);
+    expect(read.turns).toEqual([{ role: "user", text: "hello", source: "conversation", entry: 0 }]);
     expect(read.corrupt).toBe(0);
   });
 
@@ -2204,9 +2204,10 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
 
   test("a peer message never PACES a ritual, and a mixed turn paces on the owner's half", () => {
     const read = parseTranscript(FIXTURE);
-    // `substanceOf` counts `conversation` only: the pure peer turn and the
-    // ritual turn are both out, the mixed turn is in (the owner did speak).
-    expect(substanceOf(read.turns).turns).toBe(3);
+    // `substanceOf` counts the person's `conversation` only: the pure peer turn
+    // and the ritual turn are out, the mixed turn is in (the owner did speak),
+    // and the assistant's reply adds bytes but never a turn.
+    expect(substanceOf(read.turns).turns).toBe(2);
     expect(substanceOf([read.turns[1]!]).turns).toBe(0);
     expect(substanceOf([read.turns[3]!]).turns).toBe(0);
   });
@@ -2763,11 +2764,10 @@ describe("ONE ask on ONE pacer — the host's Stop is every turn, the ask is not
       .eventLog({ name: "adapter.ask", limit: 100 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
     expect(rows.map((r) => r["outcome"])).toEqual(["asked", "paced"]);
-    // Eight or more new turns AND eight thousand new bytes since the ask: asked
-    // again. AND, not or — one of the two alone leaves the ask paced out.
-    const more = Array.from({ length: 10 }, (_, i) => ({
+    // REASK_TURNS more typed messages since the ask, short ones: asked again.
+    const more = Array.from({ length: SELF_TUNABLES.REASK_TURNS * 2 }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
+      text: `Turn ${i}: a genuinely new line of conversation.`,
     }));
     const third = a.stop(input({ turns: [...(BIG_TURNS ?? []), ...more] }));
     // Still chapter 1: nothing was written, so nothing was numbered.
@@ -2800,17 +2800,16 @@ describe("ONE ask on ONE pacer — the host's Stop is every turn, the ask is not
 
   test("ONE session is capped at MAX_ASKS_PER_SESSION, and the row still reads `capped`", () => {
     // The backstop, reached only by a session that keeps earning asks: each one
-    // past the first needs REASK_TURNS more turns AND REASK_BYTES more bytes, so
-    // six of them is roughly 6 + 5x8 turns of real work.
+    // past the first needs REASK_TURNS more typed turns (or REASK_TEXT_BYTES).
     const { a } = adapter();
     const turns = [...(BIG_TURNS ?? [])];
     const outcomes: (string | null)[] = [];
     for (let ask = 0; ask < SELF_TUNABLES.MAX_ASKS_PER_SESSION + 1; ask += 1) {
       outcomes.push(a.stop(input({ sessionId: "s-long", turns })).ask);
       turns.push(
-        ...Array.from({ length: 10 }, (_, i) => ({
+        ...Array.from({ length: SELF_TUNABLES.REASK_TURNS * 2 }, (_, i) => ({
           role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-          text: `Stretch ${String(ask)}.${String(i)}: another genuinely new stretch of the same conversation. ${"x".repeat(1_000)}`,
+          text: `Stretch ${String(ask)}.${String(i)}: another new line of the same conversation.`,
         })),
       );
     }

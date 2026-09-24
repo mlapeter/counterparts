@@ -56,12 +56,12 @@
  *   visible. A `Stop hook feedback:` block carrying a v1 marker is still
  *   `foreign` — foreign is checked first, so the canary's agreement holds.
  *
- *   **B1 — on the user side, pacing counts what the PERSON typed, decided from
- *   the entry's own metadata first** (2026-09-23; the assistant's replies pace
- *   as they always did). A subagent's hand-back and a task notification arrive
- *   user-role and read like conversation; both paced the Stop ask as if the
- *   owner had spoken. The host marks who wrote a line —
- *   `origin.kind`, `isMeta`, `isCompactSummary` — so `entryAuthor` reads that,
+ *   **B1 — pacing counts what the PERSON typed, decided from the entry's own
+ *   metadata first** (2026-09-23; since 2026-09-24 the assistant's replies add
+ *   bytes but never turns — `hooks.ts#substanceOf`). A subagent's hand-back
+ *   and a task notification arrive user-role and read like conversation; both
+ *   paced the Stop ask as if the owner had spoken. The host marks who wrote a
+ *   line — `origin.kind`, `isMeta`, `isCompactSummary` — so `entryAuthor` reads that,
  *   and the text markers above only decide for an entry that carries none. The
  *   refusals (`foreign`, `ritual`) still come first, whatever the metadata says.
  *
@@ -353,8 +353,17 @@ export interface Expansion {
   readonly ids: readonly string[];
 }
 
+/**
+ * A turn as this reader emits it. `entry` is the ordinal of the transcript line
+ * it came from: one line with several text blocks yields several turns (the
+ * cursor indexes blocks), and pacing counts the LINE once (`hooks.ts#substanceOf`).
+ */
+export interface TranscriptTurn extends Turn {
+  entry?: number;
+}
+
 export interface TranscriptRead {
-  readonly turns: Turn[];
+  readonly turns: TranscriptTurn[];
   readonly ok: boolean;
   readonly reason: "read" | "absent" | "unreadable";
   /** Lines that were not a JSON object. Counted, never silently swallowed (scar §2.4). */
@@ -403,9 +412,10 @@ function isEntry(value: unknown): value is Record<string, unknown> {
 
 /** Exported so the parse is testable without a file (and it is the whole rule). */
 export function parseTranscript(raw: string): TranscriptRead {
-  const turns: Turn[] = [];
+  const turns: TranscriptTurn[] = [];
   const expansions: Expansion[] = [];
   let corrupt = 0;
+  let ordinal = -1;
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: Record<string, unknown>;
@@ -428,6 +438,7 @@ export function parseTranscript(raw: string): TranscriptRead {
     if (role !== "user" && role !== "assistant") continue;
     const content = message?.["content"] ?? entry["content"];
     const author = entryAuthor(entry, role);
+    ordinal += 1;
     for (const piece of blocksOf(content, role, author)) {
       // A recall call is the assistant's turn, kept as EVIDENCE beside the
       // turn list rather than in it (see `Expansion`). Only the assistant
@@ -436,7 +447,7 @@ export function parseTranscript(raw: string): TranscriptRead {
         expansions.push({ atTurn: turns.length, ids: piece.expansion });
       }
       if (piece.text.trim().length === 0) continue;
-      turns.push({ role, text: piece.text, source: piece.source });
+      turns.push({ role, text: piece.text, source: piece.source, entry: ordinal });
     }
   }
   return { turns, ok: true, reason: "read", corrupt, expansions };
@@ -464,7 +475,7 @@ function pieceOf(text: string, role: "user" | "assistant", author: EntryAuthor):
   // capture, which is G11 broken by a step meant only to keep it out of pacing.
   if (source === "foreign" || source === "ritual") return { text, source };
   // THE ASSISTANT'S TEXT IS NEVER RECLASSIFIED BY A MARKER (review m2): its own
-  // replies pace and earn recall credit exactly as on master. The one change is
+  // replies add pacing bytes and earn recall credit exactly as on master. The one change is
   // an entry the host SYNTHESISED as the assistant (an API error), which the
   // metadata names.
   if (role !== "user") return { text, source: author === "host" ? "injected" : source };

@@ -133,8 +133,12 @@ export const BOUNDARY_KIND: Record<SessionEndingHook, BoundaryKind> = {
   "pre-compact": "pre-compaction",
 };
 
-/** A turn as the host reports it. `source` is what makes G10/G11 decidable. */
-export interface HostTurn extends CapturedTurn {}
+/** A turn as the host reports it. `source` is what makes G10/G11 decidable;
+ *  `entry` (when the host has one) groups the blocks of one message, so pacing
+ *  counts the message once (`transcript.ts#TranscriptTurn`). */
+export interface HostTurn extends CapturedTurn {
+  readonly entry?: number;
+}
 
 export interface HookInput {
   readonly sessionId: string;
@@ -1072,7 +1076,7 @@ export class ClaudeCodeAdapter {
       const plan = writeUpPlan({
         store,
         spans: this.counterpart.spans,
-        firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+        firstAsk: { turns: t.FIRST_ASK_TURNS, textBytes: t.FIRST_ASK_TEXT_BYTES },
       });
       // Entries whose session stopped owing some other way go first.
       pruneWriteUpProgress(store, plan);
@@ -2454,21 +2458,32 @@ export class ClaudeCodeAdapter {
 }
 
 /**
- * Substance for PACING — conversational turns only.
+ * Substance for PACING.
  *
- * Host-injected material is user-role but is not the user speaking, so it must
- * not pace a ritual (§2 G11); tool output, file contents and images are the
- * declared blind spot and never counted (§2 G10). The same turn list feeds
- * `captureSpans`, where injected context IS kept — the two rules live one
- * function apart on purpose.
+ *   - **turns** — messages the PERSON typed: user-role `conversation` turns,
+ *     one per transcript entry however many text blocks it holds. The
+ *     assistant's text never counts as a turn, so its own writing cannot pace
+ *     the ask turn by turn (measured 2026-09-24: 8 assistant blocks against the
+ *     owner's 2 messages fired the first ask after his second message).
+ *   - **bytes** — conversation text from BOTH roles, which is how a one-prompt
+ *     agentic session still reaches an ask.
+ *
+ * Host-injected material is user-role but is not the user speaking, so it
+ * counts toward neither (§2 G11); tool output, file contents and images are the
+ * declared blind spot (§2 G10). The same turn list feeds `captureSpans`, where
+ * injected context IS kept — the two rules live one function apart on purpose.
  */
 export function substanceOf(turns: readonly HostTurn[]): { turns: number; bytes: number } {
   let count = 0;
   let bytes = 0;
+  let lastEntry: number | undefined;
   for (const turn of turns) {
     if ((turn.source ?? "conversation") !== "conversation") continue;
-    count += 1;
     bytes += Buffer.byteLength(turn.text, "utf8");
+    if (turn.role !== "user") continue;
+    if (turn.entry !== undefined && turn.entry === lastEntry) continue;
+    lastEntry = turn.entry;
+    count += 1;
   }
   return { turns: count, bytes };
 }

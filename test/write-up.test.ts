@@ -65,8 +65,7 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const FIRST_ASK = {
   turns: SELF_TUNABLES.FIRST_ASK_TURNS,
-  bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
-  soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+  textBytes: SELF_TUNABLES.FIRST_ASK_TEXT_BYTES,
 };
 
 let root: string;

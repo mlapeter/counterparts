@@ -135,11 +135,10 @@ export const NO_HOST_EVIDENCE: HostSessionEvidence = {
 };
 
 /** The pacer's first-ask thresholds (`self/tunables.ts`), passed in so this
- *  module never re-derives them. */
+ *  module never re-derives them: typed turns OR conversation text bytes. */
 export interface FirstAskThreshold {
   readonly turns: number;
-  readonly bytes: number;
-  readonly soloBytes: number;
+  readonly textBytes: number;
 }
 
 /**
@@ -337,8 +336,8 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
 
   const out: HeldSession[] = [];
   const first = sources.firstAsk;
-  const paced = (turns: number, bytes: number): boolean =>
-    (turns >= first.turns && bytes >= first.bytes) || bytes >= first.soloBytes;
+  // The pacer's own rule (`self/episodes.ts#askDue`), whichever comes first.
+  const paced = (turns: number, bytes: number): boolean => turns >= first.turns || bytes >= first.textBytes;
 
   for (const [session, t] of [...tallies.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     // A session that holds no text anywhere has nothing to delete and nothing

@@ -1584,16 +1584,18 @@ describe("freeze, but keep counting", () => {
 describe("episodes", () => {
   const SUBSTANCE = { turns: 9, bytes: 6_000 };
 
-  test("pacing is substance-based, and every refusal names which substance was missing", () => {
+  test("the first ask is due on typed turns OR text bytes, whichever comes first", () => {
     const s = store();
     const self = new Self({ store: s });
-    expect(self.askDue("s1", { turns: 2, bytes: 300 }).reason).toBe("not-enough-substance");
-    // Turns alone are not enough...
-    expect(self.askDue("s1", { turns: 20, bytes: 100 }).reason).toBe("not-enough-substance");
-    // ...but bytes alone are, so a one-prompt agentic session still journals.
-    expect(self.askDue("s1", { turns: 1, bytes: SELF_TUNABLES.SOLO_ASK_BYTES }).reason).toBe(
-      "due-first",
+    const T = SELF_TUNABLES;
+    // Just under both: not due.
+    expect(self.askDue("s1", { turns: T.FIRST_ASK_TURNS - 1, bytes: T.FIRST_ASK_TEXT_BYTES - 1 }).reason).toBe(
+      "not-enough-substance",
     );
+    // Typed turns alone are enough...
+    expect(self.askDue("s1", { turns: T.FIRST_ASK_TURNS, bytes: 0 }).reason).toBe("due-first");
+    // ...and so are bytes alone, so a one-prompt agentic session still journals.
+    expect(self.askDue("s1", { turns: 1, bytes: T.FIRST_ASK_TEXT_BYTES }).reason).toBe("due-first");
     expect(self.askDue("s1", SUBSTANCE).due).toBe(true);
   });
 
@@ -1616,22 +1618,82 @@ describe("episodes", () => {
     expect(s.getMeta(stateKey("s1"))).toBeDefined();
   });
 
-  test("later chapters need FURTHER substance — turns AND bytes, the way v1 re-asked", () => {
+  test("later chapters need FURTHER substance — typed turns OR text bytes since the last ask", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
+    const T = SELF_TUNABLES;
     self.openChapter("s1", SUBSTANCE);
-    expect(self.askDue("s1", { turns: 10, bytes: 6_500 }).reason).toBe("not-enough-substance");
-    // Bytes alone are NOT enough, and neither are turns alone: v2 shipped an OR
-    // whose byte half was a third of v1's, so the model's own chapter-writing
-    // reply could re-trigger it (2026-09-04, about a dozen asks in an evening).
-    expect(self.askDue("s1", { turns: 9, bytes: 60_000 }).reason).toBe("not-enough-substance");
-    expect(self.askDue("s1", { turns: 40, bytes: 6_500 }).reason).toBe("not-enough-substance");
-    const second = self.openChapter("s1", { turns: 18, bytes: 15_000 });
+    const { turns, bytes } = SUBSTANCE;
+    // Just under both since the last ask: not due.
+    expect(
+      self.askDue("s1", { turns: turns + T.REASK_TURNS - 1, bytes: bytes + T.REASK_TEXT_BYTES - 1 }).reason,
+    ).toBe("not-enough-substance");
+    // Typed turns alone are enough, and so are bytes alone.
+    expect(self.askDue("s1", { turns: turns + T.REASK_TURNS, bytes }).reason).toBe("due-substance");
+    expect(self.askDue("s1", { turns, bytes: bytes + T.REASK_TEXT_BYTES }).reason).toBe("due-substance");
+    const second = self.openChapter("s1", { turns: turns + T.REASK_TURNS, bytes });
     expect(second.verdict.reason).toBe("due-substance");
     // Chapter 1 has not been WRITTEN, so the next ask is still for chapter 1.
     expect(second.chapter).toBe(1);
     self.appendChapter("s1", "The first stretch, finally written down.");
     expect(self.openChapter("s1", { turns: 40, bytes: 40_000 }).chapter).toBe(2);
+  });
+
+  test("the day's allowance: the last ask it allows is raised, the one after is refused", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    const cap = SELF_TUNABLES.MAX_ASKS_PER_SESSION;
+    let turns = 0;
+    const outcomes: string[] = [];
+    for (let i = 0; i < cap + 1; i += 1) {
+      turns += Math.max(SELF_TUNABLES.FIRST_ASK_TURNS, SELF_TUNABLES.REASK_TURNS);
+      const ask = self.openChapter("s1", { turns, bytes: 0 }, 4);
+      outcomes.push(ask.asked ? "asked" : ask.verdict.reason);
+    }
+    expect(outcomes.slice(0, cap).every((o) => o === "asked")).toBe(true);
+    expect(outcomes[cap]).toBe("session-ask-cap");
+  });
+
+  test("a watermark left by an older counting rule is re-based once, so the re-ask is not stuck", () => {
+    // What a live session's state looks like after the 2026-09-24 change: its
+    // last ask was committed when turns counted both roles' text pieces, so the
+    // watermark sits far above anything typed-turn counting reaches for a while.
+    const s = store();
+    s.setMeta(
+      stateKey("s1"),
+      JSON.stringify({
+        sessionId: "s1",
+        episodeId: null,
+        chapters: 0,
+        asks: 1,
+        asksToday: 1,
+        asksDay: "2026-09-24",
+        appendedAtAsk: 0,
+        lastAskAt: null,
+        askedAtTurns: 40,
+        askedAtBytes: 10_000,
+        lastDay: 4,
+        ingestedKey: null,
+        ingestedMemoryId: null,
+        firstIngestDay: null,
+      }),
+    );
+    const self = new Self({ store: s, gate: PASS_GATE });
+    const now = { turns: 10, bytes: 12_000 };
+    const first = self.openChapter("s1", now, 4);
+    expect(first.asked).toBe(false);
+    expect(first.verdict.reason).toBe("not-enough-substance");
+    // Persisted: turns come down to what is counted now; bytes were already below.
+    const reborn = new Self({ store: s, gate: PASS_GATE });
+    expect(reborn.episodeState("s1", 4).askedAtTurns).toBe(now.turns);
+    expect(reborn.episodeState("s1", 4).askedAtBytes).toBe(10_000);
+    expect(self.events("self.episode.rebased").length).toBe(1);
+    // REASK_TURNS more typed turns from here is due — without the re-base it
+    // would need the count to climb past 40 + REASK_TURNS first.
+    const again = reborn.openChapter("s1", { turns: now.turns + SELF_TUNABLES.REASK_TURNS, bytes: now.bytes }, 4);
+    expect(again.asked).toBe(true);
+    // A watermark at or below the substance is left alone.
+    expect(reborn.events("self.episode.rebased").length).toBe(0);
   });
 
   test("the cap is THE SESSION's — every session on a day is asked, none starved by another", () => {
@@ -1939,7 +2001,7 @@ describe("episodes", () => {
     expect(tail.sinceBytes).toBe(3_000);
     const logged = self.events("self.episode.tail")[0];
     expect(logged?.data?.["sinceBytes"]).toBe(3_000);
-    expect(logged?.data?.["boundBytes"]).toBe(SELF_TUNABLES.REASK_BYTES);
+    expect(logged?.data?.["boundBytes"]).toBe(SELF_TUNABLES.REASK_TEXT_BYTES);
   });
 
   test("intake refuses malformed deposits with the reason, never a bare false", () => {

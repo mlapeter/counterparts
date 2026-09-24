@@ -136,6 +136,7 @@ import {
   intakeEpisode,
   loadEpisodeState,
   memoriesForEpisode,
+  rebasedWatermark,
   stateKey,
 } from "./episodes.js";
 import type {
@@ -1622,7 +1623,20 @@ export class Self {
     // why it is the calendar date and not the lived one). LOCAL midnight since
     // 2026-09-23 (`calendar.ts`), not UTC's.
     const today = this.calendarToday();
-    const state = this.episodeState(sessionId, d);
+    let state = this.episodeState(sessionId, d);
+    // Persisted once, whether or not an ask is due, so a watermark left by an
+    // older counting rule cannot hold the re-ask off (`rebasedWatermark`).
+    const rebased = sessionId.trim().length === 0 ? null : rebasedWatermark(state, substance);
+    if (rebased !== null) {
+      this.emit("self.episode.rebased", sessionId, {
+        fromTurns: state.askedAtTurns,
+        fromBytes: state.askedAtBytes,
+        toTurns: rebased.askedAtTurns,
+        toBytes: rebased.askedAtBytes,
+      });
+      state = rebased;
+      this.persistState(state, "rebase");
+    }
     const verdict = askDue(state, substance, this.tunables, {
       observer: this.observer,
       today,
@@ -1987,7 +2001,7 @@ export class Self {
       sinceTurns: verdict.sinceTurns,
       sinceBytes: verdict.sinceBytes,
       boundTurns: this.tunables.REASK_TURNS,
-      boundBytes: this.tunables.REASK_BYTES,
+      boundBytes: this.tunables.REASK_TEXT_BYTES,
       chapters: this.episodeState(sessionId, day).chapters,
     });
     return verdict;

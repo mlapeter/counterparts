@@ -192,7 +192,7 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
   const plan = writeUpPlan({
     store: counterpart.store,
     spans: counterpart.spans,
-    firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
+    firstAsk: { turns: t.FIRST_ASK_TURNS, textBytes: t.FIRST_ASK_TEXT_BYTES },
   });
   const all = readWriteUpProgress(counterpart.store);
   const standing = writeUpStanding(plan, input.registryDir, ended, input.scope, input.now, { progress: all });

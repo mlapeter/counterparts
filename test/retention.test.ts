@@ -123,8 +123,7 @@ async function live(
 
 const FIRST_ASK = {
   turns: SELF_TUNABLES.FIRST_ASK_TURNS,
-  bytes: SELF_TUNABLES.FIRST_ASK_BYTES,
-  soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
+  textBytes: SELF_TUNABLES.FIRST_ASK_TEXT_BYTES,
 };
 
 /** The sources the worker builds: the pacer, the handoff rows, this host's
@@ -614,9 +613,12 @@ describe("the re-review's residuals (R1, R5, R7, R8)", () => {
   });
 
   test("R5: substance is counted in UTF-8 BYTES, like the pacer — a session in Japanese is not read as short", () => {
-    // Eight turns of Japanese: ~5.5 KB in UTF-8, ~1.9 K in UTF-16 code units.
-    const line = "今日は移行計画について長く話し合い、どの索引を残してどれを落とすかを決めた。".repeat(6);
-    const turns = Array.from({ length: 8 }, (_, i) => ({
+    // Fewer turns than the first ask needs, so the bytes decide: past the text
+    // threshold in UTF-8, under a third of it in UTF-16 code units.
+    const unit = "今日は移行計画について長く話し合い、どの索引を残してどれを落とすかを決めた。";
+    const count = SELF_TUNABLES.FIRST_ASK_TURNS - 1;
+    const line = unit.repeat(Math.ceil(SELF_TUNABLES.FIRST_ASK_TEXT_BYTES / (count * Buffer.byteLength(unit, "utf8"))) + 1);
+    const turns = Array.from({ length: count }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
       text: `${String(i)}: ${line}`,
     }));
@@ -624,8 +626,8 @@ describe("the re-review's residuals (R1, R5, R7, R8)", () => {
     buf.capture({ session: "nihongo", scope: SCOPE, turns });
     buf.boundary({ session: "nihongo", scope: SCOPE, kind: "stop" });
     const utf8 = turns.reduce((n, t) => n + Buffer.byteLength(t.text, "utf8"), 0);
-    expect(utf8).toBeGreaterThanOrEqual(SELF_TUNABLES.FIRST_ASK_BYTES);
-    expect(turns.reduce((n, t) => n + t.text.length, 0)).toBeLessThan(SELF_TUNABLES.FIRST_ASK_BYTES);
+    expect(utf8).toBeGreaterThanOrEqual(SELF_TUNABLES.FIRST_ASK_TEXT_BYTES);
+    expect(turns.reduce((n, t) => n + t.text.length, 0)).toBeLessThan(SELF_TUNABLES.FIRST_ASK_TEXT_BYTES);
     const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), fake({ status: "absent" }));
     expect(h?.facts.asked).toBe(true);
     expect(h?.verdict).toBe("kept-owed");
