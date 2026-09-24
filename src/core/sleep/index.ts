@@ -85,13 +85,16 @@ export {
 } from "./dedup.js";
 export type { DedupCandidateInput, DedupCandidateSource, DedupPair, DedupResult } from "./dedup.js";
 
+export { runFade } from "./fade.js";
+export type { FadeFn, FadeInput, FadeResult, FadeSweepOutcome } from "./fade.js";
+
 export { runBriefing } from "./briefing.js";
 export type { BriefingContext, BriefingOutcome, BriefingResult, RenderFn } from "./briefing.js";
 
 export { LOG_SWEEP_EVENT, LOG_SWEEP_SKIPS, runLogSweep } from "./log.js";
 export type { LogSweepResult, LogSweepSkip } from "./log.js";
 
-export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, attachCyclePartial, countSkip, cyclePartial, emptyOutcome, isJournal, isSchemaRow, phaseReport } from "./types.js";
+export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, attachCyclePartial, countSkip, cyclePartial, emptyOutcome, isEntityCard, isJournal, isSchemaRow, phaseReport } from "./types.js";
 export type {
   CyclePartial,
   CycleReport,

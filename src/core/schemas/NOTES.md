@@ -68,7 +68,9 @@ calls obvious, scoped to the elements this module can see.
 Not answered, still open: *a person with one faded memory is not the same as a
 project that ended.* Both fade here on the same five physics conditions. The
 per-kind distinction, if it is real, belongs in `KINDS` as a per-kind
-`D_FLOOR_DAYS`, not in a special case here.
+`D_FLOOR_DAYS`, not in a special case here. *(2026-09-24: it landed as this
+module's own fade tunables instead — a calendar floor for every card, longer
+floors for people — see §14.)*
 
 ## 6. A faded name mentioned again is a NEW birth
 
@@ -258,3 +260,54 @@ candidates are formed, so such an entity can be MATCHED and never SURFACED.
 Neither is new and neither is removal's fault: it is the same staleness the
 server already has for every write another process makes. Worth closing when
 something needs cross-process invalidation, not before.
+
+## 14. Gentle fading, and who runs it (2026-09-24)
+
+The owner's direction: wire the fade in, but not aggressively — don't let people fade
+too quickly; use lived days, or lived AND calendar days. So physics' prune verdict (§5) is
+now necessary but not sufficient. A card fades only when, in addition:
+
+- **a calendar floor has passed since its last use** — `FADE.CALENDAR_FLOOR_DAYS` (180),
+  or the kind's own (`person`: 365). Lived days alone are too quick for someone who uses
+  the tool daily, where lived ≈ calendar;
+- **its kind's lived dwell has passed** — physics' `D_FLOOR_DAYS` times
+  `FADE.LIVED_DWELL_FACTOR_BY_KIND` (`person`: 2, so 180 lived days). This answers §5's
+  open "per-kind `D_FLOOR_DAYS`" question in this module's tunables, not in physics' `KINDS`;
+- the old blockers still hold — live attached elements, `protected`, band — plus one new
+  one, `identity-core`: a `kind: "self"` card never fades.
+
+Kind is the row's own `kind` column (`person` / `entity` / `skill` / `place`), fixed at
+birth.
+
+**Where "last used on a calendar date" comes from.** The store keeps last use as a lived
+day (`last_used_day`) and no date. Rather than touch the store or the mention path,
+`calendarDaysSinceUse` takes the largest of three lower bounds, so it can undercount and
+never overcount — undercounting only makes a card fade later:
+
+1. the lived-day gap itself (each lived day is a distinct date);
+2. the birth date (`learned_on`) when birth was the last use — exact for the common case,
+   a stub nobody mentioned twice;
+3. an **anchor** the sweep writes in box-2 meta (`schemas.fade.anchor.<id>` =
+   `{ day, date }`) for every live card that has none, or has been used since its anchor.
+   An anchor older than the last use is ignored until the next sweep replaces it.
+
+So a card re-mentioned today has only the lived gap to go on until the next sweep anchors
+it; at a 3-day cadence that loses a few days of precision, toward fading later. The sweep's
+date is the cycle's date; `learned_on` is UTC provenance. They can differ by a day.
+
+**Who runs it.** `sleep/`'s `fade` phase, after `prune` (sleep NOTES §17). Until now the
+prune phase was archiving entity cards at 90 lived days, beliefs attached or not, because
+nothing told it a card was different from a memory; it now skips them.
+
+**Coming back.** A mention of a faded card's name is a fresh birth (§6), one live card,
+tagged `schema.birth.after-fade`. One gap closed on the way: a long-lived process (the MCP
+server) whose index still held a card that another process's cycle archived would
+REINFORCE the archived row on mention — credited, never surfacing. `mention` now drops an
+indexed card whose row is archived (`fadedElsewhere`) and births afresh; near-collision
+refusals skip such cards too. The new card does not inherit the old one's aliases —
+open, if it turns out to matter.
+
+The numbers are experimental defaults, not measurements. On the demo store (13 cards,
+lived day 30), a daily user going quiet would see 0 cards fade at +90 calendar days, 4 at
++180 and 5 at +365 — none of them people, all of whom have beliefs attached. The old prune
+alone would have taken 8, 10 and 13 (the identity core included).

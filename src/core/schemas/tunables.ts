@@ -7,6 +7,8 @@
  * from intuition and was inert because arbitrary same-corpus pairs already sat
  * at 0.576).
  */
+import type { Kind } from "../types.js";
+
 export const TUNABLES = {
   /**
    * CAL. Near collision is TOKEN CONTAINMENT: "Mike" against "Mike Chen".
@@ -32,6 +34,27 @@ export const TUNABLES = {
 
   /** Why an entity's archive row says it left. One string, one meaning. */
   FADE_REASON: "faded-by-decay" as const,
+
+  /**
+   * How gently an entity card fades (owner, 2026-09-24: "don't fade people away
+   * too quickly"). A card fades only when physics says the row is prunable AND
+   * these floors have passed too. Experimental defaults, not measured; NOTES §14.
+   */
+  FADE: {
+    /** Calendar days since the card was last used before it may fade. Lived days
+     *  alone are too fast for someone who uses the tool every day. */
+    CALENDAR_FLOOR_DAYS: 180,
+    /** Per-kind calendar floor, where a kind wants a slower one. A person you
+     *  have not talked about in half a year is still someone you know. */
+    CALENDAR_FLOOR_DAYS_BY_KIND: { person: 365 } as Readonly<Partial<Record<Kind, number>>>,
+    /** Multiplies physics' lived-day dwell (`D_FLOOR_DAYS`) per kind. People get
+     *  twice the lived quiet a project does before they can fade. */
+    LIVED_DWELL_FACTOR_BY_KIND: { person: 2 } as Readonly<Partial<Record<Kind, number>>>,
+  },
+
+  /** Box-2 meta key prefix for a card's calendar anchor (`{ day, date }`): a
+   *  lived day and the calendar date the fade sweep saw it on. NOTES §14. */
+  FADE_ANCHOR_PREFIX: "schemas.fade.anchor." as const,
 
   /** What the versions row says when a belief fell to accumulated pressure. */
   REVISED_REASON: "revised-by-pressure" as const,

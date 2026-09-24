@@ -29,6 +29,8 @@ export const TUNABLES = {
     decay: 20_000,
     consolidate: 5_000,
     prune: 1_000,
+    /** Entity cards examined per fade sweep. Sized so a personal store's cards all fit in one pass. */
+    fade: 5_000,
     dedup: 1_000,
     versions: 1,
     briefing: 1,
@@ -52,6 +54,9 @@ export const TUNABLES = {
     decay: 1,
     consolidate: 3,
     prune: 1,
+    /** Every third lived day: the fade floors are months long, so a card that
+     *  fades a day or two late costs nothing, and the sweep reads every card. */
+    fade: 3,
     dedup: 1,
     versions: 1,
     briefing: 1,

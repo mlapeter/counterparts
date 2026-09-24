@@ -27,7 +27,7 @@ import type { MemoryPhysics, PruneReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PRUNE_ARCHIVE_REASON, PRUNE_RECORD_PREFIX } from "./tunables.js";
 import type { MemoryRow, PhaseCtx, PhaseOutcome, PrunedRecord } from "./types.js";
-import { countSkip, emptyOutcome, isJournal } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isJournal } from "./types.js";
 
 export interface PruneResult extends PhaseOutcome {
   readonly pruned: readonly PrunedRecord[];
@@ -69,6 +69,7 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
   out.skipped["archived"] = 0;
   out.skipped["removed"] = 0;
   out.skipped["journal"] = 0;
+  out.skipped["entity-card"] = 0;
   const blocked: Record<string, number> = {};
   const pruned: PrunedRecord[] = [];
   const recordFailures: { id: string; error: string }[] = [];
@@ -103,6 +104,12 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     // minted would never exist (`types.ts#isJournal`).
     if (isJournal(row)) {
       countSkip(out, "journal");
+      continue;
+    }
+    // An entity card fades in the next phase, under `schemas/`' gentler verdict
+    // (`types.ts#isEntityCard`, NOTES §17) — not here, at physics' floor alone.
+    if (isEntityCard(row)) {
+      countSkip(out, "entity-card");
       continue;
     }
     out.examined += 1;

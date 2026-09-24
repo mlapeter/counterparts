@@ -768,3 +768,38 @@ object a reader has to interpret.
 
 `adapters/fired.ts` reads them keyed `<phase>/<reason>`, so one row answers for promotion,
 prune, dedup and decay and none of them can claim another's.
+
+## 17. Entity cards fade in their own phase, not at the floor prune — 2026-09-24
+
+`schemas/INTERFACE-GAPS` §6 asked this module to call `schemas.fadeSweep` on its cadence,
+and nothing did. Looking for why the cards never faded turned up the opposite: they did,
+in the wrong place. `runPrune` walks every row, and an entity card is a stub at salience
+zero, so physics alone let it go at `D_FLOOR_DAYS` (90 lived days) — archived `pruned`,
+with its beliefs still attached (a probe: a person with one belief, prune at day 91, both
+archived), and never taken out of a long-lived process's alias index. The identity core is
+the same kind of row with no `protected` flag and nothing that reinforces it (last used on
+day 0 of the demo store at day 30), so physics would have let the prune take it too after
+90 quiet lived days — and `self/identity.ts#findIdentityCore` lists only unarchived rows,
+so the next `ensureIdentityCore` would have minted a second one.
+
+What changed:
+
+- **A `fade` phase, right after `prune`.** It calls an injected `FadeFn`, the same seam as
+  the briefing's `RenderFn` — this module still does not import `schemas/`. The
+  composition root (`counterpart.ts#sessionEnd`) wires it to `fadeSweep`. No fn ⇒
+  `did-not-run` / `no-fade-fn`. Under observer the fn gets `apply: false` and runs as a
+  dry run, so the report still counts what would fade and nothing is written.
+- **The prune skips entity cards** (`types.ts#isEntityCard`: a schema row with
+  `meta.role === "entity"`, read structurally), counted as `entity-card`. Beliefs and
+  current-state rows remain ordinary prune candidates — a weak belief pruned tonight frees
+  its card to fade in the next phase, if its floors have passed.
+- **Cadence 3 lived days, budget 5,000 cards** (`tunables.ts`). The floors are months; a
+  card fading a day or two late costs nothing.
+- **What is reported:** `CycleReport.faded` (ids), the phase's `changed` and its
+  `blocked:<reason>` skips, a `sleep.faded` event per id and one `sleep.fade.sweep`, a
+  `faded` count on the durable `sleep.cycle` row, and faded cards counted as exits in the
+  census (otherwise `person`/`place`/`entity` would read as never exiting now that the
+  prune leaves them alone). Ids and counts only, as everywhere here.
+
+`adapters/fired.ts` does not list the fade yet; its per-phase refusal reading would pick up
+`fade/blocked:*`, most of which are "not yet" (the floors), not refusals.

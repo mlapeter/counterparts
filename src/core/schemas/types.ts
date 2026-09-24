@@ -275,7 +275,13 @@ export type FadeReason =
   | "band-not-episodic"
   | "protected"
   | "in-live-revision-chain"
-  | "has-live-attached-elements";
+  | "has-live-attached-elements"
+  /** The identity core is not a card that fades. */
+  | "identity-core"
+  /** Past physics' dwell, not yet past this kind's longer one (`FADE.LIVED_DWELL_FACTOR_BY_KIND`). */
+  | "kind-dwell-too-short"
+  /** Not enough calendar days since last use (`FADE.CALENDAR_FLOOR_DAYS*`). */
+  | "calendar-floor-not-passed";
 
 export interface FadeVerdict {
   fade: boolean;
@@ -286,12 +292,43 @@ export interface FadeVerdict {
   band: Band;
   dwellDays: number;
   attached: number;
+  /** Lived days of quiet this card's kind needs (physics' dwell × the kind's factor). */
+  livedFloorDays: number;
+  /**
+   * Calendar days since last use, as a LOWER BOUND — never a guess that could
+   * run long: the largest of the lived-day gap (each lived day is a distinct
+   * date), the birth date when birth was the last use, and a sweep anchor no
+   * older than the last use (NOTES §14).
+   */
+  calendarDays: number;
+  /** Which of the three set `calendarDays`. */
+  calendarSource: "lived-days" | "birth-date" | "anchor";
+  calendarFloorDays: number;
+}
+
+export interface FadeSweepOptions {
+  /** The sweep's calendar date. Defaults to `store.today()`. */
+  date?: string;
+  /** Compute every verdict and write nothing — no archive, no anchor. The observer's report. */
+  dryRun?: boolean;
+  /** Examine at most this many live cards. There is no cursor, so the same cards
+   *  come first every sweep; sleep's budget is sized so a personal store never hits it. */
+  limit?: number;
 }
 
 export interface FadeReport {
   day: number;
+  date: string;
+  dryRun: boolean;
   examined: number;
+  /** Faded this sweep — or, on a dry run, would have. Ids only. */
   faded: string[];
+  /** Every blocker, counted, across the cards that did not fade. */
+  blocked: Record<string, number>;
+  /** Calendar anchors written: cards seen for the first time, or used since the last anchor. */
+  anchored: number;
+  /** Live cards not examined because `limit` ran out. */
+  skippedForLimit: number;
 }
 
 // ---------------------------------------------------------------------------

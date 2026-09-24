@@ -76,6 +76,7 @@ import type {
   EntityView,
   FadeReason,
   FadeReport,
+  FadeSweepOptions,
   FadeVerdict,
   LifecycleRow,
   LineageStep,
@@ -319,7 +320,9 @@ export class Schemas {
     // The ONE whole-word rule, the same call preselection makes (SEAMS §7).
     if (!occursAsWholeWord(input.source, name)) return refuse("name-not-in-source");
 
-    const exact = this.index.lookup(name).filter((id) => this.meta.get(id)?.role === "entity");
+    const exact = this.index
+      .lookup(name)
+      .filter((id) => this.meta.get(id)?.role === "entity" && !this.fadedElsewhere(id));
     if (exact.length > 1) return refuse("ambiguous-existing-name", exact);
     const hit = exact[0];
     if (hit !== undefined) {
@@ -353,13 +356,25 @@ export class Schemas {
     return undefined;
   }
 
+  /**
+   * An indexed card whose row is archived — faded (or pruned) by a sleep cycle
+   * in ANOTHER process, which this long-lived index could not hear about. It is
+   * dropped from the index here, so a mention of the name is a fresh birth
+   * rather than a reinforcement of a card nothing surfaces (NOTES §14).
+   */
+  private fadedElsewhere(id: string): boolean {
+    if (this.store.row(id)?.archived !== 1) return false;
+    this.index.unregister(id);
+    return true;
+  }
+
   private nearCollisions(name: string): string[] {
     const out: string[] = [];
     for (const [id, rec] of this.meta) {
       if (rec.role !== "entity") continue;
       if (!this.index.has(id)) continue;
       const terms = [rec.name ?? "", ...(rec.aliases ?? [])];
-      if (terms.some((t) => collision(name, t) === "near")) out.push(id);
+      if (terms.some((t) => collision(name, t) === "near") && !this.fadedElsewhere(id)) out.push(id);
     }
     return out.sort();
   }
@@ -1032,11 +1047,13 @@ export class Schemas {
 
   /**
    * Would this entity fade today, and if not, why not — EVERY reason, not the
-   * first (§5 G7). Death is decay: physics decides, and this module adds one
-   * blocker of its own, because an entity with live beliefs or live status is a
-   * place memories are still attached to (open question 1; NOTES §5).
+   * first (§5 G7). Death is decay: physics must say prunable, and this module
+   * adds blockers of its own — an entity with live beliefs or live status is a
+   * place memories are still attached to (open question 1; NOTES §5), and a card
+   * fades gently: a calendar floor, and longer floors for people (NOTES §14).
+   * `date` is the calendar day the floors are counted to.
    */
-  fadeVerdict(id: string, day: number): FadeVerdict {
+  fadeVerdict(id: string, day: number, date: string = this.store.today()): FadeVerdict {
     const row = this.store.row(id);
     const rec = this.meta.get(id);
     if (row === undefined || rec === undefined || rec.role !== "entity") {
@@ -1050,9 +1067,15 @@ export class Schemas {
         band: "episodic",
         dwellDays: 0,
         attached: 0,
+        livedFloorDays: 0,
+        calendarDays: 0,
+        calendarSource: "lived-days",
+        calendarFloorDays: 0,
       };
     }
     const p = this.store.physicsOf(id);
+    const floors = fadeFloors(row.kind);
+    const calendar = this.calendarDaysSinceUse(id, row, p, day, date);
     if (row.archived === 1) {
       return {
         fade: false,
@@ -1062,6 +1085,10 @@ export class Schemas {
         band: bandOfPhysics(p, day),
         dwellDays: day - p.lastUsedDay,
         attached: this.liveElementIds(id).length,
+        livedFloorDays: floors.lived,
+        calendarDays: calendar.days,
+        calendarSource: calendar.source,
+        calendarFloorDays: floors.calendar,
       };
     }
     const v = pruneVerdict(p, day, { inLiveRevisionChain: false });
@@ -1072,6 +1099,13 @@ export class Schemas {
       (r): r is Exclude<typeof r, "prunable"> => r !== "prunable",
     );
     if (attached > 0) blockedBy.push("has-live-attached-elements");
+    if (row.kind === "self") blockedBy.push("identity-core");
+    // Gentle fading (NOTES §14): physics' verdict is necessary, not sufficient.
+    // A kind can ask for more lived quiet, and every card needs calendar quiet.
+    if (v.dwellDays >= PHYSICS_TUNABLES.D_FLOOR_DAYS && v.dwellDays < floors.lived) {
+      blockedBy.push("kind-dwell-too-short");
+    }
+    if (calendar.days < floors.calendar) blockedBy.push("calendar-floor-not-passed");
     return {
       fade: blockedBy.length === 0,
       reason: blockedBy[0] ?? "faded",
@@ -1080,37 +1114,117 @@ export class Schemas {
       band: v.band,
       dwellDays: v.dwellDays,
       attached,
+      livedFloorDays: floors.lived,
+      calendarDays: calendar.days,
+      calendarSource: calendar.source,
+      calendarFloorDays: floors.calendar,
     };
+  }
+
+  /**
+   * Calendar days since this card was last used, as a LOWER BOUND.
+   *
+   * The store keeps last use as a LIVED day only, so the calendar side is
+   * rebuilt from three facts, each of which can only undercount:
+   *   - the lived-day gap itself — every lived day is a distinct date;
+   *   - the birth date (`learned_on`), when birth was the last use;
+   *   - the sweep's anchor, `{ day, date }`, when the card has not been used
+   *     since that lived day (an anchor older than the last use is ignored).
+   * The largest wins. Undercounting only ever makes a card fade LATER.
+   */
+  private calendarDaysSinceUse(
+    id: string,
+    row: MemoryRow,
+    p: MemoryPhysics,
+    day: number,
+    date: string,
+  ): { days: number; source: FadeVerdict["calendarSource"] } {
+    let best: { days: number; source: FadeVerdict["calendarSource"] } = {
+      days: Math.max(0, day - p.lastUsedDay),
+      source: "lived-days",
+    };
+    const consider = (from: string, source: FadeVerdict["calendarSource"]): void => {
+      const d = calendarDaysBetween(from, date);
+      if (d !== null && d > best.days) best = { days: d, source };
+    };
+    if (p.lastUsedDay === row.birth_day) consider(row.learned_on, "birth-date");
+    const anchor = this.fadeAnchor(id);
+    if (anchor !== null && anchor.day >= p.lastUsedDay) consider(anchor.date, "anchor");
+    return best;
+  }
+
+  private fadeAnchor(id: string): { day: number; date: string } | null {
+    const raw = this.store.getMeta(`${TUNABLES.FADE_ANCHOR_PREFIX}${id}`);
+    if (raw === undefined) return null;
+    try {
+      const v = JSON.parse(raw) as { day?: unknown; date?: unknown };
+      if (typeof v.day !== "number" || typeof v.date !== "string") return null;
+      return { day: v.day, date: v.date };
+    } catch {
+      return null;
+    }
   }
 
   /**
    * The sweep. Archive is a STATE, not a deletion: a faded entity keeps its id,
    * stays resolvable, and simply stops surfacing (§4.2 G3). No model, on any
-   * path, holds this power — it is arithmetic on a lived day.
+   * path, holds this power — it is arithmetic on a lived day and a date.
+   *
+   * `sleep/` calls it on its own cadence (INTERFACE-GAPS §6). Along the way it
+   * writes a calendar anchor for every live card that has none, or has been used
+   * since its last one — that is how "calendar days since last use" becomes
+   * knowable without a column for it (NOTES §14). A dry run writes nothing.
    */
-  fadeSweep(day: number): FadeReport {
+  fadeSweep(day: number, opts: FadeSweepOptions = {}): FadeReport {
+    const date = opts.date ?? this.store.today();
+    const dryRun = opts.dryRun === true;
+    const limit = opts.limit ?? Number.POSITIVE_INFINITY;
     const faded: string[] = [];
+    const blocked: Record<string, number> = {};
+    const anchors: [string, string][] = [];
     let examined = 0;
+    let skippedForLimit = 0;
     for (const [id, rec] of this.meta) {
       if (rec.role !== "entity") continue;
       const row = this.store.row(id);
       if (row === undefined || row.archived === 1) continue;
+      if (examined >= limit) {
+        skippedForLimit += 1;
+        continue;
+      }
       examined += 1;
-      const v = this.fadeVerdict(id, day);
-      if (!v.fade) continue;
+      const v = this.fadeVerdict(id, day, date);
+      if (!v.fade) {
+        for (const r of v.blockedBy) blocked[r] = (blocked[r] ?? 0) + 1;
+        const anchor = this.fadeAnchor(id);
+        if (anchor === null || anchor.day < row.last_used_day) {
+          anchors.push([`${TUNABLES.FADE_ANCHOR_PREFIX}${id}`, JSON.stringify({ day, date })]);
+        }
+        continue;
+      }
+      faded.push(id);
+      if (dryRun) continue;
       this.store.archive(id, TUNABLES.FADE_REASON);
       this.index.unregister(id);
-      faded.push(id);
       this.emit("schema.faded", id, {
         day,
         kind: row.kind,
         strength: v.strength,
         dwellDays: v.dwellDays,
+        calendarDays: v.calendarDays,
         birthDay: row.birth_day,
       });
     }
-    this.emit("schema.fade.sweep", undefined, { day, examined, faded: faded.length });
-    return { day, examined, faded };
+    if (!dryRun && anchors.length > 0) this.store.setMetaMany(anchors);
+    const anchored = dryRun ? 0 : anchors.length;
+    this.emit("schema.fade.sweep", undefined, {
+      day,
+      examined,
+      faded: faded.length,
+      anchored,
+      dryRun,
+    });
+    return { day, date, dryRun, examined, faded, blocked, anchored, skippedForLimit };
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -1456,4 +1570,21 @@ function toMetaRecord(meta: Record<string, unknown>): MetaRecord | null {
   if (typeof meta["statedOn"] === "string") rec.statedOn = meta["statedOn"];
   if (typeof meta["statedOnDay"] === "number") rec.statedOnDay = meta["statedOnDay"];
   return rec;
+}
+
+/** The lived and calendar floors a card of this kind must pass to fade (NOTES §14). */
+function fadeFloors(kind: Kind): { lived: number; calendar: number } {
+  const factor = TUNABLES.FADE.LIVED_DWELL_FACTOR_BY_KIND[kind] ?? 1;
+  return {
+    lived: Math.ceil(PHYSICS_TUNABLES.D_FLOOR_DAYS * factor),
+    calendar: TUNABLES.FADE.CALENDAR_FLOOR_DAYS_BY_KIND[kind] ?? TUNABLES.FADE.CALENDAR_FLOOR_DAYS,
+  };
+}
+
+/** Whole calendar days from one `YYYY-MM-DD` to another; null when either is unreadable. */
+function calendarDaysBetween(from: string, to: string): number | null {
+  const a = Date.parse(`${from.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${to.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
 }
