@@ -413,13 +413,17 @@ describe("doctor — the reading", () => {
       pageWriter: { mode: "session", command: "/bin/true" },
       crashWriteUp: "api",
       models: { interpret: { id: "claude-opus-5" } },
+      // The owner's own configuration says this too (the Stop ask's B1 switch,
+      // retired 2026-09-24).
+      stopAskShape: "stderr",
     });
     expect(loaded.ok).toBe(true);
     const findings = doctorFindings(input({ config: loaded.config }));
     const retired = by(findings, "retired");
     expect(retired.severity).toBe("green");
     expect(retired.title).toBe("Old settings");
-    expect(retired.data["count"]).toBe(5);
+    expect(retired.data["count"]).toBe(6);
+    expect(retired.detail).toContain('"stopAskShape" is no longer used');
     expect(retired.detail).toContain('"credentialsFile" is no longer used');
     expect(retired.detail).toContain(credsPath);
     expect(retired.detail).toContain('"pageWriter.command" is no longer used');
@@ -2086,19 +2090,15 @@ describe("hostDelivery — the notice's channel", () => {
     expect(hostDelivery("user-prompt-submit", { injection: "recall", ask: null }, {}, null).stdout).toBe("recall");
   });
 
-  test("Stop keeps its blocking channel, and the notice never rides it", () => {
-    // stderr shape: the ask alone, exit 2 — exactly as before B1.
-    const legacy = hostDelivery("stop", { injection: null, ask: "write the episode" }, {}, "a notice", "stderr");
-    expect(legacy.stdout).toBe("");
-    expect(legacy.stderr).toBe("write the episode");
-    expect(legacy.exitCode).toBe(2);
-    // JSON shape (the default since B1): the Stop's own one line is the
-    // `systemMessage`, never the SessionStart notice.
+  test("Stop keeps its own channel, and the notice never rides it", () => {
+    // The one shape (2026-09-24): the Stop's own one line is the
+    // `systemMessage`, never the SessionStart notice; the ask is the feedback.
     const out = hostDelivery("stop", { injection: null, ask: "write the episode" }, {}, "a notice");
     expect(out.exitCode).toBe(0);
+    expect(out.stderr).toBe("");
     const parsed = JSON.parse(out.stdout) as Record<string, unknown>;
-    expect(parsed["decision"]).toBe("block");
-    expect(parsed["reason"]).toBe("write the episode");
+    expect(parsed["decision"]).toBeUndefined();
+    expect(parsed["hookSpecificOutput"]).toEqual({ hookEventName: "Stop", additionalContext: "write the episode" });
     expect(parsed["systemMessage"]).not.toContain("a notice");
   });
 });

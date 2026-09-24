@@ -5060,8 +5060,9 @@ describe("note and recall", () => {
     expect(await run(["recall", "what espresso machine?", "--dir", dir], { io: r.io })).toBe(EXIT.ok);
     const printed = text(r.out);
     expect(printed).toContain("Rancilio Silvia");
-    // The console opens no socket, so the answer says which channel ran.
-    expect(printed).toContain("semantic embedder-off");
+    // The answer says which channel ran, in words (2026-09-24: `ask` embeds
+    // the question when the local table is there, and says so when it is not).
+    expect(printed).toMatch(/\d+ found \(by (meaning and words|words only — [^)]+)\)/);
   });
 
   test("the denominator is labelled LIVE ROWS, and counts the identity core", async () => {
@@ -5076,7 +5077,7 @@ describe("note and recall", () => {
       io: consoleWith().io,
     });
     const c = consoleWith();
-    expect(await run(["recall", "what espresso machine?", "--dir", named], { io: c.io })).toBe(
+    expect(await run(["recall", "what espresso machine?", "--dir", named, "--full"], { io: c.io })).toBe(
       EXIT.ok,
     );
     // One memory, one core: two live rows, one of them considered.
@@ -5195,7 +5196,7 @@ describe("note and recall", () => {
     s.close();
     const c = consoleWith();
     expect(
-      await run(["recall", "the lighthouse at Fernbrook Point", "--dir", dir], { io: c.io }),
+      await run(["recall", "the lighthouse at Fernbrook Point", "--dir", dir, "--full"], { io: c.io }),
     ).toBe(EXIT.ok);
     const lines = text(c.out).split("\n");
     const lineFor = (id: string): string => lines.find((l) => l.includes(id)) ?? "";
@@ -5216,8 +5217,13 @@ describe("note and recall", () => {
       EXIT.ok,
     );
     const printed = text(c.out);
-    expect(printed).toContain("NOTHING CAME BACK");
+    expect(printed).toContain("Nothing found (by ");
     expect(printed).toContain("counterparts recall --id");
+    // And the full page says it the way it always has.
+    const full = consoleWith();
+    await run(["recall", "xylophone quokka nothing", "--dir", dir, "--full"], { io: full.io });
+    expect(text(full.out)).toContain("NOTHING CAME BACK");
+    expect(text(full.out)).toContain("counterparts recall --id");
   });
 
   test("an answer says which TIER it came back at, so a footnote is not read as an answer", async () => {
@@ -5232,7 +5238,7 @@ describe("note and recall", () => {
       io: consoleWith().io,
     });
     const c = consoleWith();
-    expect(await run(["recall", "what espresso machine is in the kitchen?", "--dir", dir], { io: c.io })).toBe(
+    expect(await run(["recall", "what espresso machine is in the kitchen?", "--dir", dir, "--full"], { io: c.io })).toBe(
       EXIT.ok,
     );
     const printed = text(c.out);
@@ -5506,7 +5512,10 @@ describe("install", () => {
     const SECRET = "sk-ant-A-KEY-NOBODY-CAN-REGENERATE";
     writeFileSync(creds, `# mine\nSOME_KEY=${SECRET}\n`, { mode: 0o600 });
     const config = join(home, ".counterparts", CONFIG_FILE);
-    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234, credentialsFile: creds }));
+    writeFileSync(
+      config,
+      JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234, credentialsFile: creds, stopAskShape: "stderr" }),
+    );
 
     const forced = consoleWith();
     expect(
@@ -5521,6 +5530,7 @@ describe("install", () => {
     const rewritten = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
     expect(rewritten["injectionBudgetBytes"]).toBe(9000);
     expect(rewritten["credentialsFile"]).toBeUndefined();
+    expect(rewritten["stopAskShape"]).toBeUndefined();
   });
 
   test("refuses a forbidden data dir before a single file is written", async () => {

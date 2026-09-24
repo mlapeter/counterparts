@@ -298,30 +298,45 @@ export function entryAuthor(entry: Record<string, unknown>, role: "user" | "assi
 
 /**
  * THIS ADAPTER'S OWN STOP ASK, recognised by its first words (2026-09-23, B1).
- * The ask now reaches the model either as exit-2 stderr or as a JSON `reason`
- * (`bin/hook.ts#hostDelivery`), and the host documents the two as routed the
- * same way — measured for stderr only, as `Stop hook feedback:` on an
- * `isMeta` entry. Should the JSON route ever be written WITHOUT that prefix,
- * the metadata rule would call the block `injected` and our own wording would
- * enter capture (CONTRACT §5 G11). So a block the HOST wrote (`entryAuthor` ⇒
- * `host`) that opens with the ask's own first words — bare, or behind a hook
- * frame (`OWN_ASK`) — is `ritual` too. Only a host-written one: an entry with no
- * metadata may be the person, and the person quoting the ask back is
- * conversation (review m1). The assistant's own text is never tested (m2).
+ *
+ * Since 2026-09-24 the ask leaves as `hookSpecificOutput.additionalContext` on
+ * Stop (`bin/hook.ts#hostDelivery`). Read off the host's 2.1.281 bundle, NOT
+ * measured live: the host files that as an `attachment` entry
+ * (`attachment.type: "hook_additional_context"`, `hookEvent: "Stop"`), which
+ * carries no role and never reaches this reader — and hands it to the model as
+ * an `isMeta` user message `Stop hook additional context: <ask>` inside a
+ * system reminder. Older transcripts still carry the two earlier shapes:
+ * `Stop hook feedback:\n["<command>"]: <ask>` on an `isMeta` entry (stderr,
+ * measured) and whatever the JSON `reason` came back as (never measured).
+ *
+ * Should any of those ever be written as user TEXT, the metadata rule would
+ * call the block `injected` and our own wording would enter capture (CONTRACT
+ * §5 G11). So a block the HOST wrote (`entryAuthor` ⇒ `host`) that opens with
+ * the ask's own first words — bare, or behind a hook frame, or inside a system
+ * reminder (`OWN_ASK`) — is `ritual` too. An entry with no metadata may be the
+ * person, and the person quoting the ask back is conversation (review m1) — so
+ * there only a FRAMED opener is ritual (`OWN_ASK_FRAMED`): nobody types a
+ * `<system-reminder>` or a `Stop hook additional context:` in front of their
+ * own words. The assistant's own text is never tested (m2).
  */
 export const STOP_ASK_OPENER = "Counterparts, before this session closes:";
 
+/** `<Event> hook <word(s)>:`, an optional bullet, an optional `["<command>"]: `. */
+const HOOK_FRAME = "[A-Z][A-Za-z]+ hook [A-Za-z ]+:\\s*(?:-\\s*)?(?:\\[[^\\n]*?\\]:\\s*)?";
+const REMINDER_FRAME = "<system-reminder>\\s*";
+const OPENER = STOP_ASK_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * The opener, bare or behind whatever frame the host puts in front of a hook's
- * blocking message: `<Event> hook <word>:`, an optional bullet, an optional
- * `["<command>"]: `. Measured for one frame only (`Stop hook feedback:\n["…"]: `);
- * how a JSON `reason` comes back is NOT measured, and the docs call a block a
- * "hook error", so the frame word is left open rather than guessed. Anchored at
- * the start, so a hand-back that merely QUOTES the ask stays `injected`.
+ * message: a system reminder, then `<Event> hook <word>:` (the feedback, error,
+ * and additional-context frames alike — the word is left open rather than
+ * guessed), an optional bullet, an optional `["<command>"]: `. Anchored at the
+ * start, so a hand-back that merely QUOTES the ask stays `injected`.
  */
-const OWN_ASK = new RegExp(
-  `^(?:[A-Z][A-Za-z]+ hook [A-Za-z ]+:\\s*(?:-\\s*)?(?:\\[[^\\n]*?\\]:\\s*)?)?${STOP_ASK_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
-);
+const OWN_ASK = new RegExp(`^(?:${REMINDER_FRAME})?(?:${HOOK_FRAME})?${OPENER}`);
+
+/** The same, with at least one frame REQUIRED — for an entry with no metadata. */
+const OWN_ASK_FRAMED = new RegExp(`^(?:${REMINDER_FRAME}(?:${HOOK_FRAME})?|${HOOK_FRAME})${OPENER}`);
 
 /**
  * One deliberate-recall tool call, as evidence for reference resolution
@@ -471,7 +486,10 @@ function pieceOf(text: string, role: "user" | "assistant", author: EntryAuthor):
     const peerOnly = attributed.peers > 0 && !attributed.ownerText;
     return { text: attributed.text, source: peerOnly ? "injected" : "conversation" };
   }
-  // No metadata: master's rule, plus the anchored host frames.
+  // No metadata: our own ask behind a host frame is still ours (only FRAMED —
+  // a bare opener may be the person quoting it), then master's rule, plus the
+  // anchored host frames.
+  if (OWN_ASK_FRAMED.test(text.trimStart())) return { text, source: "ritual" };
   if (source === "conversation" && hostFramed(text)) return { text, source: "injected" };
   const attributed = attributePeers(text);
   if (attributed.peers === 0) return { text, source };

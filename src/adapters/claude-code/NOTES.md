@@ -1115,7 +1115,74 @@ capture keeps its wrapper verbatim, labelled only by `injected`. It is out of pa
 either way; whether capture should label it the way a `<cross-session-message>` is
 labelled is a capture-quality question for another round.
 
-### The Stop ask's two shapes, and the owner's one-turn look
+### The Stop ask's shapes
+
+**2026-09-24: ONE shape — `hookSpecificOutput.additionalContext` on Stop.**
+
+The owner looked at B1's two shapes (below) on 0.3.0 in a real terminal. Default JSON:
+his one line showed (`Stop says: Counterparts: asking the assistant to write up this
+session's memories.`) AND the whole two-line ask showed as `Stop hook error: Counterparts,
+before this session closes: 1) …`. stderr: no friendly line, and `Stop hook error:
+["/…/bun" run "/…/hook.ts"]: Counterparts, before this session closes: 1) …`. Both read as
+an error. So the ask moved to the third route, and the switch and both earlier shapes went.
+
+What the host's reference says (https://code.claude.com/docs/en/hooks, fetched 2026-09-24),
+verbatim:
+
+- Stop decision control table: "`hookSpecificOutput.additionalContext` | Non-error feedback
+  for Claude. The conversation continues so Claude can act on it, but unlike `decision:
+  "block"` it is shown in the transcript as hook feedback rather than a hook error".
+- Below it: "Use `additionalContext` when the hook is working as designed and giving Claude
+  guidance, such as "run the test suite before finishing". It keeps the conversation going
+  through the same loop protections as `decision: "block"`, namely the `stop_hook_active`
+  input and the 8-consecutive-continuation cap, but the transcript labels it `Stop hook
+  feedback` and no hook error notification is shown", with the example
+  `{"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "Please run the
+  test suite before finishing"}}` — no `decision` beside it. It stands alone.
+- "Add context for Claude", where the reminder lands per event: "Stop and SubagentStop: at
+  the end of the turn. The conversation continues so Claude can act on the feedback."
+- The decision-control summary row: "Stop and SubagentStop also accept
+  `hookSpecificOutput.additionalContext` for non-error feedback that continues the
+  conversation".
+- `systemMessage` is a universal field ("Warning message shown to the user"); the Stop
+  section names no discard of it, and "Each field the event supports is honored, including
+  `permissionDecision`, `additionalContext`, `updatedInput`, and `systemMessage`". So the
+  person's one line stays, beside the ask.
+
+Read off the installed host bundle (Claude Code 2.1.281, strings only — not measured live,
+because a real Stop here would fire the owner's own hooks):
+
+- The Stop runner files each hook's `additionalContexts` as an attachment
+  `{type: "hook_additional_context", content: [...], hookName: "Stop", hookEvent: "Stop"}`
+  and pushes it into the same list as blocking errors; a non-empty list returns
+  `{blockingErrors: <that list>, preventContinuation: false}`, which is the loop's
+  `stop_hook_blocking` continuation. So the model does get a turn.
+- The model reads it as an `isMeta` user message `Stop hook additional context: <ask>`,
+  wrapped as a system reminder.
+- The terminal's stop-hook summary prints `Ran 1 stop hook` with sub-lines
+  `Stop hook error: …` (red) for errors and `Stop hook feedback: …` (gold) for
+  additionalContext. **So the person still sees the two-line ask** — as feedback, in the
+  notice colour, not as an error — plus their own `systemMessage` line. Quieter, not
+  hidden. Nothing in the docs hides the model's text from the person entirely.
+
+**The transcript filter.** The attachment entry carries no role, so `parseTranscript`
+never reads it: the ask is not ingested, and it will not appear in the Stop boundary row's
+`excluded` count either (there is nothing to exclude). Should a build ever write the
+model-facing text as user text, `transcript.ts#OWN_ASK` accepts the ask's opener behind a
+`<system-reminder>`, behind any `<Event> hook <words>:` frame, or both, and calls it
+`ritual`; with no metadata at all, a FRAMED opener is ritual too (`OWN_ASK_FRAMED` — nobody
+types a reminder tag in front of their own words), while a bare opener stays the person's.
+`STOP_HOOK_FEEDBACK` stays: older transcripts carry the stderr shape.
+
+**An old `stopAskShape`** (the owner's live configuration says `"stderr"`) is read, ignored,
+and named among the old settings: `loadConfig` puts it in `retired`, doctor prints it on
+the green "Old settings" line, and `install --force` drops it from the file it rewrites.
+It never makes a configuration unreadable.
+
+Loop protection is exactly as before: the re-fire (`stop_hook_active: true`) and an empty
+ask print nothing; the pacer is unchanged.
+
+**History — B1 (2026-09-23), the two shapes and the owner's one-turn look.**
 
 What the host's reference says (https://code.claude.com/docs/en/hooks, read 2026-09-23):
 

@@ -1799,3 +1799,29 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
 - **Left in place:** `ui.ts`'s no-echo reader (`askHidden`, `hiddenPrompt`) and its
   binding in `bin/counterparts.ts`. Its only caller was `credentials set`; it is a small,
   tested primitive, and removing it was not part of this round.
+
+## `ask` by meaning, and short (2026-09-24)
+
+**By meaning.** `ask` passed `vector: null, semantic: "embedder-off"` since the days
+when the only embedder was a network seat. The local table is local, so `ask` now does
+what the MCP server's entry point does: read the configuration for the one knob
+(`askEmbedder` — `--config`, else `COUNTERPARTS_CONFIG`, else the default file),
+apply the embedder default, `openEmbedder`, and embed the question in line through the
+same `mcp/deliberate.ts#embedQuestion` the MCP `recall` calls. The configuration is
+read LENIENTLY: one that will not resolve, or a default one the explicit-dir guard says
+nobody named, is not read and the default applies (the local table, on) — a question is
+never refused on a knob's account. The store is opened WITH the embedder's identity, as
+`openServer` opens the server's, so a held or ahead meaning index ranks nothing rather
+than a cosine across two models; that open may write box 3's tag once, like every
+hook's. Missing weights → `embed-failed`, the header says "the meaning table is not
+installed" (or "could not be loaded"), and the answer is by words.
+
+**Short.** The default page is `Store:`, one header line in plain words — `N found (by
+meaning and words) · showing 5 — --full for all, --id <id> for one` — and the top five
+in the answer's own order, one line each: id, kind (`journal` for a chapter), and the
+title or the first 100 characters with whitespace collapsed. When nothing came back
+vividly, one more line says these are leads — the tier legend's one warning, kept.
+`--full` is the old page byte for byte; `--id` always prints the whole memory; `--json`
+is unchanged. A fresh store answers at most five (every answer is `dim`, and the dim
+tier is capped at five), so "showing 5" is a lived-in store's line; `test/ask.test.ts`
+builds that answer directly.

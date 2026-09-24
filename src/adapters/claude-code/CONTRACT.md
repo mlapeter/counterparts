@@ -337,12 +337,14 @@ row, saying which source answered, existed until the keys were removed — §1a.
     properties the bound defends — one screen, at most four numbered items, the session id
     exactly twice — are asserted on their own.
     **B1 (2026-09-23) shortened it without adding a pacer:** two numbered lines, bound 450,
-    the handoff a clause on line 1. Emission is a switch, `stopAskShape` in
-    `claude-code.json` (`bin/hook.ts#hostDelivery`): `json` (default) prints
-    `{"decision":"block","reason":<ask>,"systemMessage":<the person's line>}` and exits 0;
-    `stderr` is the day-0 channel, the ask on stderr and exit 2. Both block, both refuse
-    the re-fire. The owner picks one after looking at one Stop (recipe in `NOTES.md`); the
-    other goes. Pacing is unchanged — thresholds, cap, the one pacer — except that what it
+    the handoff a clause on line 1. **Emission is ONE shape since 2026-09-24**
+    (`bin/hook.ts#hostDelivery`): exit 0 and
+    `{"systemMessage":<the person's line>,"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":<ask>}}`
+    — the host's documented non-error route, which continues the turn under the same loop
+    protections as a block; the re-fire is refused as before. B1's
+    two shapes (`decision: "block"` JSON, and stderr + exit 2) both showed the person
+    `Stop hook error:`; the `stopAskShape` switch that chose between them is read and
+    ignored (`config.ts`, doctor's "Old settings"). Record in `NOTES.md`. Pacing is unchanged — thresholds, cap, the one pacer — except that what it
     counts is now what the person typed and the assistant's replies, and no longer what
     the host wrote on the user side (§5 Inputs, above). A `session_end` with
     `memories: []` is an answer whatever happened to a handoff sent with it: accepted,

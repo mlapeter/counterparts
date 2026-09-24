@@ -88,53 +88,42 @@ export const HOST_USER_PROMPT_SUBMIT = "UserPromptSubmit";
 export const ENVELOPE_MAX_CHARS = 9500;
 
 /**
- * HOW A DUE STOP ASK LEAVES THIS PROCESS — two shapes behind one switch (B1,
- * owner 2026-09-23), because what the host's terminal RENDERS for each is a
- * question no agent can measure (`claude -p` draws no banner). The owner looks
- * at one Stop in his own terminal and picks; the losing shape goes next round.
- * The recipe is in `../NOTES.md` §"The Stop ask's two shapes".
+ * HOW A DUE STOP ASK LEAVES THIS PROCESS — ONE shape (owner, 2026-09-24).
  *
- *   - **`json`** (the default) — exit 0 and one JSON object on stdout:
- *     `{"decision":"block","reason":<the model's ask>,"systemMessage":<the
- *     person's line>}`. The host's reference: `reason` "Tells Claude why it
- *     should continue"; `systemMessage` is a "Warning message shown to the
- *     user". It also says a blocking `reason` is seen "as a warning in the
- *     transcript" — so whether the person reads ONE line here or both is
- *     exactly what the look is for.
- *   - **`stderr`** — the channel proven on this host since day 0: the ask on
- *     stderr, exit 2. The host shows it to the person as `Stop hook error:` and
- *     hands the same text to the model. It has one channel, so the person
- *     reads the model's two lines.
+ * Exit 0 and one JSON object on stdout:
  *
- * Both BLOCK; both are refused on the host's re-fire (`stop_hook_active`).
+ *     {"systemMessage": <the person's line>,
+ *      "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": <the model's ask>}}
  *
- * **The switch is a key in `claude-code.json`, not an environment variable**,
- * because a hook process does not carry the login shell's environment on this
- * host (measured day 0 of the parallel run), and
- * because the file is re-read by every hook — so a flip takes effect at the next
- * Stop with no restart. It is read here, beside the rest of `hostConfig`, and
- * leniently ON PURPOSE: `"stderr"` in any case and with any surrounding spaces
- * picks stderr (a person typing a preference by hand writes `"STDERR"` or
- * `"stderr "`), and anything else — a typo, a number, nothing — is the default,
- * because a display preference must not stand the adapter down to observer the
- * way a typo in `dataDir` does.
+ * The host's reference (https://code.claude.com/docs/en/hooks, read
+ * 2026-09-24), Stop decision control: `hookSpecificOutput.additionalContext` is
+ * "Non-error feedback for Claude. The conversation continues so Claude can act
+ * on it, but unlike `decision: "block"` it is shown in the transcript as hook
+ * feedback rather than a hook error" — and "It keeps the conversation going
+ * through the same loop protections as `decision: "block"`, namely the
+ * `stop_hook_active` input and the 8-consecutive-continuation cap". It stands
+ * alone: no `decision` beside it.
+ *
+ * WHY THIS ONE. B1 (2026-09-23) built two shapes behind a `stopAskShape`
+ * switch — the JSON `decision: "block"` and the day-0 stderr + exit 2 — and the
+ * owner looked at both in a real terminal on 0.3.0: both printed the model's
+ * two lines as `Stop hook error: …`, so both read as an error. This is the
+ * third route, the one the docs call non-error; the switch and both earlier
+ * shapes are gone. A `claude-code.json` that still carries `stopAskShape` is
+ * read fine, the key ignored and named among the old settings (`config.ts`).
+ *
+ * What the person sees is NOT only their own line: the host's 2.1.281 bundle
+ * renders an additionalContext on Stop under "Ran 1 stop hook" as
+ * `Stop hook feedback: <ask>`, in the notice colour rather than the error one.
+ * Quieter, not silent. `../NOTES.md` §"The Stop ask's shapes" has the record.
  */
-export const STOP_ASK_SHAPE_KEY = "stopAskShape";
-export type StopAskShape = "json" | "stderr";
-export const DEFAULT_STOP_ASK_SHAPE: StopAskShape = "json";
-
-/** The shape a parsed `claude-code.json` asks for. Total: never throws. */
-export function stopAskShapeOf(raw: unknown): StopAskShape {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_STOP_ASK_SHAPE;
-  const value = (raw as Record<string, unknown>)[STOP_ASK_SHAPE_KEY];
-  return typeof value === "string" && value.trim().toLowerCase() === "stderr" ? "stderr" : DEFAULT_STOP_ASK_SHAPE;
-}
+export const HOST_STOP = "Stop";
 
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
 const HOST_HOOKS: Record<string, HookName> = {
   [HOST_SESSION_START]: "session-start",
   [HOST_USER_PROMPT_SUBMIT]: "user-prompt-submit",
-  Stop: "stop",
+  [HOST_STOP]: "stop",
   SessionEnd: "session-end",
   PreCompact: "pre-compact",
 };
@@ -166,7 +155,7 @@ async function readStdin(): Promise<string> {
  */
 export function hostConfig(
   path = CONFIG_PATH,
-): { config: AdapterConfig; reason: string; stopAskShape: StopAskShape } {
+): { config: AdapterConfig; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -189,7 +178,6 @@ export function hostConfig(
   return {
     config: withEmbedderDefault({ ...loaded, dataDir: loaded.dataDir ?? dataDir() }),
     reason: load.reason,
-    stopAskShape: stopAskShapeOf(raw),
   };
 }
 
@@ -642,7 +630,7 @@ async function runHook(
   // debug log and for the morning the envelope has no room for it.
   const trouble = name === "session-start" ? describeScopeTrouble(read, scopesPath(choice.path)) : null;
   if (trouble !== null) process.stderr.write(`${trouble}\n`);
-  const { config: loaded, reason, stopAskShape } = hostConfig(choice.path);
+  const { config: loaded, reason } = hostConfig(choice.path);
   // THE THIRD ARM, and it is answered BEFORE anything reads under `dataDir`: a
   // named file that parses but whose fields do not typecheck resolves to
   // observer, and an observer with no `dataDir` reads the DEFAULT store.
@@ -739,7 +727,6 @@ async function runHook(
       result,
       payload,
       name === "session-start" ? [adapter.notice(input), trouble] : null,
-      stopAskShape,
       adapter,
       input,
     );
@@ -798,16 +785,15 @@ export function deliverTurn(
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
   sessionStartNotices: readonly (string | null)[] | null,
-  stopAskShape: StopAskShape,
   doors: UpdateNoticeDoors,
   input: HookInput,
 ): Delivery {
-  const plain = hostDelivery(name, result, payload, sessionStartNotices, stopAskShape);
+  const plain = hostDelivery(name, result, payload, sessionStartNotices);
   if (name !== "user-prompt-submit") return plain;
   try {
     const update = doors.updateNotice(input);
     if (update === null) return plain;
-    const carried = hostDelivery(name, result, payload, update, stopAskShape);
+    const carried = hostDelivery(name, result, payload, update);
     if (carried.dropped !== null) return carried;
     return doors.markUpdateNotice(input) ? carried : plain;
   } catch {
@@ -843,11 +829,10 @@ export function stampWhenOpened(payload: Record<string, unknown>, stamp: () => u
  *     as "Stop hook feedback" and lets it continue. The host then re-fires Stop
  *     with `stop_hook_active: true`; that re-fire must ask NOTHING or the ask
  *     loops forever (v1's anti-loop, kept here for the same reason).
- *     **Since B1 (2026-09-23) that is one of TWO shapes** (`StopAskShape`): the
- *     default is the host's documented JSON decision — `decision: "block"`,
- *     the model's ask as `reason`, one line for the person as `systemMessage`
- *     — and stderr + exit 2 stays behind the switch until the owner has looked
- *     at both.
+ *     **Since 2026-09-24 the ask leaves by the host's documented NON-ERROR
+ *     route instead** (`HOST_STOP` above): exit 0, the model's ask as
+ *     `hookSpecificOutput.additionalContext`, one line for the person as
+ *     `systemMessage`. Same continuation, same re-fire, same refusal of it.
  *
  * **The fourth channel, added 2026-09-14 for I32: `systemMessage`.** Documented
  * at https://code.claude.com/docs/en/hooks (formerly
@@ -870,7 +855,8 @@ export function stampWhenOpened(payload: Record<string, unknown>, stamp: () => u
 export interface Delivery {
   readonly stdout: string;
   readonly stderr: string;
-  readonly exitCode: 0 | 2;
+  /** Always 0 since 2026-09-24: no event leaves by exit 2 any more. */
+  readonly exitCode: 0;
   /** Non-null when a notice was left out to keep the wake whole — all of them,
    *  or (with several) the lower ones that no longer fit. */
   readonly dropped: { readonly noticeChars: number; readonly envelopeChars: number; readonly limitChars: number } | null;
@@ -890,8 +876,6 @@ export function hostDelivery(
    * `deliverTurn` mark only an envelope that carried them; today there is one.
    */
   notice: string | null | readonly (string | null)[] = null,
-  /** How a due Stop ask leaves (`STOP_ASK_SHAPE_KEY`). Ignored off Stop. */
-  stopShape: StopAskShape = DEFAULT_STOP_ASK_SHAPE,
 ): Delivery {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
@@ -960,14 +944,17 @@ export function hostDelivery(
   if (payload["stop_hook_active"] === true || ask === null) {
     return { stdout: "", stderr: "", exitCode: 0, dropped: null };
   }
-  if (stopShape === "stderr") return { stdout: "", stderr: ask, exitCode: 2, dropped: null };
-  // EXIT 0, because the JSON is the decision: the host reads stdout as JSON on
-  // every exit code, but exit 2 would make STDERR the blocking message and
-  // turn this back into the other shape. One line, no trailing newline, so the
-  // whole of stdout is the object. The ask is ~430 characters, far inside the
-  // host's 10,000-character cap on a `reason`.
+  // EXIT 0, and NO `decision`: `additionalContext` on Stop continues the turn on
+  // its own, as non-error feedback (the docblock at `HOST_STOP`). Exit 2 would
+  // make STDERR a blocking error again, and a `decision: "block"` beside it
+  // would bring back the `Stop hook error:` line this route exists to avoid.
+  // One line, no trailing newline, so the whole of stdout is the object. The
+  // ask is ~430 characters, far inside the host's 10,000-character cap.
   return {
-    stdout: JSON.stringify({ decision: "block", reason: ask, systemMessage: STOP_HUMAN_LINE }),
+    stdout: JSON.stringify({
+      systemMessage: STOP_HUMAN_LINE,
+      hookSpecificOutput: { hookEventName: HOST_STOP, additionalContext: ask },
+    }),
     stderr: "",
     exitCode: 0,
     dropped: null,

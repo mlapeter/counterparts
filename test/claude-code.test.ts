@@ -2713,7 +2713,7 @@ describe("keyless — no key is read, and an old configuration's key settings ar
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + exit 2 on Stop; JSON decision by default since B1", () => {
+describe("the host's ask channel — stderr + exit 2 on Stop from day 0 (2026-09-03); Stop additionalContext since 2026-09-24", () => {
   const R = (over: Partial<{ injection: string | null; ask: string | null }>) => ({
     injection: null,
     ask: null,
@@ -2730,19 +2730,13 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
     expect(hostDelivery("user-prompt-submit", R({ injection: "recall" }), {}).exitCode).toBe(0);
   });
 
-  test("a Stop with an ask BLOCKS, stderr shape: the ask goes to stderr and the exit code is 2 (plain stdout reaches nobody on this host)", () => {
-    const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {}, null, "stderr");
-    expect(d).toEqual({ stdout: "", stderr: "Write what you learned, and the episode.", exitCode: 2, dropped: null });
-  });
-
-  test("a Stop with an ask BLOCKS, JSON shape (the default since B1): the decision is on stdout and the exit code is 0", () => {
+  test("a Stop with an ask CONTINUES the turn by the non-error route (2026-09-24): Stop additionalContext on stdout, exit 0, nothing on stderr", () => {
     const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {});
     expect(d.exitCode).toBe(0);
     expect(d.stderr).toBe("");
     expect(JSON.parse(d.stdout)).toEqual({
-      decision: "block",
-      reason: "Write what you learned, and the episode.",
       systemMessage: STOP_HUMAN_LINE,
+      hookSpecificOutput: { hookEventName: "Stop", additionalContext: "Write what you learned, and the episode." },
     });
   });
 
@@ -2751,10 +2745,8 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
   });
 
   test("the host's re-fired Stop (`stop_hook_active`) asks NOTHING — the anti-loop v1 carries for the same reason", () => {
-    for (const shape of ["json", "stderr"] as const) {
-      const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true }, null, shape);
-      expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
-    }
+    const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true });
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
   });
 });
 

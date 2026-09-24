@@ -310,6 +310,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
       `"crashWriteUp" is no longer used — a session that ended before it was written up is always written up by the next session in its project`,
     );
   }
+  // The Stop ask's switch (B1, 2026-09-23), retired the next day when the ask
+  // moved to the host's non-error route (`bin/hook.ts#HOST_STOP`). Any value —
+  // the owner's own configuration says `"stderr"` — is read, ignored and named.
+  if (rec["stopAskShape"] !== undefined) {
+    retired.push(`"stopAskShape" is no longer used — the end-of-session ask has one shape now, shown as hook feedback`);
+  }
 
   const injection = num("injectionBudgetBytes");
   if (injection !== undefined) out.injectionBudgetBytes = injection;
