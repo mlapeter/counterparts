@@ -1073,7 +1073,8 @@ one pacer — nothing here adds a second).
 
 Measured 2026-09-23 on Claude Code 2.1.28x, reading **shapes only** (keys, flags, the
 first few characters of host frames) across every transcript under `~/.claude/projects/`;
-no content was copied. `parseTranscript` reads only entries with a `message.role`.
+no content was copied. `parseTranscript` reads only entries with a `message.role` (and, since
+2026-09-24, the person's queued prompts).
 
 | what | the entry's own metadata | text opens with | now |
 |---|---|---|---|
@@ -1088,7 +1089,7 @@ no content was copied. `parseTranscript` reads only entries with a `message.role
 | slash-command echo, `!`-command | no metadata | `<command-name>`, `<local-command-stdout>`, `<bash-input>`, `<bash-stdout>` | unchanged text rule; `<bash-stdout>`/`<bash-stderr>` now `injected` |
 | an interrupt | `interruptedMessageId`, no origin | `[Request interrupted by user]` | `injected` |
 | hook output (`UserPromptSubmit hook success`, `hook_additional_context`, `hook_system_message`) | `type: "attachment"`, **no role** | — | never a turn (unchanged) |
-| **a prompt typed while the model works** (review M3: 76 seen, 58 never written again) | `type: "attachment"`, `attachment.type: "queued_command"`, `commandMode: "prompt"`, `origin.kind: "human"` | — | **never a turn — the person's own words, missed.** Pre-existing; `INTERFACE-GAPS.md` §14 |
+| **a prompt typed while the model works** (review M3: 76 seen) | `type: "attachment"`, `attachment.type: "queued_command"`, `commandMode: "prompt"`, `origin.kind: "human"` | — | `conversation` since 2026-09-24 — see "Prompts typed mid-turn" below (was never a turn) |
 | an API error written as the assistant | `isApiErrorMessage: true`, `model: "<synthetic>"` | `API Error: …` | `injected` (was `conversation`) |
 
 So "UserPromptSubmit hook success" was never counted by this reader: it is how the host
@@ -1122,6 +1123,48 @@ see "Pacing counts typed turns" below.
 capture keeps its wrapper verbatim, labelled only by `injected`. It is out of pacing
 either way; whether capture should label it the way a `<cross-session-message>` is
 labelled is a capture-quality question for another round.
+
+### Prompts typed mid-turn (2026-09-24)
+
+A prompt the person types while the model is still working reaches the model inside
+the running turn, and the host writes it only as an attachment line:
+`type: "attachment"`, `attachment: { type: "queued_command", commandMode: "prompt",
+origin: { kind: "human" }, prompt, source_uuid, timestamp }`, sometimes `humanTurn: true`
+or `imagePasteIds`, with `rendered` on the entry. `prompt` is a string, or content blocks
+when an image was pasted. The same attachment type also carries host work —
+`commandMode: "task-notification"`, and `commandMode: "prompt"` with `origin.kind: "peer"`
+and `isMeta: true` (hand-backs) — which stays skipped.
+
+`parseTranscript` now reads the human ones as a typed user turn at the position the line
+stands in, with its own entry ordinal, through the same `blocksOf`/`pieceOf` as a typed
+entry. Slash commands and other modes are skipped (neither was seen as an attachment).
+
+Measured on this project's 27 transcripts (shapes only): 33 such prompts, against 376
+typed turns before — 409 after, about 8% of what the person typed. The queue itself is
+logged as `queue-operation` lines (`enqueue`, `dequeue`, `remove` with
+`reason: "absorbed_mid_turn"`); a prompt still queued when the turn ends is instead
+written as an ordinary user entry with `promptSource: "queued"` (7 seen), which was
+always read.
+
+**No twin was found.** None of the 33 was written again as a user entry. The only later
+copies are inside a compaction summary (7, all in one session; `injected`, never
+paced) and in the assistant's own tool calls. `source_uuid` matches no `uuid` or
+`promptId` in any file, and the attachment's `timestamp` is the line's own. So the
+dedupe is defensive: a later user entry with `origin.kind: "human"`,
+`promptSource: "queued"` and exactly the same text as a queued prompt already read is
+skipped, once per queued prompt. The first appearance is kept because the capture
+cursor is an index into the turn list, and the list may only grow. It keys on
+`promptSource: "queued"` so a person who later types the same short words ("yes")
+the ordinary way is still counted. Review M3 counted 18 of 76 "written again" across
+all projects; if those are real user-entry twins with some other `promptSource`, they
+would count twice — check before widening the rule.
+
+**Deploy note.** The capture cursor is an index. A session open across this deploy has
+a cursor from the old list; queued prompts before it now occupy slots, so the next
+boundary starts k turns early and re-captures the last k already-captured turns once
+(k = queued prompts before the cursor). Nothing is lost, but queued prompts from before
+the deploy are mostly not captured after the fact. Pacing only gains turns, so `rebasedWatermark` does not fire.
+A cursor that survives inserted turns is `INTERFACE-GAPS.md` §14's first ask.
 
 ### The Stop ask's shapes
 
