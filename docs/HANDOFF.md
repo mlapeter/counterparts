@@ -1,5 +1,20 @@
 # Handoff — resume here
 
+## 2026-09-24 — 0.3.0 SECOND CUT IS A TRIAL TARBALL; PUBLISH ON THE OWNER'S WORD
+
+The owner's trial of yesterday's cut surfaced three things, and all three are merged (master `1d91841`):
+API keys removed entirely (#201: no Anthropic write-up, no Voyage, no credentials file or command; old
+config keys ignored and listed on doctor's green "Old settings" line); the Stop ask has one quiet shape,
+`additionalContext` + `systemMessage`, with `stopAskShape` retired (#203); `counterparts ask` embeds by
+meaning and answers short, `--full` for the old view (#203; loop checks #205). Verified on a clean clone:
+3548 pass / 5 skip / 0 fail, install loop 58/58. Tarball + sheet:
+`~/counterparts-backups/2026-09-24-0.3.0-trial/` (sha256 `0236691f…6615bb10c`). **The one unmeasured
+thing:** that the model actually answers the additionalContext ask in a live terminal (sheet step 3).
+After publish: the site's install block and two stale site lines (files-demo caption; the status note on
+"the two ways anything leaves your machine"), then Reddit. The next round is planned in the ROADMAP's
+top section (the counterparts-e9 session); it starts with Stop-ask pacing, which fired 3× in one short
+session on 09-24.
+
 ## 2026-09-23, close — THE ROUND IS BUILT; 0.3.0 IS A TRIAL TARBALL, NOT PUBLISHED
 
 Every item of `docs/ROADMAP.md` (A–E, plus the amendments) is on master. Release commit `b2e0ca1`
