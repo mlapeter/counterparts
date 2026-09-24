@@ -1,3 +1,64 @@
+# After 0.3.0 — the plan (2026-09-24)
+
+*Agreed with the owner on 2026-09-24, in conversation. A plan for now, not a rule: change it when
+it stops fitting. Release and telling people (publish 0.3.0, the site's new home, the install
+block, Reddit) finish on their own track and are out of scope here. The older round below stays as
+the record of what 0.3.0 built.*
+
+**The aim.** Get closer to the original goal: memory that follows human memory mechanisms. Build a
+dashboard that shows, at a glance, whether each mechanism is working and how well. Use that
+dashboard as the reference while the missing mechanisms are built.
+
+**Where it stands (checked against master `8e1a698`, 2026-09-24).** Of the 11 mechanisms the site
+names:
+
+| state | mechanisms |
+|---|---|
+| built | encoding and salience (novelty now keyless), decay and forgetting, retrieval and strengthening, consolidation (narrow) |
+| partial, rarely fires | reconsolidation (only on an explicit `updates:`), emotion (a written-down feeling carries no weight; only the numeric score does), association (links boost only what the turn already reached) |
+| not built | interference, prospective (no date field), schemas (no live belief writer), episodic → semantic (only a label) |
+
+Some human effects the site doesn't name are built: the testing effect, spacing, source tracking
+and a refractory period. Four claims on the site aren't badged but go beyond the code: "similar
+ones are merged", "stay strong → core", association's "nudge", emotion's "adds weight". They get
+a badge or softer copy when the site is next touched.
+
+## Order
+
+1. **Stop ask (small; conversation, then one builder).** The ask fires too often in short sessions
+   (3 times in about 12 turns on 09-24; after the 2nd message in another session). In long sessions
+   it runs into the 6-a-day limit (48 refused over 09-22 to 09-24, nothing lost). To decide: what
+   counts as a typed turn, the daily limit, and doctor's amber. Starts after the release session's
+   `release/0.3.0-quiet-ask` lands.
+2. **Store and CLI cleanup (small; mostly builders).** The nine 09-20 working defaults the owner
+   never confirmed, shown to him as one list. Then the INTERFACE-GAPS items, **the store reads the
+   dashboard needs first**: grouped counts, newest-first events, a read-only store type. Also the
+   WAL fold on a clean close (cli §13), and a cleanup commit for the ~40 gap entries the code has
+   already closed. Runs in parallel with 1: different files. The store half can start now. Edits
+   to `cli/commands.ts`, `doctor.ts` and `config.ts` wait for the quiet-ask merge, because the
+   release session touches those files.
+3. **Dashboard conversation (while 1 and 2 build).** Page by page, one at a time. Goal: anyone can
+   see at a glance whether memory is working and how, with detail one click away. Starting idea: organize by
+   mechanism (the site's 11, the same brain), and for each show built or not, whether it's firing, and
+   how well. `dashboard/flat` (09-16, before the storage rewrite) is a sketch of what the owner
+   liked, not the base.
+4. **Dashboard build.** After the conversation and after step 2's store reads.
+5. **Mechanisms and recall quality, one at a time.** A fresh session per mechanism, briefed from
+   this section. Each ships with its own gauge on the dashboard. The owner reads the gauges on his
+   real store; sessions use the demo store. Candidates: the four not built, similarity merge in
+   consolidation, the partial three, U7 (yesterday's work missing from the wake), and re-checking
+   the static embedder's tuning on real turns. Also a bug: schema cards never fade (`fadeSweep` has
+   no caller). Prospective needs a date field, which is a schema change, so the Reconnect recipe
+   (E) and a snapshot before migration come first.
+
+**How it runs.** One coordinator session holds this plan. Builders are Opus agents, each in its
+own worktree with file ownership drawn, and adversarial review on anything that touches a store,
+a person's config, or the boundary rituals. The owner talks with the coordinator one topic at a
+time while builders run. The owner merges; publishes and deploys happen on his word. When the
+coordinator's context grows long, it writes a handoff and a fresh session picks up from here.
+
+---
+
 # Roadmap — the round after 0.2.0 (decided 2026-09-23)
 
 *Written once, after a roadmap conversation with the owner on 2026-09-23 (one item at a time,

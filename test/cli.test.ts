@@ -2502,7 +2502,10 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     }
     const id = s.put({ type: "memory", kind: "fact", body: `a doomed memory holding ${WORD}` });
     s.revise(id, { body: `revised, still holding ${WORD}` });
-    s.close();
+    // The seeding handle stays OPEN across the removal — a session still
+    // running, the live shape. A writer's clean close now folds its own log
+    // (cli INTERFACE-GAPS §13), which would empty box 3's `-wal` before the
+    // removal ever saw it and take the teeth out of the assertion below.
     // Box 3's log carries real frames going in, so truncating it is a change.
     expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(0);
 
@@ -3428,10 +3431,13 @@ describe("verify", () => {
     // and under WAL that `-wal` is the database. So this is not the guard's
     // branch — the file opens, the rows are there, and `--rebuild` does its
     // ordinary work. The guard's branch is the sidecar-free one above.
+    //
+    // The writer stays OPEN — which is when a live `-wal` still holds frames: a
+    // writer's clean close folds its own log (cli INTERFACE-GAPS §13), and a
+    // folded, empty `-wal` beside a garbled file is the guard's branch above.
     const s = store();
     s.put({ type: "memory", kind: "fact", body: "A memory whose index survives its main file." });
-    s.close();
-    open.length = 0;
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(0);
     writeFileSync(paths.cache(dir), "not a database");
     expect(existsSync(`${paths.cache(dir)}-wal`)).toBe(true);
 
@@ -3653,6 +3659,9 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(printed).toContain("Converted 2 vectors in 2 batches."); // batched, per --batch
     expect(printed).toContain("Vectors now: float32 BLOB 2, JSON text 0");
     expect(printed).toContain("Cache file:");
+    // The compaction was folded out of the `-wal` into the file.
+    const wal = `${paths.cache(dir)}-wal`;
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0);
     // The count is the whole point: a migration that lost a vector would be a
     // rebuild wearing a different name.
     expect(shapes()).toEqual({ blob: 2, text: 0 });
@@ -3674,7 +3683,21 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
       if (after === undefined) break;
     }
     db.close(); // committed, never vacuumed
-    const stranded = statSync(paths.cache(dir)).size;
+    // The database's size is its PAGES (store NOTES: "page_count * page_size,
+    // not a file size"). A file size depends on who checkpointed last — and
+    // since a writer's clean close folds its log (cli INTERFACE-GAPS §13) the
+    // seed's pages are in the file while a raw VACUUM's sit in the `-wal`.
+    const pages = (): number => {
+      const probe = openDb(paths.cache(dir));
+      try {
+        const r = probe.get<{ n: number }>("SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()");
+        return r?.n ?? 0;
+      } finally {
+        probe.close();
+      }
+    };
+    const strandedFile = statSync(paths.cache(dir)).size;
+    const stranded = pages();
     expect(shapes()).toEqual({ blob: 400, text: 0 });
 
     // The dry run NAMES it rather than saying "already converted, nothing to do".
@@ -3682,7 +3705,8 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(await run(["migrate-cache"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(look.out)).toContain("Converted, NOT yet compacted:");
     expect(text(look.out)).toContain("reclaimable");
-    expect(statSync(paths.cache(dir)).size).toBe(stranded); // still read-only
+    expect(statSync(paths.cache(dir)).size).toBe(strandedFile); // still read-only
+    expect(pages()).toBe(stranded);
 
     // And `--apply` compacts it, converting nothing.
     const c = consoleWith();
@@ -3690,7 +3714,15 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
       EXIT.ok,
     );
     expect(text(c.out)).toContain("Cache file:");
-    expect(statSync(paths.cache(dir)).size).toBeLessThan(stranded);
+    expect(text(c.out)).not.toContain("once another process lets go");
+    // The reclaim is true ON DISK: the compacted pages were folded out of the
+    // `-wal`, so the file itself shrank, and its size is its pages.
+    const wal = `${paths.cache(dir)}-wal`;
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0);
+    const compactedFile = statSync(paths.cache(dir)).size;
+    expect(compactedFile).toBeLessThan(strandedFile);
+    expect(pages()).toBeLessThan(stranded);
+    expect(compactedFile).toBe(pages());
     expect(shapes()).toEqual({ blob: 400, text: 0 });
   });
 
@@ -3712,10 +3744,13 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
       }),
     ).toBe(EXIT.ok);
 
-    // A fat `-wal` beside it, with not one byte of garbage in the database: one
-    // pass that rewrites every page and commits, below SQLite's autocheckpoint.
+    // A fat `-wal` beside it, with not one byte of garbage in the database: two
+    // passes that rewrite every page and commit, below SQLite's autocheckpoint.
+    // (Measured: `SET dim = dim` alone left the `-wal` at zero, now that the
+    // compaction above folds its own.)
     const db = openCache(paths.cache(dir));
-    db.exec("UPDATE embeddings SET dim = dim");
+    db.exec("UPDATE embeddings SET dim = dim + 1");
+    db.exec("UPDATE embeddings SET dim = dim - 1");
     db.close();
     expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(1024 * 1024);
 
@@ -3854,8 +3889,11 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
   test("the dry run is the default: it names the rows and changes nothing", async () => {
     const s = store();
     const ids = seedMixed(s);
-    const before = fingerprint(dir);
+    // The seeding handle closes FIRST: a writer's clean close folds its own
+    // write-ahead log (cli INTERFACE-GAPS §13), and that is the fixture's
+    // write, not the command's.
     s.close();
+    const before = fingerprint(dir);
 
     const c = consoleWith();
     const code = await run(["backfill-claims"], { io: c.io, env: { [ENV]: dir } });
@@ -3991,8 +4029,11 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
   test("the dry run names the belief, the entity, the memory and the day — and writes nothing", async () => {
     const s = store();
     const ids = poison(s);
-    const before = fingerprint(dir);
+    // The seeding handle closes FIRST: a writer's clean close folds its own
+    // write-ahead log (cli INTERFACE-GAPS §13), and that is the fixture's
+    // write, not the command's.
     s.close();
+    const before = fingerprint(dir);
 
     const c = consoleWith();
     const code = await run(["repair-merged-beliefs", "--dry-run"], { io: c.io, env: { [ENV]: dir } });
@@ -4096,8 +4137,11 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
   test("the repair is an owner operation: an instrument refuses it, plan and all", async () => {
     const s = store();
     poison(s);
-    const before = fingerprint(dir);
+    // The seeding handle closes FIRST: a writer's clean close folds its own
+    // write-ahead log (cli INTERFACE-GAPS §13), and that is the fixture's
+    // write, not the command's.
     s.close();
+    const before = fingerprint(dir);
     const c = consoleWith();
     expect(
       await run(["repair-merged-beliefs", "--observer"], { io: c.io, env: { [ENV]: dir } }),

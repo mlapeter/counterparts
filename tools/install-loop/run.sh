@@ -460,7 +460,7 @@ if true; then
   unset COUNTERPARTS_DATA_DIR
   if printf '%s' "$RECALL_OUT" | grep -q "port 5433" &&
      ! printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
-     printf '%s' "$RECALL_OUT" | grep -q "semantic embedder-off"; then
+     printf '%s' "$RECALL_OUT" | grep -q "(by meaning and words)"; then
     ok
   else
     no "recall did not pick the one memory that answers the question" "notes: $OUT
@@ -470,16 +470,24 @@ fi
 
 step "an answer names the TIER it came back at"
 # `answered` says the question reached something, never that it is right. The
-# tier is the only confidence signal there is, so it is glossed on screen.
-if printf '%s' "$RECALL_OUT" | grep -qE '^  (vivid|quiet|dim) = '; then
+# tier is the only confidence signal there is: the short answer says when
+# nothing came back vividly (and only then), and `--full` glosses every tier on
+# screen. Since `note` embeds on write, the demo's answer may come back vivid.
+eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
+FULL_OUT=$(eval "$RECALL_CMD --full" 2>&1)
+unset COUNTERPARTS_DATA_DIR
+if printf '%s' "$FULL_OUT" | grep -q '^  vivid = '; then VIVID=1; else VIVID=0; fi
+if printf '%s' "$RECALL_OUT" | grep -q "treat these as leads"; then LEADS=1; else LEADS=0; fi
+if printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = ' && [ "$VIVID" != "$LEADS" ]; then
   ok
 else
-  no "no tier gloss under the results" "$RECALL_OUT"
+  no "no tier gloss under --full, or the short answer's leads line disagrees with it" "short: $RECALL_OUT
+full: $FULL_OUT"
 fi
 
 step "a recall that finds nothing SAYS so, in a sentence"
 OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
-if printf '%s' "$OUT" | grep -q "NOTHING CAME BACK"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
+if printf '%s' "$OUT" | grep -q "^Nothing found"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
 step "the removal plan NAMES the span buffer, and says it will be chased"
 # §I2's surface, in the clean room. The dry run is all a non-interactive console

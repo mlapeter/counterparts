@@ -19,7 +19,7 @@
  */
 import type { Band, Kind, MemoryPhysics } from "../types.js";
 import { strength } from "../physics/index.js";
-import type { ProseDoc, Store } from "../store/index.js";
+import type { ProseDoc, ReadOnlyStore, Store } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
 
 export type LaneName = "identity" | "craft" | "threads" | "hints" | "horizon";
@@ -442,7 +442,7 @@ export interface IdentityCoreSpec {
 }
 
 /** The existing core, if one has been minted. At most one may exist. */
-export function findIdentityCore(store: Store): string | null {
+export function findIdentityCore(store: ReadOnlyStore): string | null {
   for (const id of store.list({ type: "schema", kind: "self", archived: false })) {
     try {
       if (store.readProse(id).meta["role"] === IDENTITY_CORE_ROLE) return id;

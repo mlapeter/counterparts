@@ -8,7 +8,7 @@
  * Assertions name the REASON (`StoreError.code`, the SQLite constraint), not just
  * "it threw".
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -16,9 +16,9 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -56,8 +56,8 @@ import {
   storeExists,
   vectorFormats,
 } from "../src/core/store/index.js";
-import type { ProseDoc, PutInput } from "../src/core/store/index.js";
-import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../src/core/store/db.js";
+import type { Db, ProseDoc, PutInput } from "../src/core/store/index.js";
+import { BUSY_TIMEOUT_MS, foldWal, journalModeOf, openDb } from "../src/core/store/db.js";
 import { readProseWalking } from "../src/core/store/walk-seam.js";
 import { bodyOf, makeBodyUnreadable, versionBodies } from "./store-fixture.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
@@ -1253,6 +1253,93 @@ describe("revision + bounded versioning", () => {
   });
 });
 
+// ── box 2's log, read the way an instrument asks it (cli §10/§11, dashboard §5) ──
+
+describe("event log reads: newest first, counted by name", () => {
+  test("order: desc returns the NEWEST rows, where an ascending LIMIT returns the oldest (cli §10)", () => {
+    const s = store();
+    const seqs: number[] = [];
+    for (let i = 0; i < 7; i++) seqs.push(s.appendEvent({ name: "sleep.cycle", day: i, payload: { i } }));
+    s.appendEvent({ name: "other", day: 9 });
+
+    // The trap §10 names: a full ascending window does not contain the newest.
+    expect(s.eventLog({ name: "sleep.cycle", limit: 3 }).map((r) => r.seq)).toEqual(seqs.slice(0, 3));
+    // Newest first, in the order asked for.
+    expect(s.eventLog({ name: "sleep.cycle", order: "desc", limit: 3 }).map((r) => r.seq)).toEqual(
+      seqs.slice(4).reverse(),
+    );
+    // "The newest row of this name" is one query.
+    const newest = s.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 });
+    expect(newest.length).toBe(1);
+    expect(newest[0]?.seq).toBe(seqs[6]);
+    expect(JSON.parse(newest[0]?.payload ?? "{}")).toEqual({ i: 6 });
+    // The other filters compose with it; the default is unchanged.
+    expect(s.eventLog({ name: "sleep.cycle", sinceDay: 5, order: "desc" }).map((r) => r.day)).toEqual([6, 5]);
+    expect(s.eventLog({ order: "asc", limit: 2 }).map((r) => r.seq)).toEqual(seqs.slice(0, 2));
+    expect(s.eventLog({ name: "never.written", order: "desc", limit: 1 })).toEqual([]);
+  });
+
+  test("eventCounts groups in SQL: every name once, its count and its newest, sorted by name", () => {
+    let clock = 1_000_000;
+    const s = store({ now: () => clock });
+    const bump = (name: string, day: number): number => {
+      clock += 1000;
+      return s.appendEvent({ name, day });
+    };
+    bump("b.second", 0);
+    bump("a.first", 0);
+    bump("b.second", 1);
+    bump("c.third", 2);
+    bump("b.second", 3);
+    const lastA = bump("a.first", 4);
+    const atOfLastA = clock;
+
+    expect(s.eventCounts()).toEqual([
+      { name: "a.first", count: 2, newestAt: atOfLastA, newestDay: 4, newestSeq: lastA },
+      { name: "b.second", count: 3, newestAt: atOfLastA - 1000, newestDay: 3, newestSeq: lastA - 1 },
+      { name: "c.third", count: 1, newestAt: atOfLastA - 2000, newestDay: 2, newestSeq: lastA - 2 },
+    ]);
+    // Agrees with the row-by-row count it replaces.
+    for (const c of s.eventCounts()) expect(s.eventLog({ name: c.name, limit: 10_000 }).length).toBe(c.count);
+
+    // Bounded by lived day: a name with nothing in the window is ABSENT, not zero.
+    expect(s.eventCounts({ sinceDay: 2 }).map((c) => [c.name, c.count])).toEqual([
+      ["a.first", 1],
+      ["b.second", 1],
+      ["c.third", 1],
+    ]);
+    expect(s.eventCounts({ sinceDay: 4 }).map((c) => [c.name, c.count])).toEqual([["a.first", 1]]);
+    // …and by wall clock: the last three appends.
+    expect(s.eventCounts({ sinceAt: atOfLastA - 2000 }).map((c) => [c.name, c.count])).toEqual([
+      ["a.first", 1],
+      ["b.second", 1],
+      ["c.third", 1],
+    ]);
+    expect(s.eventCounts({ sinceDay: 0, sinceAt: atOfLastA - 1000 }).map((c) => c.name)).toEqual([
+      "a.first",
+      "b.second",
+    ]);
+    expect(s.eventCounts({ sinceDay: 99 })).toEqual([]);
+
+    // The distinct-name read (dashboard §5).
+    expect(s.eventNames()).toEqual(["a.first", "b.second", "c.third"]);
+  });
+
+  test("an empty log counts to nothing, and both reads are open to an observer and write nothing", () => {
+    const empty = store();
+    expect(empty.eventCounts()).toEqual([]);
+    expect(empty.eventNames()).toEqual([]);
+    empty.appendEvent({ name: "x.y", day: 0 });
+    empty.close();
+
+    const obs = store({ observer: true });
+    expect(obs.eventCounts().map((c) => [c.name, c.count])).toEqual([["x.y", 1]]);
+    expect(obs.eventNames()).toEqual(["x.y"]);
+    expect(obs.eventLog({ order: "desc", limit: 1 })[0]?.name).toBe("x.y");
+    expect(obs.events("store.observer.standdown")).toEqual([]);
+  });
+});
+
 // ── box 3: the rebuildable cache ─────────────────────────────────────────────
 
 describe("box 3 — deleting the cache loses nothing canonical", () => {
@@ -1698,15 +1785,12 @@ describe("observer mode is enforced at the store seam", () => {
     const writer = store();
     const id = writer.put(mem("Mike prefers plain chat over chips"));
     writer.advanceClock("2026-08-25");
-    // The canonical bytes are the DATABASE's now, so "deposits nothing" is
-    // asserted against a hash of the file rather than of one memory's prose —
-    // a stricter claim than the one it replaces, since it covers every row.
-    const snapshot = createHash("sha256")
-      .update(readFileSync(paths.operational(dir)))
-      .digest("hex");
+    // "Deposits nothing" is asserted against the DATABASE — the file and its
+    // `-wal` (`databaseBytes`) — so it covers every row wherever it sits, and
+    // does not depend on the writer's close having folded the log.
     writer.close();
     open.length = 0;
-    return { id, snapshot };
+    return { id, snapshot: databaseBytes(paths.operational(dir)) };
   }
 
   test("every write method refuses, names the site, and leaves a stand-down event", () => {
@@ -1728,9 +1812,7 @@ describe("observer mode is enforced at the store seam", () => {
     }
     expect(s.events("store.observer.standdown").length).toBe(WRITE_METHODS.length);
     // Deposits nothing: the canonical database is byte-identical afterwards.
-    expect(createHash("sha256").update(readFileSync(paths.operational(dir))).digest("hex")).toBe(
-      snapshot,
-    );
+    expect(databaseBytes(paths.operational(dir))).toBe(snapshot);
     expect(s.list()).toEqual([id]);
     expect(s.livedDay()).toBe(1);
   });
@@ -2234,6 +2316,184 @@ describe("WAL, the busy timeout, and I39", () => {
     // writer, exactly as the live store is.
     expect(copy.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode).toBe("delete");
     copy.close();
+  });
+});
+
+// ── a clean close folds the write-ahead log (cli INTERFACE-GAPS §13, #26) ──────
+
+describe("a writer's clean close folds the write-ahead log", () => {
+  const walOf = (path: string): number => (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  const both = (): { box2: number; box3: number } => ({
+    box2: walOf(paths.operational(dir)),
+    box3: walOf(paths.cache(dir)),
+  });
+  const folds = (s: Store) => s.events("store.wal.checkpoint").map((e) => e.data);
+  function seed(s: Store, n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) ids.push(s.put(mem(`row ${i} ${"padding words for the log ".repeat(20)}`)));
+    return ids;
+  }
+
+  test("write, close: both boxes' -wal files are gone or zero bytes, and nothing is lost", () => {
+    const s = store();
+    const ids = seed(s, 300);
+    s.appendEvent({ name: "probe", day: 0 });
+    const before = both();
+    // The finding's shape: a log at its high-water size while the handle is open.
+    expect(before.box2).toBeGreaterThan(0);
+    expect(before.box3).toBeGreaterThan(0);
+
+    // Each underlying handle is closed ONCE, however often the Store is:
+    // `node:sqlite` throws on a double close where `bun:sqlite` shrugs.
+    const handles = s as unknown as { ops: Db; cache: Db };
+    const opsClose = spyOn(handles.ops, "close");
+    const cacheClose = spyOn(handles.cache, "close");
+
+    s.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+    expect(folds(s)).toEqual([
+      { box: "store", busy: false, log: 0, checkpointed: 0 },
+      { box: "cache", busy: false, log: 0, checkpointed: 0 },
+    ]);
+    // A second close is harmless: it folds nothing new and closes nothing again.
+    s.close();
+    expect(folds(s).length).toBe(2);
+    expect({ ops: opsClose.mock.calls.length, cache: cacheClose.mock.calls.length }).toEqual({ ops: 1, cache: 1 });
+
+    // Every row is in the database file now, read back through a fresh handle.
+    const again = store({ observer: true });
+    expect(again.countMemories()).toBe(300);
+    for (const id of [ids[0]!, ids[150]!, ids[299]!]) expect(again.has(id)).toBe(true);
+    expect(again.eventLog({ name: "probe" }).length).toBe(1);
+  });
+
+  test("an OBSERVER's close folds nothing: the database and its -wal are byte-identical", () => {
+    const writer = store();
+    seed(writer, 50);
+    const box2 = paths.operational(dir);
+    const box3 = paths.cache(dir);
+    const hashed = { box2: databaseBytes(box2), box3: databaseBytes(box3) };
+    expect(walOf(box2)).toBeGreaterThan(0);
+
+    const obs = store({ observer: true });
+    expect(obs.countMemories()).toBe(50);
+    obs.close();
+    expect(folds(obs)).toEqual([]);
+    expect({ box2: databaseBytes(box2), box3: databaseBytes(box3) }).toEqual(hashed);
+
+    // The writer that owns the log folds it when IT closes.
+    writer.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+  });
+
+  test("a WRITABLE handle that only read folds nothing — a log another handle left is that handle's", () => {
+    const writer = store();
+    seed(writer, 50);
+    const box2 = paths.operational(dir);
+    const box3 = paths.cache(dir);
+    const hashed = { box2: databaseBytes(box2), box3: databaseBytes(box3) };
+    expect(walOf(box2)).toBeGreaterThan(0);
+
+    // A dry run: opened writable, asked questions, closed.
+    const dry = store();
+    expect(dry.countMemories()).toBe(50);
+    expect(dry.eventCounts().length).toBeGreaterThanOrEqual(0);
+    dry.close();
+    expect(folds(dry)).toEqual([]);
+    expect({ box2: databaseBytes(box2), box3: databaseBytes(box3) }).toEqual(hashed);
+
+    // One write, to box 2 only: box 2 folds, box 3 is left to its writer.
+    const one = store();
+    one.appendEvent({ name: "probe", day: 0 });
+    one.close();
+    expect(folds(one)).toEqual([{ box: "store", busy: false, log: 0, checkpointed: 0 }]);
+    expect(walOf(box2)).toBe(0);
+    expect(walOf(box3)).toBeGreaterThan(0);
+    writer.close();
+    expect(both()).toEqual({ box2: 0, box3: 0 });
+  });
+
+  test("a READER holding a snapshot makes the fold partial — close neither waits nor throws, and says so", () => {
+    const s = store();
+    seed(s, 100);
+    // Another connection (the MCP server, the worker, the dashboard) mid-read:
+    // a plain deferred BEGIN plus a SELECT takes a read snapshot that uses the
+    // log. NOT `Db.transaction`, which is BEGIN IMMEDIATE — a write lock.
+    const reader = openDb(paths.operational(dir));
+    reader.exec("BEGIN");
+    expect(reader.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories")?.n).toBe(100);
+
+    const t0 = performance.now();
+    expect(() => s.close()).not.toThrow();
+    const took = performance.now() - t0;
+    // Without the zero timeout this waits the full BUSY_TIMEOUT_MS for the reader.
+    expect(took).toBeLessThan(BUSY_TIMEOUT_MS / 5);
+    const [box2, box3] = folds(s);
+    expect(box2).toMatchObject({ box: "store", busy: true });
+    // Every frame the reader's snapshot allowed was still copied; the log keeps
+    // its size only because the reader is standing in it.
+    expect(box2?.["checkpointed"]).toBe(box2?.["log"]);
+    expect(walOf(paths.operational(dir))).toBeGreaterThan(0);
+    // Box 3 had no reader and folded.
+    expect(box3).toEqual({ box: "cache", busy: false, log: 0, checkpointed: 0 });
+
+    // The reader still sees its snapshot, whole; nothing was lost to anyone.
+    expect(reader.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories")?.n).toBe(100);
+    reader.exec("COMMIT");
+
+    // The next writer's clean close finishes the job.
+    const next = store();
+    next.put(mem("one more"));
+    next.close();
+    reader.close();
+    expect(walOf(paths.operational(dir))).toBe(0);
+    expect(folds(next)[0]).toEqual({ box: "store", busy: false, log: 0, checkpointed: 0 });
+  });
+
+  test("a WRITER mid-transaction makes the fold partial too — close neither waits nor throws", () => {
+    const s = store();
+    seed(s, 100);
+    // The worker or the MCP server inside a commit: a held write lock.
+    const other = openDb(paths.operational(dir));
+    other.exec("BEGIN IMMEDIATE");
+    other.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "held", "mid-commit");
+
+    const t0 = performance.now();
+    expect(() => s.close()).not.toThrow();
+    expect(performance.now() - t0).toBeLessThan(BUSY_TIMEOUT_MS / 5);
+    expect(folds(s)[0]).toMatchObject({ box: "store", busy: true });
+    expect(walOf(paths.operational(dir))).toBeGreaterThan(0);
+
+    // The other writer commits, and nothing of either is lost.
+    other.exec("COMMIT");
+    const next = store();
+    expect(next.countMemories()).toBe(100);
+    expect(next.getMeta("held")).toBe("mid-commit");
+    next.put(mem("one more"));
+    next.close();
+    other.close();
+    expect(walOf(paths.operational(dir))).toBe(0);
+    expect(folds(next)[0]).toEqual({ box: "store", busy: false, log: 0, checkpointed: 0 });
+  });
+
+  test("foldWal puts the busy timeout back, so a handle used afterwards still waits", () => {
+    const db = openDb(join(scratch(), "restored.sqlite"), { wal: true });
+    db.exec("CREATE TABLE t (x)");
+    db.run("INSERT INTO t VALUES (1)");
+    expect(foldWal(db)).toEqual({ busy: false, log: 0, checkpointed: 0 });
+    expect(db.get<{ timeout: number }>("PRAGMA busy_timeout")?.timeout).toBe(BUSY_TIMEOUT_MS);
+    db.close();
+  });
+
+  test("foldWal never throws, and on a file not in WAL it does nothing", () => {
+    const plain = openDb(join(scratch(), "plain.sqlite"));
+    plain.exec("CREATE TABLE t (x)");
+    expect(foldWal(plain)).toEqual({ busy: false, log: -1, checkpointed: -1 });
+    plain.close();
+    // A closed handle: named, not thrown.
+    const after = foldWal(plain);
+    expect(after.busy).toBe(false);
+    expect(typeof after.error).toBe("string");
   });
 });
 

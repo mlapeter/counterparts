@@ -21,8 +21,9 @@ import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js"
 import { ASK_GIST_CHARS, ASK_SHOWN, EXIT, askGist, printAskList, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/static.js";
-import { Store } from "../src/core/store/index.js";
-import type { Embedder } from "../src/core/store/index.js";
+import { Store, paths } from "../src/core/store/index.js";
+import type { Embedder, EmbedderIdentity } from "../src/core/store/index.js";
+import { openDb } from "../src/core/store/db.js";
 import type { DeliberateResult } from "../src/adapters/mcp/deliberate.js";
 
 const WEIGHTS = resolveStaticWeights({ env: {} });
@@ -281,6 +282,118 @@ describe("ask searches by meaning", () => {
       const off = await ask([question, "--json"], env({ COUNTERPARTS_CONFIG: config }));
       const ids = (JSON.parse(off.out.join("\n")) as { memories: { id: string }[] }).memories.map((m) => m.id);
       expect(ids).not.toContain(target);
+    },
+  );
+});
+
+describe("note embeds on write", () => {
+  const TARGET = "My physician prescribed antibiotics for the chest infection.";
+  const QUESTION = "which medicine did the doctor give me";
+  const NO_TABLE = (): Record<string, string | undefined> => env({ [STATIC_WEIGHTS_ENV]: join(work, "no-table-here") });
+
+  async function note(text: string, e = env()): Promise<{ code: number; out: string[]; err: string[] }> {
+    const c = consoleOf();
+    const code = await run(["note", text, "--dir", dir], { io: c.io, env: e, home: join(work, "home") });
+    return { code, out: c.out, err: c.err };
+  }
+
+  function idOf(out: readonly string[]): string {
+    const id = /^Remembered (mem_\S+) /.exec(out.find((l) => l.startsWith("Remembered ")) ?? "")?.[1];
+    expect(id).toBeDefined();
+    return id as string;
+  }
+
+  /** Box 3 read directly: the widths held for one id, every width held, and the tag. */
+  function box3(id: string): { dims: number[]; widths: number[]; tag: string | undefined } {
+    const db = openDb(paths.cache(dir));
+    try {
+      return {
+        dims: db.all<{ dim: number }>("SELECT dim FROM embeddings WHERE memory_id = ?", id).map((r) => r.dim),
+        widths: db.all<{ dim: number }>("SELECT DISTINCT dim FROM embeddings").map((r) => r.dim),
+        tag: db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'embedder'")?.value,
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  function seedFiller(embed?: Embedder): void {
+    const s = Store.open({ dir, ...(embed === undefined ? {} : { embed }) });
+    try {
+      for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
+    } finally {
+      s.close();
+    }
+  }
+
+  test.skipIf(WEIGHTS === null)(
+    "a CLI note carries a vector at once, and a paraphrase sharing no content word finds it — no worker ran",
+    async () => {
+      seedFiller();
+      const n = await note(TARGET);
+      expect(n.code).toBe(EXIT.ok);
+      expect(n.err).toEqual([]);
+      const id = idOf(n.out);
+      const table = openStaticEmbedder({ env: {} });
+      const held = box3(id);
+      expect(held.dims).toEqual([table.embed.identity?.dim as number]);
+      expect(held.tag).toBe(`${table.model}@${String(table.embed.identity?.dim)}`);
+
+      const r = await ask([QUESTION]);
+      expect(r.out[1]).toMatch(/^\d+ found \(by meaning and words\)/);
+      expect(r.out.some((l) => l.startsWith(`  ${id}  `))).toBe(true);
+
+      // By words alone the same question does not reach it: the note's vector did.
+      const config = join(work, "off.json");
+      writeFileSync(config, JSON.stringify({ dataDir: dir, embedder: { enabled: false } }));
+      const off = await ask([QUESTION, "--json"], env({ COUNTERPARTS_CONFIG: config }));
+      const ids = (JSON.parse(off.out.join("\n")) as { memories: { id: string }[] }).memories.map((m) => m.id);
+      expect(ids).not.toContain(id);
+    },
+  );
+
+  test("without the table the note still lands, by words alone, and says nothing of it", async () => {
+    seedFiller();
+    const n = await note(TARGET, NO_TABLE());
+    expect(n.code).toBe(EXIT.ok);
+    expect(n.err).toEqual([]);
+    expect(n.out).toEqual([`Store: ${dir}`, expect.stringMatching(/^Remembered mem_\S+ — /)]);
+    const id = idOf(n.out);
+    expect(box3(id).dims).toEqual([]);
+    const r = await ask(["physician antibiotics chest infection"], NO_TABLE());
+    expect(r.out.some((l) => l.startsWith(`  ${id}  `))).toBe(true);
+  });
+
+  test("recall by meaning switched off in the configuration: the note writes no vector", async () => {
+    seedFiller();
+    const config = join(work, "off.json");
+    writeFileSync(config, JSON.stringify({ dataDir: dir, embedder: { enabled: false } }));
+    for (const e of [env({ COUNTERPARTS_CONFIG: config }), env()]) {
+      const c = consoleOf();
+      const flagged = e["COUNTERPARTS_CONFIG"] === undefined ? ["--config", config] : [];
+      const text = flagged.length === 0 ? TARGET : "The boiler was serviced in March by the new plumber.";
+      const code = await run(["note", text, "--dir", dir, ...flagged], { io: c.io, env: e, home: join(work, "home") });
+      expect(code).toBe(EXIT.ok);
+      expect(box3(idOf(c.out)).dims).toEqual([]);
+    }
+  });
+
+  test.skipIf(WEIGHTS === null)(
+    "a store whose vectors are another model's: the note lands without a vector, and the tag is untouched",
+    async () => {
+      // A paid seat's rows are held, never dropped, and no second model's vector
+      // is written beside them (`store/cache.ts#reconcileEmbedder`).
+      const paid: EmbedderIdentity = { model: "paid-elsewhere", dim: 8, rebuild: "external" };
+      seedFiller(Object.assign((): number[] => [1, 0, 0, 0, 0, 0, 0, 0], { identity: paid }));
+      expect(box3("none").tag).toBe("paid-elsewhere@8");
+
+      const n = await note(TARGET);
+      expect(n.code).toBe(EXIT.ok);
+      expect(n.err).toEqual([]);
+      const after = box3(idOf(n.out));
+      expect(after.dims).toEqual([]);
+      expect(after.tag).toBe("paid-elsewhere@8");
+      expect(after.widths).toEqual([8]);
     },
   );
 });

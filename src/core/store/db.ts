@@ -199,6 +199,103 @@ export function journalModeOf(path: string): string {
   }
 }
 
+/**
+ * What `foldWal` did. A fold succeeded only when `busy` is false AND `error` is
+ * unset; `busy: false` with `error` set means the pragma threw for some other
+ * reason (a closed handle, a statement still running) and nothing was folded.
+ */
+export interface WalFold {
+  /** True when SQLite could not finish: a reader held an older snapshot, or
+   *  another connection held a lock. What it could copy, it copied. */
+  readonly busy: boolean;
+  /** Frames in the log as the pragma reports them: 0 after a successful
+   *  TRUNCATE (the log is emptied), the remaining frames when `busy`, and -1
+   *  when the file is not in WAL or the pragma could not run. */
+  readonly log: number;
+  /** Frames copied into the database file, read the same way as `log`: 0
+   *  after a successful TRUNCATE, -1 when not in WAL or the pragma could not run. */
+  readonly checkpointed: number;
+  /** Set only when the pragma THREW; a code or a message, never row text. */
+  readonly error?: string;
+}
+
+/**
+ * FOLD THE WRITE-AHEAD LOG into the database file and truncate it to zero —
+ * `PRAGMA wal_checkpoint(TRUNCATE)` — without ever waiting and without ever
+ * throwing. Meant for the last thing a WRITER does before it closes its handle
+ * (`Store.close`, cli INTERFACE-GAPS §13).
+ *
+ * WHY IT IS NEEDED: SQLite folds the log itself when the LAST connection closes,
+ * but only if that close really happens. `openDb` prepares a statement per call
+ * and never finalizes one, so bun's `close()` defers the real close and the
+ * `-wal` stays at its high-water size until some later process folds it —
+ * finding #26, a store whose size on disk depended on who touched it last. An
+ * explicit checkpoint does not care about statement lifecycles or drivers.
+ *
+ * WHY IT NEVER WAITS: RESTART and TRUNCATE run the busy handler while they wait
+ * for readers to leave the log, and this connection's handler waits
+ * `BUSY_TIMEOUT_MS`. A hook closing while the MCP server or the worker held a
+ * read snapshot would stall for five seconds. So the timeout goes to ZERO first
+ * for the fold only (it is put back afterwards) — and a
+ * contended fold degrades to what SQLite calls PASSIVE: it copies every frame it
+ * can without blocking, reports `busy`, and the next writer's close (or
+ * SQLite's own auto-checkpoint) finishes the job. Nothing is lost either way;
+ * the log is part of the database until it is folded.
+ *
+ * A file not in WAL answers `log: -1` and nothing happens. Any throw — a
+ * statement still running on this connection, a closed handle — is caught and
+ * named in `error`: a close must never fail because a checkpoint could not run.
+ *
+ * Declared BEFORE `openDb` on purpose: the I39 test reads the pragmas in
+ * `openDb`'s body in order, and this function's two are not part of an open.
+ */
+export function foldWal(db: Db): WalFold {
+  try {
+    db.exec("PRAGMA busy_timeout = 0");
+    const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
+    if (row === undefined) return { busy: true, log: -1, checkpointed: -1, error: "no row" };
+    // SQLite names the three columns `busy`, `log`, `checkpointed`; by position
+    // as the fallback, which is how the removal reclaim has always read the first.
+    const at = Object.values(row);
+    const busy = row["busy"] ?? at[0];
+    const log = row["log"] ?? at[1];
+    const checkpointed = row["checkpointed"] ?? at[2];
+    return { busy: busy !== 0, log: Number(log ?? -1), checkpointed: Number(checkpointed ?? -1) };
+  } catch (err) {
+    const code = (err as { code?: unknown } | null | undefined)?.code;
+    return {
+      busy: isLocked(err),
+      log: -1,
+      checkpointed: -1,
+      error: typeof code === "string" ? code : String((err as Error)?.message ?? err),
+    };
+  } finally {
+    // Put the wait back, so a caller that runs another statement on this handle
+    // after the fold has not silently lost I39's timeout.
+    try {
+      db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    } catch {
+      /* a closed handle has no timeout to restore */
+    }
+  }
+}
+
+/**
+ * Did THIS connection change any row since it opened? SQLite's own
+ * `total_changes()` — row changes (INSERT/UPDATE/DELETE) by this connection,
+ * nobody else's. A schema-only write (CREATE, ALTER, a pragma) counts no rows,
+ * so it does not trigger a fold; its frames wait for the next writer's fold.
+ * A handle that only read answers false, and so does a closed one (the
+ * question throws there, and "I cannot tell" is not "I wrote").
+ */
+export function wroteOn(db: Db): boolean {
+  try {
+    return (db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function openDb(path: string, opts: OpenDbOptions = {}): Db {
   const { raw, driver } = openRaw(path);
   let depth = 0;

@@ -97,7 +97,13 @@ Related, smaller: there is no `list({ protected: true })` filter, which is why
 
 ---
 
-## §4 — Observer is enforced by wrapper and scan, not by types
+## §4 — Observer is enforced by wrapper and scan, not by types — STORE HALF BUILT 2026-09-24
+
+**Status (2026-09-24):** `ReadOnlyStore` exists in `store/` (`Omit<Store, WriteMethod |
+"close" | "guardWrites">`) and `DashboardSource.store` is typed against it, as are
+`resolve.ts`, `web/reveal.ts` and `web/narrate.ts`. Naming a write method on the source's
+store is a compile error (`test/dashboard.test.ts` › "TYPED read-only"). `schemas` and
+`self` are still the real objects, so the source scan stays.
 
 **Have:** `Dashboard.open` sets `observer: true` itself, and `sourceOf` refuses any
 Counterpart whose stance is not observer. `DashboardSource` narrows the read
@@ -121,7 +127,13 @@ scan.
 
 ---
 
-## §5 — The event log has no distinct-name query
+## §5 — The event log has no distinct-name query — CLOSED 2026-09-24
+
+**Status (2026-09-24):** `Store.eventCounts()` (name, count, newest) and
+`Store.eventNames()`. The activity vocabulary (`activity.ts`, `web/views.ts`) and the
+health tab's record table read one grouped query; counts are exact, no longer capped at
+a read ceiling. Discovering names the registry does not know is now one call, and not
+yet drawn anywhere.
 
 **Have:** `eventLog({ name })` filters to one name. To render the durable-event
 vocabulary — every name that *can* be recorded, with its count — the view issues

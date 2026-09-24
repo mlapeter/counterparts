@@ -50,7 +50,7 @@
  */
 import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
 import { dateOf } from "../core/store/index.js";
-import type { EventRow, Store } from "../core/store/index.js";
+import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
 import type { DurableEventName } from "./dashboard/registries.js";
 
 /** The window every count on this page is measured over. Seven CALENDAR days,
@@ -952,7 +952,7 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /** The lived clock, or 0. A diagnostic may not become the thing that throws. */
-function safeLivedDay(store: Store): number {
+function safeLivedDay(store: ReadOnlyStore): number {
   try {
     return store.livedDay();
   } catch {
@@ -964,7 +964,7 @@ function safeLivedDay(store: Store): number {
  * THE READING. One pass over the log, one optional pass over the ids, and a row
  * per mechanism. Pure over the store, and never a write.
  */
-export function firedReport(store: Store, today: string, opts: FiredOptions = {}): FiredReport {
+export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOptions = {}): FiredReport {
   const window: Window = {
     from: daysBefore(today, FIRED_DAYS - 1),
     to: today,
@@ -1277,7 +1277,7 @@ function emptyTally(): NameTally {
  * covers both windows, the two are joined on `seq` so nothing is counted twice,
  * and every total is declared a floor.
  */
-function readLog(store: Store, w: Window): LogRead {
+function readLog(store: ReadOnlyStore, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
   const age = { oldest: null as string | null };
   const first = store.eventLog({ limit: EVENT_CEILING });
@@ -1502,7 +1502,7 @@ interface Probed {
  * It is the read the console and the dashboard pay and the session-start reading
  * does not.
  */
-function readProbes(store: Store, w: Window): Probed {
+function readProbes(store: ReadOnlyStore, w: Window): Probed {
   const byId = new Map<string, ProbeTally>();
   const livedDay = store.livedDay();
   const bump = (id: string, at: { livedDay?: number | null; at?: number | null } = {}): void => {

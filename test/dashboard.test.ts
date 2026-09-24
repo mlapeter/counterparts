@@ -55,6 +55,7 @@ import {
   hashText,
   isDatabaseSidecar,
 } from "../src/core/store/index.js";
+import type { ReadOnlyStore, Store, WriteMethod } from "../src/core/store/index.js";
 import {
   ABSENCE,
   BANDS,
@@ -77,6 +78,7 @@ import {
   stripAnsi,
   style as makeStyle,
 } from "../src/adapters/dashboard/index.js";
+import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { helpText, parseArgv, run } from "../src/adapters/dashboard/bin/dashboard.js";
 // The console, imported so the two surfaces can be compared on ONE store rather
 // than trusted to agree.
@@ -404,6 +406,32 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
     const instrument = Counterpart.open({ dir, observer: true });
     open.push(instrument);
     expect(sourceOf(instrument).observer).toBe(true);
+  });
+
+  test("the source's store is TYPED read-only: a write method is a compile error (INTERFACE-GAPS §4)", () => {
+    // Checked by `tsc --noEmit`, which includes this file: if the source's store
+    // type ever regains a write method, `NoWrites` stops being `true` and the
+    // `@ts-expect-error` lines below stop being errors — both fail the build.
+    type Reachable = keyof DashboardSource["store"];
+    type Leaked = Extract<Reachable, WriteMethod | "close" | "guardWrites">;
+    const noWrites: [Leaked] extends [never] ? true : false = true;
+    const sameAsCore: DashboardSource["store"] extends ReadOnlyStore ? true : false = true;
+    expect([noWrites, sameAsCore]).toEqual([true, true]);
+
+    Counterpart.open({ dir, owner: true }).close();
+    const instrument = Counterpart.open({ dir, observer: true });
+    open.push(instrument);
+    const src = sourceOf(instrument);
+    // A real `Store` is what the source holds at runtime; the type is the narrowing.
+    const real: Store = instrument.store;
+    const narrowed: ReadOnlyStore = real;
+    expect(narrowed).toBe(src.store);
+    if (false as boolean) {
+      // @ts-expect-error — no write method is nameable through the source
+      src.store.appendEvent({ name: "x", day: 0 });
+      // @ts-expect-error — nor closing a handle the view does not own
+      src.store.close();
+    }
   });
 
   test("the CANONICAL boxes are byte-identical across open, every view, and close", async () => {
