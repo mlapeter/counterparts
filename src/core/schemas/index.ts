@@ -1047,9 +1047,11 @@ export class Schemas {
 
   /**
    * Would this entity fade today, and if not, why not — EVERY reason, not the
-   * first (§5 G7). Death is decay: physics decides, and this module adds one
-   * blocker of its own, because an entity with live beliefs or live status is a
-   * place memories are still attached to (open question 1; NOTES §5).
+   * first (§5 G7). Death is decay: physics must say prunable, and this module
+   * adds blockers of its own — an entity with live beliefs or live status is a
+   * place memories are still attached to (open question 1; NOTES §5), and a card
+   * fades gently: a calendar floor, and longer floors for people (NOTES §14).
+   * `date` is the calendar day the floors are counted to.
    */
   fadeVerdict(id: string, day: number, date: string = this.store.today()): FadeVerdict {
     const row = this.store.row(id);

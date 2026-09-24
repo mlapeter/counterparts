@@ -138,6 +138,14 @@ literal form (*write paths ship, curation paths starve*), and `lifecycle()`'s
 on the active-day clock, and reports the returned counts alongside its own prune
 counts.
 
+**Status (2026-09-24): met.** `sleep/`'s `fade` phase runs after `prune` every
+`CADENCE.fade` lived days and calls an injected `FadeFn`, which
+`counterpart.ts#sessionEnd` wires to `fadeSweep(day, { date, dryRun, limit })`;
+the counts ride `CycleReport.faded`, the phase report and the durable
+`sleep.cycle` row. The floor prune now skips entity cards — it had been
+archiving them itself (NOTES §14, sleep NOTES §17). A `Schemas` used without a
+`Counterpart` still has to be wired by whoever runs its cycle.
+
 ## 7. `pruneVerdict`'s `inLiveRevisionChain` is supplied as `false` for entities
 
 **Owner:** shared with `sleep/`.
