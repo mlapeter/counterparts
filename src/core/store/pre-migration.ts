@@ -118,7 +118,7 @@ export interface PreMigrationInput {
 export function snapshotBeforeMigration(input: PreMigrationInput): string {
   if (input.dir === null) {
     throw new Error(
-      "there is no snapshots directory for a store outside the usual <base>/store layout; name one (snapshots.dir)",
+      "there is no snapshots directory for a store outside the usual <base>/store layout; name one (the snapshotsDir option, or snapshots.dir in the host configuration)",
     );
   }
   const storeDir = realpathDeep(dirname(input.dbPath));
