@@ -339,6 +339,10 @@ What it does not do:
 - **touch the identity core.** A `kind: "self"` card is skipped, as the title path refuses it.
 - **write under observer.** No door mints under observer, and the composition checks too.
 
+One difference from the title path, on purpose: when the title path refuses a mention
+(say a memory titled "Portland" as a `person` while a `place` card holds the name), the
+text pass still credits the place card the body names — it is still being talked about.
+
 Episode ingestion reaches this through an injected `onMemoryMinted` on `self/` (it cannot
 import this module). An episode that regrows re-ingests its whole text, so names from
 earlier chapters are credited again on the regrowth day — bounded by the regrow window.
