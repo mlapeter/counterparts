@@ -25,8 +25,11 @@ import { pageWriterFindings } from "../src/adapters/claude-code/index.js";
 import {
   Self,
   calendarDate,
+  chapterHeading,
   pageWriterAbout,
   pageWriterNight,
+  readChapterLead,
+  readableDate,
 } from "../src/core/self/index.js";
 
 let dir: string;
@@ -386,6 +389,49 @@ describe("the boundaries, by the clock", () => {
       expect(f?.data["owedFor"]).toBe("2026-09-17");
       expect(f?.data["staleFor"]).toBe(0);
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("a chapter's heading names the LOCAL date it was written on (owner, 2026-09-24)", () => {
+  test("the readable date: weekday, day, month, year — and nothing for a date that is not whole", () => {
+    expect(readableDate("2026-09-23")).toBe("Wed 23 Sep 2026");
+    expect(readableDate("2027-01-01")).toBe("Fri 1 Jan 2027");
+    expect(readableDate("2026-09")).toBe("");
+    expect(readableDate("2026-02-30")).toBe("");
+    expect(readableDate("")).toBe("");
+  });
+
+  test("the heading's two forms: dated since today, the older one when no date is given", () => {
+    expect(chapterHeading(1, 2, "2026-09-23")).toBe("## chapter 1 — Wed 23 Sep 2026 · lived day 2");
+    expect(chapterHeading(1, 2)).toBe("## chapter 1 — lived day 2");
+    // And the reader reads both, stacked or not.
+    const lead = readChapterLead("## chapter 1 — Wed 23 Sep 2026 · lived day 2\n\n## chapter 1\n\nThe words.");
+    expect(lead).toEqual({ chapters: [1], livedDay: 2, date: "Wed 23 Sep 2026", rest: "The words." });
+    expect(readChapterLead("## chapter 1 — lived day 3\n\nOld form.")).toEqual({
+      chapters: [1],
+      livedDay: 3,
+      date: null,
+      rest: "Old form.",
+    });
+  });
+
+  test("Chicago at 20:00 on the 18th (UTC already the 19th): the heading says the 18th", () => {
+    const t = clocked("2026-09-19T01:00:00Z"); // 20:00 CDT, the 18th
+    const self = new Self({ store: t.store, zone: "America/Chicago", gate: () => ({ ok: true }) });
+    self.openChapter("s1", SUBSTANCE, 4);
+    const first = self.appendChapter("s1", "The evening's account.", { day: 4 });
+    const body = t.store.readProse(first.episodeId ?? "").body;
+    expect(body.startsWith("## chapter 1 — Fri 18 Sep 2026 · lived day 4\n\nThe evening's account.")).toBe(true);
+    // The provenance date is untouched: still UTC.
+    expect(t.store.readProse(first.episodeId ?? "").learnedOn).toBe("2026-09-19");
+    // A later chapter, after local midnight, is dated by its own writing.
+    t.set("2026-09-19T06:00:00Z"); // 01:00 CDT, the 19th
+    expect(self.openChapter("s1", { turns: 30, bytes: 25_000 }, 4).asked).toBe(true);
+    self.appendChapter("s1", "After midnight.", { day: 4 });
+    expect(t.store.readProse(first.episodeId ?? "").body).toContain(
+      "## chapter 2 — Sat 19 Sep 2026 · lived day 4\n\nAfter midnight.",
+    );
   });
 });
 

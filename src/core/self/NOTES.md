@@ -1150,3 +1150,30 @@ only, `openChapter` pulls the turn watermark down to today's count
 and `askDue`/`noteOrphanTail` read the same re-based state. Any other reading below the
 watermark — an empty one from a transcript that would not read — moves nothing, and a
 caller can say its count is not real with `rebase: false`.
+
+## 24. A chapter's heading carries its calendar date (2026-09-24)
+
+`chapterHeading` writes `## chapter 1 — Wed 23 Sep 2026 · lived day 2` for every chapter
+opened since this date, where it wrote `## chapter 1 — lived day 2` before. The owner
+could not tell which DAY a chapter was from anywhere it is read back (`ask`, the
+dashboard, the markdown copy, an export) — the lived day is the physics clock and means
+nothing on a calendar. The date is `calendarDate(store.now(), zone)`, the same local day
+§22 gave the cap and the night, so a chapter written at 20:00 in Chicago says the 18th
+while its `learned_on` says the 19th. Stored bodies are NOT rewritten: older chapters keep
+the older heading, and `readChapterLead` reads both forms — and the bare `## chapter 1` a
+model sometimes writes under the journal's own — for a surface that shows a chapter's
+words on one line and its heading as metadata. Every surface that prints the body
+inherits the new heading with no change of its own; none of them parses it.
+
+Which MODEL wrote a chapter is not recorded (asked the same day). It needs no schema
+migration — the episode's `meta` is open JSON — but this package does not know the model
+at the door that writes a chapter: `chapter` is an MCP tool, and the MCP server has no
+hook input and no transcript. The host's only sources are the SessionStart input's
+optional `model` (documented as not always present) and `message.model` on the
+transcript's assistant entries (reliable, per turn). The relay would be: every hook
+already parses the transcript (`claude-code/bin/hook.ts#toHookInput`) → take the last
+assistant `message.model` that is not `<synthetic>` → carry it on the session registry
+record (`adapters/sessions.ts`, optional fields already) → `mcp/server.ts#chapterTool`
+reads that record, as `corroborate` already does → `appendEpisode` opts → `meta` per
+chapter. It lags a mid-session `/model` switch by one turn (the record is refreshed at
+the boundary, and this adapter registers no `PostModelSwitch` hook).
