@@ -436,8 +436,9 @@ describe("the console", () => {
 
   test("a stale COUNTERPARTS_CONFIG does not refuse a command that reads none", async () => {
     // The guard fires on the two commands that read or write a configuration.
-    // A refusal on `note` — which takes its store from `--dir` and touches no
-    // config at all — is a guard people learn to unset rather than to read.
+    // A refusal on `note` — which takes its store from `--dir` and reads a
+    // config only for the embedder knob, leniently — is a guard people learn to
+    // unset rather than to read.
     const store = join(work, "store");
     const seed = consoleWith();
     expect(await run(["init", "--dir", store], { io: seed.io, env: {} })).toBe(0);
@@ -452,7 +453,9 @@ describe("the console", () => {
 
   test("a command that reads no configuration does not take the flag", async () => {
     const c = consoleWith();
-    const code = await run(["note", "hello", "--dir", join(work, "store"), CONFIG_FLAG, "/a/b.json"], {
+    // `backup` reads none. (`note` took the flag on 2026-09-24, for the
+    // embedder knob, the way `ask` does.)
+    const code = await run(["backup", "--dir", join(work, "store"), CONFIG_FLAG, "/a/b.json"], {
       io: c.io,
       env: {},
     });

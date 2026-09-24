@@ -1825,3 +1825,11 @@ vividly, one more line says these are leads — the tier legend's one warning, k
 is unchanged. A fresh store answers at most five (every answer is `dim`, and the dim
 tier is capped at five), so "showing 5" is a lived-in store's line; `test/ask.test.ts`
 builds that answer directly.
+
+**`note` embeds on write (2026-09-24).** `note` opened its store with no embedder, so a
+CLI note had no vector until the worker's backfill ran, and QUICKSTART's note→ask demo
+found a paraphrase only by the words it shared. It now opens its store with the same
+`askEmbedder` `ask` uses (and takes `--config` for the same knob). The identity check is
+the store's own, at open: a store whose box 3 holds another model's vectors withdraws
+the embedder, and the note lands with words only. Missing weights: the note lands with
+words only and prints nothing about it — doctor and the backfill name a missing table.

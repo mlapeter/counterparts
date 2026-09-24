@@ -631,7 +631,9 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // parses either way, and the command refuses it in words rather than ignoring
   // it (the `--dirr` scar, pointed at the most dangerous verb here).
   "start-fresh": ["config", "dry-run", "yes", "nothing-is-open", "name", "undo"],
-  note: ["kind", "title", "salience"],
+  // `--config` for the embedder knob only, as on `ask`: a note is embedded on
+  // write with the table the configuration turns on.
+  note: ["kind", "title", "salience", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
   ask: ["id", "json", "full", "config"],
@@ -860,7 +862,7 @@ const FLAG_HELP: Record<string, string> = {
   all:
     "print every line, including the mechanisms a store this new has had nothing to do with yet",
   config:
-    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask reads whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask and note read whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
   "dry-run": "say the default out loud: plan and print, change nothing",
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
@@ -1661,7 +1663,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
-        return await noteCommand(dir, io, parsed);
+        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir());
       // ONE COMMAND, TWO NAMES — the same function, not a forwarding shim, so
       // there is no arm where one spelling can behave differently from the other.
       case "ask":
@@ -4799,15 +4801,26 @@ function livenessRefusal(io: Io, plan: StartFreshPlan, when = "", showRecent = t
  *
  * The embedder is shared too since 2026-09-24 (`askEmbedder`): `ask` embeds its
  * question with the local table the configuration turns on, exactly as the MCP
- * `recall` does, and says which channel answered when it could not. (`note`
- * still opens its store without one; the worker's backfill embeds that row.)
+ * `recall` does, and says which channel answered when it could not. `note`
+ * opens its store with the same embedder, so the row it writes carries a vector
+ * at once and a paraphrased `ask` finds it without waiting for the worker's
+ * backfill. The store reconciles the embedder's identity against box 3's tag
+ * at open, so a store tagged with another model gets no vector from here.
+ * Without the table the note is stored by words alone, and says nothing of it:
+ * the backfill, or `doctor`, is where a missing table is named.
  *
  * Why these exist at all: the cold-stranger review of 2026-09-04 reached the end
  * of the install page having verified that a store existed and was empty, with
  * no way to test the one thing the product is for. They hand-wrote JSON-RPC.
  * Most people will not.
  */
-async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number> {
+async function noteCommand(
+  dir: string,
+  io: Io,
+  parsed: Parsed,
+  env: Record<string, string | undefined>,
+  home: string,
+): Promise<number> {
   const text = parsed.positional.join(" ").trim();
   if (text.length === 0) {
     io.err('refused: note takes the text to remember, e.g. counterparts note "..."');
@@ -4828,7 +4841,8 @@ async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number>
     claimed = n;
   }
 
-  const counterpart = openCounterpart(dir);
+  const embedder = askEmbedder(parsed.flags, env, home);
+  const counterpart = openCounterpart(dir, false, undefined, embedder?.embed);
   try {
     // THE STORE, FIRST, the way `status` names it. A write whose destination is
     // invisible is the shape the 2026-09-04 review found: a mistyped `--dir`
