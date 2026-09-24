@@ -311,3 +311,42 @@ The numbers are experimental defaults, not measurements. On the demo store (13 c
 lived day 30), a daily user going quiet would see 0 cards fade at +90 calendar days, 4 at
 +180 and 5 at +365 — none of them people, all of whom have beliefs attached. The old prune
 alone would have taken 8, 10 and 13 (the identity core included).
+
+## 15. A card named in a saved memory's text counts as used (2026-09-24)
+
+Until now a card was used only when a saved memory was TITLED with its name and its kind
+was entity/person/place (`counterpart.ts#mentionFromProposal`). Someone the owner talks
+about every day, in memories titled otherwise, never refreshed their card and faded once
+§14's floors passed. The owner's intent: a card someone is still talking about stays.
+
+Now every door that mints — a deposit (session_end, note, CLI note), a crash-fallback
+sweep, an episode ingestion — hands the memory's title and body to `creditNamedIn`, which
+credits each live card named there as a whole word (the one rule, `encode/words.ts`,
+through `AliasIndex.matchesIn`). The credit is the title path's: `store.reinforce` at
+`MENTION_TIER`, so physics' birth-day and once-per-lived-day refusals apply, and a card is
+credited at most once per memory however often it is named. The card the title path just
+handled is skipped. One pass over the live index per memory.
+
+What it does not do:
+
+- **birth.** Only the title path births; text only refreshes cards that exist.
+- **credit an ambiguous handle.** A handle two live cards share credits neither, as the
+  title path refuses it. A card still named by its own unambiguous name or alias is credited.
+- **revive a faded card.** An archived card is not in the index (and one faded by another
+  process is dropped at the lookup, as `mention` does). Re-birth stays the title path's
+  job. Open question: whether a faded person named in bodies should come back — for now,
+  titling a memory with the name is how they do.
+- **touch the identity core.** A `kind: "self"` card is skipped, as the title path refuses it.
+- **write under observer.** No door mints under observer, and the composition checks too.
+
+Episode ingestion reaches this through an injected `onMemoryMinted` on `self/` (it cannot
+import this module). An episode that regrows re-ingests its whole text, so names from
+earlier chapters are credited again on the regrowth day — bounded by the regrow window.
+
+Short or common names: the guards are the ones births already have — `NAME_MIN_CHARS`,
+aliases' `ALIAS_MIN_CHARS`, and whole-word matching (so "Mikey" is not "Mike"). There is
+no stopword list; a card named with a common word is credited whenever prose uses that
+word, the same exposure preselection already has.
+
+Also: `fadedNamed` now matches only cards archived by the fade (`FADE_REASON`), so a card
+archived for another reason no longer labels the next birth `schema.birth.after-fade`.
