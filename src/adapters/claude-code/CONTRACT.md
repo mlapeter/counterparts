@@ -7,7 +7,25 @@ detection — everything host-specific, so the core stays host-agnostic. Session
 where this adapter delivers a wake; it is no longer the only place one is read, because
 since 2026-09-17 the core composes a read-only one into the crash fallback's prompt — the
 same composer, minus the prospective lane and minus anything protected or confidential —
-and this adapter's interpret client is what puts that prompt on the wire.
+and this adapter's interpret client put that prompt on the wire until 2026-09-24 (see
+§1a: the sweep no longer interprets here).
+
+## 1a. Keyless (owner, 2026-09-24)
+
+The package reads no API key and calls no model API of its own. Removed that day: the
+Anthropic write-up of crashed sessions (`interpret-client.ts`, the `crashWriteUp: "api"`
+opt-in, the worker's `sweepAware`), the Voyage embedder (the paid half of
+`embed-client.ts`, `embedder.kind: "voyage"`, the `models` seats), the credentials file
+(`credentials.ts`, `credentialsFile`) and the `credential` capability row. Why: the owner
+wants to say "no keys; nothing leaves your machine except through Claude Code" without an
+asterisk, and essentially no install had a key. The page writer's `pageWriter.command`
+went at the same time — a configuration that could name the program the worker starts —
+and the tests now inject it through code (`PageWriterPlanInput.command`).
+
+A configuration that still names any of these is read, not refused: the setting is
+ignored and listed in `AdapterConfig.retired`, which doctor prints as one green `Old
+settings` note. `kind: "voyage"` reads as the local table. The paragraphs below that
+describe the removed paths are kept as history and say so where it matters.
 
 ## 2. Brain analog
 
@@ -73,8 +91,9 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   backfill and the whole sleep cycle — and froze the day's ask cap with them. Each step now
   asks its own question and records its own answer by name (`sweep.gate` with
   `reason: "no-credential"`; `no-credentials` / `embedder-off` on the vector steps).
-- **The credential comes from the environment first and, where the host gives a process
-  none, from the ONE file this package's own config names (`credentialsFile`).** [v1's
+- *(Removed 2026-09-24 with the keys — §1a.)* **The credential comes from the environment
+  first and, where the host gives a process none, from the ONE file this package's own
+  config names (`credentialsFile`).** [v1's
   `.env` fallback, ported as a scar rather than as code] Measured day 0 of the parallel
   run: this host's hook processes carry neither documented name even with both exported in
   the owner's shell rc. A file the config NAMES is "one configured source the package
@@ -159,8 +178,8 @@ assistant line the host synthesised (`isApiErrorMessage`, `model: "<synthetic>"`
 written as an `attachment` (`queued_command`), which this reader does not read.
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
-execution ceiling, socket lifetime, credential availability AND which source answered —
-`env` or `file`, name-level only); delivery and stand-down telemetry.
+execution ceiling, socket lifetime); delivery and stand-down telemetry. (A `credential`
+row, saying which source answered, existed until the keys were removed — §1a.)
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
@@ -283,9 +302,9 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     wired; this is the GUARANTEED path, because a memory that predates the embedder, or
     arrived by migration, has nothing and no future deposit comes back for it.
 17. **[M] The deliberate ask MAY embed in line, and says which channel answered.** The
-    MCP entry point loads the same 0600 credentials file the hook entry point names and
-    hands the server an opened embedder or null; the server never sees a key. A missing
-    one degrades the ask to lexical-only and the result carries `semantic:
+    MCP entry point reads the same configuration the hook entry point does and hands the
+    server an opened embedder (the local table) or null. None degrades the ask to
+    lexical-only and the result carries `semantic:
     "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
 
 18. **[M] ONE ask, on ONE pacer, capped per SESSION PER DAY, and the re-fire advances
@@ -652,35 +671,21 @@ mark that will not land hands nothing over. Never under observer; never in a dir
 `off` (the entry point returns before anything opens). The whole body is fail-open: a
 throw costs the pointer and never the wake or the other ask (asserted byte for byte).
 
-**[M] The API sweep is opt-in, and it and the write-up know each other.**
-`crashWriteUp: "api"` AND the key: then the worker's sweep runs, and the pointer leaves
-the sessions it will read to it (`config.ts#apiSweepOn`, `sessions.ts#sweepOwns`). The
-knob reads any other value as `next-session` and names it (`crashWriteUpIgnored`, printed
-by doctor) — never observer (m3). The worker hands the sweep an interpreter that knows the
-write-up marks (`bin/runner.ts#sweepAware`): a session already marked written up is not
-read again (a chunk of only such sessions is retired with no model call; in a mixed chunk
-their words are marked already-authored), and a session every one of whose words — in
-EVERY project it left words in — was read and came back ok is marked written up `by:
-"api"`. A session with words left live, in a claim, or in QUARANTINE, in any project, is
-not marked (MAJOR 5; re-review MAJOR-A): quarantine is what the sweep failed to read, and
-the next session is offered it; and B3 reads a mark for the whole session, so a mark after
-one project's sweep would end the debt of words a resumed session left in another, which
-the next run would then retire unread. Not opted in, the sweep builds no interpreter
-and its gate row says `not-opted-in`; opted in with no key, `no-credential`;
-`runner.done` says `sweep: next-session | no-key | api`.
+**[M] No sweep interprets (2026-09-24).** The opt-in API sweep (`crashWriteUp: "api"` and
+the key) was removed with its key (§1a), and with it the pointer's deference to it
+(`sessions.ts#sweepOwns`) and the worker's `sweepAware` mark `by: "api"`. The worker hands
+the sweep no interpreter; its gate row says `not-opted-in` and `runner.done` says `sweep:
+next-session`. A crashed session is pointed at like any other. An old `crashWriteUp` value
+is ignored and named in `retired`.
 
-**[M] Doctor: `Crash write-up`, and the `Sweep` line knows the knob.** `Crash write-up`:
-`next session` green by default; `on (API)` with the knob and the key in the credentials
-file; amber with the knob and no key (its fix is the command); amber when the knob held
-an unknown value (named); amber when a session is finished in one project and waiting on words it left in
+**[M] Doctor: `Crash write-up`, and the `Sweep` line.** `Crash write-up`: `next session`
+green; amber when a session is finished in one project and waiting on words it left in
 another, naming that project (re-review m-C); amber when the newest pointer outcome is a
 DEFERRAL and sessions are waiting — saying the wake was too full, by how many bytes, and to lower
 `injectionBudgetBytes` by that much (never "open a session", which would defer again);
 amber when a session has waited past `WRITE_UP_WAIT_DAYS` (3). Counted with the pointer's
-own eligibility, so under `api` the sweep's sessions are not counted (m4). Never red; not
-in the session-start reading. `Sweep`: `not-opted-in` — and a pre-C2 `no-credential` when
-the knob is absent — is green `next session`; opted in with no key is amber and points at
-the `Crash write-up` line rather than naming the same command twice.
+own eligibility. Never red; not in the session-start reading. `Sweep`: `not-opted-in` —
+and an older build's `no-credential` — is green `next session`.
 
 ## 6. Scars honored
 

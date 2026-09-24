@@ -340,8 +340,7 @@ The standalone verb does not ask either: typing it is the yes.*
     firing at a store that is gone.*
 27. **[M] `uninstall` acts on an EXPLICIT LIST of what this package writes, never on
     "the directory the configuration sits in".** The list is the configuration file and our
-    own temp and backup siblings of it, `credentials.env` (or whatever the configuration
-    NAMES, when that sits beside it), `scopes.json` and its siblings, the `snapshots/` this
+    own temp and backup siblings of it, `scopes.json` and its siblings, the `snapshots/` this
     layout owns, and the STORE at `dataDir` **wherever that is**. The configuration
     directory itself moves or goes only when it holds nothing else — which keeps the
     ordinary `~/.counterparts` a single atomic rename; when it holds anything foreign the
@@ -421,7 +420,7 @@ The standalone verb does not ask either: typing it is the yes.*
     question carrying what it buys, where Enter is no; only a yes prints the link and takes
     the hidden paste. A key already held is asked `… is already saved. Replace it? [y/N]`,
     default no. `offerEmbedder` was split out of the same function so that
-    `credentials set VOYAGE_API_KEY` at a terminal puts the same question — which is what
+    `credentials set` for the Voyage key at a terminal puts the same question — which is what
     makes guarantee 35's fix line true of the embedder as well.*
     *SUPERSEDED 2026-09-23 by guarantee 39 (roadmap C3): the install asks about no key.
     `promptForKeys`, `offerEmbedder` and `enableEmbedder` are gone from `keys.ts`; what
@@ -507,10 +506,12 @@ The standalone verb does not ask either: typing it is the yes.*
     `--all` invitation disappears, because nothing was hidden. The fold is an **allowlist of
     headline keys**, not a list of what folds, so a line added next month folds by default.
 
-### Keyless by default (2026-09-23, roadmap C3)
+### Keyless by default (2026-09-23, roadmap C3) — and keyless only (2026-09-24)
 
-39. **[M] `install` asks about NO key, and turns on only the local table.** Both API keys
-    are upgrades (roadmap C; ROADMAP §"Amendments": static is primary, Voyage is FROZEN).
+39. **[M] `install` asks about NO key, and turns on only the local table.** *(Since
+    2026-09-24 there are no keys at all — guarantee 42; the Voyage clauses below are
+    history.)* Both API keys were upgrades (roadmap C; ROADMAP §"Amendments": static is
+    primary, Voyage was FROZEN).
     On a terminal a configuration being CREATED gets `"embedder": { "enabled": true,
     "kind": "static" }` without a question — the table sends nothing anywhere, so there is
     no egress to consent to; `--no-embedder` says no. Off a terminal no block is written
@@ -519,7 +520,7 @@ The standalone verb does not ask either: typing it is the yes.*
     by this command** (`install.ts#resolveEmbedderBlock`; review of #190, MINOR 4; review
     of #195, MAJOR 1). Turning it ON: a block that was ON with `kind: "voyage"` is kept as
     `{ enabled: true, kind: "voyage" }`; a block that was ON with no kind, beside a saved
-    `VOYAGE_API_KEY`, is kept kind-less as `{ enabled: true }` (a running 0.2.0 Voyage
+    Voyage key, is kept kind-less as `{ enabled: true }` (a running 0.2.0 Voyage
     setup); everything else — a new install, no block, a static block, and **any block that
     was OFF whatever kind it records** — becomes `{ enabled: true, kind: "static" }`.
     Turning it OFF keeps the kind the replaced block records, as recorded (`{ enabled:
@@ -535,12 +536,13 @@ The standalone verb does not ask either: typing it is the yes.*
     the configuration asks for the table and it is not where the hooks will look
     (`resolveStaticWeights` + the table file), the conversation says so with the fix and
     its last line stops promising all green.
-40. **[M] `credentials set` is the one door for a key, and a key is not consent.**
-    `ANTHROPIC_API_KEY` typed at a terminal is followed by ONE `[y/N]` question — *Write up
+40. *(REMOVED 2026-09-24 with the command — guarantee 42. History:)* **[M] `credentials
+    set` is the one door for a key, and a key is not consent.** The Anthropic key typed at
+    a terminal is followed by ONE `[y/N]` question — *Write up
     ended sessions with the API from now on?* — with the egress (the conversation goes to
     Anthropic) said above it; only a yes writes `"crashWriteUp": "api"` (C2's knob, #192),
     through `setConfigKeys`: atomic, every other key kept in its order, through a symlink,
-    never creating the file. A switch already on is not asked about. `VOYAGE_API_KEY` asks
+    never creating the file. A switch already on is not asked about. The Voyage key asks
     nothing and turns nothing on; one line (`keys.ts#voyageKeyLine`) says whether this
     configuration names Voyage (the key is used; Voyage is deprecated) or not (nothing turns
     on; the local table is the default) — on the piped arm too, after the receipt line,
@@ -554,9 +556,10 @@ The standalone verb does not ask either: typing it is the yes.*
     ALREADY held a Voyage key and there is no block, recall by meaning is off, and the line
     says that instead (MINOR 4). Every configuration edit keeps the file's indent, line
     endings and final newline, and a one-line file stays one line (NIT 7).
-41. **[M] An absent `embedder` block is the local table, ON — unless the credentials FILE
-    holds `VOYAGE_API_KEY`** (coordinator's ruling 2026-09-23; `claude-code/config.ts#
-    resolveEmbedder`). The privacy reason absent meant off was the paid seat; the table
+41. **[M] An absent `embedder` block is the local table, ON** (coordinator's ruling
+    2026-09-23; `claude-code/config.ts#resolveEmbedder`). *(Until 2026-09-24 a Voyage key
+    saved in the credentials file kept an absent block off; the rest of this paragraph
+    describes that exception, which went with the keys.)* The privacy reason absent meant off was the paid seat; the table
     has no egress, and every 0.2.0 configuration has no block, so this is what switches
     those installs on without a step. A block the file writes is used exactly as written,
     `{ "enabled": false }` included. With no block and a saved Voyage key, nothing is
@@ -568,8 +571,16 @@ The standalone verb does not ask either: typing it is the yes.*
     is applied by every process that builds a configuration — the hook (`bin/hook.ts#
     hostConfig`), the worker (`bin/runner.ts#runnerConfig`), the MCP server
     (`mcp/bin/serve.ts#questionEmbedder`), this console (`hostConfigFor`) — and doctor
-    re-resolves from its own inputs. `loadConfig` itself stays strict and pure: the rule
-    needs the credentials file, which the configuration names.
+    re-resolves from its own inputs. `loadConfig` itself stays strict and pure.
+42. **[M] Keyless only (owner, 2026-09-24).** There is no `credentials` command, no
+    credentials file and no key anywhere in the console: `install` writes the store and
+    the configuration and nothing else, and never writes `credentialsFile`; a forced
+    rewrite drops the retired keys (`credentialsFile`, `models`, `crashWriteUp`) rather
+    than carrying them (`commands.ts#carryForward`). An old `credentials.env` beside the
+    configuration is not ours any more — it may hold somebody's keys — so `uninstall`
+    treats it as foreign (never moved, never deleted, and named with one sentence saying
+    what it is), and `start-fresh` leaves it byte for byte. `doctor` has no Credentials
+    line; the configuration's retired settings are one green `Old settings` note.
 
 ## 6. Scars honored
 

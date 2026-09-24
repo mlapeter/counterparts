@@ -612,3 +612,10 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
   had already been asked at a Stop, `owes.ts` counts them as its answer to that ask. The
   pointer arrives at SessionStart, before any Stop ask, so the ordinary order is the
   harmless one; the other order is named, not guarded.
+
+## Keyless (2026-09-24)
+
+`bin/serve.ts` no longer loads a credentials file or warns about its mode: the only
+embedder is the local table, so `questionEmbedder` reads the configuration and opens the
+table (or nothing, when the configuration switches it off). The notes above about "whose
+keys" a configuration answers are history — it now answers "whose embedder knob".

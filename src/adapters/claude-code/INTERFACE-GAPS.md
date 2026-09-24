@@ -268,13 +268,16 @@ this change did to them.
 
 ## 8. The embedder: what it closed, and the four things it deliberately did not
 
+*(History. The Voyage client this section describes was removed on 2026-09-24 with the
+API keys — CONTRACT §1a; the local table is the only embedder now.)*
+
 Written 2026-08-29 alongside `embed-client.ts` — the first embedder this package
 has ever had. `Store.open({ embed })` held the socket from the day it was
 written and nothing constructed one, so every memory in the store recorded
 `novelty: null`, reason `no-chunk-vector` (replay review F4/F5).
 
 **Closed.** A Voyage client on bare `fetch`, chunked with per-chunk failure
-isolation (E1), credential from `VOYAGE_API_KEY` alone with a named pre-flight
+isolation (E1), credential from the Voyage key alone with a named pre-flight
 refusal (§2.18), its own pinned seat with an expiring placeholder (§2.15), and
 egress behind an explicit `embedder.enabled` knob that defaults OFF. Both
 composition roots build it: `openAdapter` and `bin/runner.ts` — the second
@@ -743,9 +746,12 @@ fix, not built: skip the scan when nothing has changed since the last plan (a me
 of the newest boundary/write-up/answer time the plan saw, compared before scanning), and
 treat a plan that found nothing owed as spending the day's check.
 
-## 16. For C3: the opt-in is `crashWriteUp: "api"` (2026-09-23, C2)
+## 16. For C3: the opt-in is `crashWriteUp: "api"` (2026-09-23, C2) — CLOSED 2026-09-24 by removal
 
-`credentials set ANTHROPIC_API_KEY` should offer to write `"crashWriteUp": "api"` into
+*The API sweep, the key and `credentials set` were removed on 2026-09-24 (CONTRACT §1a);
+an old `crashWriteUp` value is ignored and named in `retired`. Kept as history:*
+
+`credentials set` for the Anthropic key should offer to write `"crashWriteUp": "api"` into
 `claude-code.json` (strict: `"api"` or `"next-session"`, anything else stands the config
 down to observer; absent is `next-session`). The API sweep runs only with both the knob
 and the key (`config.ts#apiSweepOn`). Doctor's two lines — `Crash write-up` and `Sweep` —

@@ -1373,3 +1373,32 @@ What the build settled, beyond the CONTRACT section:
   the amber `Sweep … no-credential` and the `Crash write-up` line name the same command
   (#188's report); C2 (#192) owns both lines and folds them with its `not-opted-in`
   reason.
+
+## Keyless (2026-09-24, owner's word)
+
+- **Removed:** `interpret-client.ts` (the Anthropic write-up of crashed sessions),
+  `credentials.ts` (the credentials file), the paid half of `embed-client.ts` (Voyage),
+  the `crashWriteUp` / `models` / `credentialsFile` keys, `apiSweepOn`, the seat helpers,
+  the `credential` capability row, `runner.ts#sweepAware`, and `sessions.ts#sweepOwns`
+  with the `sweep` option it fed. Why: "no keys; nothing leaves your machine except
+  through Claude Code", said without an asterisk. No migration: essentially no install
+  had a key.
+- **Old configurations are read, not refused.** Each removed key lands in
+  `AdapterConfig.retired` (a phrase for a person), and doctor prints them on one green
+  `Old settings` line — the owner's live file carries `credentialsFile`, and a key he no
+  longer needs must not cost a grade, let alone his memory. `embedder.kind: "voyage"` reads
+  as the table; `crashWriteUp: "next-session"` is not worth a note.
+- **The page writer's command is not configurable** (a supply-chain scanner's "runs a
+  command named by config"). The spawn is always `claude`; `pageWriter.command` is retired
+  like the keys, and the tests reach the stub through `PageWriterPlanInput.command` /
+  `runPageWriter({ command })`, which only code can pass. The child's inherited
+  environment is unchanged (filtering it could break `claude`'s own auth).
+- **A store holding Voyage vectors** is HELD under the table, as before (cache v5 never
+  drops paid rows at open); the one exit `heldExits` names now is the drop
+  (`verify --rebuild --drop-vectors`), since the model that wrote them cannot be
+  configured again. Nobody is known to have such a store.
+- **The backfill tells the table from an injected embedder by `kind`**, not by the
+  removed `needsCredential`: the table's limit is `STATIC_BACKFILL_LIMIT` and its misses
+  are the item's; anything else keeps the paid-shaped rules (limit 64, blame only an
+  item the embedder named). Core's `no-credential` / `no-credentials` reasons are left in
+  its vocabulary, because rows already written carry them.

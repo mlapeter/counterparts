@@ -11,6 +11,9 @@ dependencies.
 paid Voyage seat (`adapters/claude-code/embed-client.ts`) is **frozen**: deprecated, not
 removed — its code and the store's protection of vectors it already paid for stay, and no
 new Voyage behaviour is written. Recall is retuned for this table (`keyless/recall-tune`).
+**2026-09-24 (owner):** the Voyage seat was then removed outright with the API keys, so this
+table is the only embedder the Claude Code adapter opens. The store's protection of
+vectors from another model (the identity tag, the hold) is core's and stays.
 
 ## 2. Brain analog
 
