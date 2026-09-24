@@ -53,10 +53,26 @@ a badge or softer copy when the site is next touched.
    - Later: interactive `counterparts ask` in the terminal (arrow keys, Enter expands; the
      owner's idea, after the ask-readable change lands).
 
+**Status (2026-09-24, afternoon).** Steps 1 and 2 are built and in 0.3.0: #207 (pacing counts
+what the person typed; first ask at 6 typed turns or 24 KB of combined text, then 8 more or 24 KB
+more; 12 a day; doctor amber only on loss), #204 (store reads, WAL fold), #208 (`note` embeds on
+write). The owner confirmed all nine 09-20 defaults. #211 marked 31 closed gap entries.
+
+**Near term, beside the dashboard work:**
+- In flight: prompts typed mid-turn (`queued_command` attachments, ~7% of typed prompts) are
+  captured and paced; a snapshot before any schema migration; entity cards fade gently (lived
+  and calendar floors, people slowest; wired into sleep).
+- The model version on each journal chapter (the owner wants it; path in `self/NOTES.md` §24).
+- **Windows.** Untested, and the code assumes Unix in places: `pgrep`, `0600` permissions,
+  POSIX signals, rename semantics, the hook command lines install writes, and nothing checks for
+  `win32`. Try WSL first (it is Linux, and Linux is untested too), then native Windows. Until
+  then the site says Mac, with Linux untested.
+
 **How it runs.** One coordinator session holds this plan. Builders are Opus agents, each in its
 own worktree with file ownership drawn, and adversarial review on anything that touches a store,
 a person's config, or the boundary rituals. The owner talks with the coordinator one topic at a
-time while builders run. The owner merges; publishes and deploys happen on his word. When the
+time while builders run. The coordinator merges what it has verified (suite and typecheck on a
+clean checkout, a review where one is due); publishes and deploys happen on the owner's word. When the
 coordinator's context grows long, it writes a handoff and a fresh session picks up from here.
 
 ---
