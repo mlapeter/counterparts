@@ -1310,6 +1310,13 @@ const PRIVATE_HELPERS = new Set([
   "fadedElsewhere",
   // The live cards a handle resolves to, shared by the title and text paths.
   "liveHolders",
+  // A mention's tail after the name is admitted, shared by the title path and a
+  // body mention that brings a faded card back (NOTES §15); and its refusal.
+  "settle",
+  "refuseBirth",
+  // The faded cards a handle names, and bringing one back through `settle`.
+  "fadedHolders",
+  "revive",
   // The gentle-fade reads: calendar days since last use (a lower bound), and the
   // sweep's anchor that makes them knowable (NOTES §14).
   "calendarDaysSinceUse",

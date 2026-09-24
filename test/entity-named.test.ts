@@ -4,8 +4,9 @@
  * The title path only credits a card when a memory is TITLED with its name. A
  * person talked about every day in memories titled otherwise would fade once the
  * floors passed; now any saved memory that names a live card, in its title or
- * body, refreshes it. Nothing is born this way, a faded card stays faded, and an
- * ambiguous handle credits no one.
+ * body, refreshes it, and one naming a faded card brings it back as the title
+ * path does. Nothing that never had a card is born, and an ambiguous handle
+ * credits no one.
  *
  * Hermetic: every test makes a fresh temp data dir and removes only that path.
  */
@@ -208,33 +209,36 @@ describe("what a body mention does not do", () => {
     expect(st.physicsOf(mike).lastUsedDay).toBe(0);
   });
 
-  test("a faded card is not revived by a body mention", () => {
+  test("a pruned card is not brought back", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const id = mention(s, "Ephemeral", "entity");
+    st.archive(id, "pruned");
+
+    // Seen by the long-lived index at its first lookup, and by a fresh open.
+    for (const reader of [s, Schemas.open({ store: st })]) {
+      const out = reader.creditNamedIn({ text: "Ephemeral came up again today.", day: 5, ref: "m1" });
+      expect(out.revived).toEqual([]);
+      expect(out.credited).toEqual([]);
+      expect(reader.entities()).toHaveLength(0);
+    }
+    expect(s.events("schema.birth")).toHaveLength(1);
+  });
+
+  test("a faded card the owner removed is not brought back", () => {
     const st = store();
     const s = Schemas.open({ store: st });
     const id = mention(s, "Ephemeral", "entity");
     const at = pastAll("entity");
     expect(s.fadeSweep(at.day, { date: at.date }).faded).toEqual([id]);
+    st.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "test" });
 
-    const out = s.creditNamedIn({ text: "Ephemeral came up again today.", day: at.day + 1, ref: "m1" });
-    expect(out.credited).toEqual([]);
-    expect(s.entity(id)?.archived).toBe(true);
-    expect(s.entities()).toHaveLength(0);
-    expect(st.physicsOf(id).lastUsedDay).toBe(0);
-  });
-
-  test("…including one faded by another process's cycle", () => {
-    const st = store();
-    const longLived = Schemas.open({ store: st });
-    const id = mention(longLived, "Ephemeral", "entity");
-    const worker = Schemas.open({ store: st });
-    const at = pastAll("entity");
-    expect(worker.fadeSweep(at.day, { date: at.date }).faded).toEqual([id]);
-
-    const out = longLived.creditNamedIn({ text: "Ephemeral came up again.", day: at.day + 1, ref: "m1" });
-    expect(out.credited).toEqual([]);
-    expect(out.refused).toEqual([]);
-    expect(st.physicsOf(id).lastUsedDay).toBe(0);
-    expect(longLived.entities()).toHaveLength(0);
+    for (const reader of [s, Schemas.open({ store: st })]) {
+      const out = reader.creditNamedIn({ text: "Ephemeral came up again today.", day: at.day + 1, ref: "m1" });
+      expect(out.revived).toEqual([]);
+      expect(reader.entities()).toHaveLength(0);
+    }
+    expect(s.events("schema.birth")).toHaveLength(1);
   });
 
   test("the identity core is left alone, as the title path leaves it", () => {
@@ -255,6 +259,135 @@ describe("what a body mention does not do", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.data?.["credited"]).toBe(true);
     expect(JSON.stringify(events)).not.toContain("Ada");
+  });
+});
+
+describe("a faded card named in a saved memory comes back", () => {
+  /** A person born on day 0 and faded by the gentle-fade sweep. */
+  function fadedPerson(s: Schemas, name: string, aliases?: string[]): { id: string; day: number } {
+    const id = mention(s, name, "person", 0, aliases);
+    const at = pastAll("person");
+    expect(s.fadeSweep(at.day, { date: at.date }).faded).toEqual([id]);
+    return { id, day: at.day + 1 };
+  }
+
+  test("named only in a body: one live card, carrying the old name and aliases, surfacing again", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const old = fadedPerson(s, "Ada Lovelace", ["Ada"]);
+
+    const out = s.creditNamedIn({ text: "Ada called about the garden.", day: old.day, ref: "m1" });
+    expect(out.revived).toHaveLength(1);
+    expect(out.credited).toEqual([]);
+    const back = out.revived[0] as string;
+    expect(back).not.toBe(old.id);
+    expect(s.entities().map((e) => e.id)).toEqual([back]);
+    expect(s.entity(back)?.name).toBe("Ada Lovelace");
+    expect(s.entity(back)?.aliases).toEqual(["Ada"]);
+    expect(s.aliasIndex().lookup("Ada")).toEqual([back]);
+    expect(s.slices().map((sl) => sl.name)).toEqual(["Ada Lovelace"]);
+    // The same return a title mention gives: a fresh birth, the churn counted.
+    expect(s.entity(old.id)?.archived).toBe(true);
+    const after = s.events("schema.birth.after-fade");
+    expect(after).toHaveLength(1);
+    expect(after[0]?.data?.["priorId"]).toBe(old.id);
+    expect(s.events("schema.mention.revived")[0]?.data?.["priorId"]).toBe(old.id);
+    expect(JSON.stringify([...after, ...s.events("schema.mention.revived")])).not.toContain("Ada");
+  });
+
+  test("faded by another process's cycle: the long-lived index brings it back too", () => {
+    const st = store();
+    const longLived = Schemas.open({ store: st });
+    const id = mention(longLived, "Ephemeral", "entity");
+    const worker = Schemas.open({ store: st });
+    const at = pastAll("entity");
+    expect(worker.fadeSweep(at.day, { date: at.date }).faded).toEqual([id]);
+
+    const out = longLived.creditNamedIn({ text: "Ephemeral came up again.", day: at.day + 1, ref: "m1" });
+    expect(out.revived).toHaveLength(1);
+    expect(out.credited).toEqual([]);
+    // The archived row was not credited; the new card is the live one.
+    expect(st.physicsOf(id).lastUsedDay).toBe(0);
+    expect(longLived.entities().map((e) => e.id)).toEqual(out.revived);
+  });
+
+  test("two memories naming it in one lived day: one card, and later bodies credit it", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const old = fadedPerson(s, "Ada Lovelace", ["Ada"]);
+
+    const first = s.creditNamedIn({ text: "Ada Lovelace came by; Ada brought tea.", day: old.day, ref: "m1" });
+    expect(first.revived).toHaveLength(1);
+    const back = first.revived[0] as string;
+    const second = s.creditNamedIn({ text: "Ada again, later that day.", day: old.day, ref: "m2" });
+    expect(second.revived).toEqual([]);
+    expect(second.refused).toEqual([back]);
+    // A fresh open agrees: the old card is the new one's past, not a rival.
+    const reopened = Schemas.open({ store: st });
+    const third = reopened.creditNamedIn({ text: "Ada, once more.", day: old.day, ref: "m3" });
+    expect(third.revived).toEqual([]);
+    expect(third.ambiguous).toBe(0);
+    expect(reopened.entities().map((e) => e.id)).toEqual([back]);
+
+    const nextDay = s.creditNamedIn({ text: "Ada said hi.", day: old.day + 1, ref: "m4" });
+    expect(nextDay.credited).toEqual([back]);
+    expect(nextDay.ambiguous).toBe(0);
+    expect(s.events("schema.birth")).toHaveLength(2);
+  });
+
+  test("faded twice: the next body mention still brings back one card", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const first = fadedPerson(s, "Ada", undefined);
+    const back = s.creditNamedIn({ text: "Ada came by.", day: first.day, ref: "m1" }).revived[0] as string;
+    const at = pastAll("person");
+    const again = { day: first.day + livedFloor("person"), date: addDays(at.date, 1 + calendarFloor("person")) };
+    expect(s.fadeSweep(again.day, { date: again.date }).faded).toEqual([back]);
+
+    const out = s.creditNamedIn({ text: "Ada came by again.", day: again.day + 1, ref: "m2" });
+    expect(out.revived).toHaveLength(1);
+    expect(out.ambiguous).toBe(0);
+    expect(s.entities()).toHaveLength(1);
+  });
+
+  test("a handle held by a live card and a faded one: neither is credited or brought back", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const park = fadedPerson(s, "Robert Park", ["Bobby"]);
+    const chen = mention(s, "Bobby Chen", "person", park.day, ["Bobby"]);
+    expect(s.aliasIndex().lookup("Bobby")).toEqual([chen]);
+
+    const out = s.creditNamedIn({ text: "Bobby dropped by with coffee.", day: park.day + 1, ref: "m1" });
+    expect(out.ambiguous).toBe(1);
+    expect(out.credited).toEqual([]);
+    expect(out.revived).toEqual([]);
+    expect(s.entities().map((e) => e.id)).toEqual([chen]);
+
+    // By full name, each is unambiguous: Chen is credited, Park comes back.
+    const named = s.creditNamedIn({ text: "Bobby Chen and Robert Park both came.", day: park.day + 2, ref: "m2" });
+    expect(named.credited).toEqual([chen]);
+    expect(named.revived).toHaveLength(1);
+    expect(s.entities()).toHaveLength(2);
+  });
+
+  test("a return the title path would refuse is refused here too", () => {
+    const st = store();
+    const s = Schemas.open({ store: st });
+    const park = fadedPerson(s, "Mac Park", undefined);
+    mention(s, "Mac", "person", park.day);
+    // "Mac Park" near-collides with the live "Mac", as a titled memory would.
+    const out = s.creditNamedIn({ text: "Mac Park came by.", day: park.day + 1, ref: "m1" });
+    expect(out.revived).toEqual([]);
+    expect(s.entities()).toHaveLength(1);
+    expect(s.events("schema.mention.revived")[0]?.data?.["reason"]).toBe("collision-near");
+  });
+
+  test("a name that never had a card is still not born", () => {
+    const s = Schemas.open({ store: store() });
+    const old = fadedPerson(s, "Ada", undefined);
+    const out = s.creditNamedIn({ text: "Zelda Fitzgerald called.", day: old.day, ref: "m1" });
+    expect(out.revived).toEqual([]);
+    expect(s.entities()).toHaveLength(0);
   });
 });
 
@@ -351,6 +484,23 @@ describe("every door that mints credits the cards it names", () => {
     expect(c.store.physicsOf(ada).lastUsedDay).toBe(4);
   });
 
+  test("a note naming a faded person brings them back, and says so", async () => {
+    const c = root();
+    const ada = mention(c.schemas, "Ada", "person");
+    const at = pastAll("person");
+    expect(c.schemas.fadeSweep(at.day, { date: at.date }).faded).toEqual([ada]);
+    setClock(c.store, at.day + 1, addDays(at.date, 1));
+    const out = await c.submitJot(
+      { content: "Ada lent me her pruning shears; return them before the weekend.", kind: "fact", title: "Shears" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+    const live = c.schemas.entities();
+    expect(live).toHaveLength(1);
+    expect(live[0]?.id).not.toBe(ada);
+    expect(c.events("counterpart.mention.named")[0]?.data?.["revived"]).toBe(1);
+  });
+
   test("an observer mints nothing and credits nothing", async () => {
     const seed = root();
     const ada = withAda(seed);
@@ -366,6 +516,25 @@ describe("every door that mints credits the cards it names", () => {
     expect(probe.events("counterpart.mention.named")).toHaveLength(0);
     expect(probe.store.physicsOf(ada).lastUsedDay).toBe(0);
     expect(probe.store.physicsOf(ada).uses).toBe(0);
+  });
+
+  test("an observer brings nothing back", async () => {
+    const seed = root();
+    const ada = mention(seed.schemas, "Ada", "person");
+    const at = pastAll("person");
+    expect(seed.schemas.fadeSweep(at.day, { date: at.date }).faded).toEqual([ada]);
+    setClock(seed.store, at.day + 1, addDays(at.date, 1));
+    seed.close();
+    opened.splice(opened.indexOf(seed), 1);
+
+    const probe = root({ observer: true });
+    await probe.submitJot(
+      { content: "Ada lent me her pruning shears; return them before the weekend.", kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(probe.events("counterpart.mention.named")).toHaveLength(0);
+    expect(probe.schemas.entities()).toHaveLength(0);
+    expect(probe.store.list({ type: "schema" })).toEqual([ada]);
   });
 
   test("daily notes through the composition root, a full boundary per lived day: the person stays", async () => {

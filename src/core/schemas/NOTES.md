@@ -85,6 +85,9 @@ defect, telemetry has to be able to say so).
 The alternative — reviving the archived row — would need an unarchive verb on the
 store and would make "died by decay" a lie the first time it happened.
 
+Since 2026-09-24 a saved memory naming the faded card in its text counts as "mentioned
+again" too, through the same birth (§15).
+
 ## 7. Near collision is token containment, and it is CAL
 
 "Mike" against "Mike Chen" refuses. The rule is token containment because that is
@@ -325,19 +328,32 @@ credits each live card named there as a whole word (the one rule, `encode/words.
 through `AliasIndex.matchesIn`). The credit is the title path's: `store.reinforce` at
 `MENTION_TIER`, so physics' birth-day and once-per-lived-day refusals apply, and a card is
 credited at most once per memory however often it is named. The card the title path just
-handled is skipped. One pass over the live index per memory.
+handled is skipped. One pass over the live index per memory, and one over the faded
+cards' handles.
 
 What it does not do:
 
-- **birth.** Only the title path births; text only refreshes cards that exist.
-- **credit an ambiguous handle.** A handle two live cards share credits neither, as the
-  title path refuses it. A card still named by its own unambiguous name or alias is credited.
-- **revive a faded card.** An archived card is not in the index (and one faded by another
-  process is dropped at the lookup, as `mention` does). Re-birth stays the title path's
-  job. Open question: whether a faded person named in bodies should come back — for now,
-  titling a memory with the name is how they do.
+- **birth a card that never existed.** Text only refreshes cards that exist, or brings
+  back one that faded (below).
+- **credit an ambiguous handle.** A handle two cards share — live or faded — credits and
+  revives neither, as the title path refuses it. A card still named by its own
+  unambiguous name or alias is credited.
+- **bring back a card pruned or removed.** Only cards archived by the fade come back.
 - **touch the identity core.** A `kind: "self"` card is skipped, as the title path refuses it.
 - **write under observer.** No door mints under observer, and the composition checks too.
+
+**A faded card named in the text comes back** (owner, 2026-09-24: if you're talking about
+someone again, they matter again). It returns the way a title mention returns it (§6): a
+fresh birth through `mention`'s own tail (`settle` → `birth`), tagged
+`schema.birth.after-fade`, plus a `schema.mention.revived` event naming the prior id.
+The new card carries the old name and aliases, so a later alias mention resolves; an
+alias a live card now holds is dropped, as at any birth. The title path's refusals
+apply (a near collision with a live card keeps it faded); the per-chunk birth cap does
+not, since nothing is invented. Faded cards live in a second `AliasIndex` fed at open,
+by the sweep, and when a card faded by another process is dropped from the live index.
+A faded card whose exact name a live card holds is that card's past life, not a rival
+handle; of several faded cards with one name, the latest-born speaks. So two memories
+naming a faded person on one lived day make one card, and later bodies credit it.
 
 One difference from the title path, on purpose: when the title path refuses a mention
 (say a memory titled "Portland" as a `person` while a `place` card holds the name), the

@@ -130,7 +130,9 @@ export interface NamedInTextReport {
   credited: string[];
   /** Cards named but not credited: physics refused (birth day, already used today). */
   refused: string[];
-  /** Handles in the text that resolve to more than one live card; none of those is credited. */
+  /** New cards born for faded cards the text named: each one's return. */
+  revived: string[];
+  /** Handles in the text held by more than one card, live or faded; none of those is credited or revived. */
   ambiguous: number;
 }
 
