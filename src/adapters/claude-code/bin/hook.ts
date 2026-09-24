@@ -376,6 +376,8 @@ export function toHookInput(
     scope,
     turns: transcript.turns,
     expansions: transcript.expansions,
+    // A named transcript that would not read is not an empty conversation.
+    ...(transcriptPath !== undefined && !transcript.ok ? { turnsUnread: true } : {}),
     // THE PATH ITSELF, beside the parse of it. The delivery check reads the head
     // of the same file for the attachment `parseTranscript` deliberately skips
     // (`hooks.ts#checkWakeArrival`), and a parsed turn list cannot answer for

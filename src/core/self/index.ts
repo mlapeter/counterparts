@@ -146,6 +146,7 @@ import type {
   EpisodeProposal,
   EpisodeState,
   IngestResult,
+  PaceOptions,
   Substance,
 } from "./episodes.js";
 import {
@@ -1602,13 +1603,29 @@ export class Self {
     return loadEpisodeState(this.store, sessionId, d).state;
   }
 
-  /** Pure: is a chapter due? No state advances, nothing is written. */
-  askDue(sessionId: string, substance: Substance, day?: number): AskVerdict {
+  /** Pure: is a chapter due? No state advances, nothing is written. Reads the
+   *  watermark `openChapter` would re-base to, so the two agree. */
+  askDue(sessionId: string, substance: Substance, day?: number, opts: PaceOptions = {}): AskVerdict {
     const d = day ?? this.store.livedDay();
-    return askDue(this.episodeState(sessionId, d), substance, this.tunables, {
+    return askDue(this.pacedState(sessionId, substance, d, opts).state, substance, this.tunables, {
       observer: this.observer,
       today: this.calendarToday(),
     });
+  }
+
+  /** The session's state as the pacer should read it: re-based when it carries
+   *  an old-counting watermark (`rebasedWatermark`), unless the caller says the
+   *  substance is not a real count. */
+  private pacedState(
+    sessionId: string,
+    substance: Substance,
+    day: number,
+    opts: PaceOptions,
+  ): { state: EpisodeState; rebased: boolean } {
+    const state = this.episodeState(sessionId, day);
+    if (opts.rebase === false || sessionId.trim().length === 0) return { state, rebased: false };
+    const rebased = rebasedWatermark(state, substance);
+    return rebased === null ? { state, rebased: false } : { state: rebased, rebased: true };
   }
 
   /**
@@ -1616,25 +1633,22 @@ export class Self {
    * blocks** (§13 G3–G4), so a crash cannot re-ask in a loop. The state write
    * happens here, before the caller ever hands the text to a model.
    */
-  openChapter(sessionId: string, substance: Substance, day?: number): ChapterAsk {
+  openChapter(sessionId: string, substance: Substance, day?: number, opts: PaceOptions = {}): ChapterAsk {
     const d = day ?? this.store.livedDay();
     // The CALENDAR day the allowance is charged to, read once so the verdict and
     // the advance cannot straddle midnight (`episodes.ts#asksSpentOn` carries
     // why it is the calendar date and not the lived one). LOCAL midnight since
     // 2026-09-23 (`calendar.ts`), not UTC's.
     const today = this.calendarToday();
-    let state = this.episodeState(sessionId, d);
     // Persisted once, whether or not an ask is due, so a watermark left by an
     // older counting rule cannot hold the re-ask off (`rebasedWatermark`).
-    const rebased = sessionId.trim().length === 0 ? null : rebasedWatermark(state, substance);
-    if (rebased !== null) {
+    const paced = this.pacedState(sessionId, substance, d, opts);
+    const state = paced.state;
+    if (paced.rebased) {
       this.emit("self.episode.rebased", sessionId, {
-        fromTurns: state.askedAtTurns,
-        fromBytes: state.askedAtBytes,
-        toTurns: rebased.askedAtTurns,
-        toBytes: rebased.askedAtBytes,
+        fromTurns: this.episodeState(sessionId, d).askedAtTurns,
+        toTurns: state.askedAtTurns,
       });
-      state = rebased;
       this.persistState(state, "rebase");
     }
     const verdict = askDue(state, substance, this.tunables, {
@@ -1993,10 +2007,11 @@ export class Self {
    * miss is measurable before anyone debates a reconstruction fallback — the
    * right shape for an unfixable gap: bound it, measure it, don't pretend.
    */
-  noteOrphanTail(sessionId: string, substance: Substance, day?: number): AskVerdict {
-    // The SAME verdict the ask would get, from the session's own state: the tail
-    // telemetry and the ask must never disagree about why nothing was asked.
-    const verdict = this.askDue(sessionId, substance, day);
+  noteOrphanTail(sessionId: string, substance: Substance, day?: number, opts: PaceOptions = {}): AskVerdict {
+    // The SAME verdict the ask would get, from the session's own state and the
+    // same re-based watermark: the tail telemetry and the ask must never
+    // disagree about why nothing was asked.
+    const verdict = this.askDue(sessionId, substance, day, opts);
     this.emit("self.episode.tail", sessionId, {
       sinceTurns: verdict.sinceTurns,
       sinceBytes: verdict.sinceBytes,

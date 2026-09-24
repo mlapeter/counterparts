@@ -146,6 +146,9 @@ export interface HookInput {
   readonly scope: string;
   /** The transcript slice the host can see. The cursor decides what is new. */
   readonly turns?: readonly HostTurn[];
+  /** True when the host named a transcript this process could not read: the
+   *  empty `turns` are then not a count, and pacing moves no watermark on them. */
+  readonly turnsUnread?: boolean;
   /** Deliberate-recall calls positioned against `turns` (`transcript.ts#Expansion`). */
   readonly expansions?: readonly Expansion[];
   /** What the user typed this turn (`user-prompt-submit`). */
@@ -1765,7 +1768,9 @@ export class ClaudeCodeAdapter {
       // history of both is in self NOTES. The date on every `adapter.ask` row
       // below answers "how often was the pen offered today" across sessions.
       const substance = substanceOf(input.turns ?? []);
-      const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
+      const chapter = this.counterpart.episodeAsk(input.sessionId, substance, undefined, {
+        rebase: input.turnsUnread !== true,
+      });
       const outcome = chapter.asked
         ? "asked"
         : chapter.verdict.reason === "session-ask-cap"
@@ -2005,7 +2010,9 @@ export class ClaudeCodeAdapter {
       // The same session state the ask above reads, for the same reason: a tail
       // line that disagreed with the ask about why is how this bug gets found
       // twice.
-      this.counterpart.noteOrphanTail(input.sessionId, substanceOf(input.turns ?? []));
+      this.counterpart.noteOrphanTail(input.sessionId, substanceOf(input.turns ?? []), undefined, {
+        rebase: input.turnsUnread !== true,
+      });
     } catch (err) {
       this.emit("adapter.tail.failed", { code: codeOf(err) });
     }

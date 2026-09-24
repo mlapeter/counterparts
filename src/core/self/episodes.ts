@@ -146,6 +146,13 @@ export interface Substance {
   readonly bytes: number;
 }
 
+/** How the pacer may treat a substance reading. `rebase: false` is for a
+ *  caller whose count is not real — a transcript it could not read — so no
+ *  watermark is moved on its account. */
+export interface PaceOptions {
+  readonly rebase?: boolean;
+}
+
 export interface EpisodeState {
   sessionId: string;
   episodeId: string | null;
@@ -370,23 +377,20 @@ export function askDue(
 }
 
 /**
- * A WATERMARK ABOVE THE SUBSTANCE, pulled down to it — or null when there is
- * nothing to pull down.
+ * A TURN WATERMARK LEFT BY THE OLD COUNTING, pulled down to today's count — or
+ * null when the state does not show that pattern.
  *
- * `askedAtTurns`/`askedAtBytes` only ever come from an earlier `substance`, and
- * substance only grows within a session, so a watermark above it means the
- * counting rule changed under a live session (2026-09-24: turns went from both
- * roles' text pieces to typed messages) or the transcript was rewritten. Left
- * alone, `sinceTurns` would read 0 until the new count overtook the old total;
- * re-based, the re-ask measures from now.
+ * On 2026-09-24 turns went from both roles' text pieces to typed messages, and
+ * byte counting did not change. So a session still on an old watermark reads
+ * exactly this way: bytes caught up with it, turns below it. Left alone,
+ * `sinceTurns` would read 0 until typed turns overtook the old total; re-based,
+ * the re-ask measures from now. Anything else — bytes below the watermark too,
+ * which is what a transcript that could not be read looks like — is left
+ * alone, so a failed read can never zero the watermark.
  */
 export function rebasedWatermark(state: EpisodeState, substance: Substance): EpisodeState | null {
-  if (substance.turns >= state.askedAtTurns && substance.bytes >= state.askedAtBytes) return null;
-  return {
-    ...state,
-    askedAtTurns: Math.min(state.askedAtTurns, substance.turns),
-    askedAtBytes: Math.min(state.askedAtBytes, substance.bytes),
-  };
+  if (!(substance.bytes >= state.askedAtBytes && substance.turns < state.askedAtTurns)) return null;
+  return { ...state, askedAtTurns: substance.turns };
 }
 
 /**

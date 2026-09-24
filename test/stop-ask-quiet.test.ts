@@ -25,7 +25,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
+import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { STOP_HUMAN_LINE, stopAsk, substanceOf } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
@@ -456,6 +456,35 @@ describe("the pace is what the person typed; conversation text from both roles i
     expect(stopOn(adapter(), "s-handbacks", entries)).toBeNull();
   });
 
+  test("an unreadable transcript at one Stop moves no watermark, and the next Stop is not due", () => {
+    const a = adapter();
+    const id = "s-unread";
+    recordSession(store, { sessionId: id, scope: project, phase: "start" });
+    const path = join(work, "unread.jsonl");
+    const start = session(T.FIRST_ASK_TURNS, 2, 400);
+    writeFileSync(path, `${jsonl(start)}\n`, "utf8");
+    const stopAt = (transcript: string): string | null =>
+      a.stop(toHookInput({ session_id: id, transcript_path: transcript }, { scope: project })).ask;
+    expect(stopAt(path)).toBe(stopAsk(id, 1));
+
+    // A path that will not read (a directory): no turns, and flagged as unread.
+    const broken = join(work, "not-a-file");
+    mkdirSync(broken);
+    const unread = toHookInput({ session_id: id, transcript_path: broken }, { scope: project });
+    expect(unread.turnsUnread).toBe(true);
+    expect(unread.turns).toEqual([]);
+    expect(a.stop(unread).ask).toBeNull();
+
+    // A few more typed messages — enough to pass REASK_TURNS counted from zero,
+    // not enough counted from the ask.
+    const extra = Math.max(1, T.REASK_TURNS - T.FIRST_ASK_TURNS);
+    expect(extra).toBeLessThan(T.REASK_TURNS);
+    const more = Array.from({ length: extra }, (_, i) => [typedEntry(`More ${String(i)}.`), assistantEntry("Ok.")]).flat();
+    writeFileSync(path, `${jsonl([...start, ...more])}\n`, "utf8");
+    expect(stopAt(path)).toBeNull();
+    expect(a.counterpart.self.episodeState(id).askedAtTurns).toBe(T.FIRST_ASK_TURNS);
+  });
+
   test("ACCEPTANCE: re-ask on typed turns OR text since the last ask; neither is paced", () => {
     const a = adapter();
     const start = session(T.FIRST_ASK_TURNS, 2, 400);
@@ -651,7 +680,7 @@ function runHook(configPath: string, payload: Record<string, unknown>): HookRun 
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/** Twelve real turns and ~7 KB: past `FIRST_ASK_TURNS` and `FIRST_ASK_BYTES`. */
+/** Six typed turns (and ~7 KB of text): enough for the first ask on turns. */
 function writeTranscript(): string {
   const path = join(work, "transcript.jsonl");
   const entries: Record<string, unknown>[] = [];

@@ -1696,6 +1696,25 @@ describe("episodes", () => {
     expect(reborn.events("self.episode.rebased").length).toBe(0);
   });
 
+  test("only the migration pattern re-bases: a reading below the watermark in bytes too moves nothing", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
+    // An empty reading — what a transcript that would not read looks like.
+    expect(self.openChapter("s1", { turns: 0, bytes: 0 }, 4).asked).toBe(false);
+    expect(self.episodeState("s1", 4).askedAtTurns).toBe(SUBSTANCE.turns);
+    expect(self.episodeState("s1", 4).askedAtBytes).toBe(SUBSTANCE.bytes);
+    // And a caller that says its count is not real moves nothing even when the
+    // pattern matches.
+    const low = { turns: SUBSTANCE.turns - 1, bytes: SUBSTANCE.bytes + 1 };
+    self.openChapter("s1", low, 4, { rebase: false });
+    expect(self.episodeState("s1", 4).askedAtTurns).toBe(SUBSTANCE.turns);
+    expect(self.events("self.episode.rebased").length).toBe(0);
+    // The tail reads the same (re-based) watermark as the ask, and writes nothing.
+    expect(self.noteOrphanTail("s1", low, 4).sinceTurns).toBe(0);
+    expect(self.episodeState("s1", 4).askedAtTurns).toBe(SUBSTANCE.turns);
+  });
+
   test("the cap is THE SESSION's — every session on a day is asked, none starved by another", () => {
     // Measured 2026-09-17: a cap of four shared by every session a calendar day
     // held refused 196 of 264 Stops, and the crash fallback wrote 888 memories
