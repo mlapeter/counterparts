@@ -20,7 +20,9 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,6 +40,11 @@ import {
   preMigrationVersions,
 } from "../src/core/store/index.js";
 import { describeFault } from "../src/adapters/claude-code/standdown.js";
+import { doctorFindings, readCounterpartOpen } from "../src/adapters/claude-code/doctor.js";
+import type { CheckoutReading } from "../src/adapters/claude-code/doctor.js";
+import { openCounterpart, run, snapshotsDirBeside } from "../src/adapters/cli/commands.js";
+import { openServer } from "../src/adapters/mcp/index.js";
+import { questionEmbedder } from "../src/adapters/mcp/bin/serve.js";
 import {
   PRE_MIGRATION_KEEP_DAYS,
   expiredPreMigration,
@@ -139,9 +146,11 @@ describe("a copy before the schema changes", () => {
     expect(s.migration).not.toBeNull();
 
     const copies = preMigrationCopies();
-    expect(copies).toEqual([preMigrationName(NOW, OLD, SCHEMA_VERSION)]);
+    expect(copies.length).toBe(1);
     expect(preMigrationVersions(copies[0] ?? "")).toEqual({ from: OLD, to: String(SCHEMA_VERSION) });
-    expect(s.migration).toEqual({ from: OLD, to: SCHEMA_VERSION, snapshot: copies[0] ?? "", dir: snapsDir });
+    expect(s.migration).toEqual({ from: OLD, to: SCHEMA_VERSION, snapshot: copies[0] ?? "", reused: false, dir: snapsDir });
+    // Named by the wall clock, whatever clock the store was handed (NOW is fixed).
+    expect(copies[0]?.slice(0, 10)).toBe(new Date().toISOString().slice(0, 10));
 
     // The copy holds the old version's stamp and the old version's rows.
     const copied = join(snapsDir, copies[0] ?? "", "counterparts.sqlite");
@@ -155,6 +164,7 @@ describe("a copy before the schema changes", () => {
       from: OLD,
       to: SCHEMA_VERSION,
       snapshot: copies[0],
+      reused: false,
       dir: snapsDir,
     });
     // No partial left behind.
@@ -210,7 +220,9 @@ describe("a copy before the schema changes", () => {
     // The hook's sentence carries the reason, since doctor opens as an observer.
     const fault = describeFault(caught);
     expect(fault.code).toBe("MIGRATION_SNAPSHOT_FAILED");
-    expect(fault.reason).toContain("could not be saved first");
+    // The reason leads, so the hook's 200-character cap trims the preamble.
+    expect(fault.reason.startsWith(String(detail["reason"]))).toBe(true);
+    expect(fault.reason).toContain("the store is unchanged");
 
     // The store is still on the old version, with its rows.
     expect(stampOf(paths.operational(dir))).toBe(OLD);
@@ -245,6 +257,174 @@ describe("a copy before the schema changes", () => {
     expect(codeOf(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
     expect(readFileSync(paths.operational(dir)).equals(before)).toBe(true);
     expect(existsSync(snapsDir)).toBe(false);
+  });
+});
+
+describe("a migration that fails after its copy", () => {
+  /** Makes the migration itself fail after the copy: the meta seeds raise. */
+  function breakMigration(): void {
+    const db = new Database(paths.operational(dir));
+    db.run("CREATE TRIGGER boom BEFORE INSERT ON meta BEGIN SELECT RAISE(ABORT, 'boom'); END");
+    db.close();
+  }
+
+  test("repeated opens reuse the one copy instead of taking a new one each time", () => {
+    oldStore();
+    breakMigration();
+    for (let i = 0; i < 4; i++) {
+      expect(codeOf(() => store())).toContain("boom");
+    }
+    expect(preMigrationCopies().length).toBe(1);
+    expect(stampOf(paths.operational(dir))).toBe(OLD);
+  });
+
+  test("an older copy is reused while the live store has not been written since it", () => {
+    oldStore();
+    breakMigration();
+    codeOf(() => store());
+    const [today] = preMigrationCopies();
+    // Make it an older copy: renamed two days back, the live files older still.
+    const older = `${new Date(Date.now() - 2 * 86_400_000).toISOString().replace(/[:.]/g, "-")}-pre-migration-v${OLD}-to-v${String(SCHEMA_VERSION)}`;
+    renameSync(join(snapsDir, today ?? ""), join(snapsDir, older));
+    const threeDaysAgo = (Date.now() - 3 * 86_400_000) / 1000;
+    for (const f of [paths.operational(dir), `${paths.operational(dir)}-wal`]) {
+      if (existsSync(f)) utimesSync(f, threeDaysAgo, threeDaysAgo);
+    }
+    codeOf(() => store());
+    expect(preMigrationCopies()).toEqual([older]);
+
+    // Once the live store is newer than that copy, a fresh one is taken.
+    const now = Date.now() / 1000;
+    utimesSync(paths.operational(dir), now, now);
+    codeOf(() => store());
+    expect(preMigrationCopies().length).toBe(2);
+  });
+
+  test("a successful open after a failed one reuses today's copy and says so", () => {
+    oldStore();
+    breakMigration();
+    codeOf(() => store());
+    const db = new Database(paths.operational(dir));
+    db.run("DROP TRIGGER boom");
+    db.close();
+    const s = store();
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    expect(s.migration?.reused).toBe(true);
+    expect(preMigrationCopies().length).toBe(1);
+  });
+});
+
+describe("doctor on a store behind this build", () => {
+  const checkout: CheckoutReading = {
+    reason: "master",
+    root: "/repo",
+    branch: "master",
+    head: "abc1234",
+    dirty: 0,
+    behindBy: null,
+    originMaster: "abc1234",
+    atMaster: true,
+    timedOut: false,
+  };
+  async function doctor(): Promise<{ code: number; said: string }> {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await run(["doctor", `--dir=${dir}`], {
+      io: { out: (l) => out.push(l), err: (l) => err.push(l) },
+      // Armed, so `--dir` grades the store alone and the default config is not read.
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      home: root,
+      checkout,
+    });
+    return { code, said: [...out, ...err].join("\n") };
+  }
+  function lowerTo(stamp: string): void {
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", [stamp]);
+    db.close();
+  }
+
+  test("a copy that can be made: amber, and the store is left as it was", async () => {
+    oldStore();
+    const before = readFileSync(paths.operational(dir));
+    const { code, said } = await doctor();
+    expect(code).toBe(0);
+    expect(said).toContain(`is on schema v${OLD}; the next session copies it to ${snapsDir}`);
+    expect(said).not.toContain("doctor failed");
+    expect(readFileSync(paths.operational(dir)).equals(before)).toBe(true);
+    // The probe removed what it made: no snapshots directory left behind.
+    expect(existsSync(snapsDir)).toBe(false);
+  });
+
+  test("a copy that cannot be made: red, naming the refusal every hook will meet", async () => {
+    oldStore();
+    mkdirSync(snapsDir, { recursive: true });
+    chmodSync(snapsDir, 0o500);
+    chmodded.push(snapsDir);
+    const { code, said } = await doctor();
+    expect(code).toBe(1);
+    expect(said).toContain("MIGRATION_SNAPSHOT_FAILED");
+    expect(said).toContain("Store open");
+    expect(said).not.toContain("doctor failed");
+  });
+
+  test("two versions back is a clear line, not a crash", async () => {
+    oldStore();
+    lowerTo(String(SCHEMA_VERSION - 2));
+    const { code, said } = await doctor();
+    expect(said).not.toContain("doctor failed");
+    expect(code).toBe(0);
+    expect(said).toContain(`is on schema v${String(SCHEMA_VERSION - 2)}`);
+  });
+
+  test("an observer that could read the old store is still graded on what a session meets", () => {
+    oldStore();
+    mkdirSync(snapsDir, { recursive: true });
+    chmodSync(snapsDir, 0o500);
+    chmodded.push(snapsDir);
+    // As if the read floor admitted this store: the observer open succeeds.
+    const reading = readCounterpartOpen(dir, () => ({ close: () => undefined }));
+    expect(reading.ok).toBe(true);
+    expect(reading.migration?.problem).not.toBeNull();
+    const findings = doctorFindings({
+      configPath: join(root, "claude-code.json"),
+      configReason: "not-read",
+      config: {},
+      dir,
+      store: null,
+      today: "2026-09-24",
+      refusals: {},
+      open: reading,
+    });
+    const open = findings.find((f) => f.key === "store-open");
+    expect(open?.severity).toBe("red");
+  });
+});
+
+describe("the MCP server and the console pass snapshots.dir", () => {
+  test("openServer puts the copy in the directory it was given", () => {
+    oldStore();
+    const named = join(root, "configured-snaps");
+    const server = openServer({ dir, snapshotsDir: named });
+    server.counterpart.close();
+    expect(preMigrationCopies(named).length).toBe(1);
+    expect(existsSync(snapsDir)).toBe(false);
+  });
+
+  test("the server reads snapshots.dir from its configuration", () => {
+    const configPath = join(root, "claude-code.json");
+    const named = join(root, "configured-snaps");
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, snapshots: { dir: named } }));
+    expect(questionEmbedder(configPath).snapshotsDir).toBe(named);
+  });
+
+  test("the console reads snapshots.dir from the configuration beside the store", () => {
+    oldStore();
+    const named = join(root, "configured-snaps");
+    writeFileSync(join(root, "claude-code.json"), JSON.stringify({ dataDir: dir, snapshots: { dir: named } }));
+    expect(snapshotsDirBeside(dir)).toBe(named);
+    openCounterpart(dir).close();
+    expect(preMigrationCopies(named).length).toBe(1);
   });
 });
 

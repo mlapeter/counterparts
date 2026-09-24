@@ -7955,12 +7955,30 @@ export function openCounterpart(
   // one way, with a name from a flag instead of from `claude-code.json`.
   // `embed` likewise: the option every composition root hands its embedder's
   // sync face through (`ask`, 2026-09-24).
+  const snapshotsDir = observer ? undefined : snapshotsDirBeside(dir);
   return Counterpart.open({
     dir,
     observer,
     ...(identity === undefined ? {} : { identity }),
     ...(embed === undefined ? {} : { embed }),
+    ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
   });
+}
+
+/**
+ * `snapshots.dir` from the host configuration beside the store
+ * (`<base>/claude-code.json`, the file `install` writes), so a migration the
+ * console runs puts its copy where the worker's rotation and doctor look.
+ * Absent, unreadable or unset: undefined, and the store's default applies.
+ */
+export function snapshotsDirBeside(dir: string): string | undefined {
+  const beside = join(dir, "..", "claude-code.json");
+  if (!existsSync(beside)) return undefined;
+  try {
+    return loadConfig(JSON.parse(readFileSync(beside, "utf8"))).config.snapshots?.dir;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── doctor ──────────────────────────────────────────────────────────────────
@@ -8160,8 +8178,17 @@ function doctorCommand(
     // `Counterpart.open` throws at every session start (H1). Inside this `try`
     // rather than above it, because `doctor` is the command people run BECAUSE
     // something is wrong, and its own reading must not be the thing that throws.
-    const open = storeExists(dir) ? readCounterpartOpen(dir) : undefined;
-    if (storeExists(dir)) store = Store.open({ dir, observer: true });
+    const open = storeExists(dir) ? readCounterpartOpen(dir, undefined, config.snapshots?.dir) : undefined;
+    if (storeExists(dir)) {
+      try {
+        store = Store.open({ dir, observer: true });
+      } catch (err) {
+        // A store BEHIND this build refuses an observer until a session has
+        // upgraded it; the Store open line already grades that, so the rest of
+        // the reading goes on without a handle rather than failing.
+        if (open?.migration === undefined || !isStoreError(err, "STORE_UNINITIALIZED")) throw err;
+      }
+    }
     const findings = doctorFindings({
       configPath,
       configReason: reason,

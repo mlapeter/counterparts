@@ -8,14 +8,14 @@
  *
  * Every multi-row mutation is wrapped in a transaction by the seam in `index.ts`.
  */
-import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
 
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
-import { PRE_ROWS_READABLE_BY, defaultSnapshotsDir } from "./paths.js";
-import { snapshotBeforeMigration } from "./pre-migration.js";
+import { PRE_ROWS_READABLE_BY } from "./paths.js";
+import { preMigrationDir, snapshotBeforeMigration } from "./pre-migration.js";
 import type { ProseType } from "./prose.js";
 
 /**
@@ -409,8 +409,6 @@ export interface OpenOperationalOptions {
    * the store (`defaultSnapshotsDir`); a store with neither refuses to migrate.
    */
   readonly snapshotsDir?: string;
-  /** The clock that names the pre-migration copy. Defaults to `Date.now`. */
-  readonly now?: () => number;
   /** Told once, after a migration committed, what was copied and where. */
   readonly onMigrated?: (note: MigrationNote) => void;
 }
@@ -421,6 +419,8 @@ export interface MigrationNote {
   readonly to: number;
   /** The pre-migration copy's name inside `dir`. */
   readonly snapshot: string;
+  /** True when a copy an earlier, failed attempt took was used again. */
+  readonly reused: boolean;
   readonly dir: string;
 }
 
@@ -467,6 +467,34 @@ export function isPreRowsDatabase(path: string): boolean {
     return Number.isFinite(n) && n < SCHEMA_VERSION && !hasBodyColumn(db);
   } catch {
     return false;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* nothing to say about a handle that will not close */
+    }
+  }
+}
+
+/**
+ * Is the database at `path` on an older schema that the next writer open will
+ * migrate (and copy first)? `{ found }` when it is; null when it is absent,
+ * current, ahead, unreadable, or a pre-rows database (refused, never migrated).
+ * One short read on its own connection; nothing is written.
+ */
+export function pendingMigration(path: string): { found: string; expected: number } | null {
+  if (!existsSync(path)) return null;
+  let db;
+  try {
+    db = openDb(path, { wal: false });
+    const found = readSchemaVersion(db);
+    if (found === null || found === String(SCHEMA_VERSION)) return null;
+    const n = Number.parseInt(found, 10);
+    if (Number.isFinite(n) && n > SCHEMA_VERSION) return null;
+    if (!hasBodyColumn(db)) return null;
+    return { found, expected: SCHEMA_VERSION };
+  } catch {
+    return null;
   } finally {
     try {
       db?.close();
@@ -593,17 +621,10 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
  * store stays on `found` and the build that wrote it still opens it.
  */
 function copyBeforeMigrating(path: string, found: string, opts: OpenOperationalOptions): MigrationNote {
-  const configured = opts.snapshotsDir !== undefined && opts.snapshotsDir.trim().length > 0;
-  const dir = configured ? resolve(opts.snapshotsDir as string) : defaultSnapshotsDir(dirname(path));
+  const dir = preMigrationDir(path, opts.snapshotsDir);
   try {
-    const snapshot = snapshotBeforeMigration({
-      dbPath: path,
-      dir,
-      from: found,
-      to: SCHEMA_VERSION,
-      now: (opts.now ?? Date.now)(),
-    });
-    return { from: found, to: SCHEMA_VERSION, snapshot, dir: dir as string };
+    const copy = snapshotBeforeMigration({ dbPath: path, dir, from: found, to: SCHEMA_VERSION });
+    return { from: found, to: SCHEMA_VERSION, snapshot: copy.name, reused: copy.reused, dir: dir as string };
   } catch (err) {
     const reason = String((err as Error).message ?? err);
     throw new StoreError("MIGRATION_SNAPSHOT_FAILED", {

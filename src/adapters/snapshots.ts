@@ -52,7 +52,7 @@
  * directory, a failed copy, a failed rename, an aborted run — is a
  * `snapshot.failed` row carrying its `reason` and the `step` it died at.
  */
-import { cpSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { cpSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve } from "node:path";
 
@@ -67,6 +67,7 @@ import {
   PRE_MIGRATION_NAME_RE,
   SNAPSHOTS_DIR_NAME,
   defaultSnapshotsDir,
+  realpathDeep,
   PRE_ROWS_MARKERS,
   assertSafeDataDir,
   dateOf,
@@ -312,35 +313,6 @@ export function assertRotatableDir(
     throw new Error(`refusing a snapshots directory that contains the store: ${real}`);
   }
   return real;
-}
-
-/**
- * The real path of a directory that may not exist yet.
- *
- * `resolve` does not follow symlinks and `realpathSync` throws on a path that is
- * not there — and BOTH cases are ordinary here: the snapshots directory does not
- * exist before the first run, and on macOS the directory a test or a `$TMPDIR`
- * names is very often a symlink. Comparing one side realpathed against the other
- * side merely resolved is how a containment check says "no" to a path that is
- * the same directory. So: realpath the deepest ancestor that DOES exist, and put
- * the rest back on.
- */
-function realpathDeep(path: string): string {
-  const resolved = resolve(path);
-  let head = resolved;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = realpathSync(head);
-      return tail.length === 0 ? real : join(real, ...tail);
-    } catch {
-      const parent = dirname(head);
-      // Nothing on this path exists. The resolved form is the whole answer.
-      if (parent === head) return resolved;
-      tail.unshift(basename(head));
-      head = parent;
-    }
-  }
 }
 
 // ── the run ─────────────────────────────────────────────────────────────────

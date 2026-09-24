@@ -128,8 +128,11 @@ export type {
 export {
   PRE_MIGRATION_NAME_RE,
   PRE_MIGRATION_TAG,
+  assertPreMigrationTarget,
+  preMigrationDir,
   preMigrationName,
   preMigrationVersions,
+  realpathDeep,
   vacuumInto,
 } from "./pre-migration.js";
 export {
@@ -137,6 +140,7 @@ export {
   DEFAULT_RETENTION_DAYS,
   isPreRowsDatabase,
   OBSERVER_READ_FLOOR,
+  pendingMigration,
   SCHEMA_VERSION,
   rowToPhysics,
   rowTombstoned,
@@ -835,7 +839,6 @@ export class Store {
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: !this.observer,
       retentionDays: this.retentionDays,
-      now: this.nowFn,
       ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
       onMigrated: (note) => {
         migration = note;
@@ -952,7 +955,7 @@ export class Store {
 
   /** The durable row for a migration this open ran, naming the copy taken first. */
   private noteMigration(note: MigrationNote): void {
-    const data = { from: note.from, to: note.to, snapshot: note.snapshot, dir: note.dir };
+    const data = { from: note.from, to: note.to, snapshot: note.snapshot, reused: note.reused, dir: note.dir };
     this.emit(STORE_MIGRATED_EVENT, undefined, data);
     try {
       this.appendEvent({ name: STORE_MIGRATED_EVENT, day: this.livedDay(), payload: data });

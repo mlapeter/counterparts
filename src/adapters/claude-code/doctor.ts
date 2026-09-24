@@ -32,7 +32,7 @@
  *      nobody needed).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,7 +53,16 @@ import {
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
 import { Counterpart } from "../../core/counterpart.js";
-import { STORE_CREATED_KEY, Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
+import {
+  STORE_CREATED_KEY,
+  Store,
+  assertPreMigrationTarget,
+  dateOf,
+  isStoreError,
+  paths,
+  pendingMigration,
+  preMigrationDir,
+} from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
@@ -553,6 +562,46 @@ export interface OpenReading {
    *  `MEMORY_BODY_MISSING` carries one and no path, because on this floor the
    *  words are the row and there is no file to restore (review B, MAJOR-3). */
   readonly id: string | null;
+  /**
+   * The schema upgrade the next session will run, when the store is behind —
+   * and whether the copy it takes first can be made. An observer never
+   * migrates, so without this the open reads fine (or merely "behind") while
+   * every hook refuses `MIGRATION_SNAPSHOT_FAILED`. Absent: not behind.
+   */
+  readonly migration?: MigrationReading;
+}
+
+export interface MigrationReading {
+  readonly found: string;
+  readonly expected: number;
+  /** Where the copy would go; null when there is nowhere. */
+  readonly dir: string | null;
+  /** Why the copy could not be made, or null when the dry run passed. */
+  readonly problem: string | null;
+}
+
+/**
+ * The pre-migration copy's preconditions, tried without taking it: the
+ * destination passes the store's own checks, and a probe directory can be
+ * made there and removed again (only what the probe itself created goes). The
+ * probe's name is a `.partial-…` one, so if its removal failed the daily sweep
+ * would take it.
+ */
+export function probePreMigration(storeDir: string, snapshotsDir?: string): MigrationReading | null {
+  const dbPath = paths.operational(storeDir);
+  const pending = pendingMigration(dbPath);
+  if (pending === null) return null;
+  const dir = preMigrationDir(dbPath, snapshotsDir);
+  try {
+    const real = assertPreMigrationTarget(dbPath, dir);
+    const instant = new Date().toISOString().replace(/[:.]/g, "-");
+    const probe = join(real, `.partial-${instant}-${String(process.pid)}`);
+    const first = mkdirSync(probe, { recursive: true });
+    rmSync(first ?? probe, { recursive: true, force: true });
+    return { ...pending, dir, problem: null };
+  } catch (err) {
+    return { ...pending, dir, problem: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
@@ -568,13 +617,18 @@ export function readCounterpartOpen(
   /** Injectable so the failure branches are provable without a broken fixture;
    *  the fixture test is still the one that proves the real path. */
   open: (d: string) => { close: () => void } = (d) => Counterpart.open({ dir: d, observer: true }),
+  /** The host configuration's `snapshots.dir`, for the pre-migration dry run. */
+  snapshotsDir?: string,
 ): OpenReading {
   let opened: { close: () => void } | null = null;
+  const migration = probePreMigration(dir, snapshotsDir);
+  const behind = migration === null ? {} : { migration };
   try {
     // OBSERVER, because `doctor` is an instrument: it reads and never writes,
     // and an owner open of a store that is not there would MINT one.
     opened = open(dir);
     return {
+      ...behind,
       dir,
       ok: true,
       code: null,
@@ -587,6 +641,7 @@ export function readCounterpartOpen(
   } catch (err) {
     const fault = describeFault(err);
     return {
+      ...behind,
       dir,
       ok: false,
       code: fault.code,
@@ -608,6 +663,18 @@ export function readCounterpartOpen(
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
+
+/** The Memory line for a store this build reads only after its upgrade. */
+function behindFinding(dir: string, m: MigrationReading): Finding {
+  return finding(
+    "store",
+    "amber",
+    MEMORY_TITLE,
+    `${tilde(dir)} is on schema v${m.found}; this build reads it once a session has upgraded it (see Store open)`,
+    "",
+    { dir, exists: true, found: m.found, expected: m.expected },
+  );
+}
 
 /** A finding, with `data` defaulted so each group below stays one expression. */
 function finding(
@@ -792,8 +859,11 @@ function configFindings(input: DoctorInput): Finding[] {
     // same number because it is the same number, and rule 3 of this module —
     // it is on the hot path, so it is bounded — is kept by not asking twice.
     const held = input.store === null ? null : memoryCount(input.store);
+    const behind = input.store === null ? input.open?.migration : undefined;
     out.push(
-      input.store === null
+      behind !== undefined
+        ? behindFinding(input.dir, behind)
+        : input.store === null
         ? finding("store", "red", MEMORY_TITLE, `no store at ${tilde(input.dir)}`, "Check the path you gave --dir.", {
             dir: input.dir,
             exists: false,
@@ -859,7 +929,9 @@ function configFindings(input: DoctorInput): Finding[] {
   // shape: the hooks and another entry point named different stores and nothing
   // noticed, because each was internally consistent.
   const named = input.config.dataDir;
-  if (input.store === null) {
+  if (input.store === null && input.open?.migration !== undefined) {
+    out.push(behindFinding(input.dir, input.open.migration));
+  } else if (input.store === null) {
     out.push(
       finding("store", "red", MEMORY_TITLE, `no store at ${tilde(input.dir)}`, "Run: counterparts install, or name the store with --dir.", {
         dir: input.dir,
@@ -2023,6 +2095,31 @@ function openFindings(reading: OpenReading): Finding[] {
     busy: reading.busy,
     path: reading.path,
   };
+  // A STORE BEHIND THIS BUILD is graded on what a SESSION will meet, not on
+  // what this observer open met: the session copies it, then upgrades it.
+  const m = reading.migration;
+  if (m !== undefined) {
+    const upgrade = { ...data, found: m.found, expected: m.expected, snapshotsDir: m.dir, problem: m.problem };
+    return [
+      m.problem !== null
+        ? finding(
+            "store-open",
+            "red",
+            "Store open",
+            `${reading.dir} is on schema v${m.found} and this build needs v${m.expected}; the copy taken before the upgrade cannot be made (${m.problem}), so every hook stands down with MIGRATION_SNAPSHOT_FAILED`,
+            `Make ${m.dir ?? "a snapshots directory"} writable${m.dir === null ? " and name it in snapshots.dir" : " (or point snapshots.dir at one outside the store)"}; the store is unchanged, and the previous build still opens it.`,
+            upgrade,
+          )
+        : finding(
+            "store-open",
+            "amber",
+            "Store open",
+            `${reading.dir} is on schema v${m.found}; the next session copies it to ${m.dir ?? "?"} and upgrades it to v${m.expected}`,
+            "Nothing to do: start a session, then run counterparts doctor again.",
+            upgrade,
+          ),
+    ];
+  }
   if (reading.ok) {
     return [
       finding("store-open", "green", "Store open", `${reading.dir} opens as a session opens it`, "", data),

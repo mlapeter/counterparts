@@ -15,11 +15,11 @@
  *
  * If the copy cannot be made, the caller does not migrate.
  */
-import { existsSync, lstatSync, mkdirSync, realpathSync, renameSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { openDb } from "./db.js";
-import { DATABASE_FILE, assertSafeDataDir, forbiddenRoots, isWithin } from "./paths.js";
+import { DATABASE_FILE, assertSafeDataDir, defaultSnapshotsDir, forbiddenRoots, isWithin } from "./paths.js";
 
 /** The marker in a pre-migration copy's name. */
 export const PRE_MIGRATION_TAG = "pre-migration";
@@ -77,8 +77,8 @@ export function vacuumInto(
 }
 
 /** The real path of a directory that may not exist yet: the deepest existing
- *  ancestor realpathed, the rest put back on. */
-function realpathDeep(path: string): string {
+ *  ancestor realpathed, the rest put back on. Shared with `adapters/snapshots.ts`. */
+export function realpathDeep(path: string): string {
   const resolved = resolve(path);
   let head = resolved;
   const tail: string[] = [];
@@ -96,6 +96,40 @@ function realpathDeep(path: string): string {
   }
 }
 
+/**
+ * Where a pre-migration copy of the database at `dbPath` would go: the named
+ * directory, else the default beside the store. Null when there is neither.
+ */
+export function preMigrationDir(dbPath: string, configured?: string): string | null {
+  if (configured !== undefined && configured.trim().length > 0) return resolve(configured);
+  return defaultSnapshotsDir(dirname(dbPath));
+}
+
+/**
+ * The checks a copy's destination has to pass, without writing anything:
+ * there is one, it is not under a live v1 store, and it is neither inside the
+ * store nor around it. Returns the resolved directory; throws a plain reason.
+ * Doctor asks the same question before a session does.
+ */
+export function assertPreMigrationTarget(dbPath: string, dir: string | null): string {
+  if (dir === null) {
+    throw new Error(
+      "there is no snapshots directory for a store outside the usual <base>/store layout; name one (the snapshotsDir option, or snapshots.dir in the host configuration)",
+    );
+  }
+  const storeDir = realpathDeep(dirname(dbPath));
+  // Checked as written and as it resolves, so a link into a live v1 store is refused too.
+  assertSafeDataDir(dir);
+  const real = realpathDeep(dir);
+  assertSafeDataDir(real);
+  for (const root of forbiddenRoots()) {
+    if (isWithin(realpathDeep(root), real)) throw new Error(`refusing a snapshots directory inside ${root}`);
+  }
+  if (isWithin(storeDir, real)) throw new Error(`the snapshots directory is inside the store: ${real}`);
+  if (isWithin(real, storeDir)) throw new Error(`the snapshots directory contains the store: ${real}`);
+  return real;
+}
+
 export interface PreMigrationInput {
   /** The live database file. */
   readonly dbPath: string;
@@ -104,36 +138,35 @@ export interface PreMigrationInput {
   /** The stamp found on disk, and the version about to be written. */
   readonly from: string;
   readonly to: number;
-  readonly now: number;
+}
+
+export interface PreMigrationCopy {
+  /** The copy's directory name inside the snapshots directory. */
+  readonly name: string;
+  /** True when an earlier copy for this upgrade was used instead of a new one. */
+  readonly reused: boolean;
 }
 
 /**
- * Copy the database into `<dir>/<pre-migration name>` and return that name.
+ * Copy the database into `<dir>/<pre-migration name>` and return that name —
+ * or the name of a copy already there for the same upgrade (`reusableCopy`).
  * Throws with a plain reason when it cannot; the caller then does not migrate.
+ *
+ * Named by the wall clock, never an injected one: a replayed or fixed clock
+ * would collide with its own earlier copy, or name one rotation removes at once.
  *
  * Written under a `.partial-<instant>-<pid>` name and renamed into place, like
  * the daily copies, so a killed process leaves a partial the daily sweep
  * removes rather than something that looks like a snapshot.
  */
-export function snapshotBeforeMigration(input: PreMigrationInput): string {
-  if (input.dir === null) {
-    throw new Error(
-      "there is no snapshots directory for a store outside the usual <base>/store layout; name one (the snapshotsDir option, or snapshots.dir in the host configuration)",
-    );
-  }
-  const storeDir = realpathDeep(dirname(input.dbPath));
-  // Checked as written and as it resolves, so a link into a live v1 store is refused too.
-  assertSafeDataDir(input.dir);
-  const dir = realpathDeep(input.dir);
-  assertSafeDataDir(dir);
-  for (const root of forbiddenRoots()) {
-    if (isWithin(realpathDeep(root), dir)) throw new Error(`refusing a snapshots directory inside ${root}`);
-  }
-  if (isWithin(storeDir, dir)) throw new Error(`the snapshots directory is inside the store: ${dir}`);
-  if (isWithin(dir, storeDir)) throw new Error(`the snapshots directory contains the store: ${dir}`);
+export function snapshotBeforeMigration(input: PreMigrationInput): PreMigrationCopy {
+  const dir = assertPreMigrationTarget(input.dbPath, input.dir);
+  const now = Date.now();
+  const earlier = reusableCopy(dir, input.dbPath, input.from, input.to, now);
+  if (earlier !== null) return { name: earlier, reused: true };
 
-  const name = preMigrationName(input.now, input.from, input.to);
-  const instant = new Date(input.now).toISOString().replace(/[:.]/g, "-");
+  const name = preMigrationName(now, input.from, input.to);
+  const instant = new Date(now).toISOString().replace(/[:.]/g, "-");
   const partial = join(dir, `.partial-${instant}-${String(process.pid)}`);
   // A failure below leaves the partial where it is: the store deletes nothing,
   // and the daily sweep removes a stale partial by this name.
@@ -143,7 +176,62 @@ export function snapshotBeforeMigration(input: PreMigrationInput): string {
   const bad = checkCopy(join(partial, DATABASE_FILE), input.from);
   if (bad !== null) throw new Error(bad);
   renameSync(partial, join(dir, name));
-  return name;
+  return { name, reused: false };
+}
+
+/**
+ * A copy for this same upgrade that is already on disk and still good enough,
+ * so a migration that keeps failing AFTER its copy does not take a new full
+ * copy at every open. Good enough means: its database is there, and either it
+ * was taken today (UTC) or the live database has not been written since it was
+ * taken (neither the file nor its `-wal` is newer than the copy's instant).
+ *
+ * A copy only takes its final name after it verified, so the name is the proof.
+ */
+function reusableCopy(dir: string, dbPath: string, from: string, to: number, now: number): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  const want = { from: stampForName(from), to: stampForName(String(to)) };
+  const today = new Date(now).toISOString().slice(0, 10);
+  const lastWrite = Math.max(mtimeOf(dbPath), mtimeOf(`${dbPath}-wal`));
+  const candidates = names
+    .filter((n) => {
+      const v = preMigrationVersions(n);
+      return v !== null && v.from === want.from && v.to === want.to;
+    })
+    .sort()
+    .reverse();
+  for (const name of candidates) {
+    try {
+      if (statSync(join(dir, name, DATABASE_FILE)).size === 0) continue;
+    } catch {
+      continue;
+    }
+    if (name.slice(0, 10) === today) return name;
+    const taken = instantOf(name);
+    if (taken !== null && lastWrite < taken) return name;
+  }
+  return null;
+}
+
+function mtimeOf(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/** `2026-09-24T10-00-00-000Z-…` → its epoch milliseconds, or null. */
+function instantOf(name: string): number | null {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/.exec(name);
+  if (m === null) return null;
+  const at = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
+  return Number.isFinite(at) ? at : null;
 }
 
 /** Is the copy a sound database still carrying the old stamp? Null when it is. */
@@ -166,4 +254,3 @@ function checkCopy(path: string, from: string): string | null {
     }
   }
 }
-

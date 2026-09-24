@@ -169,6 +169,8 @@ export function launchOptions(
 export function questionEmbedder(path = CONFIG_PATH): {
   embedder: LiveEmbedder | null;
   reason: string;
+  /** The configuration's `snapshots.dir`, for the store's pre-migration copy. */
+  snapshotsDir?: string;
 } {
   let raw: unknown;
   try {
@@ -184,6 +186,7 @@ export function questionEmbedder(path = CONFIG_PATH): {
   const config = withEmbedderDefault(load.config);
   return {
     reason: load.reason,
+    ...(config.snapshots?.dir === undefined ? {} : { snapshotsDir: config.snapshots.dir }),
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is
     // the gate and an observer gets none.
     embedder: openEmbedder(config),
@@ -228,7 +231,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const { embedder, reason } = questionEmbedder(choice.path);
+  const { embedder, reason, snapshotsDir } = questionEmbedder(choice.path);
   const unreadable = namedUnreadableRefusal(choice, reason);
   if (unreadable !== null) {
     process.stderr.write(`${unreadable}\n`);
@@ -290,6 +293,7 @@ async function main(): Promise<void> {
     observer: stance === "observer" || opts.observer,
     scopesFile,
     embedder,
+    ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
   });
   // THE BUILD THIS PROCESS WILL KEEP FOR THE REST OF THE SESSION, left where
   // the hooks can compare it with the installed one every turn
