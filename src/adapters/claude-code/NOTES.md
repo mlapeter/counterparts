@@ -1137,7 +1137,8 @@ and `isMeta: true` (hand-backs) — which stays skipped.
 
 `parseTranscript` now reads the human ones as a typed user turn at the position the line
 stands in, with its own entry ordinal, through the same `blocksOf`/`pieceOf` as a typed
-entry. Slash commands and other modes are skipped (neither was seen as an attachment).
+entry. A slash command, or a mode other than `prompt` (`bash`, say), is skipped too;
+no attachment of either kind was seen.
 
 Measured on this project's 27 transcripts (shapes only): 33 such prompts, against 376
 typed turns before — 409 after, about 8% of what the person typed. The queue itself is
