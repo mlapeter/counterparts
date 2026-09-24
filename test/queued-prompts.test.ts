@@ -195,16 +195,40 @@ describe("a prompt typed mid-turn is a typed turn", () => {
       isMeta: true,
     });
     const bash = queuedEntry("git status", { commandMode: "bash" });
-    const slash = queuedEntry("/compact keep the parser notes");
     const noOrigin = queuedEntry("no origin at all", { origin: undefined });
-    const read = parseTranscript(jsonl([notification, peer, bash, slash, noOrigin, hookAttachment()]));
+    const read = parseTranscript(jsonl([notification, peer, bash, noOrigin, hookAttachment()]));
     expect(read.turns).toEqual([]);
     expect(read.corrupt).toBe(0);
   });
 
-  test("a path that starts with a slash is not a slash command", () => {
-    const read = parseTranscript(jsonl([queuedEntry("/src/parser.ts is where it breaks")]));
-    expect(substanceOf(read.turns).turns).toBe(1);
+  test("a queued prompt that opens with a slash is kept, as the same typed words would be", () => {
+    const read = parseTranscript(jsonl([queuedEntry("/tmp is full"), queuedEntry("/compact looks like a command")]));
+    expect(substanceOf(read.turns).turns).toBe(2);
+  });
+
+  test("the twin window closes when the person sends anything else: the same words 50 turns apart count twice", () => {
+    const between = Array.from({ length: 50 }, (_, i) => [typedEntry(`go on ${i}`), assistantEntry(`ok ${i}`)]).flat();
+    const read = parseTranscript(jsonl([queuedEntry("yes"), assistantEntry("Noted."), ...between, typedEntry("yes", "queued")]));
+    expect(substanceOf(read.turns).turns).toBe(52);
+  });
+
+  test("a twin later in the same turn counts once, whitespace aside", () => {
+    const twin = {
+      ...typedEntry("", "queued"),
+      message: { role: "user", content: [{ type: "text", text: "keep the old names" }, { type: "text", text: "and the old flags" }] },
+    };
+    const read = parseTranscript(
+      jsonl([
+        typedEntry(TYPED),
+        queuedEntry("keep the old names\n\n  and the old flags"),
+        toolUse(),
+        assistantEntry("Keeping them."),
+        toolUse(),
+        assistantEntry("Done."),
+        twin,
+      ]),
+    );
+    expect(substanceOf(read.turns).turns).toBe(2);
   });
 
   test("(e) substanceOf counts each queued prompt once, adjacent ones apart", () => {

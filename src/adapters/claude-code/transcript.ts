@@ -422,8 +422,9 @@ export function parseTranscript(raw: string): TranscriptRead {
   const expansions: Expansion[] = [];
   let corrupt = 0;
   let ordinal = -1;
-  // Queued prompts already emitted, by their text, until a twin consumes one.
-  const pending: string[] = [];
+  // Queued prompts already emitted, by their text. Open until a twin consumes
+  // one or the person sends anything else.
+  let pending: string[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: Record<string, unknown>;
@@ -442,8 +443,8 @@ export function parseTranscript(raw: string): TranscriptRead {
       continue;
     }
     // A prompt typed while the model worked: a turn of its own, where it
-    // stands in the file. A later user entry with the same words is skipped
-    // below, so the first appearance is the one kept and the list only grows.
+    // stands in the file. A twin written later is skipped below, so the first
+    // appearance is the one kept and the list only grows.
     if (entry["type"] === "attachment") {
       const queued = queuedPromptOf(entry);
       if (queued === undefined) continue;
@@ -463,12 +464,16 @@ export function parseTranscript(raw: string): TranscriptRead {
     const content = message?.["content"] ?? entry["content"];
     const author = entryAuthor(entry, role);
     const pieces = blocksOf(content, role, author);
-    if (role === "user" && author === "human" && entry["promptSource"] === "queued" && pending.length > 0) {
-      const twin = pending.indexOf(typedText(pieces));
+    // A twin, if the host ever writes one, is the person's NEXT sent entry: the
+    // same words, marked queued. Anything else the person sends closes the
+    // window. Assistant lines do not: the turn goes on after the attachment.
+    if (role === "user" && author === "human" && pending.length > 0) {
+      const twin = entry["promptSource"] === "queued" ? pending.indexOf(typedText(pieces)) : -1;
       if (twin !== -1) {
         pending.splice(twin, 1);
         continue;
       }
+      pending = [];
     }
     ordinal += 1;
     for (const piece of pieces) {
@@ -485,15 +490,11 @@ export function parseTranscript(raw: string): TranscriptRead {
   return { turns, ok: true, reason: "read", corrupt, expansions };
 }
 
-/** A leading `/command`, which the host runs rather than sends. `/path/to/x` is not one. */
-const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*(?:\s|$)/;
-
 /**
  * The prompt of a `queued_command` attachment the PERSON typed mid-turn, or
  * undefined. Host-queued work (task notifications, hand-backs, anything
- * `isMeta`), other modes (`bash`, …) and slash commands are not the person
- * speaking to the model. `prompt` is a string, or content blocks when an
- * image was pasted.
+ * `isMeta`) and other modes (`bash`, …) are not the person speaking to the
+ * model. `prompt` is a string, or content blocks when an image was pasted.
  */
 function queuedPromptOf(entry: Record<string, unknown>): unknown {
   const att = entry["attachment"];
@@ -502,20 +503,17 @@ function queuedPromptOf(entry: Record<string, unknown>): unknown {
   const origin = att["origin"];
   if (!isEntry(origin) || origin["kind"] !== "human") return undefined;
   const prompt = att["prompt"];
-  const first = Array.isArray(prompt)
-    ? (prompt.find((b) => isEntry(b) && b["type"] === "text") as Record<string, unknown> | undefined)?.["text"]
-    : prompt;
-  if (typeof first === "string" && SLASH_COMMAND.test(first.trimStart())) return undefined;
   return typeof prompt === "string" || Array.isArray(prompt) ? prompt : undefined;
 }
 
-/** What the person said in one entry, for matching a queued prompt to its twin. */
+/** What the person said in one entry, whitespace collapsed, for matching a queued prompt to its twin. */
 function typedText(pieces: readonly Piece[]): string {
   return pieces
     .filter((p) => p.source === "conversation")
-    .map((p) => p.text.trim())
-    .filter((t) => t.length > 0)
-    .join("\n");
+    .map((p) => p.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 type Piece = { text: string; source: TurnSource; expansion?: string[] };

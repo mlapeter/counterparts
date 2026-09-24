@@ -1137,8 +1137,9 @@ and `isMeta: true` (hand-backs) — which stays skipped.
 
 `parseTranscript` now reads the human ones as a typed user turn at the position the line
 stands in, with its own entry ordinal, through the same `blocksOf`/`pieceOf` as a typed
-entry. A slash command, or a mode other than `prompt` (`bash`, say), is skipped too;
-no attachment of either kind was seen.
+entry. A mode other than `prompt` (`bash`, say) is skipped; none was seen. A prompt
+that opens with `/` is kept, as the same typed words would be ("/tmp is full"); the
+host was never seen writing a slash command as a `prompt` attachment.
 
 Measured on this project's 27 transcripts (shapes only): 33 such prompts, against 376
 typed turns before — 409 after, about 8% of what the person typed. The queue itself is
@@ -1151,21 +1152,32 @@ always read.
 copies are inside a compaction summary (7, all in one session; `injected`, never
 paced) and in the assistant's own tool calls. `source_uuid` matches no `uuid` or
 `promptId` in any file, and the attachment's `timestamp` is the line's own. So the
-dedupe is defensive: a later user entry with `origin.kind: "human"`,
-`promptSource: "queued"` and exactly the same text as a queued prompt already read is
-skipped, once per queued prompt. The first appearance is kept because the capture
-cursor is an index into the turn list, and the list may only grow. It keys on
-`promptSource: "queued"` so a person who later types the same short words ("yes")
-the ordinary way is still counted. Review M3 counted 18 of 76 "written again" across
-all projects; if those are real user-entry twins with some other `promptSource`, they
-would count twice — check before widening the rule.
+dedupe is defensive: a user entry with `origin.kind: "human"`, `promptSource: "queued"`
+and the same text (whitespace collapsed) as a queued prompt already read is skipped,
+once per queued prompt. The first appearance is kept because the capture cursor is an
+index into the turn list, and the list may only grow.
+
+The window is the person's next sent entry. Any other human entry closes it, so the
+same short words queued again much later ("yes") still count; a person who types them
+the ordinary way always counts. Assistant lines do not close it, because the turn goes
+on after the attachment, and a prompt still queued at a turn's end is written after
+`turn_duration`, as the next turn's first entry — where a twin would most likely sit.
+Review M3 counted 18 of 76 "written again" across all projects; if those are real
+user-entry twins with some other `promptSource`, they would count twice — check before
+widening the rule.
 
 **Deploy note.** The capture cursor is an index. A session open across this deploy has
 a cursor from the old list; queued prompts before it now occupy slots, so the next
 boundary starts k turns early and re-captures the last k already-captured turns once
 (k = queued prompts before the cursor). Nothing is lost, but queued prompts from before
-the deploy are mostly not captured after the fact. Pacing only gains turns, so `rebasedWatermark` does not fire.
-A cursor that survives inserted turns is `INTERFACE-GAPS.md` §14's first ask.
+the deploy are mostly not captured after the fact. A cursor that survives inserted turns
+is `INTERFACE-GAPS.md` §14's first ask.
+
+Pacing moves once too. Turns only rise, so `rebasedWatermark` does not fire, but
+`sinceTurns` (`self/episodes.ts#askDue`, typed turns minus the watermark) jumps by the
+queued prompts from before the last ask, which the watermark never counted. A session
+open across the deploy may be re-asked at its next Stop. One time only: the next ask
+sets the watermark on the new count.
 
 ### The Stop ask's shapes
 
