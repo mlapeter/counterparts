@@ -407,11 +407,12 @@ describe("a chapter's heading names the LOCAL date it was written on (owner, 202
     expect(chapterHeading(1, 2)).toBe("## chapter 1 — lived day 2");
     // And the reader reads both, stacked or not.
     const lead = readChapterLead("## chapter 1 — Wed 23 Sep 2026 · lived day 2\n\n## chapter 1\n\nThe words.");
-    expect(lead).toEqual({ chapters: [1], livedDay: 2, date: "Wed 23 Sep 2026", rest: "The words." });
+    expect(lead).toEqual({ chapters: [1], livedDay: 2, date: "Wed 23 Sep 2026", model: null, rest: "The words." });
     expect(readChapterLead("## chapter 1 — lived day 3\n\nOld form.")).toEqual({
       chapters: [1],
       livedDay: 3,
       date: null,
+      model: null,
       rest: "Old form.",
     });
   });

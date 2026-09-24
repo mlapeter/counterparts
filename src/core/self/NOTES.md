@@ -1151,7 +1151,7 @@ and `askDue`/`noteOrphanTail` read the same re-based state. Any other reading be
 watermark — an empty one from a transcript that would not read — moves nothing, and a
 caller can say its count is not real with `rebase: false`.
 
-## 24. A chapter's heading carries its calendar date (2026-09-24)
+## 24. A chapter's heading carries its calendar date, and the model that wrote it (2026-09-24)
 
 `chapterHeading` writes `## chapter 1 — Wed 23 Sep 2026 · lived day 2` for every chapter
 opened since this date, where it wrote `## chapter 1 — lived day 2` before. The owner
@@ -1165,7 +1165,21 @@ model sometimes writes under the journal's own — for a surface that shows a ch
 words on one line and its heading as metadata. Every surface that prints the body
 inherits the new heading with no change of its own; none of them parses it.
 
-Which MODEL wrote a chapter is not recorded (asked the same day). It needs no schema
+**Built the same day: each chapter records the model that wrote it.** The heading reads
+`## chapter 1 — Wed 23 Sep 2026 · claude-opus-5-5 · lived day 2`, and the episode's
+`meta.models` maps chapter number to model id (`{ "1": "claude-opus-5-5" }`), written
+when a chapter opens and carried whole on every revise (meta merges shallowly). The
+path is the one below: `parseTranscript` takes the last assistant `message.model` that
+is not a host stand-in (`<synthetic>`, `isApiErrorMessage`) or a sidechain → the
+record's `model` (carried like `config`, newest wins; `isModelId` screens it, since it
+is printed into a heading) → `chapterTool` → `appendEpisode({ model })`. The Stop writes
+the record before its ask goes out, so the chapter that answers the ask has the right
+model. Unknown model: the heading is the dated form, nothing added. `ask`'s meta line
+shows it after the date; the dashboard's journal list shows no date and was left alone.
+Raw ids are printed as the host reports them.
+
+The original note, kept for the reasoning: which MODEL wrote a chapter was not recorded
+(asked the same day). It needs no schema
 migration — the episode's `meta` is open JSON — but this package does not know the model
 at the door that writes a chapter: `chapter` is an MCP tool, and the MCP server has no
 hook input and no transcript. The host's only sources are the SessionStart input's

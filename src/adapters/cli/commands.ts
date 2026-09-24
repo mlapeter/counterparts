@@ -4938,7 +4938,8 @@ export function askGist(title: string | null, body: string): string {
 
 /**
  * The quieter line under an answer: what it is, when, and its id —
- * `self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_0a1b2c3d4e5f`.
+ * `self · chapter 1 · Wed 23 Sep 2026 · claude-opus-5-5 · lived day 2 · mem_0a1b2c3d4e5f`
+ * (the model only where the heading names one).
  *
  * The DATE is the one the chapter's own heading names when it names one (a
  * chapter written since 2026-09-24 carries the day it was written, in the
@@ -4958,6 +4959,7 @@ export function askMeta(
   }
   const date = lead.date ?? (learnedOn === null ? "" : readableDate(learnedOn));
   if (date.length > 0) parts.push(date);
+  if (lead.model !== null) parts.push(lead.model);
   if (lead.livedDay !== null) parts.push(`lived day ${String(lead.livedDay)}`);
   parts.push(m.id);
   return parts.join(" · ");

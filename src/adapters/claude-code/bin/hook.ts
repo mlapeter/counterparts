@@ -383,6 +383,8 @@ export function toHookInput(
     // (`hooks.ts#checkWakeArrival`), and a parsed turn list cannot answer for
     // what the host injected.
     ...(transcriptPath === undefined ? {} : { transcriptPath }),
+    // The model that last answered, for the session record (and so the chapter).
+    ...(transcript.model === undefined ? {} : { model: transcript.model }),
     // The host's re-fire of a blocked Stop, carried INTO the adapter and not
     // only handled at delivery: the pass that says nothing must also advance
     // nothing (`hooks.ts#askAtStop`).
