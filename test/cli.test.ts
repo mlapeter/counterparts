@@ -63,7 +63,6 @@ import {
   COMMAND_BLURB,
   COMMAND_FLAGS,
   COMMON_FLAGS,
-  CREDENTIALS_FILE,
   DASHBOARD_DEFAULT_PORT,
   commandHelp,
   EXIT,
@@ -4670,14 +4669,13 @@ describe("the destruction path is importable from this directory only", () => {
     full.endsWith(join("core", "remember", "retention.ts"));
   const RETENTION_ALLOWED = (full: string): boolean =>
     full.endsWith(join("adapters", "claude-code", "bin", "runner.ts"));
-  /** `remember/` itself (the grantor), and the TWO paths that may mark a
+  /** `remember/` itself (the grantor), and the ONE path that may mark a
    *  session written up (roadmap C2, built 2026-09-23): the next-session
-   *  write-up's door, and the worker whose opt-in API sweep marks a crashed
-   *  session it has finished with (`by: "api"`). */
+   *  write-up's door. (The worker's opt-in API sweep was the second, until it
+   *  was removed with the key on 2026-09-24.) */
   const WRITE_UP_C2_DOOR = join("adapters", "mcp", "write-up.ts");
-  const WRITE_UP_SWEEP = join("adapters", "claude-code", "bin", "runner.ts");
   const WRITE_UP_ALLOWED = (full: string): boolean =>
-    full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR) || full.endsWith(WRITE_UP_SWEEP);
+    full.includes(join("core", "remember") + "/") || full.endsWith(WRITE_UP_C2_DOOR);
 
   test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
     // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
@@ -4714,21 +4712,19 @@ describe("the destruction path is importable from this directory only", () => {
     expect(exported).not.toContain("strikeSpans");
   });
 
-  test("the WRITE-UP mark is reached from remember/, the C2 door and the worker's sweep only, and no index re-exports it", async () => {
+  test("the WRITE-UP mark is reached from remember/ and the C2 door only, and no index re-exports it", async () => {
     // `remember/write-up-seam.ts#recordWriteUp` ends a session's debt, which
     // makes its text deletable 7 days later — a deletion on a fuse. It was a
     // public `SpanBuffer` method, so everything holding a `Counterpart` could
     // light it (PR #189 re-review, R1). Now it is a grant, like the strike:
     // `remember/spans.ts` hands it over, and the only other files that may
-    // import it are the next-session write-up's door (roadmap C2,
-    // `adapters/mcp/write-up.ts`) and the worker whose opt-in API sweep marks
-    // what it swept (`adapters/claude-code/bin/runner.ts`, `by: "api"`).
+    // import it is the next-session write-up's door (roadmap C2,
+    // `adapters/mcp/write-up.ts`).
     const { offenders, allowedHits } = seamImporters(SRC, "write-up-seam.js", WRITE_UP_ALLOWED);
     expect(offenders).toEqual([]);
-    // NOT VACUOUS: the grantor imports it, and so do the door and the sweep.
+    // NOT VACUOUS: the grantor imports it, and so does the door.
     expect(allowedHits.some((f) => f.endsWith(join("core", "remember", "spans.ts")))).toBe(true);
     expect(allowedHits.some((f) => f.endsWith(WRITE_UP_C2_DOOR))).toBe(true);
-    expect(allowedHits.some((f) => f.endsWith(WRITE_UP_SWEEP))).toBe(true);
     const index = readFileSync(join(SRC, "core", "remember", "index.ts"), "utf8");
     expect(/["']\.\/write-up-seam\.js["']/.test(index)).toBe(false);
     const exported = Object.keys(await import("../src/core/remember/index.js"));
@@ -5337,7 +5333,8 @@ describe("install", () => {
     expect(existsSync(join(outside, "cold", CONFIG_FILE))).toBe(false);
     const parsed = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
     expect(parsed["dataDir"]).toBe(store);
-    expect(parsed["credentialsFile"]).toBe(join(home, ".counterparts", CREDENTIALS_FILE));
+    // No credentials file any more (keyless, 2026-09-24).
+    expect(parsed["credentialsFile"]).toBeUndefined();
     expect(parsed["injectionBudgetBytes"]).toBe(9000);
     expect(parsed["owner"]).toBe(true);
     expect(parsed["identity"]).toEqual({ name: "Ada" });
@@ -5359,12 +5356,7 @@ describe("install", () => {
     // Nor is the parallel-run knob: that one is the run's, not a stranger's.
     expect(parsed["parallel"]).toBeUndefined();
 
-    const creds = join(home, ".counterparts", CREDENTIALS_FILE);
-    expect(existsSync(creds)).toBe(true);
-    expect((statSync(creds).mode & 0o777).toString(8)).toBe("600");
-    // Names, never values: the template mentions the two variables and holds none.
-    expect(readFileSync(creds, "utf8")).toContain("ANTHROPIC_API_KEY");
-    expect(readFileSync(creds, "utf8")).toContain("VOYAGE_API_KEY");
+    expect(existsSync(join(home, ".counterparts", "credentials.env"))).toBe(false);
 
     // A moved store is SAID OUT LOUD, because the thing that did not move is
     // the thing the reader would otherwise assume followed it.
@@ -5408,8 +5400,8 @@ describe("install", () => {
     // The failure this pins is invisible: a host whose PATH lacks `~/.bun/bin`
     // runs `counterparts-hook` (shebang `#!/usr/bin/env bun`) and gets "command
     // not found" on every event — no memory, no error the owner ever sees. The
-    // host's process environment is not the login shell's; `credentials.ts`
-    // measured exactly that on day 0 for the API keys.
+    // host's process environment is not the login shell's; day 0 of the
+    // parallel run measured exactly that.
     for (const cmd of [settingsBlock(), mcpCommand("/tmp/store")]) {
       // No bare executable NAME may appear as something to run: every runnable
       // token in these blocks is an absolute path.
@@ -5498,23 +5490,23 @@ describe("install", () => {
     ).toBe(9000);
   });
 
-  test("--force KEEPS a credentials file that holds a key (I32)", async () => {
-    // 2026-09-04, the second clobbered field. A forced install rewrote the
-    // owner's `credentials.env` with the template; the detached worker was then
-    // refused at every boundary for a week, the lived-day clock froze at 185,
-    // and every visible surface — wake, recall, capture, the daily — read
-    // healthy. A config is regenerable from this command's own flags. A key is
-    // not, and `--force` was typed to fix a config.
+  test("--force never touches an old credentials file: it is not ours to write or delete any more", async () => {
+    // The file an install wrote beside the configuration until 2026-09-24 may
+    // hold somebody's keys. Nothing reads it, and a forced re-install leaves it
+    // exactly as it was — and drops the retired `credentialsFile` from the
+    // configuration it rewrites.
     const home = fakeHome("force-keeps-key");
     const store = join(outside, "force-keeps-key", "store");
-    const creds = join(home, ".counterparts", CREDENTIALS_FILE);
     await run(["install", "--dir", store, "--budget", "9000"], {
       io: consoleWith().io,
       env: {},
       home,
     });
+    const creds = join(home, ".counterparts", "credentials.env");
     const SECRET = "sk-ant-A-KEY-NOBODY-CAN-REGENERATE";
-    writeFileSync(creds, `# mine\nANTHROPIC_API_KEY=${SECRET}\n`, { mode: 0o600 });
+    writeFileSync(creds, `# mine\nSOME_KEY=${SECRET}\n`, { mode: 0o600 });
+    const config = join(home, ".counterparts", CONFIG_FILE);
+    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234, credentialsFile: creds }));
 
     const forced = consoleWith();
     expect(
@@ -5524,43 +5516,11 @@ describe("install", () => {
         home,
       }),
     ).toBe(EXIT.ok);
-
-    // The file is untouched, and the key is still in it.
-    expect(readFileSync(creds, "utf8")).toContain(SECRET);
-    const printed = text(forced.out);
-    expect(printed).toContain("kept even under --force");
-    // NAMES ONLY. The command reads the file to count what it holds and must
-    // never print — or otherwise move — a value.
-    expect(printed).toContain("ANTHROPIC_API_KEY");
-    expect(printed).not.toContain(SECRET);
-    // And it does NOT tell the reader to pass --force: they just did, and that
-    // sentence would send them back into the incident.
-    expect(printed).not.toContain("pass --force to replace it");
-
-    // The CONFIG half of --force is unchanged: it is still overwritten.
-    const config = join(home, ".counterparts", CONFIG_FILE);
-    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234 }));
-    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
-      io: consoleWith().io,
-      env: {},
-      home,
-    });
-    expect(
-      (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
-    ).toBe(9000);
-    expect(readFileSync(creds, "utf8")).toContain(SECRET);
-
-    // A file holding NO key is still replaced — --force means what it says for
-    // a template nobody has filled in.
-    writeFileSync(creds, "# nothing in here but comments\n", { mode: 0o600 });
-    const again = consoleWith();
-    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
-      io: again.io,
-      env: {},
-      home,
-    });
-    expect(text(again.out)).toContain("replaced");
-    expect(readFileSync(creds, "utf8")).toContain("Counterparts reads exactly two names");
+    expect(readFileSync(creds, "utf8")).toBe(`# mine\nSOME_KEY=${SECRET}\n`);
+    expect(text(forced.out)).not.toContain(SECRET);
+    const rewritten = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
+    expect(rewritten["injectionBudgetBytes"]).toBe(9000);
+    expect(rewritten["credentialsFile"]).toBeUndefined();
   });
 
   test("refuses a forbidden data dir before a single file is written", async () => {
@@ -5678,7 +5638,7 @@ describe("install", () => {
     expect(layout.base).toBe(join(home, ".counterparts"));
     expect(layout.store).toBe(join(home, ".counterparts", "store"));
     expect(layout.config).toBe(join(home, ".counterparts", CONFIG_FILE));
-    expect(layout.credentials).toBe(join(home, ".counterparts", CREDENTIALS_FILE));
+    expect("credentials" in layout).toBe(false);
 
     // A named store — flag or environment — moves the STORE and nothing else,
     // because the hooks read one hardcoded configuration path and no other.

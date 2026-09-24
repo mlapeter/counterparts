@@ -340,6 +340,9 @@ describe("start-fresh, end to end", () => {
     await install();
     await note();
     seedSnapshots();
+    // An older install's key file beside the configuration: not ours any more,
+    // and start-fresh leaves it exactly as it is.
+    writeFileSync(join(base(), "credentials.env"), "# an older install's\n", { mode: 0o600 });
 
     const before = fingerprint(storePath());
     const snapsBefore = fingerprint(snapshotsPath());

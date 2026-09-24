@@ -20,7 +20,7 @@
  *       reason — the store's blind memories gain vectors at a guaranteed rate
  *       rather than only when a deposit happens to pay for one, and running it
  *       first means a long sweep cannot starve it;
- *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9) —
+ *   1. the crash-fallback sweep's GATE, over EVERY scope holding experience (§2 G9) —
  *      which SELECTS NOTHING unless a session actually crashed (uncovered spans,
  *      no `session-end` boundary, silent for `CRASH_STALE_MS`). This worker is
  *      spawned at every boundary for the flush and the cycle below; the sweep is
@@ -45,19 +45,16 @@
  *      `finally` below, so a boundary that FAILED still gets its copy: the day
  *      the worker breaks is the day a backup is worth most.
  *
- * **THE SWEEP IS OPT-IN** (roadmap C2, 2026-09-23): it runs only when the
- * configuration's `crashWriteUp` says `"api"` and the key is present. By
- * default the next session in the crashed session's project writes it up, at
- * SessionStart, and step 1 records its gate row and does nothing else.
+ * **THE SWEEP NEVER INTERPRETS HERE** (keyless, owner 2026-09-24). It was an
+ * opt-in that sent a crashed session's words to the Anthropic API; that path
+ * was removed with the key. A session that ended before it was written up is
+ * written up by the NEXT session in its project, at SessionStart, and step 1
+ * records its gate row (`reason: "not-opted-in"`) and does nothing else.
  *
- * **IT DEGRADES, STEP BY STEP; IT DOES NOT REFUSE** (I32, 2026-09-11). Exactly
- * one of the five jobs above needs a model credential — the sweep — and until
- * this date its absence refused the SPAWN, so a blanked credentials file stopped
- * the clock, the flush, the cue, the backfill and the cycle for a week while
- * every visible surface read healthy. Each step now asks its own question and
- * records its own answer by name: the sweep's is `sweep.gate` with
- * `reason: "no-credential"`, the vector steps' are `no-credentials` /
- * `embedder-off`. A step that cannot run says so where tomorrow can read it.
+ * **IT DEGRADES, STEP BY STEP; IT DOES NOT REFUSE** (I32, 2026-09-11). Each
+ * step asks its own question and records its own answer by name — the vector
+ * steps' are `embedder-off` / `embedder-unavailable` — so a step that cannot
+ * run says so where tomorrow can read it, and the others still run.
  *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
@@ -66,30 +63,15 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
-import {
-  ALREADY_AUTHORED_MARK,
-  RETENTION_EVENT,
-  renderForSweep,
-  retentionRow,
-  retentionRuns,
-} from "../../../core/remember/index.js";
-import type {
-  HostSessionEvidence,
-  InterpretFn,
-  RetentionReport,
-  SweepChunk,
-} from "../../../core/remember/index.js";
-// THE WRITE-UP MARK, by path — the API sweep marks a crashed session it has
-// finished with (C2). `test/cli.test.ts` pins this file as one of its two
-// importers outside `remember/`, beside the MCP door.
-import { recordWriteUp } from "../../../core/remember/write-up-seam.js";
+import { RETENTION_EVENT, retentionRow, retentionRuns } from "../../../core/remember/index.js";
+import type { HostSessionEvidence, RetentionReport } from "../../../core/remember/index.js";
 // THE DELETING HALF, by path, and from this file alone (PR #189 review, B1):
 // `remember/index.ts` does not re-export it, and `test/cli.test.ts` pins every
 // importer — nothing that holds a `Counterpart` can reach it.
 import { pruneRetention } from "../../../core/remember/retention.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
-import { hostSessionEvidence, writeUpPlan, writeUpSources } from "../../sessions.js";
+import { hostSessionEvidence, writeUpSources } from "../../sessions.js";
 
 import {
   configLine,
@@ -103,13 +85,8 @@ import type { ConfigChoice } from "../../config-path.js";
 
 import { loadConfig, withEmbedderDefault } from "../config.js";
 import type { AdapterConfig } from "../config.js";
-import { loadCredentials, permissionWarning } from "../credentials.js";
-import type { CredentialLoad } from "../credentials.js";
 import { openEmbedder } from "../index.js";
 import type { LiveEmbedder } from "../embed-client.js";
-import { interpretClient } from "../interpret-client.js";
-import type { FetchLike } from "../interpret-client.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, apiSweepOn, crashWriteUpMode } from "../config.js";
 import { runPageWriter } from "../page-writer.js";
 import type { PageWriterStarter } from "../page-writer.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
@@ -314,9 +291,6 @@ export function retentionJob(input: {
  */
 export async function runOnce(input: {
   config: AdapterConfig;
-  /** Injected so the whole worker is provable without a socket. */
-  fetch?: FetchLike;
-  today?: string;
   date?: string;
   signal?: AbortSignal;
   /** The session this run follows, and its scope — pinned onto the child by the
@@ -324,15 +298,13 @@ export async function runOnce(input: {
    *  and none is claimed: a run nobody bound to a session has nobody to cue. */
   session?: string;
   scope?: string;
-  /** Injected so the whole vector path is provable without a socket. */
+  /** Injected so the whole vector path is provable without the weights. */
   embedder?: LiveEmbedder | null;
   /** The configuration file this process read, pinned onto the nightly page
    *  writer's child so parent and child read one file rather than resolving two. */
   configPath?: string;
   /** Injected so `host` mode is provable without launching a host session. */
   startPageWriter?: PageWriterStarter;
-  /** Defaults to `process.env`: read for PRESENCE of the embed key, never value. */
-  env?: NodeJS.ProcessEnv;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }): Promise<RunReport> {
   const { config } = input;
@@ -348,22 +320,10 @@ export async function runOnce(input: {
     return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null, retention: null };
   }
 
-  // The embedder, when the owner switched it on. This is the composition root
-  // that MINTS — the fallback sweep runs here — so an embedder wired only into
-  // `openAdapter` would be an embedder the memories never meet. Its `fetch` is
-  // the same injected one the interpreter uses, so the whole worker stays
-  // provable without a socket.
-  const embedder =
-    input.embedder !== undefined
-      ? input.embedder
-      : openEmbedder(config, {
-          // ONE injected `fetch` for the whole worker; the two clients call
-          // different endpoints, and a fake that answers both proves it.
-          ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-          ...(input.today === undefined ? {} : { today: input.today }),
-          ...(input.signal === undefined ? {} : { signal: input.signal }),
-          onEvent: emit,
-        });
+  // The embedder, when it is on. This is the composition root that backfills,
+  // so an embedder wired only into `openAdapter` would be one the memories
+  // never meet.
+  const embedder = input.embedder !== undefined ? input.embedder : openEmbedder(config, { onEvent: emit });
 
   const counterpart = Counterpart.open({
     dir: config.dataDir,
@@ -374,35 +334,6 @@ export async function runOnce(input: {
     ...(config.owner === undefined ? {} : { owner: config.owner }),
     onEvent: (e) => emit(e.name, { ...(e.data ?? {}) }),
   });
-  // The embed credential, by PRESENCE only — the value is never read here and
-  // never logged. `embedClient` makes the same check before it opens a socket;
-  // asking here is what lets the two vector steps record `no-credentials` as a
-  // NAME instead of as a failed call nobody can tell from an empty store.
-  const env = input.env ?? process.env;
-  const hasCredential = (env[EMBED_KEY_ENV] ?? "").trim().length > 0;
-  // THE INTERPRET CREDENTIAL, by PRESENCE only, and read here rather than
-  // refused at the spawn (I32). `runnerConfig` has already filled the gap from
-  // the configured credentials file, so this is the whole question. Its VALUE is
-  // never read, never logged, never compared.
-  //
-  // Four of this worker's five jobs — the cue, the backfill, the Hebbian flush
-  // and the sleep cycle (clock, decay, prune, dedup, consolidate, briefing) —
-  // need no model call at all. Only the crash-fallback sweep does. So a missing
-  // key costs the sweep and nothing else, and the sweep's own gate row says so
-  // by name. Refusing the whole run instead is what froze the lived-day clock
-  // for a week while every visible surface read healthy.
-  const hasInterpretCredential = (env[API_KEY_ENV] ?? "").trim().length > 0;
-  // AND THE KEY IS NO LONGER ENOUGH (roadmap C2, owner 2026-09-23). The sweep is
-  // an opt-in upgrade now: it runs only when `crashWriteUp` says `"api"` AND
-  // the key is present (`config.ts#apiSweepOn`). Otherwise a session that ended
-  // before it was written up is written up by the next session in its project,
-  // and this step does nothing — and says which of the two it was on the gate
-  // row (I32: evidence beats silence): `not-opted-in` when the owner has not
-  // opted in, whatever key is present; `no-credential` when he has and there
-  // is no key.
-  const sweepOn = apiSweepOn(config, env);
-  const optedIn = crashWriteUpMode(config) === "api";
-
   // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could
   // record anything. The `sweep.gate` row carries it; so must every failure row,
   // or a replay with a pinned date would dedup against the wall clock instead.
@@ -427,13 +358,12 @@ export async function runOnce(input: {
         sessionId: input.session,
         scope: input.scope,
         embedder,
-        hasCredential,
         onEvent: emit,
       });
     }
     // 0b. One bounded batch, before the variable-length sweep, so a long sweep
     // (or the watchdog that ends one) cannot starve the store's blind memories.
-    backfill = await backfillVectors({ counterpart, embedder, hasCredential, onEvent: emit });
+    backfill = await backfillVectors({ counterpart, embedder, onEvent: emit });
   } catch (err) {
     // Neither step may cost the run. A cue is a nicety; the sweep is the day.
     const code = err instanceof Error ? err.name : "UNKNOWN";
@@ -451,35 +381,14 @@ export async function runOnce(input: {
   let retentionReport: RetentionJobReport | null = null;
   let result: RunReport;
   try {
-    // NO INTERPRETER IS BUILT when there is no key — or, since C2, when the
-    // owner has not opted into the API sweep at all. Not a client that would
-    // refuse at its first call — the sweep would then claim spans, hand them to
-    // something that cannot read them, and the claim would have to be restored.
-    // The boundary is told "skipped, and why" instead, and everything that does
-    // not need a model still runs.
-    // THE SWEEP AND THE WRITE-UP KNOW EACH OTHER (C2): a session already
-    // marked written up is not read again, and a session the sweep has
-    // finished with is marked (`sweepAware`, `markSwept`).
-    const aware = sweepOn ? sweepAware(counterpart, emit) : null;
+    // NO INTERPRETER, EVER (keyless, 2026-09-24). The sweep is told "skipped"
+    // and records its gate row; a session that ended before it was written up
+    // is the next session's to write up, and everything else still runs.
     const report = await counterpart.sessionEnd({
       date: today,
       at: today,
-      sweep:
-        aware !== null
-          ? {
-              interpret: aware.wrap(
-                interpretClient({
-                  config,
-                  ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-                  ...(input.today === undefined ? {} : { today: input.today }),
-                  ...(input.signal === undefined ? {} : { signal: input.signal }),
-                  onEvent: emit,
-                }),
-              ),
-            }
-          : { skipped: optedIn ? "no-credential" : "not-opted-in" },
+      sweep: { skipped: "not-opted-in" },
     });
-    if (aware !== null) aware.markSwept();
     const swept = report.sweeps.reduce((n, s) => n + s.spansSwept, 0);
     const minted = report.sweeps.reduce((n, s) => n + s.proposals, 0);
     emit("runner.done", {
@@ -492,10 +401,7 @@ export async function runOnce(input: {
       // learned association, which no hook writes any more.
       carried: report.carried?.reason ?? "threw",
       carriedRows: report.carried?.rows ?? 0,
-      interpret: hasInterpretCredential,
-      // `api` — opted in and keyed, so the sweep ran its gate; `next-session` —
-      // not opted in, whatever the key; `no-key` — opted in with no key.
-      sweep: sweepOn ? "api" : optedIn ? "no-key" : "next-session",
+      sweep: "next-session",
     });
     result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null, retention: null };
   } catch (err) {
@@ -575,123 +481,6 @@ export async function runOnce(input: {
 }
 
 /**
- * THE API SWEEP, TOLD WHAT THE WRITE-UP HAS DONE — and telling it back
- * (roadmap C2, owner 2026-09-23).
- *
- * The sweep is `core/`'s and it decides what is crashed by boundaries alone;
- * it has never read a write-up mark. So the worker stands between it and the
- * model, at the one seam it owns — the interpreter it hands in:
- *
- *   - **A session already marked written up is not read again.** A chunk made
- *     only of such sessions returns "nothing here" without a model call — the
- *     sweep's own EMPTY, so those spans are retired the way it retires spans
- *     that were all authored — and in a mixed chunk their words are marked
- *     `ALREADY_AUTHORED_MARK`, which takes away the permission to write them
- *     twice without taking away the sight of them (§4.1 G4). The prompt keeps
- *     whatever core prefixed to it; only its transcript tail is re-rendered,
- *     and if that tail is not where it should be the chunk goes through as it
- *     came — a possible duplicate, never a loss.
- *   - **A session the sweep has finished with is marked written up**, `by:
- *     "api"`, in every scope it read: finished means every one of its words,
- *     in EVERY project it left words in, was read and came back ok — none left
- *     in the live buffer, a claim, or QUARANTINE, anywhere. A quarantined session is NOT marked (PR #192 review, MAJOR
- *     5): the sweep failed to read it, and the next-session pointer offers it
- *     instead (`sessions.ts#sweepOwns` hands it back once only quarantine is
- *     left). A session whose spans were put back for a retry is not marked.
- *
- * Built once per run, before `sessionEnd`; never throws.
- */
-export function sweepAware(
-  counterpart: Counterpart,
-  emit: (name: string, data: Record<string, string | number | boolean | null>) => void,
-): { wrap(interpret: InterpretFn): InterpretFn; markSwept(): number } {
-  const writtenUp = new Set<string>();
-  try {
-    const t = counterpart.self.tunables;
-    for (const h of writeUpPlan({
-      store: counterpart.store,
-      spans: counterpart.spans,
-      firstAsk: { turns: t.FIRST_ASK_TURNS, bytes: t.FIRST_ASK_BYTES, soloBytes: t.SOLO_ASK_BYTES },
-    })) {
-      if (h.facts.writtenUp) writtenUp.add(h.session);
-    }
-  } catch (err) {
-    emit("runner.sweep.plan.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
-  }
-  /** session → the scopes its words were read from, this run. */
-  const read = new Map<string, Set<string>>();
-  return {
-    wrap(interpret: InterpretFn): InterpretFn {
-      return async (chunk: SweepChunk) => {
-        for (const span of chunk.spans) {
-          if (writtenUp.has(span.session)) continue;
-          const scopes = read.get(span.session) ?? new Set<string>();
-          scopes.add(span.scope);
-          read.set(span.session, scopes);
-        }
-        const done = chunk.spans.filter((span) => writtenUp.has(span.session)).length;
-        if (done === 0) return interpret(chunk);
-        if (done === chunk.spans.length) {
-          emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: false });
-          return { proposals: [], stopReason: "end_turn" };
-        }
-        const tail = renderForSweep(chunk.marked);
-        if (!chunk.prompt.endsWith(tail)) {
-          emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: true, reshaped: false });
-          return interpret(chunk);
-        }
-        const marked = chunk.marked.map((m) =>
-          m.mark === null && writtenUp.has(m.span.session) ? { ...m, mark: ALREADY_AUTHORED_MARK } : m,
-        );
-        emit("runner.sweep.written-up", { chunk: chunk.index, spans: done, read: true, reshaped: true });
-        return interpret({
-          ...chunk,
-          marked,
-          prompt: chunk.prompt.slice(0, chunk.prompt.length - tail.length) + renderForSweep(marked),
-        });
-      };
-    },
-    markSwept(): number {
-      let marked = 0;
-      for (const [session, scopes] of read) {
-        try {
-          const spans = counterpart.spans;
-          // FINISHED means every word was READ AND CAME BACK OK — consumed. A
-          // word still live, in a claim, or in QUARANTINE was not: quarantine
-          // is where the sweep puts what it failed to read for three days
-          // running (a revoked key, an outage), and marking that "written up"
-          // would delete it a week later with nothing minted (PR #192 review,
-          // MAJOR 5). A quarantined session stays owed and is offered to the
-          // next session in its project instead (`sessions.ts#sweepOwns`).
-          //
-          // AND IN EVERY PROJECT, not only the ones read this run (PR #192
-          // re-review, MAJOR-A). B3 reads a write-up mark for the WHOLE session,
-          // so a mark after sweeping one project's words would end the debt of
-          // words the session left in another — `claude --resume` from another
-          // directory files one id under two scopes, and the first goes stale
-          // first — and the next run would retire those unread. The door waits
-          // for every project's share the same way (`written-up-here`).
-          const left = spans.scopes().some(
-            (scope) =>
-              spans.spans(scope).some((s) => s.session === session) ||
-              spans.claimedSpans(scope).some((s) => s.session === session && s.kind !== "assistant") ||
-              spans.quarantined(scope).some((s) => s.session === session && s.kind !== "assistant"),
-          );
-          if (left) continue;
-          for (const scope of scopes) {
-            if (recordWriteUp(spans, { scope, session, by: "api" }) === "RECORDED") marked += 1;
-          }
-        } catch (err) {
-          emit("runner.sweep.mark.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
-        }
-      }
-      if (read.size > 0) emit("runner.sweep.marked", { sessions: read.size, marked });
-      return marked;
-    },
-  };
-}
-
-/**
  * One durable row for a step that failed inside the detached worker.
  *
  * Pre-open failures are NOT covered here and do not need to be: the parent's
@@ -756,23 +545,15 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 }
 
 /**
- * This process's configuration, its pinned data dir, and its credential load.
+ * This process's configuration and its pinned data dir.
  *
- * BELT AND BRACES on the credential. A worker the hook spawned already carries
- * the keys — the spawner copies `process.env` into the child, and the hook
- * filled the gap before that copy — but this process also runs when nothing
- * spawned it that way, and it reads the same configuration, so it loads from the
- * same configured file rather than assuming an ancestor did. The load is a no-op
- * where the keys are already there: the ENVIRONMENT WINS, always, and an
- * inherited key is reported as `skippedPresent`, not overwritten.
- *
- * Exported and injectable so the runner's credential path is provable without a
- * process (the entry point itself is not importable).
+ * Exported and injectable so the runner's configuration path is provable
+ * without a process (the entry point itself is not importable).
  */
 export function runnerConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
+): { config: AdapterConfig; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -780,21 +561,15 @@ export function runnerConfig(
     raw = undefined;
   }
   const loaded = loadConfig(raw);
-  const credentials = loadCredentials(loaded.config.credentialsFile, env);
   const pinned = pinnedDataDir(env);
   // THE EMBEDDER DEFAULT (config.ts#resolveEmbedder), the same rule the hook
   // applies, so the worker backfills with the table the hooks embed with.
-  const voyageKeySaved = [...credentials.loaded, ...credentials.skippedPresent].includes(EMBED_KEY_ENV);
   return {
-    config: withEmbedderDefault(
-      {
-        ...loaded.config,
-        // The PIN wins. The spawner wrote it last precisely so nothing else can.
-        dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
-      },
-      voyageKeySaved,
-    ),
-    credentials,
+    config: withEmbedderDefault({
+      ...loaded.config,
+      // The PIN wins. The spawner wrote it last precisely so nothing else can.
+      dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
+    }),
     reason: loaded.reason,
   };
 }
@@ -815,7 +590,7 @@ async function main(): Promise<void> {
     process.stderr.write(`[counterparts] worker stood down: ${refusal}\n`);
     return;
   }
-  const { config, credentials, reason } = runnerConfig(choice.path);
+  const { config, reason } = runnerConfig(choice.path);
   const unreadable = namedUnreadableRefusal(choice, reason);
   if (unreadable !== null) {
     process.stderr.write(`[counterparts] worker stood down: ${unreadable}\n`);
@@ -826,10 +601,6 @@ async function main(): Promise<void> {
   // record for a detached run is the pin itself — `COUNTERPARTS_CONFIG` in the
   // environment the spawner wrote — and the session record the parent left.
   process.stderr.write(`[counterparts] worker config: ${configLine(choice)}\n`);
-  // No ring here — the worker has no adapter — so the permission warning is a
-  // stderr line and nothing else. Warned, never refused (§4).
-  const warning = permissionWarning(config.credentialsFile, credentials);
-  if (warning !== null) process.stderr.write(`${warning}\n`);
 
   const timeout = watchdogMs();
   const controller = new AbortController();

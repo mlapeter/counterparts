@@ -291,7 +291,7 @@ fi
 
 # ── 2. the install command ──────────────────────────────────────────────────
 
-step "counterparts install writes the store, the config and the credentials"
+step "counterparts install writes the store and the config"
 # Verbatim, placeholder included: what the loop runs is the line the docs print,
 # down to the name a reader is told to replace.
 CMD='counterparts install --budget 9000 --name "Your Name"'
@@ -300,10 +300,10 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   INSTALL_OUT=$(eval "$CMD" 2>&1)
-  if [ -f "$STORE/counterparts.sqlite" ] && [ -f "$BASE/claude-code.json" ] && [ -f "$BASE/credentials.env" ]; then
+  if [ -f "$STORE/counterparts.sqlite" ] && [ -f "$BASE/claude-code.json" ]; then
     ok
   else
-    no "install did not produce store + config + credentials" "$INSTALL_OUT"
+    no "install did not produce store + config" "$INSTALL_OUT"
   fi
 fi
 
@@ -322,9 +322,8 @@ else
   if printf '%s' "$OUT" | grep -q "^Memories: "; then ok; else no "status could not open the store" "$OUT"; fi
 fi
 
-step "the credentials file is 0600"
-MODE=$(stat -f '%OLp' "$BASE/credentials.env" 2>/dev/null || stat -c '%a' "$BASE/credentials.env" 2>/dev/null)
-if [ "$MODE" = "600" ]; then ok; else no "credentials.env is mode ${MODE:-unknown}, not 600"; fi
+step "install wrote no credentials file (the package reads no API keys)"
+if [ ! -e "$BASE/credentials.env" ]; then ok; else no "install wrote $BASE/credentials.env"; fi
 
 step "install PRINTED the host's two steps and wrote no host file"
 if printf '%s' "$INSTALL_OUT" | grep -q 'claude mcp add counterparts' &&
@@ -712,8 +711,8 @@ fi
 
 step "recall embeds the question with the local table the package installed"
 # KEYLESS BY DEFAULT (roadmap C3, 2026-09-23). The scripted install writes no
-# embedder block, and an absent block reads as the local table when no Voyage
-# key is saved (config.ts#resolveEmbedder). So the server embeds the question
+# embedder block, and an absent block reads as the local table
+# (config.ts#resolveEmbedder). So the server embeds the question
 # itself, with the weights package the global install pulled in as the one
 # dependency — the keyless semantic channel, end to end, from an install. The
 # field used to read `embedder-off` here; `in-line` is the channel running.
@@ -1019,7 +1018,7 @@ step "everything the run wrote is inside the clean room"
 # stat it to find out. Instead: every path the run produced is resolved and must
 # live under $WORK, and the session record must be the one in the temp store.
 STRAY=""
-for p in "$STORE" "$BASE/claude-code.json" "$BASE/credentials.env" "$BUN_INSTALL/bin/counterparts"; do
+for p in "$STORE" "$BASE/claude-code.json" "$BUN_INSTALL/bin/counterparts"; do
   r=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)
   case "${r:-/nowhere}/" in
     "$WORK"/*) ;;

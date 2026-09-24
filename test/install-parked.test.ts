@@ -651,14 +651,14 @@ describe("install --force over a configuration that is already there", () => {
     expect(text(c.out)).toContain(`replaced ${path}`);
   });
 
-  test("--force MOVES an install: dataDir and credentialsFile are never carried", async () => {
+  test("--force MOVES an install: dataDir is never carried, and no credentialsFile is written", async () => {
     await install(piped().io, ["--budget", "9000", "--name", "Ada"]);
     const elsewhere = join(home, "elsewhere", "store");
     const c = piped();
     expect(await install(c.io, ["--force", "--dir", elsewhere, "--budget", "9000"])).toBe(EXIT.ok);
     const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
     expect(body["dataDir"]).toBe(elsewhere);
-    expect(body["credentialsFile"]).toBe(join(base(), "credentials.env"));
+    expect(body["credentialsFile"]).toBeUndefined();
     expect(body["identity"]).toEqual({ name: "Ada" });
   });
 
@@ -705,7 +705,7 @@ describe("install and the embedder block: the local table, and a kind is never f
   }
 
   // The FILE carries no block; at runtime an absent block reads as the local
-  // table unless a Voyage key is saved (test/embedder-default.test.ts).
+  // table (test/embedder-default.test.ts).
   test("a scripted install with no flag writes NO embedder block — the scripted arm's bytes do not move", async () => {
     expect(await install(piped().io, ["--budget", "9000", "--name", "Ada"])).toBe(EXIT.ok);
     expect(read()["embedder"]).toBeUndefined();
@@ -722,8 +722,8 @@ describe("install and the embedder block: the local table, and a kind is never f
     expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
-  // REVIEW OF #195, MAJOR 1: turning an OFF block ON never resurrects Voyage.
-  // A Voyage kind — named or implied — is kept only when the block was ON.
+  // REVIEW OF #195, MAJOR 1: turning a block ON never names Voyage. Since
+  // 2026-09-24 the seat is gone altogether, so ON is always the local table.
   test("--force --embedder over an OFF voyage block writes the LOCAL TABLE, never Voyage", async () => {
     await existing({ enabled: false, kind: "voyage" }, true);
     expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
@@ -736,16 +736,13 @@ describe("install and the embedder block: the local table, and a kind is never f
     expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
   });
 
-  test("a RUNNING 0.2.0 Voyage setup (kind-less, ON, key saved) is kept by --force --embedder — nothing is resurrected", async () => {
-    await existing({ enabled: true }, true);
-    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
-    expect(read()["embedder"]).toEqual({ enabled: true });
-  });
-
-  test("a RUNNING voyage block is kept by --force --embedder", async () => {
-    await existing({ enabled: true, kind: "voyage" }, true);
-    expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
-    expect(read()["embedder"]).toEqual({ enabled: true, kind: "voyage" });
+  test("an ON Voyage block — kind-less 0.2.0 or named — becomes the local table under --force --embedder (the seat was removed 2026-09-24)", async () => {
+    for (const block of [{ enabled: true }, { enabled: true, kind: "voyage" }]) {
+      rmSync(base(), { recursive: true, force: true });
+      await existing(block, true);
+      expect(await install(piped().io, ["--force", "--embedder", "--budget", "9000"])).toBe(EXIT.ok);
+      expect(read()["embedder"]).toEqual({ enabled: true, kind: "static" });
+    }
   });
 
   test("--force --no-embedder over a 0.2.0 Voyage setup keeps its kind as recorded; ON again is the local table", async () => {
@@ -770,7 +767,7 @@ describe("install and the embedder block: the local table, and a kind is never f
     expect(read()["identity"]).toEqual({ name: "Ada" });
   });
 
-  test("a Voyage configuration and its key are left ALONE by a plain --force, and by a terminal re-run", async () => {
+  test("a plain --force carries an old Voyage block as written (it READS as the local table), and never touches an old key file", async () => {
     await existing({ enabled: true, kind: "voyage" }, true);
     const before = readFileSync(configPath(), "utf8");
     expect(await install(piped().io, ["--force", "--budget", "9000"])).toBe(EXIT.ok);
@@ -784,10 +781,13 @@ describe("install and the embedder block: the local table, and a kind is never f
     expect(JSON.parse(before)["embedder"]).toEqual({ enabled: true, kind: "voyage" });
   });
 
-  test("--no-embedder keeps the kind the file names, switched off", async () => {
+  test("--no-embedder keeps a kind this build knows, switched off — and drops `voyage`", async () => {
+    await existing({ enabled: true, kind: "static" }, false);
+    expect(await install(piped().io, ["--force", "--no-embedder", "--budget", "9000"])).toBe(EXIT.ok);
+    expect(read()["embedder"]).toEqual({ enabled: false, kind: "static" });
     await existing({ enabled: true, kind: "voyage" }, true);
     expect(await install(piped().io, ["--force", "--no-embedder", "--budget", "9000"])).toBe(EXIT.ok);
-    expect(read()["embedder"]).toEqual({ enabled: false, kind: "voyage" });
+    expect(read()["embedder"]).toEqual({ enabled: false });
   });
 
   test("--embedder and --no-embedder together are refused before anything is written", async () => {

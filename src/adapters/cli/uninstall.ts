@@ -24,8 +24,6 @@
  * list of the things this package writes**, built from names we own:
  *
  *   - the configuration file, and our own temp and backup siblings of it;
- *   - `credentials.env` (or whatever the configuration NAMES, when that sits
- *     beside it);
  *   - `scopes.json` and its siblings;
  *   - `snapshots/`, when it is the one this layout owns rather than a directory
  *     the owner pointed at;
@@ -33,6 +31,11 @@
  *     the same finding: the store can live outside the configuration directory,
  *     and the old code counted it, deleted the directory without it, and said
  *     the memory was gone.
+ *
+ * (`credentials.env` was on this list until the keys were removed on
+ * 2026-09-24. It is not ours to delete any more — it may hold somebody's API
+ * keys — so an old one is left where it is, like anything else we do not own,
+ * and the plan names it.)
  *
  * The configuration directory itself moves or goes **only when it holds nothing
  * else**, which keeps the ordinary `~/.counterparts` a single atomic rename. If
@@ -74,7 +77,7 @@ import { SCOPES_FILE_NAME } from "../scopes.js";
 import { SNAPSHOTS_DIR_NAME, resolveSnapshotsDir } from "../snapshots.js";
 import type { AdapterConfig } from "../claude-code/config.js";
 import type { Io } from "./commands.js";
-import { BIN, CONFIG_FILE, CREDENTIALS_FILE, MCP_SERVER_NAME } from "./install.js";
+import { BIN, CONFIG_FILE, LEGACY_CREDENTIALS_FILE, MCP_SERVER_NAME } from "./install.js";
 import {
   PARKED_INFIX,
   pairedSuffix,
@@ -132,15 +135,13 @@ export function forbiddenBaseRefusal(base: string): string | null {
 
 // ── what we own, by name ────────────────────────────────────────────────────
 
-export type OwnedKind = "config" | "credentials" | "scopes" | "snapshots" | "store" | "sidecar";
+export type OwnedKind = "config" | "scopes" | "snapshots" | "store" | "sidecar";
 
 /** The basenames this package writes inside a configuration directory. Built
  *  from the configuration rather than assumed, because three of the five are
  *  things the file itself can move. */
 export interface OwnedNames {
   readonly config: string;
-  /** Null when `credentialsFile` points somewhere else entirely. */
-  readonly credentials: string | null;
   readonly scopes: string;
   /** Null when `snapshots.dir` points at a directory the OWNER chose, which
    *  this command leaves alone exactly as `start-fresh` does. */
@@ -155,19 +156,12 @@ export function ownedNames(
   storeDir: string | null,
 ): OwnedNames {
   const dir = resolve(dirname(configPath));
-  const credentials =
-    config.credentialsFile === undefined || config.credentialsFile.trim().length === 0
-      ? CREDENTIALS_FILE
-      : resolve(dirname(resolve(config.credentialsFile))) === dir
-        ? basename(resolve(config.credentialsFile))
-        : null;
   const snaps =
     storeDir === null
       ? null
       : resolveSnapshotsDir(storeDir, config.snapshots?.dir).dir;
   return {
     config: basename(resolve(configPath)),
-    credentials,
     scopes: SCOPES_FILE_NAME,
     snapshots:
       snaps !== null && resolve(dirname(snaps)) === dir ? basename(snaps) : null,
@@ -178,20 +172,19 @@ export function ownedNames(
 /**
  * Is this entry name one this package writes, and which kind?
  *
- * The sidecars matter as much as the files: `keys.ts` and `scopes.ts` both
- * write `<path>.<pid>.tmp` siblings (and `keys.ts` wrote a bare `<path>.tmp`
- * until review n4, which a leftover may still be), `start-fresh` leaves `store.parked-<date>`,
+ * The sidecars matter as much as the files: `scopes.ts` writes `<path>.<pid>.tmp`
+ * siblings (and the removed `keys.ts` wrote them too, and a bare `<path>.tmp`
+ * before review n4, which a leftover may still be), `start-fresh` leaves `store.parked-<date>`,
  * `store.blank-<date>` and `store.new-<pid>` behind, and `wire` leaves
  * `<file>.counterparts-backup-<stamp>`. A directory holding only those is still
  * a directory holding only ours.
  */
 export function ownedKind(name: string, owned: OwnedNames): OwnedKind | null {
   if (name === owned.config) return "config";
-  if (owned.credentials !== null && name === owned.credentials) return "credentials";
   if (name === owned.scopes) return "scopes";
   if (owned.snapshots !== null && name === owned.snapshots) return "snapshots";
   if (owned.store !== null && name === owned.store) return "store";
-  const bases = [owned.config, owned.credentials, owned.scopes, owned.snapshots, owned.store];
+  const bases = [owned.config, owned.scopes, owned.snapshots, owned.store];
   for (const base of bases) {
     if (base === null || !name.startsWith(`${base}.`)) continue;
     const suffix = name.slice(base.length + 1);
@@ -627,7 +620,6 @@ export function counted(plan: UninstallPlan): UninstallPlan {
  *  "which directories memory is on for". */
 const WHAT: Record<OwnedKind, string> = {
   config: "the configuration",
-  credentials: "your API keys",
   scopes: "which directories memory is on for",
   snapshots: "the snapshots",
   store: "your memory",
@@ -635,10 +627,9 @@ const WHAT: Record<OwnedKind, string> = {
 };
 
 /** The same things named in a list rather than a column, for the one sentence
- *  under `--park`'s arrow: "your memory, configuration, API keys, snapshots". */
+ *  under `--park`'s arrow: "your memory, configuration, snapshots". */
 const SHORT_WHAT: Record<OwnedKind, string> = {
   config: "configuration",
-  credentials: "API keys",
   scopes: "scopes",
   snapshots: "snapshots",
   store: "your memory",
@@ -872,6 +863,11 @@ export function planLines(
     for (const name of plan.foreign.slice(0, 12)) out.push(`    ${name}`);
     if (plan.foreign.length > 12) out.push(`    … and ${String(plan.foreign.length - 12)} more`);
     out.push("  None of those is touched.");
+    if (plan.foreign.includes(LEGACY_CREDENTIALS_FILE)) {
+      out.push(
+        `  (${LEGACY_CREDENTIALS_FILE} is from an older install that used API keys. Counterparts no longer reads it; delete it yourself if you like.)`,
+      );
+    }
   }
   if (plan.storeDir !== null && !plan.storeInside) {
     out.push("");
@@ -916,8 +912,8 @@ export interface UninstallInput {
   readonly home: string;
   readonly configPath: string;
   readonly custom: string | undefined;
-  /** The whole configuration, so the plan can find the store, the credentials
-   *  file and the snapshots wherever the file put them. */
+  /** The whole configuration, so the plan can find the store and the
+   *  snapshots wherever the file put them. */
   readonly config: AdapterConfig;
   readonly now: number;
   readonly yes: boolean;

@@ -33,10 +33,11 @@
  *   keyed on that frozen clock — stayed spent. A refusal that stops FIVE jobs to
  *   protect ONE of them is not a safety property; it is a single point of
  *   failure with a name. The worker now starts whenever it has a data dir and a
- *   sane watchdog, and the one step that needs the key (`runner.ts`'s sweep)
- *   degrades and SAYS SO on a durable row. Nothing about that is a licence to
+ *   sane watchdog, and the one step that needed the key (`runner.ts`'s sweep)
+ *   degraded and SAID SO on a durable row. Nothing about that is a licence to
  *   run blind: the refusals that remain are the ones where starting would be
- *   wrong, not merely unproductive.
+ *   wrong, not merely unproductive. (Since 2026-09-24 the package reads no key
+ *   at all — the sweep's API path went with it.)
  *
  * `planSpawn` is pure and returns a checkable plan; `spawnDetached` is the six
  * lines that actually start a process. The split is deliberate: everything worth
@@ -161,10 +162,8 @@ export function planSpawn(input: PlanInput): SpawnPlan {
         : "WATCHDOG_EXCEEDS_STALENESS",
     );
   }
-  // NO CREDENTIAL CHECK HERE, and the absence is the point. The key rides along
-  // on `env` like every other inherited value; whether it is there is the
-  // WORKER's question, one step at a time, because four of its five jobs do not
-  // need it (I32, and the header above).
+  // NO CREDENTIAL CHECK HERE (I32, and the header above) — and since
+  // 2026-09-24 no step of the worker needs one.
   env[DATA_DIR_ENV] = config.dataDir;
   env[WATCHDOG_ENV] = String(timeoutMs);
   // Pinned LAST for the same reason the data dir is: a caller's exported

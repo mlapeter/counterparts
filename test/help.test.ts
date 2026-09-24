@@ -86,7 +86,9 @@ describe("the short page", () => {
     // item on the 0.2.0 trial's list was written 2026-09-21, against the page
     // before the 09-22 split moved the whole Advanced group to `help advanced`;
     // this page has had no Advanced group since, and is shorter than the target.
-    expect(lines).toHaveLength(26);
+    // 25 since 2026-09-24: the `credentials` line went with the API keys, on
+    // the owner's word.
+    expect(lines).toHaveLength(25);
     expect(page).not.toContain("\nAdvanced\n");
     // `usage()` is the same page — the two names are one thing.
     expect(usage()).toBe(page);
@@ -271,8 +273,8 @@ describe("nothing of the old page was lost", () => {
   const MOVED: readonly (readonly [Command, string])[] = [
     ["install", "--dir moves the STORE only"],
     ["install", "moves the CONFIG"],
-    ["install", "the credentials beside it and the default store beneath it"],
-    ["init", "No host config, no credentials file, nothing under ~/.counterparts/"],
+    ["install", "CONFIG and the default store beneath it"],
+    ["init", "No host config, nothing under ~/.counterparts/"],
     ["init", "seeds the identity core"],
     ["start-fresh", "REFUSED on this command"],
     ["start-fresh", "--nothing-is-open"],
@@ -290,8 +292,6 @@ describe("nothing of the old page was lost", () => {
     ["repair-dates", "rewrites thousands of canonical documents"],
     ["repair-dates", "--confidence"],
     ["repair-dates", "--import-day"],
-    ["credentials", "never touches your shell history"],
-    ["credentials", "--from-env"],
     ["rebrief", "Never a config INSIDE the data dir"],
     ["rebrief", "where the hooks read"],
     ["rebrief", "advances no sleep marker"],

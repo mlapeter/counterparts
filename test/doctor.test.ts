@@ -58,9 +58,7 @@ import {
 } from "../src/core/self/journal-file.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
 import {
-  API_KEY_ENV,
   CHECKOUT_BUDGET_MS,
-  EMBED_KEY_ENV,
   NOTICE_MAX_CHARS,
   NOTICE_TAIL,
   SPAWN_REFUSAL_PREFIX,
@@ -68,7 +66,7 @@ import {
   anyRed,
   RESTORE_STEPS,
   doctorFindings,
-  loadCredentials,
+  loadConfig,
   noticeMessage,
   openAdapter,
   readCheckout,
@@ -83,18 +81,21 @@ import {
   HOST_EVENTS,
   MCP_SERVER_NAME,
   STORE_STARTED_KEY,
-  credentialsTemplate,
   readHost,
   run,
 } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { MODEL_FILE, STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
 
 const SECRET = "sk-ant-not-a-real-key-0123456789";
 
 let root: string;
 let dir: string;
 let configPath: string;
+/** Where an older install kept its API keys. Nothing reads it now; the tests
+ *  that write one prove that. */
 let credsPath: string;
+let savedWeights: string | undefined;
 const open: Counterpart[] = [];
 const stores: Store[] = [];
 
@@ -103,6 +104,14 @@ beforeEach(() => {
   dir = join(root, "store");
   configPath = join(root, "claude-code.json");
   credsPath = join(root, "credentials.env");
+  // THE LOCAL TABLE, found: a weights folder holding the table file, named by
+  // the one environment variable, so the Recall line grades the configuration
+  // and not whether this checkout has the weights package installed.
+  const weights = join(root, "weights");
+  mkdirSync(weights, { recursive: true });
+  writeFileSync(join(weights, MODEL_FILE), "a table");
+  savedWeights = process.env[STATIC_WEIGHTS_ENV];
+  process.env[STATIC_WEIGHTS_ENV] = weights;
 });
 
 afterEach(() => {
@@ -120,6 +129,8 @@ afterEach(() => {
       /* already closed */
     }
   }
+  if (savedWeights === undefined) delete process.env[STATIC_WEIGHTS_ENV];
+  else process.env[STATIC_WEIGHTS_ENV] = savedWeights;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -166,7 +177,6 @@ function writeConfig(over: Record<string, unknown> = {}): void {
     configPath,
     JSON.stringify({
       dataDir: dir,
-      credentialsFile: credsPath,
       injectionBudgetBytes: 9000,
       embedder: { enabled: true },
       ...over,
@@ -174,22 +184,18 @@ function writeConfig(over: Record<string, unknown> = {}): void {
   );
 }
 
-/** A credentials file holding exactly these names, 0600, like `install`'s. */
-function writeCredentials(names: readonly string[]): void {
-  writeFileSync(credsPath, names.map((n) => `${n}=${SECRET}`).join("\n") + "\n", { mode: 0o600 });
-}
-
 /**
- * A STORE THAT HAS INTERPRETED BEFORE (2026-09-20, finding 1).
- *
- * `gate.chunk` is the crash sweep's own row and the sweep is the only
- * interpreted write path, so one such row is the store's own proof that the
- * interpreter key worked here. It is what separates "a key went away" — the
- * case the RED was written for — from "this store has never had one", which
- * README and QUICKSTART §6 both call a supported way to run.
+ * A RED, the way a real store earns one now that no key can go missing: the
+ * worker refused at every boundary past the escalation threshold, persisted in
+ * box 2's meta where the adapter and the console both read it.
  */
-function hasInterpreted(s: Store): void {
-  s.appendEvent({ name: "gate.chunk", day: s.livedDay(), payload: { date: "2026-09-13" } });
+function markRefused(): void {
+  const s = Store.open({ dir });
+  try {
+    s.setMeta(`${SPAWN_REFUSAL_PREFIX}WATCHDOG_EXCEEDS_STALENESS`, String(TUNABLES.ESCALATE_AFTER + 1));
+  } finally {
+    s.close();
+  }
 }
 
 /**
@@ -202,16 +208,6 @@ function livedAWeek(s: Store): void {
   for (const date of ["2026-09-08", "2026-09-09", "2026-09-10"]) s.advanceClock(date);
 }
 
-/** The same fact, for a test that does not hold a store of its own. */
-function markInterpreted(): void {
-  const s = Store.open({ dir });
-  try {
-    hasInterpreted(s);
-  } finally {
-    s.close();
-  }
-}
-
 /** The clean, green reading — every knob deliberately set, so each test below
  *  changes exactly one thing and the finding it moves is unambiguous. */
 function input(over: Partial<DoctorInput> = {}): DoctorInput {
@@ -219,11 +215,8 @@ function input(over: Partial<DoctorInput> = {}): DoctorInput {
   return {
     configPath,
     configReason: "loaded",
-    config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true } },
+    config: { dataDir: dir, embedder: { enabled: true } },
     dir,
-    credentials: loadCredentials(credsPath, {}),
-    credentialsPath: credsPath,
-    shellNames: [],
     store: s,
     today: "2026-09-14",
     refusals: {},
@@ -297,52 +290,12 @@ describe("doctor — the reading", () => {
   test("a healthy store is all green, and nothing is red", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input());
     expect(anyRed(findings)).toBe(false);
     expect(noticeMessage(findings)).toBe(null);
-    expect(by(findings, "credentials").severity).toBe("green");
+    expect(findings.find((x) => x.key === "credentials")).toBeUndefined();
     expect(by(findings, "store").severity).toBe("green");
     expect(by(findings, "embedder").severity).toBe("green");
-  });
-
-  /**
-   * I32 ITSELF. The file is exactly `install`'s template — 0 non-comment lines
-   * — which is what a forced install leaves behind, and what ran for a week.
-   */
-  test("a key that WAS here and is gone is RED, names the missing name, and names the repair", () => {
-    // The case this red was written for (I32): something that was running has
-    // stopped. `gate.chunk` is the store's own proof the interpreter ran here.
-    mintStore();
-    writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    const s = store();
-    hasInterpreted(s);
-    const findings = doctorFindings(input({ store: s }));
-    const cred = by(findings, "credentials");
-    expect(cred.severity).toBe("red");
-    expect(cred.detail).toContain(API_KEY_ENV);
-    expect(cred.detail).toContain("HAS interpreted before");
-    expect(cred.detail).toContain("encodes nothing");
-    expect(cred.fix).toContain(`counterparts credentials set ${API_KEY_ENV}`);
-    expect(anyRed(findings)).toBe(true);
-    // AND IT IS NOT `OFF`. The grade added on 2026-09-22 is for a feature that
-    // was never turned on; this one was on and has stopped, which is the whole
-    // distinction `keyHistory` exists to make. No `Crash write-up` line either:
-    // a red about the same key, one line above an invitation to add it, is the
-    // report arguing with itself.
-    expect(cred.optional).toBeUndefined();
-    expect(findings.find((f) => f.key === "crash-writeup")).toBeUndefined();
-    // Nothing on this screen is OFF at all: the embedder is switched ON in this
-    // fixture and its key is missing too, which is a fault and reads as one.
-    expect(findings.filter((f) => f.optional === true)).toEqual([]);
-
-    // Worst first, and the notice says the worst thing first.
-    expect(findings[0]?.severity).toBe("red");
-    const notice = noticeMessage(findings);
-    expect(notice).not.toBe(null);
-    expect(notice).toContain(API_KEY_ENV);
-    expect(notice?.endsWith("run: counterparts doctor")).toBe(true);
   });
 
   /**
@@ -356,7 +309,6 @@ describe("doctor — the reading", () => {
   test("the Memory line counts memories the way status does — and the journal is not one", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     for (let i = 0; i < 3; i += 1) {
       s.put({
@@ -384,63 +336,28 @@ describe("doctor — the reading", () => {
     expect(f.detail).not.toContain("opens fine"); // no `open` reading was handed in
   });
 
-  test("a store that has NEVER had a key: the Credentials line stays factual, and nothing about the key is red or OFF (finding 1, #24)", () => {
-    // README: "No API keys are required." `doctor` on a brand-new keyless store
-    // once printed a red and exited 1, then an amber, then (#24) one OFF line.
-    // Since #192 a session that ended before it was written up is written up by
-    // the NEXT session in its project, with no key, so the crash write-up's
-    // line is #192's green `next session` — and the old `crash-writeup` OFF
-    // finding, whose advice was the key, is retired (review of #195, MINOR 6).
+  test("there is no Credentials line at all, and the crash write-up line is the next session's (keyless, 2026-09-24)", () => {
     mintStore();
     writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const findings = doctorFindings(input());
+    expect(findings.find((f) => f.key === "credentials")).toBeUndefined();
+    expect(findings.find((f) => f.key === "credentials-mode")).toBeUndefined();
     expect(findings.find((f) => f.key === "crash-writeup")).toBeUndefined();
     const crash = by(findings, "crash-write-up");
     expect(crash.title).toBe("Crash write-up");
     expect(crash.severity).toBe("green");
     expect(crash.detail).toContain("next session");
-
-    // The factual line keeps the file, the mode and the names, and it is green:
-    // a name the file does not hold is a feature nobody turned on, not a fault.
-    const cred = by(findings, "credentials");
-    expect(cred.severity).toBe("green");
-    expect(cred.detail).toContain("holds no key");
-    expect(cred.fix).toBe("");
-
-    // NOTHING IS RED, so the command exits 0 and the SessionStart notice — the
-    // one line the product gets in the terminal every session — stays quiet.
     expect(anyRed(findings)).toBe(false);
     expect(noticeMessage(findings)).toBe(null);
-    // The discriminator is on the row, so a reader can check the verdict.
-    expect(cred.data["everInterpreted"]).toBe(false);
   });
 
-  test("a saved Anthropic key alone changes nothing on the crash write-up line; the API opt-in does", () => {
-    // The key is not the consent (#192, C3): `crashWriteUp: "api"` is.
+  test("recall by meaning switched off is ONE OFF line, not three ambers (finding #24)", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const keyOnly = by(doctorFindings(input()), "crash-write-up");
-    expect(keyOnly.severity).toBe("green");
-    expect(keyOnly.detail).toContain("next session");
-    const optedIn = by(
-      doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath, crashWriteUp: "api" } })),
-      "crash-write-up",
-    );
-    expect(optedIn.severity).toBe("green");
-    expect(optedIn.detail).toContain("on (API)");
-    expect(doctorFindings(input()).find((f) => f.key === "crash-writeup")).toBeUndefined();
-  });
-
-  test("a missing embed key is ONE OFF line, not three ambers (finding #24)", () => {
-    mintStore();
-    writeConfig();
-    writeCredentials([API_KEY_ENV]);
-    // The knob OFF and the key skipped. Since 2026-09-23 an ABSENT block is the
-    // local table (config.ts#resolveEmbedder), so "off" is an explicit block.
+    // The knob OFF. Since 2026-09-23 an ABSENT block is the local table
+    // (config.ts#resolveEmbedder), so "off" is an explicit block.
     const findings = doctorFindings(
-      input({ config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+      input({ config: { dataDir: dir, embedder: { enabled: false } } }),
     );
     // Before: Embedder amber, Credentials amber, Vectors amber. After: one.
     const off = findings.filter((f) => f.optional === true);
@@ -454,7 +371,6 @@ describe("doctor — the reading", () => {
     expect(by(findings, "embedder").fix).toBe("Turn on: counterparts install --force --embedder");
     expect(by(findings, "embedder").fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
     expect(`${by(findings, "embedder").detail} ${by(findings, "embedder").fix}`).not.toContain("Voyage");
-    expect(by(findings, "credentials").severity).toBe("green");
     // NOTHING TO EMBED, NOTHING TO SAY: the coverage line is not a reading while
     // the channel it measures is switched off.
     expect(findings.find((f) => f.key === "vectors")).toBeUndefined();
@@ -462,28 +378,11 @@ describe("doctor — the reading", () => {
     expect(anyRed(findings)).toBe(false);
   });
 
-  test("the embedder ON with no key is amber — the feature was asked for and cannot run", () => {
-    mintStore();
-    writeConfig();
-    writeCredentials([API_KEY_ENV]);
-    const findings = doctorFindings(
-      input({ config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true } } }),
-    );
-    const f = by(findings, "embedder");
-    expect(f.severity).toBe("amber");
-    expect(f.optional).toBeUndefined();
-    expect(f.detail).toContain(`on, but ${EMBED_KEY_ENV} is not saved`);
-    expect(f.fix).toBe(`Run: counterparts credentials set ${EMBED_KEY_ENV}`);
-    // The channel is on, so its coverage IS a reading again.
-    expect(findings.find((v) => v.key === "vectors")).toBeDefined();
-  });
-
   test("a store that HAS embedded and now has the embedder off is amber, never OFF", () => {
     // OFF claims nobody ever turned this on. Here somebody did, and it has
-    // stopped — the same rule `keyHistory` keeps for the Anthropic key's red.
+    // stopped — the distinction `keyHistory` exists to make.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: EMBED_BACKFILL_EVENT,
@@ -492,7 +391,7 @@ describe("doctor — the reading", () => {
     });
     const f = by(
       doctorFindings(
-        input({ store: s, config: { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: false } } }),
+        input({ store: s, config: { dataDir: dir, embedder: { enabled: false } } }),
       ),
       "embedder",
     );
@@ -501,35 +400,46 @@ describe("doctor — the reading", () => {
     expect(f.detail).toContain("HAS embedded before");
   });
 
-  test("a group- or world-readable credentials file is its own amber finding", () => {
+  test("an OLD configuration's key settings are a quiet note — never red, never amber — and the old file's content appears nowhere", () => {
+    // The owner's live configuration carries `credentialsFile` from the install
+    // that wrote it (keyless, 2026-09-24). Each retired setting is read, ignored
+    // and named on one green line; none of them costs a grade.
     mintStore();
-    writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    chmodSync(credsPath, 0o644);
-    const findings = doctorFindings(input({ credentials: loadCredentials(credsPath, {}) }));
-    expect(by(findings, "credentials-mode").severity).toBe("amber");
-    expect(by(findings, "credentials-mode").fix).toContain("chmod 600");
-  });
-
-  test("NO VALUE, EVER: the file's content appears nowhere in the report or the JSON", () => {
-    mintStore();
-    writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const findings = doctorFindings(input());
+    writeFileSync(credsPath, `SOME_OLD_KEY=${SECRET}\n`, { mode: 0o600 });
+    const loaded = loadConfig({
+      dataDir: dir,
+      credentialsFile: credsPath,
+      embedder: { enabled: true, kind: "voyage" },
+      pageWriter: { mode: "session", command: "/bin/true" },
+      crashWriteUp: "api",
+      models: { interpret: { id: "claude-opus-5" } },
+    });
+    expect(loaded.ok).toBe(true);
+    const findings = doctorFindings(input({ config: loaded.config }));
+    const retired = by(findings, "retired");
+    expect(retired.severity).toBe("green");
+    expect(retired.title).toBe("Old settings");
+    expect(retired.data["count"]).toBe(5);
+    expect(retired.detail).toContain('"credentialsFile" is no longer used');
+    expect(retired.detail).toContain(credsPath);
+    expect(retired.detail).toContain('"pageWriter.command" is no longer used');
+    expect(retired.detail).toContain('"embedder.kind" "voyage"');
+    expect(retired.detail).toContain('"crashWriteUp" is no longer used');
+    for (const key of ["config", "retired", "embedder", "crash-write-up", "page-writer", "sweep"]) {
+      const f = findings.find((x) => x.key === key);
+      if (f !== undefined) expect({ key, severity: f.severity }).toEqual({ key, severity: "green" });
+    }
+    expect(findings.find((x) => x.key === "credentials")).toBeUndefined();
     const rendered = [...reportLines(findings, "2026-09-14"), JSON.stringify(reportJson(findings, "2026-09-14"))].join("\n");
     expect(rendered).not.toContain(SECRET);
-    // And not a prefix of it either — a "first four characters" convenience is
-    // how a key ends up in a log.
     expect(rendered).not.toContain(SECRET.slice(0, 8));
-    // The NAMES are there, which is the whole point.
-    expect(rendered).toContain(API_KEY_ENV);
+    expect(anyRed(findings)).toBe(false);
   });
 
   test("the embedder knob is read literally: anything but true is OFF, and says what still works", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
+    const findings = doctorFindings(input({ config: { dataDir: dir, embedder: { enabled: false } } }));
     const f = by(findings, "embedder");
     expect(f.optional).toBe(true);
     // It says what the store CAN still do (2026-09-20, finding 1): lexical
@@ -541,12 +451,11 @@ describe("doctor — the reading", () => {
     // here changes nothing: Voyage is frozen, roadmap C3).
     expect(f.fix).toBe(`Turn on: ${EMBEDDER_ON_COMMAND}`);
     expect(f.fix).not.toContain("enabled");
-    expect(f.fix).not.toContain(EMBED_KEY_ENV);
+    expect(f.fix).not.toContain("VOYAGE");
   });
 
   test("no store at the dir is red, and the store-reading groups are not attempted", () => {
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ store: null }));
     expect(by(findings, "store").severity).toBe("red");
     expect(findings.find((f) => f.key === "clock")).toBeUndefined();
@@ -556,8 +465,7 @@ describe("doctor — the reading", () => {
   test("a --dir that disagrees with the config's dataDir is amber, and names both", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const findings = doctorFindings(input({ config: { dataDir: "/elsewhere/store", credentialsFile: credsPath, embedder: { enabled: true } } }));
+    const findings = doctorFindings(input({ config: { dataDir: "/elsewhere/store", embedder: { enabled: true } } }));
     expect(by(findings, "store").severity).toBe("amber");
     expect(by(findings, "store").detail).toContain("/elsewhere/store");
     expect(by(findings, "store").detail).toContain(dir);
@@ -568,7 +476,6 @@ describe("doctor — the reading", () => {
   test("lastActiveDate older than the newest boundary is amber and states both dates", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta("lastActiveDate", "2026-09-04");
     s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-11" } });
@@ -581,7 +488,6 @@ describe("doctor — the reading", () => {
   test("a sleep cycle whose reason is not 'ran' is red", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({ name: SLEEP_CYCLE_EVENT, day: s.livedDay(), payload: { reason: "ran", failed: 0, date: "2026-09-13" } });
     expect(by(doctorFindings(input({ store: s })), "sleep").severity).toBe("green");
@@ -601,7 +507,6 @@ describe("doctor — the reading", () => {
   test("a phase that stopped at its budget is named on the Sleep line, with the rows it did not reach", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: SLEEP_CYCLE_EVENT,
@@ -632,7 +537,6 @@ describe("doctor — the reading", () => {
   test("an older sleep.cycle row, from before the budget fields, says nothing about budgets", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: SLEEP_CYCLE_EVENT,
@@ -657,7 +561,6 @@ describe("doctor — the reading", () => {
   test("a backfill that embedded nothing twice running is red; once is amber", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: EMBED_BACKFILL_EVENT,
@@ -678,7 +581,6 @@ describe("doctor — the reading", () => {
   test("the newest row is the one reported, not the first one written", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     for (const date of ["2026-09-10", "2026-09-11", "2026-09-12"]) {
       s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran", ran: 1, scopes: 2, date } });
@@ -700,7 +602,6 @@ describe("doctor — the reading", () => {
   test("more rows than the read's limit, none inside a window, is UNKNOWN — never the oldest row wearing the newest row's name", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // Day 0, so every bounded window (0, 2, 7, 30 days back) spans them all and
     // comes back at the limit — the shape a long-lived store reaches on its own.
@@ -728,7 +629,6 @@ describe("doctor — the reading", () => {
   test("the journal copy is SILENT when nothing has failed, and amber while a failure stands", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // Nothing at all: no line. Not a green one.
     expect(doctorFindings(input({ store: s })).some((f) => f.key === "journal-copy")).toBe(false);
@@ -774,7 +674,6 @@ describe("doctor — the reading", () => {
   test("the snapshot line counts what is ON DISK: last taken, how many kept, the oldest", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     for (const d of ["2026-09-01", "2026-09-13", "2026-09-14"]) fakeSnapshot(`${d}T03-00-00-000Z`);
     s.appendEvent({
@@ -803,7 +702,6 @@ describe("doctor — the reading", () => {
   test("a row that claims a copy the directory does not hold is amber, and says there is nothing to restore from", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: SNAPSHOT_TAKEN_EVENT,
@@ -827,7 +725,6 @@ describe("doctor — the reading", () => {
     // problem: a permanently amber Snapshot line is a line people learn to skip.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     for (const d of ["2026-09-01", "2026-09-02"]) preRowsSnapshot(`${d}T03-00-00-000Z`);
     fakeSnapshot("2026-09-14T03-00-00-000Z");
@@ -849,7 +746,6 @@ describe("doctor — the reading", () => {
   test("a snapshot older than two days is amber", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // `today` in the fixture is 2026-09-14, so this copy is three days behind —
     // a daily mechanism that has missed one.
@@ -869,7 +765,6 @@ describe("doctor — the reading", () => {
   test("no snapshot is green on a store that has never reached a boundary, amber once it has", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // A fresh install: nothing has run, so an amber here would be decoration.
     expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("green");
@@ -882,7 +777,6 @@ describe("doctor — the reading", () => {
   test("a configuration value the snapshots block could not read is named on the line", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     fakeSnapshot("2026-09-14T03-00-00-000Z");
     const findings = doctorFindings(
@@ -890,7 +784,6 @@ describe("doctor — the reading", () => {
         store: s,
         config: {
           dataDir: dir,
-          credentialsFile: credsPath,
           snapshots: { ignored: ['"snapshots.keep" was 0; using 14'] },
         },
       }),
@@ -905,7 +798,6 @@ describe("doctor — the reading", () => {
   test("a directory that is named like a snapshot but is not one is counted and NAMED", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     fakeSnapshot("2026-09-14T03-00-00-000Z");
     // What a copy taken on an older floor looks like once the layout moves on:
@@ -929,7 +821,6 @@ describe("doctor — the reading", () => {
   test("a copy dated in the future is counted and named, never deleted", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     fakeSnapshot("2026-09-14T03-00-00-000Z");
     // One clock-skewed boundary plants a name that holds a `keep` slot forever.
@@ -943,7 +834,6 @@ describe("doctor — the reading", () => {
   test("a store outside the package's layout says WHY no copy is being taken", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // The one skip that leaves no durable row at all — it is a configuration
     // fact, not an event, so this line is the whole surface for it.
@@ -956,7 +846,6 @@ describe("doctor — the reading", () => {
   test("spawn refusals at the escalation threshold are red and name the reason", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: SPAWN_REFUSED_EVENT,
@@ -969,13 +858,13 @@ describe("doctor — the reading", () => {
     expect(by(at, "spawn").severity).toBe("red");
     expect(by(at, "spawn").detail).toContain("NO_CREDENTIAL");
     expect(by(at, "spawn").detail).toContain(SPAWN_REFUSED_EVENT);
-    expect(by(at, "spawn").fix).toContain("credentials set");
+    // An older build's refusal reason is still named; the fix reads the row.
+    expect(by(at, "spawn").fix).toContain("adapter.spawn.refused");
   });
 
   test("the recall.credit row is reported when there is one, and its quiet reasons are green", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     expect(doctorFindings(input({ store: s })).find((f) => f.key === "credit")).toBeUndefined();
     s.appendEvent({
@@ -1018,7 +907,6 @@ describe("doctor — the reading", () => {
     test("a healthy week is green and reads in plain language", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       for (const date of ["2026-09-12", "2026-09-13", "2026-09-14"]) {
         ask(s, date, "asked");
@@ -1042,7 +930,6 @@ describe("doctor — the reading", () => {
     test("AMBER when a session's own ask allowance refuses more than it raises", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       livedAWeek(s);
       ask(s, "2026-09-14", "asked");
@@ -1069,7 +956,6 @@ describe("doctor — the reading", () => {
     test("the two caps are counted apart, and only the NEW one can raise the amber", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       ask(s, "2026-09-14", "asked");
       for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped", "day-chapter-cap");
@@ -1097,7 +983,6 @@ describe("doctor — the reading", () => {
       // stands; only the colour and the hint stand down.
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       ask(s, "2026-09-14", "asked");
       memory(s, "2026-09-14", "authored", 2);
@@ -1123,7 +1008,6 @@ describe("doctor — the reading", () => {
        */
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       // livedDay stays 0: nothing here advances the clock.
       expect(s.livedDay()).toBe(0);
@@ -1142,7 +1026,6 @@ describe("doctor — the reading", () => {
     test("AMBER when the fallback sweep out-writes the author", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       livedAWeek(s);
       ask(s, "2026-09-14", "asked");
@@ -1157,7 +1040,6 @@ describe("doctor — the reading", () => {
     test("the window is CALENDAR days, and a row with no outcome is counted apart", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       // Eight days back: outside the window even though its lived day is today's.
       ask(s, "2026-09-06", "asked");
@@ -1189,7 +1071,6 @@ describe("doctor — the reading", () => {
     test("a store where nothing has fallen silent is green, and the line counts every state", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       livedAWeek(s);
       s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
@@ -1211,7 +1092,6 @@ describe("doctor — the reading", () => {
       // surface said so. GREEN, because there is nothing here to fix.
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const f = by(doctorFindings(input()), "fired");
       expect(f.severity).toBe("green");
       expect(f.detail).toContain("too new to grade");
@@ -1227,7 +1107,6 @@ describe("doctor — the reading", () => {
       // turned away is not a mechanism that has had nothing to do.
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       s.appendEvent({
         name: "adapter.spawn.refused",
@@ -1255,7 +1134,6 @@ describe("doctor — the reading", () => {
        */
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       livedAWeek(s);
       // Last week it started; this week it has only ever been refused.
@@ -1285,7 +1163,6 @@ describe("doctor — the reading", () => {
     test("AMBER, by NAME, for a mechanism that fired last week and not once this week", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       // Eight days back: inside the previous window, outside this one.
       s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { date: "2026-09-06" } });
@@ -1305,7 +1182,6 @@ describe("doctor — the reading", () => {
     test("a mechanism that has simply never fired does not raise the amber", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       const f = by(doctorFindings(input({ store: s })), "fired");
       expect(f.severity).toBe("green");
@@ -1321,7 +1197,6 @@ describe("doctor — the reading", () => {
     test("a budgeted reading does not take the roll-call at all, and says so", () => {
       mintStore();
       writeConfig();
-      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { date: "2026-09-06" } });
       // The console reads it, and on this store that is the amber.
@@ -1337,7 +1212,6 @@ describe("doctor — the reading", () => {
   test("the vector census is the one verify prints, and it is reused rather than recomputed", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     const findings = doctorFindings(input({ store: s }));
     expect(by(findings, "vectors").data["unembedded"]).toBe(s.unembeddedCount());
@@ -1347,7 +1221,6 @@ describe("doctor — the reading", () => {
   test("the journal mode is read and reported — green in wal, amber when a conversion did not take", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     // A writer minted this store, so it is in WAL. Nothing to say.
     const green = by(doctorFindings(input()), "journal");
     expect({ severity: green.severity, mode: green.data["mode"], fix: green.fix }).toEqual({
@@ -1388,7 +1261,6 @@ describe("doctor — the reading", () => {
   test("a blown time budget stops the reading and says what it did not read", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     let t = 0;
     const findings = doctorFindings(
       input({
@@ -1402,19 +1274,16 @@ describe("doctor — the reading", () => {
     expect(by(findings, "budget").severity).toBe("amber");
     expect(by(findings, "budget").detail).toContain("spawn");
     expect(findings.find((f) => f.key === "vectors")).toBeUndefined();
-    // The config and the credentials were answered BEFORE the clock ran out:
-    // they are the two that carry I32's own signature.
-    expect(by(findings, "credentials")).toBeDefined();
+    // The config was answered BEFORE the clock ran out.
+    expect(by(findings, "config")).toBeDefined();
   });
 
   test("the report is worst first and the JSON carries the same order", () => {
     mintStore();
     writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    // A key that WENT AWAY, so there is a red to sort to the top: a store that
-    // never had one is amber now (finding 1).
-    markInterpreted();
-    const findings = doctorFindings(input());
+    // A worker refused past the escalation threshold, so there is a red to sort
+    // to the top.
+    const findings = doctorFindings(input({ refusals: { WATCHDOG_EXCEEDS_STALENESS: TUNABLES.ESCALATE_AFTER + 1 } }));
     const json = reportJson(findings, "2026-09-14") as {
       red: number;
       findings: { key: string; severity: string }[];
@@ -1443,7 +1312,6 @@ describe("the Host line reads the host's own files", () => {
   test("both steps installed is green, and it names where the MCP server was found", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     installHostSteps();
     const host = readHost(root, root, {});
     expect(host.events).toEqual([...HOST_EVENTS].sort());
@@ -1461,7 +1329,6 @@ describe("the Host line reads the host's own files", () => {
   test("nothing installed is AMBER — never red — and says exactly what to run", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const host = readHost(root, root, {});
     const finding = by(doctorFindings(input({ host })), "host");
     // Amber, because this reads somebody else's files in a format that is not
@@ -1488,7 +1355,6 @@ describe("the Host line reads the host's own files", () => {
   test("hooks in, memory tools missing, and no `claude` on the PATH: the fix is the `claude mcp add` line", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     installHostSteps({ mcp: false });
     const line = 'claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR="/x/store" -- "/bun" run "/serve.ts"';
     const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
@@ -1506,7 +1372,6 @@ describe("the Host line reads the host's own files", () => {
   test("nothing connected and no `claude`: connect for the hooks, the printed line for the tools", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const line = "claude mcp add counterparts -s user -- x";
     const host = { ...readHost(root, root, {}), claudeOnPath: false, mcpAddLine: line };
     const finding = by(doctorFindings(input({ host })), "host");
@@ -1519,7 +1384,6 @@ describe("the Host line reads the host's own files", () => {
   test("a PARTIAL paste is named event by event — the case a green doctor used to hide", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     installHostSteps({ events: ["SessionStart", "Stop"] });
     const finding = by(doctorFindings(input({ host: readHost(root, root, {}) })), "host");
     expect(finding.severity).toBe("amber");
@@ -1611,7 +1475,6 @@ describe("the Host line reads the host's own files", () => {
     // command mark perfectly and fails at every session start, silently.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     installHostSteps({ stale: true });
     const host = readHost(root, root, {});
     // It IS installed — the block is there — and it cannot work.
@@ -1694,7 +1557,6 @@ describe("the Host line reads the host's own files", () => {
     // and it does not pay for four more file reads. Absence, not a guess.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     expect(doctorFindings(input()).find((f) => f.key === "host")).toBeUndefined();
   });
 });
@@ -1738,7 +1600,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.originMaster).toBe("abc1234");
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     expect(by(doctorFindings(input({ checkout: reading })), "checkout").severity).toBe("green");
   });
 
@@ -1776,7 +1637,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.behindBy).toBe(3);
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ checkout: reading }));
     expect(by(findings, "checkout").severity).toBe("amber");
     expect(by(findings, "checkout").detail).toContain("behind origin/master by 3 commits");
@@ -1801,7 +1661,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.dirty).toBe(1);
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ checkout: reading }));
     expect(by(findings, "checkout").severity).toBe("red");
     expect(by(findings, "checkout").detail).toContain("1 tracked file");
@@ -1819,7 +1678,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.reason).toBe("branch");
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ checkout: reading }));
     expect(by(findings, "checkout").severity).toBe("red");
     expect(by(findings, "checkout").detail).toContain("feat/something@fee1234");
@@ -1839,7 +1697,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.reason).toBe("detached");
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     expect(by(doctorFindings(input({ checkout: reading })), "checkout").severity).toBe("red");
   });
 
@@ -1852,7 +1709,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.originMaster).toBe(null);
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ checkout: reading }));
     expect(by(findings, "checkout").severity).toBe("green");
     expect(by(findings, "checkout").detail).toContain("nothing to grade against");
@@ -1863,7 +1719,6 @@ describe("doctor — which checkout is running", () => {
     expect(reading.reason).toBe("not-a-repo");
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ checkout: reading }));
     expect(by(findings, "checkout").severity).toBe("green");
     expect(anyRed(findings)).toBe(false);
@@ -1945,12 +1800,11 @@ describe("doctor — which checkout is running", () => {
 describe("the session-start notice", () => {
   function adapterOn(over: Record<string, unknown> = {}): ReturnType<typeof openAdapter> {
     const a = openAdapter(
-      { dataDir: dir, credentialsFile: credsPath, injectionBudgetBytes: 9000, embedder: { enabled: true }, ...over },
+      { dataDir: dir, injectionBudgetBytes: 9000, embedder: { enabled: true }, ...over },
       {
         command: "/bin/true",
         args: ["runner"],
         spawner: () => ({ pid: 1 }),
-        credentials: loadCredentials(credsPath, {}),
         configPath,
       },
     );
@@ -1960,75 +1814,32 @@ describe("the session-start notice", () => {
 
   const hookInput = { sessionId: "s1", scope: "/tmp/scope", turns: [], at: "2026-09-14" };
 
-  test("a red credentials finding produces a notice naming the fix; a healthy store produces none", () => {
+  test("a red finding produces a notice naming it; a healthy store produces none", () => {
     mintStore();
     writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    // The notice fires for a key that WENT AWAY. On a store that never had one
-    // there is nothing red and the terminal stays quiet, which is the whole of
-    // finding 1: the first line the product says to a new user.
-    markInterpreted();
+    markRefused();
     const sick = adapterOn();
     const notice = sick.notice(hookInput, { checkout: onMaster });
     expect(notice).not.toBe(null);
-    expect(notice).toContain(API_KEY_ENV);
-    expect(notice).toContain("counterparts credentials set");
+    expect(notice).toContain("WATCHDOG_EXCEEDS_STALENESS");
     expect(notice?.endsWith("run: counterparts doctor")).toBe(true);
-    // The VALUE never enters it — there is none here, so assert the shape that
-    // would carry one if there were.
-    expect(notice).not.toContain(SECRET);
-  });
-
-  /**
-   * THE HOOK'S OWN BLINDNESS, ruled out.
-   *
-   * The hook hands `notice()` the load it performed against `process.env`, which
-   * raises the obvious worry: a terminal that launched Claude Code with
-   * `ANTHROPIC_API_KEY` exported would put the name in `skippedPresent` and the
-   * notice would read green off a blank file — I32 reproduced one process along.
-   * It cannot: `loadCredentials` only ever pushes a name onto `loaded` or
-   * `skippedPresent` if the FILE holds a line for it, so a template file answers
-   * nothing whatever the environment carries. Asserted here rather than reasoned
-   * about, because the whole PR turns on it.
-   */
-  test("a key in the hook process's environment does NOT make a blank file read green", () => {
-    mintStore();
-    writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    markInterpreted();
-    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: SECRET, [EMBED_KEY_ENV]: SECRET };
-    const load = loadCredentials(credsPath, env);
-    expect(load.loaded).toEqual([]);
-    expect(load.skippedPresent).toEqual([]);
-    const a = openAdapter(
-      { dataDir: dir, credentialsFile: credsPath, injectionBudgetBytes: 9000 },
-      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), credentials: load, configPath },
-    );
-    open.push(a.counterpart);
-    const notice = a.notice(hookInput, { checkout: onMaster });
-    expect(notice).not.toBe(null);
-    expect(notice).toContain(API_KEY_ENV);
-    expect(notice).not.toContain(SECRET);
   });
 
   test("a healthy store produces no notice at all", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     expect(adapterOn().notice(hookInput, { checkout: onMaster })).toBe(null);
   });
 
-  test("amber never reaches the terminal: a missing embed key says nothing", () => {
+  test("amber never reaches the terminal: recall by meaning switched off says nothing", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV]);
-    expect(adapterOn().notice(hookInput, { checkout: onMaster })).toBe(null);
+    expect(adapterOn({ embedder: { enabled: false } }).notice(hookInput, { checkout: onMaster })).toBe(null);
   });
 
   test("an observer says nothing, and writes no checkout row", () => {
     mintStore();
     writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     const a = adapterOn({ observer: true });
     expect(a.notice(hookInput, { checkout: onMaster })).toBe(null);
     const s = store();
@@ -2038,7 +1849,6 @@ describe("the session-start notice", () => {
   test("a doctor reading that throws degrades to no notice PLUS a ring event", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     // The store is closed under it — the sharpest version of "the reading
     // failed", and the one that would otherwise throw inside a foreground hook.
@@ -2050,7 +1860,6 @@ describe("the session-start notice", () => {
   test("ONE durable checkout row per session start, latched per date, head, dirtiness and reason", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.notice(hookInput, { checkout: onMaster });
     a.notice(hookInput, { checkout: onMaster });
@@ -2069,7 +1878,6 @@ describe("the session-start notice", () => {
   test("a branch leaves a row whose reason is 'branch', beside the day's master row", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.notice(hookInput, { checkout: onMaster });
     const onBranch: CheckoutReading = {
@@ -2097,7 +1905,6 @@ describe("the session-start notice", () => {
   test("a checkout that could not be graded leaves no row and one ring event", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.notice(hookInput, {
       checkout: {
@@ -2123,7 +1930,6 @@ describe("the session-start notice", () => {
   test("a checkout reading that ran out of its budget leaves a timeout ring row and no durable row", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.notice(hookInput, {
       checkout: {
@@ -2155,7 +1961,6 @@ describe("the session-start notice", () => {
   test("a day that FLIPS from master to behind leaves two rows, not one latched master", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.notice(hookInput, { checkout: onMaster });
     // The fetch happened: the same clean head is now two commits behind.
@@ -2176,9 +1981,9 @@ describe("the session-start notice", () => {
    */
   test("a notice is capped and still ends with the command that prints the rest", () => {
     const huge: Finding = {
-      key: "credentials",
+      key: "spawn",
       severity: "red",
-      title: "Credentials",
+      title: "Spawn",
       detail: "d".repeat(5000),
       fix: "f".repeat(500),
       data: {},
@@ -2189,14 +1994,13 @@ describe("the session-start notice", () => {
     expect((msg ?? "").endsWith("run: counterparts doctor")).toBe(true);
     expect(msg).toContain("…");
     // And a short one is untouched — the cap is a ceiling, not a format.
-    const small = noticeMessage([{ ...huge, detail: "no key", fix: "set it" }]);
-    expect(small).toBe("counterparts: Credentials — no key. set it\nrun: counterparts doctor");
+    const small = noticeMessage([{ ...huge, detail: "refused", fix: "read it" }]);
+    expect(small).toBe("counterparts: Spawn — refused. read it\nrun: counterparts doctor");
   });
 
   test("a dropped notice is recorded with the lengths that dropped it", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const a = adapterOn();
     a.noteNoticeDropped({ noticeChars: 352, envelopeChars: 9618, limitChars: ENVELOPE_MAX_CHARS });
     const rows = a.events("adapter.notice.dropped");
@@ -2305,8 +2109,7 @@ describe("counterparts doctor", () => {
   test("prints the report and exits 1 when anything is red", async () => {
     mintStore();
     writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    markInterpreted();
+    markRefused();
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`], {
       io: c.io,
@@ -2317,14 +2120,12 @@ describe("counterparts doctor", () => {
     expect(code).toBe(1);
     const said = c.out.join("\n");
     expect(said).toContain("RED");
-    expect(said).toContain(API_KEY_ENV);
-    expect(said).toContain("counterparts credentials set");
+    expect(said).toContain("WATCHDOG_EXCEEDS_STALENESS");
   });
 
   test("exits 0 when nothing is red", async () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     // The two steps the user does BY HAND, installed (finding 4). Without them
     // the Host line is amber, which is the whole point of it existing.
     installHostSteps();
@@ -2342,36 +2143,9 @@ describe("counterparts doctor", () => {
     expect(c.out[c.out.length - 1]).toMatch(/^0 red, 0 amber, \d+ green\.$/);
   });
 
-  /**
-   * THE READING THAT WOULD HAVE CAUGHT I32 ON THE OWNER'S OWN MACHINE. His
-   * `~/.zshrc` exports both names; the hook processes inherit neither. A doctor
-   * that counted its own shell would have read green all week.
-   */
-  test("the credentials come from the FILE, not from the shell that ran the console", async () => {
-    mintStore();
-    writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    markInterpreted();
-    const c = consoleWith();
-    const code = await run(["doctor", `--config=${configPath}`, "--json"], {
-      io: c.io,
-      // The shell HAS the key. The file does not.
-      env: { [API_KEY_ENV]: SECRET, [EMBED_KEY_ENV]: SECRET },
-      home: root,
-      checkout: onMaster,
-    });
-    expect(code).toBe(1);
-    const json = JSON.parse(c.out.join("\n")) as { findings: { key: string; severity: string; detail: string }[] };
-    const cred = json.findings.find((f) => f.key === "credentials");
-    expect(cred?.severity).toBe("red");
-    expect(cred?.detail).toContain("your shell exports");
-    expect(c.out.join("\n")).not.toContain(SECRET);
-  });
-
   test("--json is machine-readable, ids and counts only", async () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const c = consoleWith();
     await run(["doctor", `--config=${configPath}`, "--json"], { io: c.io, env: {}, home: root, checkout: onMaster });
     const json = JSON.parse(c.out.join("\n")) as { date: string; red: number; findings: unknown[] };
@@ -2389,10 +2163,9 @@ describe("counterparts doctor", () => {
    */
   test("--json is complete and unfolded, and an OFF finding is amber plus `optional`", async () => {
     mintStore();
-    // No keys, and the embedder knob OFF — written, because since 2026-09-23 an
-    // absent block reads as the local table (config.ts#resolveEmbedder).
+    // The embedder knob OFF — written, because since 2026-09-23 an absent block
+    // reads as the local table (config.ts#resolveEmbedder).
     writeConfig({ embedder: { enabled: false } });
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
     installHostSteps();
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`, "--json"], {
@@ -2432,7 +2205,6 @@ describe("counterparts doctor", () => {
   test("it reads the store the CONFIG names, not the one the environment does", async () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const elsewhere = join(root, "other-store");
     const c = consoleWith();
     await run(["doctor", `--config=${configPath}`, "--json"], {
@@ -2447,7 +2219,7 @@ describe("counterparts doctor", () => {
 
   /** The same door `verify`'s census meets: a store nobody named is refused. */
   test("a store named only by the armed explicit-dir guard is refused, as verify refuses it", async () => {
-    writeFileSync(configPath, JSON.stringify({ credentialsFile: credsPath }));
+    writeFileSync(configPath, JSON.stringify({ owner: true }));
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`], {
       io: c.io,
@@ -2474,7 +2246,7 @@ describe("counterparts doctor", () => {
     // Exactly where `resolveConfigPath` looks when nobody names one.
     const defaultConfig = join(root, ".counterparts", "claude-code.json");
     mkdirSync(join(root, ".counterparts"), { recursive: true });
-    writeFileSync(defaultConfig, JSON.stringify({ dataDir: dir, credentialsFile: credsPath }));
+    writeFileSync(defaultConfig, JSON.stringify({ dataDir: dir }));
     const c = consoleWith();
     const code = await run(["doctor"], {
       io: c.io,
@@ -2496,7 +2268,7 @@ describe("counterparts doctor", () => {
    *
    * The guard exists so nothing nobody named gets opened, and `--dir <store>`
    * names one — so the refusal was really about the CONFIGURATION beside it,
-   * whose `credentialsFile` points at the owner's live keys. `doctor` now
+   * which is the owner's live one. `doctor` now
    * declines to read that file at all and grades the store on its own. On
    * cut-over day this is the difference between "point doctor at the parked
    * store" and a refusal with nothing to do.
@@ -2508,7 +2280,7 @@ describe("counterparts doctor", () => {
     const defaultConfig = join(root, ".counterparts", "claude-code.json");
     mkdirSync(join(root, ".counterparts"), { recursive: true });
     const liveCreds = join(root, ".counterparts", "credentials.env");
-    writeFileSync(liveCreds, `${API_KEY_ENV}=${SECRET}\n`, { mode: 0o600 });
+    writeFileSync(liveCreds, `SOME_OLD_KEY=${SECRET}\n`, { mode: 0o600 });
     writeFileSync(
       defaultConfig,
       JSON.stringify({ dataDir: "/somewhere/else", credentialsFile: liveCreds }),
@@ -2543,7 +2315,6 @@ describe("counterparts doctor", () => {
   test("the guard does NOT refuse a configuration somebody named — that is the way through", async () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`], {
       io: c.io,
@@ -2558,7 +2329,6 @@ describe("counterparts doctor", () => {
   test("it writes nothing: the store is byte-for-byte what it was", async () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     const before = s.eventLog({ limit: 1000 }).length;
     s.close();
@@ -2568,292 +2338,10 @@ describe("counterparts doctor", () => {
   });
 });
 
-// ── credentials set ─────────────────────────────────────────────────────────
-
-describe("counterparts credentials", () => {
-  function piped(value: string): { isTty: boolean; read: () => Promise<string> } {
-    return { isTty: false, read: () => Promise.resolve(value) };
-  }
-
-  async function set(
-    name: string,
-    value: string,
-    over: { env?: Record<string, string | undefined>; argv?: string[] } = {},
-  ): Promise<{ code: number; out: string[]; err: string[] }> {
-    const c = consoleWith();
-    const code = await run(["credentials", "set", name, `--config=${configPath}`, ...(over.argv ?? [])], {
-      io: c.io,
-      env: over.env ?? {},
-      home: root,
-      stdin: piped(value),
-    });
-    return { code, out: c.out, err: c.err };
-  }
-
-  test("set on a missing file creates it 0600 with exactly one line", async () => {
-    writeConfig();
-    expect(existsSync(credsPath)).toBe(false);
-    const r = await set(API_KEY_ENV, `${SECRET}\n`);
-    expect(r.code).toBe(EXIT.ok);
-    expect(r.out).toEqual([`set ${API_KEY_ENV} in ${credsPath}`]);
-    const text = readFileSync(credsPath, "utf8");
-    expect(text).toBe(`${API_KEY_ENV}=${SECRET}\n`);
-    expect((statSync(credsPath).mode & 0o777).toString(8)).toBe("600");
-    // And the loader reads it back as the value that went in.
-    const env: NodeJS.ProcessEnv = {};
-    expect(loadCredentials(credsPath, env).loaded).toEqual([API_KEY_ENV]);
-    expect(env[API_KEY_ENV]).toBe(SECRET);
-  });
-
-  test("set on the template adds the line under its own block and keeps every comment", async () => {
-    writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    const comments = credentialsTemplate().split("\n").filter((l) => l.startsWith("#")).length;
-    const r = await set(API_KEY_ENV, SECRET);
-    expect(r.code).toBe(EXIT.ok);
-    const lines = readFileSync(credsPath, "utf8").split("\n");
-    // One active line, and EVERY comment still there — the placeholder
-    // included (adversarial review n4). Deleting it left its own indented
-    // continuation lines dangling under the OTHER name's paragraph, where they
-    // read as part of that explanation. The loader reads `#` as a comment, so
-    // keeping it costs nothing and the file goes on saying what each name is
-    // for.
-    expect(lines.filter((l) => l === `${API_KEY_ENV}=${SECRET}`).length).toBe(1);
-    expect(lines.filter((l) => l.startsWith("#")).length).toBe(comments);
-    // The OTHER name's placeholder is untouched.
-    expect(lines.some((l) => l.startsWith(`# ${EMBED_KEY_ENV}=`))).toBe(true);
-    expect(loadCredentials(credsPath, {}).loaded).toEqual([API_KEY_ENV]);
-    // AND THE COMMENT BLOCK STILL READS AS ONE: the live line sits after the
-    // indented lines that explain it, and immediately before the next name's
-    // block, which still has its own header.
-    const at = lines.indexOf(`${API_KEY_ENV}=${SECRET}`);
-    expect(lines[at - 1]).toMatch(/^#\s{4,}\S/);
-    expect(lines[at + 1] ?? "").toStartWith(`# ${EMBED_KEY_ENV}=`);
-    expect(lines.some((l) => l.startsWith(`# ${API_KEY_ENV}=`))).toBe(true);
-  });
-
-  test("the other name's explanation never ends up under the wrong header", async () => {
-    writeConfig();
-    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    expect((await set(EMBED_KEY_ENV, SECRET)).code).toBe(EXIT.ok);
-    const lines = readFileSync(credsPath, "utf8").split("\n");
-    const at = lines.indexOf(`${EMBED_KEY_ENV}=${SECRET}`);
-    // Walk back from the live line: every continuation line, then the header
-    // that owns them — which must be the VOYAGE one, not the Anthropic one.
-    let i = at - 1;
-    while (/^#\s{4,}\S/.test(lines[i] ?? "")) i -= 1;
-    expect(lines[i] ?? "").toStartWith(`# ${EMBED_KEY_ENV}=`);
-  });
-
-  /**
-   * I32'S OWN SHAPE, made impossible. The file was EMPTY from 09-04 — the
-   * worker refused `NO_CREDENTIAL` at every boundary for a week — and a
-   * truncate-then-write is one crash away from producing exactly that. The
-   * write goes to a sibling and is RENAMED over the target, so the file is
-   * never observed empty and the secret is never on disk at 0644.
-   */
-  test("the target is REPLACED, never truncated: a new inode, 0600, and no temp file left", async () => {
-    writeConfig();
-    // The hostile starting state: an existing file, world-readable, with content
-    // that must survive.
-    writeFileSync(credsPath, `# keep me\n${EMBED_KEY_ENV}=keep-me\n`, { mode: 0o644 });
-    const before = statSync(credsPath);
-    const r = await set(API_KEY_ENV, SECRET);
-    expect(r.code).toBe(EXIT.ok);
-    const after = statSync(credsPath);
-    // A rename, not a truncate: the path points at a different file than it did.
-    expect(after.ino).not.toBe(before.ino);
-    expect((after.mode & 0o777).toString(8)).toBe("600");
-    expect(existsSync(`${credsPath}.tmp`)).toBe(false);
-    expect(readFileSync(credsPath, "utf8")).toContain(`${EMBED_KEY_ENV}=keep-me`);
-  });
-
-  test("set on a file that already holds the name replaces that line and nothing else", async () => {
-    writeConfig();
-    writeFileSync(credsPath, `# mine\n${API_KEY_ENV}=old-value\n${EMBED_KEY_ENV}=keep-me\n`, { mode: 0o600 });
-    await set(API_KEY_ENV, "new-value");
-    expect(readFileSync(credsPath, "utf8")).toBe(`# mine\n${API_KEY_ENV}=new-value\n${EMBED_KEY_ENV}=keep-me\n`);
-  });
-
-  test("an existing file's permissions are FIXED, not inherited", async () => {
-    writeConfig();
-    writeFileSync(credsPath, "# nothing yet\n", { mode: 0o644 });
-    await set(API_KEY_ENV, SECRET);
-    expect((statSync(credsPath).mode & 0o777).toString(8)).toBe("600");
-  });
-
-  test("THE VALUE NEVER APPEARS in stdout or stderr", async () => {
-    writeConfig();
-    const r = await set(API_KEY_ENV, SECRET);
-    const said = [...r.out, ...r.err].join("\n");
-    expect(said).not.toContain(SECRET);
-    expect(said).not.toContain(SECRET.slice(0, 10));
-    expect(said).toContain(API_KEY_ENV);
-  });
-
-  test("a name this package does not read is refused, naming the ones it does", async () => {
-    writeConfig();
-    const r = await set("OPENAI_API_KEY", SECRET);
-    expect(r.code).toBe(EXIT.usage);
-    expect(r.err.join("\n")).toContain(API_KEY_ENV);
-    expect(r.err.join("\n")).toContain(EMBED_KEY_ENV);
-    expect(r.err.join("\n")).toContain("Nothing was written.");
-    expect(existsSync(credsPath)).toBe(false);
-  });
-
-  test("an empty value is refused and nothing is written", async () => {
-    writeConfig();
-    const r = await set(API_KEY_ENV, "   \n");
-    expect(r.code).toBe(EXIT.refused);
-    expect(r.err.join("\n")).toContain("empty");
-    expect(existsSync(credsPath)).toBe(false);
-  });
-
-  test("a value that spans two lines is refused — it would mint a second entry", async () => {
-    writeConfig();
-    const r = await set(API_KEY_ENV, "one\ntwo\n");
-    expect(r.code).toBe(EXIT.refused);
-    expect(existsSync(credsPath)).toBe(false);
-  });
-
-  test("--from-env reads the named variable, and refuses when it is not set", async () => {
-    writeConfig();
-    const ok = await set(API_KEY_ENV, "", { argv: ["--from-env", "MY_KEY"], env: { MY_KEY: SECRET } });
-    expect(ok.code).toBe(EXIT.ok);
-    expect(readFileSync(credsPath, "utf8")).toContain(`${API_KEY_ENV}=${SECRET}`);
-    const missing = await set(EMBED_KEY_ENV, "", { argv: ["--from-env", "NOPE"], env: {} });
-    expect(missing.code).toBe(EXIT.refused);
-    expect(missing.err.join("\n")).toContain("$NOPE");
-  });
-
-  test("stdin that is a terminal is refused rather than left hanging", async () => {
-    writeConfig();
-    const c = consoleWith();
-    const code = await run(["credentials", "set", API_KEY_ENV, `--config=${configPath}`], {
-      io: c.io,
-      env: {},
-      home: root,
-      stdin: { isTty: true, read: () => Promise.reject(new Error("never read")) },
-    });
-    expect(code).toBe(EXIT.usage);
-    expect(c.err.join("\n")).toContain("--from-env");
-  });
-
-  test("list says which names the file holds, and never a value", async () => {
-    writeConfig();
-    writeCredentials([EMBED_KEY_ENV]);
-    const c = consoleWith();
-    const code = await run(["credentials", "list", `--config=${configPath}`], { io: c.io, env: {}, home: root });
-    expect(code).toBe(EXIT.ok);
-    const said = c.out.join("\n");
-    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} saved`);
-    expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
-    expect(said).not.toContain(SECRET);
-  });
-
-  /**
-   * NEW-USER ANSWER 6 (2026-09-22). Bare `credentials` used to be a usage
-   * error — "takes 'set <NAME>' or 'list', and neither was given" — for the one
-   * word somebody types when they want to know which keys they have. It is that
-   * question, so it answers it, and it says how to add one.
-   */
-  test("bare `credentials` LISTS instead of refusing, and prints the set line", async () => {
-    writeConfig();
-    writeCredentials([EMBED_KEY_ENV]);
-    const c = consoleWith();
-    const code = await run(["credentials", `--config=${configPath}`], { io: c.io, env: {}, home: root });
-    expect(code).toBe(EXIT.ok);
-    const said = c.out.join("\n");
-    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} saved`);
-    expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
-    expect(said).toContain("counterparts credentials set <NAME>");
-    // NAMES ONLY, on this door as on every other.
-    expect(said).not.toContain(SECRET);
-    expect(c.err).toEqual([]);
-  });
-
-  test("bare `credentials` with no file yet says both are missing, not that it failed", async () => {
-    writeConfig();
-    const c = consoleWith();
-    const code = await run(["credentials", `--config=${configPath}`], { io: c.io, env: {}, home: root });
-    expect(code).toBe(EXIT.ok);
-    const said = c.out.join("\n");
-    expect(said).toContain(`${API_KEY_ENV.padEnd(20)} missing`);
-    expect(said).toContain(`${EMBED_KEY_ENV.padEnd(20)} missing`);
-    expect(said).toContain("0600");
-  });
-
-  test("a subcommand that is neither is refused, and says what there is", async () => {
-    writeConfig();
-    const c = consoleWith();
-    const code = await run(["credentials", "rotate", `--config=${configPath}`], { io: c.io, env: {}, home: root });
-    expect(code).toBe(EXIT.usage);
-    expect(c.err.join("\n")).toContain("'set <NAME>'");
-    expect(c.err.join("\n")).toContain("nothing at all to list");
-  });
-
-  test("an observer refuses the whole command — an instrument does not hand a host a key", async () => {
-    writeConfig();
-    const c = consoleWith();
-    const code = await run(["credentials", "set", API_KEY_ENV, `--config=${configPath}`, "--observer"], {
-      io: c.io,
-      env: {},
-      home: root,
-      stdin: piped(SECRET),
-    });
-    expect(code).toBe(EXIT.refused);
-    expect(c.err.join("\n")).toContain("observer stance");
-    expect(existsSync(credsPath)).toBe(false);
-  });
-
-  test("with the explicit-dir guard armed, a configuration nobody named is refused", async () => {
-    const c = consoleWith();
-    const code = await run(["credentials", "set", API_KEY_ENV], {
-      io: c.io,
-      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
-      home: root,
-      stdin: piped(SECRET),
-    });
-    expect(code).toBe(EXIT.refused);
-    expect(existsSync(join(root, ".counterparts"))).toBe(false);
-  });
-
-  test("the credentials file's directory is created when the config names one that is not there", async () => {
-    const nested = join(root, "deep", "creds.env");
-    mkdirSync(join(root, "cfg"), { recursive: true });
-    const cfg = join(root, "cfg", "claude-code.json");
-    writeFileSync(cfg, JSON.stringify({ dataDir: dir, credentialsFile: nested }));
-    const c = consoleWith();
-    const code = await run(["credentials", "set", API_KEY_ENV, `--config=${cfg}`], {
-      io: c.io,
-      env: {},
-      home: root,
-      stdin: piped(SECRET),
-    });
-    expect(code).toBe(EXIT.ok);
-    expect(readFileSync(nested, "utf8")).toBe(`${API_KEY_ENV}=${SECRET}\n`);
-  });
-});
-
-// ── the window a store did not exist for, and the amber nobody could clear ──
-
-/**
- * New-user findings #8 and #9, 2026-09-21 — both the same shape: a true
- * sentence that reads as a fault to the person who just installed this.
- *
- *   #8 The Authorship line reported `2026-09-15→2026-09-21` on a store made that
- *      morning. The window is not wrong about what it LOOKED at; it is wrong
- *      about what it could have seen, and a reader cannot tell the two apart.
- *   #9 After a key was added the Sweep line went on saying AMBER
- *      `reason no-credential` until the next boundary — with a fix line telling
- *      the reader to do the thing they had just done. A standing amber nobody
- *      can clear is how a person learns to read amber as decoration.
- */
 describe("a store younger than the window it is graded over (findings 8, 9)", () => {
   test("a store made TODAY says 'since <today>', and not a week it did not exist for", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "2026-09-14");
     const f = by(doctorFindings(input({ store: s })), "authorship");
@@ -2871,7 +2359,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
   test("a store made THREE DAYS AGO names those three days", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "2026-09-11");
     const f = by(doctorFindings(input({ store: s })), "authorship");
@@ -2881,7 +2368,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
   test("`start-fresh`'s own record is read too, and the EARLIEST evidence wins", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     // The key `start-fresh` writes. `doctor.ts` spells it out rather than
     // importing it (that would be a cycle), so this test is what holds the two
@@ -2895,7 +2381,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
   test("a store OLDER than the window keeps the full seven days", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "2026-01-01");
     const f = by(doctorFindings(input({ store: s })), "authorship");
@@ -2911,7 +2396,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     // should trust, so the sentence is the one it always was.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "");
     expect(s.eventLog({ limit: 1 })).toHaveLength(0);
@@ -2929,7 +2413,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     const c = Counterpart.open({ dir, now: () => clock });
     c.close();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = Store.open({ dir, now: () => clock });
     stores.push(s);
     s.setMeta(STORE_CREATED_KEY, "");
@@ -2953,7 +2436,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     const c = Counterpart.open({ dir, now: () => later });
     c.close();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const first = Store.open({ dir, now: () => later });
     first.setMeta(STORE_CREATED_KEY, "");
     first.appendEvent({ name: SWEEP_GATE_EVENT, day: first.livedDay(), payload: { reason: "ran" } });
@@ -2985,7 +2467,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     // graded that week.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "");
     expect(s.eventLog({ limit: 1 })).toHaveLength(0);
@@ -3004,7 +2485,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     // hid the idle days — the silence the Authorship line exists to show.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const born = touchDatabase();
     if (!(born > 0)) return;
     const firstUse = born + 4 * 86_400_000;
@@ -3020,7 +2500,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
   test("and when the event is the earlier of the two — a file restored from a copy — the event wins", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const born = touchDatabase();
     if (!(born > 0)) return;
     const firstRow = born - 3 * 86_400_000;
@@ -3037,7 +2516,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     const clock = Date.parse("2026-09-09T10:00:00Z");
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = Store.open({ dir, now: () => clock });
     stores.push(s);
     s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
@@ -3051,7 +2529,6 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     // against a `today` in the past.
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.setMeta(STORE_CREATED_KEY, "2026-09-20");
     const f = by(doctorFindings(input({ store: s })), "authorship");
@@ -3073,57 +2550,10 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     rmSync(made, { recursive: true, force: true });
   });
 
-  // THE SWEEP IS OPT-IN since C2 (2026-09-23): the two tests below are about an
-  // owner who opted in (`crashWriteUp: "api"`); the one after them is everyone else.
-  const OPTED_IN = { dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true }, crashWriteUp: "api" } as const;
-
-  test("Sweep: `no-credential` with a key present NOW is green, and says which fact it is reading", () => {
+  test("Sweep: green `next session` — whether the row says `not-opted-in` or an older build's `no-credential`", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
-    const s = store();
-    s.appendEvent({
-      name: SWEEP_GATE_EVENT,
-      day: s.livedDay(),
-      payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
-    });
-    const f = by(doctorFindings(input({ store: s, config: { ...OPTED_IN, dataDir: dir, credentialsFile: credsPath } })), "sweep");
-    expect(f.severity).toBe("green");
-    expect(f.detail).toContain("reason no-credential");
-    expect(f.detail).toContain(`that sweep ran before ${API_KEY_ENV} was added`);
-    // NO FIX. There is nothing for the reader to do, and a fix line here is
-    // what made this read as a fault in the first place.
-    expect(f.fix).toBe("");
-    expect(f.data["answered"]).toBe(true);
-  });
-
-  test("Sweep: opted in with NO key is amber — and the command is the Crash write-up line's, not said twice", () => {
-    // 2026-09-23, from the 0.2.0 trial: "every fix a command" — and since C2,
-    // one line per command: the `Crash write-up` line names it.
-    mintStore();
-    writeConfig();
-    writeCredentials([EMBED_KEY_ENV]);
-    const s = store();
-    s.appendEvent({
-      name: SWEEP_GATE_EVENT,
-      day: s.livedDay(),
-      payload: { reason: "no-credential", ran: 0, scopes: 0, date: "2026-09-14" },
-    });
-    const findings = doctorFindings(input({ store: s, config: { ...OPTED_IN, dataDir: dir, credentialsFile: credsPath } }));
-    const f = by(findings, "sweep");
-    expect(f.severity).toBe("amber");
-    expect(f.detail).not.toContain("was added");
-    const crash = by(findings, "crash-write-up");
-    expect(crash.severity).toBe("amber");
-    expect(crash.fix).toBe(`Run: counterparts credentials set ${API_KEY_ENV}`);
-    expect(f.fix).not.toContain("credentials set");
-  });
-
-  test("Sweep: NOT opted in is green `next session` — whether the row says `not-opted-in` or a pre-C2 `no-credential`", () => {
-    mintStore();
-    writeConfig();
-    for (const keys of [[EMBED_KEY_ENV], [API_KEY_ENV, EMBED_KEY_ENV]]) {
-      writeCredentials(keys);
+    {
       for (const reason of ["not-opted-in", "no-credential"]) {
         const s = store();
         s.appendEvent({
@@ -3143,10 +2573,9 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     }
   });
 
-  test("Sweep: every OTHER stand-down reason is untouched by the key", () => {
+  test("Sweep: every OTHER stand-down reason is still amber", () => {
     mintStore();
     writeConfig();
-    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const s = store();
     s.appendEvent({
       name: SWEEP_GATE_EVENT,

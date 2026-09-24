@@ -97,11 +97,9 @@ import {
   writerInstruction,
   writerInstructionOverhead,
 } from "../../core/self/index.js";
-import { apiSweepOn, capabilities, interpretSeat, pageWriterMode } from "./config.js";
+import { capabilities, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
-import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
-import type { CredentialLoad } from "./credentials.js";
 import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
 import type { CheckoutReading } from "./doctor.js";
 import { primacy } from "./primacy.js";
@@ -229,21 +227,13 @@ export interface AdapterOptions {
   readonly onEvent?: (e: AdapterEvent) => void;
   readonly now?: () => number;
   /**
-   * What this PROCESS's credential file answered, from the entry point that
-   * loaded it (`bin/hook.ts`). Passed in rather than looked up: provenance is a
-   * fact about one process's startup, and the adapter's only jobs with it are to
-   * say `env` or `file` on the capability row and to leave ONE ring event saying
-   * the file was used. Names and counts only — never a value.
-   */
-  readonly credentials?: CredentialLoad;
-  /**
    * WHICH `claude-code.json` THIS PROCESS READ — an absolute path, resolved by
    * the entry point (`bin/hook.ts`, via `adapters/config-path.ts`) and passed in
-   * for the same reason `credentials` is: it is a fact about one process's
-   * startup, not something the adapter may go and re-derive.
+   * because it is a fact about one process's startup, not something the adapter
+   * may go and re-derive.
    *
    * The adapter does three things with it, all of them recording:
-   *   - one ring event at construction, exactly as the credential file gets;
+   *   - one ring event at construction;
    *   - the `config` field of every session registry record it writes, which is
    *     the only DURABLE trace a hook can leave of this (a hook has no stdout to
    *     tell the owner with — that channel is the model's context);
@@ -365,7 +355,8 @@ export const SCOPE_PATIENCE_DEFERRALS = 1;
  * `session_end` with `writeUp` and no memories returns the next part, up to
  * ~24 KB; the same call with memories — or `[]`, "nothing worth keeping" —
  * answers it. Nothing leaves the machine beyond what Claude Code already sees;
- * the write-up is in the model's voice. The API sweep is the opt-in upgrade.
+ * the write-up is in the model's voice. (It is the only route: the opt-in
+ * Anthropic API sweep was removed with the key, 2026-09-24.)
  *
  * **Why a pointer (owner's choice, 2026-09-23, option (b) of INTERFACE-GAPS
  * §15).** The host caps a hook's whole output at 10,000 characters and turns
@@ -545,7 +536,6 @@ export class ClaudeCodeAdapter {
   private readonly spawner: Spawner | undefined;
   private readonly onEvent: ((e: AdapterEvent) => void) | undefined;
   private readonly nowFn: () => number;
-  private readonly credentials: CredentialLoad | undefined;
   /** The `claude-code.json` this process read — recorded, pinned, never re-derived. */
   private readonly configPath: string | undefined;
   /** What the scope registry said about this directory. `unset` when nobody said. */
@@ -583,23 +573,14 @@ export class ClaudeCodeAdapter {
     this.spawner = opts.spawner;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
-    this.credentials = opts.credentials;
     this.configPath = opts.configPath;
     this.scope = opts.scope ?? { mode: "unset", matched: null, entry: null };
-    // ONE event naming the configuration this process read, for the same reason
-    // the credential file gets one: a hook's stdout belongs to the model, so
+    // ONE event naming the configuration this process read: a hook's stdout
+    // belongs to the model, so
     // "which file answered" has nowhere else to go in-process. The durable half
     // is the session record's `config` field (`noteSession`).
     if (opts.configPath !== undefined && opts.configPath.length > 0) {
       this.emit(CONFIG_FILE_EVENT, { path: opts.configPath });
-    }
-    // ONE event, and only when the file actually answered. A run whose keys came
-    // from the environment says nothing here, so the presence of this line in
-    // the ring IS the record that the configured file was the source (§4 G4:
-    // a host fact, surfaced rather than assumed). Last in the constructor:
-    // `emit` needs `nowFn`.
-    if (opts.credentials !== undefined && opts.credentials.loaded.length > 0) {
-      this.emit(CREDENTIAL_FILE_EVENT, credentialRow(opts.credentials));
     }
     // ONE event naming the scope verdict this process ran under, and which
     // entry produced it — the answer to "why did this directory record nothing
@@ -637,7 +618,7 @@ export class ClaudeCodeAdapter {
 
   /** §4 G4: every host-dependent limit, as a checkable value. */
   capabilities(): CapabilityReport[] {
-    return capabilities(this.config, process.env, this.credentials);
+    return capabilities(this.config);
   }
 
   // ── session start: the wake ────────────────────────────────────────────────
@@ -1094,8 +1075,6 @@ export class ClaudeCodeAdapter {
       const inFlight = readWriteUpProgress(store);
       const owed = owedWriteUps(plan, dir, input.scope, now, {
         exclude: input.sessionId,
-        // With the API sweep on, a crashed session it will still read is the sweep's.
-        sweep: apiSweepOn(this.config, process.env) ? this.counterpart.spans : null,
         progress: inFlight,
       });
       const first = owed[0];
@@ -2047,9 +2026,9 @@ export class ClaudeCodeAdapter {
    * against the staleness window, data dir, stance — and a refusal that repeats
    * ESCALATES rather than re-logging (scar E4's widening).
    *
-   * **The credential is NOT a precondition any more** (I32, 2026-09-11). The
-   * worker starts without one and degrades the single step that needs it; see
-   * `spawn.ts`'s §2.18 paragraph for why refusing was worse than running.
+   * **The credential was never a precondition after I32** (2026-09-11), and
+   * since 2026-09-24 there is no credential at all; see `spawn.ts`'s §2.18
+   * paragraph for why refusing was worse than running.
    *
    * **Every refusal and every failure now leaves a DURABLE row**, one per reason
    * per calendar date, and the per-reason counter that decides escalation lives
@@ -2074,15 +2053,6 @@ export class ClaudeCodeAdapter {
         ? {}
         : { configPath: this.configPath }),
     };
-    const seat = interpretSeat(this.config, new Date(this.nowFn()).toISOString().slice(0, 10));
-    if (!seat.usable) {
-      // A placeholder that expired is a decision nobody made (scar §2.15c). It
-      // has never stopped the spawn and must not start to: the seat belongs to
-      // the SWEEP's model call, which is one of the worker's five jobs, and the
-      // interpret client refuses it by name at the far end. Said here so the
-      // ring carries the reason the sweep is about to decline.
-      this.emit("adapter.spawn.seat", { seat: seat.seat, status: seat.status });
-    }
     const plan = planSpawn({
       config: this.config,
       command: this.command,
@@ -2335,15 +2305,6 @@ export class ClaudeCodeAdapter {
         configReason: null,
         config: this.config,
         dir: this.config.dataDir ?? "",
-        credentials: this.credentials ?? {
-          loaded: [],
-          skippedPresent: [],
-          ignoredLines: 0,
-          reason: "not-configured",
-          mode: null,
-          permissive: false,
-        },
-        credentialsPath: this.config.credentialsFile,
         store: this.counterpart.store,
         today,
         refusals: this.spawnRefusals(),

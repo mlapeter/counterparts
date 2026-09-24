@@ -23,9 +23,8 @@
  *   1. **It reads and never writes.** Every store call below is a read; the
  *      caller supplies an OBSERVER store or one that is already open. Nothing
  *      here opens a database, mints a directory or touches box 3.
- *   2. **Names and counts, never values.** A credential is reported by NAME and
- *      by the mode of the file that holds it. Never a value, never a length,
- *      never a prefix. The same rule `credentials.ts` states for itself.
+ *   2. **Names and counts, never values.** Paths, names, counts and dates —
+ *      never memory text.
  *   3. **It is on the hot path, so it is bounded.** `sessionNoticeBudgetMs`
  *      bounds the whole reading at session start, checked BETWEEN groups; what
  *      the budget cut off is reported as a finding rather than silently
@@ -89,16 +88,7 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import {
-  API_KEY_ENV,
-  EMBED_KEY_ENV,
-  TUNABLES,
-  crashWriteUpMode,
-  embedderKind,
-  pageWriterMode,
-  resolveEmbedder,
-  withEmbedderDefault,
-} from "./config.js";
+import { TUNABLES, pageWriterMode, resolveEmbedder, withEmbedderDefault } from "./config.js";
 import type { EmbedderSource } from "./config.js";
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
 import { heldExits } from "../../core/store/index.js";
@@ -116,8 +106,6 @@ import {
   writeUpPlan,
 } from "../sessions.js";
 import type { AdapterConfig } from "./config.js";
-import { CREDENTIAL_NAMES } from "./credentials.js";
-import type { CredentialLoad } from "./credentials.js";
 // The same vocabulary the hook's stand-down uses, so the terminal and the
 // console cannot end up with two answers to "why did it not open".
 import { describeFault, faultId, faultPath } from "./standdown.js";
@@ -130,7 +118,7 @@ export interface Finding {
   /** Stable machine name — the `--json` key and the notice's identity. */
   readonly key: string;
   readonly severity: Severity;
-  /** The column heading a human reads: "Credentials", "Clock". */
+  /** The column heading a human reads: "Config", "Clock". */
   readonly title: string;
   /** One line of FACTS: paths, names, counts, dates. Never memory text. */
   readonly detail: string;
@@ -141,9 +129,9 @@ export interface Finding {
   /**
    * AN OPTIONAL FEATURE THAT WAS NEVER TURNED ON — printed `OFF`, dim, and
    * counted apart from the ambers (new-user findings #24, owner's answer 12 of
-   * 2026-09-22). One skipped Voyage key used to produce three ambers on a
-   * fresh install — Embedder off, Credentials missing, Vectors unembedded —
-   * and a screen where nothing is wrong should not carry three warnings.
+   * 2026-09-22). One optional thing nobody turned on used to produce three
+   * ambers on a fresh install, and a screen where nothing is wrong should not
+   * carry three warnings.
    *
    * IT IS A FLAG ON AMBER, NOT A FOURTH `Severity`, and that is the whole
    * reason the JSON keeps `severity: "amber"`: every reader that switches on a
@@ -153,8 +141,8 @@ export interface Finding {
    * and how it is counted, both of which live in this file (`worstFirst`,
    * `reportLines`, `reportJson`) and nowhere else.
    *
-   * NEVER on a feature that WAS working and has stopped: that is the red
-   * `keyHistory` exists for, and it is untouched.
+   * NEVER on a feature that WAS working and has stopped: `keyHistory` tells
+   * the two apart.
    */
   readonly optional?: boolean;
 }
@@ -195,7 +183,7 @@ export interface DoctorInput {
    * `not-read` (2026-09-20, finding 6) is `--dir` with no `--config` under the
    * explicit-dir guard: the store was NAMED, so it is read, and the default
    * configuration beside it was not opened at all — because opening it is what
-   * would reach the owner's live credentials file. Everything that comes out of
+   * would reach the owner's live configuration. Everything that comes out of
    * a configuration then says so instead of grading a file nobody read.
    */
   readonly configReason: "loaded" | "absent" | "unreadable" | "not-read" | null;
@@ -210,34 +198,6 @@ export interface DoctorInput {
   readonly config: AdapterConfig;
   /** The store this reading actually read. */
   readonly dir: string;
-  /**
-   * The credential load to REPORT ON, and the two callers hand in different
-   * ones on purpose:
-   *
-   *   - The **console** loads the file against a SCRATCH environment, so what
-   *     it reports is what the FILE holds. A console that counted its own shell
-   *     would read green on the owner's machine — his `~/.zshrc` exports both
-   *     names — while the hook processes, which inherit neither (measured day 0),
-   *     stayed blind. That is I32 reproduced inside the diagnostic.
-   *   - The **hook** hands in the load it already performed against its own
-   *     `process.env` — and that is ALSO a reading of the file, which is what
-   *     makes the two agree. `loadCredentials` pushes a name onto `loaded` or
-   *     onto `skippedPresent` only when the FILE holds a line for it
-   *     (`skippedPresent` means "the file offered this and the environment had
-   *     already answered it"), so a template file answers nothing whatever the
-   *     environment carries, and a hook launched from a shell that exports both
-   *     keys still goes red on a blank file. Asserted in `test/doctor.test.ts`,
-   *     because the whole PR turns on it.
-   */
-  readonly credentials: CredentialLoad;
-  readonly credentialsPath: string | undefined;
-  /**
-   * Names the CALLER's environment answers, when the caller is the console.
-   * Reported as one extra clause on the finding for THAT NAME when the file
-   * lacks it — "I have that key" and "the hooks have that key" are two different
-   * facts, and the gap between them is what made I32 invisible.
-   */
-  readonly shellNames?: readonly string[];
   /** Null when there is no store at `dir` — the store findings then say so. */
   readonly store: Store | null;
   /** Today, UTC, `YYYY-MM-DD` — the same spelling every `date` field uses. */
@@ -799,7 +759,7 @@ function unreadableClause(keys: readonly string[] | undefined): string {
   if (keys === undefined || keys.length === 0) return "";
   const known = keys.map((k) =>
     k === "embedder.kind"
-      ? 'embedder.kind — it must be "static" or "voyage"'
+      ? 'embedder.kind — it must be "static"'
       : k === "embedder.enabled"
         ? "embedder.enabled — it must be true or false"
         : k === "embedder"
@@ -816,14 +776,14 @@ function configFindings(input: DoctorInput): Finding[] {
   if (reason === "not-read") {
     // NOT A FAULT AND NOT A GRADE. `--dir` named a store; nothing named a
     // configuration, and reading the default one is what would open somebody's
-    // live credentials file. So the store is graded and this line says, in the
+    // live configuration. So the store is graded and this line says, in the
     // words the refusal used to use, exactly what to type to grade the rest.
     out.push(
       finding(
         "config",
         "amber",
         "Config",
-        `not read — you named a store with --dir and no configuration, so nothing here grades ${input.configPath}: no credentials, no embedder setting, no snapshot policy, no stance`,
+        `not read — you named a store with --dir and no configuration, so nothing here grades ${input.configPath}: no embedder setting, no snapshot policy, no stance`,
         `To grade those too: counterparts doctor --config <absolute path> (or set ${CONFIG_ENV}).`,
         { path: input.configPath, reason },
       ),
@@ -876,6 +836,23 @@ function configFindings(input: DoctorInput): Finding[] {
         { path: input.configPath, reason: reason ?? "read-by-caller", dataDir: input.config.dataDir ?? null },
       ),
     );
+    // SETTINGS THIS BUILD NO LONGER READS (keyless, 2026-09-24) — a quiet note,
+    // GREEN, never a warning: the owner's own configuration carries
+    // `credentialsFile` from the install that wrote it, and a key nobody needs
+    // any more is not a fault. Printed under `--all`; nothing to do.
+    const retired = input.config.retired ?? [];
+    if (retired.length > 0) {
+      out.push(
+        finding(
+          "retired",
+          "green",
+          "Old settings",
+          `${retired.join("; ")} — ignored; you may remove ${retired.length === 1 ? "it" : "them"} from ${tilde(input.configPath)}`,
+          "",
+          { count: retired.length },
+        ),
+      );
+    }
   }
 
   // THE STORE THE HOOKS WOULD OPEN, against the one this reading opened. I31's
@@ -966,39 +943,24 @@ function memoryDetail(input: DoctorInput, n: number | null): string {
 }
 
 /**
- * RECALL BY MEANING — the embedder and the Voyage key, as ONE line.
+ * RECALL BY MEANING — the local table, as ONE line.
  *
- * **The finding (#24, the owner's 0.2.0 trial).** Skipping the optional Voyage
- * key produced three ambers: `Embedder off`, `Credentials … is missing`, and
- * `Vectors 35 with no vector`. One optional thing nobody turned on, three
- * problems on the screen — and the fix line for the first told him to hand-edit
- * a JSON file (#19). A person reads that as a broken install.
+ * **The finding (#24, the owner's 0.2.0 trial).** An optional feature nobody
+ * turned on used to produce three ambers — the embedder, its key, and the
+ * unembedded vectors — and the fix line told him to hand-edit a JSON file
+ * (#19). A person reads that as a broken install. So it is one line, and a
+ * block switched off is `OFF`: optional, nothing wrong. `vectorFindings` says
+ * nothing at all while the embedder is off (there is nothing to embed).
  *
- * So the three become one, and its grade is `OFF`: optional, never turned on,
- * nothing to do. `vectorFindings` returns nothing at all while the embedder is
- * off (there is nothing to embed), and `credentialFindings` keeps the Voyage
- * name on its factual line under `--all` instead of grading it.
- *
- * THE TWO GRADES THAT ARE NOT `OFF`, and why:
- *
- *   - **Switched ON and no key**: the feature was asked for and cannot run, so
- *     every ask pays for an `embed-failed`. Amber, with the command that fixes
- *     it.
- *   - **Switched OFF on a store that HAS embedded**: something that was running
- *     has stopped. Amber, in the words that line has always used — never `OFF`,
- *     which claims nobody ever turned it on.
+ * The one grade that is not `OFF` while it is off: **switched OFF on a store
+ * that HAS embedded** — something that was running has stopped. Amber, never
+ * `OFF`, which would claim nobody ever turned it on.
  */
 function embedderFindings(input: DoctorInput, history: KeyHistory, source: EmbedderSource): Finding[] {
   const enabled = input.config.embedder?.enabled === true;
-  const present = [...input.credentials.loaded, ...input.credentials.skippedPresent];
-  const haveKey = present.includes(EMBED_KEY_ENV);
-  const data = { enabled, key: haveKey, everEmbedded: history.embedded, source };
-  // THE LOCAL TABLE IS WHAT "TURN ON" MEANS NOW (roadmap C3): Voyage is frozen,
-  // so no fix line on this finding advises a Voyage key for a knob that is
-  // off, and the command it names turns ANY off block on as the local table —
-  // never Voyage (`install.ts#resolveEmbedderBlock`, review of #195 MAJOR 1).
-  // A store that ran Voyage and stopped gets the table, and its paid vectors
-  // are HELD, not dropped (`withdrawnFinding` then names the exits).
+  const data = { enabled, everEmbedded: history.embedded, source };
+  // The command it names turns ANY off block on as the local table
+  // (`install.ts#resolveEmbedderBlock`).
   const turnOn = `Turn on: ${EMBEDDER_ON_COMMAND}`;
   // THE STORE'S OWN VERDICT FIRST (review of #190, MAJOR 4): a hold or a newer
   // build's cache turns the channel off whatever the configuration says, and
@@ -1006,23 +968,7 @@ function embedderFindings(input: DoctorInput, history: KeyHistory, source: Embed
   if (enabled) {
     const withdrawn = withdrawnFinding(input);
     if (withdrawn !== null) return [withdrawn];
-  }
-  // THE LOCAL TABLE (MAJOR 3): never a Voyage key in its advice.
-  if (enabled && embedderKind(input.config) === "static") return [staticFinding(input, data)];
-  if (enabled && haveKey) {
-    return [finding("embedder", "green", RECALL_TITLE, "on — recall matches meaning as well as words", "", data)];
-  }
-  if (enabled) {
-    return [
-      finding(
-        "embedder",
-        "amber",
-        RECALL_TITLE,
-        `on, but ${EMBED_KEY_ENV} is not saved${shellClause(input, EMBED_KEY_ENV, present)} — so nothing is embedded and every ask pays for the attempt`,
-        `Run: counterparts credentials set ${EMBED_KEY_ENV}`,
-        data,
-      ),
-    ];
+    return [staticFinding(input, data)];
   }
   if (history.embedded) {
     // SAYS WHAT STILL WORKS (2026-09-20, finding 1). "No vectors, no semantic
@@ -1035,22 +981,6 @@ function embedderFindings(input: DoctorInput, history: KeyHistory, source: Embed
         RECALL_TITLE,
         "off — and this store HAS embedded before, so something that was running has stopped. " +
           "Recall still matches on words; what is gone is finding a memory that says the same thing in different words",
-        turnOn,
-        data,
-      ),
-    ];
-  }
-  // NO BLOCK, AND A VOYAGE KEY SAVED (config.ts#resolveEmbedder): the one case
-  // where an absent block is NOT the local table. Said as what it is — a 0.2.0
-  // setup kept as it was — and the same command turns the table on
-  // (`resolveEmbedderBlock` writes `"static"` for a configuration with no block).
-  if (source === "absent-voyage-key") {
-    return [
-      off(
-        "embedder",
-        RECALL_TITLE,
-        "not switched on: a Voyage key is saved here and this configuration names no embedder, so the local table " +
-          "was not assumed. Recall works on words; the table lets it match meaning too, and nothing leaves this machine.",
         turnOn,
         data,
       ),
@@ -1074,8 +1004,8 @@ const RECALL_TITLE = "Recall by meaning";
  * (roadmap C3). `install` writes the block only when it creates the file, so an
  * existing one — every 0.2.0 install, the owner's included — needs `--force`
  * to be rewritten, and `--force` carries every other key forward
- * (`commands.ts#carryForward`) and never replaces a credentials file that holds
- * a key. One sentence, printed by doctor and quoted by QUICKSTART.
+ * (`commands.ts#carryForward`). One sentence, printed by doctor and quoted by
+ * QUICKSTART.
  */
 export const EMBEDDER_ON_COMMAND = "counterparts install --force --embedder";
 
@@ -1103,17 +1033,17 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
   }
   if (v === undefined) return null;
   if (v.kind === "held") {
-    // Named for the hold AS IT IS (re-review MINOR B): untagged rows have no
-    // recorded model to go back to — they are 0.2.0's, written by the Voyage
-    // seat — so the free exit named is `embedder.kind` back to "voyage".
-    const from = v.recorded ?? "an older build that did not tag them (0.2.0 or earlier — the Voyage seat)";
+    // Named for the hold AS IT IS (re-review MINOR B). Since 2026-09-24 the
+    // model that wrote held rows — the removed Voyage seat, in practice — can
+    // no longer be configured, so the one exit is to drop them.
+    const from = v.recorded ?? "an older build that did not tag them (0.2.0 or earlier)";
     return finding(
       "embedder",
       "amber",
       RECALL_TITLE,
       `held — the store holds ${v.rows} vectors from ${from}, and the configuration asks for ${v.configured ?? "another model"}; ` +
-        "nothing is embedded or matched by meaning until you choose, so no paid vector is thrown away by accident. Recall still matches on words",
-      `Either ${heldExits(v.recorded).replace("<store>", tilde(input.dir))}.`,
+        "nothing is embedded or matched by meaning until they are dropped. Recall still matches on words",
+      `To match by meaning again, ${heldExits(v.recorded).replace("<store>", tilde(input.dir))}.`,
       { held: true, recorded: v.recorded, configured: v.configured, rows: v.rows },
     );
   }
@@ -1131,10 +1061,7 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
 }
 
 /**
- * THE LOCAL TABLE'S LINE (review of #190, MAJOR 3). Before this, a
- * `kind: "static"` configuration read the Voyage branch: "on, but
- * VOYAGE_API_KEY is not saved", with a fix that bought a key the table never
- * uses and then graded green. So:
+ * THE LOCAL TABLE'S LINE (review of #190, MAJOR 3).
  *
  *   - What the WORKER saw wins: its newest backfill row says which embedder
  *     ran, where its weights came from, or — `embedder-unavailable` — the code
@@ -1207,156 +1134,35 @@ function newestBackfill(input: DoctorInput): Record<string, unknown> | null {
 }
 
 /**
- * The clause for THE NAME THIS FINDING IS ABOUT, and no other: "your shell
- * exports VOYAGE_API_KEY" hung on a red about `ANTHROPIC_API_KEY` reads as a
- * non-sequitur and teaches the reader to skip the line.
+ * HAS THIS STORE EVER EMBEDDED (2026-09-20, finding 1).
  *
- * It is the sentence that closes I32 on the owner's own machine: his `~/.zshrc`
- * exports both names, hook processes inherit neither (measured day 0), so "I
- * have that key" and "the hooks have that key" are two different facts and this
- * is where they are told apart.
- */
-function shellClause(input: DoctorInput, name: string, present: readonly string[]): string {
-  return (input.shellNames ?? []).includes(name) && !present.includes(name)
-    ? ` — your shell exports ${name}, and hook processes do not inherit it`
-    : "";
-}
-
-/**
- * HAS THIS STORE EVER HAD A WORKING KEY (2026-09-20, finding 1).
- *
- * README says no API keys are required and QUICKSTART §6 says the worker still
- * runs the day without one — and `doctor` on a brand-new keyless store printed
- * a RED and exited 1. All three cannot be true. A careful reader concludes a
- * fresh install is broken; a trusting one buys a key the docs said they did not
- * need.
- *
- * The red was written for a real and serious case, so it is kept for that case
- * and only that one: a key that was HERE and has gone. The discriminator is the
- * store's own evidence, never a marker file — a marker would have to be written
- * by something, and the thing that would write it is the thing that is missing.
- *
- *   - The interpreter ran if anything was ever interpreted. `gate.chunk` is the
- *     crash sweep's own row and the sweep is the only interpreted write path,
- *     so one such row ever is proof the key worked here.
- *   - The embedder ran if any backfill ever embedded anything.
- *
- * Both are ONE bounded read each, over the whole log, and both answer "ever",
- * so neither can be undone by retention sweeping the window.
- *
- * **THE FALSE NEGATIVE, stated.** A key that was present and never EXERCISED —
- * no session ever crashed, so the sweep never ran — leaves no `gate.chunk`, and
- * removing it reads amber where the owner might want red. That is the direction
- * this errs on purpose: the amber still names the key and still says what it
- * would add, so nothing is hidden; the alternative errs towards telling every
- * new user their install is broken. Revisit if a second signal appears that
- * proves the key worked without the sweep having run.
+ * The discriminator between "switched off, never used" (`OFF`) and "was
+ * running and has stopped" (amber) on the Recall by meaning line. The store's
+ * own evidence, never a marker file: any backfill that ever embedded anything,
+ * over a bounded window of the OLDEST rows, which is where a table that worked
+ * and was then switched off would be. (It read the Anthropic key's history
+ * too, until that key was removed on 2026-09-24.)
  */
 interface KeyHistory {
-  readonly interpreted: boolean;
   readonly embedded: boolean;
 }
 
 export function keyHistory(store: Store | null): KeyHistory {
-  if (store === null) return { interpreted: false, embedded: false };
-  const any = (name: string, limit: number, ok: (p: Record<string, unknown>) => boolean): boolean => {
-    try {
-      return store.eventLog({ name, limit }).some((r) => ok(payloadOf(r)));
-    } catch {
-      // A store that will not answer is not a store that says "never had one".
-      // Both callers read `false` as "no evidence", and the line that follows
-      // says what works without a key rather than accusing anybody.
-      return false;
-    }
-  };
-  return {
-    // ONE ROW. `eventLog` orders ascending and `events_name` is an index, so
-    // "has there ever been one" is the cheapest question this file asks.
-    interpreted: any(GATE_CHUNK_EVENT, 1, () => true),
-    // A backfill row exists with or without a key — it records what is still
-    // waiting — so this one has to look at the number, over a bounded window of
-    // the OLDEST rows, which is where a key that worked and then went would be.
-    embedded: any(EMBED_BACKFILL_EVENT, KEY_HISTORY_ROWS, (p) => (num(p, "embedded") ?? 0) > 0),
-  };
+  if (store === null) return { embedded: false };
+  try {
+    return {
+      embedded: store
+        .eventLog({ name: EMBED_BACKFILL_EVENT, limit: KEY_HISTORY_ROWS })
+        .some((r) => (num(payloadOf(r), "embedded") ?? 0) > 0),
+    };
+  } catch {
+    // A store that will not answer is not a store that says "never".
+    return { embedded: false };
+  }
 }
 
-/** How many backfill rows the "has a key ever worked here" read looks at. */
+/** How many backfill rows the "has this store ever embedded" read looks at. */
 const KEY_HISTORY_ROWS = 200;
-
-/**
- * The credentials, BY NAME. The red is I32's own signature: no interpreter key
- * means the worker runs the day and interprets nothing — but see `keyHistory`
- * above: that red is for a key that WENT AWAY, not for a store that never had
- * one, which is a supported way to run.
- */
-function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] {
-  const load = input.credentials;
-  const present = [...load.loaded, ...load.skippedPresent];
-  const missing = CREDENTIAL_NAMES.filter((n) => !present.includes(n));
-  const path = input.credentialsPath ?? "(no credentialsFile in the config)";
-  const where = `${tilde(path)}${load.mode === null ? "" : ` (mode ${load.mode})`}`;
-  const holds = present.length === 0 ? "holds no key" : `holds ${present.join(", ")}`;
-  const out: Finding[] = [];
-
-  const data = {
-    path,
-    mode: load.mode,
-    reason: load.reason,
-    present: present.join(","),
-    missing: missing.join(","),
-    everInterpreted: history.interpreted,
-    everEmbedded: history.embedded,
-  };
-
-  // THE FACTUAL LINE, ALWAYS — which file, what mode, which names it holds.
-  // GREEN unless the one red below stands: a name the file does not hold is not
-  // a fault, it is a feature nobody turned on, and the `OFF` line for that
-  // feature says so in the words of the thing it buys. This line keeps the
-  // names, because "which keys are saved" is a question with one answer and
-  // `doctor --all` is where it lives.
-  if (missing.includes(API_KEY_ENV) && history.interpreted) {
-    // RED only when the key WORKED here and is now gone — the case this line
-    // was written for, and the one case `OFF` may never swallow.
-    out.push(
-      finding(
-        "credentials",
-        "red",
-        "Credentials",
-        `${where} ${holds}: ${API_KEY_ENV} is missing, and this store HAS interpreted before — so something that was running has stopped; the worker now runs the day and encodes nothing${shellClause(input, API_KEY_ENV, present)}`,
-        `Run: counterparts credentials set ${API_KEY_ENV}`,
-        data,
-      ),
-    );
-  } else {
-    out.push(finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data));
-    // NO CRASH WRITE-UP LINE HERE ANY MORE (review of #195, MINOR 6). This used
-    // to add `crash-writeup` — OFF with "an Anthropic key lets a session … get
-    // written up anyway", green once a key was saved. Since #192 a session
-    // that ended before it was written up is written up by the NEXT session in
-    // its project with no key at all, and the API is an opt-in
-    // (`crashWriteUp: "api"`), so that line's advice was the one C2 retired and
-    // it stood beside #192's own `crash-write-up` line saying the opposite.
-    // `crashWriteUpFindings` is the one line now.
-  }
-
-  // The mode is its own finding: a file that holds both keys and is world
-  // readable is a different problem from a file that holds neither, and
-  // collapsing them would let one hide the other. Warned, never refused
-  // (`permissionWarning` states the rule: the owner's machine, the owner's call).
-  if (load.mode !== null && load.mode !== "600") {
-    out.push(
-      finding(
-        "credentials-mode",
-        "amber",
-        "Cred mode",
-        `${tilde(path)} is mode ${load.mode}${load.permissive ? " — group or other can read it" : ""}`,
-        `Run: chmod 600 ${tilde(path)}`,
-        { path, mode: load.mode, permissive: load.permissive },
-      ),
-    );
-  }
-  return out;
-}
 
 /**
  * RAW TRANSCRIPTS — how long the captured conversation is kept, and what the
@@ -1506,74 +1312,29 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const reason = str(p, "reason") ?? "(none)";
     const detail = `newest sweep.gate ${rowDate(sweep) ?? "?"}: reason ${reason}, ran ${num(p, "ran") ?? 0} of ${num(p, "scopes") ?? 0} scopes`;
     /**
-     * THE REASON THAT HAS ALREADY BEEN ANSWERED (new-user findings #9).
-     *
-     * The gate row is the newest sweep, not the current state of the machine.
-     * Add the key and this line went on saying AMBER `reason no-credential`
-     * until the next session boundary wrote a fresh row — hours, on a quiet
-     * afternoon — with a fix line telling the reader to do the thing they had
-     * just done. A standing amber nobody can clear is how a person learns to
-     * read amber as decoration.
-     *
-     * So: the newest row says it stood down for want of a key AND the
-     * credentials file holds one NOW. Nothing is wrong, and there is nothing to
-     * fix, so it is GREEN and says which of the two facts it is looking at. The
-     * credentials come from the FILE, never the environment — `credentialFindings`
-     * keeps the same rule, and a hook process inherits no shell.
+     * THE SWEEP NEVER INTERPRETS HERE ANY MORE (keyless, 2026-09-24): the worker
+     * writes `not-opted-in`, and a row from an older build wrote `no-credential`
+     * for the same keyless day — both are the ordinary state, GREEN, with the
+     * next session writing crashed sessions up.
      */
-    const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(
-      API_KEY_ENV,
-    );
-    /**
-     * THE SWEEP IS AN OPT-IN UPGRADE (roadmap C2, 2026-09-23). A worker whose
-     * owner has not opted in writes `not-opted-in`, and a row from a build
-     * before C2 wrote `no-credential` for the same keyless day — both are the
-     * ordinary state now, GREEN, with the next session writing crashed sessions
-     * up. Opted in with no key is the one case with something to do, and the
-     * `Crash write-up` line names the command, so this line points there
-     * rather than naming it twice.
-     */
-    const optedIn = crashWriteUpMode(input.config) === "api";
-    const notOptedIn = reason === "not-opted-in" || (reason === "no-credential" && !optedIn);
-    const answered = reason === "no-credential" && optedIn && keyNow;
+    const nextSession = reason === "not-opted-in" || reason === "no-credential";
     out.push(
       reason === "ran"
         ? finding("sweep", "green", "Sweep", detail, "", { reason, ran: num(p, "ran"), date: rowDate(sweep) })
-        : notOptedIn
+        : nextSession
           ? finding(
               "sweep",
               "green",
               "Sweep",
-              `${detail} — next session: the API sweep is not opted in, and a session that ended unwritten is written up by the next session in its project`,
+              `${detail} — next session: a session that ended unwritten is written up by the next session in its project`,
               "",
-              { reason, ran: num(p, "ran"), date: rowDate(sweep), optedIn: false },
+              { reason, ran: num(p, "ran"), date: rowDate(sweep) },
             )
-        : answered
-          ? finding(
-              "sweep",
-              "green",
-              "Sweep",
-              `${detail} — that sweep ran before ${API_KEY_ENV} was added; the next session boundary will use it`,
-              "",
-              { reason, ran: num(p, "ran"), date: rowDate(sweep), answered: true },
-            )
-          : finding(
-              "sweep",
-              "amber",
-              "Sweep",
-              detail,
-              // EVERY FIX A COMMAND (2026-09-23, from the 0.2.0 trial) — and
-              // ONE line per command (C2): opted in with no key, the `Crash
-              // write-up` line carries the command, so this one points at it.
-              reason === "no-credential"
-                ? "Opted into the API sweep with no key: the Crash write-up line says what to run."
-                : "The sweep stood down; the reason names why.",
-              {
-                reason,
-                ran: num(p, "ran"),
-                date: rowDate(sweep),
-              },
-            ),
+          : finding("sweep", "amber", "Sweep", detail, "The sweep stood down; the reason names why.", {
+              reason,
+              ran: num(p, "ran"),
+              date: rowDate(sweep),
+            }),
     );
   }
 
@@ -1620,7 +1381,7 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     out.push(unread("backfill", "Backfill", EMBED_BACKFILL_EVENT));
   } else if (newest === undefined) {
     out.push(
-      absent("backfill", "Backfill", "no adapter.embed.backfill row — nothing has been embedded here", "Read the Embedder and Credentials lines."),
+      absent("backfill", "Backfill", "no adapter.embed.backfill row — nothing has been embedded here", "Read the Recall by meaning line."),
     );
   } else {
     const p = payloadOf(newest);
@@ -2222,9 +1983,7 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
         "red",
         "Spawn",
         `the background worker has been refused ${worst[1]} times in a row (${worst[0]})${rowClause === "" ? "" : ` — ${rowClause}`}`,
-        worst[0] === "NO_CREDENTIAL"
-          ? `Run: counterparts credentials set ${API_KEY_ENV}`
-          : "Read the newest adapter.spawn.refused row; its reason names the door.",
+        "Read the newest adapter.spawn.refused row; its reason names the door.",
         data,
       ),
     ];
@@ -2473,8 +2232,7 @@ function vectorFindings(input: DoctorInput, store: Store): Finding[] {
     return [finding("vectors", "amber", "Vectors", detail, "counterparts verify --dir <store> --retry-skipped puts the skipped ids back in the rotation.", data)];
   }
   if (unembedded > 0) {
-    const perBoundary = embedderKind(input.config) === "static" ? "1,000" : "64";
-    return [finding("vectors", "amber", "Vectors", detail, `The backfill embeds up to ${perBoundary} per boundary; this number must fall run over run.`, data)];
+    return [finding("vectors", "amber", "Vectors", detail, "The backfill embeds up to 1,000 per boundary; this number must fall run over run.", data)];
   }
   return [finding("vectors", "green", "Vectors", detail, "", data)];
 }
@@ -3182,7 +2940,7 @@ export function summaryLine(t: Record<Lowercase<GradeWord>, number>): string {
  * THE READING. Pure over its input, worst first, and never a write.
  *
  * Groups run cheapest-and-most-diagnostic first, and the budget is checked
- * BETWEEN them: the config, the credentials and the counters are answered before
+ * BETWEEN them: the config and the counters are answered before
  * anything walks the event log, so a reading that runs out of time still carries
  * I32's own signature.
  */
@@ -3190,30 +2948,20 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   const now = input.now ?? ((): number => Date.now());
   const deadline = input.budgetMs === undefined ? null : now() + input.budgetMs;
   const unread = input.configReason === "not-read";
-  // TWO BOUNDED READS, before anything else touches the store: whether a key
-  // has ever worked HERE is what decides red from amber — and now `OFF` from
-  // amber — on the lines a new user reads first (finding 1, finding #24).
-  // Cheap enough for the session-start budget: one indexed row, plus a window
-  // of backfill rows.
-  //
-  // NOT WHEN NO CONFIGURATION WAS READ: the credentials file is named by the
-  // configuration, so there is nothing to report on and the Config line above
-  // has already said so.
-  const history = unread ? { interpreted: false, embedded: false } : keyHistory(input.store);
+  // ONE BOUNDED READ, before anything else touches the store: whether this
+  // store has ever embedded decides `OFF` from amber on the Recall line
+  // (finding 1, finding #24). Not when no configuration was read: the Config
+  // line above has already said so.
+  const history = unread ? { embedded: false } : keyHistory(input.store);
   // THE EMBEDDER THE HOOKS WILL ACTUALLY RUN (config.ts#resolveEmbedder): an
-  // absent block is the local table unless the credentials FILE holds a Voyage
-  // key. Resolved HERE, from this reading's own inputs, so the lines agree with
+  // absent block is the local table. Resolved HERE, so the lines agree with
   // the hooks whether or not the caller already applied the default — and not
   // at all when no configuration was read.
-  const voyageKeySaved = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(EMBED_KEY_ENV);
-  const embedderSource = unread ? "explicit" : resolveEmbedder(input.config, voyageKeySaved).source;
-  if (!unread) input = { ...input, config: withEmbedderDefault(input.config, voyageKeySaved) };
+  const embedderSource = unread ? "explicit" : resolveEmbedder(input.config).source;
+  if (!unread) input = { ...input, config: withEmbedderDefault(input.config) };
   const out: Finding[] = [
     ...configFindings(input),
-    // THE TWO OPTIONAL FEATURES, in the order the screen reads them: recall by
-    // meaning first, because it is the one a person is most likely to want.
     ...(unread ? [] : embedderFindings(input, history, embedderSource)),
-    ...(unread ? [] : credentialFindings(input, history)),
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
@@ -3288,10 +3036,9 @@ export const WRITE_UP_WAIT_DAYS = 3;
  * CRASH WRITE-UP (roadmap C2, owner 2026-09-23) — who writes up a session that
  * ended before it was written up, and how many are waiting.
  *
- * `next session` (green) is the keyless default: the next session that starts
- * in that project is handed the words. `on (API)` is the opt-in sweep, and it
- * needs the key the credentials FILE holds (the rule every line here keeps: a
- * hook inherits no shell). The count is B3's (`remember/owes.ts`, through
+ * `next session` (green): the next session that starts in that project is
+ * handed the words. It is the only route since 2026-09-24, when the opt-in
+ * API sweep was removed with its key. The count is B3's (`remember/owes.ts`, through
  * `sessions.ts#awaitingWriteUp`), over every project in the store, minus what
  * the registry holds running; AMBER only when one has waited past
  * `WRITE_UP_WAIT_DAYS` — a project never reopened is never written up, and this
@@ -3299,10 +3046,7 @@ export const WRITE_UP_WAIT_DAYS = 3;
  * is what the wait is for.
  */
 function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
-  const mode = crashWriteUpMode(input.config);
-  const keyNow = [...input.credentials.loaded, ...input.credentials.skippedPresent].includes(API_KEY_ENV);
-  const api = mode === "api" && keyNow;
-  const who = api ? "on (API)" : "next session";
+  const who = "next session";
   const now = store.now();
   let waiting: number | null = null;
   let stale = 0;
@@ -3322,9 +3066,8 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
         soloBytes: SELF_TUNABLES.SOLO_ASK_BYTES,
       },
     });
-    // The same eligibility the pointer uses — so a crashed session the API
-    // sweep will still read is not counted as waiting on a next session (m4).
-    const owed = awaitingWriteUp(plan, store.dir, now, { sweep: api ? spans : null });
+    // The same eligibility the pointer uses.
+    const owed = awaitingWriteUp(plan, store.dir, now);
     waiting = owed.length;
     stale = owed.filter((h) => now - h.clockFrom >= WRITE_UP_WAIT_DAYS * 86_400_000).length;
     const progress = readWriteUpProgress(store);
@@ -3357,37 +3100,12 @@ function crashWriteUpFindings(input: DoctorInput, store: Store): Finding[] {
           (stale === 0 ? "" : `, ${String(stale)} older than ${String(WRITE_UP_WAIT_DAYS)} days`);
   const pointer = readWriteUpPointer(store);
   const data = {
-    mode,
-    api,
+    mode: "next-session",
     waiting,
     stale,
     pointer: pointer?.outcome ?? null,
     pointerDate: pointer?.date ?? null,
   };
-  if (input.config.crashWriteUpIgnored !== undefined) {
-    return [
-      finding(
-        "crash-write-up",
-        "amber",
-        "Crash write-up",
-        `${who} — ${input.config.crashWriteUpIgnored}${count}`,
-        `Set "crashWriteUp" in ${tilde(input.configPath)} to "api" or "next-session", or remove it.`,
-        data,
-      ),
-    ];
-  }
-  if (mode === "api" && !keyNow) {
-    return [
-      finding(
-        "crash-write-up",
-        "amber",
-        "Crash write-up",
-        `next session — "crashWriteUp": "api" is set, and ${API_KEY_ENV} is not in the credentials file${count}`,
-        `Run: counterparts credentials set ${API_KEY_ENV}`,
-        data,
-      ),
-    ];
-  }
   // THE POINTER IS NOT GETTING OUT (PR #192 review, MAJOR 1 and m4): opening a
   // session there would only defer again, so the advice says why and by how much.
   if (pointer !== null && pointer.outcome === "deferred" && (waiting ?? 0) > 0) {

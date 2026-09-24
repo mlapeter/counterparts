@@ -1336,37 +1336,16 @@ function openAndAnswered(dataDir: string, h: HeldSession): boolean {
 }
 
 /**
- * IS THIS CRASHED SESSION THE API SWEEP'S — with `crashWriteUp: "api"` — a
- * session with no normal end whose words are still where the sweep will read
- * them: the live buffer, or a claim in flight. Once the only words left are in
- * QUARANTINE (the sweep gave up on them after its retry bound) it is not the
- * sweep's any more, and the next session is offered it (MAJOR 5).
- */
-export function sweepOwns(spans: SpanBuffer, h: HeldSession): boolean {
-  if (h.facts.endedNormally) return false;
-  return h.scopes.some(
-    (scope) =>
-      spans.spans(scope).some((x) => x.session === h.session) ||
-      spans.claimedSpans(scope).some((x) => x.session === h.session && x.kind !== "assistant"),
-  );
-}
-
-/**
  * THE SCOPE-FREE HALF OF "WAITING FOR A WRITE-UP", one definition for the
  * pointer, the door and doctor's count: B3 says it owes; the registry does not
- * hold it running; it is not open-and-answered; and, with the API sweep on, it
- * is not the sweep's.
+ * hold it running; and it is not open-and-answered. (Until 2026-09-24 a fourth
+ * clause left a crashed session to the opt-in API sweep; that sweep was removed
+ * with its key.)
  */
-export function waitingForWriteUp(
-  h: HeldSession,
-  dataDir: string,
-  now: number,
-  opts: { sweep?: SpanBuffer | null } = {},
-): boolean {
+export function waitingForWriteUp(h: HeldSession, dataDir: string, now: number): boolean {
   if (!h.owes) return false;
   if (runningNow(dataDir, h.session, now)) return false;
   if (openAndAnswered(dataDir, h)) return false;
-  if (opts.sweep !== undefined && opts.sweep !== null && sweepOwns(opts.sweep, h)) return false;
   return true;
 }
 
@@ -1432,17 +1411,10 @@ export function writeUpStanding(
 /**
  * EVERY SESSION, IN ANY PROJECT, WAITING FOR A WRITE-UP — `waitingForWriteUp`
  * over the plan. Doctor's count: a project never reopened is never written up,
- * and this is where that shows. `sweep` (the buffer) when the API sweep is on,
- * so a crashed session the sweep will read is not counted as waiting on a
- * next session (m4).
+ * and this is where that shows.
  */
-export function awaitingWriteUp(
-  plan: readonly HeldSession[],
-  dataDir: string,
-  now: number,
-  opts: { sweep?: SpanBuffer | null } = {},
-): HeldSession[] {
-  return plan.filter((h) => waitingForWriteUp(h, dataDir, now, opts));
+export function awaitingWriteUp(plan: readonly HeldSession[], dataDir: string, now: number): HeldSession[] {
+  return plan.filter((h) => waitingForWriteUp(h, dataDir, now));
 }
 
 /**
@@ -1453,11 +1425,6 @@ export function awaitingWriteUp(
  * pointed at comes before one that was, and among equals the one that ended
  * longest ago goes first. Without the first key, one session nobody writes up
  * would stand in front of every other session in its project for ever.
- *
- * `sweep` (the buffer) when the API sweep is on (`crashWriteUp: "api"`): a
- * crashed session whose words the sweep will still read is the sweep's, so the
- * two never write the same session twice — and one whose only words left are
- * in quarantine is offered here (MAJOR 5).
  */
 export function owedWriteUps(
   plan: readonly HeldSession[],
@@ -1466,14 +1433,13 @@ export function owedWriteUps(
   now: number,
   opts: {
     exclude?: string;
-    sweep?: SpanBuffer | null;
     progress?: Readonly<Record<string, WriteUpProgress>>;
   } = {},
 ): { held: HeldSession; here: string }[] {
   const out: { held: HeldSession; here: string }[] = [];
   for (const h of plan) {
     if (h.session === opts.exclude) continue;
-    if (!waitingForWriteUp(h, dataDir, now, { sweep: opts.sweep ?? null })) continue;
+    if (!waitingForWriteUp(h, dataDir, now)) continue;
     const standing = writeUpStanding(plan, dataDir, h.session, scope, now, {
       ...(opts.progress === undefined ? {} : { progress: opts.progress }),
     });

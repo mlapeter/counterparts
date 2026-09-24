@@ -45,9 +45,7 @@ import {
   readScopes,
   scopesPath,
 } from "../../scopes.js";
-import { EMBED_KEY_ENV, loadConfig, withEmbedderDefault } from "../../claude-code/config.js";
-import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
-import type { CredentialLoad } from "../../claude-code/credentials.js";
+import { loadConfig, withEmbedderDefault } from "../../claude-code/config.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { hostScope, openServer } from "../index.js";
@@ -63,8 +61,8 @@ import {
 
 /**
  * The same file `bin/hook.ts` and `bin/runner.ts` read by default. One
- * configuration for this host, four entry points — never four ideas of where the
- * keys live, and since 2026-09-05 never four ideas of how to move it either:
+ * configuration for this host, four entry points — never four ideas of which
+ * file answers, and since 2026-09-05 never four ideas of how to move it either:
  * `--config <absolute path>`, else `COUNTERPARTS_CONFIG`, else this
  * (`adapters/config-path.ts`).
  *
@@ -162,24 +160,14 @@ export function launchOptions(
 }
 
 /**
- * The embedder this server may use, and the credential load that made it
- * possible — read HERE, at the process entry point, for the same reason
- * `bin/hook.ts` reads it there: the host hands MCP servers a process
- * environment that carries neither key (measured, day 0 of the parallel run),
- * so a server that only consults `process.env` embeds nothing, ever.
+ * The embedder this server may use, decided by the configuration this process
+ * read — the local table, unless the configuration switched it off.
  *
  * It is the ONE thing this entry point adds to the server's powers, and it is
- * used for exactly one call: embedding a deliberate question. `env` is injected
- * so a test proves the whole path over a fresh object rather than the suite's
- * own process, and no value is ever returned, logged or emitted — only names.
+ * used for exactly one call: embedding a deliberate question.
  */
-export function questionEmbedder(
-  path = CONFIG_PATH,
-  env: NodeJS.ProcessEnv = process.env,
-): {
+export function questionEmbedder(path = CONFIG_PATH): {
   embedder: LiveEmbedder | null;
-  credentials: CredentialLoad;
-  credentialsFile?: string;
   reason: string;
 } {
   let raw: unknown;
@@ -187,25 +175,18 @@ export function questionEmbedder(
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
     // Absent is ordinary; unreadable resolves to OBSERVER inside `loadConfig`,
-    // and an observer opens no socket at all.
+    // and an observer opens no embedder at all.
     raw = undefined;
   }
   const load = loadConfig(raw);
-  const credentials = loadCredentials(load.config.credentialsFile, env);
   // THE EMBEDDER DEFAULT (config.ts#resolveEmbedder): the rule the hook and the
   // worker apply, so the server embeds a question with the table they use.
-  const config = withEmbedderDefault(
-    load.config,
-    [...credentials.loaded, ...credentials.skippedPresent].includes(EMBED_KEY_ENV),
-  );
+  const config = withEmbedderDefault(load.config);
   return {
     reason: load.reason,
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is
-    // the gate, an observer gets none, and a missing key refuses by name on the
-    // first call rather than being re-checked here.
+    // the gate and an observer gets none.
     embedder: openEmbedder(config),
-    credentials,
-    ...(config.credentialsFile === undefined ? {} : { credentialsFile: config.credentialsFile }),
   };
 }
 
@@ -215,9 +196,9 @@ export function questionEmbedder(
  * without a process on stdin.
  *
  * **The store is NOT decided here.** It still comes from `--dir`, else
- * `COUNTERPARTS_DATA_DIR`, else the default — this file answers "whose keys and
- * whose embedder knob", which is the other half of the trap QUICKSTART §11.3
- * names, not the same half.
+ * `COUNTERPARTS_DATA_DIR`, else the default — this file answers "whose embedder
+ * knob", which is the other half of the trap QUICKSTART §11.3 names, not the
+ * same half.
  */
 export function serverConfigChoice(
   argv: readonly string[] = process.argv.slice(2),
@@ -236,18 +217,18 @@ async function main(): Promise<void> {
   const choice = serverConfigChoice();
   // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
   // armed, an UNNAMED configuration refuses the launch too — the default one is
-  // somebody's keys and names somebody's store. Never armed on the live host.
+  // somebody's configuration and names somebody's store. Never armed on the live host.
   const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     // A server told to read a configuration it cannot resolve — relative, or
     // absolute and not there — does not fall back to the default one: on a
-    // machine with an install, that default is somebody else's keys. It refuses
+    // machine with an install, that default is somebody else's. It refuses
     // to start, loudly, on stderr.
     process.stderr.write(`${refusal}\n`);
     process.exitCode = 1;
     return;
   }
-  const { embedder, credentials, credentialsFile, reason } = questionEmbedder(choice.path);
+  const { embedder, reason } = questionEmbedder(choice.path);
   const unreadable = namedUnreadableRefusal(choice, reason);
   if (unreadable !== null) {
     process.stderr.write(`${unreadable}\n`);
@@ -259,9 +240,6 @@ async function main(): Promise<void> {
   // protocol, because a server reading a configuration nobody named is exactly
   // how a scratch run came to embed on the owner's key (2026-09-04).
   process.stderr.write(`[counterparts] config: ${configLine(choice)}\n`);
-  const warning = permissionWarning(credentialsFile, credentials);
-  // stderr, never stdout: stdout is the JSON-RPC wire. Warned, never refused.
-  if (warning !== null) process.stderr.write(`${warning}\n`);
   // WHICH DIRECTORY, AND WHAT THE HOST WAS TOLD ABOUT IT. The registry sits
   // beside the configuration this launch resolved, so `-e COUNTERPARTS_CONFIG=…`
   // moves both together and a scratch install's scopes are its own.

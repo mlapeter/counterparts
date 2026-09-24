@@ -1,7 +1,8 @@
 /**
  * The static tier, wired: `embedder.kind` in the strict config reader, the
- * static table behind the same `LiveEmbedder` seat the paid client fills, and
- * the two worker jobs (`vectors.ts`) that must not ask a table for a Voyage key.
+ * static table behind the `LiveEmbedder` seat, and the two worker jobs
+ * (`vectors.ts`). Since 2026-09-24 it is the only embedder there is; the paid
+ * shapes below are local fakes that exercise the store's identity rules.
  *
  * Hermetic: a synthetic eight-row table in a fresh temp dir, a fresh temp store
  * per test, no network, no environment read (every resolution is handed its
@@ -13,9 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
-import { EMBEDDER_KINDS, embedderKind, loadConfig } from "../src/adapters/claude-code/config.js";
+import { EMBEDDER_KINDS, loadConfig } from "../src/adapters/claude-code/config.js";
 import { STATIC_BACKFILL_LIMIT, backfillVectors, laggedSemantic } from "../src/adapters/claude-code/vectors.js";
-import { createEmbedder, createStaticEmbedder, openEmbedder, openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
+import { createStaticEmbedder, openEmbedder, openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { loadStaticModel } from "../src/core/embed/static.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { EMBEDDER_META_KEY, EMBED_SKIP_AFTER, Store, paths } from "../src/core/store/index.js";
@@ -62,21 +63,19 @@ afterEach(() => {
 });
 
 describe("embedder.kind — the strict reader", () => {
-  test("static and voyage are read; absent kind is today's behaviour (voyage)", () => {
-    expect(EMBEDDER_KINDS).toEqual(["static", "voyage"]);
+  test("static is the one kind; voyage (removed 2026-09-24) reads as static; absent kind is static", () => {
+    expect(EMBEDDER_KINDS).toEqual(["static"]);
     const s = loadConfig({ embedder: { enabled: true, kind: "static" } });
     expect(s.ok).toBe(true);
     expect(s.config.embedder).toEqual({ enabled: true, kind: "static" });
-    expect(embedderKind(s.config)).toBe("static");
     const v = loadConfig({ embedder: { enabled: true, kind: "voyage" } });
-    expect(embedderKind(v.config)).toBe("voyage");
+    expect(v.ok).toBe(true);
+    expect(v.config.embedder).toEqual({ enabled: true, kind: "static" });
     const old = loadConfig({ embedder: { enabled: true } });
     expect(old.config.embedder).toEqual({ enabled: true });
-    expect(embedderKind(old.config)).toBe("voyage");
-    expect(embedderKind(loadConfig({}).config)).toBe("voyage");
   });
 
-  test("a kind that is present and not one of the two stands the configuration down", () => {
+  test("a kind that is present and not one this build knows stands the configuration down", () => {
     for (const kind of ["potion", "Static", "", 3, null, true]) {
       const got = loadConfig({ dataDir: "/tmp/x", embedder: { enabled: true, kind } });
       expect(got.ok).toBe(false);
@@ -87,11 +86,10 @@ describe("embedder.kind — the strict reader", () => {
 });
 
 describe("openEmbedder — which embedder the knob switches on", () => {
-  test("kind static: the table, in the paid seat's shape, needing no key", () => {
+  test("kind static: the table", () => {
     const e = openEmbedder({ embedder: { enabled: true, kind: "static" } }, { weightsDir: weights });
     expect(e).not.toBeNull();
     expect(e?.kind).toBe("static");
-    expect(e?.needsCredential).toBe(false);
     expect(e?.model).toMatch(/^static-[0-9a-f]{12}$/); // from the bytes; the package label is display only
     expect(e?.weights).toBe("option");
     expect(e?.embed.identity).toEqual({ model: e?.model ?? "", dim: 4, rebuild: "inline" });
@@ -99,14 +97,10 @@ describe("openEmbedder — which embedder the knob switches on", () => {
     expect(e?.embed("the otter survey")?.length).toBe(4);
   });
 
-  test("kind absent: the paid seat, unchanged, now carrying its identity", () => {
-    const e = openEmbedder({ embedder: { enabled: true } });
-    expect(e?.kind).toBe("voyage");
-    expect(e?.needsCredential).toBe(true);
-    // Its KNOWN width (review MINOR 1): adoption of untagged rows needs it.
-    expect(e?.embed.identity).toEqual({ model: "voyage-3-large", dim: 1024, rebuild: "external" });
-    // Cache only: a miss is null, never a socket.
-    expect(e?.embed("anything")).toBeNull();
+  test("kind absent: the table too — there is no other embedder", () => {
+    const e = openEmbedder({ embedder: { enabled: true } }, { weightsDir: weights });
+    expect(e?.kind).toBe("static");
+    expect(e?.embed.identity?.rebuild).toBe("inline");
   });
 
   test("disabled or observer: no embedder of either kind", () => {
@@ -164,8 +158,8 @@ describe("in-process embedding: a memory has its vector in the process that wrot
   });
 });
 
-describe("vectors.ts — the worker's two jobs never ask a table for a Voyage key", () => {
-  test("backfill: rows written by a process with no embedder are filled, with no credential", async () => {
+describe("vectors.ts — the worker's two jobs, on the table", () => {
+  test("backfill: rows written by a process with no embedder are filled", async () => {
     // A process with no embedder (the MCP server's `note`, today) writes two memories.
     const bare = Store.open({ dir });
     bare.put({ type: "memory", kind: "fact", body: "The ward rota changes every shift." });
@@ -180,7 +174,7 @@ describe("vectors.ts — the worker's two jobs never ask a table for a Voyage ke
     const bare2 = Store.open({ dir });
     bare2.put({ type: "memory", kind: "fact", body: "The survey resumes after the flood." });
     bare2.close();
-    const report = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    const report = await backfillVectors({ counterpart: c, embedder: e });
     expect(report.reason).toBe("ran");
     expect(report.embedded).toBe(1);
     expect(report.remaining).toBe(0);
@@ -190,7 +184,7 @@ describe("vectors.ts — the worker's two jobs never ask a table for a Voyage ke
     expect(STATIC_BACKFILL_LIMIT).toBeGreaterThan(64);
   });
 
-  test("the lagged cue computes with no credential for the table — and still refuses for the paid seat", async () => {
+  test("the lagged cue computes on the table", async () => {
     const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
     const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
@@ -203,23 +197,18 @@ describe("vectors.ts — the worker's two jobs never ask a table for a Voyage ke
         { role: "assistant", text: "Eleven." },
       ],
     });
-    const lag = await laggedSemantic({ counterpart: c, sessionId: "s1", scope: "proj", embedder: e, hasCredential: false });
+    const lag = await laggedSemantic({ counterpart: c, sessionId: "s1", scope: "proj", embedder: e });
     expect(lag.reason).toBe("ok");
     expect(lag.hits).toBeGreaterThan(0);
-    const paid = createEmbedder({ client: async () => ({ model: "m", vectors: [], requested: 0, returned: 0, chunks: 0, failures: [] }) });
-    const refused = await laggedSemantic({ counterpart: c, sessionId: "s1", scope: "proj", embedder: paid, hasCredential: false });
-    expect(refused.reason).toBe("no-credentials");
   });
 });
 
 describe("a withdrawn vector channel costs no call (held / cache-ahead)", () => {
-  /** A paid-shaped embedder whose every network half throws if touched. */
+  /** A paid-shaped embedder whose every live half throws if touched. */
   function tripwire(model: string): LiveEmbedder {
     const identity = { model, dim: null, rebuild: "external" as const };
     return {
       model,
-      kind: "voyage",
-      needsCredential: true,
       embed: Object.assign((): number[] | null => null, { identity }),
       vector: async (): Promise<number[] | null> => {
         throw new Error("PAID CALL: vector() on a withdrawn channel");
@@ -249,7 +238,7 @@ describe("a withdrawn vector channel costs no call (held / cache-ahead)", () => 
 
   test("backfill: no warm(), reason vectors-withdrawn, the verdict named in codes", async () => {
     const c = heldCounterpart();
-    const report = await backfillVectors({ counterpart: c, embedder: tripwire("paid-b"), hasCredential: true });
+    const report = await backfillVectors({ counterpart: c, embedder: tripwire("paid-b") });
     expect(report.reason).toBe("vectors-withdrawn");
     expect(report.codes).toBe("held");
     expect(report.attempted).toBe(0);
@@ -271,7 +260,6 @@ describe("a withdrawn vector channel costs no call (held / cache-ahead)", () => 
       sessionId: "s1",
       scope: "proj",
       embedder: tripwire("paid-b"),
-      hasCredential: true,
       onEvent: (name, data) => events.push({ name, data }),
     });
     expect(lag.reason).toBe("embed-failed");
@@ -290,11 +278,11 @@ describe("a static table's null is the item's, so the backfill retires it", () =
     // The at-open refill could not embed it either — it has no token the table knows.
     expect(c.store.missingVectors(10)).toEqual([unknown]);
     for (let run = 0; run < EMBED_SKIP_AFTER; run++) {
-      await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+      await backfillVectors({ counterpart: c, embedder: e });
     }
     expect(c.store.skippedVectorIds()).toEqual([unknown]);
     expect(c.store.unembeddedCount()).toBe(0);
-    const after = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    const after = await backfillVectors({ counterpart: c, embedder: e });
     expect(after.reason).toBe("nothing-missing");
     expect(after.skipped).toBe(1);
   });
@@ -307,7 +295,7 @@ describe("an embedder that was asked for and is not here reaches a DURABLE row (
     opened.push(c);
     c.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     expect(c.store.embedderVerdict).toEqual({ kind: "none" }); // no identity, nothing reconciled
-    const report = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    const report = await backfillVectors({ counterpart: c, embedder: e });
     expect(report).toMatchObject({ reason: "embedder-unavailable", codes: "MISSING_FILE", kind: "static", attempted: 0 });
     const row = c.store.eventLog({ name: "adapter.embed.backfill" }).at(-1);
     expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ reason: "embedder-unavailable", codes: "MISSING_FILE" });
@@ -317,7 +305,7 @@ describe("an embedder that was asked for and is not here reaches a DURABLE row (
     const e = openStaticEmbedder({ weightsDir: weights });
     const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
-    const report = await backfillVectors({ counterpart: c, embedder: e, hasCredential: false });
+    const report = await backfillVectors({ counterpart: c, embedder: e });
     expect(report).toMatchObject({ kind: "static", weights: "option", model: e.model });
   });
 
@@ -332,7 +320,6 @@ describe("an embedder that was asked for and is not here reaches a DURABLE row (
       sessionId: "s1",
       scope: "proj",
       embedder: e,
-      hasCredential: false,
       onEvent: (name, data) => events.push({ name, data }),
     });
     expect(lag.reason).toBe("embed-failed");
@@ -397,9 +384,14 @@ describe("MAJOR A of the re-review, through the real chain: the session-long MCP
     opened.push({ close: () => server.counterpart.close() });
     server.counterpart.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     expect(server.counterpart.store.embedderVerdict.kind).toBe("tagged");
-    // "Add a key, flip kind": a hook opens with the real paid seat.
-    const paid = openEmbedder({ embedder: { enabled: true } });
-    const hook = Store.open({ dir, embed: paid?.embed });
+    // A hook opens with a paid-shaped seat (the shape the removed Voyage seat
+    // had: a cache that misses, a known width, rebuilt externally).
+    const paid = {
+      embed: Object.assign((): number[] | null => null, {
+        identity: { model: "voyage-3-large", dim: 1024, rebuild: "external" as const },
+      }),
+    };
+    const hook = Store.open({ dir, embed: paid.embed });
     expect(hook.embedderVerdict).toMatchObject({ kind: "reset", to: "voyage-3-large" });
     hook.close();
     const result = await server.call("note", { text: "The survey resumes after the flood on the river." });
@@ -412,7 +404,7 @@ describe("MAJOR A of the re-review, through the real chain: the session-long MCP
     expect(widths).toEqual([]); // nothing 4-wide filed under the paid tag
     expect(tag).toBe("voyage-3-large");
     // The note waits for the paid seat's backfill, which will see it.
-    const owner = Store.open({ dir, embed: paid?.embed });
+    const owner = Store.open({ dir, embed: paid.embed });
     expect(owner.missingVectors(10)).toContain(id);
     owner.close();
     // And the stale server's question ranks nothing (identity-changed), by name.

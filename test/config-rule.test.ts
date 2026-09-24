@@ -591,7 +591,7 @@ describe("install", () => {
     expect(existsSync(join(home, ".counterparts", "store", "counterparts.sqlite"))).toBe(true);
   });
 
-  test("--config moves the config, the credentials and the default store, and is PRINTED", async () => {
+  test("--config moves the config and the default store, and is PRINTED", async () => {
     const home = join(work, "home");
     const configPath = join(work, "scratch", "claude-code.json");
     const c = consoleWith();
@@ -601,11 +601,10 @@ describe("install", () => {
       home,
     });
     expect(code).toBe(0);
-    // Written where it was told, with the credentials beside it and the store
-    // beneath it — never under the home directory, which on a real machine is
-    // the live install.
+    // Written where it was told, with the store beneath it — never under the
+    // home directory, which on a real machine is the live install.
     expect(existsSync(configPath)).toBe(true);
-    expect(existsSync(join(work, "scratch", "credentials.env"))).toBe(true);
+    expect(existsSync(join(work, "scratch", "credentials.env"))).toBe(false);
     expect(existsSync(join(work, "scratch", "store", "counterparts.sqlite"))).toBe(true);
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
     expect(JSON.parse(readFileSync(configPath, "utf8"))["dataDir"]).toBe(
@@ -620,9 +619,7 @@ describe("install", () => {
     expect(printed).toContain(`${CONFIG_FLAG} \\"${configPath}\\"`);
     expect(printed).toContain(`-e ${CONFIG_ENV}="${configPath}"`);
     expect(printed).toContain("because it is NOT at");
-    expect(installLayout(undefined, {}, home, configPath).credentials).toBe(
-      join(work, "scratch", "credentials.env"),
-    );
+    expect(installLayout(undefined, {}, home, configPath).config).toBe(configPath);
   });
 });
 

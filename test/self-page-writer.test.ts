@@ -1009,7 +1009,7 @@ describe("the mode switch", () => {
     expect(loaded.config.pageWriter?.ignored?.length ?? 0).toBeGreaterThan(0);
   });
 
-  test("`pageWriter.command` in a configuration is IGNORED — the writer always starts claude — and named", () => {
+  test("`pageWriter.command` in a configuration is IGNORED — the writer always starts claude — and named as retired", () => {
     // Removed 2026-09-24: a configuration that could name the program the
     // worker starts was "runs a command named by config". An old file still
     // carrying the key is read, not refused, and the plan starts `claude`.
@@ -1018,7 +1018,8 @@ describe("the mode switch", () => {
       const label = JSON.stringify(command);
       expect(loaded.ok, label).toBe(true);
       expect(pageWriterMode(loaded.config), label).toBe("host");
-      expect((loaded.config.pageWriter?.ignored ?? []).join(" "), label).toContain('"pageWriter.command" is no longer used');
+      expect(loaded.config.pageWriter?.ignored ?? [], label).toEqual([]);
+      expect((loaded.config.retired ?? []).join(" "), label).toContain('"pageWriter.command" is no longer used');
       const plan = planPageWriter({ config: loaded.config, about: "2026-09-23", prompt: "x" });
       expect(plan.command, label).toBe(DEFAULT_HOST_COMMAND);
     }

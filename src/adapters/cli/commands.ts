@@ -135,26 +135,15 @@ import type { FiredReport, FiredState } from "../fired.js";
 // says how many copies you have, and a row only says what a run once wrote.
 import { readSnapshotsDir, resolveSnapshotsDir } from "../snapshots.js";
 // THE HOST ADAPTER'S OWN READINGS, imported rather than re-derived — the same
-// direction `install.ts` already takes (`../claude-code/config.js`). `doctor`
-// and `credentials` are the console's face on the file and the store that
-// adapter owns, and a console with its own idea of "which names are credentials"
-// or "what counts as red" is exactly the drift I32 ran inside of.
-import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js";
-import type { CredentialLoad } from "../claude-code/credentials.js";
+// direction `install.ts` already takes (`../claude-code/config.js`). `doctor` is
+// the console's face on the file and the store that adapter owns, and a console
+// with its own idea of "what counts as red" is exactly the drift I32 ran inside of.
 import {
   SPAWN_REFUSAL_PREFIX,
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import {
-  API_KEY_ENV,
-  EMBED_KEY_ENV,
-  embedderKind,
-  loadConfig,
-  resolveEmbedder,
-  withEmbedderDefault,
-} from "../claude-code/config.js";
-import type { EmbedderSource } from "../claude-code/config.js";
+import { loadConfig, withEmbedderDefault } from "../claude-code/config.js";
 // The local table's locator, for install's one check that the weights the new
 // configuration asks for are where the hooks will look.
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
@@ -174,15 +163,12 @@ import { exportStore } from "./export.js";
 import {
   BIN,
   CONFIG_FILE,
-  CREDENTIALS_FILE,
   DEFAULT_STORE_DIR,
   HOST_EVENTS,
   MCP_SERVER_NAME,
   bringParkedBack,
   budgetRefusal,
   configObject,
-  credentialsHeld,
-  credentialsTemplate,
   resolveEmbedderBlock,
   hookCommand,
   hostConfigBase,
@@ -196,11 +182,6 @@ import {
   writeOnce,
 } from "./install.js";
 import type { InstallLayout, ParkedSighting } from "./install.js";
-// The keys module: `writeCredential` — the one function in this package that
-// puts a secret on disk — and the one upgrade a key offers (`credentials set
-// ANTHROPIC_API_KEY`). It imports only a TYPE from here, the way `ui.ts` does,
-// so this import is not half of a cycle.
-import { offerCrashWriteUp, pinLocalTable, voyageKeyLine, writeCredential } from "./keys.js";
 // `removalRefusal` is step 1 of a plan on its own — the console's picker asks it
 // of every search hit before it offers one, and of every pick before it asks the
 // one question. It is an extraction from `planRemoval`, never a second rule.
@@ -209,10 +190,9 @@ import type { RemovalPlan } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
-// The console's shared manners (2026-09-21). `credentials set` is the first
-// command to use them, and it uses exactly three: is there a person here, read
-// a value without echoing it, and say one marked line back.
-import { ask, askHidden, confirm, isInteractive, isPromptAborted, typed, ui } from "./ui.js";
+// The console's shared manners (2026-09-21): is there a person here, ask them,
+// and say one marked line back.
+import { ask, confirm, isInteractive, isPromptAborted, typed, ui } from "./ui.js";
 import type { Ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
@@ -300,10 +280,9 @@ export const COMMANDS = [
   // Constitution 11's last sentence as a command: which mechanisms fired this
   // week, which have gone quiet, and which record nothing at all. Read-only.
   "fired",
-  // I32's two: the reading that says whether the background half is alive, and
-  // the one-command repair for the file whose emptiness stopped it.
+  // I32's reading: whether the background half is alive. (Its partner, the
+  // `credentials` command, went with the API keys on 2026-09-24.)
   "doctor",
-  "credentials",
   "scope",
   // The written page the wake leads with: read it, write it whole, and read
   // back what it used to say (2026-09-18, S1).
@@ -367,14 +346,7 @@ export const OWNER_OPS: readonly Command[] = [
   // never gets a plan from a console that could not have carried it out.
   "repair-merged-beliefs",
   "rebrief",
-  // `credentials` WRITES a key into the file every entry point reads, and an
-  // instrument does not hand the host it is measuring a credential. `doctor`
-  // stays off this list beside `status` and `recall`: it is a read.
-  //
-  // The whole command stands down, `credentials list` included — the stance
-  // gate is per command, and `list` paying for `set`'s rule is the cheap
-  // direction: the names are in the file, and `doctor` prints them anyway.
-  "credentials",
+  // `doctor` stays off this list beside `status` and `recall`: it is a read.
   // `self-page` is NOT here either, and for a reason of its own: the command
   // both READS and writes, and reading the page must work from an instrument —
   // "what does my page actually say" is the first question anyone asks when the
@@ -407,7 +379,7 @@ export interface Io {
   prompt?: (question: string) => Promise<string>;
   /**
    * The same read WITHOUT ECHO, for a value that must not reach a scrollback
-   * buffer (an API key). Optional and additive: every console that has only
+   * buffer (a secret). Optional and additive: every console that has only
    * `prompt` behaves exactly as it did, and `ui.ts`'s `askHidden` REFUSES
    * rather than fall back to the echoing reader when this is absent and stdin
    * is a terminal. `ui.ts/hiddenPrompt` builds one over real streams.
@@ -436,8 +408,8 @@ export interface RunOptions {
    */
   home?: string;
   /**
-   * STANDARD INPUT, as a seam — `credentials set` is the one command whose
-   * argument must never be argv, so it reads the value from here.
+   * STANDARD INPUT, as a seam — `self-page --write --stdin` reads the page from
+   * here.
    *
    * `isTty` is the host telling us whether a human is at the keyboard: with no
    * pipe the command REFUSES and names the two ways in, rather than hanging on
@@ -701,10 +673,6 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `fired`, whose `--all` means the same thing — every mechanism, including
   // the quiet ones.
   doctor: ["config", "json", "all"],
-  // `--stdin` and `--from-env` are the only two ways a value gets in. There is
-  // deliberately no `--value`: a flag is argv, argv is shell history, and a
-  // credential in shell history is a credential on disk in plaintext forever.
-  credentials: ["config", "stdin", "from-env"],
   // `--config` because the registry sits BESIDE the configuration, so the flag
   // that says which configuration also says which registry. `--observer` is
   // deliberately NOT declared here: it is a common flag already, and on this
@@ -713,8 +681,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // for it instead of the shared one.
   scope: ["on", "off", "pause", "resume", "list", "note", "force", "config"],
   // There is deliberately no flag that CARRIES the page: a page on the command
-  // line is a page in shell history, and the same argument that keeps a
-  // credential off argv keeps prose that is injected into every session off it.
+  // line is a page in shell history, and prose that is injected into every
+  // session does not belong there.
   "self-page": ["write", "file", "stdin", "reason", "versions", "version", "restore", "clear", "if-version"],
   // `--config` because the store it opens is the one the CONFIGURATION names —
   // that is the whole point of the command over `counterparts-dashboard serve`,
@@ -741,7 +709,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, turns on recall by meaning (a local table — nothing leaves this machine), connects Claude Code (counterparts disconnect undoes that), and offers back any memory a parked uninstall set aside. It asks about no API key: both are optional upgrades, added with counterparts credentials set. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
+    "Cold start: create the store and write claude-code.json under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, turns on recall by meaning (a local table — nothing leaves this machine), connects Claude Code (counterparts disconnect undoes that), and offers back any memory a parked uninstall set aside. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
   connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. Claude Code is the one host it knows today.",
   disconnect:
     "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
@@ -749,7 +717,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Leave: disconnect Claude Code, then say where your memory still is and how to remove the package. It never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   "start-fresh":
-    "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration and the credentials are kept byte for byte.",
+    "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration is kept byte for byte.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   ask: "Ask memory a question. Read-only.",
   recall: "Ask memory a question — the same command as `ask`, under its older name. Read-only.",
@@ -772,9 +740,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   fired:
     "Which mechanisms have actually fired. One line each, silent first: when it last fired, how often in the last 7 days, what it turned away, and — for the ones nothing records — why the store cannot tell. Read-only.",
   doctor:
-    "Is the background half alive? The config, the credentials by name, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
-  credentials:
-    "Put one key in the credentials file the config names, 0600, with the value from stdin or --from-env and never from the command line. 'credentials list' says which names the file holds.",
+    "Is the background half alive? The config, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
   scope:
     "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
   "self-page":
@@ -794,7 +760,6 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   // Three shapes, and the bare one is the door a person uses: an id, the words
   // to find one by, or nothing at all and it asks.
   remove: " [<id>… | <words>]",
-  credentials: " set <NAME> | list",
   scope: " <path|.>",
   // The host is OPTIONAL and there is one of them: `counterparts connect` and
   // `counterparts connect claude-code` are the same command, and any other name
@@ -841,10 +806,8 @@ const FLAG_HELP: Record<string, string> = {
   help: "this page — it opens nothing and writes nothing",
   budget: "the injection ceiling, in bytes",
   name: "the owner's name; it seeds the identity core",
-  // The local table only (roadmap C3): Voyage is frozen, and nothing on this
-  // line can turn it on. A configuration that already names it keeps it.
   embedder:
-    "turn recall by meaning on — the local table that ships with the package, where nothing leaves this machine (a Voyage setup that is already ON keeps Voyage; an OFF one comes back as the local table). It is on by default; this is how to turn it back on after --no-embedder",
+    "turn recall by meaning on — the local table that ships with the package, where nothing leaves this machine. It is on by default; this is how to turn it back on after --no-embedder",
   "no-embedder": "switch recall by meaning off: recall matches on words alone",
   force: "overwrite configuration this command already wrote once",
   kind: "self, person, entity, skill, place or fact",
@@ -903,10 +866,8 @@ const FLAG_HELP: Record<string, string> = {
   // was false of `note` and of `migrate-cache` itself). `migrate-cache` is the
   // one command left with a `--yes`, and `--apply` there does require `--dir`.
   yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which --apply requires",
-  // True of both commands that take it: `credentials` reads the key here,
-  // `self-page --write` reads the page.
+  // `self-page --write` reads the page here.
   stdin: "read it from standard input (the default whenever stdin is not a terminal)",
-  "from-env": "read the value from this environment variable instead of from stdin",
   write: "replace the page with what --file or --stdin gives, keeping every earlier version",
   restore: "put an earlier version back, by its seq — itself a new version, itself undoable",
   clear: "unwrite the page: it is kept as a version and the wake goes back to having none",
@@ -942,7 +903,7 @@ const FLAG_HELP: Record<string, string> = {
  * question added later should not find the flag missing.
  */
 const INSTALL_FLAG_HELP: Record<string, string> = {
-  yes: "kept so a scripted caller need not change, and it answers nothing this command asks: your name, the two optional keys and a memory a parked uninstall set aside are all questions only a person can answer, and moving somebody's data is never something a flag decides",
+  yes: "kept so a scripted caller need not change, and it answers nothing this command asks: your name and a memory a parked uninstall set aside are questions only a person can answer, and moving somebody's data is never something a flag decides",
 };
 
 /**
@@ -1098,7 +1059,6 @@ const VALUED_FLAGS: readonly string[] = [
   "confidence",
   "import-day",
   "sample",
-  "from-env",
   "note",
   "file",
   "version",
@@ -1263,11 +1223,7 @@ export function parse(argv: readonly string[]): Parsed {
       confidence: { type: "string" },
       "import-day": { type: "string" },
       sample: { type: "string" },
-      // `credentials`' two. Declared for the reason every valued flag here is:
-      // an undeclared `--from-env` arrives as the BOOLEAN true, and a command
-      // that read that as "absent" would fall through to stdin and hang.
       stdin: { type: "boolean" },
-      "from-env": { type: "string" },
       // `self-page`'s own three that are not already declared. `--file` and
       // `--version` are strings for the reason every valued flag here is: a
       // trailing `--from` would otherwise arrive as the boolean `true` and be
@@ -1478,10 +1434,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     // file already points.
     command === "start-fresh" ||
     command === "rebrief" ||
-    // `doctor` REPORTS on a host configuration and `credentials` writes the file
-    // one names, so both resolve it by the same rule as the other two.
+    // `doctor` REPORTS on a host configuration, so it resolves it by the same
+    // rule as the other two.
     command === "doctor" ||
-    command === "credentials" ||
     // `scope` writes the registry that sits BESIDE the configuration, so the
     // flag that names one names the other.
     command === "scope";
@@ -1505,7 +1460,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // Which is why the explicit-dir guard has to be applied HERE by hand: the
   // layout builds `~/.counterparts` from `homedir()` and never calls `dataDir()`,
   // so `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` would otherwise leave `install` free
-  // to write the live base — config, credentials, store — from a shell the
+  // to write the live base — config and store — from a shell the
   // guard was armed in. An unnamed configuration is refused; `--config
   // <elsewhere>` moves the whole base and is the way through.
   if (command === "install") {
@@ -1587,27 +1542,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     }
   }
 
-  // `credentials` OPENS NO STORE, so it must not go through `resolveDir` below:
-  // a command that refused for want of a `--dir` it never reads would be a
-  // guard firing on the innocent case, which is the shape people learn to work
-  // around. The explicit-dir rule still applies to it one door over — the
-  // CONFIG it writes beside is the one that names the live store, so an UNNAMED
-  // configuration is refused here exactly as it is for `install`.
-  if (command === "credentials") {
-    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
-    if (implicit !== null) {
-      io.err(implicit);
-      return EXIT.refused;
-    }
-    try {
-      return await credentialsCommand(parsed, io, env, named, opts.stdin);
-    } catch (err) {
-      io.err(`credentials failed: ${describeDirRefusal(err)}`);
-      return EXIT.failed;
-    }
-  }
-
-  // `scope` is decided BEFORE the data dir, like `install` and `credentials`,
+  // `scope` is decided BEFORE the data dir, like `install`,
   // and for a stronger version of the same reason: it never opens a store at
   // all. Resolving one would make a command about the HOST's configuration
   // refuse under `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` for want of a store it does
@@ -1637,7 +1572,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // before the generic `--dir` block.
   //
   // WHICH IS EXACTLY WHY THE EXPLICIT-DIR GUARD APPLIES TO IT HERE, in the same
-  // three lines `install` and `credentials` use. The first round of this PR left
+  // three lines `install` uses. The first round of this PR left
   // this branch out and the reviewer reproduced the consequence on the owner's
   // own machine: `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts doctor`
   // resolved the DEFAULT configuration, read its `dataDir` — the live store —
@@ -1647,8 +1582,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   if (command === "doctor") {
     // `--dir` IS A NAME (2026-09-20, finding 6). The guard exists so nothing
     // nobody named gets opened, and `--dir <store>` names one — so the refusal
-    // was about the CONFIGURATION the reading would have read beside it, whose
-    // `credentialsFile` points at the owner's live keys. `doctorCommand` now
+    // was about the CONFIGURATION the reading would have read beside it — the
+    // owner's live one. `doctorCommand` now
     // declines to read that file at all in this case and grades the store on
     // its own; the Config line says which questions therefore went unasked, and
     // what to type to ask them. On cut-over day this is the difference between
@@ -2570,9 +2505,9 @@ function statusCommand(
 // ── install ─────────────────────────────────────────────────────────────────
 
 /**
- * The cold start. It writes the three things that are OURS — the store, the
- * adapter's configuration beside it, an empty credential file at 0600 — and
- * PRINTS the two that belong to the host.
+ * The cold start. It writes the two things that are OURS — the store and the
+ * adapter's configuration beside it — and PRINTS the two that belong to the
+ * host.
  *
  * The refusal direction matters more than the happy path: an existing
  * configuration is KEPT and reported, never merged and never silently
@@ -2609,8 +2544,8 @@ function installCommand(
   } = {},
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
-  // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
-  // credentials, and the default store beneath it (`install.ts#installLayout`).
+  // A configuration at a NON-DEFAULT LOCATION moves the whole base — config and
+  // the default store beneath it (`install.ts#installLayout`).
   // The test is the PATH, not how it was named: `--config` spelling out the
   // default path is the default install, and printing a flag for it (with a
   // sentence saying it is "NOT at" the path it is at) would be false.
@@ -2692,7 +2627,7 @@ function installCommand(
   // without a question (the table sends nothing anywhere, so there is no
   // egress to consent to). Nothing said → nothing written, and a forced
   // re-install carries the old block forward untouched — and a file with no
-  // block reads as the table ON at runtime anyway, unless a Voyage key is saved
+  // block reads as the table ON at runtime anyway
   // (`config.ts#resolveEmbedder`). Both flags at once is a line that
   // contradicts itself, and it is refused before anything exists.
   const embedderOn = parsed.flags["embedder"] === true;
@@ -2741,9 +2676,9 @@ function installCommand(
     }
   }
 
-  // `--force` MAY NOT BLANK A SETTING EITHER (adversarial review B1,
-  // 2026-09-22) — the same argument the credentials file has carried since I32,
-  // applied to the file beside it.
+  // `--force` MAY NOT BLANK A SETTING (adversarial review B1, 2026-09-22) — the
+  // argument the credentials file carried from I32 until it was removed,
+  // applied to the configuration.
   //
   // The old comment below says "a config is regenerable from this command's own
   // flags". That is true only if the flags were all TYPED, and on a re-install
@@ -2754,18 +2689,15 @@ function installCommand(
   // the screen said the parked folder came back untouched.
   //
   // So a forced write CARRIES FORWARD what the file already said, and only for
-  // keys this command line did not supply: a flag still wins, and the two paths
-  // (`dataDir`, `credentialsFile`) that this install resolved itself are never
-  // taken from the old file, because moving an install is exactly what `--force`
-  // is for. What was kept is SAID, below, on both arms.
-  // The kind is decided against the file being REPLACED (`resolveEmbedderBlock`):
-  // a kind it names is kept, a 0.2.0 Voyage opt-in beside a saved key stays as
-  // it was, and everything else is the local table. Read before anything below
-  // writes, because the credentials file and the config are both inputs.
+  // keys this command line did not supply: a flag still wins, and `dataDir`,
+  // which this install resolved itself, is never taken from the old file,
+  // because moving an install is exactly what `--force` is for. What was kept
+  // is SAID, below, on both arms.
+  // The block is decided against the file being REPLACED (`resolveEmbedderBlock`),
+  // read before anything below writes.
   const embedderBlock = resolveEmbedderBlock({
     enabled: embedderSaid,
     configPath: layout.config,
-    voyageKeySaved: credentialsHeld(layout.credentials).includes(EMBED_KEY_ENV),
   });
   const carried = force
     ? carryForward(layout.config, {
@@ -2782,24 +2714,6 @@ function installCommand(
     carried,
   });
   const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
-  // `--force` MAY NOT BLANK A CREDENTIAL (I32 — 2026-09-04's second clobbered
-  // field). A forced install that day replaced a file holding two keys with the
-  // template below; the detached worker was refused at every boundary for the
-  // following week, the lived-day clock froze, and nothing visible said so. A
-  // config is regenerable from this command's own flags. A secret is not, and
-  // `--force` was typed to fix a config.
-  //
-  // NAMES ONLY, here and in the lines printed below: no value is read into this
-  // function, compared, or shown. (The #80 guard is a different one — it covers
-  // the temp-store `dataDir`, and it did not fire here.) The force is simply
-  // withdrawn for this one file, so the ordinary "kept" path answers, which is
-  // also what keeps the mode reporting in one place.
-  const held = force ? credentialsHeld(layout.credentials) : [];
-  const creds = writeOnce(layout.credentials, credentialsTemplate(), {
-    force: force && held.length === 0,
-    mode: 0o600,
-  });
-
   // THE STORE STEP IS SILENT ON THE CONVERSATIONAL ARM (2026-09-22, item 10).
   //
   // A person installing a memory layer did not ask to be shown three files
@@ -2808,11 +2722,9 @@ function installCommand(
   // lines go through `say`, which the interactive caller silences.
   //
   // WHAT IS NEVER SILENCED: a warning, and a refusal. `io.err` is untouched,
-  // and the three cases below that are facts a reader would act on — a
-  // credentials file kept under `--force` because it holds a key, a mode that
-  // is not 0600, and a `--dir` that moved the store away from the
-  // configuration — print on both arms. Quiet means fewer receipts, never a
-  // fact withheld.
+  // and the facts a reader would act on — a replaced configuration, and a
+  // `--dir` that moved the store away from the configuration — print on both
+  // arms. Quiet means fewer receipts, never a fact withheld.
   const say = opts.quiet === true ? (_line: string): void => {} : (line: string): void => { io.out(line); };
   say(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
   // **A REPLACED CONFIGURATION IS NOT A ROUTINE RECEIPT** (review B1). Creating
@@ -2829,12 +2741,6 @@ function installCommand(
     }
   } else {
     say(`  ${config.what} ${config.path}`);
-  }
-  say(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
-  if (held.length > 0) {
-    io.out(`    kept even under --force: it already holds ${held.join(" and ")}.`);
-    io.out("    A key cannot be regenerated from anything here. Delete the file by");
-    io.out("    hand if you really do mean to start over.");
   }
   // The SAME sentence `init` prints, because the two commands did the same
   // thing: a page that calls them interchangeable and then has them say it
@@ -2860,14 +2766,8 @@ function installCommand(
     );
     io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
-  // Not said of a credentials file kept BECAUSE it holds a key: --force is
-  // exactly what the reader just passed, and telling them to pass it again
-  // would send them back to the incident this guard exists to prevent.
-  if (config.what === "kept" || (creds.what === "kept" && held.length === 0)) {
+  if (config.what === "kept") {
     say("  (an existing file is never rewritten — pass --force to replace it)");
-  }
-  if (creds.mode !== undefined && creds.mode !== "600") {
-    io.out(`  WARNING: ${creds.path} is mode ${creds.mode}; group or other can read your keys.`);
   }
   if (budgetBytes === undefined) {
     say("");
@@ -2893,10 +2793,13 @@ function installCommand(
  *
  *   - **A flag always wins.** A key the command line supplies is not carried,
  *     so there is no merge and no precedence to get wrong later.
- *   - **`dataDir` and `credentialsFile` are NEVER carried.** This install
- *     resolved both (`installLayout`), and `--force` over a config that names
- *     somewhere else is exactly how an install is moved. Carrying them would
- *     make the move silently not happen.
+ *   - **`dataDir` is NEVER carried.** This install resolved it
+ *     (`installLayout`), and `--force` over a config that names somewhere else
+ *     is exactly how an install is moved. Carrying it would make the move
+ *     silently not happen.
+ *   - **Settings this build no longer reads are not carried either** —
+ *     `credentialsFile`, `models`, `crashWriteUp` (the keys were removed on
+ *     2026-09-24). A rewrite is the natural moment to let them go.
  *
  * It reads the file with `JSON.parse` rather than `loadConfig`: what is wanted
  * is what the file SAID, key for key, not what a loader makes of it — an
@@ -2920,7 +2823,8 @@ export function carryForward(
   // or is being given. Anything an owner added by hand is in here too, which is
   // the point: `--force` was typed to fix a config, not to normalise it.
   for (const [key, value] of Object.entries(was)) {
-    if (key === "dataDir" || key === "credentialsFile" || key === "owner") continue;
+    if (key === "dataDir" || key === "owner") continue;
+    if (key === "credentialsFile" || key === "models" || key === "crashWriteUp") continue;
     if (key === "injectionBudgetBytes" && supplied.budget) continue;
     if (key === "identity" && supplied.name) continue;
     if (key === "embedder" && supplied.embedder) continue;
@@ -2944,8 +2848,8 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   for (const line of settingsBlock(hookCommand(custom)).split("\n")) io.out(`     ${line}`);
   io.out("");
   io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
-  io.out("     environment is not your login shell's — measured on this package's own");
-  io.out(`     credentials, day 0 — so '${BIN.hook}' on a PATH that lacks bun is a`);
+  io.out("     environment is not your login shell's, so");
+  io.out(`     '${BIN.hook}' on a PATH that lacks bun is a`);
   io.out("     hook that never runs and says nothing.");
   io.out("");
   io.out("  2. Register the MCP server, so note, recall and session_end exist:");
@@ -2982,11 +2886,11 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
  *
  * **Everything about the files is `installCommand`'s, unchanged.** This wraps
  * it: it asks for a name, hands the same flags to the same function, connects
- * the host, asks for the two keys and ends on two lines. There is deliberately
+ * the host and ends on two lines. There is deliberately
  * no second code path that creates a store — that is the rule `start-fresh`
  * already follows ("invent no second install path"), and it is what keeps the
- * refusals (`layoutRefusal`, `throwawayDefaultRefusal`, the credentials guard)
- * true on this arm without being restated.
+ * refusals (`layoutRefusal`, `throwawayDefaultRefusal`) true on this arm
+ * without being restated.
  *
  * Reached only when `ui.ts#isInteractive` says there is a person who can
  * answer: stdin AND stdout are terminals, `CI` is unset, this console has a
@@ -3023,7 +2927,7 @@ async function installInteractive(
   // CTRL-C (and, since 2026-09-22, Esc) IS NOT AN ANSWER, at ANY of this
   // conversation's questions (review m4). It used to end the process silently
   // with exit 0 — at the name prompt nothing existed yet, at the wire question
-  // the store, the config and the 0600 credentials file all did, and a `&&`
+  // the store and the config both did, and a `&&`
   // chain read that zero as "installed". Every prompt reports from the
   // FILESYSTEM rather than from a flow that was abandoned halfway, which is
   // also what makes it true either side of the parked folder's one rename.
@@ -3116,7 +3020,7 @@ async function installConversation(
   }
   u.blank();
 
-  // ── the store, the configuration and the credentials — SILENTLY ───────────
+  // ── the store and the configuration — SILENTLY ────────────────────────────
   //
   // THE CEILING GETS A NUMBER ON THIS ARM ONLY. Scar §2.18 says this package
   // invents no host ceiling, and nothing about that changes for a script: the
@@ -3180,8 +3084,7 @@ async function installConversation(
   let wired: WireResult | null = null;
   if (!claudeCodeHere(home_, env, spawner)) {
     // NOT AN ERROR AND NOT A REFUSAL (item 9: "say so, move on"). Everything
-    // this command actually owns — the store, the configuration, the
-    // credentials — is done, and the one part that needs somebody else's
+    // this command actually owns — the store and the configuration — is done, and the one part that needs somebody else's
     // program can be done the day they have it.
     io.out("Claude Code is not on this machine, so there was nothing to connect.");
     u.hint(`When you have it, run \`${BIN.cli} connect\`.`);
@@ -3214,11 +3117,10 @@ async function installConversation(
 
   // ── no keys ───────────────────────────────────────────────────────────────
   //
-  // THIS SCREEN ASKS ABOUT NO API KEY (roadmap C3, 2026-09-23). Both are
-  // upgrades: recall by meaning runs on the local table switched on above, and
-  // a session that ended before it was written up is written up by the next
-  // session in that project. `counterparts credentials set <NAME>` is where a
-  // key goes, and `help credentials` says what each one adds.
+  // THERE ARE NO API KEYS (roadmap C3, 2026-09-23; removed outright 2026-09-24).
+  // Recall by meaning runs on the local table switched on above, and a session
+  // that ended before it was written up is written up by the next session in
+  // that project.
   //
   // WHAT WAS SWITCHED ON IS SAID, in one line, where the key questions used to
   // be (the owner's answer to review NIT 8, 2026-09-23, his wording): recall by
@@ -3236,7 +3138,7 @@ async function installConversation(
   // environment variable, then the installed package), and then for the table
   // FILE in what that found — a variable naming an empty folder is not a table.
   const table = resolveStaticWeights({ env });
-  const tableOn = config.embedder?.enabled === true && embedderKind(config) === "static";
+  const tableOn = config.embedder?.enabled === true;
   const tableMissing = tableOn && (table === null || !existsSync(join(table.dir, MODEL_FILE)));
   if (tableOn && !tableMissing) {
     io.out("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
@@ -3252,7 +3154,7 @@ async function installConversation(
   //
   // THE FOLDER, NOT THE STORE, and `~` rather than the spelled-out home: what a
   // person wants to be able to find again is `~/.counterparts`, which holds the
-  // memory, the configuration and the keys. A `--dir` that moved the store out
+  // memory and the configuration. A `--dir` that moved the store out
   // of that folder is named instead, because then the folder is not where the
   // memory lives and the sentence would be false.
   const memoryAt = isWithin(layout.base, store) ? layout.base : store;
@@ -3575,8 +3477,7 @@ async function hostWiringCommand(
         configPath,
         custom,
         // THE WHOLE CONFIGURATION, not just `dataDir`: the plan has to find the
-        // credentials file, the snapshots directory and the store wherever the
-        // file put them, because "the directory the config sits in" is exactly
+        // snapshots directory and the store wherever the file put them, because "the directory the config sits in" is exactly
         // the reasoning the 2026-09-21 review broke.
         config: host.config,
         now: now(),
@@ -3932,7 +3833,7 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   io.out("");
   io.out(`'${BIN.cli} init' makes a STORE and nothing else — a second store, a scratch`);
   io.out(`one, a store on another disk. '${BIN.cli} install' is the cold start: it owns`);
-  io.out("~/.counterparts/, writes step 3 there plus a 0600 credentials file, and prints");
+  io.out("~/.counterparts/, writes step 3 there, and prints");
   io.out("1 and 2 filled in and ready to paste.");
   return EXIT.ok;
 }
@@ -6267,8 +6168,7 @@ async function removeCommand(
   flags: Record<string, string | boolean | undefined>,
   now: () => number,
 ): Promise<number> {
-  // WHICH DOOR — `isInteractive`, the same test `install` and `credentials set`
-  // split on, and not a weaker one.
+  // WHICH DOOR — `isInteractive`, the same test `install` splits on, and not a weaker one.
   //
   // The first version of this asked `io.prompt === undefined`, which is stdin
   // alone (`bin/counterparts.ts` binds the prompt on `process.stdin.isTTY`).
@@ -7813,7 +7713,7 @@ export function openCounterpart(
   return Counterpart.open({ dir, observer, ...(identity === undefined ? {} : { identity }) });
 }
 
-// ── doctor / credentials ────────────────────────────────────────────────────
+// ── doctor ──────────────────────────────────────────────────────────────────
 
 /**
  * `doctor`'s exit code when anything is RED.
@@ -7841,8 +7741,6 @@ function hostConfigFor(path: string): {
   reason: "loaded" | "absent" | "unreadable";
   /** The keys the loader named, when it could not read the file. */
   unreadableKeys?: readonly string[];
-  /** Where the effective embedder block came from (`config.ts#resolveEmbedder`). */
-  embedderSource?: EmbedderSource;
 } {
   let text: string;
   try {
@@ -7861,21 +7759,9 @@ function hostConfigFor(path: string): {
   }
   const load = loadConfig(raw);
   // THE EMBEDDER DEFAULT the hooks, the worker and the server apply
-  // (`config.ts#resolveEmbedder`): an absent block is the local table unless the
-  // credentials FILE holds a Voyage key. Names only, against a scratch
-  // environment (`credentialsHeld`), so this console's shell never decides it.
-  //
-  // THE FILE THE CONFIGURATION NAMES, AND NO OTHER (review of #195, MINOR 3).
-  // The entry points call `loadCredentials(config.credentialsFile)`, which reads
-  // nothing when the field is absent — config.ts's rule is "a file the config
-  // NAMES, never one found by convention". A sibling `credentials.env` a
-  // hand-written config does not name is not a key any hook has, so it may not
-  // decide the default here either.
-  const named = load.config.credentialsFile;
-  const voyageKeySaved = named === undefined ? false : credentialsHeld(named).includes(EMBED_KEY_ENV);
+  // (`config.ts#resolveEmbedder`): an absent block is the local table.
   return {
-    config: withEmbedderDefault(load.config, voyageKeySaved),
-    embedderSource: resolveEmbedder(load.config, voyageKeySaved).source,
+    config: withEmbedderDefault(load.config),
     reason: load.reason,
     ...(load.unreadableKeys === undefined ? {} : { unreadableKeys: load.unreadableKeys }),
   };
@@ -7899,12 +7785,6 @@ function claudeOnPath(env: Record<string, string | undefined>): boolean | null {
     }
   }
   return false;
-}
-
-/** Where the credentials live for a given configuration: the file the config
- *  NAMES, else the one `install` writes beside it. */
-function credentialsPathFor(configPath: string, config: AdapterConfig): string {
-  return config.credentialsFile ?? join(dirname(configPath), CREDENTIALS_FILE);
 }
 
 /** The persisted per-reason spawn refusal counters, as `doctor` wants them. */
@@ -7948,12 +7828,11 @@ function spawnRefusalCounters(store: Store | null): Record<string, number> {
  *      environment is the last resort, because the question `doctor` answers is
  *      "is the store the HOOKS open healthy" — and through all of I29 the
  *      answer for the store the environment named was yes.
- *   2. **The credentials are read from the FILE, against a scratch environment.**
- *      A console that counted its own shell would read green on the owner's
- *      machine — his `~/.zshrc` exports both names — while the hook processes,
- *      which inherit neither (measured day 0), stayed blind. That is I32
- *      reproduced inside the diagnostic. What the shell has and the file lacks
- *      is reported as its own clause instead.
+ *   2. **Nothing it grades comes from this console's shell.** The hook
+ *      processes inherit none of it (measured day 0), so a reading that did
+ *      would grade a machine the hooks never run on. (Until 2026-09-24 this
+ *      was about the API keys, which were read from their file for exactly
+ *      that reason.)
  *
  * **And what reading from the config does NOT buy it: an exemption.** With
  * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, this command refuses unless a
@@ -7963,8 +7842,8 @@ function spawnRefusalCounters(store: Store | null): Record<string, number> {
  * the guard would be the guard's own failure mode wearing a diagnostic's face;
  * the first round of this PR did exactly that and was caught reading the
  * owner's live paths from an armed shell. Two doors enforce it: `run()`
- * (`implicitConfigRefusal`, the same three lines `install` and `credentials`
- * use) and the dir resolution below.
+ * (`implicitConfigRefusal`, the same three lines `install` uses) and the dir
+ * resolution below.
  */
 function doctorCommand(
   parsed: Parsed,
@@ -7977,7 +7856,7 @@ function doctorCommand(
   const configPath = named?.path ?? defaultConfigPath();
   // `--dir` WITH NO NAMED CONFIGURATION, under the guard (finding 6). The store
   // was named; the default configuration beside it was not, and opening it is
-  // what reaches the owner's live credentials file. So it is not opened — not
+  // what reaches the owner's live configuration. So it is not opened — not
   // read, not reported on, not graded — and `configFindings` prints one amber
   // naming what went unasked. Without the guard this is an ordinary run, since
   // the default config is then a place the caller is content to read.
@@ -7988,23 +7867,6 @@ function doctorCommand(
   const { config, reason, unreadableKeys } = unread
     ? { config: {} as AdapterConfig, reason: "not-read" as const, unreadableKeys: undefined }
     : hostConfigFor(configPath);
-  // THE FILE THE CONFIGURATION NAMES, AND NO FALLBACK (review of #195, MINOR 3).
-  // Doctor reports what the hooks will have, and the hooks read only a
-  // `credentialsFile` the configuration names (`config.ts`: "a file found by
-  // convention never") — so a sibling `credentials.env` a hand-written config
-  // does not name is graded as what it is to them: no file.
-  const credentialsPath = unread ? undefined : config.credentialsFile;
-  const credentials = unread
-    ? ({
-        loaded: [],
-        skippedPresent: [],
-        ignoredLines: 0,
-        reason: "not-configured",
-        mode: null,
-        permissive: false,
-      } satisfies CredentialLoad)
-    : loadCredentials(credentialsPath, {});
-  const shellNames = CREDENTIAL_NAMES.filter((n) => (env[n] ?? "").trim().length > 0);
 
   // WHICH STORE, under the guard. `--dir` is a name. A config the CALLER named
   // (`--config`, `COUNTERPARTS_CONFIG`) is a name, and the `dataDir` inside it is
@@ -8056,9 +7918,6 @@ function doctorCommand(
       ...(unreadableKeys === undefined ? {} : { configUnreadableKeys: unreadableKeys }),
       config,
       dir,
-      credentials,
-      credentialsPath,
-      shellNames,
       store,
       today,
       refusals: spawnRefusalCounters(store),
@@ -8096,221 +7955,4 @@ function doctorCommand(
   } finally {
     store?.close();
   }
-}
-
-/**
- * `credentials set <NAME>` and `credentials list` — the repair I32 did not have.
- *
- * The rule that shapes every line of it: **the value never appears anywhere a
- * value can be read back.** Not in argv (argv is shell history, and a key in
- * shell history is a key on disk in plaintext forever), not in the output, not
- * in an error. It arrives on stdin or out of one named environment variable,
- * goes into the file at 0600, and the console says one sentence naming the NAME
- * and the PATH.
- *
- * **Why the bulk-write `--dir` rule does not apply here.** That rule
- * (`requireDirFlagForBulkWrite`) is about a command that rewrites a STORE nobody
- * named. This one opens no store; it writes one line into the credentials file
- * the CONFIGURATION names — so the guard that applies is the configuration one,
- * and `run()` applies it: with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, an
- * UNNAMED configuration is refused before this function is reached, exactly as
- * it is for `install`.
- */
-async function credentialsCommand(
-  parsed: Parsed,
-  io: Io,
-  env: Record<string, string | undefined>,
-  named?: ConfigChoice,
-  stdin?: { isTty: boolean; read: () => Promise<string> },
-): Promise<number> {
-  const configPath = named?.path ?? defaultConfigPath();
-  const { config, embedderSource } = hostConfigFor(configPath);
-  const path = credentialsPathFor(configPath, config);
-  const allowed = CREDENTIAL_NAMES.join(", ");
-  const sub = parsed.positional[0];
-
-  // BARE `credentials` LISTS; IT DOES NOT REFUSE (2026-09-22, item 6).
-  //
-  // It used to answer "refused: 'credentials' takes 'set <NAME>' or 'list', and
-  // neither was given" — a usage error for the one word a person types when
-  // they want to know what this command is about. The question they are asking
-  // is "which keys do I have?", and that is what `list` answers, so bare
-  // `credentials` IS `list`, plus the line that says how to add one. Names
-  // only, here as everywhere: a value never leaves the file.
-  if (sub === "list" || sub === undefined) {
-    io.out(`credentials: ${path}`);
-    if (!existsSync(path)) {
-      for (const name of CREDENTIAL_NAMES) io.out(`  ${name.padEnd(20)} missing`);
-      io.out("  (no such file yet — the line below creates it, 0600)");
-    } else {
-      // NAMES ONLY, from the loader's own reading of the file (`credentialsHeld`
-      // runs it against a scratch environment, so what it returns is what the
-      // FILE answers — never what this shell happens to export).
-      const held = credentialsHeld(path);
-      for (const name of CREDENTIAL_NAMES) {
-        io.out(`  ${name.padEnd(20)} ${held.includes(name) ? "saved" : "missing"}`);
-      }
-    }
-    io.out("");
-    io.out(`Add or change one: ${BIN.cli} credentials set <NAME>`);
-    return EXIT.ok;
-  }
-
-  if (sub !== "set") {
-    io.err(
-      `refused: 'credentials' takes 'set <NAME>', or nothing at all to list what is saved — not '${sub}'.`,
-    );
-    return EXIT.usage;
-  }
-
-  const name = parsed.positional[1];
-  if (name === undefined || !CREDENTIAL_NAMES.includes(name)) {
-    io.err(
-      `refused: ${name === undefined ? "no name was given" : `'${name}' is not a credential this package reads`}. The names are: ${allowed}.`,
-    );
-    io.err("Nothing was written.");
-    return EXIT.usage;
-  }
-
-  const fromEnv = typeof parsed.flags["from-env"] === "string" ? parsed.flags["from-env"] : null;
-  let raw: string;
-  // TYPED AT A TERMINAL, or piped? The two arms answer differently in one place
-  // only — an EMPTY answer. A pipe that carried nothing is a script that went
-  // wrong and is refused; a person who pressed Enter at the prompt has SKIPPED,
-  // which is an ordinary answer and exits 0 (new-user finding #2, and the
-  // owner's "skipping is always offered and always fine").
-  let typedHere = false;
-  if (fromEnv !== null) {
-    const value = env[fromEnv];
-    if (value === undefined) {
-      io.err(`refused: $${fromEnv} is not set in this environment. Nothing was written.`);
-      return EXIT.refused;
-    }
-    raw = value;
-  } else {
-    if (stdin === undefined) {
-      io.err(
-        `refused: no standard input to read ${name} from. Pipe the value in, or use --from-env <VAR>.`,
-      );
-      return EXIT.usage;
-    }
-    if (stdin.isTty && parsed.flags["stdin"] !== true) {
-      // NEW-USER FINDING #2: "a person at a terminal is the normal case."
-      //
-      // This branch used to refuse outright, and the refusal was the first
-      // thing the stranger who installed 0.1.0 hit after the install itself —
-      // `doctor`'s own fix line printed the command that then refused him. The
-      // terminal is now where the value is READ, without echo, when there is
-      // somebody to read it from: `isInteractive` wants `io.prompt`, both
-      // streams to be terminals and `CI` unset, so every pipe, every CI job and
-      // every test console falls through to the refusal below, byte for byte as
-      // before. `--stdin` also still falls through: it means "read all of
-      // stdin", and a caller who asked for that gets it.
-      if (isInteractive(io, env)) {
-        try {
-          raw = await askHidden(io, `${name} (Enter to skip): `);
-        } catch (err) {
-          if (!isPromptAborted(err)) throw err;
-          // Ctrl-C, or a console that cannot read without echoing. Either way
-          // the terminal has been restored by the reader and nothing was
-          // written — and the message never carries what was typed.
-          io.err(`refused: ${(err as Error).message} Nothing was written.`);
-          return EXIT.refused;
-        }
-        typedHere = true;
-      } else {
-        // A terminal with nothing piped into it would BLOCK, and a console that
-        // hangs waiting for a secret is a console people Ctrl-C before typing
-        // the key on the command line instead.
-        io.err(
-          `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
-        );
-        return EXIT.usage;
-      }
-    } else {
-      raw = await stdin.read();
-    }
-  }
-
-  // ONE trailing newline is the shell's, not the owner's: `printf '%s\n'`, a
-  // here-string and an editor all add one. The rest is trimmed for the same
-  // reason `loadCredentials` trims what it reads back — the writer and the
-  // reader must agree about what the value IS.
-  const value = raw.replace(/\r?\n$/, "").trim();
-  if (value.length === 0) {
-    if (typedHere) {
-      ui(io, env).ok(`nothing written — ${name} is unchanged.`);
-      return EXIT.ok;
-    }
-    io.err(`refused: the value for ${name} is empty. Nothing was written.`);
-    return EXIT.refused;
-  }
-  if (value.includes("\n") || value.includes("\r")) {
-    // A value with a newline in it would mint a SECOND line in the file, which
-    // the loader reads as a malformed entry and counts — silently.
-    io.err(`refused: the value for ${name} spans more than one line. Nothing was written.`);
-    return EXIT.refused;
-  }
-
-  // WHETHER THE FILE HELD A VOYAGE KEY BEFORE THIS WRITE — names only — so a
-  // first Voyage key cannot silently switch the local-table default off
-  // (`keys.ts#pinLocalTable`).
-  //
-  // THE PIN GOES FIRST (review of #195, MINOR 5): written after the key, any
-  // process starting between the two writes saw a key saved and no block —
-  // off — and a pin that failed left it off for good. Written first, the worst
-  // case is an explicit `{ enabled: true, kind: "static" }`, which is exactly
-  // what the default already meant. A key write that then fails leaves only
-  // that behind.
-  const voyageHeldBefore = credentialsHeld(path).includes(EMBED_KEY_ENV);
-  const pinned = name === EMBED_KEY_ENV ? pinLocalTable(configPath, voyageHeldBefore) : "not-needed";
-  writeCredential(path, name, value);
-  const pinLine =
-    pinned === "pinned"
-      ? `Recall by meaning stays on the local table: written into ${configPath}, because a saved Voyage key would otherwise switch that default off.`
-      : pinned === "not-needed"
-        ? null
-        : `Could not write the local table into ${configPath} (${pinned.failed}); with a Voyage key saved, recall by meaning is off until: counterparts install --force --embedder`;
-  // The NAME and the PATH, never the value — and for the typed arm the same
-  // sentence through `ui`, so it reads as one line of a conversation rather
-  // than as a script's receipt. Every non-interactive caller keeps the exact
-  // bytes it had, plus — for the Voyage key only — the one line below.
-  if (!typedHere) {
-    io.out(`set ${name} in ${path}`);
-    // VOYAGE IS FROZEN (ROADMAP §"Amendments", 2026-09-23), so saving its key
-    // turns nothing on any more, and a person who just saved one is owed the
-    // sentence that says so — on both arms: a script that sets the key and
-    // expects the paid embedder is exactly the reader who needs it.
-    if (name === EMBED_KEY_ENV) {
-      io.out(voyageKeyLine(config, embedderSource));
-      if (pinLine !== null) io.out(pinLine);
-    }
-    return EXIT.ok;
-  }
-  const u = ui(io, env);
-  u.ok(`set ${name} in ${path}`);
-  if (name === EMBED_KEY_ENV) {
-    u.hint(voyageKeyLine(config, embedderSource));
-    if (pinLine !== null) u.hint(pinLine);
-    return EXIT.ok;
-  }
-
-  // THE ONE UPGRADE A KEY STILL OFFERS: THE ANTHROPIC KEY'S (roadmap C2/C3).
-  //
-  // Without it, a session that ended before it was written up is written up
-  // by the next session in that project. With it, the worker can do it at
-  // once — and that sends the conversation to Anthropic, so the key is not the
-  // consent: the question is, `[y/N]`, with the egress IN it. Typed-at-a-
-  // terminal only, like the embedder offer this replaces: a pipe, `--from-env`,
-  // `--stdin` and CI returned above, because there is nobody there to ask and
-  // an egress is not something to turn on for a script that did not mention it.
-  try {
-    await offerCrashWriteUp(io, u, configPath);
-  } catch (err) {
-    if (!isPromptAborted(err)) throw err;
-    // The KEY is written and stays written; only the switch was being decided.
-    u.hint(`${name} is saved. Ended sessions still wait for the next session in their project; this command offers the switch again.`);
-    return EXIT.refused;
-  }
-  return EXIT.ok;
 }

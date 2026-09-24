@@ -7,42 +7,14 @@
  * host-agnostic.
  */
 export {
-  ANTHROPIC_ENDPOINT,
-  ANTHROPIC_VERSION,
-  API_KEY_ENV,
   CAPABILITIES,
-  DEFAULT_EMBED_MODEL,
-  DEFAULT_INTERPRET_MODEL,
-  EMBED_KEY_ENV,
   TUNABLES,
-  VOYAGE_ENDPOINT,
   capabilities,
-  embedSeat,
-  embedderState,
-  interpretSeat,
   PAGE_WRITER_FALLBACK_MODE,
   loadConfig,
   pageWriterMode,
-  seatStatus,
 } from "./config.js";
-export type {
-  AdapterConfig,
-  CapabilityName,
-  CapabilityReport,
-  LoadedConfig,
-  ModelSeat,
-  SeatStatus,
-  SeatVerdict,
-} from "./config.js";
-
-export {
-  CREDENTIAL_FILE_EVENT,
-  CREDENTIAL_NAMES,
-  credentialRow,
-  loadCredentials,
-  permissionWarning,
-} from "./credentials.js";
-export type { CredentialLoad } from "./credentials.js";
+export type { AdapterConfig, CapabilityName, CapabilityReport, LoadedConfig } from "./config.js";
 
 export {
   AUTHORSHIP_DAYS,
@@ -101,27 +73,8 @@ export type {
   WakeOutcome,
 } from "./hooks.js";
 
-export { InterpretError, SYSTEM_PROMPT, extractJson, interpretClient, readStream } from "./interpret-client.js";
-export type { FetchLike, InterpretClientOptions, InterpretRefusal, StreamRead } from "./interpret-client.js";
-
-export {
-  EmbedError,
-  callBudget,
-  createEmbedder,
-  embedClient,
-  openEmbedder,
-  wellFormed,
-} from "./embed-client.js";
-export type {
-  ChunkFailure,
-  EmbedBatch,
-  EmbedClientOptions,
-  EmbedFn,
-  EmbedRefusal,
-  EmbedderStats,
-  LiveEmbedder,
-  LiveEmbedderOptions,
-} from "./embed-client.js";
+export { openEmbedder } from "./embed-client.js";
+export type { ChunkFailure, EmbedderStats, LiveEmbedder } from "./embed-client.js";
 
 export {
   DEFAULT_HOST_COMMAND,
@@ -180,7 +133,7 @@ export type { Assignment, AssignmentHealth, AssignmentState, Primacy, PrimacyRea
 import { Counterpart } from "../../core/counterpart.js";
 import type { AdapterConfig } from "./config.js";
 import { openEmbedder } from "./embed-client.js";
-import type { LiveEmbedder, LiveEmbedderOptions } from "./embed-client.js";
+import type { LiveEmbedder } from "./embed-client.js";
 import { ClaudeCodeAdapter } from "./hooks.js";
 import type { AdapterOptions } from "./hooks.js";
 
@@ -195,17 +148,12 @@ import type { AdapterOptions } from "./hooks.js";
 export function openAdapter(
   config: AdapterConfig,
   opts: Omit<AdapterOptions, "counterpart" | "config"> & {
-    /** Injected so the whole path is provable without a socket. */
-    embedFetch?: LiveEmbedderOptions["fetch"];
-    /** Injected so a test can supply vectors without a client at all. */
+    /** Injected so a test can supply vectors without the weights. */
     embedder?: LiveEmbedder | null;
   } = {},
 ): ClaudeCodeAdapter {
-  const { embedFetch, embedder: injected, ...adapterOpts } = opts;
-  const embedder =
-    injected !== undefined
-      ? injected
-      : openEmbedder(config, embedFetch === undefined ? {} : { fetch: embedFetch });
+  const { embedder: injected, ...adapterOpts } = opts;
+  const embedder = injected !== undefined ? injected : openEmbedder(config);
   const counterpart = Counterpart.open({
     // Both halves of the same embedder: the SYNC face the store's index holds,
     // and the LIVE face the novelty seam and the sweep's warm call use.

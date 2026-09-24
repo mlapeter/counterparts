@@ -293,7 +293,8 @@ export function openCache(path: string): Db {
 
 /**
  * `cache_meta` key holding the identity of every vector in `embeddings`:
- * `<model>@<dim>`, e.g. `voyage-3-large@1024`, `potion-base-8M@256`.
+ * `<model>@<dim>`, e.g. `potion-base-8M@256` (or `voyage-3-large@1024`, from
+ * the paid seat the adapter had until 2026-09-24).
  *
  * WHY IT EXISTS: `embed-client.ts` §2.15 — "a vector's generation is part of
  * its identity; vectors from two models are not comparable." Through v4 that
@@ -330,29 +331,23 @@ export const EMBEDDER_REBUILD_META_KEY = "embedderRebuild";
 export const EMBEDDER_HELD_META_KEY = "embedderHeld";
 
 /**
- * The ways out of a hold, in the words doctor and the durable row use — named
- * for the hold AS IT IS, because the free exit differs (re-review of #190,
- * MINOR B):
+ * The way out of a hold, in the words doctor and the durable row use.
  *
- *   - **No recorded model** (untagged rows: a 0.2.0 store, whose only embedder
- *     was the Voyage seat, now opened under the static table): the free exit is
- *     to set `embedder.kind` back to `"voyage"` — the seat adopts rows of its
- *     own known width as they are. There is no "recorded model" to go back to.
- *   - **A recorded model**: put the configuration back to it (free).
- *
- * Either way the other exit is a drop — `verify --rebuild --drop-vectors` —
- * after which the configured embedder re-embeds every memory (paid, for a paid
- * seat; free, for the static table). `<store>` is the caller's to fill.
+ * There were two until 2026-09-24: put the configuration back to the model
+ * that wrote the rows (free), or drop them. The Claude Code adapter no longer
+ * offers any embedder but its local table, so the model that wrote held rows —
+ * the removed Voyage seat, in practice — cannot be configured again, and the
+ * one exit left is the drop: `verify --rebuild --drop-vectors`, after which the
+ * configured embedder re-embeds every memory. `recorded` is kept so the
+ * signature (and the durable row's `exits` field) stays one shape. `<store>` is
+ * the caller's to fill.
  */
 export function heldExits(recorded: string | null): string {
-  const drop =
-    "or drop the old vectors: counterparts verify --rebuild --drop-vectors --dir <store> " +
-    "(the configured embedder then re-embeds every memory — paid again, for a paid seat)";
-  if (recorded === null) {
-    return `set embedder.kind back to "voyage" in the configuration (free: the Voyage seat adopts vectors of its own width as they are), ${drop}`;
-  }
-  const model = parseIdentityTag(recorded).model;
-  return `put the configuration back to the model that wrote them — embedder.kind "voyage" with models.embed "${model}" (free), ${drop}`;
+  void recorded;
+  return (
+    "drop the old vectors: counterparts verify --rebuild --drop-vectors --dir <store> " +
+    "(the configured embedder then re-embeds every memory)"
+  );
 }
 
 /** What a configured embedder says about the vectors it produces. */

@@ -112,8 +112,8 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.session === undefined ? {} : { session: opts.session }),
     ...(opts.scope === undefined ? {} : { scope: opts.scope }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),
-    // The embedder is the ENTRY POINT's to open, because the credential is:
-    // this file composes, it does not read a key (server.ts's header).
+    // The embedder is the ENTRY POINT's to open: this file composes, it does
+    // not read a configuration (server.ts's header).
     ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.registryDir === undefined ? {} : { registryDir: opts.registryDir }),
     ...(opts.scopesFile === undefined ? {} : { scopesFile: opts.scopesFile }),

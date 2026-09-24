@@ -3,22 +3,22 @@
  *
  * This file is where scar §2.18 lives — "a guarantee carried by something you
  * don't own is not a guarantee". v1 encoded one host's 9,000-byte injection
- * cliff as though it were physiology, discovered its socket ceiling by watching
- * calls die, and inherited a credential from whatever shell happened to launch
- * the session. All three are host facts. Here they are named, reported, and
+ * cliff as though it were physiology and discovered its socket ceiling by
+ * watching calls die. Both are host facts. Here they are named, reported, and
  * CHECKABLE — and the core is told what they are rather than assuming them.
  *
- * Two rules the CONTRACT states and this file mechanizes:
+ * The rule the CONTRACT states and this file mechanizes:
  *
  *   §4 G4 — every host-dependent limit is discovered or asserted at runtime and
  *   surfaced as a checkable value. `capabilities()` returns one row per limit
  *   with `reported: false` where the host said nothing, so "we never asked" and
  *   "the host said zero" are different records (scar §2.4).
  *
- *   §4 (drops) / scar §2.15 — every model SEAT has its own knob, holds a pinned
- *   identifier, and a placeholder EXPIRES. v1's single `models.maintainer` knob
- *   fed three call sites, so a decision that had been made could not be
- *   implemented; and its inert placeholder became production by silence.
+ * KEYLESS (owner, 2026-09-24). The package reads no API key and calls no model
+ * API of its own: the Anthropic write-up of crashed sessions, the Voyage
+ * embedder, the credentials file and the model seats that fed them were
+ * removed. A configuration that still names one of them is read, not refused —
+ * the setting is ignored and named in `retired` (see `loadConfig`).
  *
  * And one from observer-mode G5: an unreadable configuration resolves to
  * OBSERVER, never to "encode anyway". `loadConfig` never throws.
@@ -29,15 +29,12 @@ import { PAGE_WRITER_MODES } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { DEFAULT_KEEP as SNAPSHOT_DEFAULT_KEEP } from "../snapshots.js";
 
-import type { CredentialLoad } from "./credentials.js";
-
 
 /** Every host-dependent limit this adapter depends on. One row each. */
 export const CAPABILITIES = [
   "injectionBudgetBytes",
   "executionCeilingMs",
   "socketLifetimeMs",
-  "credential",
 ] as const;
 export type CapabilityName = (typeof CAPABILITIES)[number];
 
@@ -47,102 +44,7 @@ export interface CapabilityReport {
   readonly reported: boolean;
   readonly value: number | boolean | null;
   readonly why: string;
-  /**
-   * WHICH SOURCE ANSWERED, name-level only. On the credential row: `"env"` when
-   * the process environment carried the name, `"file"` when the configured
-   * credentials file filled the gap, `"absent"` when nothing did. Never a value,
-   * never a hash of one.
-   */
-  readonly detail?: string;
 }
-
-/**
- * One model seat. `id` is a PINNED identifier held in configuration, never an
- * alias resolved at call time, and never shared with another seat.
- */
-export interface ModelSeat {
-  readonly id: string;
-  /**
-   * True while this id is a stand-in nobody has decided on. A placeholder MUST
-   * carry `expires`; past that date `seatStatus()` reports `expired`, so
-   * "never decided" cannot masquerade as "decided" (scar §2.15c).
-   */
-  readonly placeholder?: boolean;
-  /** ISO date. Required when `placeholder` is true. */
-  readonly expires?: string;
-}
-
-export type SeatStatus = "pinned" | "placeholder" | "expired" | "unbounded-placeholder";
-
-export interface SeatVerdict {
-  readonly seat: string;
-  readonly id: string;
-  readonly status: SeatStatus;
-  readonly usable: boolean;
-}
-
-/**
- * The default interpreter seat. It is the crash fallback's only model call, and
- * the fallback is the path that must not lose the day, so it gets the strongest
- * tier rather than the cheapest. PINNED, not an alias — recorded here so the
- * decision has a place, per scar §2.15's first clause.
- */
-export const DEFAULT_INTERPRET_MODEL = "claude-opus-5";
-
-/**
- * The default EMBED seat. Its own knob, its own pinned id, its own provider —
- * scar §2.15b is exactly the case where one knob fed several call sites, and an
- * embedding model and an interpreter model are not interchangeable in any sense
- * (different vendor, different credential, different failure mode).
- *
- * PINNED, not an alias: `voyage-3` and `voyage-3-large` are different spaces, and
- * a store's vectors are only comparable to vectors from the generation that
- * wrote them. The id is therefore part of the data's identity, not a preference.
- */
-export const DEFAULT_EMBED_MODEL = "voyage-3-large";
-
-/**
- * The OUTPUT WIDTH of each paid embed model this package knows — its default,
- * because the client never sends `output_dimension` (`embed-client.ts`). The
- * store adopts untagged vectors under a paid seat only when every one of them
- * has this width (cache v5); an id not listed here has an unknown width, and
- * untagged rows are then held rather than adopted. Voyage's documented
- * defaults, 2026-09-23. (The Voyage seat is frozen: deprecated, kept.)
- */
-export const EMBED_MODEL_DIMS: Readonly<Record<string, number>> = {
-  "voyage-3-large": 1024,
-  "voyage-3.5": 1024,
-  "voyage-3.5-lite": 1024,
-  "voyage-3": 1024,
-  "voyage-3-lite": 512,
-  "voyage-code-3": 1024,
-};
-
-/** The Messages API, raw. No SDK, no runtime dependency (constitution 10). */
-export const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
-export const ANTHROPIC_VERSION = "2023-06-01";
-
-/** Voyage's embeddings endpoint, raw. Same rule: no SDK, no dependency. */
-export const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
-
-/**
- * The ONE environment variable a credential may come from — and, when the
- * environment is silent, the one file `credentialsFile` NAMES. See that knob for
- * the whole rule; the short form is: the environment first, a file the config
- * names second, a file found by convention never.
- */
-export const API_KEY_ENV = "ANTHROPIC_API_KEY";
-
-/**
- * The embedder's ONE environment variable — the same name v1 reads, so an owner
- * who already has a key in their environment does not learn a second name.
- * v1 also accepted a `.env` FILE found by CONVENTION (`resolveVoyageKey`, in
- * whatever directory the process happened to sit in); that half stays dropped.
- * §2.18: the credential comes from one configured source the package names, and
- * a file the process happens to FIND is not one — while a file the package's own
- * configuration NAMES is (`credentialsFile`).
- */
-export const EMBED_KEY_ENV = "VOYAGE_API_KEY";
 
 /**
  * The adapter's own tunables, in one visible place (the shape every core module
@@ -160,9 +62,6 @@ export const TUNABLES = {
    *  worker's it is not validated against `remember/`'s claim staleness, because
    *  it claims no spans. */
   PAGE_WRITER_MS: 10 * 60_000,
-  /** Output headroom for the interpreter. A truncated JSON response is a
-   *  failure, not data (scar E2) — headroom is how you stop paying for one. */
-  MAX_OUTPUT_TOKENS: 16_000,
   /** Reference resolution at a session-ending boundary (recall §9.2), ms. The
    *  resolver stops between candidates past it and the row says so
    *  (`recall.credit` reason `budget-exceeded`); nothing is truncated silently. */
@@ -170,11 +69,6 @@ export const TUNABLES = {
   /** Identical consecutive spawn failures before the worker ESCALATES instead
    *  of re-logging the same line forever (scar E4's widening). */
   ESCALATE_AFTER: 3,
-  /** Texts per embeddings request. The provider's documented ceiling, and the
-   *  unit of FAILURE ISOLATION: one poisoned input fails its own chunk and
-   *  leaves every sibling chunk's vectors standing (scar E1). v1 used the same
-   *  128. */
-  EMBED_BATCH_SIZE: 128,
   /**
    * THE NEXT-SESSION WRITE-UP (roadmap C2, owner 2026-09-23). How many sessions
    * may be pointed at an ended session's words in one calendar day (local
@@ -205,39 +99,17 @@ export const TUNABLES = {
   // numbers below were copied from when this knob was introduced.
 } as const;
 
-/** The two embedders `embedder.kind` can name. See `AdapterConfig.embedder`. */
-export type EmbedderKind = "static" | "voyage";
-export const EMBEDDER_KINDS: readonly EmbedderKind[] = ["static", "voyage"];
+/**
+ * The embedder `embedder.kind` can name — one since 2026-09-24, when the Voyage
+ * seat was removed. `"voyage"` in a configuration is read as this, with a note
+ * in `retired` (see `loadConfig`).
+ */
+export type EmbedderKind = "static";
+export const EMBEDDER_KINDS: readonly EmbedderKind[] = ["static"];
 
 export interface AdapterConfig {
   /** Where the memory lives. Pinned onto the child's environment LAST. */
   readonly dataDir?: string;
-  /**
-   * THE CREDENTIAL FILE, and it is the source only because THIS FILE NAMES IT.
-   *
-   * Measured on day 0 of the parallel run: this host's hook processes carry
-   * neither documented name, even with both exported in the owner's shell rc —
-   * the host's process environment is not the login shell's. So a `process.env`
-   * that answers in a terminal answers nothing in a hook: the worker's sweep
-   * would skip itself at every boundary and the embedder would never open.
-   *
-   * The rules, mechanized in `credentials.ts`:
-   *
-   *   - the file is `KEY=value` lines (`export KEY=value`, quotes and CRLF
-   *     tolerated; blank and `#` lines skipped);
-   *   - ONLY the two documented names are honored — `API_KEY_ENV` and
-   *     `EMBED_KEY_ENV`. Anything else in the file is IGNORED AND COUNTED;
-   *   - a value already present in `process.env` WINS. The environment stays the
-   *     first source; the file only fills the gap;
-   *   - values are never logged, never emitted, never hashed. Names and counts
-   *     are the only things that leave.
-   *
-   * §2.18 permits exactly this and no more: "credentials come from one
-   * configured source the package owns". A file the package's own configuration
-   * NAMES is that source. A file found by CONVENTION — v1's `.env` in whatever
-   * directory the process sat in — is not, and stays forbidden.
-   */
-  readonly credentialsFile?: string;
   /** The host's reported injection ceiling, in bytes. NO DEFAULT (scar §2.18). */
   readonly injectionBudgetBytes?: number;
   /** How long the host lets a foreground hook run, ms. Reported, not assumed. */
@@ -246,39 +118,18 @@ export interface AdapterConfig {
   readonly socketLifetimeMs?: number;
   /** The detached worker's watchdog, ms. */
   readonly watchdogMs?: number;
-  /** One knob per seat (scar §2.15b). Two seats, two knobs, two providers. */
-  readonly models?: { readonly interpret?: ModelSeat; readonly embed?: ModelSeat };
   /**
-   * THE EGRESS KNOB, and it defaulted to OFF — until the local table.
+   * RECALL BY MEANING — the local potion-base-8M table (`core/embed/static.ts`):
+   * no key, no network, nothing leaves the machine. Its weights come from
+   * `COUNTERPARTS_STATIC_WEIGHTS_DIR` or the installed `counterparts-model-potion`
+   * package.
    *
-   * *Amended 2026-09-23 (roadmap C3): an ABSENT block now reads as the local
-   * table, on, unless the credentials file holds a Voyage key
-   * (`resolveEmbedder`, applied by each entry point after its credentials
-   * load). What follows is why absent meant off while the only embedder sent
-   * text to a third party — and it still describes the paid seat.*
-   *
-   * Embedding means sending the text of a memory to a third party. v2's
-   * "no-silent-egress" rescope (2026-08-25) is the reason this is a decision the
-   * owner makes rather than a capability a key in the environment switches on:
-   * a `VOYAGE_API_KEY` exported for some other tool must never be the thing that
-   * starts shipping this store's contents anywhere. Absent ⇒ no client is built,
-   * no socket is opened, and the brain runs exactly as it does today — blind,
-   * and countably so (`novelty.reason = "no-chunk-vector"`).
-   *
-   * `kind` (roadmap C1, 2026-09-23) picks WHICH embedder `enabled` switches on:
-   *
-   *   - `"voyage"` — the paid remote seat (`models.embed`, `VOYAGE_API_KEY`).
-   *     ABSENT `kind` MEANS THIS, so every configuration written before the
-   *     field existed behaves exactly as it did.
-   *   - `"static"` — the local potion-base-8M table (`core/embed/static.ts`):
-   *     no key, no network, no egress, so `enabled` is not an egress decision
-   *     for it — it is only "use the semantic channel". Its weights come from
-   *     `COUNTERPARTS_STATIC_WEIGHTS_DIR` or the installed
-   *     `counterparts-model-potion` package.
-   *
-   * Read as strictly as `enabled`: a `kind` that is present and not one of the
-   * two stands the whole configuration down, rather than guessing which
-   * provider a typo meant — one guess sends memory text to a third party.
+   * An ABSENT block reads as the table, on (`resolveEmbedder`, roadmap C3);
+   * `{ "enabled": false }` is how somebody says no. `kind` has one value,
+   * `"static"`, and may be left out. It had a second — `"voyage"`, a paid remote
+   * seat — until 2026-09-24; a configuration that still names it gets the local
+   * table and a note in `retired`. Any OTHER kind on an enabled block is still
+   * unreadable rather than guessed at.
    */
   readonly embedder?: { readonly enabled: boolean; readonly kind?: EmbedderKind };
   /**
@@ -367,60 +218,19 @@ export interface AdapterConfig {
     readonly ignored?: readonly string[];
   };
   /**
-   * WHO WRITES UP A SESSION THAT ENDED BEFORE IT WAS WRITTEN UP (roadmap C2,
-   * owner 2026-09-23), and it defaults to the NEXT SESSION in that project.
-   *
-   * Absent (or `"next-session"`) — the keyless default: the SessionStart hook
-   * hands the next session in that directory the ended session's words, beside
-   * its wake, and the assistant writes them up in its own voice through the MCP
-   * door. Nothing leaves the machine beyond what Claude Code already sees.
-   *
-   * `"api"` — the opt-in upgrade: the detached worker's crash-fallback sweep
-   * sends a CRASHED session's captured words to the Anthropic API
-   * (`ANTHROPIC_API_KEY`), as every build before C2 did whenever the key was
-   * present. It runs only when this says `"api"` AND the key is there; a key
-   * alone no longer switches it on, because a key exported for some other tool
-   * must never be what starts shipping this store's words anywhere — the
-   * egress knob's rule (`embedder`). With the sweep on, the next-session ask
-   * leaves crashed sessions to it and writes up only the ones that ended
-   * normally without an answer, which the sweep never touched.
-   *
-   * Read LENIENTLY toward the safe word (PR #192 review, m3): anything but the
-   * two words reads as `next-session` — memory stays on and nothing leaves the
-   * machine — and `crashWriteUpIgnored` names what was ignored, which doctor's
-   * `Crash write-up` line prints. A typo can never resolve to `"api"`, because
-   * the allowlist is exact; strictness bought nothing but a store stood down
-   * to observer for one misspelling, the `pageWriter` block's argument again.
+   * SETTINGS THIS BUILD NO LONGER READS, phrased for a person — e.g.
+   * `"credentialsFile" is no longer used …`. Present only when the file named
+   * one. A REPORT, not a stance: the setting was ignored and nothing else
+   * changed. Doctor prints it as a quiet note, never a warning — a key the
+   * owner's configuration still carries from an older install is not a fault.
    */
-  readonly crashWriteUp?: CrashWriteUpMode;
-  /** What `crashWriteUp` held that was not one of its two words, phrased for a
-   *  person. A REPORT, not a stance: the knob read as `next-session`. */
-  readonly crashWriteUpIgnored?: string;
+  readonly retired?: readonly string[];
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
   readonly observer?: boolean;
   /** The identity core's name is the OWNER's; there is no default. */
   readonly identity?: { readonly name: string; readonly aliases?: readonly string[] };
-}
-
-/** The two values `crashWriteUp` may hold. Absent is `next-session`. */
-export const CRASH_WRITE_UP_MODES = ["next-session", "api"] as const;
-export type CrashWriteUpMode = (typeof CRASH_WRITE_UP_MODES)[number];
-
-/** Who writes up a session that ended unwritten, by the configuration alone. */
-export function crashWriteUpMode(config: AdapterConfig): CrashWriteUpMode {
-  return config.crashWriteUp ?? "next-session";
-}
-
-/**
- * IS THE API SWEEP ON — opted in AND the key present, by PRESENCE only (the
- * value is never read here). The worker asks this before it builds an
- * interpreter; the SessionStart ask asks it to leave crashed sessions to the
- * sweep. One predicate, so the two can never both write one session.
- */
-export function apiSweepOn(config: AdapterConfig, env: NodeJS.ProcessEnv = process.env): boolean {
-  return crashWriteUpMode(config) === "api" && (env[API_KEY_ENV] ?? "").trim().length > 0;
 }
 
 export interface LoadedConfig {
@@ -452,24 +262,26 @@ export function loadConfig(raw: unknown): LoadedConfig {
   const rec = raw as Record<string, unknown>;
   const out: {
     dataDir?: string;
-    credentialsFile?: string;
     injectionBudgetBytes?: number;
     executionCeilingMs?: number;
     socketLifetimeMs?: number;
     watchdogMs?: number;
-    models?: { interpret?: ModelSeat; embed?: ModelSeat };
     embedder?: { enabled: boolean; kind?: EmbedderKind };
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
     pageWriter?: { mode: PageWriterMode; timeoutMs?: number; ignored?: string[] };
-    crashWriteUp?: CrashWriteUpMode;
-    crashWriteUpIgnored?: string;
+    retired?: string[];
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
   } = {};
   let unreadable = false;
   const badKeys: string[] = [];
+  // The settings the keyless build dropped (2026-09-24). Each is IGNORED and
+  // named — never a reason to stand the configuration down, because the owner's
+  // own live configuration carries `credentialsFile` from the install that
+  // wrote it, and an old key must not cost anybody their memory.
+  const retired: string[] = [];
 
   const num = (key: string): number | undefined => {
     const value = rec[key];
@@ -484,11 +296,20 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (typeof rec["dataDir"] === "string") out.dataDir = rec["dataDir"];
   else if (rec["dataDir"] !== undefined) unreadable = true;
 
-  // Validated exactly like `dataDir`, and for the same reason: a path this
-  // package will OPEN is either a string the owner wrote or a configuration we
-  // did not understand, and the second one stands down rather than guessing.
-  if (typeof rec["credentialsFile"] === "string") out.credentialsFile = rec["credentialsFile"];
-  else if (rec["credentialsFile"] !== undefined) unreadable = true;
+  if (rec["credentialsFile"] !== undefined) {
+    const named = typeof rec["credentialsFile"] === "string" ? ` (${rec["credentialsFile"]})` : "";
+    retired.push(
+      `"credentialsFile" is no longer used — Counterparts reads no API keys; the file it names${named} can be deleted`,
+    );
+  }
+  if (rec["models"] !== undefined) {
+    retired.push(`"models" is no longer used — there is no model seat to configure; it was ignored`);
+  }
+  if (rec["crashWriteUp"] !== undefined && rec["crashWriteUp"] !== "next-session") {
+    retired.push(
+      `"crashWriteUp" is no longer used — a session that ended before it was written up is always written up by the next session in its project`,
+    );
+  }
 
   const injection = num("injectionBudgetBytes");
   if (injection !== undefined) out.injectionBudgetBytes = injection;
@@ -507,40 +328,6 @@ export function loadConfig(raw: unknown): LoadedConfig {
     if (typeof rec["observer"] !== "boolean") unreadable = true;
     else out.observer = rec["observer"];
   }
-  // One parser, both seats: a second spelling of "what a seat is" is how the two
-  // knobs drift apart while both look configured (scar §2.15b).
-  const readSeat = (raw: unknown): ModelSeat | undefined => {
-    if (raw === undefined) return undefined;
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-      unreadable = true;
-      return undefined;
-    }
-    const s = raw as Record<string, unknown>;
-    if (typeof s["id"] !== "string" || s["id"].length === 0) {
-      unreadable = true;
-      return undefined;
-    }
-    const parsed: { id: string; placeholder?: boolean; expires?: string } = { id: s["id"] };
-    if (s["placeholder"] === true) parsed.placeholder = true;
-    if (typeof s["expires"] === "string") parsed.expires = s["expires"];
-    return parsed;
-  };
-
-  const models = rec["models"];
-  if (models !== undefined) {
-    if (typeof models !== "object" || models === null || Array.isArray(models)) {
-      unreadable = true;
-    } else {
-      const interpret = readSeat((models as Record<string, unknown>)["interpret"]);
-      const embed = readSeat((models as Record<string, unknown>)["embed"]);
-      if (interpret !== undefined || embed !== undefined) {
-        out.models = {
-          ...(interpret === undefined ? {} : { interpret }),
-          ...(embed === undefined ? {} : { embed }),
-        };
-      }
-    }
-  }
   const embedder = rec["embedder"];
   if (embedder !== undefined) {
     // The egress knob is read STRICTLY. A misspelled or half-written `embedder`
@@ -553,7 +340,14 @@ export function loadConfig(raw: unknown): LoadedConfig {
     const e = (typeof embedder === "object" && embedder !== null && !Array.isArray(embedder)
       ? embedder
       : {}) as Record<string, unknown>;
-    const kind = e["kind"];
+    // `"voyage"` NAMED THE REMOVED SEAT (2026-09-24): read as the local table,
+    // and said so, rather than standing the configuration down over a choice
+    // this build no longer offers.
+    const voyage = e["kind"] === "voyage";
+    if (voyage) {
+      retired.push(`"embedder.kind" "voyage" is no longer available — recall by meaning uses the local table, where nothing leaves this machine`);
+    }
+    const kind = voyage ? "static" : e["kind"];
     const kindOk = kind === undefined || (typeof kind === "string" && (EMBEDDER_KINDS as readonly string[]).includes(kind));
     if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder)) {
       unreadable = true;
@@ -564,29 +358,16 @@ export function loadConfig(raw: unknown): LoadedConfig {
     } else if (e["enabled"] === false) {
       // OFF MEANS OFF, WHATEVER `kind` SAYS (review of #190, MINOR 5). A typo in
       // a knob that is switched off must not stand every memory down: `kind`
-      // chooses between two embedders, and with neither running there is
-      // nothing for it to choose. A valid kind is kept, so switching the
-      // embedder back on keeps the choice; an invalid one is dropped.
+      // chooses an embedder, and with none running there is nothing for it to
+      // choose. A valid kind is kept; an invalid one is dropped.
       out.embedder = { enabled: false, ...(kind !== undefined && kindOk ? { kind: kind as EmbedderKind } : {}) };
     } else if (!kindOk) {
-      // On, and naming neither embedder: unreadable, never a default — one
-      // guess sends memory text to a third party.
+      // On, and naming no embedder this build knows: unreadable, never a
+      // default.
       unreadable = true;
       badKeys.push("embedder.kind");
     } else {
       out.embedder = { enabled: e["enabled"], ...(kind === undefined ? {} : { kind: kind as EmbedderKind }) };
-    }
-  }
-  const crashWriteUp = rec["crashWriteUp"];
-  if (crashWriteUp !== undefined) {
-    // LENIENT TOWARD THE SAFE WORD (m3). An exact-string allowlist, so nothing
-    // but `"api"` itself can turn the egress on; anything else — a typo, a
-    // boolean, `"API"` — reads as the default and is NAMED, never a reason to
-    // stand the whole configuration down. Nothing here sets `unreadable`.
-    if (typeof crashWriteUp === "string" && (CRASH_WRITE_UP_MODES as readonly string[]).includes(crashWriteUp)) {
-      out.crashWriteUp = crashWriteUp as CrashWriteUpMode;
-    } else {
-      out.crashWriteUpIgnored = `crashWriteUp was ${JSON.stringify(crashWriteUp)}, which is neither "api" nor "next-session"; using next-session`;
     }
   }
   const parallel = rec["parallel"];
@@ -624,6 +405,14 @@ export function loadConfig(raw: unknown): LoadedConfig {
   const pageWriter = rec["pageWriter"];
   if (pageWriter !== undefined) {
     out.pageWriter = readPageWriter(pageWriter);
+    // THE CHILD'S COMMAND IS NOT CONFIGURABLE ANY MORE (2026-09-24): a
+    // configuration file that could name the program the worker starts was a
+    // "runs a command named by config" finding. The writer always starts
+    // `claude` (`page-writer.ts#DEFAULT_HOST_COMMAND`); an old key is ignored.
+    const w = pageWriter as Record<string, unknown> | null;
+    if (typeof w === "object" && w !== null && !Array.isArray(w) && w["command"] !== undefined) {
+      retired.push(`"pageWriter.command" is no longer used — the page writer always starts claude`);
+    }
   }
   // THE FIRST LENIENT BLOCK. See the `snapshots` knob above for why: a backup
   // preference that could not be read must cost the backup preference and
@@ -658,6 +447,9 @@ export function loadConfig(raw: unknown): LoadedConfig {
       ...(badKeys.length === 0 ? {} : { unreadableKeys: badKeys }),
     };
   }
+  // A longer line cap than the lenient blocks': these phrases are this file's
+  // own words plus, at most, the one path the owner wrote.
+  if (retired.length > 0) out.retired = tidy(retired, RETIRED_LINE_CHARS);
   return { config: out, ok: true, reason: "loaded" };
 }
 
@@ -665,7 +457,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
  * THE FALLBACK MODE, and it is never `host`.
  *
  * A block this could not read resolves to the mode that needs no background
- * process, no credential and no watchdog. "Fall back to the safe thing" and
+ * process and no watchdog. "Fall back to the safe thing" and
  * "fall back to the default" happen to be the same value today; they are
  * written as one constant so they stay the same value if the default moves.
  */
@@ -699,13 +491,6 @@ function readPageWriter(raw: unknown): {
       `"pageWriter.mode" was ${JSON.stringify(mode)}, which is not ${PAGE_WRITER_MODES.join(", ")}; using ${PAGE_WRITER_FALLBACK_MODE}`,
     );
   }
-  // THE CHILD'S COMMAND IS NOT CONFIGURABLE ANY MORE (2026-09-24): a
-  // configuration file that could name the program the worker starts was a
-  // "runs a command named by config" finding. The writer always starts
-  // `claude` (`page-writer.ts#DEFAULT_HOST_COMMAND`); an old key is ignored.
-  if (w["command"] !== undefined) {
-    raws.push(`"pageWriter.command" is no longer used — the page writer always starts claude`);
-  }
   const timeoutMs = w["timeoutMs"];
   if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
     out.timeoutMs = timeoutMs;
@@ -714,6 +499,7 @@ function readPageWriter(raw: unknown): {
   }
   // A key nobody here knows is named rather than passed over: a person who
   // typed `"modes"` gets told so instead of watching the block do nothing.
+  // (`command` is named by `loadConfig`, among the retired settings.)
   for (const key of Object.keys(w)) {
     if (key !== "mode" && key !== "command" && key !== "timeoutMs") {
       raws.push(`"pageWriter.${key}" is not a setting this reads; it was ignored`);
@@ -735,6 +521,8 @@ function readPageWriter(raw: unknown): {
 /** How much of one ignored line, and how many lines, ever leave this function. */
 const IGNORED_LINE_CHARS = 120;
 const IGNORED_LINES = 8;
+/** The cap for a `retired` line (see `loadConfig`). */
+const RETIRED_LINE_CHARS = 240;
 
 /**
  * The `ignored` phrases, made safe to print.
@@ -746,12 +534,10 @@ const IGNORED_LINES = 8;
  * the list is capped — sanitized HERE, at the one place the phrases are made,
  * rather than at each of the surfaces that print them.
  */
-function tidy(lines: readonly string[]): string[] {
+function tidy(lines: readonly string[], lineChars: number = IGNORED_LINE_CHARS): string[] {
   const clean = lines.map((line) => {
     const stripped = line.replace(/[\u0000-\u001f\u007f]/g, "");
-    return stripped.length > IGNORED_LINE_CHARS
-      ? `${stripped.slice(0, IGNORED_LINE_CHARS - 1)}…`
-      : stripped;
+    return stripped.length > lineChars ? `${stripped.slice(0, lineChars - 1)}…` : stripped;
   });
   if (clean.length <= IGNORED_LINES) return clean;
   return [
@@ -821,17 +607,6 @@ function readSnapshots(raw: unknown): {
 }
 
 /**
- * The capability report — one row per host-dependent limit, each saying whether
- * the host actually reported it. This is the "surfaced as a checkable value"
- * half of §4 G4; the "exceeding one is an event" half lives at the call sites.
- *
- * The credential row also says WHICH SOURCE ANSWERED. `load` is the result of
- * this process's `loadCredentials` call, passed in rather than looked up: the
- * provenance of a credential is a fact about one process's startup, and a module
- * that remembered it globally would leak between the runs of a test suite and
- * lie about which source answered.
- */
-/**
  * WHICH MODE THE NIGHTLY PAGE WRITER RUNS IN — the one place the default lives.
  *
  * Absent ⇒ `session`: the fallback that needs no background process, so a store
@@ -845,16 +620,12 @@ export function pageWriterMode(config: AdapterConfig): PageWriterMode {
   return config.pageWriter?.mode ?? "session";
 }
 
-export function capabilities(
-  config: AdapterConfig,
-  env: NodeJS.ProcessEnv = process.env,
-  load?: CredentialLoad,
-): CapabilityReport[] {
-  const key = env[API_KEY_ENV];
-  const present = key !== undefined && key.trim().length > 0;
-  // Name-level only. "Which source" is the whole answer; the value never
-  // reaches this function's output in any form.
-  const source = !present ? "absent" : load?.loaded.includes(API_KEY_ENV) === true ? "file" : "env";
+/**
+ * The capability report — one row per host-dependent limit, each saying whether
+ * the host actually reported it. This is the "surfaced as a checkable value"
+ * half of §4 G4; the "exceeding one is an event" half lives at the call sites.
+ */
+export function capabilities(config: AdapterConfig): CapabilityReport[] {
   return [
     {
       name: "injectionBudgetBytes",
@@ -874,86 +645,15 @@ export function capabilities(
       value: config.socketLifetimeMs ?? null,
       why: "Why long calls stream (scar E3, rescoped to the adapter that owns the host).",
     },
-    {
-      name: "credential",
-      reported: key !== undefined,
-      value: present,
-      why: "The detached worker starved for two days on a credential it expected to inherit (scar E4).",
-      detail: source,
-    },
   ];
-}
-
-/** The seat, and whether its identifier is a decision or a silence. */
-export function seatStatus(
-  name: string,
-  seat: ModelSeat | undefined,
-  today: string,
-  /** The pinned id this seat falls back to when the host configured none. */
-  fallbackId: string = DEFAULT_INTERPRET_MODEL,
-): SeatVerdict {
-  const resolved: ModelSeat = seat ?? { id: fallbackId };
-  if (resolved.placeholder !== true) {
-    return { seat: name, id: resolved.id, status: "pinned", usable: true };
-  }
-  if (resolved.expires === undefined) {
-    // A placeholder with no expiry is precisely the thing that becomes
-    // production by silence. It is refused, not warned about.
-    return { seat: name, id: resolved.id, status: "unbounded-placeholder", usable: false };
-  }
-  if (today > resolved.expires) {
-    return { seat: name, id: resolved.id, status: "expired", usable: false };
-  }
-  return { seat: name, id: resolved.id, status: "placeholder", usable: true };
-}
-
-/** The interpreter seat, resolved. One seat, one knob (scar §2.15b). */
-export function interpretSeat(config: AdapterConfig, today: string): SeatVerdict {
-  return seatStatus("interpret", config.models?.interpret, today);
-}
-
-/** The embedder seat, resolved. Its own knob, its own pinned default. */
-export function embedSeat(config: AdapterConfig, today: string): SeatVerdict {
-  return seatStatus("embed", config.models?.embed, today, DEFAULT_EMBED_MODEL);
-}
-
-/**
- * Is the embedder switched on, and is its credential present? Both halves are
- * REPORTED rather than inferred, so "the owner said no" and "the owner said yes
- * and the key is missing" are different records — the second is a refusal worth
- * an event, the first is not (scar §2.4).
- */
-export function embedderState(
-  config: AdapterConfig,
-  env: NodeJS.ProcessEnv = process.env,
-): {
-  readonly enabled: boolean;
-  readonly credential: boolean;
-} {
-  const key = env[EMBED_KEY_ENV];
-  return {
-    enabled: config.embedder?.enabled === true,
-    credential: key !== undefined && key.trim().length > 0,
-  };
-}
-
-/**
- * Which embedder `embedder.enabled` switches on. Absent `kind` is `"voyage"`:
- * the one embedder that existed before the field did, so an old configuration
- * reads the way it always has.
- */
-export function embedderKind(config: AdapterConfig): EmbedderKind {
-  return config.embedder?.kind ?? "voyage";
 }
 
 /** Where an effective embedder block came from (`resolveEmbedder`). */
 export type EmbedderSource =
   /** The configuration names one — on or off, either kind. Used as written. */
   | "explicit"
-  /** No block, no Voyage key saved: the local table, switched on. */
+  /** No block: the local table, switched on. */
   | "default-static"
-  /** No block, and the credentials file holds `VOYAGE_API_KEY`: off, as 0.2.0 read it. */
-  | "absent-voyage-key"
   /** No block, and the configuration is an observer's: nothing is assumed. */
   | "absent-observer";
 
@@ -968,43 +668,30 @@ export const DEFAULT_EMBEDDER: { readonly enabled: true; readonly kind: "static"
  * ruling 2026-09-23).
  *
  * Absent used to mean OFF, for a privacy reason: the only embedder was a paid
- * third party, and a key in the environment must never start shipping memory
- * text anywhere. The local table has no egress, so that reason is gone — and a
- * 0.2.0 configuration (every one written before this, the owner's included)
- * has no block at all. So an absent block now reads as the local table, ON:
+ * third party. The local table has no egress, so that reason is gone — and a
+ * configuration written before C3 has no block at all. So:
  *
  *   - **A block the file writes is used exactly as written** (`explicit`),
  *     `{ "enabled": false }` included — that is how somebody says no.
- *   - **No block, no Voyage key saved** → `{ enabled: true, kind: "static" }`.
- *   - **No block, and the credentials FILE holds `VOYAGE_API_KEY`** → nothing,
- *     as before: a 0.2.0 install that saved a Voyage key and never switched the
- *     paid embedder on made a decision, and this does not second-guess it.
- *     Doctor says so, and names the command that turns the table on.
+ *   - **No block** → `{ enabled: true, kind: "static" }`.
  *   - **An observer** gets nothing assumed — it opens no embedder anyway, and
  *     an unreadable configuration resolves to one.
  *
- * WHY IT SITS BESIDE `loadConfig` AND NOT INSIDE IT. The decision needs the
- * credentials FILE, and the file is named BY the configuration: every entry
- * point runs `loadConfig` → `loadCredentials(config.credentialsFile)` → this.
- * It takes a boolean rather than a `CredentialLoad` because `credentials.ts`
- * imports from this module. "Saved" means THE FILE holds it (`loaded` or
- * `skippedPresent`), never `process.env`: a hook inherits no shell, and a rule
- * that read the environment could leave the hooks on the table and the MCP
- * server off it on one machine. `loadConfig` stays strict and pure.
+ * (Until 2026-09-24 a saved Voyage key kept an absent block off; there are no
+ * keys any more, so there is no such exception.) `loadConfig` stays strict and
+ * pure; every entry point applies this after it.
  */
 export function resolveEmbedder(
   config: AdapterConfig,
-  voyageKeySaved: boolean,
 ): { block: { enabled: boolean; kind?: EmbedderKind } | undefined; source: EmbedderSource } {
   if (config.embedder !== undefined) return { block: config.embedder, source: "explicit" };
   if (config.observer === true) return { block: undefined, source: "absent-observer" };
-  if (voyageKeySaved) return { block: undefined, source: "absent-voyage-key" };
   return { block: { ...DEFAULT_EMBEDDER }, source: "default-static" };
 }
 
 /** The configuration with its effective embedder block — `resolveEmbedder`,
- *  applied. What each entry point hands on after loading its credentials. */
-export function withEmbedderDefault(config: AdapterConfig, voyageKeySaved: boolean): AdapterConfig {
-  const { block, source } = resolveEmbedder(config, voyageKeySaved);
+ *  applied. What each entry point hands on after reading its configuration. */
+export function withEmbedderDefault(config: AdapterConfig): AdapterConfig {
+  const { block, source } = resolveEmbedder(config);
   return source === "explicit" || block === undefined ? config : { ...config, embedder: block };
 }
