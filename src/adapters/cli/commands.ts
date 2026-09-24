@@ -4930,7 +4930,9 @@ function plainLine(text: string): string {
  */
 export function askGist(title: string | null, body: string): string {
   const titled = title === null ? "" : plainLine(readChapterLead(title).rest);
-  const said = titled.length > 0 ? titled : plainLine(readChapterLead(body).rest);
+  const words = titled.length > 0 ? titled : plainLine(readChapterLead(body).rest);
+  // A row that is ONLY a heading still gets a line: the heading, plainly.
+  const said = words.length > 0 ? words : plainLine(title ?? body);
   return said.length <= ASK_GIST_CHARS ? said : `${said.slice(0, ASK_GIST_CHARS).trimEnd()}…`;
 }
 

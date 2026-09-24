@@ -171,6 +171,8 @@ describe("ask is short by default", () => {
     // Other markdown headings lose their marks, not their words.
     expect(askGist(null, "# The plan\n\n### step one\nread it")).toBe("The plan step one read it");
     expect(askGist("## A titled chapter", "## chapter 1 — lived day 0\n\nbody")).toBe("A titled chapter");
+    // A heading and nothing else still gets a line rather than a blank.
+    expect(askGist(null, "## chapter 1 — lived day 0\n")).toBe("chapter 1 — lived day 0");
     // Words that merely mention a chapter are left alone.
     expect(askGist(null, "chapter 3 of the book was slow")).toBe("chapter 3 of the book was slow");
   });
