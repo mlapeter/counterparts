@@ -1350,12 +1350,19 @@ and finalization would have touched every call site in this module.
   connection). The first cut folded on every writable close and broke three dry-run
   suites' byte fingerprints: a writable handle that only read was moving the file's
   bytes by folding a log some other process left. That log is its writer's to fold.
+  **This is a deviation from "a clean close checkpoints", taken on purpose.** Two
+  consequences: `total_changes()` also counts rows a later ROLLBACK undid, so a handle
+  that wrote and rolled back still folds (the pre-gate behaviour, harmless); and if the
+  last writer to a store CRASHES, its log stays until the next handle that writes
+  closes — the hooks write every turn, so in practice that is one turn.
 - **Never under observer** — a checkpoint changes the canonical file's bytes, and the
   byte-identity suites hash file-plus-`-wal` around an instrument (§8).
 - **Never waits.** RESTART/TRUNCATE run the busy handler while readers stand in the log,
   and this connection's is 5 s. Measured: with a reader holding a snapshot and the
-  timeout left in place, `close()` took 5.3 s. So the timeout goes to 0 first (the
-  handle is closing; nothing runs on it after), and a contended fold degrades to
+  timeout left in place, `close()` took 5.3 s, and the same against a writer holding
+  `BEGIN IMMEDIATE`. So the timeout goes to 0 for the checkpoint (the
+  timeout is restored in a `finally`, so a caller that keeps using the handle has not
+  lost I39's wait), and a contended fold degrades to
   PASSIVE: every frame the readers allow is copied, `busy: true` is reported, the log
   keeps its size, and the next writer's close finishes it. Nothing is lost.
 - **Never throws.** Any throw is caught into `WalFold.error`; one

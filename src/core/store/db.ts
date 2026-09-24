@@ -229,7 +229,7 @@ export interface WalFold {
  * for readers to leave the log, and this connection's handler waits
  * `BUSY_TIMEOUT_MS`. A hook closing while the MCP server or the worker held a
  * read snapshot would stall for five seconds. So the timeout goes to ZERO first
- * — this handle is about to close, nothing after this runs on it — and a
+ * for the fold only (it is put back afterwards) — and a
  * contended fold degrades to what SQLite calls PASSIVE: it copies every frame it
  * can without blocking, reports `busy`, and the next writer's close (or
  * SQLite's own auto-checkpoint) finishes the job. Nothing is lost either way;
@@ -247,7 +247,12 @@ export function foldWal(db: Db): WalFold {
     db.exec("PRAGMA busy_timeout = 0");
     const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
     if (row === undefined) return { busy: true, log: -1, checkpointed: -1, error: "no row" };
-    const [busy, log, checkpointed] = Object.values(row);
+    // SQLite names the three columns `busy`, `log`, `checkpointed`; by position
+    // as the fallback, which is how `cli/removal.ts` has always read the first.
+    const at = Object.values(row);
+    const busy = row["busy"] ?? at[0];
+    const log = row["log"] ?? at[1];
+    const checkpointed = row["checkpointed"] ?? at[2];
     return { busy: busy !== 0, log: Number(log ?? -1), checkpointed: Number(checkpointed ?? -1) };
   } catch (err) {
     const code = (err as { code?: unknown } | null | undefined)?.code;
@@ -257,6 +262,14 @@ export function foldWal(db: Db): WalFold {
       checkpointed: -1,
       error: typeof code === "string" ? code : String((err as Error)?.message ?? err),
     };
+  } finally {
+    // Put the wait back, so a caller that runs another statement on this handle
+    // after the fold has not silently lost I39's timeout.
+    try {
+      db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    } catch {
+      /* a closed handle has no timeout to restore */
+    }
   }
 }
 

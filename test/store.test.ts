@@ -2453,6 +2453,41 @@ describe("a writer's clean close folds the write-ahead log", () => {
     expect(folds(next)[0]).toEqual({ box: "store", busy: false, log: 0, checkpointed: 0 });
   });
 
+  test("a WRITER mid-transaction makes the fold partial too — close neither waits nor throws", () => {
+    const s = store();
+    seed(s, 100);
+    // The worker or the MCP server inside a commit: a held write lock.
+    const other = openDb(paths.operational(dir));
+    other.exec("BEGIN IMMEDIATE");
+    other.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "held", "mid-commit");
+
+    const t0 = performance.now();
+    expect(() => s.close()).not.toThrow();
+    expect(performance.now() - t0).toBeLessThan(BUSY_TIMEOUT_MS / 5);
+    expect(folds(s)[0]).toMatchObject({ box: "store", busy: true });
+    expect(walOf(paths.operational(dir))).toBeGreaterThan(0);
+
+    // The other writer commits, and nothing of either is lost.
+    other.exec("COMMIT");
+    const next = store();
+    expect(next.countMemories()).toBe(100);
+    expect(next.getMeta("held")).toBe("mid-commit");
+    next.put(mem("one more"));
+    next.close();
+    other.close();
+    expect(walOf(paths.operational(dir))).toBe(0);
+    expect(folds(next)[0]).toEqual({ box: "store", busy: false, log: 0, checkpointed: 0 });
+  });
+
+  test("foldWal puts the busy timeout back, so a handle used afterwards still waits", () => {
+    const db = openDb(join(scratch(), "restored.sqlite"), { wal: true });
+    db.exec("CREATE TABLE t (x)");
+    db.run("INSERT INTO t VALUES (1)");
+    expect(foldWal(db)).toEqual({ busy: false, log: 0, checkpointed: 0 });
+    expect(db.get<{ timeout: number }>("PRAGMA busy_timeout")?.timeout).toBe(BUSY_TIMEOUT_MS);
+    db.close();
+  });
+
   test("foldWal never throws, and on a file not in WAL it does nothing", () => {
     const plain = openDb(join(scratch(), "plain.sqlite"));
     plain.exec("CREATE TABLE t (x)");
