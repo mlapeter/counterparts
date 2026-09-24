@@ -359,12 +359,6 @@ export interface AdapterConfig {
    */
   readonly pageWriter?: {
     readonly mode: PageWriterMode;
-    /**
-     * The host CLI to launch in `host` mode. Absent ⇒ `claude`, resolved on the
-     * child's PATH. Named here because the one machine this has to work on is
-     * the owner's, and because a test proves the whole path against a stub.
-     */
-    readonly command?: string;
     /** The watchdog for that child, ms. Absent ⇒ `TUNABLES.PAGE_WRITER_MS`. */
     readonly timeoutMs?: number;
     /** What this file could not read inside the block, phrased for a person.
@@ -467,7 +461,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     embedder?: { enabled: boolean; kind?: EmbedderKind };
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
-    pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number; ignored?: string[] };
+    pageWriter?: { mode: PageWriterMode; timeoutMs?: number; ignored?: string[] };
     crashWriteUp?: CrashWriteUpMode;
     crashWriteUpIgnored?: string;
     owner?: boolean;
@@ -683,12 +677,11 @@ export const PAGE_WRITER_FALLBACK_MODE: PageWriterMode = "session";
  */
 function readPageWriter(raw: unknown): {
   mode: PageWriterMode;
-  command?: string;
   timeoutMs?: number;
   ignored?: string[];
 } {
   const raws: string[] = [];
-  const out: { mode: PageWriterMode; command?: string; timeoutMs?: number } = {
+  const out: { mode: PageWriterMode; timeoutMs?: number } = {
     mode: PAGE_WRITER_FALLBACK_MODE,
   };
   const done = (): typeof out & { ignored?: string[] } =>
@@ -706,10 +699,12 @@ function readPageWriter(raw: unknown): {
       `"pageWriter.mode" was ${JSON.stringify(mode)}, which is not ${PAGE_WRITER_MODES.join(", ")}; using ${PAGE_WRITER_FALLBACK_MODE}`,
     );
   }
-  const command = w["command"];
-  if (typeof command === "string" && command.trim().length > 0) out.command = command.trim();
-  else if (command !== undefined) {
-    raws.push(`"pageWriter.command" was ${JSON.stringify(command)}; using the default host command`);
+  // THE CHILD'S COMMAND IS NOT CONFIGURABLE ANY MORE (2026-09-24): a
+  // configuration file that could name the program the worker starts was a
+  // "runs a command named by config" finding. The writer always starts
+  // `claude` (`page-writer.ts#DEFAULT_HOST_COMMAND`); an old key is ignored.
+  if (w["command"] !== undefined) {
+    raws.push(`"pageWriter.command" is no longer used — the page writer always starts claude`);
   }
   const timeoutMs = w["timeoutMs"];
   if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {

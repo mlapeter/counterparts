@@ -74,7 +74,14 @@ export { PAGE_WRITER_ENV } from "../sessions.js";
  */
 export const PERMISSION_MODE = "default";
 
-/** The host CLI, when the configuration names none. Resolved on the child's PATH. */
+/**
+ * The host CLI the writer starts — always this one, resolved on the child's
+ * PATH. It used to be overridable by `pageWriter.command` in the configuration;
+ * that key was removed on 2026-09-24 ("runs a command named by config" was a
+ * supply-chain scanner's finding, and the only user of the knob was the test
+ * suite). A configuration that still carries it is read with the key ignored
+ * and named (`config.ts#loadConfig`).
+ */
 export const DEFAULT_HOST_COMMAND = "claude";
 
 export type PageWriterRefusal =
@@ -106,6 +113,13 @@ export interface PageWriterPlanInput {
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
   /** The configuration file the parent read, pinned so parent and child agree. */
   readonly configPath?: string;
+  /**
+   * TESTS ONLY: the program to start instead of `DEFAULT_HOST_COMMAND`, so the
+   * whole path can be proved against a stub. Only code can pass it — nothing in
+   * a configuration file or the environment reaches this field, and no
+   * production caller sets it.
+   */
+  readonly command?: string;
 }
 
 /**
@@ -117,7 +131,7 @@ export interface PageWriterPlanInput {
  */
 export function planPageWriter(input: PageWriterPlanInput): PageWriterPlan {
   const timeoutMs = input.config.pageWriter?.timeoutMs ?? TUNABLES.PAGE_WRITER_MS;
-  const command = input.config.pageWriter?.command ?? DEFAULT_HOST_COMMAND;
+  const command = input.command ?? DEFAULT_HOST_COMMAND;
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(input.baseEnv ?? process.env)) {
     if (v !== undefined) env[k] = v;
@@ -205,6 +219,8 @@ export async function runPageWriter(opts: {
   configPath?: string;
   baseEnv?: Readonly<Record<string, string | undefined>>;
   start?: PageWriterStarter;
+  /** TESTS ONLY — see `PageWriterPlanInput.command`. */
+  command?: string;
   /**
    * THE WORKER'S OWN WATCHDOG, and it outranks this one.
    *
@@ -254,6 +270,7 @@ export async function runPageWriter(opts: {
     prompt,
     ...(opts.baseEnv === undefined ? {} : { baseEnv: opts.baseEnv }),
     ...(opts.configPath === undefined ? {} : { configPath: opts.configPath }),
+    ...(opts.command === undefined ? {} : { command: opts.command }),
   });
   if (!plan.ok) {
     record(counterpart, { about, outcome: "failed", detail: plan.reason, considered, omitted });
