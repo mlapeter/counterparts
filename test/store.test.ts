@@ -1253,6 +1253,93 @@ describe("revision + bounded versioning", () => {
   });
 });
 
+// ── box 2's log, read the way an instrument asks it (cli §10/§11, dashboard §5) ──
+
+describe("event log reads: newest first, counted by name", () => {
+  test("order: desc returns the NEWEST rows, where an ascending LIMIT returns the oldest (cli §10)", () => {
+    const s = store();
+    const seqs: number[] = [];
+    for (let i = 0; i < 7; i++) seqs.push(s.appendEvent({ name: "sleep.cycle", day: i, payload: { i } }));
+    s.appendEvent({ name: "other", day: 9 });
+
+    // The trap §10 names: a full ascending window does not contain the newest.
+    expect(s.eventLog({ name: "sleep.cycle", limit: 3 }).map((r) => r.seq)).toEqual(seqs.slice(0, 3));
+    // Newest first, in the order asked for.
+    expect(s.eventLog({ name: "sleep.cycle", order: "desc", limit: 3 }).map((r) => r.seq)).toEqual(
+      seqs.slice(4).reverse(),
+    );
+    // "The newest row of this name" is one query.
+    const newest = s.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 });
+    expect(newest.length).toBe(1);
+    expect(newest[0]?.seq).toBe(seqs[6]);
+    expect(JSON.parse(newest[0]?.payload ?? "{}")).toEqual({ i: 6 });
+    // The other filters compose with it; the default is unchanged.
+    expect(s.eventLog({ name: "sleep.cycle", sinceDay: 5, order: "desc" }).map((r) => r.day)).toEqual([6, 5]);
+    expect(s.eventLog({ order: "asc", limit: 2 }).map((r) => r.seq)).toEqual(seqs.slice(0, 2));
+    expect(s.eventLog({ name: "never.written", order: "desc", limit: 1 })).toEqual([]);
+  });
+
+  test("eventCounts groups in SQL: every name once, its count and its newest, sorted by name", () => {
+    let clock = 1_000_000;
+    const s = store({ now: () => clock });
+    const bump = (name: string, day: number): number => {
+      clock += 1000;
+      return s.appendEvent({ name, day });
+    };
+    bump("b.second", 0);
+    bump("a.first", 0);
+    bump("b.second", 1);
+    bump("c.third", 2);
+    bump("b.second", 3);
+    const lastA = bump("a.first", 4);
+    const atOfLastA = clock;
+
+    expect(s.eventCounts()).toEqual([
+      { name: "a.first", count: 2, newestAt: atOfLastA, newestDay: 4, newestSeq: lastA },
+      { name: "b.second", count: 3, newestAt: atOfLastA - 1000, newestDay: 3, newestSeq: lastA - 1 },
+      { name: "c.third", count: 1, newestAt: atOfLastA - 2000, newestDay: 2, newestSeq: lastA - 2 },
+    ]);
+    // Agrees with the row-by-row count it replaces.
+    for (const c of s.eventCounts()) expect(s.eventLog({ name: c.name, limit: 10_000 }).length).toBe(c.count);
+
+    // Bounded by lived day: a name with nothing in the window is ABSENT, not zero.
+    expect(s.eventCounts({ sinceDay: 2 }).map((c) => [c.name, c.count])).toEqual([
+      ["a.first", 1],
+      ["b.second", 1],
+      ["c.third", 1],
+    ]);
+    expect(s.eventCounts({ sinceDay: 4 }).map((c) => [c.name, c.count])).toEqual([["a.first", 1]]);
+    // …and by wall clock: the last three appends.
+    expect(s.eventCounts({ sinceAt: atOfLastA - 2000 }).map((c) => [c.name, c.count])).toEqual([
+      ["a.first", 1],
+      ["b.second", 1],
+      ["c.third", 1],
+    ]);
+    expect(s.eventCounts({ sinceDay: 0, sinceAt: atOfLastA - 1000 }).map((c) => c.name)).toEqual([
+      "a.first",
+      "b.second",
+    ]);
+    expect(s.eventCounts({ sinceDay: 99 })).toEqual([]);
+
+    // The distinct-name read (dashboard §5).
+    expect(s.eventNames()).toEqual(["a.first", "b.second", "c.third"]);
+  });
+
+  test("an empty log counts to nothing, and both reads are open to an observer and write nothing", () => {
+    const empty = store();
+    expect(empty.eventCounts()).toEqual([]);
+    expect(empty.eventNames()).toEqual([]);
+    empty.appendEvent({ name: "x.y", day: 0 });
+    empty.close();
+
+    const obs = store({ observer: true });
+    expect(obs.eventCounts().map((c) => [c.name, c.count])).toEqual([["x.y", 1]]);
+    expect(obs.eventNames()).toEqual(["x.y"]);
+    expect(obs.eventLog({ order: "desc", limit: 1 })[0]?.name).toBe("x.y");
+    expect(obs.events("store.observer.standdown")).toEqual([]);
+  });
+});
+
 // ── box 3: the rebuildable cache ─────────────────────────────────────────────
 
 describe("box 3 — deleting the cache loses nothing canonical", () => {

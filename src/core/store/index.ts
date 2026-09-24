@@ -312,6 +312,30 @@ export interface EventPruneReport extends PruneReport {
  * and what an observer's cycle report is computed from. Every number here is a
  * read; nothing in it crosses the write seam.
  */
+/** What `eventLog` selects on. `order` defaults to `"asc"` (oldest first). */
+export interface EventLogFilter {
+  name?: string;
+  ref?: string;
+  sinceDay?: number;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
+/**
+ * One row of `eventCounts`: a name, how many rows of it the window holds, and
+ * the newest of them — by wall clock (`newestAt`, epoch ms), by lived day
+ * (`newestDay`) and by `seq` (`newestSeq`, the one to fetch it by). Each is the
+ * MAX of its own column, so they need not come from the same row if a clock
+ * was ever set back; `newestSeq` is the one that is always the last appended.
+ */
+export interface EventCount {
+  name: string;
+  count: number;
+  newestAt: number;
+  newestDay: number;
+  newestSeq: number;
+}
+
 export interface EventLogCensus {
   /** Rows held, latched and unlatched. */
   rows: number;
@@ -1561,8 +1585,16 @@ export class Store {
     return seq;
   }
 
-  /** Oldest first, so a story reads in the order it happened. */
-  eventLog(filter: { name?: string; ref?: string; sinceDay?: number; limit?: number } = {}): EventRow[] {
+  /**
+   * Oldest first by default, so a story reads in the order it happened.
+   *
+   * `order: "desc"` is NEWEST first (cli INTERFACE-GAPS §10): with a `limit`, an
+   * ascending read is the OLDEST N rows, so "the newest row of this name" was not
+   * a query — a caller that took `rows.at(-1)` off a full window was reading last
+   * week. `eventLog({ name, order: "desc", limit: 1 })` is that row, exactly.
+   * Rows come back in the order asked for; nothing is re-sorted after the LIMIT.
+   */
+  eventLog(filter: EventLogFilter = {}): EventRow[] {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (filter.name !== undefined) {
@@ -1580,8 +1612,58 @@ export class Store {
     const sql =
       "SELECT * FROM events" +
       (where.length === 0 ? "" : ` WHERE ${where.join(" AND ")}`) +
-      " ORDER BY seq ASC LIMIT ?";
+      ` ORDER BY seq ${filter.order === "desc" ? "DESC" : "ASC"} LIMIT ?`;
     return this.ops.all<EventRow>(sql, ...args, filter.limit ?? 500);
+  }
+
+  /**
+   * THE LOG COUNTED BY NAME, in SQL — one `GROUP BY`, no row leaves the
+   * database (cli INTERFACE-GAPS §11, dashboard INTERFACE-GAPS §5).
+   *
+   * Sorted by name. Every name present in the window appears exactly once, so
+   * this is also the distinct-name read: a writer that appended a name no
+   * registry knows shows up here rather than going unlisted. A name with no
+   * rows in the window is ABSENT, not zero — a caller rendering a vocabulary
+   * looks its names up and reads a miss as never.
+   *
+   * `sinceDay` bounds on the LIVED-day column (`day >= ?`, as `eventLog` does);
+   * `sinceAt` on the wall clock the row was written at (`at >= ?`, epoch ms).
+   * Both may be given. Neither reads a payload: a count by a calendar date some
+   * payloads carry (`adapters/fired.ts` dates rows by `payload.date`) is not a
+   * column and is not answered here.
+   *
+   * READ-ONLY: never enters `mutate`, so an observer may ask it.
+   */
+  eventCounts(filter: { sinceDay?: number; sinceAt?: number } = {}): EventCount[] {
+    const where: string[] = [];
+    const args: number[] = [];
+    if (filter.sinceDay !== undefined) {
+      where.push("day >= ?");
+      args.push(filter.sinceDay);
+    }
+    if (filter.sinceAt !== undefined) {
+      where.push("at >= ?");
+      args.push(filter.sinceAt);
+    }
+    const rows = this.ops.all<{ name: string; n: number; newest_at: number; newest_day: number; newest_seq: number }>(
+      "SELECT name, COUNT(*) AS n, MAX(at) AS newest_at, MAX(day) AS newest_day, MAX(seq) AS newest_seq" +
+        " FROM events" +
+        (where.length === 0 ? "" : ` WHERE ${where.join(" AND ")}`) +
+        " GROUP BY name ORDER BY name",
+      ...args,
+    );
+    return rows.map((r) => ({
+      name: r.name,
+      count: r.n,
+      newestAt: r.newest_at,
+      newestDay: r.newest_day,
+      newestSeq: r.newest_seq,
+    }));
+  }
+
+  /** Every event name the log holds, sorted. `eventCounts()` without the counts. */
+  eventNames(): string[] {
+    return this.ops.all<{ name: string }>("SELECT DISTINCT name FROM events ORDER BY name").map((r) => r.name);
   }
 
   /**
