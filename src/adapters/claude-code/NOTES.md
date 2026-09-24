@@ -536,6 +536,13 @@ notices.
 Amber on two comparisons — the day's cap refusing more asks than it raises, the fallback
 out-writing the author — and never red: this is a balance, not a fault.
 
+**Since 2026-09-24, amber only on a loss:** a session that owes a write-up (B3's predicate,
+the count the `Crash write-up` line shows) still unwritten past `WRITE_UP_WAIT_DAYS`. The
+two ratios became plain counts in the detail — a refused ask is not a lost session, and the
+"too new to grade" clamp went with them. The owed reading walks every scope's words, so it
+is read once per doctor run, shared with `Crash write-up`, and skipped by the budgeted
+session-start reading (there the line is counts only).
+
 ## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
 
 Five findings, and four of them are one mistake wearing different clothes: the
@@ -1098,17 +1105,17 @@ unchanged) → metadata → the new text markers → conversation.
   own `PreToolUse hook error` mid-sentence is still speaking (review m1). `hook error`
   frames are deliberately not markers, for that reason.
 - **The assistant's text is never reclassified by a marker** (review m2): a reply that
-  explains `<task-notification>` or quotes the ask's opener paces and earns recall credit
-  exactly as on master. Only an entry the metadata says the host synthesised changes.
+  explains `<task-notification>` or quotes the ask's opener stays `conversation` and earns
+  recall credit exactly as on master. Only an entry the metadata says the host synthesised
+  changes.
 - The own-ask rule (`OWN_ASK`) applies only when the metadata says the HOST wrote the
   line, never to an entry with none.
 - A line that is JSON but not an object (`null`, a number, an array) is counted as
   `corrupt` and skipped; before this it threw, which lost the boundary's capture (review
   m5, pre-existing on master).
 
-**Unchanged on purpose:** the assistant's real replies still pace. The pacer has always
-counted both roles' conversation, and counting the person alone would have moved the
-thresholds, which this round does not do.
+**Changed the next day (2026-09-24):** the assistant's replies no longer count as turns —
+see "Pacing counts typed turns" below.
 
 **A gap left open:** an `<agent-message>` hand-back gets no `attributePeers` rewrite, so
 capture keeps its wrapper verbatim, labelled only by `injected`. It is out of pacing
@@ -1223,8 +1230,8 @@ looked, npm users get it. Say so in the release notes, or cut after the look.
    re-reads the file, so a change applies at the next Stop with no restart.
 2. Start a fresh Claude Code session in any directory and send one prompt that earns
    the first ask in a single turn, e.g. *"Write a 2,500-word short story about a
-   lighthouse keeper."* (The first ask fires at ≥6 turns and ≥4,000 bytes, or at
-   ≥12,000 bytes alone; a 2,500-word reply is about 14,000.)
+   lighthouse keeper."* (The first ask fires at 6 typed turns or 12,000 bytes of text;
+   a 2,500-word reply is about 14,000.)
 3. When the reply ends, look at the terminal under it. (The host does not promise the
    final reply is in the transcript file at Stop time on every version; if nothing
    shows after the story, send `thanks` and look under that reply instead.)
@@ -1271,8 +1278,8 @@ durable event row: a new durable event name is a core change (`AdapterDurableEve
 
 It cannot cause an immediate re-ask, and nothing had to change for that:
 `self/index.ts#openChapter` commits `askedAtTurns`/`askedAtBytes` when the ask goes OUT,
-so the next Stop sees only the answer's own small reply against the ≥8 turns AND ≥8,000
-bytes a re-ask needs. `test/stop-ask-quiet.test.ts` walks it: ask, `memories: []`, next
+so the next Stop sees only the answer's own small reply against the 8 typed turns or
+24,000 bytes a re-ask needs. `test/stop-ask-quiet.test.ts` walks it: ask, `memories: []`, next
 Stop `paced`, and the hook's rewrite of the record at that Stop carries the mark forward.
 
 For the owed-a-write-up predicate (roadmap B3/C2): a session has answered when it wrote
@@ -1296,8 +1303,11 @@ is served (the rendered text sliced at 2,048, and the schema), not the source.
 
 ### Deploy note: sessions resumed across this deploy (review m4)
 
+*Built 2026-09-24 in the shape proposed below (`self/episodes.ts#rebasedWatermark`), when
+the counting rule changed again — see "Pacing counts typed turns".*
+
 The pacer keeps a watermark (`askedAtTurns`/`askedAtBytes`) at the substance it saw when it
-last asked, and a re-ask needs `substance − watermark` ≥ 8 turns AND ≥ 8,000 bytes
+last asked, and a re-ask needed `substance − watermark` ≥ 8 turns AND ≥ 8,000 bytes
 (`self/episodes.ts#askDue`, `max(0, …)`). A session whose last ask was committed under
 master's counting — hand-backs, notifications and compaction summaries included, often
 several KB each — and that is RESUMED on this build carries a watermark above anything the
@@ -1311,6 +1321,27 @@ which only a change in the counting rule or a rewritten transcript can produce �
 `askedAtTurns = min(askedAtTurns, substance.turns)` and
 `askedAtBytes = min(askedAtBytes, substance.bytes)` once, so the re-ask pair measures from
 now instead of waiting to overtake the old total.
+
+### Pacing counts typed turns (2026-09-24)
+
+`substanceOf` counts a **turn** only for a user-role `conversation` piece — what the person
+typed — and one per transcript entry (`TranscriptTurn.entry`), because a typed message with
+an image or several text blocks yields several pieces and the cursor needs them apart. The
+assistant's text counts toward **bytes** only, as does the person's. Host frames, hand-backs,
+notifications, hook feedback, cross-session messages and our own ask were already
+`injected`/`ritual` and stay out of both.
+
+Why: the ask fired after the owner's second message in a session where the assistant had
+written 8 separate text blocks between tool calls. The thresholds moved with it (self NOTES
+§23): typed turns OR text, 12 asks a session a day.
+
+What else reads the new meaning: `noteOrphanTail` (the same `askDue`), the `adapter.ask`
+row's `turns` field (typed turns from now on; rows before today counted both roles), and
+`remember/owes.ts`'s "asked" test, which uses the same OR on the row's numbers — old rows
+over-count turns, which errs toward keeping text and asking for a write-up. Its fallback
+when no evaluation covers the last capture uses the cursor (`maxTo`, every piece of both
+roles) as the turn count, an upper bound that under an OR reads most sessions of six or
+more pieces as asked — also the keeping direction.
 
 ### I40
 

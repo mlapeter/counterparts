@@ -1760,29 +1760,11 @@ export class ClaudeCodeAdapter {
       // The host's re-fire of a blocked Stop. Nothing is evaluated: no pacing
       // advance, no ask slot, no row — the previous pass already left one.
       if (input.reFired === true) return null;
+      // Typed turns and both roles' text (`substanceOf`). The pacing and the
+      // per-session, per-calendar-day cap are `self/episodes.ts#askDue`'s; the
+      // history of both is in self NOTES. The date on every `adapter.ask` row
+      // below answers "how often was the pen offered today" across sessions.
       const substance = substanceOf(input.turns ?? []);
-      // THE CAP IS THIS SESSION'S OWN, PER CALENDAR DAY (2026-09-17, amended
-      // 2026-09-18), so nothing outside the session can spend it and a session
-      // that spans days gets its allowance back with each one.
-      //
-      // It used to be the day's, four asks shared by every session a day held,
-      // and that cap kept two failures alive. I32: the day was the LIVED day,
-      // whose clock only the detached worker advances, so a worker that could
-      // not start froze `self.episode.day.185 = 4` and the model was never
-      // asked for a chapter again; keying it to `input.at` fixed the freeze but
-      // not the sharing. Finding 12: with the owner running five or more
-      // sessions a day, 196 of 264 Stops were refused `capped` and the
-      // crash-fallback sweep wrote 888 memories to the author's 193. Then the
-      // session's whole life turned out to be too long a window in the other
-      // direction — a coordinating session spent all six inside one working day
-      // and its end-of-day handoff was never offered the pen — so the count now
-      // starts over on the store's own calendar date (`self/episodes.ts`), the
-      // key I32 already argued for and for the same reason.
-      //
-      // The date is still on every `adapter.ask` row below (`record` stamps
-      // `input.at`, a UTC ISO date, the same zone as every other `date` in this
-      // store), because "how often was the pen offered today" ACROSS sessions is
-      // a question the rows answer and no counter is kept for.
       const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
       const outcome = chapter.asked
         ? "asked"
