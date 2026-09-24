@@ -19,7 +19,7 @@
  * resolving on the next request.
  */
 import { isConfidential } from "../../../core/recall/index.js";
-import type { ProseDoc, Store } from "../../../core/store/index.js";
+import type { ProseDoc, ReadOnlyStore } from "../../../core/store/index.js";
 import { gistOf, looksLikeId, resolvePayload, resolveRef } from "../resolve.js";
 import type { ResolvedRef } from "../resolve.js";
 
@@ -39,7 +39,7 @@ export interface Revealed {
   readonly label: string;
 }
 
-function confidentialAt(store: Store, id: string): boolean {
+function confidentialAt(store: ReadOnlyStore, id: string): boolean {
   try {
     return isConfidential(store.readProse(id));
   } catch {
@@ -49,7 +49,7 @@ function confidentialAt(store: Store, id: string): boolean {
 }
 
 /** Resolve one id for display. The only id-to-text path the web views use. */
-export function reveal(store: Store, id: string | null | undefined, width = 64): Revealed {
+export function reveal(store: ReadOnlyStore, id: string | null | undefined, width = 64): Revealed {
   const ref = resolveRef(store, id, width);
   if (!ref.present || ref.headId === null) {
     return {
@@ -91,7 +91,7 @@ export function reveal(store: Store, id: string | null | undefined, width = 64):
  * and a superseded belief's prose is retained by design for exactly this. Still
  * render-time: an id whose own row is gone comes back as a named absence.
  */
-export function revealHere(store: Store, id: string | null | undefined, width = 64): Revealed {
+export function revealHere(store: ReadOnlyStore, id: string | null | undefined, width = 64): Revealed {
   const ref = resolveRef(store, id, { width, follow: false });
   if (!ref.present || ref.headId === null) {
     return { id: ref.id, headId: ref.headId, state: ref.state, present: false, text: null, confidential: false, label: ref.label };
@@ -103,7 +103,7 @@ export function revealHere(store: Store, id: string | null | undefined, width = 
 }
 
 /** The short form a feed line or a tooltip wants: text, or the reason there is none. */
-export function shortOf(store: Store, id: string | null | undefined, width = 56): string {
+export function shortOf(store: ReadOnlyStore, id: string | null | undefined, width = 56): string {
   const r = reveal(store, id, width);
   return r.text ?? r.label;
 }
@@ -115,7 +115,7 @@ export function shortOf(store: Store, id: string | null | undefined, width = 56)
  * could leak back in, which is exactly why it is worth a second pass.
  */
 export function revealPayload(
-  store: Store,
+  store: ReadOnlyStore,
   payload: Record<string, unknown>,
   width = 40,
 ): { key: string; value: string }[] {

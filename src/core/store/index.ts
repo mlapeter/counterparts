@@ -586,6 +586,28 @@ export const WRITE_METHODS = [
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
 
+/**
+ * THE READ HALF OF `Store`, as a type (dashboard INTERFACE-GAPS §4) — so code
+ * that only observes can be typed against it and "an instrument cannot reach a
+ * write method" is a compile error rather than a source scan.
+ *
+ * Defined by SUBTRACTION from `WRITE_METHODS`, not by listing the reads: the
+ * totality test holds that list equal to the set of sites that enter `mutate`,
+ * so a write method added tomorrow drops out of this type the day it is
+ * listed, and a read added tomorrow appears in it with no edit here.
+ *
+ * Two more are left out though neither is a durable write, because neither is
+ * a reader's to call: `close()` ends a handle the reader does not own (and on a
+ * writable handle it folds the write-ahead log — see `close`), and
+ * `guardWrites()` installs or REMOVES the guard a composition root put on the
+ * handle. `Omit` over a class keeps only its public members, and a `Store` is
+ * assignable to this type, so a real handle passes wherever one is asked for.
+ *
+ * A type, not a wrapper: it narrows what a caller can NAME, and a cast gets
+ * round it. The stance (`observer: true`) is still what the seam refuses on.
+ */
+export type ReadOnlyStore = Omit<Store, WriteMethod | "close" | "guardWrites">;
+
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
 
