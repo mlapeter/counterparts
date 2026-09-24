@@ -23,6 +23,8 @@ mechanized guarantee. Listed worst first.
 
 ### (a) BLOCKING — the chunk-level guarantee has no chunk
 
+**Closed 2026-09-24** — sweep chunks go through `encodeChunk` (`core/bridge.ts#gateSweepChunk`).
+
 `GateFn` is per proposal. **"A fully-gated chunk moves NO durable state" (encode
 §5 G3, scar §7b) is a CHUNK-level property**: it is scoped to *all-rejected*, and
 it is what closes the element-level side channel — prediction checks, entity
@@ -41,6 +43,8 @@ chokepoint, and it already returns the per-proposal verdicts `remember/` wants.
 
 ### (b) BLOCKING — the emotion exemption cannot be set
 
+**Closed 2026-09-24** — the exemption is engine-set from the proposal's source (`core/bridge.ts#verdictFor`, `selfAuthoredFeeling`).
+
 Encode §5 G5: the exemption is **set per proposal by the engine that minted it**,
 and encode never infers it. `GateInput` has no field for it. As written, every
 self-authored feeling with no citable quote comes back `quote-missing` and the
@@ -51,6 +55,8 @@ is not a substitute: an end-of-session dump can carry a feeling about the *owner
 which must take the ordinary path.)
 
 ### (c) The claimed-salience floor is not reachable through this seam
+
+**Closed 2026-09-24** — `claimed` and `salience` ride `GateInput` (`remember/proposals.ts`); the floor is clamped at mint (`core/mint.ts`, `clampSalienceAtSeam`, emits `salience.lifted`).
 
 Encode §5 G6 exists because v1's "remember this" note claimed a salience floor
 **only in its prompt**, with no engine backstop. The clamp lives at the
@@ -65,12 +71,16 @@ to the `ok` verdict** — or route through `encodeChunk`, which already does it.
 
 ### (d) The ops rule has no input
 
+**Closed 2026-09-24** — the author's `title` reaches the battery as a handle (`core/bridge.ts#verdictFor`).
+
 Encode refuses the whole proposal when a *name or handle* carries a credential
 ("a credential must never become an entity the store indexes"). `GateInput` has no
 `handles` field, so that refusal can never fire through this seam. **Add
 `handles?: readonly string[]`.**
 
 ### (e) Lossy telemetry on refusal
+
+**Closed 2026-09-24** — the refusal arm carries `blockedBy`, `records` and `refusedByDesign` (`remember/proposals.ts#GateVerdict`, filled by `core/bridge.ts#verdictFor`).
 
 `GateVerdict`'s failure arm is `{ ok: false; gate: string; reason: string }` — one
 gate, one reason. Encode returns `blockedBy` (every blocking reason) plus one
@@ -101,6 +111,8 @@ log a `gate.no-span` event when it passes a null span.
 adapter-local renames.
 
 ## 2. `schemas/` must import encode's whole-word matcher, not write its own
+
+**Closed 2026-09-24** — `schemas/aliases.ts` and `schemas/index.ts` import `occursAsWholeWord` from `encode/words.ts`.
 
 behavioral-spec §8 G3 requires **one** whole-word definition, shared between
 preselection and entity birth: "Birth must test a proposed name by *exactly* the

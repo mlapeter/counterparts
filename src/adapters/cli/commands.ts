@@ -4938,7 +4938,7 @@ export function askGist(title: string | null, body: string): string {
 
 /**
  * The quieter line under an answer: what it is, when, and its id —
- * `self · chapter 1 · Tue 23 Sep 2026 · lived day 2 · mem_2db9908dca81`.
+ * `self · chapter 1 · Wed 23 Sep 2026 · lived day 2 · mem_0a1b2c3d4e5f`.
  *
  * The DATE is the one the chapter's own heading names when it names one (a
  * chapter written since 2026-09-24 carries the day it was written, in the
