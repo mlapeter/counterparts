@@ -3659,6 +3659,9 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(printed).toContain("Converted 2 vectors in 2 batches."); // batched, per --batch
     expect(printed).toContain("Vectors now: float32 BLOB 2, JSON text 0");
     expect(printed).toContain("Cache file:");
+    // The compaction was folded out of the `-wal` into the file.
+    const wal = `${paths.cache(dir)}-wal`;
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0);
     // The count is the whole point: a migration that lost a vector would be a
     // rebuild wearing a different name.
     expect(shapes()).toEqual({ blob: 2, text: 0 });
@@ -3711,7 +3714,15 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
       EXIT.ok,
     );
     expect(text(c.out)).toContain("Cache file:");
+    expect(text(c.out)).not.toContain("once another process lets go");
+    // The reclaim is true ON DISK: the compacted pages were folded out of the
+    // `-wal`, so the file itself shrank, and its size is its pages.
+    const wal = `${paths.cache(dir)}-wal`;
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0);
+    const compactedFile = statSync(paths.cache(dir)).size;
+    expect(compactedFile).toBeLessThan(strandedFile);
     expect(pages()).toBeLessThan(stranded);
+    expect(compactedFile).toBe(pages());
     expect(shapes()).toEqual({ blob: 400, text: 0 });
   });
 
@@ -3733,10 +3744,13 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
       }),
     ).toBe(EXIT.ok);
 
-    // A fat `-wal` beside it, with not one byte of garbage in the database: one
-    // pass that rewrites every page and commits, below SQLite's autocheckpoint.
+    // A fat `-wal` beside it, with not one byte of garbage in the database: two
+    // passes that rewrite every page and commit, below SQLite's autocheckpoint.
+    // (Measured: `SET dim = dim` alone left the `-wal` at zero, now that the
+    // compaction above folds its own.)
     const db = openCache(paths.cache(dir));
-    db.exec("UPDATE embeddings SET dim = dim");
+    db.exec("UPDATE embeddings SET dim = dim + 1");
+    db.exec("UPDATE embeddings SET dim = dim - 1");
     db.close();
     expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(1024 * 1024);
 

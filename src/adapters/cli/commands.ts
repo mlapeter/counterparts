@@ -54,8 +54,8 @@ import { TUNABLES as SLEEP_TUNABLES, isJournal } from "../../core/sleep/index.js
 // The deep import into box 3's own driver — the same one `snapshot.ts` and
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
-import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../../core/store/db.js";
-import type { Db, SqlValue } from "../../core/store/db.js";
+import { BUSY_TIMEOUT_MS, foldWal, journalModeOf, openDb } from "../../core/store/db.js";
+import type { Db, SqlValue, WalFold } from "../../core/store/db.js";
 // Box 3's own door for the vector migration: `openCache` stamps the schema
 // version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
 // one transactional step. The conversion arithmetic lives in `store/cache.ts`
@@ -631,7 +631,9 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // parses either way, and the command refuses it in words rather than ignoring
   // it (the `--dirr` scar, pointed at the most dangerous verb here).
   "start-fresh": ["config", "dry-run", "yes", "nothing-is-open", "name", "undo"],
-  note: ["kind", "title", "salience"],
+  // `--config` for the embedder knob only, as on `ask`: a note is embedded on
+  // write with the table the configuration turns on.
+  note: ["kind", "title", "salience", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
   ask: ["id", "json", "full", "config"],
@@ -860,7 +862,7 @@ const FLAG_HELP: Record<string, string> = {
   all:
     "print every line, including the mechanisms a store this new has had nothing to do with yet",
   config:
-    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask reads whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask and note read whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
   "dry-run": "say the default out loud: plan and print, change nothing",
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
@@ -1661,7 +1663,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
-        return await noteCommand(dir, io, parsed);
+        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir());
       // ONE COMMAND, TWO NAMES — the same function, not a forwarding shim, so
       // there is no arm where one spelling can behave differently from the other.
       case "ask":
@@ -4799,15 +4801,26 @@ function livenessRefusal(io: Io, plan: StartFreshPlan, when = "", showRecent = t
  *
  * The embedder is shared too since 2026-09-24 (`askEmbedder`): `ask` embeds its
  * question with the local table the configuration turns on, exactly as the MCP
- * `recall` does, and says which channel answered when it could not. (`note`
- * still opens its store without one; the worker's backfill embeds that row.)
+ * `recall` does, and says which channel answered when it could not. `note`
+ * opens its store with the same embedder, so the row it writes carries a vector
+ * at once and a paraphrased `ask` finds it without waiting for the worker's
+ * backfill. The store reconciles the embedder's identity against box 3's tag
+ * at open, so a store tagged with another model gets no vector from here.
+ * Without the table the note is stored by words alone, and says nothing of it:
+ * the backfill, or `doctor`, is where a missing table is named.
  *
  * Why these exist at all: the cold-stranger review of 2026-09-04 reached the end
  * of the install page having verified that a store existed and was empty, with
  * no way to test the one thing the product is for. They hand-wrote JSON-RPC.
  * Most people will not.
  */
-async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number> {
+async function noteCommand(
+  dir: string,
+  io: Io,
+  parsed: Parsed,
+  env: Record<string, string | undefined>,
+  home: string,
+): Promise<number> {
   const text = parsed.positional.join(" ").trim();
   if (text.length === 0) {
     io.err('refused: note takes the text to remember, e.g. counterparts note "..."');
@@ -4828,7 +4841,8 @@ async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number>
     claimed = n;
   }
 
-  const counterpart = openCounterpart(dir);
+  const embedder = askEmbedder(parsed.flags, env, home);
+  const counterpart = openCounterpart(dir, false, undefined, embedder?.embed);
   try {
     // THE STORE, FIRST, the way `status` names it. A write whose destination is
     // invisible is the shape the 2026-09-04 review found: a mistyped `--dir`
@@ -5756,6 +5770,15 @@ function reclaimFreedPages(dir: string, io: Io): void {
 
 // ── migrate-cache ───────────────────────────────────────────────────────────
 
+/** One line when the post-VACUUM fold could not finish: the pages are safe in
+ *  `-wal`, and the file shrinks when the next writer (or checkpoint) folds it. */
+function foldNote(io: Io, fold: WalFold): void {
+  if (!fold.busy && fold.error === undefined) return;
+  io.out(
+    "The file on disk shrinks to that size once other Counterparts processes (an open session or the dashboard) let go of it.",
+  );
+}
+
 /** Bytes, in the units an owner reads. Box 3 is measured in hundreds of MiB. */
 function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -5969,11 +5992,13 @@ async function migrateCacheCommand(
       }
       const ok = await confirmMigrate(io, flags, dir, `compact box 3 (${humanBytes(reclaimable ?? 0)} reclaimable)`);
       if (!ok) return EXIT.refused;
-      const sizeAfter = (() => {
+      const { sizeAfter, fold } = (() => {
         const writable = openCache(path);
         try {
           writable.exec("VACUUM");
-          return databaseBytes(writable);
+          // Under WAL the VACUUM's pages sit in `-wal` until a checkpoint; fold
+          // them so the reclaim below is true of the file on disk.
+          return { sizeAfter: databaseBytes(writable), fold: foldWal(writable) };
         } finally {
           writable.close();
         }
@@ -5982,6 +6007,7 @@ async function migrateCacheCommand(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
       );
+      foldNote(io, fold);
       return EXIT.ok;
     }
 
@@ -6093,10 +6119,13 @@ async function migrateCacheCommand(
     }
     const sizeAfter = databaseBytes(writable);
     if (vacuumed) {
+      // Fold the VACUUM's pages out of `-wal`, so the reclaim is true on disk.
+      const fold = foldWal(writable);
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
       );
+      foldNote(io, fold);
     }
     if (skipped.length > 0) return EXIT.failed;
     return after2.jsonText === 0 && vacuumed ? EXIT.ok : EXIT.failed;

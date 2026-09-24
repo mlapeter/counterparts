@@ -471,15 +471,17 @@ fi
 step "an answer names the TIER it came back at"
 # `answered` says the question reached something, never that it is right. The
 # tier is the only confidence signal there is: the short answer says when
-# nothing came back vividly, and `--full` glosses every tier on screen.
+# nothing came back vividly (and only then), and `--full` glosses every tier on
+# screen. Since `note` embeds on write, the demo's answer may come back vivid.
 eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
 FULL_OUT=$(eval "$RECALL_CMD --full" 2>&1)
 unset COUNTERPARTS_DATA_DIR
-if printf '%s' "$RECALL_OUT" | grep -q "treat these as leads" &&
-   printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = '; then
+if printf '%s' "$FULL_OUT" | grep -q '^  vivid = '; then VIVID=1; else VIVID=0; fi
+if printf '%s' "$RECALL_OUT" | grep -q "treat these as leads"; then LEADS=1; else LEADS=0; fi
+if printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = ' && [ "$VIVID" != "$LEADS" ]; then
   ok
 else
-  no "no tier signal in the short answer, or no tier gloss under --full" "short: $RECALL_OUT
+  no "no tier gloss under --full, or the short answer's leads line disagrees with it" "short: $RECALL_OUT
 full: $FULL_OUT"
 fi
 

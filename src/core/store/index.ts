@@ -307,11 +307,6 @@ export interface EventPruneReport extends PruneReport {
   limit: number | null;
 }
 
-/**
- * The durable event log, counted without being touched — what `verify` prints
- * and what an observer's cycle report is computed from. Every number here is a
- * read; nothing in it crosses the write seam.
- */
 /** What `eventLog` selects on. `order` defaults to `"asc"` (oldest first). */
 export interface EventLogFilter {
   name?: string;
@@ -336,6 +331,11 @@ export interface EventCount {
   newestSeq: number;
 }
 
+/**
+ * The durable event log, counted without being touched — what `verify` prints
+ * and what an observer's cycle report is computed from. Every number here is a
+ * read; nothing in it crosses the write seam.
+ */
 export interface EventLogCensus {
   /** Rows held, latched and unlatched. */
   rows: number;
@@ -992,10 +992,12 @@ export class Store {
    * size.
    *
    * **Only a box this handle wrote** (`db.ts#wroteOn`, SQLite's
-   * `total_changes()` on this connection). A writable handle that only read —
-   * a dry run, a report opened without `observer` — leaves the files exactly as
-   * it found them, which is what the dry-run suites' byte fingerprints assert;
-   * a log some other process left is that process's to fold on ITS close.
+   * `total_changes()` on this connection — row changes only). A writable handle
+   * that only read — a dry run, a report opened without `observer` — leaves the
+   * files exactly as it found them, which is what the dry-run suites' byte
+   * fingerprints assert; a log some other process left is that process's to
+   * fold on ITS close. A schema-only write (an open that migrated or tagged,
+   * changing no row) does not fold either; the next writer's close does.
    *
    * **Never under observer.** A checkpoint moves committed pages from the `-wal`
    * into the database file — bytes of the canonical box change even though no
@@ -1010,11 +1012,13 @@ export class Store {
    * emitted AFTER both handles are closed so a listener cannot write a frame
    * back into a log that was just folded.
    *
-   * A second call is harmless and folds nothing.
+   * A second call returns at once: nothing folds and neither handle is closed
+   * again (`node:sqlite` throws on a double close).
    */
   close(): void {
+    if (this.closed) return;
     const folds: [string, WalFold][] = [];
-    if (!this.closed && !this.observer) {
+    if (!this.observer) {
       if (wroteOn(this.ops)) folds.push(["store", foldWal(this.ops)]);
       if (wroteOn(this.cache)) folds.push(["cache", foldWal(this.cache)]);
     }

@@ -199,14 +199,21 @@ export function journalModeOf(path: string): string {
   }
 }
 
-/** What `foldWal` did. `busy` means the log was NOT fully folded. */
+/**
+ * What `foldWal` did. A fold succeeded only when `busy` is false AND `error` is
+ * unset; `busy: false` with `error` set means the pragma threw for some other
+ * reason (a closed handle, a statement still running) and nothing was folded.
+ */
 export interface WalFold {
   /** True when SQLite could not finish: a reader held an older snapshot, or
    *  another connection held a lock. What it could copy, it copied. */
   readonly busy: boolean;
-  /** Frames in the log before the fold, -1 when the file is not in WAL. */
+  /** Frames in the log as the pragma reports them: 0 after a successful
+   *  TRUNCATE (the log is emptied), the remaining frames when `busy`, and -1
+   *  when the file is not in WAL or the pragma could not run. */
   readonly log: number;
-  /** Frames copied into the database file, -1 when the file is not in WAL. */
+  /** Frames copied into the database file, read the same way as `log`: 0
+   *  after a successful TRUNCATE, -1 when not in WAL or the pragma could not run. */
   readonly checkpointed: number;
   /** Set only when the pragma THREW; a code or a message, never row text. */
   readonly error?: string;
@@ -275,7 +282,9 @@ export function foldWal(db: Db): WalFold {
 
 /**
  * Did THIS connection change any row since it opened? SQLite's own
- * `total_changes()` — INSERT/UPDATE/DELETE by this connection, nobody else's.
+ * `total_changes()` — row changes (INSERT/UPDATE/DELETE) by this connection,
+ * nobody else's. A schema-only write (CREATE, ALTER, a pragma) counts no rows,
+ * so it does not trigger a fold; its frames wait for the next writer's fold.
  * A handle that only read answers false, and so does a closed one (the
  * question throws there, and "I cannot tell" is not "I wrote").
  */

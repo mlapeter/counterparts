@@ -368,13 +368,13 @@ and holds one file, so the ordinary export is unaffected by any of this.
 
 **Status (2026-09-24):** built as an explicit checkpoint rather than statement
 finalization. `Store.close()` runs `PRAGMA wal_checkpoint(TRUNCATE)` (`db.ts#foldWal`)
-on each box THIS handle wrote to (`total_changes() > 0`), never under observer, with the
+on each box THIS handle changed a row in (`total_changes() > 0`), never under observer, with the
 connection's busy timeout at 0 so a reader holding a snapshot makes the fold partial
 instead of stalling the close for five seconds. Measured cost and the reasons are in
 `store/NOTES.md` (2026-09-24). The `migrate-cache --apply` compaction and the removal
-reclaim run on raw `openDb` handles and are unchanged: their VACUUM'd pages still wait
-in the `-wal` for the next checkpoint unless they checkpoint themselves (the removal
-does; the compaction does not — a one-line `foldWal` call in `commands.ts` would).
+reclaim run on raw `openDb` handles and checkpoint themselves: the removal with its own
+`wal_checkpoint(TRUNCATE)`, the compaction with `foldWal` after each `VACUUM`, so its
+"reclaimed" line is true of the file on disk.
 
 `store/db.ts#openDb` prepares a new statement on every `get`/`run`/`all` and never
 finalizes one, so when a `Store` closes, bun's `close()` finds statements still open and
