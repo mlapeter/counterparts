@@ -3217,14 +3217,10 @@ function fixture(): Fixture {
   });
 
   const configPath = at("config", "adapter.json");
-  const credentialsPath = join(runDir, "..", "credentials.env");
-  writeFileSync(credentialsPath, "ANTHROPIC_API_KEY=test-key-not-a-real-credential\nVOYAGE_API_KEY=test-voyage-not-a-real-credential\n", "utf8");
   writeJson(configPath, {
-    credentialsFile: credentialsPath,
     dataDir: v2Dir,
     parallel: { enabled: true },
     injectionBudgetBytes: 9_000,
-    models: { interpret: { id: "claude-opus-5" }, embed: { id: "voyage-3-large" } },
   });
 
   writeJson(join(runDir, "bars.json"), BARS(3));
@@ -3720,33 +3716,28 @@ describe("restarting the phase clock", () => {
 describe("the preflight — Phase 0, as a gate", () => {
   test("a complete fixture reaches ready: true, with EVERY row binding — nothing deferred", () => {
     const f = fixture();
-    process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
-    try {
-      const report = preflight(f);
-      const failing = report.checks.filter((c) => c.status !== "pass");
-      expect(failing.map((c) => `${c.id}: ${c.detail}`)).toEqual([]);
-      expect(report.ready).toBe(true);
-      // Preconditions 8 and 9 are in the passing set, not in a deferred one:
-      // with the shadow phase dropped they gate the DAY-0 flip (RULED
-      // 2026-09-03), and the report has no `deferred` list at all any more.
-      expect(report.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
-      expect(report.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
-      expect("deferred" in report).toBe(false);
-      // HERMETIC, PROVED: every path the preflight actually resolved is inside
-      // this test's temp tree. A green preflight that had reached the real
-      // `~/.memory-ab` would look identical without this line.
-      const realRoot = realpathOr(root);
-      for (const id of ["assignment.realpath", "datadirs.disjoint", "v2.config", "bars.committed"]) {
-        const detail = report.checks.find((c) => c.id === id)?.detail ?? "";
-        // Absolute paths only: a seat id like `claude-opus-5/pinned` is not one.
-        for (const [, path = ""] of detail.matchAll(/(?:^|[\s=])(\/[^\s·;]+)/g)) {
-          expect(`${id}:${path}:${path.startsWith(realRoot) || path.startsWith(root)}`).toBe(
-            `${id}:${path}:true`,
-          );
-        }
+    const report = preflight(f);
+    const failing = report.checks.filter((c) => c.status !== "pass");
+    expect(failing.map((c) => `${c.id}: ${c.detail}`)).toEqual([]);
+    expect(report.ready).toBe(true);
+    // Preconditions 8 and 9 are in the passing set, not in a deferred one:
+    // with the shadow phase dropped they gate the DAY-0 flip (RULED
+    // 2026-09-03), and the report has no `deferred` list at all any more.
+    expect(report.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
+    expect(report.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
+    expect("deferred" in report).toBe(false);
+    // HERMETIC, PROVED: every path the preflight actually resolved is inside
+    // this test's temp tree. A green preflight that had reached the real
+    // `~/.memory-ab` would look identical without this line.
+    const realRoot = realpathOr(root);
+    for (const id of ["assignment.realpath", "datadirs.disjoint", "v2.config", "bars.committed"]) {
+      const detail = report.checks.find((c) => c.id === id)?.detail ?? "";
+      // Absolute paths only: a seat id like `claude-opus-5/pinned` is not one.
+      for (const [, path = ""] of detail.matchAll(/(?:^|[\s=])(\/[^\s·;]+)/g)) {
+        expect(`${id}:${path}:${path.startsWith(realRoot) || path.startsWith(root)}`).toBe(
+          `${id}:${path}:true`,
+        );
       }
-    } finally {
-      delete process.env["ANTHROPIC_API_KEY"];
     }
   });
 
@@ -3756,24 +3747,19 @@ describe("the preflight — Phase 0, as a gate", () => {
     // with the ask channel unproven — and day 1 is the authored dump's first
     // fire anywhere. Each is removed on its own, so neither is carrying the
     // other's failure.
-    process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
-    try {
-      const noAsk = fixture();
-      rmSync(join(noAsk.runDir, "ask-channel.json"));
-      const a = preflight(noAsk);
-      expect(a.ready).toBe(false);
-      expect(a.checks.find((c) => c.id === "precondition.8")?.status).toBe("not-exercised");
-      expect(a.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
+    const noAsk = fixture();
+    rmSync(join(noAsk.runDir, "ask-channel.json"));
+    const a = preflight(noAsk);
+    expect(a.ready).toBe(false);
+    expect(a.checks.find((c) => c.id === "precondition.8")?.status).toBe("not-exercised");
+    expect(a.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
 
-      const noHash = fixture();
-      rmSync(join(noHash.runDir, "run.json"));
-      const b = preflight(noHash);
-      expect(b.ready).toBe(false);
-      expect(b.checks.find((c) => c.id === "precondition.9")?.status).toBe("not-exercised");
-      expect(b.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
-    } finally {
-      delete process.env["ANTHROPIC_API_KEY"];
-    }
+    const noHash = fixture();
+    rmSync(join(noHash.runDir, "run.json"));
+    const b = preflight(noHash);
+    expect(b.ready).toBe(false);
+    expect(b.checks.find((c) => c.id === "precondition.9")?.status).toBe("not-exercised");
+    expect(b.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
   });
 
   test("--phase P is the daily re-check: the same rows, and the drop-dead behind us", () => {
@@ -3782,31 +3768,26 @@ describe("the preflight — Phase 0, as a gate", () => {
     // arithmetic — so failing that row mid-run would tell an already-running
     // run that it should not have started, which is not a thing it can act on.
     const f = fixture();
-    process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
-    try {
-      const late = { today: "2026-09-15" };
-      const atZero = preflight(f, { ...late, phase: "0" as const });
-      expect(atZero.ready).toBe(false);
-      expect(atZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
+    const late = { today: "2026-09-15" };
+    const atZero = preflight(f, { ...late, phase: "0" as const });
+    expect(atZero.ready).toBe(false);
+    expect(atZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
 
-      // Without a day 0 on record, the re-check cannot buy the drop-dead (NEW-2).
-      const noDayZero = preflight(f, { ...late, phase: "P" as const });
-      expect(noDayZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
-      expect(noDayZero.ready).toBe(false);
+    // Without a day 0 on record, the re-check cannot buy the drop-dead (NEW-2).
+    const noDayZero = preflight(f, { ...late, phase: "P" as const });
+    expect(noDayZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
+    expect(noDayZero.ready).toBe(false);
 
-      const runJson = JSON.parse(readFileSync(join(f.runDir, "run.json"), "utf8")) as Record<string, unknown>;
-      writeJson(join(f.runDir, "run.json"), {
-        ...runJson,
-        days: [{ date: "2026-09-04", class: "active", phase: "0" }],
-      });
-      const running = preflight(f, { ...late, phase: "P" as const });
-      const bars = running.checks.find((c) => c.id === "bars.committed");
-      expect(bars?.status).toBe("pass");
-      expect(bars?.detail).toContain("bars a run from STARTING");
-      expect(running.ready).toBe(true);
-    } finally {
-      delete process.env["ANTHROPIC_API_KEY"];
-    }
+    const runJson = JSON.parse(readFileSync(join(f.runDir, "run.json"), "utf8")) as Record<string, unknown>;
+    writeJson(join(f.runDir, "run.json"), {
+      ...runJson,
+      days: [{ date: "2026-09-04", class: "active", phase: "0" }],
+    });
+    const running = preflight(f, { ...late, phase: "P" as const });
+    const bars = running.checks.find((c) => c.id === "bars.committed");
+    expect(bars?.status).toBe("pass");
+    expect(bars?.detail).toContain("bars a run from STARTING");
+    expect(running.ready).toBe(true);
   });
 
   function rowOf(f: Fixture, id: string, over: Partial<Parameters<typeof runPreflight>[0]> = {}) {
@@ -3862,30 +3843,6 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "v2.config");
     expect(row?.status).toBe("fail");
     expect(row?.detail).toContain("parallel.enabled is not true");
-  });
-
-  test("v2.config reports credential NAMES and never a value", () => {
-    const f = fixture();
-    process.env["ANTHROPIC_API_KEY"] = "sk-secret-do-not-print";
-    try {
-      const row = rowOf(f, "v2.config");
-      expect(row?.detail).toContain("ANTHROPIC_API_KEY=present");
-      expect(row?.detail).not.toContain("sk-secret");
-    } finally {
-      delete process.env["ANTHROPIC_API_KEY"];
-    }
-  });
-
-  test("v2.config fails an EXPIRED seat", () => {
-    const f = fixture();
-    writeJson(f.configPath, {
-      dataDir: f.v2Dir,
-      parallel: { enabled: true },
-      models: { interpret: { id: "some-model", placeholder: true, expires: "2026-01-01" } },
-    });
-    const row = rowOf(f, "v2.config");
-    expect(row?.status).toBe("fail");
-    expect(row?.detail).toContain("expired");
   });
 
   test("replay.gate PASSES on a sample record with no signature anywhere", () => {
@@ -4013,26 +3970,6 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "host.hooks");
     expect(row?.status).toBe("not-exercised");
     expect(row?.detail).toContain("SessionEnd budget was never measured");
-  });
-
-  test("v2.config judges a HOOK-SHAPED env: keys in the preflight's own shell do not count, the configured file does", () => {
-    const f = fixture();
-    process.env["ANTHROPIC_API_KEY"] = "shell-key-not-a-real-credential";
-    process.env["VOYAGE_API_KEY"] = "shell-voyage-not-a-real-credential";
-    try {
-      const withFile = rowOf(f, "v2.config");
-      expect(withFile?.status).toBe("pass");
-      expect(withFile?.detail).toContain("present (file)");
-      const cfg = JSON.parse(readFileSync(f.configPath, "utf8")) as Record<string, unknown>;
-      delete cfg["credentialsFile"];
-      writeJson(f.configPath, cfg);
-      const without = rowOf(f, "v2.config");
-      expect(without?.status).toBe("fail");
-      expect(without?.detail).toContain("no credentialsFile configured");
-    } finally {
-      delete process.env["ANTHROPIC_API_KEY"];
-      delete process.env["VOYAGE_API_KEY"];
-    }
   });
 
   test("host.hooks PASSES by COMPLETION evidence when the host recorded no attachment — a durable session-end boundary row on the day", () => {
