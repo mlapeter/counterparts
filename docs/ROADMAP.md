@@ -59,10 +59,17 @@ more; 12 a day; doctor amber only on loss), #204 (store reads, WAL fold), #208 (
 write). The owner confirmed all nine 09-20 defaults. #211 marked 31 closed gap entries.
 
 **Near term, beside the dashboard work:**
-- In flight: prompts typed mid-turn (`queued_command` attachments, ~7% of typed prompts) are
-  captured and paced; a snapshot before any schema migration; entity cards fade gently (lived
-  and calendar floors, people slowest; wired into sleep).
-- The model version on each journal chapter (the owner wants it; path in `self/NOTES.md` §24).
+- Done 2026-09-24 (merged, not yet on npm):
+  - #213: prompts typed mid-turn are captured and paced.
+  - #214: a snapshot before any schema migration.
+  - #215: entity cards fade gently, and the prune no longer archives them or the identity core.
+  - #217: the model version on each chapter.
+  - #218: a card named in a saved memory counts as used.
+  - Next, then a small release: a faded card named in a saved memory comes back.
+- Next: **the dashboard conversation (step 3)** in a fresh session. See `docs/HANDOFF.md` top
+  and `docs/research/mechanism-audit-2026-09-24.md`.
+- Also found: peer hand-backs that arrive mid-turn are missed by capture, like queued prompts
+  were. And an `unprune-entities` door or doctor finding for any store the old prune hit.
 - **Windows.** Untested, and the code assumes Unix in places: `pgrep`, `0600` permissions,
   POSIX signals, rename semantics, the hook command lines install writes, and nothing checks for
   `win32`. Try WSL first (it is Linux, and Linux is untested too), then native Windows. Until

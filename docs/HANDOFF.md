@@ -1,5 +1,67 @@
 # Handoff — resume here
 
+## 2026-09-24, night — THE ROUND AFTER 0.3.0: STEPS 1–2 DONE; NEXT = THE DASHBOARD CONVERSATION (fresh session)
+
+**Start here.** The plan is the top section of `docs/ROADMAP.md` ("After 0.3.0"). A coordinator
+session built steps 1–2 and the near-term items today and merged them after verifying each one:
+a clean-checkout suite and tsc, plus an adversarial review for anything touching a store, the
+boundary rituals or capture. The owner's settings for all of this are light working defaults.
+
+**Merged since 0.3.0 was cut (not yet on npm; a small release on his word):**
+- #213: prompts typed mid-turn (`queued_command` attachments, about 8% of typed prompts) are captured and paced.
+- #214: a checked snapshot before any schema migration; if the snapshot fails, the migration waits.
+  Doctor grades a store that needs a migration: red when the copy can't be made, amber when it can.
+- #215: **a bug fix that should ship before about 90 lived days on anyone's store.** The floor prune
+  was archiving entity cards, including the identity core (a second self would be minted). Entity
+  cards now fade only through a gentle `fade` phase in sleep: lived and calendar floors, 180 days, 365 for people.
+- #217: each journal chapter records the model that wrote it.
+- #218: a card named in a saved memory's text counts as used.
+- In flight at close: a faded card named in a saved memory comes back (the owner said yes). It's on
+  branch `schemas/body-mention-revives`. If it has no PR yet, re-run it from this brief: the
+  revival goes through the same path a title mention uses; never `pruned` or owner-removed rows;
+  ambiguity credits neither; observer writes nothing.
+- Earlier today and in 0.3.0: #204 (store reads for the dashboard: `eventLog({order:"desc"})`,
+  `eventCounts`, `eventNames`, `ReadOnlyStore`; WAL fold on close), #207 (Stop pacing on typed turns:
+  first ask at 6 typed turns or 24 KB of combined text, then 8 more or 24 KB more; 12 a day; doctor amber only on
+  loss), #208 (`note` embeds on write). The owner confirmed all nine 09-20 working defaults.
+
+**Next: the dashboard conversation (roadmap step 3).** One item at a time, ELI5; nothing is built
+until the page-by-page walk is agreed. The owner is finishing the marketing site and wants it as
+the reference for this.
+- **The first question, still unanswered:** the overall shape. The proposal:
+  (1) one home screen organized by **mechanism**, using the site's 11 and the site's brain mapping
+  (`~/counterparts-site/features/home-v2/content/regions.ts`,
+  `~/counterparts-site/docs/notes/mechanisms-and-brain.md`). Each mechanism gets a light: grey =
+  not built, green = working with evidence ("Forgetting: 14 faded this week, 3 archived"), amber =
+  built but not firing. One overall line on top.
+  (2) Click a mechanism to see its recent activity and numbers in plain words.
+  (3) Today's tabs (browse memories, journal, the self page, detailed health) one level down.
+  That way the site, the dashboard and the roadmap all show the same 11 things, and a mechanism
+  goes grey→green as step 5 builds it.
+- **Today's dashboard** (`src/adapters/dashboard/web/app.html`, 1,731 lines): the tabs are
+  overview / memories / mind / flow / health, about 30 sections in all, and health alone runs about
+  ten screens. There is also a `/brain` page (three.js) whose regions name code modules, not
+  mechanisms. It is organized by kind of data and can't answer "is it working?" at a glance.
+- **What each mechanism really does today:** `docs/research/mechanism-audit-2026-09-24.md`.
+  4 built (salience, decay, retrieval, narrow consolidation), 3 partial and rarely firing
+  (reconsolidation, emotion, association), 4 not built (interference, prospective, schemas,
+  gist). Entity-card fading is new since the audit (#215).
+- **Looking at it without his store:** `bun run tools/demo/seed.ts --dir <empty abs dir>` then
+  `bun run src/adapters/dashboard/bin/dashboard.ts serve --dir <that dir> --port 4455`. Sessions
+  never open `~/.counterparts`; the owner looks at his real one himself.
+- `dashboard/flat` (09-16, before the storage rewrite) is a sketch of what he liked, not the base.
+- After the conversation comes step 4, the build: builders in worktrees, file ownership drawn.
+  Then step 5: mechanisms one at a time, a fresh session each, each shipping its own dashboard gauge.
+
+**Also open (ROADMAP near-term / later):**
+- Windows: WSL first, then native.
+- Peer hand-backs that arrive mid-turn are missed by capture, the same way queued prompts were (the #213 review).
+- An `unprune-entities` door or doctor finding, for stores the old prune hit (none known).
+- The interactive `counterparts ask` TUI.
+- U7: yesterday's work is missing from the wake.
+- The static embedder's tuning, checked on real turns.
+
+
 ## 2026-09-24, evening — 0.3.0 IS ON NPM
 
 `counterparts@0.3.0` published by the owner from `~/counterparts-backups/2026-09-24-0.3.0-final/`
