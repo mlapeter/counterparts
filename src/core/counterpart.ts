@@ -1378,6 +1378,7 @@ export class Counterpart {
         }
         this.relay("self", e);
       },
+      onMemoryMinted: (m) => this.creditNamedIn(m.title, m.body, m.day, m.id, "episode"),
       now: this.nowFn,
     });
     this.recall = new Recall({
@@ -3533,7 +3534,8 @@ export class Counterpart {
     // alias ACTED, and those fires are most of what a mix is made of — v1's own
     // "737 gate fires" counted fires on proposals that were accepted.
     this.recordDeposit(result, ctx, source, mint);
-    this.mentionFromProposal(proposal, `deposit:${mint.id}`);
+    const titled = this.mentionFromProposal(proposal, `deposit:${mint.id}`);
+    this.creditNamedIn(proposal.title ?? null, proposal.content, proposal.day, mint.id, source, titled);
     this.applyDeclaredRevision(proposal, mint, source);
     return {
       deposited: true,
@@ -3725,7 +3727,8 @@ export class Counterpart {
         updates: mint.updates,
         blind: mint.blind,
       });
-      this.mentionFromProposal(proposal, `sweep:${chunk.index}`);
+      const titled = this.mentionFromProposal(proposal, `sweep:${chunk.index}`);
+      this.creditNamedIn(proposal.title, proposal.content, proposal.day, mint.id, "sweep", titled);
       // The DOOR, not `SWEPT_SOURCE` — that field says "session-end" because
       // `remember/`'s vocabulary has no word for a sweep (see its comment).
       this.applyDeclaredRevision(proposal, mint, "sweep");
@@ -3850,10 +3853,10 @@ export class Counterpart {
   private mentionFromProposal(
     proposal: { title?: string | null; kind: Kind; content: string; aliases: readonly string[]; day: number },
     chunkRef: string,
-  ): void {
+  ): string | null {
     const title = proposal.title ?? null;
-    if (title === null || title.trim().length === 0) return;
-    if (proposal.kind !== "entity" && proposal.kind !== "person" && proposal.kind !== "place") return;
+    if (title === null || title.trim().length === 0) return null;
+    if (proposal.kind !== "entity" && proposal.kind !== "person" && proposal.kind !== "place") return null;
     const outcome = this.schemas.mention({
       name: title,
       kind: proposal.kind,
@@ -3867,6 +3870,43 @@ export class Counterpart {
       kind: proposal.kind,
       day: proposal.day,
     });
+    return outcome.id;
+  }
+
+  /**
+   * A saved memory that names a live card anywhere in its title or body counts
+   * as a use of that card, so someone talked about every day keeps their card
+   * (schemas NOTES §15). The card the title path just handled is skipped. Every
+   * door that mints calls this: a deposit, a sweep, an episode ingestion.
+   * Fail-open: the memory has already landed.
+   */
+  private creditNamedIn(
+    title: string | null,
+    body: string,
+    day: number,
+    memoryId: string,
+    door: string,
+    titled: string | null = null,
+  ): void {
+    if (this.observer) return;
+    try {
+      const out = this.schemas.creditNamedIn({
+        text: title === null ? body : `${title}\n${body}`,
+        day,
+        ref: memoryId,
+        ...(titled === null ? {} : { except: [titled] }),
+      });
+      if (out.credited.length + out.refused.length + out.ambiguous === 0) return;
+      this.emit("counterpart.mention.named", memoryId, {
+        door,
+        credited: out.credited.length,
+        refused: out.refused.length,
+        ambiguous: out.ambiguous,
+        day,
+      });
+    } catch (err) {
+      this.emit("counterpart.mention.named.failed", memoryId, { door, code: errCode(err) });
+    }
   }
 
   private emit(

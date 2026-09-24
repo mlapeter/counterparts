@@ -81,6 +81,8 @@ import type {
   LifecycleRow,
   LineageStep,
   MentionInput,
+  NamedInTextInput,
+  NamedInTextReport,
   PlacementOutcome,
   PlacementReason,
   PressureIncrement,
@@ -108,6 +110,7 @@ export { TUNABLES } from "./tunables.js";
 export const PUBLIC_SURFACE = [
   // writes
   "mention",
+  "creditNamedIn",
   "addAliases",
   "addBelief",
   "addCurrentState",
@@ -320,9 +323,7 @@ export class Schemas {
     // The ONE whole-word rule, the same call preselection makes (SEAMS §7).
     if (!occursAsWholeWord(input.source, name)) return refuse("name-not-in-source");
 
-    const exact = this.index
-      .lookup(name)
-      .filter((id) => this.meta.get(id)?.role === "entity" && !this.fadedElsewhere(id));
+    const exact = this.liveHolders(name);
     if (exact.length > 1) return refuse("ambiguous-existing-name", exact);
     const hit = exact[0];
     if (hit !== undefined) {
@@ -345,13 +346,62 @@ export class Schemas {
     return this.birth(name, input.kind, input, nameHash);
   }
 
-  /** An archived entity that held this exact name before it faded, if any. */
+  /**
+   * The live cards a handle resolves to. More than one is an ambiguous handle,
+   * and both callers credit none of them.
+   */
+  private liveHolders(term: string): string[] {
+    return this.index
+      .lookup(term)
+      .filter((id) => this.meta.get(id)?.role === "entity" && !this.fadedElsewhere(id));
+  }
+
+  /**
+   * A saved memory that names a live card in its title or body counts as that
+   * card being used (NOTES §15). Only existing live cards are credited: nothing
+   * is born here, and a faded card stays faded (re-birth is `mention`'s job).
+   * An ambiguous handle credits no one; the identity core is left alone, as the
+   * title path leaves it. Physics' once-per-lived-day rule applies as for any use.
+   */
+  creditNamedIn(input: NamedInTextInput): NamedInTextReport {
+    const report: NamedInTextReport = { credited: [], refused: [], ambiguous: 0 };
+    if (input.text.trim().length === 0) return report;
+    const except = new Set(input.except ?? []);
+    const named = new Set<string>();
+    const ambiguous = new Set<string>();
+    for (const hit of this.index.matchesIn(input.text)) {
+      const key = handleKey(hit.term);
+      if (key.length < TUNABLES.NAME_MIN_CHARS || ambiguous.has(key)) continue;
+      const holders = this.liveHolders(hit.term);
+      if (holders.length > 1) {
+        ambiguous.add(key);
+        continue;
+      }
+      if (holders[0] === hit.id) named.add(hit.id);
+    }
+    report.ambiguous = ambiguous.size;
+    for (const id of [...named].sort()) {
+      if (except.has(id) || this.store.row(id)?.kind === "self") continue;
+      const credit = this.store.reinforce(id, input.day, TUNABLES.MENTION_TIER);
+      (credit.credited ? report.credited : report.refused).push(id);
+      this.emit("schema.mention.named", id, {
+        day: input.day,
+        ref: input.ref,
+        credited: credit.credited,
+        creditReason: credit.reason,
+      });
+    }
+    return report;
+  }
+
+  /** An entity archived by the fade (not pruned) that held this exact name, if any. */
   private fadedNamed(name: string, except: string): string | undefined {
     const key = handleKey(name);
     for (const [id, rec] of this.meta) {
       if (id === except || rec.role !== "entity") continue;
       if (handleKey(rec.name ?? "") !== key) continue;
-      if (this.store.row(id)?.archived === 1) return id;
+      const row = this.store.row(id);
+      if (row?.archived === 1 && row.archived_reason === TUNABLES.FADE_REASON) return id;
     }
     return undefined;
   }

@@ -1308,6 +1308,8 @@ const PRIVATE_HELPERS = new Set([
   // A card another process's sleep cycle archived: dropped from the index at the
   // next mention rather than reinforced (NOTES §14).
   "fadedElsewhere",
+  // The live cards a handle resolves to, shared by the title and text paths.
+  "liveHolders",
   // The gentle-fade reads: calendar days since last use (a lower bound), and the
   // sweep's anchor that makes them knowable (NOTES §14).
   "calendarDaysSinceUse",

@@ -201,6 +201,9 @@ export interface SelfOptions {
   /** Episode ingestion runs the ordinary gate battery. Absent means REFUSE. */
   gate?: EpisodeGate;
   onEvent?: (e: SelfEvent) => void;
+  /** Told about each memory an episode ingestion mints, so the composition can
+   *  credit the cards it names (schemas NOTES §15). */
+  onMemoryMinted?: (m: { id: string; title: string | null; body: string; day: number }) => void;
   now?: () => number;
   /**
    * The IANA zone the CALENDAR day is taken in — the ask cap's day and the page
@@ -458,6 +461,7 @@ export class Self {
 
   private readonly gate: EpisodeGate;
   private readonly onEvent: ((e: SelfEvent) => void) | undefined;
+  private readonly onMemoryMinted: SelfOptions["onMemoryMinted"];
   private readonly now: () => number;
   private readonly zone: string | undefined;
   private readonly ring: SelfEvent[] = [];
@@ -471,6 +475,7 @@ export class Self {
     this.observer = opts.store.observer;
     this.gate = opts.gate ?? NO_GATE;
     this.onEvent = opts.onEvent;
+    this.onMemoryMinted = opts.onMemoryMinted;
     this.now = opts.now ?? (() => Date.now());
     this.zone = opts.zone;
   }
@@ -1936,6 +1941,7 @@ export class Self {
       handles: handles.length,
       bytes: byteLength(doc.body),
     });
+    this.onMemoryMinted?.({ id: memoryId, title: put.title ?? null, body, day: d });
     return {
       ingested: true,
       reason: regrow ? "regrown" : "ingested",

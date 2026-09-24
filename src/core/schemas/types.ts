@@ -110,6 +110,30 @@ export interface BirthOutcome {
 
 // ---------------------------------------------------------------------------
 // Beliefs and current state
+/**
+ * A saved memory's text, checked for the names of live cards (NOTES §15). It
+ * refreshes cards that already exist and never births one.
+ */
+export interface NamedInTextInput {
+  /** The memory's title and body. */
+  text: string;
+  /** The lived day of the save. */
+  day: number;
+  /** The memory the text came from, for the event trail. */
+  ref: string;
+  /** Cards not to credit here — the title path already had its turn with them. */
+  except?: readonly string[];
+}
+
+export interface NamedInTextReport {
+  /** Cards named in the text and credited with a use. */
+  credited: string[];
+  /** Cards named but not credited: physics refused (birth day, already used today). */
+  refused: string[];
+  /** Handles in the text that resolve to more than one live card; none of those is credited. */
+  ambiguous: number;
+}
+
 // ---------------------------------------------------------------------------
 
 export interface DimensionsInput {
