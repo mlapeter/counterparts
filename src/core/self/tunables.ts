@@ -201,7 +201,8 @@ export const SELF_TUNABLES: SelfTunables = {
   SCHEMA_BYTES_PRESSURE: 0.75,
 
   FIRST_ASK_TURNS: 6,
-  FIRST_ASK_TEXT_BYTES: 12_000,
+  // 24 KB, not 12 KB: a replay showed 12 KB still fired the first ask at typed turn 1–3 in ~40% of sessions.
+  FIRST_ASK_TEXT_BYTES: 24_000,
   REASK_TURNS: 8,
   // 24 KB, not 8 KB: under the OR a long reply alone should not re-ask.
   REASK_TEXT_BYTES: 24_000,

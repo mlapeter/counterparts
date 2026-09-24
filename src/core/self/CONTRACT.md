@@ -418,7 +418,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_WRITER_MEMORY_BYTES` | 8,192 | Bytes of the day just gone the nightly writer is handed. It reads one day, not a life, and what did not fit is counted on the run's row. |
 | `PAGE_WRITER_MEMORY_MAX` | 40 | ...and a ceiling on the count, so a day of very short memories cannot become a hundred bullets. |
 | `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
-| `FIRST_ASK_TURNS` / `FIRST_ASK_TEXT_BYTES` | 6 / 12,000 | The first ask: turns the person typed, OR bytes of conversation text from both roles, whichever comes first — so a one-prompt agentic session still journals. |
+| `FIRST_ASK_TURNS` / `FIRST_ASK_TEXT_BYTES` | 6 / 24,000 | The first ask: turns the person typed, OR bytes of conversation text from both roles, whichever comes first — so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_TEXT_BYTES` | 8 / 24,000 | A later ask: typed turns OR text bytes since the last ask, whichever comes first. |
 | `MAX_ASKS_PER_SESSION` | 12 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence. |
 

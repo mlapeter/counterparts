@@ -1230,9 +1230,9 @@ looked, npm users get it. Say so in the release notes, or cut after the look.
    `counterparts doctor` reports). **JSON is the default: add nothing.** Each hook
    re-reads the file, so a change applies at the next Stop with no restart.
 2. Start a fresh Claude Code session in any directory and send one prompt that earns
-   the first ask in a single turn, e.g. *"Write a 2,500-word short story about a
-   lighthouse keeper."* (The first ask fires at 6 typed turns or 12,000 bytes of text;
-   a 2,500-word reply is about 14,000.)
+   the first ask in a single turn, e.g. *"Write a 5,000-word short story about a
+   lighthouse keeper."* (The first ask fires at 6 typed turns or 24,000 bytes of text;
+   a 5,000-word reply is about 28,000.)
 3. When the reply ends, look at the terminal under it. (The host does not promise the
    final reply is in the transcript file at Stop time on every version; if nothing
    shows after the story, send `thanks` and look under that reply instead.)
