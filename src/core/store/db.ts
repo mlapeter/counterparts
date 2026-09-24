@@ -248,7 +248,7 @@ export function foldWal(db: Db): WalFold {
     const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
     if (row === undefined) return { busy: true, log: -1, checkpointed: -1, error: "no row" };
     // SQLite names the three columns `busy`, `log`, `checkpointed`; by position
-    // as the fallback, which is how `cli/removal.ts` has always read the first.
+    // as the fallback, which is how the removal reclaim has always read the first.
     const at = Object.values(row);
     const busy = row["busy"] ?? at[0];
     const log = row["log"] ?? at[1];
