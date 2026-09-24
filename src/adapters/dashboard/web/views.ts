@@ -187,8 +187,14 @@ function memoriesHeld(src: DashboardSource): number {
   return census(src).filter((r) => !r.schema).length;
 }
 
-function eventsNamed(src: DashboardSource, name: string): number {
-  return src.store.eventLog({ name, limit: LOG_CEILING }).length;
+/**
+ * Every event name's row count, in ONE grouped query (`Store.eventCounts`,
+ * INTERFACE-GAPS §5) — where this used to read up to `LOG_CEILING` rows per
+ * name and take the length. Exact, not capped. A name absent from the map has
+ * no rows; the caller reads the miss as 0.
+ */
+function eventCountsByName(src: DashboardSource): ReadonlyMap<string, number> {
+  return new Map(src.store.eventCounts().map((c) => [c.name, c.count]));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1297,6 +1303,7 @@ export function activityView(
   const events = window.map((row) => narrate(store, row));
   const lastSeq = all.length === 0 ? 0 : (all[all.length - 1]?.seq ?? 0);
   const everLived = store.livedDay() > 0 || store.list().length > 0;
+  const counts = eventCountsByName(src);
 
   return {
     events,
@@ -1308,7 +1315,7 @@ export function activityView(
       "This is what I still have, not everything that ever happened.",
     absent: events.length === 0 ? (everLived ? NONE : NEVER) : null,
     vocabulary: DURABLE_EVENT_NAMES.map((name) => {
-      const count = eventsNamed(src, name);
+      const count = counts.get(name) ?? 0;
       return {
         name,
         count,
@@ -1648,8 +1655,9 @@ export function healthView(src: DashboardSource): HealthView {
   // against it — but what HAS happened is ordered above what never has, so the
   // first screen of this tab is the log's actual contents rather than eleven
   // adapter names nobody has ever run. The order is stated on the page.
+  const counts = eventCountsByName(src);
   const records = DURABLE_EVENT_NAMES.map((name) => {
-    const count = eventsNamed(src, name);
+    const count = counts.get(name) ?? 0;
     const adapter = ADAPTER_EVENTS.includes(name);
     return {
       name,
