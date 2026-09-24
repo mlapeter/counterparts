@@ -326,6 +326,7 @@ export async function runOnce(input: {
 
   const counterpart = Counterpart.open({
     dir: config.dataDir,
+    ...(config.snapshots?.dir === undefined ? {} : { snapshotsDir: config.snapshots.dir }),
     ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     ...(config.injectionBudgetBytes === undefined
       ? {}

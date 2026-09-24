@@ -159,6 +159,7 @@ export function openAdapter(
     // and the LIVE face the novelty seam and the sweep's warm call use.
     ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     ...(config.dataDir === undefined ? {} : { dir: config.dataDir }),
+    ...(config.snapshots?.dir === undefined ? {} : { snapshotsDir: config.snapshots.dir }),
     ...(config.injectionBudgetBytes === undefined
       ? {}
       : { budgetBytes: config.injectionBudgetBytes }),

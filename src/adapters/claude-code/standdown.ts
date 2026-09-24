@@ -132,6 +132,8 @@ const PLAIN_WORDS: Partial<Record<StoreErrorCode, string>> = {
   // out (review A, NIT-2). It fits the 200-character reason cap with room.
   STORE_PRE_ROWS:
     "this store keeps its memories in files, which this build does not read — it was written before the floor changed; the build that reads it is the tag floor/v5-last",
+  MIGRATION_SNAPSHOT_FAILED:
+    "this store needs a schema upgrade and a copy of it could not be saved first, so it was left unchanged",
   SQLITE_UNAVAILABLE: "this runtime has no SQLite binding",
   DATA_DIR_FORBIDDEN: "the configured data dir is one this build refuses to open",
   STORE_UNINITIALIZED: "there is no store here yet, or it is a schema behind",
@@ -167,6 +169,15 @@ function preRowsReason(err: unknown): string | null {
   );
 }
 
+/** The failed pre-migration copy, with what stopped it — doctor opens as an
+ *  observer and never migrates, so this is the one place the why is said. */
+function migrationReason(err: unknown): string | null {
+  if (!isStoreError(err, "MIGRATION_SNAPSHOT_FAILED")) return null;
+  const why = err.detail["reason"];
+  const base = PLAIN_WORDS.MIGRATION_SNAPSHOT_FAILED ?? OPEN_FAILED_WORDS;
+  return typeof why === "string" && why.length > 0 ? `${base}: ${why}` : base;
+}
+
 export function describeFault(err: unknown): StandDownFault {
   // TOTAL, and the reason is not theoretical politeness: this runs inside the
   // handler that exists so a hook never fails the host, and everything below
@@ -190,7 +201,7 @@ function readFault(err: unknown): StandDownFault {
   if (isStoreError(err)) {
     return {
       code: err.code,
-      reason: preRowsReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
+      reason: preRowsReason(err) ?? migrationReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
       kind,
     };
   }

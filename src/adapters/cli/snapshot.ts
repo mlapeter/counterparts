@@ -34,10 +34,10 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { openDb } from "../../core/store/db.js";
 import {
   DATABASE_FILE,
   LAYOUT,
+  vacuumInto,
   assertSafeDataDir,
   forbiddenRoots,
   isWithin,
@@ -246,32 +246,9 @@ export function snapshot(store: Store, target: string): SnapshotReport {
   return { ok: errors.length === 0, target: resolvedTarget, copied, excluded, errors };
 }
 
-/**
- * `VACUUM INTO` on its own connection. The destination must not exist — SQLite
- * refuses to overwrite, which is the right default for a snapshot: a backup that
- * silently replaces yesterday's is one crash away from being no backup at all.
- */
-export function vacuumInto(
-  source: string,
-  destination: string,
-): { ok: true } | { ok: false; error: string } {
-  if (!existsSync(source)) return { ok: false, error: "no canonical database at source" };
-  if (existsSync(destination)) {
-    return { ok: false, error: `destination already exists: ${destination}` };
-  }
-  let db;
-  try {
-    db = openDb(source);
-    // Single-quoted SQL literal: the path is escaped for SQL, never interpolated
-    // into a shell, because nothing here shells out.
-    db.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String((err as Error).message ?? err) };
-  } finally {
-    db?.close();
-  }
-}
+/** `VACUUM INTO` on its own connection — the store's own copy primitive, kept
+ *  exported here for the callers that always found it here. */
+export { vacuumInto };
 
 /** A snapshot directory name that sorts chronologically and never collides. */
 export function snapshotName(at: number): string {

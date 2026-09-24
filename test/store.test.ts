@@ -1589,7 +1589,9 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     open.length = 0;
     expect(code(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
     // A writer may still migrate it — and does, in one transaction, at open.
-    const migrated = store();
+    // This temp store sits outside `<base>/store`, so it names where its
+    // pre-migration copy goes.
+    const migrated = store({ snapshotsDir: scratch() });
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
@@ -1617,7 +1619,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(code(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
     expect(databaseBytes(paths.operational(dir))).toEqual(before);
     // A WRITER still stamps it forward, as before.
-    expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    expect(store({ snapshotsDir: scratch() }).getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
   test("ADDED_COLUMNS is EMPTY at v6, and may never name a column the floor introduced", () => {
@@ -1676,7 +1678,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '3')");
     db.close();
 
-    const migrated = store();
+    const migrated = store({ snapshotsDir: scratch() });
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     // The row is untouched, words included: a migration is not a rewrite.
     expect(migrated.readProse(id).body).toBe("born before the stamp was moved");

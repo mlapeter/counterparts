@@ -1383,3 +1383,35 @@ close that is no longer always a fold; not built.
 the adapter maps identically, and it typechecks; nobody has run it under Node.
 `Store.close()` returns early on a second call, so neither handle is closed twice —
 `node:sqlite` throws on a double close where `bun:sqlite` shrugs.
+
+## 2026-09-24 — a copy before a schema migration
+
+A writer open that finds box 2 on an older schema now copies the database before it
+changes anything (`pre-migration.ts`, called from `openOperational`):
+
+- **One process copies and migrates.** The migration transaction is `BEGIN IMMEDIATE`;
+  the version is read again under that lock, and a process that finds it current does
+  neither. The test holds the lock while three child processes queue on it.
+- **The copy is `VACUUM INTO` on its own connection**, taken while the migrating
+  connection holds the write lock and has written nothing, so it is the last committed
+  state before the migration. Database only: the migration touches nothing else in the
+  store.
+- **Where:** the snapshots directory the daily copies use (`<base>/snapshots`, or
+  `snapshotsDir` / the host's `snapshots.dir`), named
+  `<instant>-pre-migration-v<from>-to-v<to>`. A store outside `<base>/store` with no
+  directory named refuses to migrate rather than go without a copy.
+- **If the copy fails, nothing migrates**: the transaction rolls back and the open
+  throws `MIGRATION_SNAPSHOT_FAILED`, whose `remedy` says why; the store stays on the
+  old version and the build that wrote it still opens it. An abandoned `.partial-…`
+  is left for the daily sweep (the store deletes nothing).
+- **Observers never get here** — they refuse an old store `STORE_UNINITIALIZED` first.
+- **Box 3 is not copied.** It is declared rebuildable, is outside the backup set, and
+  its vectors are recomputed for free by the static tier.
+- **Rotation** keeps these apart from `keep`: one is removed only when it is at least
+  14 days old (`PRE_MIGRATION_KEEP_DAYS`) and `keep` newer daily copies exist. Doctor's
+  Snapshot line names the newest.
+
+**To roll a migration back:** stop every session, move the store's
+`counterparts.sqlite` (and its `-wal`/`-shm`) aside, copy the pre-migration copy's
+`counterparts.sqlite` into the store directory, and run the build that matches its
+`v<from>` — the newer build would migrate it again.

@@ -6,7 +6,7 @@
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, relative, isAbsolute } from "node:path";
+import { basename, dirname, join, resolve, relative, isAbsolute } from "node:path";
 import { StoreError, isStoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
@@ -45,6 +45,20 @@ export const DEFAULT_DATA_DIR_NAME = ".counterparts";
  * Ruled by the owner 2026-09-04 after the launch inventory reproduced it.
  */
 export const DEFAULT_STORE_SUBDIR = "store";
+
+/** The directory the snapshots live in, beside the store rather than inside it. */
+export const SNAPSHOTS_DIR_NAME = "snapshots";
+
+/**
+ * The default snapshots directory for a store: a sibling of it, but only inside
+ * the layout this package creates (`<base>/store` → `<base>/snapshots`). A store
+ * somebody pointed at an arbitrary directory has no default, and null says so.
+ */
+export function defaultSnapshotsDir(storeDir: string): string | null {
+  const store = resolve(storeDir);
+  if (basename(store) !== DEFAULT_STORE_SUBDIR) return null;
+  return join(dirname(store), SNAPSHOTS_DIR_NAME);
+}
 
 /**
  * The canonical database's file name (owner ruling 5, 2026-09-18).

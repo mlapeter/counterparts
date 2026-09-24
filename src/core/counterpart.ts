@@ -699,6 +699,8 @@ export interface CounterpartOptions extends Stance {
   vectors?: LiveVectors;
   /** Retention window for the bounded logs. `store/` owns the default. */
   retentionDays?: number;
+  /** Where the store's pre-migration copy goes; `store/` owns the default. */
+  snapshotsDir?: string;
   /** The identity core's name is the OWNER's; there is no default (SEAMS F). */
   identity?: IdentityCoreSpec;
   onEvent?: (e: CounterpartEvent) => void;
@@ -1314,6 +1316,7 @@ export class Counterpart {
       ...(opts.dir === undefined ? {} : { dir: opts.dir }),
       ...(opts.embed === undefined ? {} : { embed: opts.embed }),
       ...(opts.retentionDays === undefined ? {} : { retentionDays: opts.retentionDays }),
+      ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
       onEvent: (e: StoreEvent) => this.relay("store", e),
     });
 

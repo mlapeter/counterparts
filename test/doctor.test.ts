@@ -747,6 +747,20 @@ describe("doctor — the reading", () => {
     expect(RESTORE_STEPS).toContain("floor/v5-last");
   });
 
+  test("the newest copy taken before a schema upgrade is named, and not counted or graded", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    fakeSnapshot("2026-09-10T03-00-00-000Z-pre-migration-v5-to-v6");
+    fakeSnapshot("2026-09-12T08-00-00-000Z-pre-migration-v6-to-v7");
+    fakeSnapshot("2026-09-14T03-00-00-000Z");
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("green");
+    expect(snap.detail).toContain("before the last schema upgrade: 2026-09-12T08-00-00-000Z-pre-migration-v6-to-v7");
+    expect(snap.data?.["onDisk"]).toBe(1);
+    expect(snap.data?.["preMigration"]).toBe("2026-09-12T08-00-00-000Z-pre-migration-v6-to-v7");
+  });
+
   test("a snapshot older than two days is amber", () => {
     mintStore();
     writeConfig();

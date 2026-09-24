@@ -608,9 +608,9 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
   test("a missing directory and an empty one are different answers", () => {
     // Doctor needs those apart: one is a store that has not taken a copy yet,
     // the other is copies that have gone missing.
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [], preRows: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [], preRows: [], preMigration: [] });
     mkdirSync(snapsDir, { recursive: true });
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [], preRows: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [], preRows: [], preMigration: [] });
   });
 
   test("the name pattern is exactly what `snapshotName` writes", () => {

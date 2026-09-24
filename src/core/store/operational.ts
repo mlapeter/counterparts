@@ -8,11 +8,14 @@
  *
  * Every multi-row mutation is wrapped in a transaction by the seam in `index.ts`.
  */
+import { dirname, resolve } from "node:path";
+
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
-import { PRE_ROWS_READABLE_BY } from "./paths.js";
+import { PRE_ROWS_READABLE_BY, defaultSnapshotsDir } from "./paths.js";
+import { snapshotBeforeMigration } from "./pre-migration.js";
 import type { ProseType } from "./prose.js";
 
 /**
@@ -401,6 +404,24 @@ export interface OpenOperationalOptions {
   readonly initialize?: boolean;
   /** Written once, at creation only. Ignored for an already-initialized store. */
   readonly retentionDays?: number;
+  /**
+   * Where the copy taken before a migration goes. Absent ⇒ the default beside
+   * the store (`defaultSnapshotsDir`); a store with neither refuses to migrate.
+   */
+  readonly snapshotsDir?: string;
+  /** The clock that names the pre-migration copy. Defaults to `Date.now`. */
+  readonly now?: () => number;
+  /** Told once, after a migration committed, what was copied and where. */
+  readonly onMigrated?: (note: MigrationNote) => void;
+}
+
+/** What the open did to the schema, for the caller's record. */
+export interface MigrationNote {
+  readonly from: string;
+  readonly to: number;
+  /** The pre-migration copy's name inside `dir`. */
+  readonly snapshot: string;
+  readonly dir: string;
 }
 
 /**
@@ -531,18 +552,72 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
       readableBy: PRE_ROWS_READABLE_BY,
     });
   }
-  db.transaction(() => {
-    for (const sql of DDL) db.exec(sql);
-    ensureAddedColumns(db);
-    const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
-    put.run("livedDay", "0");
-    put.run("lastActiveDate", "");
-    put.run("retentionDays", String(opts.retentionDays ?? DEFAULT_RETENTION_DAYS));
-    // Last, and REPLACE not IGNORE: the version row is the latch the next open
-    // reads, so it must be written only after the DDL it describes has run.
-    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
-  });
+  let note = null as MigrationNote | null;
+  try {
+    db.transaction(() => {
+      // THE CLAIM. `transaction` is BEGIN IMMEDIATE, so this connection now holds
+      // the write lock; the version is read again under it. Of several processes
+      // opening an old store at once, the first through here copies and
+      // migrates, and the rest find it current and do neither.
+      const now = readSchemaVersion(db);
+      if (now === String(SCHEMA_VERSION)) return;
+      if (now !== null && Number.parseInt(now, 10) > SCHEMA_VERSION) {
+        throw new StoreError("SCHEMA_AHEAD", { path, expected: SCHEMA_VERSION, found: now });
+      }
+      // A store with a version is about to change shape: copy it first. A
+      // fresh file (no version) has nothing to lose. VACUUM INTO runs on its
+      // own connection, which may read while this one holds the lock, and
+      // sees the store as it stands before the DDL below.
+      if (now !== null) note = copyBeforeMigrating(path, now, opts);
+      for (const sql of DDL) db.exec(sql);
+      ensureAddedColumns(db);
+      const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
+      put.run("livedDay", "0");
+      put.run("lastActiveDate", "");
+      put.run("retentionDays", String(opts.retentionDays ?? DEFAULT_RETENTION_DAYS));
+      // Last, and REPLACE not IGNORE: the version row is the latch the next open
+      // reads, so it must be written only after the DDL it describes has run.
+      db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
+    });
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+  if (note !== null) opts.onMigrated?.(note);
   return db;
+}
+
+/**
+ * The copy before a migration, or the refusal that stops it. Throws
+ * `MIGRATION_SNAPSHOT_FAILED` inside the transaction, which rolls back: the
+ * store stays on `found` and the build that wrote it still opens it.
+ */
+function copyBeforeMigrating(path: string, found: string, opts: OpenOperationalOptions): MigrationNote {
+  const configured = opts.snapshotsDir !== undefined && opts.snapshotsDir.trim().length > 0;
+  const dir = configured ? resolve(opts.snapshotsDir as string) : defaultSnapshotsDir(dirname(path));
+  try {
+    const snapshot = snapshotBeforeMigration({
+      dbPath: path,
+      dir,
+      from: found,
+      to: SCHEMA_VERSION,
+      now: (opts.now ?? Date.now)(),
+    });
+    return { from: found, to: SCHEMA_VERSION, snapshot, dir: dir as string };
+  } catch (err) {
+    const reason = String((err as Error).message ?? err);
+    throw new StoreError("MIGRATION_SNAPSHOT_FAILED", {
+      path,
+      found,
+      expected: SCHEMA_VERSION,
+      dir,
+      reason,
+      remedy:
+        `This store is on schema v${found} and this build needs v${SCHEMA_VERSION}, but a copy of it could not ` +
+        `be saved first (${reason}), so nothing was changed and the previous build still opens it; ` +
+        `fix that and open it again.`,
+    });
+  }
 }
 
 /**

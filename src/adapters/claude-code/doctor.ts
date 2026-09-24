@@ -2544,6 +2544,10 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     disk.preRows.length === 0
       ? ""
       : `; ${String(disk.preRows.length)} older-format cop${disk.preRows.length === 1 ? "y" : "ies"} this build cannot open — kept, never rotated, read by the build tagged floor/v5-last: ${disk.preRows.slice(0, 3).join(", ")}${disk.preRows.length > 3 ? ` and ${String(disk.preRows.length - 3)} more` : ""}`;
+  // The newest copy the store took before a schema migration, when there is
+  // one: a clause, not a grade — it is the copy to roll an upgrade back to.
+  const lastUpgrade = disk.preMigration[disk.preMigration.length - 1] ?? null;
+  const upgrade = lastUpgrade === null ? "" : `; before the last schema upgrade: ${lastUpgrade}`;
   const held = {
     ...data,
     onDisk,
@@ -2553,6 +2557,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     future,
     unrecognised: disk.unrecognised.length,
     preRows: disk.preRows.length,
+    preMigration: lastUpgrade,
   };
 
   const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
@@ -2567,7 +2572,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
         "snapshot",
         "amber",
         "Snapshots",
-        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}`,
+        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}${upgrade}`,
         RESTORE_STEPS,
         { ...held, rows: 1 },
       ),
@@ -2592,7 +2597,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
             "snapshot",
             "amber",
             "Snapshots",
-            `no snapshot has ever been taken here${why}${strange}${misread}`,
+            `no snapshot has ever been taken here${why}${strange}${upgrade}${misread}`,
             "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
             { ...held, rows: 0 },
           )
@@ -2600,7 +2605,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
             "snapshot",
             "green",
             "Snapshots",
-            `no snapshot yet — and no boundary has been reached here yet${strange}${misread}`,
+            `no snapshot yet — and no boundary has been reached here yet${strange}${upgrade}${misread}`,
             "",
             { ...held, rows: 0 },
           ),
@@ -2623,6 +2628,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       : "") +
     strange +
     older +
+    upgrade +
     misread;
   // Two or more calendar days back is a daily mechanism that has missed one, so
   // the boundary day itself is already amber.

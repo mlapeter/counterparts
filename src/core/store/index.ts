@@ -60,6 +60,7 @@ import type {
   EventRow,
   GateSessionRow,
   MemoryRow,
+  MigrationNote,
   ProspectiveRow,
   RemovalRow,
   TombstoneRow,
@@ -122,7 +123,15 @@ export type {
   ProspectiveRow,
   RemovalRow,
   TombstoneRow,
+  MigrationNote,
 } from "./operational.js";
+export {
+  PRE_MIGRATION_NAME_RE,
+  PRE_MIGRATION_TAG,
+  preMigrationName,
+  preMigrationVersions,
+  vacuumInto,
+} from "./pre-migration.js";
 export {
   ADDED_COLUMNS,
   DEFAULT_RETENTION_DAYS,
@@ -221,6 +230,12 @@ export interface StoreOptions extends Stance {
    */
   now?: () => number;
   onEvent?: (event: StoreEvent) => void;
+  /**
+   * Where the copy taken before a schema migration goes. Absent ⇒ beside the
+   * store (`<base>/snapshots`); a store outside that layout with none named
+   * refuses to migrate (`MIGRATION_SNAPSHOT_FAILED`).
+   */
+  snapshotsDir?: string;
 }
 
 export interface PutInput {
@@ -618,6 +633,9 @@ const EVENT_RING = 500;
  */
 export const EMBEDDER_RECONCILED_EVENT = "store.embedder.reconciled";
 
+/** The durable row an open writes after it migrated the schema: from, to, and the copy. */
+export const STORE_MIGRATED_EVENT = "store.migrated";
+
 /** Rows per box-3 transaction in the at-open inline refill. CAL. */
 const REFILL_BATCH = 500;
 /**
@@ -723,6 +741,8 @@ export class Store {
    * as found.
    */
   readonly embedderVerdict: EmbedderVerdict;
+  /** The migration this open ran, and the copy taken before it; null when none. */
+  readonly migration: MigrationNote | null;
   /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
   private readonly nowFn: () => number;
   private readonly onEvent: ((e: StoreEvent) => void) | undefined;
@@ -811,10 +831,17 @@ export class Store {
     // needs somewhere to open the cache, and materializing the cache's own
     // directory changes no canonical state and takes no canonical lock.
     mkdirSync(paths.cacheDir(this.dir), { recursive: true });
+    let migration = null as MigrationNote | null;
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: !this.observer,
       retentionDays: this.retentionDays,
+      now: this.nowFn,
+      ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
+      onMigrated: (note) => {
+        migration = note;
+      },
     });
+    this.migration = migration;
     this.cache = openCache(paths.cache(this.dir));
     // THE AT-OPEN IDENTITY CHECK (cache v5, roadmap C1). Once per open, never
     // per call, and never under observer: an instrument has no embedder, and
@@ -920,6 +947,18 @@ export class Store {
     });
     this.assertLayout();
     this.afterReconcile(identity);
+    if (migration !== null) this.noteMigration(migration);
+  }
+
+  /** The durable row for a migration this open ran, naming the copy taken first. */
+  private noteMigration(note: MigrationNote): void {
+    const data = { from: note.from, to: note.to, snapshot: note.snapshot, dir: note.dir };
+    this.emit(STORE_MIGRATED_EVENT, undefined, data);
+    try {
+      this.appendEvent({ name: STORE_MIGRATED_EVENT, day: this.livedDay(), payload: data });
+    } catch {
+      // A lost lock costs the row, never the open; the copy is on disk either way.
+    }
   }
 
   /**
