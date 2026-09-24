@@ -40,6 +40,7 @@ import {
   isBirthKind,
 } from "../src/core/schemas/index.js";
 import type { SchemaEvent } from "../src/core/schemas/index.js";
+import type { Kind } from "../src/core/types.js";
 
 const SCHEMAS_SRC = fileURLToPath(new URL("../src/core/schemas/", import.meta.url));
 
@@ -413,7 +414,7 @@ describe("death by decay", () => {
     }).id as string;
 
     // Day one: alive, and blocked from fading for a reason it can name.
-    const young = s.fadeVerdict(id, 1);
+    const young = s.fadeVerdict(id, 1, pastFloors(s));
     expect(young.fade).toBe(false);
     expect(young.reason).toBe("dwell-too-short");
     expect(young.blockedBy).toEqual(["dwell-too-short"]);
@@ -421,7 +422,7 @@ describe("death by decay", () => {
     // A stub nobody mentions again has zero salience and zero uses, so it sits
     // at the floor and, after the dwell, it is prunable by ordinary physics.
     const late = D_FLOOR();
-    const old = s.fadeVerdict(id, late);
+    const old = s.fadeVerdict(id, late, pastFloors(s));
     expect(old.strength).toBe(0);
     expect(old.band).toBe("episodic");
     expect(old.blockedBy).toEqual([]);
@@ -433,7 +434,7 @@ describe("death by decay", () => {
       true,
     );
 
-    const report = s.fadeSweep(late);
+    const report = s.fadeSweep(late, { date: pastFloors(s) });
     expect(report.faded).toEqual([id]);
     expect(s.entities()).toHaveLength(0);
     // Archive is a STATE, not a deletion: the id stays resolvable.
@@ -462,12 +463,15 @@ describe("death by decay", () => {
     });
     expect(again.reinforced).toBe(true);
 
+    // A sweep the day it was used anchors that day to a date, so the calendar
+    // side below can be read past its floor and only physics is left to say no.
+    expect(s.fadeSweep(5).anchored).toBe(1);
     const late = 5 + PHYSICS.D_FLOOR_DAYS;
-    const v = s.fadeVerdict(id, late);
+    const v = s.fadeVerdict(id, late, pastFloors(s));
     expect(v.fade).toBe(false);
     expect(v.blockedBy).toEqual(["above-floor"]);
     expect(v.strength).toBeGreaterThan(PHYSICS.PHI_PRUNE);
-    expect(s.fadeSweep(late).faded).toEqual([]);
+    expect(s.fadeSweep(late, { date: pastFloors(s) }).faded).toEqual([]);
     expect(s.entities().map((e) => e.id)).toEqual([id]);
   });
 
@@ -482,11 +486,11 @@ describe("death by decay", () => {
     }).id as string;
     s.addBelief({ entityId: id, statement: "it ships on Fridays", day: 0 });
 
-    const v = s.fadeVerdict(id, D_FLOOR());
+    const v = s.fadeVerdict(id, D_FLOOR(), pastFloors(s));
     expect(v.fade).toBe(false);
     expect(v.attached).toBe(1);
     expect(v.blockedBy).toEqual(["has-live-attached-elements"]);
-    expect(s.fadeSweep(D_FLOOR()).faded).toEqual([]);
+    expect(s.fadeSweep(D_FLOOR(), { date: pastFloors(s) }).faded).toEqual([]);
   });
 
   test("a faded entity leaves preselection but keeps its id and its exit count", () => {
@@ -498,7 +502,7 @@ describe("death by decay", () => {
       chunkRef: "c1",
       day: 0,
     }).id as string;
-    s.fadeSweep(D_FLOOR());
+    s.fadeSweep(D_FLOOR(), { date: pastFloors(s) });
 
     expect(s.slices()).toHaveLength(0);
     expect(s.aliasIndex().lookup("Ephemeral")).toEqual([]);
@@ -518,7 +522,7 @@ describe("death by decay", () => {
       chunkRef: "c1",
       day: 0,
     }).id as string;
-    s.fadeSweep(D_FLOOR());
+    s.fadeSweep(D_FLOOR(), { date: pastFloors(s) });
 
     const again = s.mention({
       name: "Ephemeral",
@@ -548,6 +552,26 @@ describe("death by decay", () => {
 
 function D_FLOOR(): number {
   return PHYSICS.D_FLOOR_DAYS;
+}
+
+/** `YYYY-MM-DD` plus `n` calendar days. */
+function addDays(date: string, n: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The calendar floor a card of this kind must pass, read from the tunables. */
+function calendarFloor(kind: Kind): number {
+  return TUNABLES.FADE.CALENDAR_FLOOR_DAYS_BY_KIND[kind] ?? TUNABLES.FADE.CALENDAR_FLOOR_DAYS;
+}
+
+/** The lived dwell a card of this kind needs, read from the tunables. */
+function livedFloor(kind: Kind): number {
+  return Math.ceil(D_FLOOR() * (TUNABLES.FADE.LIVED_DWELL_FACTOR_BY_KIND[kind] ?? 1));
+}
+
+/** A calendar date past this kind's calendar floor, counted from the store's own today. */
+function pastFloors(s: Schemas, kind: Kind = "entity"): string {
+  return addDays(s.store.today(), calendarFloor(kind));
 }
 
 // ---------------------------------------------------------------------------
@@ -1281,6 +1305,13 @@ const PRIVATE_HELPERS = new Set([
   "remember",
   "emit",
   "fadedNamed",
+  // A card another process's sleep cycle archived: dropped from the index at the
+  // next mention rather than reinforced (NOTES §14).
+  "fadedElsewhere",
+  // The gentle-fade reads: calendar days since last use (a lower bound), and the
+  // sweep's anchor that makes them knowable (NOTES §14).
+  "calendarDaysSinceUse",
+  "fadeAnchor",
   "nearCollisions",
   "reMention",
   "birth",

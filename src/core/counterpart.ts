@@ -2525,6 +2525,10 @@ export class Counterpart {
       cycle = runCycle({
         store: this.store,
         render,
+        // schemas INTERFACE-GAPS §6: sleep owns the cadence, schemas the verdict.
+        // Under observer the phase hands `apply: false` and this is a dry run.
+        fade: (f) =>
+          this.schemas.fadeSweep(f.day, { date: f.date, dryRun: !f.apply, limit: f.budget }),
         date,
         ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
         onEvent: (e) => this.relay("sleep", e),
@@ -2958,6 +2962,7 @@ export class Counterpart {
           promoted: known ? report.promoted.length : null,
           pruned: known ? report.pruned.length : null,
           merged: known ? report.merged.length : null,
+          faded: known ? report.faded.length : null,
           bandUp: known ? report.bandTransitions.filter((t) => t.direction === "up").length : null,
           bandDown: known
             ? report.bandTransitions.filter((t) => t.direction === "down").length

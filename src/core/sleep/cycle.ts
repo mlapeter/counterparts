@@ -34,6 +34,8 @@ import type { RenderFn } from "./briefing.js";
 import { runConsolidate } from "./consolidate.js";
 import { runDecay } from "./decay.js";
 import { runDedup } from "./dedup.js";
+import { runFade } from "./fade.js";
+import type { FadeFn } from "./fade.js";
 import type { DedupCandidateSource } from "./dedup.js";
 import { runLogSweep } from "./log.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
@@ -75,6 +77,12 @@ export interface SleepOptions {
    * hidden in a lambda between a host's real cliff and the render (scar §2.18).
    */
   budgetBytes?: number;
+  /**
+   * `schemas/`' fade sweep, injected like `render` (this module does not import
+   * `schemas/`). Absent ⇒ the fade phase reports `no-fade-fn`, and entity cards
+   * stay where they are: the floor prune does not take them either.
+   */
+  fade?: FadeFn;
   /** Injected ranking cache. Absent ⇒ the box-3 SQLite one, opened lazily. */
   strengthCache?: StrengthCache;
   /** Extra dedup candidates (embeddings). Isolated: a throw degrades to lexical. */
@@ -128,6 +136,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
   const promoted: PromotionRecord[] = [];
   const pruned: PrunedRecord[] = [];
   const merged: MergeRecord[] = [];
+  const faded: string[] = [];
   const bandTransitions: BandTransition[] = [];
 
   // The ranking cache is opened LAZILY by the decay phase, and never at all
@@ -284,6 +293,16 @@ export function runCycle(opts: SleepOptions): CycleReport {
       },
     );
 
+    // ── phase 4b: the entity fade (archival, `schemas/`' gentle verdict) ──
+    runPhase(
+      "fade",
+      (ctx) => runFade(ctx, opts.fade, date),
+      (r) => {
+        faded.push(...r.faded);
+      },
+      () => (opts.fade === undefined ? "no-fade-fn" : null),
+    );
+
     // ── phase 5: dedup ────────────────────────────────────────────────────
     runPhase(
       "dedup",
@@ -347,9 +366,10 @@ export function runCycle(opts: SleepOptions): CycleReport {
       promoted,
       pruned,
       merged,
+      faded,
       bandTransitions,
       symmetry,
-      census: census(store, day, pruned, merged),
+      census: census(store, day, pruned, merged, faded),
       events,
     };
     emit("sleep.cycle.done", undefined, {
@@ -358,6 +378,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       promoted: promoted.length,
       pruned: pruned.length,
       merged: merged.length,
+      faded: faded.length,
       bandUp: bandTransitions.filter((t) => t.direction === "up").length,
       bandDown: bandTransitions.filter((t) => t.direction === "down").length,
       failed: reports.filter((p) => p.status === "failed").length,
@@ -560,6 +581,7 @@ export function census(
   day: number,
   pruned: readonly PrunedRecord[],
   merged: readonly MergeRecord[],
+  faded: readonly string[] = [],
 ): Record<Kind, KindCensus> {
   const kinds = Object.keys(PHYSICS.KINDS) as Kind[];
   const created = new Map<Kind, number>();
@@ -577,6 +599,13 @@ export function census(
   for (const p of pruned) exited.set(p.record.kind, (exited.get(p.record.kind) ?? 0) + 1);
   for (const m of merged) {
     const row = store.row(m.candidateId);
+    if (row === undefined) continue;
+    exited.set(row.kind, (exited.get(row.kind) ?? 0) + 1);
+  }
+  // A faded card is an exit for its kind — the prune no longer takes cards, so
+  // without this `person`, `place` and `entity` would read as never exiting.
+  for (const id of faded) {
+    const row = store.row(id);
     if (row === undefined) continue;
     exited.set(row.kind, (exited.get(row.kind) ?? 0) + 1);
   }

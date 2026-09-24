@@ -135,6 +135,8 @@ export interface SleepStore {
  *     the strength cache is materialized.
  *   - revision-dependent work (`prune`, `dedup`, `versions`) runs after
  *     `consolidate`, so it sees this boundary's own supersedes and promotions.
+ *   - `fade` runs right after `prune`, so a card whose last beliefs were
+ *     pruned tonight is free to fade tonight (its floors permitting).
  *   - `briefing` is the cycle's final CONTENT write. `log` runs after it and
  *     writes no content: it deletes telemetry rows past the retention window
  *     (§5 G16), and it is last so "what the cycle forgot" and "what the log
@@ -146,6 +148,7 @@ export const PHASES = [
   "decay",
   "consolidate",
   "prune",
+  "fade",
   "dedup",
   "versions",
   "briefing",
@@ -164,6 +167,7 @@ export type PhaseReason =
   | "not-due-this-cadence"
   | "observer-report"
   | "no-render-fn"
+  | "no-fade-fn"
   | "no-durable-event-log"
   | "failed";
 
@@ -412,6 +416,8 @@ export interface CycleReport {
   readonly promoted: readonly PromotionRecord[];
   readonly pruned: readonly PrunedRecord[];
   readonly merged: readonly MergeRecord[];
+  /** Entity cards the fade phase archived this cycle (or, under observer, would have). Ids only. */
+  readonly faded: readonly string[];
   /** Band crossings THIS cycle, by direction (guarantee 12's input). */
   readonly bandTransitions: readonly BandTransition[];
   /**
@@ -528,6 +534,24 @@ export function isJournal(row: MemoryRow): boolean {
  */
 export function isSchemaRow(row: MemoryRow): boolean {
   return row.type === "schema";
+}
+
+/**
+ * AN ENTITY CARD LEAVES THROUGH THE FADE PHASE, NOT THE FLOOR PRUNE — read by
+ * `prune.ts`. The card's own row is a stub at salience zero, so physics alone
+ * lets it go after its dwell; `schemas/` adds what physics cannot see (beliefs
+ * still attached, the calendar, slower people) and `fade.ts` runs it. Beliefs
+ * and current-state rows stay ordinary prune candidates. Read structurally —
+ * `meta.role` — rather than by importing `schemas/` (NOTES §17).
+ */
+export function isEntityCard(row: MemoryRow): boolean {
+  if (row.type !== "schema") return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === "entity";
+  } catch {
+    return false;
+  }
 }
 
 export function countSkip(out: PhaseOutcome, reason: string, n = 1): void {
