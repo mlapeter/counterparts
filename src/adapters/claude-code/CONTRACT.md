@@ -228,7 +228,8 @@ row, saying which source answered, existed until the keys were removed — §1a.
     record is also WHERE THE SESSION IS FILED.** SessionStart writes
     `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary, and the marks a
     later hook process needs: which configuration was read, whether the first-launch
-    question went out, the wake's sentinel and whether its arrival has been checked), Stop
+    question went out, the wake's sentinel and whether its arrival has been checked, the
+    model that last answered — which the `chapter` tool records per chapter), Stop
     refreshes the clock — creating the record when it is missing — and SessionEnd closes
     it. The writes
     are atomic (temp + rename), tiny, and silent on failure, because a hook may not fail

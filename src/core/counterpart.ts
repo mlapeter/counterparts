@@ -2201,7 +2201,8 @@ export class Counterpart {
   appendEpisode(
     sessionId: string,
     text: string,
-    opts: { day?: number; title?: string; happenedOn?: string } = {},
+    /** `model`: the model writing this chapter, when the host knows it. */
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string } = {},
   ): ChapterResult {
     const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {

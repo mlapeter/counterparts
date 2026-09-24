@@ -1657,10 +1657,14 @@ export class McpServer {
     }
     const session = this.session as string;
     const title = args["title"];
+    // The model the hooks last saw answer in this session. A Stop records it
+    // before its ask goes out, so the chapter that answers the ask has it.
+    const model = readSession(this.registryDir, session)?.model;
     let written: ChapterResult;
     try {
       written = this.counterpart.appendEpisode(session, text, {
         ...(typeof title === "string" && title.length > 0 ? { title } : {}),
+        ...(model === undefined ? {} : { model }),
       });
     } catch (err) {
       // A journal that throws must not look like a journal that refused.

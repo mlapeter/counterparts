@@ -376,6 +376,9 @@ export interface TranscriptRead {
   readonly corrupt: number;
   /** Deliberate-recall calls, in order, positioned against `turns`. */
   readonly expansions: Expansion[];
+  /** `message.model` of the last assistant entry the model wrote (not a host
+   *  stand-in, not a sidechain). Absent when none carried one. */
+  readonly model?: string;
 }
 
 /**
@@ -425,6 +428,7 @@ export function parseTranscript(raw: string): TranscriptRead {
   // Queued prompts already emitted, by their text. Open until a twin consumes
   // one or the person sends anything else.
   let pending: string[] = [];
+  let model: string | undefined;
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: Record<string, unknown>;
@@ -463,6 +467,12 @@ export function parseTranscript(raw: string): TranscriptRead {
     if (role !== "user" && role !== "assistant") continue;
     const content = message?.["content"] ?? entry["content"];
     const author = entryAuthor(entry, role);
+    // Which model answered: the newest real assistant entry wins, so a
+    // mid-session /model switch shows up at the next read.
+    if (role === "assistant" && author !== "host" && entry["isSidechain"] !== true) {
+      const said = message?.["model"];
+      if (typeof said === "string" && said.length > 0) model = said;
+    }
     const pieces = blocksOf(content, role, author);
     // A twin, if the host ever writes one, is the person's NEXT sent entry: the
     // same words, marked queued. Anything else the person sends closes the
@@ -487,7 +497,7 @@ export function parseTranscript(raw: string): TranscriptRead {
       turns.push({ role, text: piece.text, source: piece.source, entry: ordinal });
     }
   }
-  return { turns, ok: true, reason: "read", corrupt, expansions };
+  return { turns, ok: true, reason: "read", corrupt, expansions, ...(model === undefined ? {} : { model }) };
 }
 
 /**

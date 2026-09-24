@@ -428,12 +428,36 @@ export function askText(chapter: number): string {
  * heading is the older form, `## chapter 1 — lived day 2`, which every chapter
  * written before 2026-09-24 still carries — stored bodies are never rewritten,
  * and `readChapterLead` reads both.
+ *
+ * `model` is the model that wrote the chapter, printed raw after the date —
+ * `## chapter 1 — Tue 23 Sep 2026 · claude-opus-5-5 · lived day 2`. Unknown,
+ * it is left out.
  */
-export function chapterHeading(chapter: number, day: number, date?: string): string {
+export function chapterHeading(chapter: number, day: number, date?: string, model?: string): string {
   const said = date === undefined ? "" : readableDate(date);
-  return said.length > 0
-    ? `## chapter ${chapter} — ${said} · lived day ${day}`
-    : `## chapter ${chapter} — lived day ${day}`;
+  const by = model !== undefined && isModelId(model) ? model : "";
+  const parts = [said, by].filter((p) => p.length > 0);
+  return `## chapter ${chapter} — ${[...parts, `lived day ${day}`].join(" · ")}`;
+}
+
+/**
+ * A model id as the host reports it (`claude-opus-5-5`, `claude-opus-5-5[1m]`),
+ * and nothing else: it is printed into a heading, so no spaces, no `·`, no
+ * `<synthetic>`. Anything that fails this is treated as unknown.
+ */
+export function isModelId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$/.test(value);
+}
+
+/** Which model wrote each chapter, from an episode's meta — `{ "1": "claude-opus-5-5" }`. */
+export function chapterModels(meta: Record<string, unknown>): Record<string, string> {
+  const raw = meta["models"];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (/^\d+$/.test(k) && isModelId(v)) out[k] = v;
+  }
+  return out;
 }
 
 /** What the headings at the top of a chapter's text said, and the text after them. */
@@ -444,6 +468,8 @@ export interface ChapterLead {
   readonly livedDay: number | null;
   /** The first calendar date the leading headings named, as written (`Tue 23 Sep 2026`), or null. */
   readonly date: string | null;
+  /** The first model the leading headings named (`claude-opus-5-5`), or null. */
+  readonly model: string | null;
   /** The text with the LEADING headings taken off — however many were stacked. */
   readonly rest: string;
 }
@@ -455,7 +481,7 @@ export interface ChapterLead {
  * Mike opened…`).
  */
 const LEAD_HEADING =
-  /^\s*#{1,6}[ \t]*chapter[ \t]+(\d+)(?:[ \t]*[—–-][ \t]*(?:([A-Za-z]{3} \d{1,2} [A-Za-z]{3} \d{4})[ \t]*·[ \t]*)?lived day[ \t]+(\d+))?[ \t]*(?:\n|$)/i;
+  /^\s*#{1,6}[ \t]*chapter[ \t]+(\d+)(?:[ \t]*[—–-][ \t]*(?:([A-Za-z]{3} \d{1,2} [A-Za-z]{3} \d{4})[ \t]*·[ \t]*)?(?:([A-Za-z0-9][A-Za-z0-9._:[\]-]*)[ \t]*·[ \t]*)?lived day[ \t]+(\d+))?[ \t]*(?:\n|$)/i;
 const ANY_HEADING = /^[ \t]*#{1,6}[ \t]*chapter[ \t]+(\d+)\b/gim;
 
 /**
@@ -469,14 +495,16 @@ export function readChapterLead(text: string): ChapterLead {
   let rest = text;
   let livedDay: number | null = null;
   let date: string | null = null;
+  let model: string | null = null;
   for (let m = LEAD_HEADING.exec(rest); m !== null; m = LEAD_HEADING.exec(rest)) {
-    if (livedDay === null && m[3] !== undefined) livedDay = Number(m[3]);
+    if (livedDay === null && m[4] !== undefined) livedDay = Number(m[4]);
     if (date === null && m[2] !== undefined) date = m[2];
+    if (model === null && m[3] !== undefined) model = m[3];
     rest = rest.slice(m[0].length);
   }
   const seen = new Set<number>();
   for (const m of text.matchAll(ANY_HEADING)) seen.add(Number(m[1]));
-  return { chapters: [...seen].sort((a, b) => a - b), livedDay, date, rest: rest.trimStart() };
+  return { chapters: [...seen].sort((a, b) => a - b), livedDay, date, model, rest: rest.trimStart() };
 }
 
 /**
@@ -496,11 +524,12 @@ export function appendChapter(
   store: Store,
   state: EpisodeState,
   text: string,
-  opts: { day: number; date?: string; title?: string; happenedOn?: string },
+  opts: { day: number; date?: string; model?: string; title?: string; happenedOn?: string },
 ): { episodeId: string; chapter: number; created: boolean; heading: boolean } {
   const opens = state.episodeId === null || state.asks > state.appendedAtAsk;
   const chapter = opens ? state.chapters + 1 : Math.max(1, state.chapters);
-  const heading = chapterHeading(chapter, opts.day, opts.date);
+  const model = isModelId(opts.model) ? opts.model : undefined;
+  const heading = chapterHeading(chapter, opts.day, opts.date, model);
   const body = `${heading}\n\n${text.trim()}\n`;
 
   if (state.episodeId === null) {
@@ -509,7 +538,11 @@ export function appendChapter(
       type: "episode",
       kind: "self",
       body,
-      meta: { sessionId: state.sessionId, chapters: chapter },
+      meta: {
+        sessionId: state.sessionId,
+        chapters: chapter,
+        ...(model === undefined ? {} : { models: { [String(chapter)]: model } }),
+      },
       // The experiencer writing its own journal is the "episode" channel —
       // consistent with the memory its ingestion mints (PR-2 review nit).
       source: "episode",
@@ -527,9 +560,17 @@ export function appendChapter(
   // only if this chapter is genuinely past what the file already carries.
   const opensChapter = opens && chapter > recorded;
   const num = opensChapter ? chapter : Math.max(1, recorded);
+  // Each chapter keeps the model that opened it; meta merges shallowly, so
+  // the whole map is carried.
+  const models = chapterModels(prior.meta);
+  if (opensChapter && model !== undefined) models[String(num)] = model;
   store.revise(state.episodeId, {
-    body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day, opts.date) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
-    meta: { sessionId: state.sessionId, chapters: Math.max(num, recorded) },
+    body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day, opts.date, model) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
+    meta: {
+      sessionId: state.sessionId,
+      chapters: Math.max(num, recorded),
+      ...(Object.keys(models).length === 0 ? {} : { models }),
+    },
     reason: opensChapter ? "episode-chapter" : "episode-append",
   });
   return { episodeId: state.episodeId, chapter: num, created: false, heading: opensChapter };

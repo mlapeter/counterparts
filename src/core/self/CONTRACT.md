@@ -262,6 +262,9 @@ proposals and their archive; render and delivery telemetry.
     continues the chapter it is part of — appending in the moment is the doctrine's headline
     case (§13 G2), not an edge. Measured 2026-09-04: with the ask advancing the chapter
     count, the hook's number reached 7 in a session whose episode held nothing.
+    A chapter's heading carries the calendar date it was written on and, when the
+    caller knows it, the model that wrote it; the episode's meta keeps `sessionId`,
+    `chapters`, and `models` (chapter number → model id) (NOTES §24).
 
 15. **[M]** **The self page is one row, written through one seam, and outside sleep's
     reach** (2026-09-18, owner rulings 8 and 9). `revisePage(body, { reason, by, session?,

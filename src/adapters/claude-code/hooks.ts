@@ -162,6 +162,8 @@ export interface HookInput {
    * file read for the one thing that parse deliberately skips.
    */
   readonly transcriptPath?: string;
+  /** The model that wrote the transcript's last assistant entry, when known. */
+  readonly model?: string;
   /** Today's calendar date, for the temporal channel and the horizon lane. */
   readonly at?: string;
   /**
@@ -1848,6 +1850,9 @@ export class ClaudeCodeAdapter {
       ...(this.configPath === undefined || this.configPath.length === 0
         ? {}
         : { config: this.configPath }),
+      // Which model answered last. A Stop writes this before its ask goes out,
+      // so the chapter that answers the ask finds it on the record.
+      ...(input.model === undefined ? {} : { model: input.model }),
     });
     this.emit("adapter.session.registry", { phase, ok: record !== null });
     // Bounded growth, once per session rather than once per turn — and never on

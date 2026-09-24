@@ -72,7 +72,7 @@ import type {
   Span,
   SpanBuffer,
 } from "../core/remember/index.js";
-import { episodeFacts } from "../core/self/index.js";
+import { episodeFacts, isModelId } from "../core/self/index.js";
 import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../core/store/index.js";
 import type { Store } from "../core/store/index.js";
 
@@ -243,6 +243,13 @@ export interface SessionRecord {
    * Carried forward like `config`. Still host state: an id, a number, a word.
    */
   readonly writeUpFor?: WriteUpFor;
+  /**
+   * The model that wrote the transcript's last assistant entry, as the host
+   * reports it (`claude-opus-5-5`). Refreshed at every boundary, carried like
+   * `config`; the `chapter` tool reads it so each chapter records its model.
+   * Still host state, still no content: an id.
+   */
+  readonly model?: string;
 }
 
 /** The part of an ended session the MCP door handed a live one. */
@@ -383,6 +390,8 @@ export function recordSession(
     /** The ended session the SessionStart hook pointed this one at (C2).
      *  Carried forward like `config`; the newest answer wins. */
     writeUpPointer?: string;
+    /** The model that last answered. Carried like `config`; newest wins. */
+    model?: string;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -468,6 +477,12 @@ export function recordSession(
         ? { writeUpPointer: prior.writeUpPointer }
         : {}),
     ...(prior?.writeUpFor !== undefined ? { writeUpFor: prior.writeUpFor } : {}),
+    // Newest wins, so a /model switch shows at the next boundary.
+    ...(isModelId(input.model)
+      ? { model: input.model }
+      : prior?.model !== undefined
+        ? { model: prior.model }
+        : {}),
   };
 
   return writeRecord(dataDir, path, record);
@@ -1129,6 +1144,8 @@ function parseRecord(raw: unknown): SessionRecord | null {
       const writeUpFor = parseWriteUpFor(rec["writeUpFor"]);
       return writeUpFor === null ? {} : { writeUpFor };
     })(),
+    // A value that is not a plain model id is no mark: it goes into a heading.
+    ...(isModelId(rec["model"]) ? { model: rec["model"] } : {}),
   };
 }
 
