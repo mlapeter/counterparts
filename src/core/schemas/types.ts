@@ -311,7 +311,8 @@ export interface FadeSweepOptions {
   date?: string;
   /** Compute every verdict and write nothing — no archive, no anchor. The observer's report. */
   dryRun?: boolean;
-  /** Examine at most this many live cards. The rest wait for the next sweep. */
+  /** Examine at most this many live cards. There is no cursor, so the same cards
+   *  come first every sweep; sleep's budget is sized so a personal store never hits it. */
   limit?: number;
 }
 

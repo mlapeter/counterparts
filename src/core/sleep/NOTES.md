@@ -777,8 +777,10 @@ in the wrong place. `runPrune` walks every row, and an entity card is a stub at 
 zero, so physics alone let it go at `D_FLOOR_DAYS` (90 lived days) — archived `pruned`,
 with its beliefs still attached (a probe: a person with one belief, prune at day 91, both
 archived), and never taken out of a long-lived process's alias index. The identity core is
-the same kind of row with no `protected` flag, so on the demo store physics would have let
-the prune take it too, after a long enough quiet.
+the same kind of row with no `protected` flag and nothing that reinforces it (last used on
+day 0 of the demo store at day 30), so physics would have let the prune take it too after
+90 quiet lived days — and `self/identity.ts#findIdentityCore` lists only unarchived rows,
+so the next `ensureIdentityCore` would have minted a second one.
 
 What changed:
 
