@@ -42,6 +42,7 @@ import type { Salience } from "../types.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { hashText } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
+import { readableDate } from "./calendar.js";
 
 // ── the input shape (a SEAM, not an import — INTERFACE-GAPS #1) ─────────────
 
@@ -416,8 +417,66 @@ export function askText(chapter: number): string {
 
 // ── chapters ────────────────────────────────────────────────────────────────
 
-export function chapterHeading(chapter: number, day: number): string {
-  return `## chapter ${chapter} — lived day ${day}`;
+/**
+ * A chapter's heading, as it is WRITTEN into the episode's body.
+ *
+ * `date` is the calendar day the chapter was written on, in the person's own
+ * zone (`calendar.ts`), as `YYYY-MM-DD`; the heading prints it the way a person
+ * reads it — `## chapter 1 — Tue 23 Sep 2026 · lived day 2` (owner, 2026-09-24).
+ * The lived day stays beside it: it is the physics clock, and a reader asking
+ * "which day was that" wants the calendar. Absent (or not a whole date), the
+ * heading is the older form, `## chapter 1 — lived day 2`, which every chapter
+ * written before 2026-09-24 still carries — stored bodies are never rewritten,
+ * and `readChapterLead` reads both.
+ */
+export function chapterHeading(chapter: number, day: number, date?: string): string {
+  const said = date === undefined ? "" : readableDate(date);
+  return said.length > 0
+    ? `## chapter ${chapter} — ${said} · lived day ${day}`
+    : `## chapter ${chapter} — lived day ${day}`;
+}
+
+/** What the headings at the top of a chapter's text said, and the text after them. */
+export interface ChapterLead {
+  /** Every distinct chapter number headed anywhere in the text, ascending. */
+  readonly chapters: readonly number[];
+  /** The first lived day the leading headings named, or null. */
+  readonly livedDay: number | null;
+  /** The first calendar date the leading headings named, as written (`Tue 23 Sep 2026`), or null. */
+  readonly date: string | null;
+  /** The text with the LEADING headings taken off — however many were stacked. */
+  readonly rest: string;
+}
+
+/**
+ * One chapter heading at the very start of the text, in either written form or
+ * the bare `## chapter 1` a model sometimes adds under the one the journal wrote
+ * (seen on the live store 2026-09-24: `## chapter 1 — lived day 3 ## chapter 1
+ * Mike opened…`).
+ */
+const LEAD_HEADING =
+  /^\s*#{1,6}[ \t]*chapter[ \t]+(\d+)(?:[ \t]*[—–-][ \t]*(?:([A-Za-z]{3} \d{1,2} [A-Za-z]{3} \d{4})[ \t]*·[ \t]*)?lived day[ \t]+(\d+))?[ \t]*(?:\n|$)/i;
+const ANY_HEADING = /^[ \t]*#{1,6}[ \t]*chapter[ \t]+(\d+)\b/gim;
+
+/**
+ * The reader of `chapterHeading`, for a surface that shows a chapter's words
+ * on one line and its heading as metadata (`counterparts ask`). Reads both
+ * written forms, strips any number of stacked headings off the front, and
+ * reports the day and date they named. Text with no heading at its start comes
+ * back as it was, with `chapters` still counting any headed further down.
+ */
+export function readChapterLead(text: string): ChapterLead {
+  let rest = text;
+  let livedDay: number | null = null;
+  let date: string | null = null;
+  for (let m = LEAD_HEADING.exec(rest); m !== null; m = LEAD_HEADING.exec(rest)) {
+    if (livedDay === null && m[3] !== undefined) livedDay = Number(m[3]);
+    if (date === null && m[2] !== undefined) date = m[2];
+    rest = rest.slice(m[0].length);
+  }
+  const seen = new Set<number>();
+  for (const m of text.matchAll(ANY_HEADING)) seen.add(Number(m[1]));
+  return { chapters: [...seen].sort((a, b) => a - b), livedDay, date, rest: rest.trimStart() };
 }
 
 /**
@@ -437,11 +496,11 @@ export function appendChapter(
   store: Store,
   state: EpisodeState,
   text: string,
-  opts: { day: number; title?: string; happenedOn?: string },
+  opts: { day: number; date?: string; title?: string; happenedOn?: string },
 ): { episodeId: string; chapter: number; created: boolean; heading: boolean } {
   const opens = state.episodeId === null || state.asks > state.appendedAtAsk;
   const chapter = opens ? state.chapters + 1 : Math.max(1, state.chapters);
-  const heading = chapterHeading(chapter, opts.day);
+  const heading = chapterHeading(chapter, opts.day, opts.date);
   const body = `${heading}\n\n${text.trim()}\n`;
 
   if (state.episodeId === null) {
@@ -469,7 +528,7 @@ export function appendChapter(
   const opensChapter = opens && chapter > recorded;
   const num = opensChapter ? chapter : Math.max(1, recorded);
   store.revise(state.episodeId, {
-    body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
+    body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day, opts.date) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
     meta: { sessionId: state.sessionId, chapters: Math.max(num, recorded) },
     reason: opensChapter ? "episode-chapter" : "episode-append",
   });

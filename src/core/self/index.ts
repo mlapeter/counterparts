@@ -1733,7 +1733,12 @@ export class Self {
     }
     const gatedText = verdict.text ?? text;
     const state = this.episodeState(sessionId, d);
-    const append: Parameters<typeof appendChapter>[3] = { day: d };
+    // The calendar day the chapter is written on, in the person's own zone —
+    // the heading prints it beside the lived day (owner, 2026-09-24).
+    const append: Parameters<typeof appendChapter>[3] = {
+      day: d,
+      date: calendarDate(this.store.now(), this.zone),
+    };
     if (opts.title !== undefined) append.title = opts.title;
     if (opts.happenedOn !== undefined) append.happenedOn = opts.happenedOn;
     const written = appendChapter(this.store, state, gatedText, append);

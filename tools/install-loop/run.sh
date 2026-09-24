@@ -460,7 +460,7 @@ if true; then
   unset COUNTERPARTS_DATA_DIR
   if printf '%s' "$RECALL_OUT" | grep -q "port 5433" &&
      ! printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
-     printf '%s' "$RECALL_OUT" | grep -q "(by meaning and words)"; then
+     printf '%s' "$RECALL_OUT" | grep -qE "found, by meaning and words\.( The top [0-9]+:)?$"; then
     ok
   else
     no "recall did not pick the one memory that answers the question" "notes: $OUT
@@ -470,18 +470,21 @@ fi
 
 step "an answer names the TIER it came back at"
 # `answered` says the question reached something, never that it is right. The
-# tier is the only confidence signal there is: the short answer says when
-# nothing came back vividly (and only then), and `--full` glosses every tier on
-# screen. Since `note` embeds on write, the demo's answer may come back vivid.
+# tier is the only confidence signal there is, and `--full` glosses every tier
+# on screen — and says "treat these as leads" when nothing came back vividly
+# (and only then). The SHORT answer no longer says it (owner, 2026-09-24: it
+# read as doubt about an answer that was right). Since `note` embeds on write,
+# the demo's answer may come back vivid.
 eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
 FULL_OUT=$(eval "$RECALL_CMD --full" 2>&1)
 unset COUNTERPARTS_DATA_DIR
 if printf '%s' "$FULL_OUT" | grep -q '^  vivid = '; then VIVID=1; else VIVID=0; fi
-if printf '%s' "$RECALL_OUT" | grep -q "treat these as leads"; then LEADS=1; else LEADS=0; fi
-if printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = ' && [ "$VIVID" != "$LEADS" ]; then
+if printf '%s' "$FULL_OUT" | grep -q "treat these as leads"; then LEADS=1; else LEADS=0; fi
+if printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = ' && [ "$VIVID" != "$LEADS" ] &&
+   ! printf '%s' "$RECALL_OUT" | grep -q "treat these as leads"; then
   ok
 else
-  no "no tier gloss under --full, or the short answer's leads line disagrees with it" "short: $RECALL_OUT
+  no "no tier gloss under --full, its leads line disagrees with it, or the short answer still says it" "short: $RECALL_OUT
 full: $FULL_OUT"
 fi
 

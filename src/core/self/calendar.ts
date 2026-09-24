@@ -57,3 +57,25 @@ export function calendarDate(at: number, zone?: string): string {
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/**
+ * A `YYYY-MM-DD` as a person reads it: `Tue 23 Sep 2026`. Empty for anything
+ * that is not a whole, real date — a `2026-08` precision or a typo is not
+ * padded into a day it never named.
+ *
+ * The string is ALREADY a calendar day (whichever zone decided it), so it is
+ * read as that day and nothing else: built at UTC midnight and read back with
+ * the UTC getters, so a machine west of Greenwich does not name the weekday
+ * before it.
+ */
+export function readableDate(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (m === null) return "";
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return "";
+  return `${WEEKDAYS[at.getUTCDay()]} ${String(d)} ${MONTHS[mo - 1]} ${String(y)}`;
+}

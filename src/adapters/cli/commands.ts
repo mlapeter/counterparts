@@ -46,7 +46,7 @@ import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 // band with this exact function, and two implementations of "which band is this
 // row in today" is how the two surfaces disagreed in the first place.
 import { TUNABLES, band } from "../../core/physics/index.js";
-import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
+import { LANE_ORDER, PREFACE_RESERVE_BYTES, readChapterLead, readableDate } from "../../core/self/index.js";
 // The ONE predicate for "this row is the journal, not a memory" — the same one
 // the sleep phases and the dashboard's census use. A second copy of that test
 // living here is how the console drifted away from them in the first place.
@@ -196,7 +196,7 @@ import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
 // The console's shared manners (2026-09-21): is there a person here, ask them,
 // and say one marked line back.
-import { ask, confirm, isInteractive, isPromptAborted, typed, ui } from "./ui.js";
+import { ask, confirm, isInteractive, isPromptAborted, paint, typed, ui } from "./ui.js";
 import type { Ui } from "./ui.js";
 // N1's own module: the plan, the refusals and the one mutating call this
 // command makes. It opens no store and imports nothing from here.
@@ -4913,13 +4913,54 @@ export function askEmbedder(
 
 /** How many answers `ask` lists before `--full` (2026-09-24). */
 export const ASK_SHOWN = 5;
-/** How much of a memory's text stands in for a missing title on that list. */
-export const ASK_GIST_CHARS = 100;
+/** How long an answer's text line runs on that list before it is cut. */
+export const ASK_GIST_CHARS = 90;
 
-/** A memory's one line on `ask`'s list: its title, or its first words. */
+/** Markdown heading marks off every line, and the whitespace collapsed. */
+function plainLine(text: string): string {
+  return text.replace(/^[ \t]*#{1,6}[ \t]+/gm, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * An answer's text line on `ask`'s list: its title, or its first words — as
+ * plain words. A chapter's heading (`## chapter 1 — lived day 2`, stacked or
+ * not, either written form) is taken off the front, because `askMeta` says it
+ * on the line underneath; heading marks go, whitespace collapses, and the line
+ * is cut at `ASK_GIST_CHARS` with an ellipsis (owner, 2026-09-24).
+ */
 export function askGist(title: string | null, body: string): string {
-  const said = (title ?? body).replace(/\s+/g, " ").trim();
+  const titled = title === null ? "" : plainLine(readChapterLead(title).rest);
+  const words = titled.length > 0 ? titled : plainLine(readChapterLead(body).rest);
+  // A row that is ONLY a heading still gets a line: the heading, plainly.
+  const said = words.length > 0 ? words : plainLine(title ?? body);
   return said.length <= ASK_GIST_CHARS ? said : `${said.slice(0, ASK_GIST_CHARS).trimEnd()}…`;
+}
+
+/**
+ * The quieter line under an answer: what it is, when, and its id —
+ * `self · chapter 1 · Tue 23 Sep 2026 · lived day 2 · mem_2db9908dca81`.
+ *
+ * The DATE is the one the chapter's own heading names when it names one (a
+ * chapter written since 2026-09-24 carries the day it was written, in the
+ * person's zone). Otherwise it is `learnedOn`, the store's provenance date —
+ * which is a UTC day (`store/index.ts#dateOf`), because a row keeps no instant
+ * to take into any other zone.
+ */
+export function askMeta(
+  m: { readonly id: string; readonly kind: string; readonly journal: boolean; readonly body: string },
+  learnedOn: string | null,
+): string {
+  const lead = readChapterLead(m.body);
+  const parts: string[] = [m.journal ? "journal" : m.kind];
+  const [lo, hi] = [lead.chapters[0], lead.chapters[lead.chapters.length - 1]];
+  if (lo !== undefined && hi !== undefined) {
+    parts.push(lo === hi ? `chapter ${String(lo)}` : `chapters ${String(lo)}–${String(hi)}`);
+  }
+  const date = lead.date ?? (learnedOn === null ? "" : readableDate(learnedOn));
+  if (date.length > 0) parts.push(date);
+  if (lead.livedDay !== null) parts.push(`lived day ${String(lead.livedDay)}`);
+  parts.push(m.id);
+  return parts.join(" · ");
 }
 
 /**
@@ -5005,10 +5046,25 @@ async function recallCommand(
       return result.memories.length > 0 ? EXIT.ok : EXIT.ok;
     }
     // SHORT BY DEFAULT (2026-09-24): a header in plain words and the top few,
-    // one line each. `--full` is the page this command printed before, and
+    // numbered, two lines each. `--full` is the page this command printed before, and
     // `--id` is always a whole memory.
     if (parsed.flags["full"] !== true && idFlag.length === 0) {
-      printAskList(io, result, askChannel(result.semantic, counterpart.store.embedderVerdict.kind, embedder), said);
+      printAskList(
+        io,
+        result,
+        askChannel(result.semantic, counterpart.store.embedderVerdict.kind, embedder),
+        said,
+        {
+          learnedOn: (id) => {
+            try {
+              return counterpart.store.readProse(id).learnedOn;
+            } catch {
+              return null;
+            }
+          },
+          dim: paint(io, env).dim,
+        },
+      );
       return EXIT.ok;
     }
     io.out(
@@ -5073,17 +5129,30 @@ async function recallCommand(
 }
 
 /**
- * `ask`'s short answer: one header line, then at most `ASK_SHOWN` memories,
- * one line each — id, kind, and the title or the first words. What `--full`
- * adds is the path, the reason, the considered/stored numbers, every body in
- * full and the tier legend. The legend's one warning survives here as one
- * line: when nothing came back vividly, these are leads, not answers.
+ * `ask`'s short answer (reshaped 2026-09-24, from the owner's first reading of
+ * it on a real store): a header sentence, then at most `ASK_SHOWN` answers,
+ * numbered, two lines each and a blank line between — the words first
+ * (`askGist`), and under them a quieter line saying what it is, when, and its
+ * id (`askMeta`), dimmed on a terminal that takes colour (`ui.ts#paint`: never
+ * on a pipe unless FORCE_COLOR asks, never under NO_COLOR). What `--full` adds
+ * is the path, the reason, the considered/stored numbers, every body in full
+ * and the tier legend.
+ *
+ * The "nothing came back vividly — treat these as leads" line is GONE from
+ * here: on the owner's store it read as doubt about an answer that was right.
+ * `--full`'s tier legend still says it, unchanged.
  */
 export function printAskList(
   io: Io,
   result: ReturnType<typeof deliberateRecall>,
   how: string,
   said: string,
+  opts: {
+    /** The row's provenance date, by id — `askMeta`'s fallback date. */
+    readonly learnedOn?: (id: string) => string | null;
+    /** How the metadata line is quietened. Absent: plain. */
+    readonly dim?: (s: string) => string;
+  } = {},
 ): void {
   const found = result.memories.length;
   if (found === 0) {
@@ -5097,22 +5166,24 @@ export function printAskList(
     return;
   }
   const shown = result.memories.slice(0, ASK_SHOWN);
+  const counted = `${String(found)} ${found === 1 ? "memory" : "memories"} found, ${how}.`;
+  io.out(found > ASK_SHOWN ? `${counted} The top ${String(ASK_SHOWN)}:` : counted);
+  const dim = opts.dim ?? ((s: string) => s);
+  const numberWidth = String(shown.length).length;
+  shown.forEach((m, i) => {
+    const mark = `  ${String(i + 1).padStart(numberWidth)}. `;
+    io.out("");
+    io.out(`${mark}${askGist(m.title, m.body)}`);
+    // A chapter is never presented as a memory (LAUNCH-STATUS §I14): its
+    // metadata line opens with `journal`.
+    io.out(`${" ".repeat(mark.length)}${dim(askMeta(m, opts.learnedOn?.(m.id) ?? null))}`);
+  });
+  io.out("");
   io.out(
     found > ASK_SHOWN
-      ? `${found} found (${how}) · showing ${ASK_SHOWN} — --full for all, --id <id> for one`
-      : `${found} found (${how}) — --full for detail, --id <id> for one`,
+      ? "More: --full for all of them with detail, or --id <id> for one in full."
+      : "More: --full for detail, or --id <id> for one in full.",
   );
-  // A chapter is never presented as a memory (LAUNCH-STATUS §I14): its kind
-  // column says `journal`.
-  const kindOf = (m: (typeof shown)[number]): string => (m.journal ? "journal" : m.kind);
-  const kindWidth = Math.max(...shown.map((m) => kindOf(m).length));
-  const idWidth = Math.max(...shown.map((m) => m.id.length));
-  for (const m of shown) {
-    io.out(`  ${m.id.padEnd(idWidth)}  ${kindOf(m).padEnd(kindWidth)}  ${askGist(m.title, m.body)}`);
-  }
-  if (!result.memories.some((m) => m.tier === "vivid")) {
-    io.out("  Nothing came back vividly — treat these as leads; --full says how each was reached.");
-  }
 }
 
 // ── verify ──────────────────────────────────────────────────────────────────
