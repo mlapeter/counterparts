@@ -409,10 +409,12 @@ export class Schemas {
 
     const named = new Set<string>();
     const fading = new Set<string>();
+    let denied: Set<string> | undefined;
+    const removedIds = (): Set<string> => (denied ??= new Set(this.store.deniedIds()));
     for (const [key, term] of terms) {
       if (key.length < TUNABLES.NAME_MIN_CHARS) continue;
       const live = this.liveHolders(term);
-      const faded = this.fadedHolders(term);
+      const faded = this.fadedHolders(term, removedIds);
       if (live.length + faded.length > 1) {
         report.ambiguous += 1;
         continue;
@@ -446,10 +448,10 @@ export class Schemas {
    * live card now holds is that card's past life, not a second holder. Of
    * several faded cards with one name, the latest-born speaks for them.
    */
-  private fadedHolders(term: string): string[] {
+  private fadedHolders(term: string, removedIds: () => Set<string>): string[] {
     const ids = this.faded.lookup(term);
     if (ids.length === 0) return [];
-    const denied = new Set(this.store.deniedIds());
+    const denied = removedIds();
     const byName = new Map<string, { id: string; birth: number }>();
     for (const id of ids) {
       const rec = this.meta.get(id);

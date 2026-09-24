@@ -355,6 +355,11 @@ A faded card whose exact name a live card holds is that card's past life, not a 
 handle; of several faded cards with one name, the latest-born speaks. So two memories
 naming a faded person on one lived day make one card, and later bodies credit it.
 
+Known gap: a long-lived index (an MCP server) that never heard another process bring a
+card back still sees only the faded one, and a body mention there would bring it back a
+second time — two live cards, one name. The title path has had the same gap since §14;
+body mentions make it likelier. Closing it wants a meta query (INTERFACE-GAPS §2).
+
 One difference from the title path, on purpose: when the title path refuses a mention
 (say a memory titled "Portland" as a `person` while a `place` card holds the name), the
 text pass still credits the place card the body names — it is still being talked about.
