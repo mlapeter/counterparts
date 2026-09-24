@@ -25,7 +25,9 @@
  *      taken; it never rotates at all after a copy that FAILED — losing the
  *      oldest good backup on the day you could not make a new one is the worst
  *      outcome available here; and a `keep` that is not a positive integer falls
- *      back to the default rather than meaning "delete everything".
+ *      back to the default rather than meaning "delete everything". The copies
+ *      the store takes before a schema migration (`PRE_MIGRATION_NAME_RE`) sit
+ *      in the same directory on a rule of their own (`expiredPreMigration`).
  *
  *   2. *A half-copy must never count as a snapshot.* The worker runs under a
  *      watchdog and the copy is synchronous, so the process can be killed
@@ -50,7 +52,7 @@
  * directory, a failed copy, a failed rename, an aborted run — is a
  * `snapshot.failed` row carrying its `reason` and the `step` it died at.
  */
-import { cpSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { cpSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve } from "node:path";
 
@@ -61,8 +63,11 @@ import {
   SNAPSHOT_TAKEN_EVENT,
 } from "../core/counterpart.js";
 import {
-  DEFAULT_STORE_SUBDIR,
   LAYOUT,
+  PRE_MIGRATION_NAME_RE,
+  SNAPSHOTS_DIR_NAME,
+  defaultSnapshotsDir,
+  realpathDeep,
   PRE_ROWS_MARKERS,
   assertSafeDataDir,
   dateOf,
@@ -83,7 +88,7 @@ import { assertSafeTarget, snapshot, snapshotName } from "./cli/snapshot.js";
 const DATABASE_NAME = basename(paths.operational("."));
 
 /** The directory the copies live in, beside the store rather than inside it. */
-export const SNAPSHOTS_DIR_NAME = "snapshots";
+export { SNAPSHOTS_DIR_NAME };
 
 /** How many copies are kept. Owner's ruling, 2026-09-18. */
 export const DEFAULT_KEEP = 14;
@@ -132,6 +137,14 @@ export const MAX_ATTEMPTS_PER_DAY = 3;
  */
 export const SNAPSHOT_NAME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
 
+/**
+ * How long a copy taken before a schema migration is kept (the store takes it,
+ * `store/pre-migration.ts`). It is not counted toward `keep`, and rotation
+ * removes it only once it is this many days old AND `keep` daily copies newer
+ * than it exist — so a stretch of failed daily copies never takes it early.
+ */
+export const PRE_MIGRATION_KEEP_DAYS = 14;
+
 export interface SnapshotsConfig {
   /** Where the copies go. Absent ⇒ beside the store; see `resolveSnapshotsDir`. */
   readonly dir?: string;
@@ -169,6 +182,8 @@ export interface RotationReport {
    *  Never deleted, never counted toward `keep`, and named so they are not a
    *  mystery sitting in the one directory he relies on (review B, MAJOR-2). */
   readonly preRows: readonly string[];
+  /** Copies taken before a schema migration still on disk, oldest first. */
+  readonly preMigration: readonly string[];
   readonly errors: readonly string[];
 }
 
@@ -203,6 +218,7 @@ const EMPTY_ROTATION: RotationReport = {
   future: 0,
   unrecognised: [],
   preRows: [],
+  preMigration: [],
   errors: [],
 };
 
@@ -234,11 +250,10 @@ export function resolveSnapshotsDir(
   if (configured !== undefined && configured.trim().length > 0) {
     return { dir: resolve(configured), reason: "configured" };
   }
-  const store = resolve(dataDir);
-  if (basename(store) !== DEFAULT_STORE_SUBDIR) {
-    return { dir: null, reason: "no-default-dir" };
-  }
-  return { dir: join(dirname(store), SNAPSHOTS_DIR_NAME), reason: "beside-the-store" };
+  // The store's own rule, so the copy taken before a migration lands in the
+  // same directory as the daily ones.
+  const dir = defaultSnapshotsDir(dataDir);
+  return dir === null ? { dir: null, reason: "no-default-dir" } : { dir, reason: "beside-the-store" };
 }
 
 /**
@@ -298,35 +313,6 @@ export function assertRotatableDir(
     throw new Error(`refusing a snapshots directory that contains the store: ${real}`);
   }
   return real;
-}
-
-/**
- * The real path of a directory that may not exist yet.
- *
- * `resolve` does not follow symlinks and `realpathSync` throws on a path that is
- * not there — and BOTH cases are ordinary here: the snapshots directory does not
- * exist before the first run, and on macOS the directory a test or a `$TMPDIR`
- * names is very often a symlink. Comparing one side realpathed against the other
- * side merely resolved is how a containment check says "no" to a path that is
- * the same directory. So: realpath the deepest ancestor that DOES exist, and put
- * the rest back on.
- */
-function realpathDeep(path: string): string {
-  const resolved = resolve(path);
-  let head = resolved;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = realpathSync(head);
-      return tail.length === 0 ? real : join(real, ...tail);
-    } catch {
-      const parent = dirname(head);
-      // Nothing on this path exists. The resolved form is the whole answer.
-      if (parent === head) return resolved;
-      tail.unshift(basename(head));
-      head = parent;
-    }
-  }
 }
 
 // ── the run ─────────────────────────────────────────────────────────────────
@@ -763,6 +749,19 @@ export function rotate(
     }
   }
   const remaining = names.filter((n) => !deleted.includes(n));
+  // Pre-migration copies: past their days AND behind `keep` newer daily copies.
+  const preMigration: string[] = [];
+  for (const name of expiredPreMigration(read.preMigration, remaining, limit, now)) {
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true });
+      deleted.push(name);
+    } catch (err) {
+      const why = `could not remove ${name}: ${messageOf(err)}`;
+      rotationErrors.push(why);
+      errors.push(why);
+    }
+  }
+  for (const name of read.preMigration) if (!deleted.includes(name)) preMigration.push(name);
   return {
     deleted,
     kept: remaining.length,
@@ -771,8 +770,29 @@ export function rotate(
     future: futureNamesIn(remaining, now).length,
     unrecognised: read.unrecognised,
     preRows: read.preRows,
+    preMigration,
     errors: rotationErrors,
   };
+}
+
+/**
+ * The pre-migration copies rotation may remove: older than
+ * `PRE_MIGRATION_KEEP_DAYS` by the date in their name, with at least `keep`
+ * daily copies newer than them. Names sort by instant, so a string compare of
+ * the leading instant is a time compare.
+ */
+export function expiredPreMigration(
+  preMigration: readonly string[],
+  daily: readonly string[],
+  keep: number,
+  now: number,
+): string[] {
+  const cutoff = dateOf(now - PRE_MIGRATION_KEEP_DAYS * 86_400_000);
+  return preMigration.filter((name) => {
+    if (name.slice(0, 10) >= cutoff) return false;
+    const instant = name.slice(0, 24);
+    return daily.filter((d) => d > instant).length >= keep;
+  });
 }
 
 /**
@@ -801,13 +821,21 @@ export function readSnapshotsDir(dir: string): SnapshotsDirRead {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // A directory that does not exist yet holds no snapshots. Not an error.
-    return { names: [], readable: false, unrecognised: [], preRows: [] };
+    return { names: [], readable: false, unrecognised: [], preRows: [], preMigration: [] };
   }
   const names: string[] = [];
   const unrecognised: string[] = [];
   const preRows: string[] = [];
+  const preMigration: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    // A copy the store took before a migration: its own channel, never counted
+    // toward `keep` and never "today's". Only one that looks like a copy.
+    if (PRE_MIGRATION_NAME_RE.test(entry.name)) {
+      if (copyKind(join(dir, entry.name)) === "ours") preMigration.push(entry.name);
+      else unrecognised.push(entry.name);
+      continue;
+    }
     if (!SNAPSHOT_NAME_RE.test(entry.name)) continue;
     // AND IT HAS TO LOOK LIKE ONE WE WROTE (F2 review, MINOR-7). Inside the
     // default directory this is belt and braces — the package made every entry
@@ -843,6 +871,7 @@ export function readSnapshotsDir(dir: string): SnapshotsDirRead {
     readable: true,
     unrecognised: unrecognised.sort(),
     preRows: preRows.sort(),
+    preMigration: preMigration.sort(),
   };
 }
 
@@ -858,6 +887,9 @@ export interface SnapshotsDirRead {
    *  never counted toward `keep`, and named rather than left a mystery in the
    *  one directory the owner relies on (review B, MAJOR-2). */
   readonly preRows: string[];
+  /** Copies the store took before a schema migration, oldest first. Kept apart
+   *  from `names`: rotation removes one only by `expiredPreMigration`'s rule. */
+  readonly preMigration: string[];
 }
 
 /** How many files a finished copy holds — the mirror's input to `verifyCopy`,

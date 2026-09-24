@@ -572,7 +572,7 @@ describe("a store written before the floor is refused by name, and never touched
     const db = new Database(paths.operational(source));
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '3')");
     db.close();
-    const migrated = store(source);
+    const migrated = store(source, { snapshotsDir: elsewhere });
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     expect(migrated.read(id).doc.body).toBe(BODY);
   });

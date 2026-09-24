@@ -110,6 +110,13 @@ export type StoreErrorCode =
    * a dead end. The old store is untouched and stays on disk.
    */
   | "STORE_PRE_ROWS"
+  /**
+   * The store needs a schema migration and the copy that comes before one
+   * could not be made, so nothing was migrated: the store is still on its old
+   * version and the build that wrote it still opens it. `detail` carries
+   * `{ path, found, expected, dir, reason, remedy }`.
+   */
+  | "MIGRATION_SNAPSHOT_FAILED"
   | "SQLITE_UNAVAILABLE"
   | "LAYOUT_UNCLASSIFIED";
 

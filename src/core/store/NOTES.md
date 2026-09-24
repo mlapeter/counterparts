@@ -1383,3 +1383,58 @@ close that is no longer always a fold; not built.
 the adapter maps identically, and it typechecks; nobody has run it under Node.
 `Store.close()` returns early on a second call, so neither handle is closed twice —
 `node:sqlite` throws on a double close where `bun:sqlite` shrugs.
+
+## 2026-09-24 — a copy before a schema migration
+
+A writer open that finds box 2 on an older schema now copies the database before it
+changes anything (`pre-migration.ts`, called from `openOperational`):
+
+- **One process copies and migrates.** The migration transaction is `BEGIN IMMEDIATE`;
+  the version is read again under that lock, and a process that finds it current does
+  neither. The test holds the lock while three child processes queue on it.
+- **The copy is `VACUUM INTO` on its own connection**, taken while the migrating
+  connection holds the write lock and has written nothing, so it is the last committed
+  state before the migration. Database only: the migration touches nothing else in the
+  store.
+- **Where:** the snapshots directory the daily copies use (`<base>/snapshots`, or
+  `snapshotsDir` / the host's `snapshots.dir` — the hook, the worker, the MCP server and
+  the console's `openCounterpart` all pass it), named
+  `<instant>-pre-migration-v<from>-to-v<to>` by the wall clock (an injected or replayed
+  clock once named a copy that collided with its own earlier one). A store outside
+  `<base>/store` with no directory named refuses to migrate rather than go without a copy.
+- **One copy per upgrade, not per attempt.** A migration that fails AFTER its copy (a
+  commit that loses its lock, a bad trigger) would otherwise take a new full copy at every
+  open. So an open reuses a copy already there for the same from→to when it was taken
+  today (UTC), or when neither the live file nor its `-wal` has been written since the
+  copy's instant. The cost: rows an older build writes between the copy and the upgrade
+  that finally lands are not in the copy.
+- **If the copy fails, nothing migrates**: the transaction rolls back and the open
+  throws `MIGRATION_SNAPSHOT_FAILED`, whose `remedy` says why; the store stays on the
+  old version and the build that wrote it still opens it. An abandoned `.partial-…`
+  is left for the daily sweep (the store deletes nothing).
+- **Observers never get here** — they refuse an old store `STORE_UNINITIALIZED` first.
+  So doctor asks separately: it reads the stamp, and when the store is behind it
+  dry-runs the copy's preconditions (the destination passes the same checks, and a probe
+  directory can be made there and removed) and grades Store open amber (the next session
+  upgrades it) or red (every hook will refuse), instead of reading green or failing.
+- **Box 3 is not copied.** It is declared rebuildable, is outside the backup set, and
+  its vectors are recomputed for free by the static tier.
+- **Rotation** keeps these apart from `keep`: one is removed only when it is at least
+  14 days old (`PRE_MIGRATION_KEEP_DAYS`) and `keep` newer daily copies exist. Doctor's
+  Snapshot line names the newest.
+
+**What it costs to hold the lock.** The copy runs while this connection holds the write
+lock, so every other opener waits on it. Measured in review: ~1.3 s for a 200 MB database
+with a 418 MB `-wal`. Past roughly 1 GB the copy can outlast `BUSY_TIMEOUT_MS` (5 s); the
+openers that lose then get "database is locked", which the hooks stand down on as
+transient, and the next turn opens the upgraded store. No code change for that.
+
+The store deletes nothing, so a copy that fails (a full disk) leaves its `.partial-…`
+directory, possibly empty, for the daily sweep to remove once it is stale.
+
+**To roll a migration back:** stop every session, move the store's
+`counterparts.sqlite` (and its `-wal`/`-shm`) aside, and move `cache/` aside too — it
+rebuilds, and a cache the newer build stamped would make the old MCP server refuse every
+tool. Copy the pre-migration copy's `counterparts.sqlite` into the store directory and run
+the build that matches its `v<from>` (the newer build would migrate it again). Rows
+written since the upgrade are lost; they are not in the copy.

@@ -380,6 +380,16 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     wiped database (owner ruling 3, 2026-09-18). Rotation, which DELETES, lives in an
     adapter and never here (G2) — and it never deletes a folder holding pre-rows markers, so
     the copies of the parked store survive cut-over.
+20. **[M] A copy before a schema migration.** A writer open that finds box 2 on an older
+    schema copies the database (`VACUUM INTO`, G19) before it changes anything, under the
+    same write lock that decides who migrates. This is the one write the store makes
+    outside its own directory: into the snapshots directory beside it (`<base>/snapshots`),
+    or the one named by `StoreOptions.snapshotsDir`. A store outside `<base>/store` with
+    none named does not migrate. If the copy cannot be made, nothing migrates and the open
+    throws `MIGRATION_SNAPSHOT_FAILED`, whose `remedy` says why; the store stays on its old
+    version. A later open reuses a copy already taken for the same upgrade that day, or one
+    the live store has not been written since. Observers never migrate and never copy.
+    `NOTES.md` (2026-09-24) has the rollback steps.
 
 ## 6. Scars honored
 
