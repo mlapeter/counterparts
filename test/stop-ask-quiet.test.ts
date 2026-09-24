@@ -3,8 +3,10 @@
  * new-user findings #28 and #13).
  *
  *   1. The person reads ONE short line; the model reads a TWO-line ask.
- *   2. Two emission shapes behind one switch (`claude-code.json#stopAskShape`),
- *      the JSON decision by default, stderr + exit 2 behind it. Both block.
+ *   2. ONE emission shape since 2026-09-24 (the owner looked at B1's two and
+ *      both read as an error): `hookSpecificOutput.additionalContext` on Stop,
+ *      the host's documented non-error route, with the person's line as
+ *      `systemMessage`. The old `stopAskShape` switch is read and ignored.
  *   3. Pacing counts what the person typed: a subagent's hand-back, a task
  *      notification and hook feedback are not the owner speaking, and the
  *      transcript entry's own metadata says so.
@@ -23,13 +25,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import {
-  DEFAULT_STOP_ASK_SHAPE,
-  ENVELOPE_MAX_CHARS,
-  STOP_ASK_SHAPE_KEY,
-  hostDelivery,
-  stopAskShapeOf,
-} from "../src/adapters/claude-code/bin/hook.js";
+import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { STOP_HUMAN_LINE, stopAsk, substanceOf } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
@@ -191,6 +187,44 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     // A hand-back that merely QUOTES the ask is a hand-back.
     const quoting = `${HANDBACK_TEXT}\nThe ask read: ${ask}`;
     expect(parseTranscript(jsonl([handbackEntry(quoting)])).turns[0]?.source).toBe("injected");
+  });
+
+  test("the additionalContext route (2026-09-24): the host files it as an ATTACHMENT, which is never a turn", () => {
+    // The shape read off the host's 2.1.281 bundle: `hook_additional_context`,
+    // `hookName`/`hookEvent` "Stop", the ask in a `content` list.
+    const ask = stopAsk("s1", 1);
+    const read = parseTranscript(
+      jsonl([
+        typedEntry(TYPED),
+        {
+          type: "attachment",
+          attachment: { type: "hook_additional_context", content: [ask], hookName: "Stop", toolUseID: "t1", hookEvent: "Stop" },
+        },
+      ]),
+    );
+    expect(read.turns.map((t) => t.source)).toEqual(["conversation"]);
+    expect(read.turns.some((t) => t.text.includes(STOP_ASK_OPENER))).toBe(false);
+  });
+
+  test("…and the frame the MODEL reads it in is ritual too, should a build ever write it as user text", () => {
+    const ask = stopAsk("s1", 1);
+    const shapes = [
+      `Stop hook additional context: ${ask}`,
+      `<system-reminder>\nStop hook additional context: ${ask}\n</system-reminder>`,
+      `<system-reminder>${ask}</system-reminder>`,
+      `Stop hook feedback: ${ask}`,
+    ];
+    for (const framed of shapes) {
+      // Host-written (isMeta) and with no metadata at all: our own ask, framed.
+      expect(`${framed} -> ${String(parseTranscript(jsonl([metaEntry(framed)])).turns[0]?.source)}`).toBe(`${framed} -> ritual`);
+      expect(`${framed} -> ${String(parseTranscript(jsonl([bareEntry(framed)])).turns[0]?.source)}`).toBe(`${framed} -> ritual`);
+    }
+    // What the person TYPED is the person, whatever it looks like.
+    expect(parseTranscript(jsonl([typedEntry(shapes[0] ?? "")])).turns[0]?.source).toBe("conversation");
+    // Some OTHER hook's additional context is still injected, not ours.
+    const other = "<system-reminder>\nPostToolUse hook additional context: run the linter\n</system-reminder>";
+    expect(parseTranscript(jsonl([metaEntry(other)])).turns[0]?.source).toBe("injected");
+    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("injected");
   });
 
   test("a v1 marker is still FOREIGN on an isMeta entry — the refusals come before the metadata", () => {
@@ -396,18 +430,13 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
   });
 });
 
-// ── the two shapes ───────────────────────────────────────────────────────────
+// ── the one shape ────────────────────────────────────────────────────────────
 
-describe("the two emission shapes, both blocking (decision 2)", () => {
+describe("the one emission shape: non-error feedback (decision 2, 2026-09-24)", () => {
   const ask = stopAsk(UUID, 2);
   const R = { injection: null, ask };
 
-  test("the default is the JSON decision", () => {
-    expect(DEFAULT_STOP_ASK_SHAPE).toBe("json");
-    expect(STOP_ASK_SHAPE_KEY).toBe("stopAskShape");
-  });
-
-  test("JSON: one well-formed object, exactly three keys, exit 0 — the decision is what blocks", () => {
+  test("one well-formed object: the person's line, and the ask as Stop additionalContext — no decision, exit 0", () => {
     const d = hostDelivery("stop", R, {});
     expect(d.exitCode).toBe(0);
     expect(d.stderr).toBe("");
@@ -416,58 +445,40 @@ describe("the two emission shapes, both blocking (decision 2)", () => {
     expect(d.stdout.trim()).toBe(d.stdout);
     expect(d.stdout.startsWith("{") && d.stdout.endsWith("}")).toBe(true);
     const parsed = JSON.parse(d.stdout) as Record<string, unknown>;
-    expect(Object.keys(parsed).sort()).toEqual(["decision", "reason", "systemMessage"]);
-    expect(parsed).toEqual({ decision: "block", reason: ask, systemMessage: STOP_HUMAN_LINE });
-    // Explicitly asking for it is the same thing.
-    expect(hostDelivery("stop", R, {}, null, "json")).toEqual(d);
+    expect(parsed).toEqual({
+      systemMessage: STOP_HUMAN_LINE,
+      hookSpecificOutput: { hookEventName: "Stop", additionalContext: ask },
+    });
+    expect(HOST_STOP).toBe("Stop");
+    // `decision: "block"` beside it is what printed `Stop hook error:`; `reason`
+    // is its partner. Neither may come back.
+    expect(Object.keys(parsed).sort()).toEqual(["hookSpecificOutput", "systemMessage"]);
   });
 
-  test("stderr: the model's two lines on stderr, exit 2, nothing on stdout", () => {
-    expect(hostDelivery("stop", R, {}, null, "stderr")).toEqual({
+  test("the re-fire is refused and nothing-to-ask stays silent — loop protection exactly as before", () => {
+    expect(hostDelivery("stop", R, { stop_hook_active: true })).toEqual({
       stdout: "",
-      stderr: ask,
-      exitCode: 2,
+      stderr: "",
+      exitCode: 0,
       dropped: null,
     });
+    expect(hostDelivery("stop", { injection: null, ask: null }, {})).toEqual({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      dropped: null,
+    });
+    expect(hostDelivery("stop", { injection: null, ask: "" }, {}).stdout).toBe("");
   });
 
-  test("BOTH shapes refuse the host's re-fire and stay silent with nothing to ask", () => {
-    for (const shape of ["json", "stderr"] as const) {
-      expect(hostDelivery("stop", R, { stop_hook_active: true }, null, shape)).toEqual({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-        dropped: null,
-      });
-      expect(hostDelivery("stop", { injection: null, ask: null }, {}, null, shape)).toEqual({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-        dropped: null,
-      });
+  test("an old `stopAskShape` is read, IGNORED and named — never a reason to stand down", () => {
+    for (const value of ["stderr", "json", "STDERR", 42, null]) {
+      const loaded = loadConfig({ dataDir: join(work, "store"), stopAskShape: value });
+      expect(loaded.ok).toBe(true);
+      expect(loaded.config.observer).toBeUndefined();
+      expect((loaded.config.retired ?? []).join(" ")).toContain('"stopAskShape" is no longer used');
     }
-  });
-
-  test("the switch affects the Stop ONLY", () => {
-    const wake = { injection: "the wake", ask: null };
-    expect(hostDelivery("session-start", wake, {}, null, "stderr")).toEqual(hostDelivery("session-start", wake, {}));
-    expect(hostDelivery("user-prompt-submit", wake, {}, null, "stderr").exitCode).toBe(0);
-  });
-
-  test("the switch is read leniently: only the exact string picks stderr, and it never makes a config unreadable", () => {
-    // Case and surrounding spaces are forgiven ON PURPOSE: a person types this.
-    for (const value of ["stderr", "STDERR", " stderr ", "Stderr\n"]) {
-      expect(stopAskShapeOf({ stopAskShape: value })).toBe("stderr");
-    }
-    for (const raw of [undefined, null, [], "stderr", {}, { stopAskShape: "json" }, { stopAskShape: "std err" }, { stopAskShape: 2 }]) {
-      expect(stopAskShapeOf(raw)).toBe("json");
-    }
-    // A display preference must not stand the adapter down to observer.
-    const loaded = loadConfig({ dataDir: join(work, "store"), stopAskShape: "stderr" });
-    expect(loaded.ok).toBe(true);
-    expect(loaded.config.observer).toBeUndefined();
-    const typo = loadConfig({ dataDir: join(work, "store"), stopAskShape: 42 });
-    expect(typo.ok).toBe(true);
+    expect(loadConfig({ dataDir: join(work, "store") }).config.retired).toBeUndefined();
   });
 });
 
@@ -517,17 +528,21 @@ function writeTranscript(): string {
   return path;
 }
 
-describe("the switch, end to end through the hook process", () => {
-  test("default config: a due Stop prints the JSON decision and exits 0; the re-fire prints nothing", () => {
+describe("the one shape, end to end through the hook process", () => {
+  const feedbackOf = (stdout: string): Record<string, unknown> =>
+    (JSON.parse(stdout) as { hookSpecificOutput: Record<string, unknown> }).hookSpecificOutput;
+
+  test("a due Stop prints the ask as Stop additionalContext and exits 0; the re-fire prints nothing", () => {
     const config = writeConfig();
     const transcript = writeTranscript();
     runHook(config, { hook_event_name: "SessionStart", session_id: "s-json", source: "startup", transcript_path: transcript });
     const stop = runHook(config, { hook_event_name: "Stop", session_id: "s-json", transcript_path: transcript });
     expect(stop.code).toBe(0);
     const parsed = JSON.parse(stop.stdout) as Record<string, unknown>;
-    expect(parsed["decision"]).toBe("block");
-    expect(parsed["reason"]).toBe(stopAsk("s-json", 1));
+    expect(parsed["decision"]).toBeUndefined();
+    expect(parsed["reason"]).toBeUndefined();
     expect(parsed["systemMessage"]).toBe(STOP_HUMAN_LINE);
+    expect(feedbackOf(stop.stdout)).toEqual({ hookEventName: "Stop", additionalContext: stopAsk("s-json", 1) });
     expect(stop.stderr).not.toContain(STOP_ASK_OPENER);
     const refire = runHook(config, {
       hook_event_name: "Stop",
@@ -538,14 +553,14 @@ describe("the switch, end to end through the hook process", () => {
     expect({ code: refire.code, stdout: refire.stdout }).toEqual({ code: 0, stdout: "" });
   });
 
-  test(`"${STOP_ASK_SHAPE_KEY}": "stderr" — the same Stop exits 2 with the ask on stderr and nothing on stdout`, () => {
-    const config = writeConfig({ [STOP_ASK_SHAPE_KEY]: "stderr" });
+  test('the owner\'s own config still says "stopAskShape": "stderr" — the Stop is the same one shape, exit 0', () => {
+    const config = writeConfig({ stopAskShape: "stderr" });
     const transcript = writeTranscript();
     runHook(config, { hook_event_name: "SessionStart", session_id: "s-stderr", source: "startup", transcript_path: transcript });
     const stop = runHook(config, { hook_event_name: "Stop", session_id: "s-stderr", transcript_path: transcript });
-    expect(stop.code).toBe(2);
-    expect(stop.stdout).toBe("");
-    expect(stop.stderr).toBe(stopAsk("s-stderr", 1));
+    expect(stop.code).toBe(0);
+    expect(stop.stderr).not.toContain(STOP_ASK_OPENER);
+    expect(feedbackOf(stop.stdout)).toEqual({ hookEventName: "Stop", additionalContext: stopAsk("s-stderr", 1) });
   });
 });
 

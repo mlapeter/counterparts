@@ -159,8 +159,8 @@ export interface InstallLayout {
  * `--config <absolute path>`, else `COUNTERPARTS_CONFIG`
  * (`adapters/config-path.ts`) — and they fall back to `COUNTERPARTS_DATA_DIR`
  * only when the configuration they read names no store. A hook that finds no
- * config stands down and exits 0 (the Stop ask's exit 2 is the one deliberate
- * non-zero), so a config nothing points them at is a config the ambient half
+ * config stands down and exits 0 (every hook exits 0; the Stop ask leaves as
+ * JSON feedback since 2026-09-24), so a config nothing points them at is a config the ambient half
  * never finds and never complains about. The cold-stranger review of 2026-09-04
  * found exactly that: `--dir` produced a working store, a correct config and
  * correct printed hooks, and an ambient half permanently blind, with nothing on

@@ -1317,7 +1317,6 @@ describe("the update notice is fail-open", () => {
       { injection: HEALTHY_SESSION_START_STDOUT, ask: null },
       {},
       [null, null],
-      "json",
       throwing,
       input,
     );
@@ -1328,12 +1327,12 @@ describe("the update notice is fail-open", () => {
     const recall = "<counterparts-recall>the reservoir loop</counterparts-recall>";
     const due = { updateNotice: (): string | null => "a notice", markUpdateNotice: throwing.markUpdateNotice };
     for (const doors of [throwing, due]) {
-      const d = deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", doors, input);
+      const d = deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, doors, input);
       expect(d.stdout).toBe(recall);
     }
     // And a mark that simply does not land is the same plain recall.
     const unmarked = { updateNotice: (): string | null => "a notice", markUpdateNotice: (): boolean => false };
-    expect(deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, "json", unmarked, input).stdout).toBe(recall);
+    expect(deliverTurn("user-prompt-submit", { injection: recall, ask: null }, {}, null, unmarked, input).stdout).toBe(recall);
   });
 
   test("a throwing stamp is swallowed, and it runs only on a session that opens", () => {

@@ -5506,7 +5506,10 @@ describe("install", () => {
     const SECRET = "sk-ant-A-KEY-NOBODY-CAN-REGENERATE";
     writeFileSync(creds, `# mine\nSOME_KEY=${SECRET}\n`, { mode: 0o600 });
     const config = join(home, ".counterparts", CONFIG_FILE);
-    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234, credentialsFile: creds }));
+    writeFileSync(
+      config,
+      JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234, credentialsFile: creds, stopAskShape: "stderr" }),
+    );
 
     const forced = consoleWith();
     expect(
@@ -5521,6 +5524,7 @@ describe("install", () => {
     const rewritten = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
     expect(rewritten["injectionBudgetBytes"]).toBe(9000);
     expect(rewritten["credentialsFile"]).toBeUndefined();
+    expect(rewritten["stopAskShape"]).toBeUndefined();
   });
 
   test("refuses a forbidden data dir before a single file is written", async () => {

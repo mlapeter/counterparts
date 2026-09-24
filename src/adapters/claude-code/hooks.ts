@@ -465,7 +465,7 @@ export function writeUpPointer(input: {
  * though every word was written for the model (new-user finding #28). Now:
  *
  *   - the PERSON gets `STOP_HUMAN_LINE` — one plain line saying what is
- *     happening, carried as the hook's `systemMessage` in the JSON shape
+ *     happening, carried as the hook's `systemMessage`
  *     (`bin/hook.ts#hostDelivery`);
  *   - the MODEL gets this: two numbered lines, both naming the session id and
  *     the tool that takes it, plus the two clauses that are about WHETHER to
@@ -482,7 +482,9 @@ export function writeUpPointer(input: {
  *
  * It opens with `STOP_ASK_OPENER` (`transcript.ts`), which is how the reader
  * recognises this text coming home on a host-written entry and refuses it from
- * capture (`ritual`, CONTRACT §5 G11) whichever emission shape carried it.
+ * capture (`ritual`, CONTRACT §5 G11) whichever emission shape carried it —
+ * today's `additionalContext`, or the stderr and `reason` shapes older
+ * transcripts hold.
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
@@ -497,8 +499,10 @@ export function stopAsk(sessionId: string, chapter: number): string {
  * The owner's rule, 2026-09-23: "whatever we display in terminal should be
  * short and useful to the user since they're the one seeing it". It says what
  * is happening and who is doing it, and nothing the person has to act on.
- * Carried as `systemMessage` in the JSON shape; the stderr shape has no second
- * channel, so there the person reads the model's two lines instead.
+ * Carried as the Stop hook's `systemMessage`, beside the ask's
+ * `additionalContext` (`bin/hook.ts#hostDelivery`). The host also shows the
+ * ask itself to the person, as `Stop hook feedback: …` — quieter than the
+ * `Stop hook error:` it replaced (2026-09-24), not hidden.
  */
 export const STOP_HUMAN_LINE = "Counterparts: asking the assistant to write up this session's memories.";
 

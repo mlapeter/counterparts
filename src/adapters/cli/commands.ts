@@ -2798,8 +2798,8 @@ function installCommand(
  *     is exactly how an install is moved. Carrying it would make the move
  *     silently not happen.
  *   - **Settings this build no longer reads are not carried either** —
- *     `credentialsFile`, `models`, `crashWriteUp` (the keys were removed on
- *     2026-09-24). A rewrite is the natural moment to let them go.
+ *     `credentialsFile`, `models`, `crashWriteUp`, `stopAskShape` (the keys
+ *     were removed on 2026-09-24). A rewrite is the natural moment to let them go.
  *
  * It reads the file with `JSON.parse` rather than `loadConfig`: what is wanted
  * is what the file SAID, key for key, not what a loader makes of it — an
@@ -2824,7 +2824,7 @@ export function carryForward(
   // the point: `--force` was typed to fix a config, not to normalise it.
   for (const [key, value] of Object.entries(was)) {
     if (key === "dataDir" || key === "owner") continue;
-    if (key === "credentialsFile" || key === "models" || key === "crashWriteUp") continue;
+    if (key === "credentialsFile" || key === "models" || key === "crashWriteUp" || key === "stopAskShape") continue;
     if (key === "injectionBudgetBytes" && supplied.budget) continue;
     if (key === "identity" && supplied.name) continue;
     if (key === "embedder" && supplied.embedder) continue;
