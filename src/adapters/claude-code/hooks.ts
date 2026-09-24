@@ -70,6 +70,7 @@ import type { ScopeVerdict } from "../scopes.js";
 import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
 import type { ExpansionsRead } from "../expansions.js";
 import {
+  ASK_ROW_COUNTING,
   decideUpdateNotice,
   installedBuild,
   markUpdateNoticeShown,
@@ -1790,6 +1791,8 @@ export class ClaudeCodeAdapter {
         chapter: chapter.chapter,
         turns: substance.turns,
         bytes: substance.bytes,
+        // What `turns` counts, so a reader can tell these rows from older ones.
+        counting: ASK_ROW_COUNTING,
         sinceTurns: chapter.verdict.sinceTurns,
         sinceBytes: chapter.verdict.sinceBytes,
         spans: coverage?.spans ?? null,

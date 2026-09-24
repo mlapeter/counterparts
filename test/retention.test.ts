@@ -49,7 +49,7 @@ import type {
 import { pruneRetention } from "../src/core/remember/retention.js";
 import { WRITE_UP_BY, recordWriteUp } from "../src/core/remember/write-up-seam.js";
 import { SELF_TUNABLES, episodeFacts } from "../src/core/self/index.js";
-import { markNothingNew, pruneSessions, recordSession, sessionPath } from "../src/adapters/sessions.js";
+import { ASK_ROW_COUNTING, markNothingNew, pruneSessions, recordSession, sessionPath } from "../src/adapters/sessions.js";
 import { retentionHost, retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
 
 const DAY = 86_400_000;
@@ -462,11 +462,15 @@ describe("the PR #189 review's findings, each held by a test", () => {
   });
 
   test("m1: no pacer record, but substance past the first-ask threshold — a stood-down or failed ask is not a short session", () => {
-    // 30 turns, ~4.7 KB, the pacer never recorded anything, no end: it OWES.
+    // 30 turns past the text threshold, the pacer never recorded anything, no
+    // end: it OWES.
     const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
     const turns = Array.from({ length: 30 }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      text: `Turn ${String(i)}: a real exchange about the migration plan and what it costs.`.padEnd(156, "."),
+      text: `Turn ${String(i)}: a real exchange about the migration plan and what it costs.`.padEnd(
+        Math.ceil(SELF_TUNABLES.FIRST_ASK_TEXT_BYTES / 30) + 10,
+        ".",
+      ),
     }));
     buf.capture({ session: "substantive", scope: SCOPE, turns });
     buf.boundary({ session: "substantive", scope: SCOPE, kind: "stop" });
@@ -480,6 +484,45 @@ describe("the PR #189 review's findings, each held by a test", () => {
     // An evaluation OLDER than the last capture did not see it all: the count decides.
     const stale = fake({ status: "absent" }, { lastEvaluation: { at: NOW - 9 * DAY, turns: 3, bytes: 900 } });
     expect(planRetention(later, stale)[0]?.verdict).toBe("kept-owed");
+  });
+
+  test("with no evaluation covering the last capture, the BYTES decide — the cursor is not a count of typed turns", () => {
+    // One typed prompt, five short assistant blocks, then a capture at the
+    // session's end that no ask row saw. Eleven-odd pieces, a few hundred bytes.
+    const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
+    const turns = [
+      { role: "user" as const, text: "Rename the config key and update the tests." },
+      ...Array.from({ length: 5 }, (_, i) => ({ role: "assistant" as const, text: `Step ${String(i)} done.` })),
+    ];
+    buf.capture({ session: "short", scope: SCOPE, turns });
+    buf.boundary({ session: "short", scope: SCOPE, kind: "stop" });
+    const atEnd = new SpanBuffer({ dir, now: () => NOW - 8 * DAY + 60_000 });
+    atEnd.capture({ session: "short", scope: SCOPE, turns: [...turns, { role: "user", text: "<command-name>/exit</command-name>", source: "injected" }] });
+    atEnd.boundary({ session: "short", scope: SCOPE, kind: "session-end" });
+    const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), fake({ status: "absent" }));
+    expect(h?.facts.asked).toBe(false);
+    expect(h?.owes).toBe(false);
+  });
+
+  test("an ask row from before typed-turn counting is read by its bytes alone", () => {
+    const b = brain(NOW - 10 * DAY);
+    b.c.captureSpans({ session: "old-row", scope: SCOPE, turns: TALK });
+    b.c.boundary({ session: "old-row", scope: SCOPE, kind: "stop" });
+    // Both-roles turns past the typed-turn threshold, bytes under the text one.
+    const row = { session: "old-row", asked: false, outcome: "paced", reason: "not-enough-substance", turns: 7, bytes: 2_500 };
+    expect(row.turns).toBeGreaterThanOrEqual(SELF_TUNABLES.FIRST_ASK_TURNS);
+    expect(row.bytes).toBeLessThan(SELF_TUNABLES.FIRST_ASK_TEXT_BYTES);
+    b.c.noteAdapterEvent(ADAPTER_ASK_EVENT, row);
+    b.c.boundary({ session: "old-row", scope: SCOPE, kind: "session-end" });
+    b.set(NOW);
+    const [h] = planRetention(b.c.spans, sources(b.c));
+    expect(h?.facts.asked).toBe(false);
+    expect(h?.owes).toBe(false);
+    // The same numbers on a stamped row are typed turns, and they do count.
+    b.set(NOW - 10 * DAY);
+    b.c.noteAdapterEvent(ADAPTER_ASK_EVENT, { ...row, counting: ASK_ROW_COUNTING });
+    b.set(NOW);
+    expect(planRetention(b.c.spans, sources(b.c))[0]?.facts.asked).toBe(true);
   });
 
   test("m1: the host's ask rows count as asks, and their time as the last ask", async () => {

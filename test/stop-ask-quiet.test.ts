@@ -456,6 +456,13 @@ describe("the pace is what the person typed; conversation text from both roles i
     expect(stopOn(adapter(), "s-handbacks", entries)).toBeNull();
   });
 
+  test("every ask row says what its `turns` counts", () => {
+    const a = adapter();
+    stopOn(a, "s-stamp", session(1, 1, 100));
+    const row = a.counterpart.store.eventLog({ name: "adapter.ask", limit: 5 }).at(-1);
+    expect((JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)["counting"]).toBe("typed");
+  });
+
   test("an unreadable transcript at one Stop moves no watermark, and the next Stop is not due", () => {
     const a = adapter();
     const id = "s-unread";
