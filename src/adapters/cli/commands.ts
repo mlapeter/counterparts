@@ -5775,8 +5775,7 @@ function reclaimFreedPages(dir: string, io: Io): void {
 function foldNote(io: Io, fold: WalFold): void {
   if (!fold.busy && fold.error === undefined) return;
   io.out(
-    "The file on disk shrinks to that size once another process lets go of box 3; " +
-      "until then the compacted pages sit in its '-wal'.",
+    "The file on disk shrinks to that size once other Counterparts processes (an open session or the dashboard) let go of it.",
   );
 }
 
