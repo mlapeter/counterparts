@@ -54,8 +54,8 @@ import { TUNABLES as SLEEP_TUNABLES, isJournal } from "../../core/sleep/index.js
 // The deep import into box 3's own driver — the same one `snapshot.ts` and
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
-import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../../core/store/db.js";
-import type { Db, SqlValue } from "../../core/store/db.js";
+import { BUSY_TIMEOUT_MS, foldWal, journalModeOf, openDb } from "../../core/store/db.js";
+import type { Db, SqlValue, WalFold } from "../../core/store/db.js";
 // Box 3's own door for the vector migration: `openCache` stamps the schema
 // version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
 // one transactional step. The conversion arithmetic lives in `store/cache.ts`
@@ -5770,6 +5770,16 @@ function reclaimFreedPages(dir: string, io: Io): void {
 
 // ── migrate-cache ───────────────────────────────────────────────────────────
 
+/** One line when the post-VACUUM fold could not finish: the pages are safe in
+ *  `-wal`, and the file shrinks when the next writer (or checkpoint) folds it. */
+function foldNote(io: Io, fold: WalFold): void {
+  if (!fold.busy && fold.error === undefined) return;
+  io.out(
+    "The file on disk shrinks to that size once another process lets go of box 3; " +
+      "until then the compacted pages sit in its '-wal'.",
+  );
+}
+
 /** Bytes, in the units an owner reads. Box 3 is measured in hundreds of MiB. */
 function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -5983,11 +5993,13 @@ async function migrateCacheCommand(
       }
       const ok = await confirmMigrate(io, flags, dir, `compact box 3 (${humanBytes(reclaimable ?? 0)} reclaimable)`);
       if (!ok) return EXIT.refused;
-      const sizeAfter = (() => {
+      const { sizeAfter, fold } = (() => {
         const writable = openCache(path);
         try {
           writable.exec("VACUUM");
-          return databaseBytes(writable);
+          // Under WAL the VACUUM's pages sit in `-wal` until a checkpoint; fold
+          // them so the reclaim below is true of the file on disk.
+          return { sizeAfter: databaseBytes(writable), fold: foldWal(writable) };
         } finally {
           writable.close();
         }
@@ -5996,6 +6008,7 @@ async function migrateCacheCommand(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
       );
+      foldNote(io, fold);
       return EXIT.ok;
     }
 
@@ -6107,10 +6120,13 @@ async function migrateCacheCommand(
     }
     const sizeAfter = databaseBytes(writable);
     if (vacuumed) {
+      // Fold the VACUUM's pages out of `-wal`, so the reclaim is true on disk.
+      const fold = foldWal(writable);
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
       );
+      foldNote(io, fold);
     }
     if (skipped.length > 0) return EXIT.failed;
     return after2.jsonText === 0 && vacuumed ? EXIT.ok : EXIT.failed;
