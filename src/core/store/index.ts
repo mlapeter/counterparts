@@ -43,8 +43,8 @@ import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
-import type { Db, Statement } from "./db.js";
-import { isLocked } from "./db.js";
+import type { Db, Statement, WalFold } from "./db.js";
+import { foldWal, isLocked, wroteOn } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -112,7 +112,7 @@ export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
 export * from "./render.js";
-export type { Db, Statement } from "./db.js";
+export type { Db, Statement, WalFold } from "./db.js";
 export type {
   MemoryRow,
   VersionRow,
@@ -312,6 +312,30 @@ export interface EventPruneReport extends PruneReport {
  * and what an observer's cycle report is computed from. Every number here is a
  * read; nothing in it crosses the write seam.
  */
+/** What `eventLog` selects on. `order` defaults to `"asc"` (oldest first). */
+export interface EventLogFilter {
+  name?: string;
+  ref?: string;
+  sinceDay?: number;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
+/**
+ * One row of `eventCounts`: a name, how many rows of it the window holds, and
+ * the newest of them — by wall clock (`newestAt`, epoch ms), by lived day
+ * (`newestDay`) and by `seq` (`newestSeq`, the one to fetch it by). Each is the
+ * MAX of its own column, so they need not come from the same row if a clock
+ * was ever set back; `newestSeq` is the one that is always the last appended.
+ */
+export interface EventCount {
+  name: string;
+  count: number;
+  newestAt: number;
+  newestDay: number;
+  newestSeq: number;
+}
+
 export interface EventLogCensus {
   /** Rows held, latched and unlatched. */
   rows: number;
@@ -561,6 +585,28 @@ export const WRITE_METHODS = [
 ] as const;
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
+
+/**
+ * THE READ HALF OF `Store`, as a type (dashboard INTERFACE-GAPS §4) — so code
+ * that only observes can be typed against it and "an instrument cannot reach a
+ * write method" is a compile error rather than a source scan.
+ *
+ * Defined by SUBTRACTION from `WRITE_METHODS`, not by listing the reads: the
+ * totality test holds that list equal to the set of sites that enter `mutate`,
+ * so a write method added tomorrow drops out of this type the day it is
+ * listed, and a read added tomorrow appears in it with no edit here.
+ *
+ * Two more are left out though neither is a durable write, because neither is
+ * a reader's to call: `close()` ends a handle the reader does not own (and on a
+ * writable handle it folds the write-ahead log — see `close`), and
+ * `guardWrites()` installs or REMOVES the guard a composition root put on the
+ * handle. `Omit` over a class keeps only its public members, and a `Store` is
+ * assignable to this type, so a real handle passes wherever one is asked for.
+ *
+ * A type, not a wrapper: it narrows what a caller can NAME, and a cast gets
+ * round it. The stance (`observer: true`) is still what the seam refuses on.
+ */
+export type ReadOnlyStore = Omit<Store, WriteMethod | "close" | "guardWrites">;
 
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
@@ -937,9 +983,57 @@ export class Store {
     return new Store(opts);
   }
 
+  private closed = false;
+
+  /**
+   * Close both boxes. A handle that WROTE folds the write-ahead log of each box
+   * it wrote to first (`db.ts#foldWal`, cli INTERFACE-GAPS §13), so a clean close
+   * leaves a `-wal` of zero bytes (or none) rather than one at its high-water
+   * size.
+   *
+   * **Only a box this handle wrote** (`db.ts#wroteOn`, SQLite's
+   * `total_changes()` on this connection). A writable handle that only read —
+   * a dry run, a report opened without `observer` — leaves the files exactly as
+   * it found them, which is what the dry-run suites' byte fingerprints assert;
+   * a log some other process left is that process's to fold on ITS close.
+   *
+   * **Never under observer.** A checkpoint moves committed pages from the `-wal`
+   * into the database file — bytes of the canonical box change even though no
+   * row does — and the byte-identity suites hash the file WITH its `-wal`
+   * around an instrument's open and close to prove it wrote nothing (NOTES §8).
+   * An instrument leaves the log for the next writer.
+   *
+   * **Never waits, never throws.** A reader holding an older snapshot (the MCP
+   * server, the worker, the dashboard) makes the fold partial: whatever could be
+   * copied is, the log keeps its size, and the ring carries
+   * `store.wal.checkpoint` with `busy: true`. One event per box either way,
+   * emitted AFTER both handles are closed so a listener cannot write a frame
+   * back into a log that was just folded.
+   *
+   * A second call is harmless and folds nothing.
+   */
   close(): void {
+    const folds: [string, WalFold][] = [];
+    if (!this.closed && !this.observer) {
+      if (wroteOn(this.ops)) folds.push(["store", foldWal(this.ops)]);
+      if (wroteOn(this.cache)) folds.push(["cache", foldWal(this.cache)]);
+    }
+    this.closed = true;
     this.ops.close();
     this.cache.close();
+    for (const [box, f] of folds) {
+      try {
+        this.emit("store.wal.checkpoint", undefined, {
+          box,
+          busy: f.busy,
+          log: f.log,
+          checkpointed: f.checkpointed,
+          ...(f.error === undefined ? {} : { error: f.error }),
+        });
+      } catch {
+        // A listener that throws costs its own event, never the close.
+      }
+    }
   }
 
   /** Prepared once, on first use; see `schemaVersions`. */
@@ -1561,8 +1655,16 @@ export class Store {
     return seq;
   }
 
-  /** Oldest first, so a story reads in the order it happened. */
-  eventLog(filter: { name?: string; ref?: string; sinceDay?: number; limit?: number } = {}): EventRow[] {
+  /**
+   * Oldest first by default, so a story reads in the order it happened.
+   *
+   * `order: "desc"` is NEWEST first (cli INTERFACE-GAPS §10): with a `limit`, an
+   * ascending read is the OLDEST N rows, so "the newest row of this name" was not
+   * a query — a caller that took `rows.at(-1)` off a full window was reading last
+   * week. `eventLog({ name, order: "desc", limit: 1 })` is that row, exactly.
+   * Rows come back in the order asked for; nothing is re-sorted after the LIMIT.
+   */
+  eventLog(filter: EventLogFilter = {}): EventRow[] {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (filter.name !== undefined) {
@@ -1580,8 +1682,58 @@ export class Store {
     const sql =
       "SELECT * FROM events" +
       (where.length === 0 ? "" : ` WHERE ${where.join(" AND ")}`) +
-      " ORDER BY seq ASC LIMIT ?";
+      ` ORDER BY seq ${filter.order === "desc" ? "DESC" : "ASC"} LIMIT ?`;
     return this.ops.all<EventRow>(sql, ...args, filter.limit ?? 500);
+  }
+
+  /**
+   * THE LOG COUNTED BY NAME, in SQL — one `GROUP BY`, no row leaves the
+   * database (cli INTERFACE-GAPS §11, dashboard INTERFACE-GAPS §5).
+   *
+   * Sorted by name. Every name present in the window appears exactly once, so
+   * this is also the distinct-name read: a writer that appended a name no
+   * registry knows shows up here rather than going unlisted. A name with no
+   * rows in the window is ABSENT, not zero — a caller rendering a vocabulary
+   * looks its names up and reads a miss as never.
+   *
+   * `sinceDay` bounds on the LIVED-day column (`day >= ?`, as `eventLog` does);
+   * `sinceAt` on the wall clock the row was written at (`at >= ?`, epoch ms).
+   * Both may be given. Neither reads a payload: a count by a calendar date some
+   * payloads carry (`adapters/fired.ts` dates rows by `payload.date`) is not a
+   * column and is not answered here.
+   *
+   * READ-ONLY: never enters `mutate`, so an observer may ask it.
+   */
+  eventCounts(filter: { sinceDay?: number; sinceAt?: number } = {}): EventCount[] {
+    const where: string[] = [];
+    const args: number[] = [];
+    if (filter.sinceDay !== undefined) {
+      where.push("day >= ?");
+      args.push(filter.sinceDay);
+    }
+    if (filter.sinceAt !== undefined) {
+      where.push("at >= ?");
+      args.push(filter.sinceAt);
+    }
+    const rows = this.ops.all<{ name: string; n: number; newest_at: number; newest_day: number; newest_seq: number }>(
+      "SELECT name, COUNT(*) AS n, MAX(at) AS newest_at, MAX(day) AS newest_day, MAX(seq) AS newest_seq" +
+        " FROM events" +
+        (where.length === 0 ? "" : ` WHERE ${where.join(" AND ")}`) +
+        " GROUP BY name ORDER BY name",
+      ...args,
+    );
+    return rows.map((r) => ({
+      name: r.name,
+      count: r.n,
+      newestAt: r.newest_at,
+      newestDay: r.newest_day,
+      newestSeq: r.newest_seq,
+    }));
+  }
+
+  /** Every event name the log holds, sorted. `eventCounts()` without the counts. */
+  eventNames(): string[] {
+    return this.ops.all<{ name: string }>("SELECT DISTINCT name FROM events ORDER BY name").map((r) => r.name);
   }
 
   /**

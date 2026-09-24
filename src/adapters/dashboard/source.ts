@@ -14,14 +14,20 @@
  * refusal here plus the source scan in `test/dashboard.test.ts`, which fails on
  * any `WRITE_METHOD` call or filesystem write appearing anywhere in this
  * directory. Types are documentation; the scan is the mechanism.
+ *
+ * Since 2026-09-24 the store half is also a TYPE: `store` is a `ReadOnlyStore`
+ * (the core's `Store` minus every `WRITE_METHODS` name, `close` and
+ * `guardWrites`), so a view that names a write method on it fails `tsc`
+ * (INTERFACE-GAPS §4). `schemas` and `self` are still the real objects, so the
+ * scan stays — it is what covers them, and a cast.
  */
 import type { Counterpart } from "../../core/counterpart.js";
 import type { Schemas } from "../../core/schemas/index.js";
 import type { Self } from "../../core/self/index.js";
-import type { Store } from "../../core/store/index.js";
+import type { ReadOnlyStore } from "../../core/store/index.js";
 
 export interface DashboardSource {
-  readonly store: Store;
+  readonly store: ReadOnlyStore;
   readonly schemas: Schemas;
   readonly self: Self;
   /** Always true. A false one never gets built. */

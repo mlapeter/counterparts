@@ -87,8 +87,11 @@ export function renderActivity(src: DashboardSource, opts: ActivityOptions = {})
  * This is the block that would have caught v1's starved curation path.
  */
 function vocabulary(src: DashboardSource, style: Style): string {
+  // One grouped query for every name (INTERFACE-GAPS §5), exact rather than
+  // capped at a read ceiling; a name with no rows is absent from it.
+  const counts = new Map(src.store.eventCounts().map((c) => [c.name, c.count]));
   const rows = DURABLE_EVENT_NAMES.map((name) => {
-    const count = src.store.eventLog({ name, limit: 10_000 }).length;
+    const count = counts.get(name) ?? 0;
     return [
       name,
       count === 0 ? style.warn(NEVER) : String(count),

@@ -36,7 +36,7 @@ import {
   NOISY_NOW_SWEEP_REASONS,
 } from "../../../core/remember/index.js";
 import { BAND_TRANSITION_FIELDS } from "../../../core/sleep/index.js";
-import type { EventRow, Store } from "../../../core/store/index.js";
+import type { EventRow, ReadOnlyStore } from "../../../core/store/index.js";
 import { num } from "../layout.js";
 import type { DurableEventName } from "../registries.js";
 import { nodeOf } from "./flow.js";
@@ -53,7 +53,7 @@ export interface Narration {
 }
 
 interface Told {
-  readonly store: Store;
+  readonly store: ReadOnlyStore;
   readonly row: EventRow;
   /** The parsed payload, or an empty object when there was none. */
   readonly p: Record<string, unknown>;
@@ -1017,7 +1017,7 @@ export const REF_KIND = {
   "memory" | "session" | "chunk" | "proposal" | "handoff" | "none"
 >;
 
-function subjectOf(store: Store, row: EventRow): string | null {
+function subjectOf(store: ReadOnlyStore, row: EventRow): string | null {
   if (row.ref === null) return null;
   switch ((REF_KIND as Record<string, string>)[row.name]) {
     case "session":
@@ -1071,7 +1071,7 @@ function parse(payload: string | null): Record<string, unknown> {
  * crashes on an unfamiliar row is the one moment the owner most needs it to
  * render (scar E7).
  */
-export function narrate(store: Store, row: EventRow): NarratedEvent {
+export function narrate(store: ReadOnlyStore, row: EventRow): NarratedEvent {
   const p = parse(row.payload);
   const told: Told = { store, row, p };
   const teller = (NARRATORS as Record<string, Teller | undefined>)[row.name];

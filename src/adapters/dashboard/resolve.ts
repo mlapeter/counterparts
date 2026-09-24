@@ -15,7 +15,7 @@
  * moment the owner most needs it to render (`observer-mode.md`, scar E7).
  */
 import { StoreError } from "../../core/store/index.js";
-import type { ProseDoc, Store } from "../../core/store/index.js";
+import type { ProseDoc, ReadOnlyStore } from "../../core/store/index.js";
 import { truncate } from "./layout.js";
 
 export type RefState =
@@ -87,7 +87,7 @@ function errCode(err: unknown): string {
 }
 
 /** `resolve()` without the forwarding walk: is there a row at THIS address? */
-function requireHere(store: Store, id: string): string {
+function requireHere(store: ReadOnlyStore, id: string): string {
   if (store.row(id) === undefined) throw new StoreError("ID_UNKNOWN", { id });
   return id;
 }
@@ -110,7 +110,7 @@ export interface ResolveOptions {
  * ends in an ellipsis so nobody mistakes it for the whole memory.
  */
 export function resolveRef(
-  store: Store,
+  store: ReadOnlyStore,
   id: string | null | undefined,
   widthOrOpts: number | ResolveOptions = TEXT_WIDTH,
 ): ResolvedRef {
@@ -188,7 +188,7 @@ export function looksLikeId(value: unknown): value is string {
  * to mean for the activity feed, or the feed becomes a wall of hex.
  */
 export function resolvePayload(
-  store: Store,
+  store: ReadOnlyStore,
   payload: Record<string, unknown>,
   width = 40,
 ): { key: string; value: string }[] {
