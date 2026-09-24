@@ -221,7 +221,6 @@ Setup
   install       First-time setup: your memory and Claude Code — safe to run again
   connect       Connect an AI to your memory (Claude Code today; more soon)
   disconnect    Disconnect an AI
-  credentials   Add or change your API keys (optional upgrades)
   scope         Turn memory on or off for a directory
   uninstall     Remove Counterparts; keeps your memory unless you say otherwise
 
@@ -234,6 +233,8 @@ counterparts help <command>   everything a command can do
 counterparts help advanced    maintenance and developer commands
 https://www.npmjs.com/package/counterparts
 ```
+
+*(2026-09-24: the `credentials` line was removed with the API keys, on the owner's word.)*
 
 **Doctor** (fresh store, both keys skipped, everything else fine)
 

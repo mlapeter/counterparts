@@ -23,7 +23,10 @@ import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/stat
 import { heldExits, Store, paths } from "../src/core/store/index.js";
 import type { EmbedderIdentity } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
-import { EMBED_KEY_ENV, doctorFindings, loadCredentials } from "../src/adapters/claude-code/index.js";
+import { doctorFindings } from "../src/adapters/claude-code/index.js";
+
+/** The removed Voyage key's name, which no line here may advise. */
+const EMBED_KEY_ENV = "VOYAGE_" + "API_KEY";
 import type { AdapterConfig, DoctorInput, Finding } from "../src/adapters/claude-code/index.js";
 import { run } from "../src/adapters/cli/index.js";
 
@@ -69,11 +72,8 @@ function reading(embedder: AdapterConfig["embedder"]): Finding[] {
   const input: DoctorInput = {
     configPath: join(root, "claude-code.json"),
     configReason: "loaded",
-    config: { dataDir: dir, credentialsFile: credsPath, ...(embedder === undefined ? {} : { embedder }) },
+    config: { dataDir: dir, ...(embedder === undefined ? {} : { embedder }) },
     dir,
-    credentials: loadCredentials(credsPath, {}),
-    credentialsPath: credsPath,
-    shellNames: [],
     store: s,
     today: "2026-09-23",
     refusals: {},
@@ -168,7 +168,7 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     Store.open({ dir, embed: b }).close();
   }
 
-  test("held: amber, both counts named, and the two ways out", () => {
+  test("held: amber, both counts named, and the way out", () => {
     heldStore();
     const f = by(reading({ enabled: true }), "embedder");
     expect(f.severity).toBe("amber");
@@ -176,12 +176,13 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     expect(f.detail).toContain("voyage-3-large@3");
     expect(f.detail).toContain("voyage-3.5");
     expect(f.fix).toContain("verify --rebuild --drop-vectors");
-    // A RECORDED model: the free exit is putting models.embed back to it.
-    expect(f.fix).toContain('models.embed "voyage-3-large"');
-    expect(f.fix).toContain("paid again");
+    // ONE exit since 2026-09-24: the model that wrote the rows (the removed
+    // Voyage seat) can no longer be configured, so there is nothing to go back to.
+    expect(f.fix).not.toContain("models.embed");
+    expect(f.fix).not.toContain('embedder.kind back to "voyage"');
   });
 
-  test("a hold with NO recorded model (a 0.2.0 store under the static table) names the exit that exists: kind back to voyage (re-review MINOR B)", () => {
+  test("a hold with NO recorded model (a 0.2.0 store under the static table) names the exit that exists: the drop (re-review MINOR B)", () => {
     // 0.2.0's shape: untagged 1024-wide rows (the Voyage seat's), no tag.
     const bare = Store.open({ dir });
     bare.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
@@ -198,7 +199,8 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     s.close();
     const f = by(reading(STATIC), "embedder");
     expect(f.detail).toContain("0.2.0");
-    expect(f.fix).toContain('embedder.kind back to "voyage"');
+    expect(f.fix).toContain("verify --rebuild --drop-vectors");
+    expect(f.fix).not.toContain("voyage");
     expect(f.fix).not.toContain("models.embed");
     expect(heldExits(null)).toContain("verify --rebuild --drop-vectors");
   });
@@ -270,7 +272,7 @@ describe("Recall by meaning on a FRESH static install — no worker row yet", ()
 describe("the Config line names the key it could not read (review of #190, MINOR 5)", () => {
   test("`counterparts doctor --config` on a bad embedder.kind says which key, and what it must be", async () => {
     const configPath = join(root, "claude-code.json");
-    writeFileSync(configPath, JSON.stringify({ dataDir: dir, credentialsFile: credsPath, embedder: { enabled: true, kind: "Static" } }));
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, embedder: { enabled: true, kind: "Static" } }));
     writer();
     opened.splice(0).forEach((s) => s.close());
     const out: string[] = [];
@@ -283,7 +285,7 @@ describe("the Config line names the key it could not read (review of #190, MINOR
     const json = JSON.parse(out.join("\n")) as { findings: { key: string; detail: string; data: Record<string, unknown> }[] };
     const config = json.findings.find((f) => f.key === "config");
     expect(config?.detail).toContain("unreadable (embedder.kind");
-    expect(config?.detail).toContain('"static" or "voyage"');
+    expect(config?.detail).toContain('it must be "static"');
     expect(config?.data["keys"]).toBe("embedder.kind");
   });
 });
@@ -325,10 +327,8 @@ describe("Raw transcripts — what the newest retention pass did", () => {
       doctorFindings({
         configPath: join(root, "claude-code.json"),
         configReason: "loaded",
-        config: { dataDir: dir, credentialsFile: credsPath, snapshots: { keep: 3 } },
+        config: { dataDir: dir, snapshots: { keep: 3 } },
         dir,
-        credentials: loadCredentials(credsPath, {}),
-        credentialsPath: credsPath,
         store: s,
         today: "2026-09-23",
         refusals: {},
@@ -367,7 +367,7 @@ describe("Raw transcripts — what the newest retention pass did", () => {
 describe("`\"embedder\": null` in the configuration file (re-review MINOR A)", () => {
   test("`counterparts doctor --config` grades the file unreadable instead of crashing", async () => {
     const configPath = join(root, "claude-code.json");
-    writeFileSync(configPath, JSON.stringify({ dataDir: dir, credentialsFile: credsPath, embedder: null }));
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, embedder: null }));
     const out: string[] = [];
     const err: string[] = [];
     const code = await run(["doctor", `--config=${configPath}`], {

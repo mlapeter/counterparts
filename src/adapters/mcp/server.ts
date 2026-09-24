@@ -190,10 +190,9 @@ export interface McpServerOptions {
    * embed (it has a 1200 ms budget and a person mid-sentence), the deliberate
    * ask may (someone typed a question and is waiting). This is that half.
    *
-   * The server never sees a credential: the ENTRY POINT loads the file the
-   * package's own config names and hands over an opened embedder or null
-   * (`bin/serve.ts`), exactly as `bin/hook.ts` does for the hook adapter. Null
-   * degrades the ask to lexical-only and the result SAYS so.
+   * The ENTRY POINT reads the configuration and hands over an opened embedder
+   * or null (`bin/serve.ts`), exactly as `bin/hook.ts` does for the hook
+   * adapter. Null degrades the ask to lexical-only and the result SAYS so.
    */
   embedder?: QuestionEmbedder | null;
   /**
@@ -1167,9 +1166,8 @@ export class McpServer {
   }
 
   /**
-   * One embedding call, and every way it can decline, by name. The credential
-   * itself never appears here — `openEmbedder` was handed one at the entry point
-   * and this file only ever sees vectors or null.
+   * One embedding call, and every way it can decline, by name. This file only
+   * ever sees vectors or null.
    */
   private async embedQuestion(
     question: string,

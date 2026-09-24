@@ -11,10 +11,8 @@
  * **It can only ever open a store it just made.** There is no `--dir`: every run
  * seeds a FRESH temp directory with `tools/demo/seed.ts` (the synthetic
  * Fernbrook/Halfmoon persona — every byte authored, zero API calls) and removes
- * it afterwards. Nothing here reads a real store, a config or a credentials
- * file. Voyage is measured only when `VOYAGE_API_KEY` is already in THIS
- * process's environment, and then it is a paid call per memory — say so before
- * running it that way.
+ * it afterwards. Nothing here reads a real store or a config. (A paid Voyage
+ * arm ran here too until the Voyage embedder was removed, 2026-09-24.)
  *
  * ── WHAT IS MEASURED ────────────────────────────────────────────────────────
  *
@@ -45,7 +43,7 @@
  *     is now about the wrong subject; what it costs — the new subject's target
  *     lost, stale items from the old one — is measured, not guessed.
  *
- * Per arm (lexical-only; each static table; Voyage if a key is present):
+ * Per arm (lexical-only; each static table):
  *
  *   1. the ACTIVATION RANKING — `recall.activate` over the whole store with no
  *      candidate cap, the turn's vector supplied (or not): rank of the first
@@ -67,8 +65,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createEmbedder, createStaticEmbedder } from "../../src/adapters/claude-code/embed-client.js";
-import type { LiveEmbedder } from "../../src/adapters/claude-code/embed-client.js";
+import { createStaticEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { loadStaticModel, resolveStaticWeights } from "../../src/core/embed/static.js";
 import {
   Recall,
@@ -685,7 +682,6 @@ export interface TrialOptions {
    * report is the mean over `runs` draws, with the range.
    */
   readonly runs?: number;
-  readonly env?: Record<string, string | undefined>;
   readonly log?: (line: string) => void;
 }
 
@@ -757,7 +753,6 @@ export interface TrialReport {
   readonly runs: number;
   readonly first: TrialRun;
   readonly aggregate: readonly AggregateArm[];
-  readonly voyage: "measured" | "no-key";
   readonly shippedFloor: number;
   readonly shippedWeight: number;
 }
@@ -779,8 +774,7 @@ async function runOnce(
   opts: TrialOptions,
   grid: readonly { floor: number; weight: number }[],
   log: (line: string) => void,
-): Promise<{ run: TrialRun; voyage: boolean }> {
-  const env = opts.env ?? process.env;
+): Promise<{ run: TrialRun }> {
   const dir = mkdtempSync(join(tmpdir(), "cp-embedder-trial-"));
   try {
     const t0 = performance.now();
@@ -900,32 +894,7 @@ async function runOnce(
       store.close();
     }
 
-    // ── Voyage, only with a key already in this process (a paid call per memory) ──
-    let voyage = false;
-    const key = env["VOYAGE_API_KEY"];
-    if (key !== undefined && key.trim().length > 0) {
-      const paid: LiveEmbedder = createEmbedder({ config: { embedder: { enabled: true } } });
-      const s0 = Store.open({ dir });
-      const texts = s0.list({ archived: false }).map((id) => {
-        const d = s0.readProse(id);
-        return indexTextOf(d.title, d.body);
-      });
-      s0.close();
-      await paid.warm([...texts, ...QUERIES.map((q) => q.text)]);
-      const store = Store.open({ dir, embed: paid.embed });
-      for (const id of store.missingVectors(Number.MAX_SAFE_INTEGER)) store.embedOne(id);
-      const vectors = await Promise.all(QUERIES.map((q) => paid.vector(q.text)));
-      for (const { floor, weight } of grid) {
-        const arm: Arm = { name: "voyage", floor, weight, lagModel: paid.model };
-        const rows = runArm(store, relevantIds, arm, vectors);
-        const turns = runPerTurnArm(store, relevantIds, arm, vectors);
-        const topic = runTopicChangeArm(store, relevantIds, arm, vectors);
-        arms.push(armOf("voyage", paid.model, floor, weight, rows, true, turns, topic));
-      }
-      store.close();
-      voyage = true;
-    }
-    return { run: { storeSize, seedMs, models, arms }, voyage };
+    return { run: { storeSize, seedMs, models, arms } };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -975,12 +944,10 @@ export async function runTrial(opts: TrialOptions): Promise<TrialReport> {
   const grid = weights.flatMap((weight) => floors.map((floor) => ({ floor, weight })));
   const runs = Math.max(1, opts.runs ?? 5);
   const all: TrialRun[] = [];
-  let voyage = false;
   for (let i = 0; i < runs; i++) {
     log(`run ${i + 1}/${runs}`);
     const got = await runOnce(opts, grid, log);
     all.push(got.run);
-    voyage = voyage || got.voyage;
   }
   const first = all[0];
   if (first === undefined) throw new Error("no run");
@@ -1017,7 +984,6 @@ export async function runTrial(opts: TrialOptions): Promise<TrialReport> {
     runs,
     first,
     aggregate,
-    voyage: voyage ? "measured" : "no-key",
     shippedFloor: TUNABLES.SEMANTIC_SEED_FLOOR,
     shippedWeight: TUNABLES.SEMANTIC_WEIGHT,
   };
@@ -1036,7 +1002,7 @@ export function renderTrial(report: TrialReport): string {
   const lex = report.aggregate.find((a) => a.name === "lexical-only");
   const first = report.first;
   out.push(
-    `Seeded store: ${first.storeSize} live memories (tools/demo/seed.ts, a fresh temp dir per run), ${report.runs} runs (reseeded each time; means shown, ranges where they decide). Voyage: ${report.voyage === "measured" ? "measured" : "not measured (no VOYAGE_API_KEY in this process)"}.`,
+    `Seeded store: ${first.storeSize} live memories (tools/demo/seed.ts, a fresh temp dir per run), ${report.runs} runs (reseeded each time; means shown, ranges where they decide).`,
   );
   out.push("");
   out.push("| model | load ms | inline refill at open | ms / embed |");

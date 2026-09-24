@@ -88,5 +88,6 @@ The static tier is INCLUDED and becomes the primary tier; recall gets retuned fo
 separate PR, `keyless/recall-tune`, from `tools/bench/embedder-trial.ts` runs on both
 recall paths). The Voyage seat is FROZEN: deprecated, not removed. Its code stays, the
 store keeps holding its paid rows, and nothing new is written for it — a finding that
-would need new Voyage behaviour is documented rather than built.
+would need new Voyage behaviour is documented rather than built. (Removed outright on
+2026-09-24 with the API keys; see `adapters/claude-code/CONTRACT.md` §1a.)
 

@@ -52,6 +52,7 @@ import {
 } from "../src/core/self/index.js";
 import {
   ClaudeCodeAdapter,
+  DEFAULT_HOST_COMMAND,
   KILL_GRACE_MS,
   MCP_SELF_PAGE_TOOL,
   PAGE_WRITER_ENV,
@@ -1001,16 +1002,26 @@ describe("the mode switch", () => {
     }
     // A bad SIDE field costs that field and not the mode somebody did spell
     // right: the block is read key by key, not all-or-nothing.
-    for (const bad of [
-      { mode: "host", command: "" },
-      { mode: "host", timeoutMs: 0 },
-    ]) {
-      const loaded = loadConfig({ dataDir: "/x", pageWriter: bad });
-      const label = JSON.stringify(bad);
+    const bad = { mode: "host", timeoutMs: 0 };
+    const loaded = loadConfig({ dataDir: "/x", pageWriter: bad });
+    expect(loaded.ok).toBe(true);
+    expect(pageWriterMode(loaded.config)).toBe("host");
+    expect(loaded.config.pageWriter?.ignored?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("`pageWriter.command` in a configuration is IGNORED — the writer always starts claude — and named as retired", () => {
+    // Removed 2026-09-24: a configuration that could name the program the
+    // worker starts was "runs a command named by config". An old file still
+    // carrying the key is read, not refused, and the plan starts `claude`.
+    for (const command of ["/bin/true", "", 42]) {
+      const loaded = loadConfig({ dataDir: dir, pageWriter: { mode: "host", command } });
+      const label = JSON.stringify(command);
       expect(loaded.ok, label).toBe(true);
       expect(pageWriterMode(loaded.config), label).toBe("host");
-      expect(loaded.config.pageWriter?.command, label).toBeUndefined();
-      expect(loaded.config.pageWriter?.ignored?.length ?? 0, label).toBeGreaterThan(0);
+      expect(loaded.config.pageWriter?.ignored ?? [], label).toEqual([]);
+      expect((loaded.config.retired ?? []).join(" "), label).toContain('"pageWriter.command" is no longer used');
+      const plan = planPageWriter({ config: loaded.config, about: "2026-09-23", prompt: "x" });
+      expect(plan.command, label).toBe(DEFAULT_HOST_COMMAND);
     }
   });
 
@@ -1339,13 +1350,18 @@ describe("host mode, proved against a stub `claude`", () => {
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     const about = pageWriterNight(c.store).about;
     const plan = planPageWriter({
-      config: config({ pageWriter: { mode: "host", command: "/usr/local/bin/claude" } }),
+      config: config({ pageWriter: { mode: "host" } }),
       about,
       prompt: writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" }),
       baseEnv: { PATH: "/usr/bin", COUNTERPARTS_DATA_DIR: "/somewhere/else" },
     });
     expect(plan.ok).toBe(true);
-    expect(plan.command).toBe("/usr/local/bin/claude");
+    expect(plan.command).toBe(DEFAULT_HOST_COMMAND);
+    // The test-only injection point is CODE, not configuration.
+    expect(
+      planPageWriter({ config: config({ pageWriter: { mode: "host" } }), about, prompt: "x", command: "/usr/local/bin/claude" })
+        .command,
+    ).toBe("/usr/local/bin/claude");
     // `-p` is what makes it windowless and what makes SessionStart hooks run.
     expect(plan.args).toContain("-p");
     expect(plan.args.join(" ")).toContain("--allowedTools");
@@ -1386,7 +1402,8 @@ describe("host mode, proved against a stub `claude`", () => {
     const command = stub("exit 0");
     const outcome = await runPageWriter({
       counterpart: c,
-      config: config({ pageWriter: { mode: "host", command } }),
+      config: config({ pageWriter: { mode: "host" } }),
+      command,
     });
     expect(outcome.ran).toBe(true);
     // The stub wrote nothing, so the night had nothing to say — and that is
@@ -1415,7 +1432,8 @@ describe("host mode, proved against a stub `claude`", () => {
     const started = Date.now();
     const outcome = await runPageWriter({
       counterpart: c,
-      config: config({ pageWriter: { mode: "host", command, timeoutMs: 300 } }),
+      config: config({ pageWriter: { mode: "host", timeoutMs: 300 } }),
+      command,
     });
     const elapsed = Date.now() - started;
     expect(outcome.ran).toBe(true);
@@ -1439,7 +1457,8 @@ describe("host mode, proved against a stub `claude`", () => {
     // `runPageWriter` reads the OUTCOME from the store afterwards.
     const outcome = await runPageWriter({
       counterpart: c,
-      config: config({ pageWriter: { mode: "host", command: stub("exit 0") } }),
+      config: config({ pageWriter: { mode: "host" } }),
+      command: stub("exit 0"),
       start: async () => {
         c.revisePage(PAGE, { reason: "the night's revision", by: "writer" });
         return await Promise.resolve({ code: 0, timedOut: false, error: null });
@@ -1479,7 +1498,8 @@ describe("host mode, proved against a stub `claude`", () => {
     const command = stub("exit 3");
     const outcome = await runPageWriter({
       counterpart: c,
-      config: config({ pageWriter: { mode: "host", command } }),
+      config: config({ pageWriter: { mode: "host" } }),
+      command,
     });
     expect(outcome.outcome).toBe("failed");
     expect(c.pageWriterStatus(about).outcome).toBe("failed");
@@ -1498,7 +1518,8 @@ describe("host mode, proved against a stub `claude`", () => {
     const command = stub("sleep 30");
     const run = runPageWriter({
       counterpart: c,
-      config: config({ pageWriter: { mode: "host", command } }),
+      config: config({ pageWriter: { mode: "host" } }),
+      command,
       signal: controller.signal,
     });
     controller.abort();
@@ -1513,9 +1534,9 @@ describe("host mode, proved against a stub `claude`", () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
     const command = stub("exit 0");
-    const cfg = config({ pageWriter: { mode: "host", command } });
-    await runPageWriter({ counterpart: c, config: cfg });
-    const second = await runPageWriter({ counterpart: c, config: cfg });
+    const cfg = config({ pageWriter: { mode: "host" } });
+    await runPageWriter({ counterpart: c, config: cfg, command });
+    const second = await runPageWriter({ counterpart: c, config: cfg, command });
     expect(second.ran).toBe(false);
     expect(second.outcome).toBe("skipped");
   });

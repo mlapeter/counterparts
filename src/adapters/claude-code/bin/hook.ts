@@ -35,10 +35,8 @@ import {
 } from "../../scopes.js";
 import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { canonicalScope, readSession } from "../../sessions.js";
-import { EMBED_KEY_ENV, loadConfig, withEmbedderDefault } from "../config.js";
+import { loadConfig, withEmbedderDefault } from "../config.js";
 import type { AdapterConfig } from "../config.js";
-import { loadCredentials, permissionWarning } from "../credentials.js";
-import type { CredentialLoad } from "../credentials.js";
 import { HOOKS, openAdapter } from "../index.js";
 import { STOP_HUMAN_LINE } from "../hooks.js";
 import type { HookInput, HookName } from "../hooks.js";
@@ -112,7 +110,7 @@ export const ENVELOPE_MAX_CHARS = 9500;
  *
  * **The switch is a key in `claude-code.json`, not an environment variable**,
  * because a hook process does not carry the login shell's environment on this
- * host (measured day 0 of the parallel run; `config.ts#credentialsFile`), and
+ * host (measured day 0 of the parallel run), and
  * because the file is re-read by every hook — so a flip takes effect at the next
  * Stop with no restart. It is read here, beside the rest of `hostConfig`, and
  * leniently ON PURPOSE: `"stderr"` in any case and with any surrounding spaces
@@ -164,22 +162,11 @@ async function readStdin(): Promise<string> {
 }
 
 /**
- * The configuration this process runs on, AND the credential load it performed.
- *
- * The credentials are read HERE, at the process entry point, before anything
- * asks for a key: the spawner's `base` env is `process.env`, the two clients
- * read `process.env`, and the capability report reads `process.env` — so the gap
- * must be filled before any of them look. Measured day 0 of the parallel run:
- * this host's hook processes carry neither name, so without this line the worker
- * refuses every spawn and the embedder never opens.
- *
- * `env` is injected so a test can prove the whole path over a fresh object
- * instead of mutating the suite's own process.
+ * The configuration this process runs on.
  */
 export function hostConfig(
   path = CONFIG_PATH,
-  env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad; reason: string; stopAskShape: StopAskShape } {
+): { config: AdapterConfig; reason: string; stopAskShape: StopAskShape } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -190,9 +177,6 @@ export function hostConfig(
   }
   const load = loadConfig(raw);
   const loaded = load.config;
-  // Only a configuration we UNDERSTOOD names a file. An unreadable one resolves
-  // to `{ observer: true }` above, and an observer opens no credential.
-  const credentials = loadCredentials(loaded.credentialsFile, env);
   // The data dir is RESOLVED here and carried explicitly, so the spawner has a
   // value to pin onto the child (scar §2.13). Leaving it undefined would make
   // the parent and the child resolve it independently, from an environment
@@ -201,11 +185,9 @@ export function hostConfig(
   // stood down because we did not" — the difference matters only for a config
   // somebody NAMED (`namedUnreadableRefusal`).
   // THE EMBEDDER DEFAULT (config.ts#resolveEmbedder): an absent block is the
-  // local table unless the credentials FILE holds a Voyage key.
-  const voyageKeySaved = [...credentials.loaded, ...credentials.skippedPresent].includes(EMBED_KEY_ENV);
+  // local table.
   return {
-    config: withEmbedderDefault({ ...loaded, dataDir: loaded.dataDir ?? dataDir() }, voyageKeySaved),
-    credentials,
+    config: withEmbedderDefault({ ...loaded, dataDir: loaded.dataDir ?? dataDir() }),
     reason: load.reason,
     stopAskShape: stopAskShapeOf(raw),
   };
@@ -660,7 +642,7 @@ async function runHook(
   // debug log and for the morning the envelope has no room for it.
   const trouble = name === "session-start" ? describeScopeTrouble(read, scopesPath(choice.path)) : null;
   if (trouble !== null) process.stderr.write(`${trouble}\n`);
-  const { config: loaded, credentials, reason, stopAskShape } = hostConfig(choice.path);
+  const { config: loaded, reason, stopAskShape } = hostConfig(choice.path);
   // THE THIRD ARM, and it is answered BEFORE anything reads under `dataDir`: a
   // named file that parses but whose fields do not typecheck resolves to
   // observer, and an observer with no `dataDir` reads the DEFAULT store.
@@ -711,23 +693,16 @@ async function runHook(
   // running on an observer CONFIG are untouched by any of this.
   const config: AdapterConfig =
     verdict.mode === "observer" ? { ...loaded, observer: true } : loaded;
-  // A file the group or the world can read is WARNED about, by mode, and never
-  // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
-  // fail the host over a permission bit).
-  const warning = permissionWarning(config.credentialsFile, credentials);
-  if (warning !== null) process.stderr.write(`${warning}\n`);
   const adapter = openAdapter(config, {
     command: process.execPath,
     args: ["run", RUNNER_PATH],
-    credentials,
     // WHICH FILE THIS RUN READ, carried into the adapter so it can be RECORDED:
     // a hook cannot print to the owner (its stdout is the model's context), so
     // the answer goes into the session registry record and the event ring
     // instead. It is also pinned onto the worker's environment, so the child
     // reads the same file its parent did rather than resolving one of its own.
     configPath: choice.path,
-    // The verdict travels IN, for the same reason the credentials do: it is a
-    // fact about this process's startup, decided before anything opened, and
+    // The verdict travels IN: it is a fact about this process's startup, decided before anything opened, and
     // the adapter's jobs with it are to record it and — when it is `unset` — to
     // ask the question once (G41).
     scope: verdict,

@@ -378,13 +378,15 @@ export const NARRATORS = {
         ? ""
         : ` ${chronic} scope${chronic === 1 ? "" : "s"} held a buffer too small to claim` +
           " — fine once, a buffer that never drains if it is every day.";
-    // The SKIPPED row (I32): the worker ran the day — clock, flush, cycle — and
-    // deliberately did not sweep, because sweeping needs a model call it had no
-    // credential for. Saying "looked at 0 scopes and found nothing" of that
-    // would be the silence-as-health this row exists to prevent.
-    if (t.p["reason"] === "no-credential") {
-      return amber(
-        "I ran the day — the clock, the flush, the cycle — but skipped the crash fallback: there was no credential for the one model call it needs. Nothing was lost that a key would not fix.",
+    // The SKIPPED row: the worker ran the day — clock, flush, cycle — and did
+    // not sweep. `no-credential` is an older build's word for it (I32), and
+    // `not-opted-in` is today's: since 2026-09-24 the worker never makes the
+    // model call a sweep needs, and the next session in a project writes up
+    // what ended unwritten. Calm, and said as what it is — "looked at 0 scopes
+    // and found nothing" would be the wrong sentence.
+    if (t.p["reason"] === "no-credential" || t.p["reason"] === "not-opted-in") {
+      return calm(
+        "I ran the day — the clock, the flush, the cycle. A session that ended before it was written up is left for the next session in its project to write up.",
       );
     }
     if (quarantined > 0) {

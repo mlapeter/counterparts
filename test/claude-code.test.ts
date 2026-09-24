@@ -6,15 +6,15 @@
  * temp data dir, the real span buffer, the real gate battery. What a fake host
  * buys is determinism about the one surface this adapter exists to isolate.
  *
- * NO TEST HERE MAKES A NETWORK CALL. `interpretClient` takes its `fetch`, and
- * every test supplies one; a test that reached the real API would be exactly the
- * "verified live" claim this suite is not entitled to make.
+ * NO TEST HERE MAKES A NETWORK CALL — and since 2026-09-24 there is no network
+ * code in the adapter to make one (the Anthropic and Voyage clients were
+ * removed); embedders here are local fakes.
  *
  * Hermetic by construction (CLAUDE.md): a fresh temp data dir per test, removed
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,38 +36,24 @@ import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from 
 import { BOOTSTRAP, BRIEFING_KEY, SELF_TUNABLES } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
-  API_KEY_ENV,
   stopAsk,
-  CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   DATA_DIR_ENV,
-  DEFAULT_EMBED_MODEL,
-  EMBED_KEY_ENV,
-  EmbedError,
   FOREIGN_MARKERS,
   HOOKS,
-  InterpretError,
   SESSION_ENDING,
   TUNABLES,
-  VOYAGE_ENDPOINT,
   abDir,
   assignmentHealth,
   assignmentPath,
   attributePeers,
   capabilities,
   classifyBlock,
-  callBudget,
-  createEmbedder,
-  embedClient,
-  extractJson,
-  interpretClient,
   loadConfig,
-  loadCredentials,
   openAdapter,
   openEmbedder,
   parseTranscript,
-  permissionWarning,
   readWakeArrival,
   WAKE_HEAD_MAX_BYTES,
   WAKE_HEAD_MAX_LINES,
@@ -81,7 +67,6 @@ import {
   planSpawn,
   primacy,
   readAssignment,
-  seatStatus,
   SPAWN_REFUSAL_PREFIX,
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
@@ -90,7 +75,6 @@ import {
 } from "../src/adapters/claude-code/index.js";
 import type {
   AdapterConfig,
-  FetchLike,
   HookInput,
   HookName,
   LiveEmbedder,
@@ -106,11 +90,6 @@ const BUDGET_BYTES = 9000;
 
 let dir: string;
 let priorEnv: string | undefined;
-let priorKey: string | undefined;
-/** Saved and restored like the other two: a dev machine may really have one,
- *  and a suite that reads the developer's key is a suite that can lie about
- *  why it passed. */
-let priorEmbedKey: string | undefined;
 /** The A/B directory, redirected FOR THE WHOLE FILE. The owner's machine has a
  *  real `~/.memory-ab/assignment.json` — v1's live switch — and a test that
  *  read it would be reading production state and could flip with the day. */
@@ -123,16 +102,12 @@ const open: Counterpart[] = [];
 
 beforeEach(() => {
   priorEnv = process.env[ENV];
-  priorKey = process.env[API_KEY_ENV];
-  priorEmbedKey = process.env[EMBED_KEY_ENV];
   priorAbDir = process.env[AB_DIR_ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-cc-"));
   abHome = mkdtempSync(join(tmpdir(), "counterparts-ab-"));
   hostDir = mkdtempSync(join(tmpdir(), "counterparts-host-"));
   process.env[ENV] = dir;
   process.env[AB_DIR_ENV] = abHome;
-  process.env[API_KEY_ENV] = "sk-ant-test-not-a-real-key";
-  process.env[EMBED_KEY_ENV] = "pa-test-not-a-real-key";
 });
 
 afterEach(() => {
@@ -147,10 +122,6 @@ afterEach(() => {
   else process.env[ENV] = priorEnv;
   if (priorAbDir === undefined) delete process.env[AB_DIR_ENV];
   else process.env[AB_DIR_ENV] = priorAbDir;
-  if (priorKey === undefined) delete process.env[API_KEY_ENV];
-  else process.env[API_KEY_ENV] = priorKey;
-  if (priorEmbedKey === undefined) delete process.env[EMBED_KEY_ENV];
-  else process.env[EMBED_KEY_ENV] = priorEmbedKey;
   rmSync(dir, { recursive: true, force: true });
   rmSync(abHome, { recursive: true, force: true });
   rmSync(hostDir, { recursive: true, force: true });
@@ -330,30 +301,6 @@ function deliveredRow(a: ClaudeCodeAdapter): Record<string, unknown> {
   return (rows[rows.length - 1]?.data ?? {}) as Record<string, unknown>;
 }
 
-/** A fake SSE body: the exact frames the real endpoint emits, and nothing else. */
-function sse(frames: readonly string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const frame of frames) controller.enqueue(encoder.encode(frame));
-      controller.close();
-    },
-  });
-}
-
-function streamed(text: string, stopReason = "end_turn"): ReadableStream<Uint8Array> {
-  return sse([
-    `event: message_start\ndata: {"type":"message_start"}\n\n`,
-    `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text } })}\n\n`,
-    `event: message_delta\ndata: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: stopReason } })}\n\n`,
-    `event: message_stop\ndata: {"type":"message_stop"}\n\n`,
-  ]);
-}
-
-function okResponse(body: ReadableStream<Uint8Array>): Response {
-  return new Response(body, { status: 200 });
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // The dependency direction, and the enumeration of session-ending paths
 // ═══════════════════════════════════════════════════════════════════════════
@@ -379,7 +326,7 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     expect(offenders).toEqual([]);
   });
 
-  test("the network surface is ENUMERATED — two files, two endpoints, no SDK (scar E2's chokepoint)", () => {
+  test("the network surface is ENUMERATED — no outbound client, no endpoint, no SDK (scar E2's chokepoint)", () => {
     const endpoints: string[] = [];
     const callers: string[] = [];
     for (const file of tsFiles(SRC)) {
@@ -415,24 +362,21 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
         /(^|[^.\w])fetch\s*\(\s*(?:"|`|https?|url|endpoint|ENDPOINT)/m.test(text);
       if (opensAConnection) callers.push(file.slice(SRC.length));
     }
-    // BOTH endpoints live in config.ts, where an owner can read the whole egress
-    // surface of this package on one page — that is the property, not "one".
-    expect(endpoints).toEqual(["adapters/claude-code/config.ts"]);
-    // And exactly three files resolve a network verb, all named. The list is the
-    // point: a fourth one appearing is a review event, not a merge.
+    // NO endpoint anywhere (keyless, owner 2026-09-24). Until then both lived in
+    // config.ts, where an owner could read the whole egress surface on one page;
+    // the Anthropic and Voyage clients were removed, and with them the list.
+    expect(endpoints).toEqual([]);
+    // And exactly one file resolves a network verb, named. The list is the
+    // point: a second one appearing is a review event, not a merge.
     //
-    // THE THIRD ENTRY IS INBOUND, AND THAT DIFFERENCE IS THE WHOLE REVIEW.
+    // THE ONE ENTRY IS INBOUND, AND THAT DIFFERENCE IS THE WHOLE REVIEW.
     // `adapters/dashboard/web/server.ts` imports `node:http` to LISTEN on
     // 127.0.0.1 — it opens no connection, resolves no host, and sends nothing
     // anywhere; `createServer`/`listen` are the only two verbs it uses. It was
     // reviewed on exactly the terms this comment block asked for (owner ruling
     // 2026-09-04, the local web dashboard), and it is added here rather than
     // excluded by a pattern, so the next reader still has to read it.
-    expect(callers.sort()).toEqual([
-      "adapters/claude-code/embed-client.ts",
-      "adapters/claude-code/interpret-client.ts",
-      "adapters/dashboard/web/server.ts",
-    ]);
+    expect(callers.sort()).toEqual(["adapters/dashboard/web/server.ts"]);
     // The inbound claim, mechanized: the server never calls an outbound verb.
     const server = readFileSync(join(SRC, "adapters/dashboard/web/server.ts"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -1532,189 +1476,8 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// The interpret client — refusals BY NAME, and never a real socket
-// ═══════════════════════════════════════════════════════════════════════════
-describe("interpret-client — streaming, stop_reason guarded, credential from env only", () => {
-  const chunk = {
-    index: 0,
-    spans: [],
-    marked: [],
-    prompt: "a transcript chunk nobody summarized",
-    bytes: 34,
-  };
-
-  test("a clean stream returns the proposals it parsed, with the stop reason", async () => {
-    let seen: { url: string; init: RequestInit } | null = null;
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async (url, init) => {
-        seen = { url, init };
-        return okResponse(streamed('[{"content":"The cache is rebuildable, so it is never backed up.","kind":"fact"}]'));
-      },
-    });
-    const result = await interpret(chunk);
-    expect(result.stopReason).toBe("end_turn");
-    expect(OK_STOP_REASONS).toContain(result.stopReason as string);
-    expect(result.proposals?.length).toBe(1);
-
-    // It STREAMED (scar E3) and it sent the credential as a header, not a query.
-    const body = JSON.parse(String((seen as unknown as { init: RequestInit }).init.body)) as Record<string, unknown>;
-    expect(body["stream"]).toBe(true);
-    expect(body["model"]).toBe("claude-opus-5");
-    expect((seen as unknown as { url: string }).url).toContain("api.anthropic.com");
-  });
-
-  test("the OWNER ANCHOR reaches the wire: a configured identity names the owner in `system` (review CRITICAL-2)", async () => {
-    let seen: { init: RequestInit } | null = null;
-    const interpret = interpretClient({
-      config: config({ identity: { name: "Mike", aliases: ["mlapeter", "Michael"] } }),
-      fetch: async (_url, init) => {
-        seen = { init };
-        return okResponse(streamed("[]"));
-      },
-    });
-    await interpret(chunk);
-    const body = JSON.parse(String((seen as unknown as { init: RequestInit }).init.body)) as Record<string, unknown>;
-    const system = String(body["system"]);
-    // The anchor, its aliases, and the leak guard all travel — the first real
-    // run minted 15 person-memories under a confabulated name because nothing
-    // anchored the owner, and an anchor without the guard is a mint source.
-    expect(system).toContain("The person these transcripts belong to is Mike");
-    expect(system).toContain("mlapeter, Michael");
-    expect(system).toContain("context, not material");
-    // The kinds are DEFINED, not just named (review HIGH: entity ~60% misfiled).
-    expect(system).toContain("a durable named thing");
-  });
-
-  test("an UNCONFIGURED identity forbids guessing a name rather than anchoring one", async () => {
-    let seen: { init: RequestInit } | null = null;
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async (_url, init) => {
-        seen = { init };
-        return okResponse(streamed("[]"));
-      },
-    });
-    await interpret(chunk);
-    const body = JSON.parse(String((seen as unknown as { init: RequestInit }).init.body)) as Record<string, unknown>;
-    const system = String(body["system"]);
-    expect(system).toContain("NEVER guess or introduce a name");
-    expect(system).not.toContain("The person these transcripts belong to is");
-  });
-
-  test("a TRUNCATED response is a failure, not data — and the reason travels (scar E2)", async () => {
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async () => okResponse(streamed('[{"content":"half a memory', "max_tokens")),
-    });
-    const result = await interpret(chunk);
-    expect(result.stopReason).toBe("max_tokens");
-    expect(OK_STOP_REASONS).not.toContain(result.stopReason as string);
-    // Nothing is handed back as data: `remember/` will file the chunk TRUNCATED.
-    expect(result.proposals).toEqual([]);
-  });
-
-  test("a MISSING key refuses with the right reason, before any socket opens", async () => {
-    delete process.env[API_KEY_ENV];
-    let called = false;
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async () => {
-        called = true;
-        return okResponse(streamed("[]"));
-      },
-    });
-    await expect(interpret(chunk)).rejects.toThrow(InterpretError);
-    expect(called).toBe(false);
-    try {
-      await interpret(chunk);
-    } catch (err) {
-      expect((err as InterpretError).code).toBe("NO_API_KEY");
-    }
-  });
-
-  test("the key comes from the ENVIRONMENT only — never from a file (scar §2.18)", () => {
-    const src = readFileSync(
-      fileURLToPath(new URL("../src/adapters/claude-code/interpret-client.ts", import.meta.url)),
-      "utf8",
-    );
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
-    expect(/readFileSync|readFile\(|existsSync/.test(code)).toBe(false);
-    expect(code).toContain("process.env[API_KEY_ENV]");
-  });
-
-  test("an EXPIRED placeholder seat refuses the call — 'never decided' cannot pass for decided", async () => {
-    const expired = seatStatus("interpret", { id: "some-alias", placeholder: true, expires: "2026-01-01" }, "2026-06-01");
-    expect(expired.status).toBe("expired");
-    expect(expired.usable).toBe(false);
-    // A placeholder with NO expiry is refused outright — that is the shape that
-    // becomes production by silence (scar §2.15c).
-    expect(seatStatus("interpret", { id: "x", placeholder: true }, "2026-06-01").status).toBe(
-      "unbounded-placeholder",
-    );
-
-    const interpret = interpretClient({
-      config: config({ models: { interpret: { id: "x", placeholder: true, expires: "2026-01-01" } } }),
-      today: "2026-06-01",
-      fetch: async () => okResponse(streamed("[]")),
-    });
-    try {
-      await interpret(chunk);
-      throw new Error("did not refuse");
-    } catch (err) {
-      expect((err as InterpretError).code).toBe("SEAT_UNUSABLE");
-    }
-  });
-
-  test("an HTTP error refuses by name and carries its status", async () => {
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async () => new Response("nope", { status: 429 }),
-    });
-    try {
-      await interpret(chunk);
-      throw new Error("did not refuse");
-    } catch (err) {
-      expect((err as InterpretError).code).toBe("HTTP_ERROR");
-      expect((err as InterpretError).detail["status"]).toBe(429);
-    }
-  });
-
-  test("the JSON is never sliced first-brace-to-last-brace (scar §2.14)", () => {
-    // A bracket inside a string is exactly what breaks the naive slice.
-    const text = 'Here you go: [{"content":"the ] bracket lives inside a string","kind":"fact"}] — done.';
-    const parsed = extractJson(text);
-    expect(parsed?.length).toBe(1);
-    expect((parsed?.[0] as { content: string }).content).toContain("] bracket");
-    // A preamble bracket that opens nothing is skipped, not fatal.
-    expect(extractJson('[not json at all')).toBe(null);
-    expect(extractJson("no array here")).toBe(null);
-    expect(extractJson("[]")).toEqual([]);
-  });
-
-  test("a response with no array at all refuses — distinguishable from 'returned nothing'", async () => {
-    const interpret = interpretClient({
-      config: config(),
-      fetch: async () => okResponse(streamed("I could not find anything worth remembering.")),
-    });
-    try {
-      await interpret(chunk);
-      throw new Error("did not refuse");
-    } catch (err) {
-      expect((err as InterpretError).code).toBe("NO_JSON_IN_RESPONSE");
-    }
-    // Whereas an EMPTY array is a real answer and is not a refusal.
-    const empty = interpretClient({ config: config(), fetch: async () => okResponse(streamed("[]")) });
-    expect((await empty(chunk)).proposals).toEqual([]);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// The detached worker, end to end, with a faked model
-// ═══════════════════════════════════════════════════════════════════════════
-describe("the runner — sweep then sleep, with the interpreter faked", () => {
-  test("every session-ending path CAPTURES, and the worker's sweep reads none of it until a session crashes", async () => {
+describe("the runner — the day runs, and the sweep never makes a model call", () => {
+  test("every session-ending path CAPTURES, and the worker's sweep reads none of it — even once a session crashes", async () => {
     // The ruling, end to end (2026-09-04): boundaries still capture at Stop,
     // SessionEnd and pre-compaction — that capture is the compaction-amnesia
     // backstop — and the worker still spawns for the flush and the cycle. What
@@ -1734,90 +1497,46 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     a.counterpart.close();
     open.length = 0;
 
-    // The worker runs, and the interpreter is a tripwire: any model call fails
-    // this test. Nothing has crashed — every session's last boundary is seconds old.
-    // THE API SWEEP IS OPT-IN since C2 (`crashWriteUp: "api"` AND the key):
-    // this test is about the sweep's gate, so it opts in.
-    const quiet = await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      today: "2026-01-02",
-      date: "2026-01-02",
-      fetch: async () => {
-        throw new Error("the sweep made a model call with nothing crashed");
-      },
-    });
+    // The worker runs. Nothing has crashed — every session's last boundary is
+    // seconds old.
+    const quiet = await runOnce({ config: config(), date: "2026-01-02" });
     expect({ ran: quiet.ran, swept: quiet.swept, minted: quiet.minted }).toEqual({
       ran: true,
       swept: 0,
       minted: 0,
     });
 
-    // Now the two sessions that never reached `session-end` go quiet. THOSE are
-    // crashed; the one that ended normally is not, and is not read.
+    // Now the two sessions that never reached `session-end` go quiet. They are
+    // crashed — and the worker STILL reads none of it (keyless, 2026-09-24): a
+    // session that ended before it was written up is the next session's to
+    // write up, so its words stay where the write-up reads them.
     goQuiet();
-    const swept = await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      today: "2026-01-03",
-      date: "2026-01-03",
-      fetch: async () =>
-        okResponse(
-          streamed('[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact"}]'),
-        ),
+    const later = await runOnce({ config: config(), date: "2026-01-03" });
+    expect({ ran: later.ran, swept: later.swept, minted: later.minted }).toEqual({
+      ran: true,
+      swept: 0,
+      minted: 0,
     });
-    expect(swept.swept).toBeGreaterThan(0);
 
-    // The gate's own durable row, both readings, so the daily can tell a quiet
+    // The gate's own durable row, both runs, so the daily can tell a quiet
     // sweep from a broken one.
     const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
     open.push(after.counterpart);
+    expect(after.counterpart.spans.spans("proj").length).toBeGreaterThan(0);
     const rows = after.counterpart.store
       .eventLog({ name: SWEEP_GATE_EVENT, limit: 10 })
       .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
-    expect(rows.length).toBe(2);
-    expect({ ran: rows[0]?.["ran"], skipped: rows[0]?.["skippedNotCrashed"] }).toEqual({ ran: 0, skipped: 1 });
-    expect(rows[1]?.["ran"]).toBe(1);
+    expect(rows.map((r) => r["reason"])).toEqual(["not-opted-in", "not-opted-in"]);
     // Self-attributing: the row carries the calendar date the run belonged to,
     // so a reader does not have to infer it from the lived-day column.
     expect([rows[0]?.["date"], rows[1]?.["date"]]).toEqual(["2026-01-02", "2026-01-03"]);
   });
 
-  test("a run sweeps the captured spans, mints, and publishes a briefing the next wake reads", async () => {
-    const { a } = adapter();
-    live(a);
-    a.stop(input());
-    a.counterpart.close();
-    open.length = 0;
-    goQuiet();
-
-    const events: string[] = [];
-    const report = await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      today: "2026-01-02",
-      date: "2026-01-02",
-      fetch: async () =>
-        okResponse(
-          streamed(
-            '[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact","salience":{"relevance":0.9,"emotional":0.7,"predictive":0.8}}]',
-          ),
-        ),
-      onEvent: (name) => events.push(name),
-    });
-    expect(report.ran).toBe(true);
-    expect(report.minted).toBe(1);
-    expect(events).toContain("runner.done");
-
-    const next = openAdapter(config(), { spawner: fakeSpawner().spawner });
-    open.push(next.counterpart);
-    const woke = next.sessionStart(input());
-    expect(woke.ok).toBe(true);
-    expect(woke.injection).toContain("rebuildable");
-  });
-
-  test("a worker with NO KEY still runs the day, and the gate row says why it did not sweep", async () => {
+  test("the worker runs the day with no model call, and the gate row says why it did not sweep", async () => {
     // I32, pinned. For a week this worker never started at all, so the lived-day
     // clock froze at 185, the sleep cycle never ran, and the per-lived-day ask
-    // cap — spent under that frozen day — was never reset. Every one of those is
-    // work that needs no model call.
+    // cap — spent under that frozen day — was never reset. None of that needs a
+    // model call, and since 2026-09-24 nothing the worker does needs one.
     const { a } = adapter();
     a.stop(input());
     const before = a.counterpart.store.livedDay();
@@ -1825,19 +1544,18 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     open.length = 0;
     goQuiet();
 
+    const realFetch = globalThis.fetch;
     let sockets = 0;
-    const report = await runOnce({
-      config: config(),
-      today: "2026-01-03",
-      date: "2026-01-03",
-      // The host hands this process NO credential — the exact I32 condition.
-      env: {},
-      // A tripwire, not a fake: any call at all fails this test.
-      fetch: async () => {
-        sockets += 1;
-        throw new Error("a keyless worker opened a socket");
-      },
-    });
+    (globalThis as { fetch: unknown }).fetch = (): never => {
+      sockets += 1;
+      throw new Error("the worker opened a socket");
+    };
+    let report;
+    try {
+      report = await runOnce({ config: config(), date: "2026-01-03" });
+    } finally {
+      (globalThis as { fetch: unknown }).fetch = realFetch;
+    }
     expect(sockets).toBe(0);
     expect({ ran: report.ran, reason: report.reason }).toEqual({ ran: true, reason: "ran" });
 
@@ -1858,9 +1576,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
       scopes: rows[0]?.["scopes"],
       otherRefusals: rows[0]?.["otherRefusals"],
       date: rows[0]?.["date"],
-    // `not-opted-in` since C2: the sweep is an opt-in upgrade, and this worker's
-    // owner did not opt in. Opted in with no key is `no-credential`
-    // (`test/write-up.test.ts`).
+    // `not-opted-in`: the worker never interprets (keyless since 2026-09-24).
     }).toEqual({ reason: "not-opted-in", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
   });
 
@@ -1877,7 +1593,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
       throw Object.assign(new Error("the boundary fell over"), { code: "TEST_BOUNDARY" });
     });
     try {
-      const report = await runOnce({ config: config(), date: "2026-01-02", fetch: async () => okResponse(streamed("[]")) });
+      const report = await runOnce({ config: config(), date: "2026-01-02" });
       expect({ ran: report.ran, reason: report.reason, code: report.code }).toEqual({
         ran: false,
         reason: "failed",
@@ -1911,24 +1627,6 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     expect(report.reason).toBe("observer");
   });
 
-  test("a refusing interpreter loses NO spans — the arc is retried, not lost (scar E6)", async () => {
-    const { a } = adapter();
-    a.stop(input());
-    const before = a.counterpart.spans.spans("proj").length;
-    a.counterpart.close();
-    open.length = 0;
-
-    await runOnce({
-      config: config(),
-      date: "2026-01-02",
-      fetch: async () => new Response("upstream is down", { status: 503 }),
-    });
-
-    const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
-    open.push(after.counterpart);
-    expect(after.counterpart.spans.spans("proj").length).toBe(before);
-    expect(after.counterpart.store.list({ type: "memory" })).toEqual([]);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1938,7 +1636,10 @@ describe("configuration — reported, checkable, and failing toward standing dow
   test("an UNREADABLE configuration resolves to OBSERVER, never to 'encode anyway'", () => {
     expect(loadConfig({ injectionBudgetBytes: "nine thousand" }).config.observer).toBe(true);
     expect(loadConfig("not an object").reason).toBe("unreadable");
-    expect(loadConfig({ models: { interpret: { id: 7 } } }).config.observer).toBe(true);
+    expect(loadConfig({ owner: "yes" }).config.observer).toBe(true);
+    // A setting this build no longer reads is NOT unreadable: it is ignored and
+    // named (keyless, 2026-09-24).
+    expect(loadConfig({ models: { interpret: { id: 7 } } }).config.observer).toBeUndefined();
     // An ABSENT configuration is ordinary, and is not a stand-down.
     expect(loadConfig(undefined).config.observer).toBeUndefined();
     expect(loadConfig(undefined).ok).toBe(true);
@@ -1949,31 +1650,26 @@ describe("configuration — reported, checkable, and failing toward standing dow
       dataDir: "/tmp/x",
       injectionBudgetBytes: 9000,
       owner: true,
-      models: { interpret: { id: "claude-opus-5" } },
       identity: { name: "Mike", aliases: ["mike"] },
       somethingElse: 42,
     });
     expect(loaded.ok).toBe(true);
     expect(loaded.config.injectionBudgetBytes).toBe(9000);
-    expect(loaded.config.models?.interpret?.id).toBe("claude-opus-5");
     expect(loaded.config.identity?.name).toBe("Mike");
     expect(loaded.config.observer).toBeUndefined();
   });
 
   test("every host-dependent limit has a row, and 'we never asked' is visible", () => {
     const rows = capabilities({});
+    // No credential row since 2026-09-24: the package reads no key.
     expect(rows.map((r) => r.name).sort()).toEqual([
-      "credential",
       "executionCeilingMs",
       "injectionBudgetBytes",
       "socketLifetimeMs",
     ]);
     for (const row of rows) {
-      if (row.name === "credential") continue;
       expect({ name: row.name, reported: row.reported }).toEqual({ name: row.name, reported: false });
     }
-    // The credential row reports on the ONE environment variable, live.
-    expect(rows.find((r) => r.name === "credential")?.reported).toBe(true);
   });
 
   test("the transcript reader keeps conversation, tags injected, and drops the blind spot", () => {
@@ -2649,14 +2345,6 @@ describe("every ingestion entrance this adapter creates goes through the battery
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// The embed client — batched, isolated per chunk, and refusing BY NAME
-//
-// NO TEST HERE MAKES A NETWORK CALL. Every one supplies its own `fetch`, and
-// the tests about a MISSING credential assert the fake was never reached — "it
-// failed" is not the property; "it refused before the socket" is.
-// ═══════════════════════════════════════════════════════════════════════════
-
 /** A deterministic stand-in for a real vector: same text ⇒ same vector, always. */
 function vectorFor(text: string): number[] {
   const v = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -2668,351 +2356,38 @@ function vectorFor(text: string): number[] {
   return v.map((n) => n / norm);
 }
 
-interface VoyageCall {
-  url: string;
-  init: RequestInit;
-  body: { model?: string; input?: string[] };
-}
-
 /**
- * A fake Voyage endpoint. `poison` names a text whose CHUNK the far end rejects
- * — the E1 scenario: one bad item, and the question is what becomes of its
- * siblings.
+ * A local embedder over `vectorFor`, in the `LiveEmbedder` shape the adapter
+ * wires: the sync face answers from what the live half computed, and counts
+ * its misses; `calls` counts every ask of the live half. No network anywhere.
  */
-function voyageFetch(
-  opts: { poison?: string; short?: boolean; garbage?: boolean; status?: number } = {},
-): { calls: VoyageCall[]; fetch: FetchLike } {
-  const calls: VoyageCall[] = [];
+function cachedEmbedder(opts: { dead?: boolean } = {}): LiveEmbedder & { calls: string[][] } {
+  const calls: string[][] = [];
+  const cache = new Map<string, number[]>();
+  let misses = 0;
+  const fill = (texts: readonly string[]): number => {
+    calls.push([...texts]);
+    if (opts.dead === true) return 0;
+    for (const t of texts) cache.set(t, vectorFor(t));
+    return texts.length;
+  };
   return {
     calls,
-    fetch: async (url: string, init: RequestInit): Promise<Response> => {
-      const body = JSON.parse(String(init.body)) as { model?: string; input?: string[] };
-      calls.push({ url, init, body });
-      const input = body.input ?? [];
-      if (opts.poison !== undefined && input.includes(opts.poison)) {
-        return new Response("bad input", { status: opts.status ?? 400 });
-      }
-      if (opts.garbage === true) return new Response(JSON.stringify({ nope: true }), { status: 200 });
-      const data = input.map((t) => ({ embedding: vectorFor(t) }));
-      if (opts.short === true) data.pop();
-      return new Response(JSON.stringify({ data }), { status: 200 });
+    model: "test-embed-1",
+    embed: (t: string) => {
+      const hit = cache.get(t);
+      if (hit === undefined) misses += 1;
+      return hit ?? null;
     },
+    vector: async (t: string) => {
+      fill([t]);
+      return cache.get(t) ?? null;
+    },
+    warm: async (texts: readonly string[]) => fill(texts),
+    stats: () => ({ hits: 0, misses, cached: cache.size, fetched: 0, failed: 0, lastFailures: [] }),
   };
 }
 
-describe("embed-client — the request, the batches, and every refusal by name", () => {
-  test("the request carries the pinned model and the key as a HEADER, never a query", async () => {
-    const { calls, fetch } = voyageFetch();
-    const client = embedClient({ config: config(), fetch });
-    const batch = await client(["a memory about cold brew", "a memory about the dashboard"]);
-
-    expect(batch.requested).toBe(2);
-    expect(batch.returned).toBe(2);
-    expect(batch.chunks).toBe(1);
-    expect(batch.failures).toEqual([]);
-    expect(batch.model).toBe(DEFAULT_EMBED_MODEL);
-    expect(batch.vectors[0]).toEqual(vectorFor("a memory about cold brew"));
-
-    const call = calls[0] as VoyageCall;
-    expect(call.url).toBe(VOYAGE_ENDPOINT);
-    expect(call.body.model).toBe(DEFAULT_EMBED_MODEL);
-    expect(call.body.input).toEqual(["a memory about cold brew", "a memory about the dashboard"]);
-    // The credential is a header. A URL is logged by every proxy on the way.
-    const headers = call.init.headers as Record<string, string>;
-    expect(headers["authorization"]).toBe("Bearer pa-test-not-a-real-key");
-    expect(call.url).not.toContain("pa-test-not-a-real-key");
-  });
-
-  test("large input is CHUNKED, and one poisoned item fails only its own chunk (scar E1)", async () => {
-    const texts = Array.from({ length: 6 }, (_, i) => `memory number ${i}`);
-    // 500, not 400, since I33: a 400 is now BISECTED down to the offending item
-    // (see "a 400 BISECTS to the poison item" below). Everything this test
-    // states — chunking, per-chunk isolation, the named failure — is unchanged
-    // for every other code, which is the half E1 was always about.
-    const { calls, fetch } = voyageFetch({ poison: "memory number 3", status: 500 });
-    const events: { name: string; data: Record<string, unknown> }[] = [];
-    const client = embedClient({
-      config: config(),
-      fetch,
-      batchSize: 2,
-      onEvent: (name, data) => events.push({ name, data }),
-    });
-    const batch = await client(texts);
-
-    expect(batch.chunks).toBe(3);
-    expect(calls.length).toBe(3);
-    // The poisoned chunk's slots are NULL; every sibling's vector stands.
-    expect(batch.vectors[0]).toEqual(vectorFor("memory number 0"));
-    expect(batch.vectors[1]).toEqual(vectorFor("memory number 1"));
-    expect(batch.vectors[2]).toBe(null);
-    expect(batch.vectors[3]).toBe(null);
-    expect(batch.vectors[4]).toEqual(vectorFor("memory number 4"));
-    expect(batch.vectors[5]).toEqual(vectorFor("memory number 5"));
-    expect(batch.returned).toBe(4);
-    // And the failure NAMES itself — which chunk, where it started, and why.
-    expect(batch.failures).toEqual([
-      { chunk: 1, from: 2, count: 2, code: "HTTP_ERROR", status: 500 },
-    ]);
-    expect(events.filter((e) => e.name === "embed.chunk.failed").length).toBe(1);
-    // Telemetry is content-by-reference: no embedded text in any payload.
-    expect(JSON.stringify(events)).not.toContain("memory number");
-  });
-
-  test("a LONE SURROGATE is repaired in the request body only, and all 64 land (I33)", async () => {
-    // The two migrated memories that blocked the live backfill for a week each
-    // carried one of these in the title: the prose file's frontmatter shows
-    // U+FFFD, but the `payload:` JSON holds the literal escape, so `parseProse`
-    // yields the lone surrogate and `JSON.stringify` puts it on the wire.
-    const poisoned = "a memory about \ud83d the migration";
-    const texts = [poisoned, ...Array.from({ length: 63 }, (_, i) => `memory number ${i}`)];
-    const sent: string[] = [];
-    const events: { name: string; data: Record<string, unknown> }[] = [];
-    const fetch: FetchLike = async (_url: string, init: RequestInit): Promise<Response> => {
-      const body = JSON.parse(String(init.body)) as { input: string[] };
-      sent.push(...body.input);
-      // THE PROVIDER'S OWN RULE, enforced by the fake: it answered 400 "input is
-      // not valid UTF-8" for the whole chunk, which is what made the head of a
-      // stable queue un-embeddable forever.
-      for (const t of body.input) expect(LONE_SURROGATE.test(t)).toBe(false);
-      return new Response(
-        JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
-        { status: 200 },
-      );
-    };
-    const live = createEmbedder({
-      config: config(),
-      fetch,
-      batchSize: 64,
-      onEvent: (name, data) => events.push({ name, data }),
-    });
-    expect(await live.warm(texts)).toBe(64);
-    expect(sent.length).toBe(64);
-    expect(sent).not.toContain(poisoned);
-    expect(events.filter((e) => e.name === "embed.sanitized").length).toBe(1);
-    expect(events.find((e) => e.name === "embed.sanitized")?.data["count"]).toBe(1);
-
-    // THE CACHE STAYS ON THE ORIGINAL STRING, and this is the load-bearing half.
-    // `store.embedOne` looks a vector up by `indexTextOf(title, body)` — the
-    // unrepaired text — so a cache written under the repaired key would miss on
-    // every lookup and the backfill would become a paid-for no-op reporting
-    // success, which is the exact failure `vectors.ts` warns about.
-    expect(live.embed(poisoned)).not.toBe(null);
-    expect(live.stats().failed).toBe(0);
-  });
-
-  test("a 400 BISECTS to the poison item: 63 land, one fails alone (I33)", async () => {
-    const texts = Array.from({ length: 64 }, (_, i) => `memory number ${i}`);
-    // A sentinel, not a surrogate: after the repair above, a lone surrogate
-    // never reaches the provider, so a test of the bisector needs poison the
-    // sanitizer does not touch.
-    const { calls, fetch } = voyageFetch({ poison: "memory number 17", status: 400 });
-    const events: { name: string; data: Record<string, unknown> }[] = [];
-    const client = embedClient({
-      config: config(),
-      fetch,
-      batchSize: 64,
-      onEvent: (name, data) => events.push({ name, data }),
-    });
-    const batch = await client(texts);
-
-    expect(batch.returned).toBe(63);
-    expect(batch.vectors[17]).toBe(null);
-    expect(batch.vectors[16]).toEqual(vectorFor("memory number 16"));
-    expect(batch.vectors[18]).toEqual(vectorFor("memory number 18"));
-    // ONE failure, and it names the ITEM — which is what lets a caller retire an
-    // id instead of re-asking for a chunk that will fail the same way forever.
-    expect(batch.failures).toEqual([
-      { chunk: 0, from: 17, count: 1, code: "HTTP_ERROR", status: 400, item: true },
-    ]);
-    // BOUNDED. Halving is logarithmic; a per-item retry would be 64 calls.
-    expect(calls.length).toBeLessThanOrEqual(callBudget(64));
-    expect(calls.length).toBeLessThan(20);
-    expect(events.filter((e) => e.name === "embed.bisect").length).toBeGreaterThan(0);
-    expect(JSON.stringify(events)).not.toContain("memory number");
-  });
-
-  test("a 429 or a 500 is NOT bisected — the slice does not own that failure", async () => {
-    const texts = Array.from({ length: 8 }, (_, i) => `memory number ${i}`);
-    for (const status of [429, 503]) {
-      const { calls, fetch } = voyageFetch({ poison: "memory number 3", status });
-      const batch = await embedClient({ config: config(), fetch, batchSize: 8 })(texts);
-      // One call, one whole-chunk failure. Splitting a 429 would multiply the
-      // rate that caused it, and a 500 says nothing about WHICH input is bad.
-      expect(calls.length).toBe(1);
-      expect(batch.failures).toEqual([{ chunk: 0, from: 0, count: 8, code: "HTTP_ERROR", status }]);
-    }
-  });
-
-  test("a SHORT response is a failure, not data — vectors are never misaligned", async () => {
-    const { fetch } = voyageFetch({ short: true });
-    const client = embedClient({ config: config(), fetch });
-    const batch = await client(["one", "two", "three"]);
-    expect(batch.vectors).toEqual([null, null, null]);
-    expect(batch.failures[0]?.code).toBe("WRONG_VECTOR_COUNT");
-  });
-
-  test("a body with no embeddings in it refuses by name rather than inventing vectors", async () => {
-    const { fetch } = voyageFetch({ garbage: true });
-    const client = embedClient({ config: config(), fetch });
-    const batch = await client(["one"]);
-    expect(batch.vectors).toEqual([null]);
-    expect(batch.failures[0]?.code).toBe("BAD_RESPONSE");
-  });
-
-  test("a MISSING key refuses with the right reason, before any socket opens", async () => {
-    delete process.env[EMBED_KEY_ENV];
-    let called = false;
-    const client = embedClient({
-      config: config(),
-      fetch: async () => {
-        called = true;
-        return new Response("{}", { status: 200 });
-      },
-    });
-    await expect(client(["anything"])).rejects.toThrow(EmbedError);
-    // THE REASON, not merely the failure — and the socket was never reached.
-    expect(called).toBe(false);
-    try {
-      await client(["anything"]);
-      throw new Error("did not refuse");
-    } catch (err) {
-      expect((err as EmbedError).code).toBe("NO_API_KEY");
-      expect((err as EmbedError).detail["env"]).toBe(EMBED_KEY_ENV);
-    }
-  });
-
-  test("an EXPIRED placeholder seat refuses too — a vector's generation is its identity", async () => {
-    let called = false;
-    const client = embedClient({
-      config: config({
-        models: { embed: { id: "voyage-next", placeholder: true, expires: "2026-01-01" } },
-      }),
-      today: "2026-06-01",
-      fetch: async () => {
-        called = true;
-        return new Response("{}", { status: 200 });
-      },
-    });
-    try {
-      await client(["anything"]);
-      throw new Error("did not refuse");
-    } catch (err) {
-      expect((err as EmbedError).code).toBe("SEAT_UNUSABLE");
-      expect((err as EmbedError).detail["status"]).toBe("expired");
-    }
-    expect(called).toBe(false);
-  });
-
-  test("the key comes from the ENVIRONMENT only — never from a file (scar §2.18)", () => {
-    const src = readFileSync(
-      fileURLToPath(new URL("../src/adapters/claude-code/embed-client.ts", import.meta.url)),
-      "utf8",
-    );
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
-    expect(/readFileSync|readFile\(|existsSync/.test(code)).toBe(false);
-    expect(code).toContain("process.env[EMBED_KEY_ENV]");
-  });
-
-  test("the injected signal reaches the socket, and an abort stops the run BY NAME", async () => {
-    const controller = new AbortController();
-    const { calls, fetch } = voyageFetch();
-    const client = embedClient({ config: config(), fetch, signal: controller.signal });
-    await client(["one"]);
-    // The caller's abort is the caller's: it is handed to fetch, not re-invented.
-    expect((calls[0] as VoyageCall).init.signal).toBe(controller.signal);
-
-    controller.abort();
-    const after = await client(["two", "three"]);
-    expect(calls.length).toBe(1); // no second socket was opened
-    expect(after.vectors).toEqual([null, null]);
-    expect(after.failures).toEqual([{ chunk: 0, from: 0, count: 2, code: "ABORTED" }]);
-  });
-
-  test("a fetch that REJECTS mid-run is isolated, and its siblings still land", async () => {
-    let n = 0;
-    const client = embedClient({
-      config: config(),
-      batchSize: 1,
-      fetch: async (_url, init) => {
-        n += 1;
-        if (n === 1) throw new Error("socket died");
-        const body = JSON.parse(String(init.body)) as { input: string[] };
-        return new Response(
-          JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
-          { status: 200 },
-        );
-      },
-    });
-    const batch = await client(["first", "second"]);
-    expect(batch.vectors[0]).toBe(null);
-    expect(batch.vectors[1]).toEqual(vectorFor("second"));
-    expect(batch.failures[0]?.code).toBe("BAD_RESPONSE");
-  });
-});
-
-describe("the live embedder — a sync face over an async client, and an honest miss", () => {
-  test("the sync face never opens a socket: it MISSES until the live half fills it", async () => {
-    const { calls, fetch } = voyageFetch();
-    const events: string[] = [];
-    const live = createEmbedder({ config: config(), fetch, onEvent: (name) => events.push(name) });
-
-    // Before anything was fetched, the store's socket gets null — never `[]`,
-    // which would be a dim-0 row every cosine reads as 0.0 similarity.
-    expect(live.embed("cold brew, never iced")).toBe(null);
-    expect(calls.length).toBe(0);
-    expect(events).toContain("embed.cache.miss");
-    expect(live.stats().misses).toBe(1);
-
-    const got = await live.vector("cold brew, never iced");
-    expect(got).toEqual(vectorFor("cold brew, never iced"));
-    // Now the SAME text answers synchronously — this is what puts a vector in
-    // box 3 at put time for a memory the async door already paid for.
-    expect(live.embed("cold brew, never iced")).toEqual(vectorFor("cold brew, never iced"));
-    expect(live.stats().hits).toBe(1);
-    expect(calls.length).toBe(1);
-
-    // And a repeat costs nothing: the cache answers before the client is asked.
-    await live.vector("cold brew, never iced");
-    expect(calls.length).toBe(1);
-  });
-
-  test("`warm` fetches a whole batch at once, and a poisoned chunk costs only itself", async () => {
-    const texts = ["alpha thought", "beta thought", "gamma thought", "delta thought"];
-    // 500 for the same reason as above: this test is about a chunk costing only
-    // itself, not about the 400 bisector.
-    const { calls, fetch } = voyageFetch({ poison: "gamma thought", status: 500 });
-    const live = createEmbedder({ config: config(), fetch, batchSize: 2 });
-    const landed = await live.warm(texts);
-
-    expect(calls.length).toBe(2);
-    expect(landed).toBe(2);
-    expect(live.embed("alpha thought")).toEqual(vectorFor("alpha thought"));
-    expect(live.embed("gamma thought")).toBe(null);
-    expect(live.stats().failed).toBe(2);
-  });
-
-  test("a missing credential is LOUD in telemetry and NULL to the caller — never a throw", async () => {
-    delete process.env[EMBED_KEY_ENV];
-    const events: { name: string; data: Record<string, unknown> }[] = [];
-    const { calls, fetch } = voyageFetch();
-    const live = createEmbedder({
-      config: config(),
-      fetch,
-      onEvent: (name, data) => events.push({ name, data }),
-    });
-    // An embedder that cannot embed must never fail a deposit: box 3 is
-    // rebuildable, a memory is not.
-    expect(await live.vector("something worth keeping")).toBe(null);
-    expect(calls.length).toBe(0);
-    const refused = events.filter((e) => e.name === "embed.refused");
-    expect(refused.length).toBe(1);
-    expect(refused[0]?.data["code"]).toBe("NO_API_KEY");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// The wiring: the store's socket, the egress knob, and novelty stops being null
-// ═══════════════════════════════════════════════════════════════════════════
 describe("the embedder reaches the store — indexed at put, recomputed at rebuild", () => {
   /** A sync fake in the shape the store's socket takes. No network anywhere. */
   const fake = (text: string): number[] => vectorFor(text);
@@ -3057,16 +2432,16 @@ describe("the embedder reaches the store — indexed at put, recomputed at rebui
   });
 });
 
-describe("the egress knob — off by default, and honoured by both composition roots", () => {
-  test("without the knob NO client exists, even with a key in the environment", async () => {
+describe("the embedder knob — honoured by both composition roots", () => {
+  test("without the knob NO embedder exists", async () => {
     expect(openEmbedder(config())).toBe(null);
     expect(openEmbedder(config({ embedder: { enabled: false } }))).toBe(null);
-    // Switched on, but the session is an INSTRUMENT: an instrument opens no
-    // sockets (docs/observer-mode.md, scar E7).
+    // Switched on, but the session is an INSTRUMENT: an instrument computes no
+    // vectors (docs/observer-mode.md, scar E7).
     expect(openEmbedder(config({ embedder: { enabled: true }, observer: true }))).toBe(null);
     expect(openEmbedder(config({ embedder: { enabled: true } }))).not.toBe(null);
 
-    // And the whole adapter path: a deposit with the knob off touches no socket.
+    // And the whole adapter path: a deposit with the knob off embeds nothing.
     const { a } = adapter();
     const out = await a.counterpart.submitSessionEnd(
       { content: "A deposit made with the embedder switched off, which must reach no network.", kind: "fact" },
@@ -3079,41 +2454,28 @@ describe("the egress knob — off by default, and honoured by both composition r
   });
 
   test("the config knob parses like every other, and a half-written one stands down", () => {
-    const loaded = loadConfig({
-      embedder: { enabled: true },
-      models: { embed: { id: "voyage-3-large" }, interpret: { id: "claude-opus-5" } },
-    });
+    const loaded = loadConfig({ embedder: { enabled: true } });
     expect(loaded.ok).toBe(true);
     expect(loaded.config.embedder).toEqual({ enabled: true });
-    expect(loaded.config.models?.embed).toEqual({ id: "voyage-3-large" });
-    expect(loaded.config.models?.interpret).toEqual({ id: "claude-opus-5" });
 
     // An unreadable egress knob fails toward STANDING DOWN, never toward "on".
     const bad = loadConfig({ embedder: { enabled: "yes" } });
     expect(bad.ok).toBe(false);
     expect(bad.reason).toBe("unreadable");
     expect(bad.config).toEqual({ observer: true });
-    expect(loadConfig({ models: { embed: { id: 7 } } }).config).toEqual({ observer: true });
-
-    // The seat has its own pinned default and its own expiry rules.
-    expect(seatStatus("embed", undefined, "2026-06-01", DEFAULT_EMBED_MODEL)).toEqual({
-      seat: "embed",
-      id: DEFAULT_EMBED_MODEL,
-      status: "pinned",
-      usable: true,
-    });
   });
 });
 
 describe("novelty stops being null — the authored door measures prediction error", () => {
   test("the FIRST deposit is blind for lack of CONTEXT, not for lack of a vector", async () => {
-    const { fetch, calls } = voyageFetch();
+    const embedder = cachedEmbedder();
+    const { calls } = embedder;
     const { spawner } = fakeSpawner();
     const a = openAdapter(config({ embedder: { enabled: true } }), {
       command: "/bin/true",
       args: ["runner"],
       spawner,
-      embedFetch: fetch,
+      embedder,
     });
     open.push(a.counterpart);
 
@@ -3152,60 +2514,18 @@ describe("novelty stops being null — the authored door measures prediction err
     expect(calls.length).toBe(2);
   });
 
-  test("the DETACHED WORKER embeds too — the root that mints is the root that must", async () => {
-    const { a } = adapter();
-    live(a);
-    a.stop(input());
-    a.counterpart.close();
-    open.length = 0;
-    goQuiet();
-
-    const embedded: string[][] = [];
-    const report = await runOnce({
-      config: config({ embedder: { enabled: true }, crashWriteUp: "api" }),
-      today: "2026-01-02",
-      date: "2026-01-02",
-      // ONE fake for the whole worker; it answers by endpoint, which is how a
-      // test proves the two clients are two clients.
-      fetch: async (url: string, init: RequestInit): Promise<Response> => {
-        if (url === VOYAGE_ENDPOINT) {
-          const body = JSON.parse(String(init.body)) as { input: string[] };
-          embedded.push(body.input);
-          return new Response(
-            JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
-            { status: 200 },
-          );
-        }
-        return okResponse(
-          streamed(
-            '[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact"}]',
-          ),
-        );
-      },
-    });
-    expect(report.minted).toBe(1);
-    // ONE batched call for the chunk's mints — not one round trip per proposal.
-    expect(embedded.length).toBe(1);
-    expect(embedded[0]?.length).toBe(1);
-
-    // And the vector landed in box 3, on the path that mints most memories.
-    const next = openAdapter(config(), { spawner: fakeSpawner().spawner });
-    open.push(next.counterpart);
-    expect(next.counterpart.store.neighbourVectors(vectorFor("anything"), 5).length).toBe(1);
-  });
-
   test("a deposit whose embedding FAILS still lands — blind, and countably so", async () => {
     const { spawner } = fakeSpawner();
     const a = openAdapter(config({ embedder: { enabled: true } }), {
       command: "/bin/true",
       args: ["runner"],
       spawner,
-      embedFetch: async () => new Response("upstream is down", { status: 503 }),
+      embedder: cachedEmbedder({ dead: true }),
     });
     open.push(a.counterpart);
 
     const out = await a.counterpart.submitSessionEnd(
-      { content: "A memory made while the embedding provider was returning 503s all afternoon.", kind: "fact" },
+      { content: "A memory made while the embedder was answering nothing all afternoon.", kind: "fact" },
       { session: "s1", scope: "proj" },
     );
     // The memory is not lost to a failing side service (box 3 is rebuildable, a
@@ -3269,10 +2589,9 @@ describe("novelty stops being null — the authored door measures prediction err
 
   test("a gate REWRITE keeps its vector: cache and lookup key on the same gated text", async () => {
     const CREDENTIAL = "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q";
-    // A real client's cache, so the sync face and the live half are the same
-    // object the production wiring uses — not two fakes agreeing with each other.
-    const { fetch } = voyageFetch();
-    const live = createEmbedder({ config: config(), fetch });
+    // ONE object for the sync face and the live half, as the production wiring
+    // uses — not two fakes agreeing with each other.
+    const live = cachedEmbedder();
     const c = Counterpart.open({ dir, embed: live.embed, vectors: live });
     open.push(c);
 
@@ -3297,8 +2616,8 @@ describe("novelty stops being null — the authored door measures prediction err
     );
   });
 
-  test("an OBSERVER opens no socket at all — the stand-down is structural", async () => {
-    const { fetch, calls } = voyageFetch();
+  test("an OBSERVER embeds nothing at all — the stand-down is structural", async () => {
+    const vectors = cachedEmbedder();
     // An observer refuses to open a store that does not exist yet, so the dir is
     // initialized by an ordinary session first — as it would be in life.
     Counterpart.open({ dir }).close();
@@ -3307,324 +2626,89 @@ describe("novelty stops being null — the authored door measures prediction err
       dir,
       observer: true,
       embed: (t: string) => vectorFor(t),
-      vectors: createEmbedder({ config: config(), fetch }),
+      vectors,
     });
     open.push(c);
     await c.submitSessionEnd(
       { content: "An instrument's deposit, which deposits nothing and embeds nothing.", kind: "fact" },
       { session: "s1", scope: "proj" },
     );
-    expect(calls.length).toBe(0);
+    expect(vectors.calls.length).toBe(0);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// The credential file — the ONE file the package's own config names
+// Keyless (owner, 2026-09-24): no key is read, no model API is called
 // ═══════════════════════════════════════════════════════════════════════════
-/**
- * MEASURED, day 0 of the parallel run: this host's hook processes carry neither
- * `ANTHROPIC_API_KEY` nor `VOYAGE_API_KEY`, even with both exported in the
- * owner's `~/.zshrc` — a host's process environment is not the login shell's. So
- * every test here hands the loader a FRESH env object rather than the suite's
- * `process.env`: an empty object is the hook process as the host really starts
- * it, and a test that read the developer's own environment could not tell the
- * fix from the machine it ran on.
- */
-describe("credentials — the environment first, then the ONE file the config names", () => {
-  /**
-   * The credentials file gets its OWN directory, never the data dir: the store
-   * refuses an unclassified top-level entry (`store` §5 G11), so a credentials
-   * file dropped beside the memory would fail the store open — which is also the
-   * deployment note. Keep it outside `dataDir`.
-   */
+describe("keyless — no key is read, and an old configuration's key settings are ignored", () => {
   let host: string;
   beforeEach(() => {
-    host = mkdtempSync(join(tmpdir(), "counterparts-cred-"));
+    host = mkdtempSync(join(tmpdir(), "counterparts-keyless-"));
   });
   afterEach(() => {
     rmSync(host, { recursive: true, force: true });
   });
 
-  /** A credentials file in that directory, removed with it. */
-  function credFile(body: string, name = "creds.env"): string {
-    const path = join(host, name);
-    writeFileSync(path, body);
-    chmodSync(path, 0o600);
-    return path;
-  }
-
-  test("every shape a human writes parses; blank and # lines are not attempts", () => {
-    // export, double quotes, single quotes, CRLF, a comment, a blank line.
-    const path = credFile(
-      [
-        "# the two names this package documents",
-        "",
-        `export ${API_KEY_ENV}="sk-ant-from-the-file"`,
-        `${EMBED_KEY_ENV}='pa-from-the-file'`,
-        "",
-      ].join("\r\n"),
-    );
-    const env: NodeJS.ProcessEnv = {};
-    const load = loadCredentials(path, env);
-    expect(load.reason).toBe("loaded");
-    expect(load.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
-    expect(load.ignoredLines).toBe(0);
-    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-file");
-    expect(env[EMBED_KEY_ENV]).toBe("pa-from-the-file");
-  });
-
-  test("THE ENVIRONMENT WINS: a name already answered is never overwritten", () => {
-    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-from-the-environment" };
-    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-from-the-file`), env);
-    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-environment");
-    expect(load.skippedPresent).toEqual([API_KEY_ENV]);
-    expect(load.loaded).toEqual([]);
-  });
-
-  test("an EMPTY environment variable is a gap the file may fill", () => {
-    // Every reader of these names tests `.trim().length`, so "exported but
-    // empty" is absent everywhere else too — one definition of "present".
-    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "   " };
-    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-from-the-file`), env);
-    expect(load.loaded).toEqual([API_KEY_ENV]);
-    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-file");
-  });
-
-  test("ONLY the two documented names are honored — a third is ignored and COUNTED", () => {
-    const env: NodeJS.ProcessEnv = {};
-    const load = loadCredentials(
-      credFile(
-        [
-          `${API_KEY_ENV}=sk-ant-yes`,
-          "OPENAI_API_KEY=sk-not-ours",
-          "PATH=/tmp/hijacked",
-          "a line with no equals sign",
-        ].join("\n"),
-      ),
-      env,
-    );
-    expect(load.loaded).toEqual([API_KEY_ENV]);
-    expect(load.ignoredLines).toBe(3);
-    // The bound, proven on the object: this is not a general env loader.
-    expect(Object.keys(env)).toEqual([API_KEY_ENV]);
-  });
-
-  test("an empty value is not a credential, and the FIRST line for a name wins", () => {
-    const env: NodeJS.ProcessEnv = {};
-    const load = loadCredentials(
-      credFile([`${EMBED_KEY_ENV}=`, `${API_KEY_ENV}=sk-first`, `${API_KEY_ENV}=sk-second`].join("\n")),
-      env,
-    );
-    expect(load.loaded).toEqual([API_KEY_ENV]);
-    expect(env[API_KEY_ENV]).toBe("sk-first");
-    expect(env[EMBED_KEY_ENV]).toBeUndefined();
-    expect(load.ignoredLines).toBe(2);
-  });
-
-  test("not-configured, absent and unreadable are three different records", () => {
-    // No file named at all — the ordinary case for an owner who exports both.
-    expect(loadCredentials(undefined, {}).reason).toBe("not-configured");
-    expect(loadCredentials("   ", {}).reason).toBe("not-configured");
-    // Named but not there.
-    expect(loadCredentials(join(host, "nope.env"), {}).reason).toBe("absent");
-    // Named and unreadable (a directory is not a credentials file).
-    expect(loadCredentials(host, {}).reason).toBe("unreadable");
-    // And none of them throws or writes anything.
-    const env: NodeJS.ProcessEnv = {};
-    loadCredentials(join(host, "nope.env"), env);
-    expect(Object.keys(env)).toEqual([]);
-  });
-
-  test("a group/other-readable file is WARNED about by mode, never refused", () => {
-    const path = credFile(`${API_KEY_ENV}=sk-ant-loose`, "loose.env");
-    chmodSync(path, 0o644);
-    const env: NodeJS.ProcessEnv = {};
-    const load = loadCredentials(path, env);
-    expect(load.mode).toBe("644");
-    expect(load.permissive).toBe(true);
-    // Warned — and the key is loaded anyway. The owner's machine, their call.
-    expect(load.loaded).toEqual([API_KEY_ENV]);
-    expect(permissionWarning(path, load)).toContain("mode 644");
-    chmodSync(path, 0o600);
-    const tight = loadCredentials(path, {});
-    expect(tight.mode).toBe("600");
-    expect(tight.permissive).toBe(false);
-    expect(permissionWarning(path, tight)).toBeNull();
-  });
-
-  test("the capability row says WHICH SOURCE answered: env, file, or absent", () => {
-    const fromEnv = capabilities({}, { [API_KEY_ENV]: "sk-ant-x" }).find((r) => r.name === "credential");
-    expect({ reported: fromEnv?.reported, value: fromEnv?.value, detail: fromEnv?.detail }).toEqual({
-      reported: true,
-      value: true,
-      detail: "env",
-    });
-    const env: NodeJS.ProcessEnv = {};
-    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-x`), env);
-    const fromFile = capabilities({}, env, load).find((r) => r.name === "credential");
-    expect(fromFile?.detail).toBe("file");
-    const none = capabilities({}, {}).find((r) => r.name === "credential");
-    expect({ reported: none?.reported, value: none?.value, detail: none?.detail }).toEqual({
-      reported: false,
-      value: false,
-      detail: "absent",
-    });
-  });
-
-  test("the config knob is validated like dataDir: a non-string is UNREADABLE", () => {
-    expect(loadConfig({ credentialsFile: "/tmp/creds.env" }).config.credentialsFile).toBe("/tmp/creds.env");
-    const bad = loadConfig({ credentialsFile: 42 });
-    expect(bad.ok).toBe(false);
-    expect(bad.reason).toBe("unreadable");
-    // And an unreadable configuration still stands down, credentials or not.
-    expect(bad.config.observer).toBe(true);
-  });
-
-  // ── the two process entry points ─────────────────────────────────────────
-
-  /** A host config file naming a credentials file, both under the temp dir. */
-  function hostFiles(over: Record<string, unknown> = {}, body?: string): { cfg: string; creds: string } {
-    const creds = credFile(body ?? `${API_KEY_ENV}=sk-ant-DAY0-TOKEN\n${EMBED_KEY_ENV}=pa-DAY0-TOKEN`);
-    const cfg = join(host, "claude-code.json");
-    writeFileSync(
-      cfg,
-      JSON.stringify({ dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, credentialsFile: creds, ...over }),
-    );
-    return { cfg, creds };
-  }
-
   test("THE DAY-0 FAILURE, pinned: an empty hook environment still STARTS the worker (I32)", () => {
-    // What the host actually hands a hook process: neither documented name.
-    //
-    // Until 2026-09-11 this was a refusal — `NO_CREDENTIAL`, before the child
-    // existed — and that refusal is what I32 is. A blanked `credentials.env`
-    // stopped the lived-day clock, the sleep cycle, the Hebbian flush, the
-    // semantic cue and the embedding backfill for a week, to protect the ONE
-    // step that actually needed a key. The plan readies now; the sweep is the
-    // only thing that degrades, and it says so on its own durable row.
+    // What the host actually hands a hook process: none of the owner's shell.
+    // Until 2026-09-11 a missing key REFUSED the spawn, and that refusal is what
+    // I32 is; since 2026-09-24 there is no key to miss.
     const cfg = join(host, "claude-code.json");
     writeFileSync(cfg, JSON.stringify({ dataDir: dir, owner: true }));
-    const env: NodeJS.ProcessEnv = {};
-    const { config: c, credentials } = hostConfig(cfg, env);
-    expect(credentials.reason).toBe("not-configured");
-    const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: env });
+    const { config: c } = hostConfig(cfg);
+    const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: {} });
     expect(plan.ok).toBe(true);
     expect(plan.reason).toBe("ready");
-    // And the key is simply not in the child's environment — absent, not faked.
-    expect(plan.env[API_KEY_ENV]).toBeUndefined();
     expect(plan.env[DATA_DIR_ENV]).toBe(dir);
   });
 
-  test("hostConfig fills the gap: capabilities say 'file' and planSpawn READIES", () => {
-    const { cfg } = hostFiles();
-    const env: NodeJS.ProcessEnv = {};
-    const { config: c, credentials } = hostConfig(cfg, env);
-    expect(credentials.reason).toBe("loaded");
-    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
-
-    const row = capabilities(c, env, credentials).find((r) => r.name === "credential");
-    expect({ reported: row?.reported, value: row?.value, detail: row?.detail }).toEqual({
-      reported: true,
-      value: true,
-      detail: "file",
-    });
-
-    // The refusal becomes a plan, and the CHILD carries the key (§2.13's order
-    // is untouched: the data dir is still pinned last).
-    const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: env });
-    expect(plan.ok).toBe(true);
-    expect(plan.reason).toBe("ready");
-    expect(plan.env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
-    expect(plan.env[EMBED_KEY_ENV]).toBe("pa-DAY0-TOKEN");
-    expect(plan.env[DATA_DIR_ENV]).toBe(dir);
-  });
-
-  test("the ring records that the FILE answered — names and counts, never a value", () => {
-    const { cfg } = hostFiles({}, `${API_KEY_ENV}=sk-ant-DAY0-TOKEN\nOPENAI_API_KEY=sk-ignored`);
-    const env: NodeJS.ProcessEnv = {};
-    const { config: c, credentials } = hostConfig(cfg, env);
-    const { spawner } = fakeSpawner();
-    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
-    open.push(a.counterpart);
-
-    const row = a.events(CREDENTIAL_FILE_EVENT);
-    expect(row.length).toBe(1);
-    expect(row[0]?.data).toEqual({
-      reason: "loaded",
-      loaded: API_KEY_ENV,
-      skipped: "",
-      ignoredLines: 1,
-      mode: "600",
-      permissive: false,
-    });
-    expect(a.capabilities().find((r) => r.name === "credential")?.detail).toBe("file");
-  });
-
-  test("the VALUE never reaches an event payload — the whole ring, scanned", () => {
-    // THE PRODUCTION PATH, end to end, and the only test that runs it: the file
-    // fills the REAL `process.env`, which is the `base` the spawner defaults to.
-    // A fresh env object here would prove nothing — the token would never reach
-    // anything `emit` could see, and the scan below would pass on its absence.
-    // (`afterEach` restores both names; a dev machine's own key is saved too.)
-    const { cfg } = hostFiles();
-    delete process.env[API_KEY_ENV];
-    delete process.env[EMBED_KEY_ENV];
-    const { config: c, credentials } = hostConfig(cfg);
-    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
-
-    const { calls, spawner } = fakeSpawner();
-    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
-    open.push(a.counterpart);
-    a.hook("session-start", input());
-    a.hook("stop", input());
-    a.hook("session-end", input());
-
-    // The plan PROVABLY held the token — the worker starts with the credential
-    // the file supplied, which is the whole fix.
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls[0]?.env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
-    expect(a.events("spawn.started").length).toBeGreaterThan(0);
-
-    // ...and the ring provably did not. Names may travel; values may not.
-    const ring = JSON.stringify(a.events());
-    expect(ring).not.toContain("sk-ant-DAY0-TOKEN");
-    expect(ring).not.toContain("pa-DAY0-TOKEN");
-    expect(ring).toContain(API_KEY_ENV);
-  });
-
-  test("nothing is emitted when the ENVIRONMENT answered — the event is the record", () => {
-    // The environment answered, so the file loaded no name and the ring stays
-    // silent: the event's presence IS the record that the file was the source.
-    const { cfg } = hostFiles();
-    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-from-the-environment", [EMBED_KEY_ENV]: "pa-env" };
-    const { config: c, credentials } = hostConfig(cfg, env);
-    expect(credentials.loaded).toEqual([]);
-    expect(credentials.skippedPresent).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
-    const { spawner } = fakeSpawner();
-    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
-    open.push(a.counterpart);
-    expect(a.events(CREDENTIAL_FILE_EVENT)).toEqual([]);
-  });
-
-  test("THE RUNNER loads it too — belt and braces, and the PIN still wins", () => {
-    const { cfg } = hostFiles({ dataDir: join(dir, "configured") });
+  test("a `credentialsFile` in the configuration is IGNORED: read, not refused, named as retired, and the file is never opened", () => {
+    // The owner's own live configuration carries this key from the install that
+    // wrote it. It must cost nothing — not a stand-down, not a read of the file.
+    const creds = join(host, "credentials.env");
+    writeFileSync(creds, "ANTHROPIC_" + "API_KEY=sk-ant-DAY0-TOKEN\n");
+    const before = statSync(creds).atimeMs;
+    const cfg = join(host, "claude-code.json");
+    writeFileSync(cfg, JSON.stringify({ dataDir: dir, owner: true, credentialsFile: creds }));
+    const { config: c, reason } = hostConfig(cfg);
+    expect(reason).toBe("loaded");
+    expect(c.observer).toBeUndefined();
+    expect(c.dataDir).toBe(dir);
+    expect((c.retired ?? []).join(" ")).toContain('"credentialsFile" is no longer used');
+    expect("credentialsFile" in c).toBe(false);
+    // The runner reads the same file the same way, and the PIN still wins.
     const pinned = join(dir, "pinned");
-    const env: NodeJS.ProcessEnv = { [DATA_DIR_ENV]: pinned };
-    const { config: c, credentials } = runnerConfig(cfg, env);
-    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
-    expect(env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
-    // The spawner wrote the data dir last precisely so nothing else can win.
-    expect(c.dataDir).toBe(pinned);
-    expect(c.credentialsFile).toBe(join(host, "creds.env"));
+    const r = runnerConfig(cfg, { [DATA_DIR_ENV]: pinned });
+    expect(r.config.dataDir).toBe(pinned);
+    expect(r.config.observer).toBeUndefined();
+    expect(statSync(creds).atimeMs).toBe(before);
+    // And no process environment was filled from it.
+    expect(process.env["ANTHROPIC_" + "API_KEY"] === "sk-ant-DAY0-TOKEN").toBe(false);
   });
 
-  test("the runner honours an inherited key rather than overwriting it", () => {
-    const { cfg } = hostFiles();
-    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-inherited-from-the-spawn" };
-    const { credentials } = runnerConfig(cfg, env);
-    expect(env[API_KEY_ENV]).toBe("sk-ant-inherited-from-the-spawn");
-    expect(credentials.skippedPresent).toEqual([API_KEY_ENV]);
-    expect(credentials.loaded).toEqual([EMBED_KEY_ENV]);
+  test("the shipped source reaches no model API and reads no key", () => {
+    // The owner's line, mechanized: "no keys; nothing leaves your machine except
+    // through Claude Code". Every TypeScript file under src/, comments included.
+    const root = fileURLToPath(new URL("../src/", import.meta.url));
+    const forbidden = [
+      "api." + "anthropic.com",
+      "api." + "voyageai.com",
+      "ANTHROPIC_" + "API_KEY",
+      "VOYAGE_" + "API_KEY",
+    ];
+    const hits: string[] = [];
+    const walk = (d: string): void => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".ts")) {
+          const text = readFileSync(p, "utf8");
+          for (const word of forbidden) if (text.includes(word)) hits.push(`${p}: ${word}`);
+        }
+      }
+    };
+    walk(root);
+    expect(hits).toEqual([]);
   });
 });
 
@@ -4025,7 +3109,7 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     const { otter } = seed(c);
     // Every memory gets its vector the guaranteed way: the backfill, not a
     // deposit that happened to pay for one.
-    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    await backfillVectors({ counterpart: c, embedder: emb });
 
     // Turn 1 — the semantic channel is dark, and the record says so BY NAME
     // rather than with the bare `semanticUsed: false` that told nobody anything.
@@ -4048,7 +3132,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       sessionId: "s-lag",
       scope: "proj",
       embedder: emb,
-      hasCredential: true,
     });
     expect(lag.reason).toBe("ok");
     expect(lag.stored).toBe(true);
@@ -4067,7 +3150,7 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     const emb = topicEmbedder();
     const c = brain(emb);
     seed(c);
-    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    await backfillVectors({ counterpart: c, embedder: emb });
 
     c.recallForTurn({ sessionId: "s-exp", text: "A first turn about the otter survey." });
     c.captureSpans({
@@ -4083,7 +3166,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       sessionId: "s-exp",
       scope: "proj",
       embedder: emb,
-      hasCredential: true,
     });
 
     // Turn 2 spends it.
@@ -4099,31 +3181,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     expect(third.decision.semanticFromTurn).toBe(1);
   });
 
-  test("no credential ⇒ nothing is stored to use, and the next turn NAMES it", async () => {
-    const c = brain(topicEmbedder());
-    seed(c);
-    c.captureSpans({
-      session: "s-nokey",
-      scope: "proj",
-      turns: [{ role: "user", text: "Anything about the otter survey?" }],
-    });
-    const lag = await laggedSemantic({
-      counterpart: c,
-      sessionId: "s-nokey",
-      scope: "proj",
-      embedder: topicEmbedder(),
-      hasCredential: false,
-    });
-    expect(lag.reason).toBe("no-credentials");
-    expect(lag.hits).toBe(0);
-
-    const turn = c.recallForTurn({ sessionId: "s-nokey", text: "The count, again?" });
-    expect(turn.decision.semanticUsed).toBe(false);
-    // The whole point: a NAMED state, not a silence indistinguishable from a
-    // session nobody has spoken in (scar §2.4).
-    expect(turn.decision.semanticSource).toBe("no-credentials");
-  });
-
   test("an embedder that answers nothing is `embed-failed`, and an absent one `embedder-off`", async () => {
     const c = brain(null);
     seed(c);
@@ -4133,7 +3190,7 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       turns: [{ role: "user", text: "Anything about the kite festival?" }],
     });
     expect(
-      (await laggedSemantic({ counterpart: c, sessionId: "s-dead", scope: "proj", embedder: null, hasCredential: true }))
+      (await laggedSemantic({ counterpart: c, sessionId: "s-dead", scope: "proj", embedder: null }))
         .reason,
     ).toBe("embedder-off");
     expect(
@@ -4143,7 +3200,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
           sessionId: "s-dead",
           scope: "proj",
           embedder: deadEmbedder(),
-          hasCredential: true,
         })
       ).reason,
     ).toBe("embed-failed");
@@ -4160,7 +3216,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       sessionId: "s-silent",
       scope: "proj",
       embedder: emb,
-      hasCredential: true,
     });
     expect(lag.reason).toBe("no-text");
     expect(emb.asked).toEqual([]);
@@ -4197,7 +3252,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       sessionId: "s-obs",
       scope: "proj",
       embedder: topicEmbedder(),
-      hasCredential: true,
     });
     expect(lag.stored).toBe(false);
     expect(c.store.gateRecords("s-obs")).toEqual([]);
@@ -4253,7 +3307,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     });
     const episode = c.store.put({ type: "episode", kind: "self", body: "A chapter of my own." });
 
-    const report = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true, limit: 2 });
+    const report = await backfillVectors({ counterpart: c, embedder: emb, limit: 2 });
     expect(report.reason).toBe("ran");
     expect(report.attempted).toBe(2);
     expect(report.embedded).toBe(2);
@@ -4269,10 +3323,10 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     // And the remainder is reported, so a coverage watch has a number that falls.
     expect(report.remaining).toBe(3);
 
-    const rest = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    const rest = await backfillVectors({ counterpart: c, embedder: emb });
     expect(rest.embedded).toBe(3);
     expect(rest.remaining).toBe(0);
-    expect((await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true })).reason).toBe(
+    expect((await backfillVectors({ counterpart: c, embedder: emb })).reason).toBe(
       "nothing-missing",
     );
   });
@@ -4281,7 +3335,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     const emb = counting();
     const c = brain(emb);
     c.store.put({ type: "memory", kind: "fact", body: "One memory with no vector yet." });
-    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    await backfillVectors({ counterpart: c, embedder: emb });
     const rows = c.store
       .eventLog({ name: "adapter.embed.backfill", limit: 10 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
@@ -4308,7 +3362,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     };
     const c = brain(wrong);
     c.store.put({ type: "memory", kind: "fact", body: "A memory whose vector will be cached wrong." });
-    const report = await backfillVectors({ counterpart: c, embedder: wrong, hasCredential: true });
+    const report = await backfillVectors({ counterpart: c, embedder: wrong });
     expect(report.attempted).toBe(1);
     expect(report.embedded).toBe(0);
     expect(report.failed).toBe(1);
@@ -4326,7 +3380,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     const id = c.store.put({ type: "memory", kind: "fact", body: "A memory with tokens already indexed." });
     expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
 
-    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    await backfillVectors({ counterpart: c, embedder: emb });
     // The lexical index still answers, and the vector row now exists.
     expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
     expect(c.store.nearestTo(vectorFor(indexTextOf("", "x")), 5).map((h) => h.id)).toContain(id);
@@ -4358,7 +3412,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     const poisoned = c.store.put({ type: "memory", kind: "fact", body: "A memory the embedder will not take." });
 
     for (let run = 1; run <= EMBED_SKIP_AFTER; run += 1) {
-      const report = await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+      const report = await backfillVectors({ counterpart: c, embedder: refuses });
       expect(report.failed).toBe(1);
       // THE CODE TRAVELS NOW. Without it the row read `failed: 1, reason: ran`
       // and a week of 400s looked like a flaky provider.
@@ -4370,7 +3424,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     expect(c.store.missingVectors(64)).toEqual([]);
     expect(c.store.skippedVectorIds()).toEqual([poisoned]);
     expect(c.store.unembeddedCount()).toBe(0);
-    expect((await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true })).reason).toBe(
+    expect((await backfillVectors({ counterpart: c, embedder: refuses })).reason).toBe(
       "nothing-missing",
     );
 
@@ -4416,7 +3470,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     );
 
     for (let run = 1; run <= EMBED_SKIP_AFTER + 1; run += 1) {
-      const report = await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+      const report = await backfillVectors({ counterpart: c, embedder: refuses });
       expect(report.failed).toBe(3);
       // The CODE still travels — the row says what happened, it just does not
       // blame the rows for it.
@@ -4429,27 +3483,6 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     expect(c.store.missingVectors(64).sort()).toEqual([...ids].sort());
     // The number a coverage watch reads never lied about these three.
     expect(c.store.unembeddedCount()).toBe(3);
-  });
-
-  test("a whole-call refusal still names its code on the durable row", async () => {
-    // The one path `codes` was blind to: `embedClient` throws BEFORE it opens a
-    // socket (no key, dead seat, no `fetch`), so no `ChunkFailure` was ever
-    // built and `lastFailures` stayed empty — `failed: N, codes: ""`, which is
-    // the unreadable row the field exists to abolish.
-    const thrower = createEmbedder({
-      client: async () => {
-        throw new EmbedError("NO_FETCH", {});
-      },
-    });
-    const c = brain(thrower);
-    c.store.put({ type: "memory", kind: "fact", body: "A memory nothing can reach the provider for." });
-    const report = await backfillVectors({ counterpart: c, embedder: thrower, hasCredential: true });
-    expect(report.failed).toBe(1);
-    expect(report.codes).toBe("NO_FETCH");
-    // And it is NOT item-attributable: a refusal that never reached the provider
-    // cannot have been about the text.
-    expect(report.skipped).toBe(0);
-    expect(c.store.skippedVectorIds()).toEqual([]);
   });
 
   test("a fill's counter moves are ONE box-2 transaction, and a healthy run writes none", async () => {
@@ -4471,7 +3504,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
       c.store.put({ type: "memory", kind: "fact", body: `A memory the embedder refuses, number ${n}.` });
     }
     const before = c.store.events("store.meta").length;
-    await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+    await backfillVectors({ counterpart: c, embedder: refuses });
     const metaWrites = c.store.events("store.meta").slice(before);
     expect(metaWrites.length).toBe(1);
     expect(metaWrites[0]?.data?.count).toBe(3);
@@ -4484,21 +3517,18 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     const c = brain(good);
     c.store.put({ type: "memory", kind: "fact", body: "A memory that embeds on the first ask." });
     const before = c.store.events("store.meta").length;
-    const ran = await backfillVectors({ counterpart: c, embedder: good, hasCredential: true });
+    const ran = await backfillVectors({ counterpart: c, embedder: good });
     expect(ran.embedded).toBe(1);
     expect(ran.failed).toBe(0);
     expect(c.store.events("store.meta").length).toBe(before);
   });
 
-  test("off, and refused, are two records — never one zero (scar §2.4)", async () => {
+  test("off is a record by name — never a zero (scar §2.4)", async () => {
     const c = brain(null);
     c.store.put({ type: "memory", kind: "fact", body: "A memory nobody will embed today." });
-    expect((await backfillVectors({ counterpart: c, embedder: null, hasCredential: true })).reason).toBe(
+    expect((await backfillVectors({ counterpart: c, embedder: null })).reason).toBe(
       "embedder-off",
     );
-    expect(
-      (await backfillVectors({ counterpart: c, embedder: counting(), hasCredential: false })).reason,
-    ).toBe("no-credentials");
   });
 });
 
@@ -4516,11 +3546,6 @@ describe("the prompt path opens NO socket — the ruling, mechanized", () => {
         command: "/bin/true",
         args: ["runner"],
         spawner,
-        // The OTHER route: the adapter's own injected fetch. A hook that reached
-        // it would fail here rather than pass quietly.
-        embedFetch: () => {
-          throw new Error("the prompt path opened a socket");
-        },
       });
       open.push(a.counterpart);
       const out = a.userPromptSubmit(input({ prompt: "Anything about the storage split?" }));

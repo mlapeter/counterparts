@@ -28,8 +28,8 @@ thing and is safe to run again. It asks two things, and you can skip either of t
   (it keeps a backup first) and registers the memory tools. Hooks from other tools are
   left alone.
 
-It doesn't ask for API keys. Search by meaning is turned on for you and runs on your
-machine; keys are optional upgrades (see [Keys](#keys) below).
+There are no API keys. Search by meaning is turned on for you and runs on your machine;
+nothing leaves it except through Claude Code itself.
 
 Your memory lives in `~/.counterparts/`.
 
@@ -59,26 +59,6 @@ what to run to fix it.
 
 A session that was already open picks up the hooks on its next message, but it only gets
 the memory tools after a restart.
-
-## Keys
-
-Counterparts works without API keys, and nothing leaves your machine unless you add one.
-Search by meaning is built in: a small model that ships with the package runs on your
-machine.
-
-| key | what it adds | without it |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | If a session ends before the AI writes it up (a crash, a closed window), a model writes it up from the transcript right away. That sends the conversation to Anthropic, so after you add the key it asks before turning this on. | The next session you start in that project writes it up instead. |
-| `VOYAGE_API_KEY` | Deprecated. Used only if your setup already uses Voyage for search. | Search by meaning runs on your machine. |
-
-Add or change one at any time:
-
-```
-counterparts credentials set ANTHROPIC_API_KEY
-```
-
-It asks for the key without echoing it. Keys are stored in
-`~/.counterparts/credentials.env`, readable only by you.
 
 ## Choose which directories it remembers
 
@@ -122,9 +102,11 @@ Your memory isn't changed by an upgrade. Open sessions keep running the old vers
 they restart.
 
 If you set it up before search by meaning was built in, it turns on by itself after the
-upgrade. (If you saved a Voyage key back then, it stays off; `counterparts doctor` says so.)
-To turn it on after switching it off, or beside a saved Voyage key (your name and other
-settings are kept):
+upgrade. An older setup that used a Voyage or Anthropic key keeps working without it:
+those settings are ignored now, and `counterparts doctor --all` lists them as old
+settings you can delete (along with `~/.counterparts/credentials.env`, if you have one).
+To turn search by meaning on after switching it off (your name and other settings are
+kept):
 
 ```
 counterparts install --force --embedder

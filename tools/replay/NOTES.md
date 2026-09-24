@@ -177,7 +177,10 @@ discipline — commit the bar before the mechanism is allowed on — is what tra
    rolling 30-day window prunes it (CONTRACT §7 OQ1; every deferred day is a day
    of input-for-input depth lost permanently).
 2. A real `InterpretFn` — streaming, token headroom, a `stop_reason` check and
-   detachment all belong to the injector (scars E2/E3/E4).
+   detachment all belong to the injector (scars E2/E3/E4). The paid injector
+   that did this (`bin/run-replay.ts`, over the package's Anthropic API client)
+   was removed with that client on 2026-09-24, when the package went keyless;
+   a future run brings its own.
 3. A decision on the vector generation: `voyage-3-large` (13,664 rows) or the
    legacy `voyage-3.5` (9,600). The harness records the pin; it does not yet
    *use* the vectors (INTERFACE-GAPS §4).

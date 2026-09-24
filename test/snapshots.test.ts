@@ -1324,7 +1324,6 @@ describe("the worker's fourth step", () => {
     const report = await runOnce({
       config: { dataDir: dir, owner: true },
       date: TODAY,
-      env: {},
     });
     // The snapshot broke; the worker did not. Nothing about a failed copy may
     // reach the host, and the process exits 0 either way.
@@ -1342,7 +1341,6 @@ describe("the worker's fourth step", () => {
     const report = await runOnce({
       config: { dataDir: dir, owner: true },
       date: TODAY,
-      env: {},
     });
     expect(report.ran).toBe(true);
     expect(report.snapshot?.reason).toBe("taken");
@@ -1362,7 +1360,6 @@ describe("the worker's fourth step", () => {
     const report = await runOnce({
       config: { dataDir: dir, observer: true },
       date: TODAY,
-      env: {},
     });
     expect(report.reason).toBe("observer");
     expect(report.snapshot).toBe(null);

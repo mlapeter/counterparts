@@ -237,7 +237,7 @@ describe("the acceptance scenario: three sessions, exactly one deleted", () => {
     const snaps = mkdtempSync(join(tmpdir(), "counterparts-retention-snaps-"));
     try {
       const config = { dataDir: dir, owner: true, snapshots: { dir: snaps } };
-      const report = await runOnce({ config, date: "2026-09-23", env: {} });
+      const report = await runOnce({ config, date: "2026-09-23" });
       expect(report.ran).toBe(true);
       expect(report.retention?.reason).toBe("ran");
       expect(report.retention?.report).toMatchObject({ deleted: 1, keptOwed: 1, keptYoung: 1, failed: 0 });
@@ -254,7 +254,7 @@ describe("the acceptance scenario: three sessions, exactly one deleted", () => {
 
       // Once per date: a second worker the same day does nothing and adds no
       // row — the date holds its STARTED row and its result, and that is all.
-      const again = await runOnce({ config, date: "2026-09-23", env: {} });
+      const again = await runOnce({ config, date: "2026-09-23" });
       expect(again.retention?.reason).toBe("already-ran");
       const check = Counterpart.open({ dir });
       open.push(check);

@@ -887,9 +887,7 @@ describe("B1 — only what this package wrote", () => {
     expect([...plan.foreign].sort()).toEqual(["notes.txt", "photos", "taxes"]);
     expect(plan.wholeDirectory).toBe(false);
     const paths = plan.entries.map((e) => e.path).sort();
-    expect(paths).toEqual(
-      [join(dir, "store"), join(dir, CONFIG_FILE), join(dir, "credentials.env")].sort(),
-    );
+    expect(paths).toEqual([join(dir, "store"), join(dir, CONFIG_FILE)].sort());
   });
 
   test("--delete-memories leaves every foreign file byte for byte, and the directory", async () => {
@@ -981,7 +979,9 @@ describe("B1 — only what this package wrote", () => {
       join(home, ".counterparts", "store"),
     );
     expect(ownedKind(CONFIG_FILE, owned)).toBe("config");
-    expect(ownedKind("credentials.env", owned)).toBe("credentials");
+    // Not ours since the keys were removed (2026-09-24): it may hold somebody's
+    // keys, so it is left where it is like anything else we did not write.
+    expect(ownedKind("credentials.env", owned)).toBeNull();
     expect(ownedKind("scopes.json", owned)).toBe("scopes");
     expect(ownedKind("snapshots", owned)).toBe("snapshots");
     expect(ownedKind("store", owned)).toBe("store");
@@ -996,14 +996,16 @@ describe("B1 — only what this package wrote", () => {
     }
   });
 
-  test("a configuration whose credentials file lives ELSEWHERE does not claim a name here", () => {
-    const owned = ownedNames(
-      join(home, ".counterparts", CONFIG_FILE),
-      { credentialsFile: join(home, "secrets", "keys.env") },
-      null,
-    );
-    expect(owned.credentials).toBeNull();
-    expect(ownedKind("credentials.env", owned)).toBeNull();
+  test("an old credentials.env beside the configuration is FOREIGN: never deleted, never moved, and named", async () => {
+    const dir = join(home, "Documents");
+    const config = await installIn(dir, []);
+    writeFileSync(join(dir, "credentials.env"), "SOME_KEY=not-a-real-key\n", { mode: 0o600 });
+    const plan = planFor(config);
+    expect(plan.refusal).toBeNull();
+    expect([...plan.foreign]).toEqual(["credentials.env"]);
+    expect(plan.wholeDirectory).toBe(false);
+    expect(plan.targets).not.toContain(join(dir, "credentials.env"));
+    expect(plan.targets).not.toContain(dir);
   });
 });
 

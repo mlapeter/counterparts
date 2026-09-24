@@ -1216,10 +1216,8 @@ describe("install, at a terminal", () => {
     expect(recall).toBeLessThan(c.out.findIndex((l) => l.startsWith("Done.")));
     const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
     expect(body["embedder"]).toEqual({ enabled: true, kind: "static" });
-    // The template is still written, 0600, holding no key.
-    const creds = join(home, ".counterparts", "credentials.env");
-    expect(existsSync(creds)).toBe(true);
-    expect(readFileSync(creds, "utf8")).not.toMatch(/^[A-Z_]+=/m);
+    // And no credentials file at all (keyless, 2026-09-24).
+    expect(existsSync(join(home, ".counterparts", "credentials.env"))).toBe(false);
   });
 
   test("--no-embedder at a terminal leaves recall by meaning off, and still asks no key", async () => {

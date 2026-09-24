@@ -23,7 +23,7 @@ plan of record for boundary credit is built — `creditUse` is wired).*
 
 ## Status (2026-09-23, close)
 
-Built and merged: A (#185, flip done, Phase C #196), B (#186 #188 #189), C (#190 #193 #192 #195), E (#187); D closed; release commit `b2e0ca1` = 0.3.0 trial tarball, unpublished. Follow-ups: the key-removal round; the site's in-development list; snapshot before a schema migration; `owner` write-up close command; `lastCaptureAt`/`lastAnswerAt` on HeldSession (m-E); the per-start plan cost.
+Built and merged: A (#185, flip done, Phase C #196), B (#186 #188 #189), C (#190 #193 #192 #195), E (#187); D closed; release commit `b2e0ca1` = 0.3.0 trial tarball, unpublished. **2026-09-24: Voyage and the Anthropic key path were removed** (owner's word; keyless only — no keys, no credentials file, no `credentials` command, and the page writer's command is no longer configurable). Follow-ups: the site's in-development list; snapshot before a schema migration; `owner` write-up close command; `lastCaptureAt`/`lastAnswerAt` on HeldSession (m-E); the per-start plan cost.
 
 ## Amendments (2026-09-23, night — owner decisions during wave 1)
 

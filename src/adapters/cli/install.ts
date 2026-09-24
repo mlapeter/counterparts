@@ -1,15 +1,15 @@
 /**
  * `counterparts install` — the cold-start command.
  *
- * It exists because a stranger's first five minutes were, until this file, five
- * hand-written files: the store, the adapter's configuration, the credential
- * file at 0600, a hooks block in the host's settings, and an MCP registration.
- * Four of those are OURS and one is the HOST'S, and the split is the whole
- * design of this command:
+ * It exists because a stranger's first five minutes were, until this file,
+ * hand-written files: the store, the adapter's configuration, a hooks block in
+ * the host's settings, and an MCP registration. Some of those are OURS and some
+ * are the HOST'S, and the split is the whole design of this command:
  *
- *   - **Ours, so we write them**: the data directory, `claude-code.json` BESIDE
- *     it, and an empty `credentials.env` at 0600. Nothing here is a host file
- *     and nothing here belongs to another program.
+ *   - **Ours, so we write them**: the data directory and `claude-code.json`
+ *     BESIDE it. Nothing here is a host file and nothing here belongs to another
+ *     program. (An empty `credentials.env` at 0600 was the third until the API
+ *     keys were removed on 2026-09-24; nothing reads one now.)
  *   - **The host's, so we only PRINT them**: the `settings.json` hooks block and
  *     the `claude mcp add` line. An installer that edits somebody's editor
  *     configuration without being asked is the same class of surprise as a
@@ -22,7 +22,7 @@
  *      classifies every top-level entry of the data dir and `assertLayout()`
  *      refuses an unclassified one (§5 G11), so `claude-code.json` inside the
  *      data dir is a store that will not open. Hence the default layout:
- *      `~/.counterparts/` holds the config and the credentials, and the store
+ *      `~/.counterparts/` holds the config, and the store
  *      is `~/.counterparts/store`.
  *   2. **Nothing existing is overwritten without `--force`.** A second
  *      `install` on a live machine reports what it found and changes nothing —
@@ -50,13 +50,8 @@ import { fileURLToPath } from "node:url";
 /** The store directory under the base. Named, because three files agree on it. */
 export const DEFAULT_STORE_DIR = "store";
 
-// The two credential NAMES, taken from the adapter that defines them rather
-// than retyped here — a template that named a third variable, or misspelled one
-// of these, would be a file the loader silently ignores and counts. The same
-// direction `mcp/bin/serve.ts` already takes for the same reason.
-import { API_KEY_ENV, EMBED_KEY_ENV, EMBEDDER_KINDS } from "../claude-code/config.js";
+import { EMBEDDER_KINDS } from "../claude-code/config.js";
 import type { EmbedderKind } from "../claude-code/config.js";
-import { loadCredentials } from "../claude-code/credentials.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
 // `preRowsMarkersIn` reads FILENAMES and opens nothing, which is the only
 // reason a module that promises never to open a parked store may call it —
@@ -92,9 +87,9 @@ export const MCP_SERVER_NAME = "counterparts";
  * THE TWO ENTRY SCRIPTS, ABSOLUTE, resolved from THIS file's location — never
  * from a working directory and never from a name on a PATH.
  *
- * This is scar §2.18 again, in its sharpest form. `credentials.ts` measured, on
- * day 0 of the parallel run, that this host's hook processes carry neither of
- * the owner's exported API keys: **the host's process environment is not the
+ * This is scar §2.18 again, in its sharpest form. Day 0 of the parallel run
+ * measured that this host's hook processes carry none of the variables the
+ * owner exported in his shell: **the host's process environment is not the
  * login shell's**. The same sentence is true of `PATH`. `counterparts-hook` is
  * a shim whose shebang is `#!/usr/bin/env bun`, so a host that launches hooks
  * without `~/.bun/bin` on PATH gets "command not found" on every event — a
@@ -139,15 +134,20 @@ export function hookCommand(configPath?: string, exe: string = process.execPath)
 }
 
 export const CONFIG_FILE = "claude-code.json";
-export const CREDENTIALS_FILE = "credentials.env";
+/**
+ * The file an install wrote beside the configuration until 2026-09-24, when the
+ * API keys were removed. Nothing reads or writes it now; the name is kept so
+ * `uninstall` can recognise an old one and say what it is rather than delete
+ * it (it may hold somebody's keys).
+ */
+export const LEGACY_CREDENTIALS_FILE = "credentials.env";
 
 export interface InstallLayout {
-  /** The directory holding the config, the credentials, and the store. */
+  /** The directory holding the config and the store. */
   readonly base: string;
   /** The data dir itself — a SUBDIRECTORY of `base`, never `base` (rule 1). */
   readonly store: string;
   readonly config: string;
-  readonly credentials: string;
 }
 
 /**
@@ -168,8 +168,7 @@ export interface InstallLayout {
  *
  * So `--dir` (and `COUNTERPARTS_DATA_DIR`) move the STORE and only the store;
  * `dataDir` in the config is how the hooks are told where it went. `--config`
- * moves the CONFIGURATION — and with it the credentials file beside it and the
- * default store beneath it — and then the printed hooks block and `claude mcp
+ * moves the CONFIGURATION — and with it the default store beneath it — and then the printed hooks block and `claude mcp
  * add` line carry it, because a file nothing points at is the failure above.
  *
  * The default store is `~/.counterparts/store`, deliberately NOT `dataDir()`'s
@@ -188,12 +187,11 @@ export function installLayout(
       : (env["COUNTERPARTS_DATA_DIR"] ?? "").trim().length > 0
         ? (env["COUNTERPARTS_DATA_DIR"] as string)
         : undefined;
-  // `--config` (or `COUNTERPARTS_CONFIG`) moves the whole BASE — the config, the
-  // credentials beside it, and, when no `--dir` says otherwise, the store
-  // beneath it. Splitting them would put a scratch install's credentials file in
-  // `~/.counterparts/`, which is the live one on the owner's machine; an install
-  // that writes there because it was pointed somewhere else is the accident this
-  // flag exists to prevent.
+  // `--config` (or `COUNTERPARTS_CONFIG`) moves the whole BASE — the config and,
+  // when no `--dir` says otherwise, the store beneath it. Splitting them would
+  // put part of a scratch install in `~/.counterparts/`, which is the live one
+  // on the owner's machine; an install that writes there because it was pointed
+  // somewhere else is the accident this flag exists to prevent.
   const base =
     configPath === undefined || configPath.length === 0
       ? join(home, DEFAULT_DATA_DIR_NAME)
@@ -206,7 +204,6 @@ export function installLayout(
       configPath === undefined || configPath.length === 0
         ? join(base, CONFIG_FILE)
         : resolve(configPath),
-    credentials: join(base, CREDENTIALS_FILE),
   };
 }
 
@@ -214,7 +211,7 @@ export function installLayout(
  * Why this store cannot hold this install's configuration, or null when it can.
  *
  * The one case: a `--dir` that IS `~/.counterparts`, or any ancestor of it, puts
- * `claude-code.json` and `credentials.env` inside the data dir, and the layout
+ * `claude-code.json` inside the data dir, and the layout
  * totality check (§5 G11) refuses an unclassified top-level entry at open. The
  * store would be created and then never open again. Caught before anything is
  * written, and named.
@@ -273,7 +270,7 @@ function underTempRoot(path: string, roots: readonly string[]): boolean {
  *
  * So: the default configuration file will not be written with a `dataDir` under
  * a temp root. `--config <somewhere else>` is the way through, and it moves the
- * credentials and the store with it (`installLayout`), which is the whole point
+ * store with it (`installLayout`), which is the whole point
  * — a scratch install should be scratch all the way down.
  *
  * THE THIRD CLAUSE, and why the clean room still works: the refusal also
@@ -307,7 +304,7 @@ export function throwawayDefaultRefusal(
     "become this machine's live memory and the real one would stop being written to. " +
     `Name a scratch install instead: ` +
     `${CONFIG_FLAG} <absolute path outside ${join(home, DEFAULT_DATA_DIR_NAME)}>, which moves the ` +
-    "configuration, the credentials and the store together. A permanent store outside the temp " +
+    "configuration and the store together. A permanent store outside the temp " +
     "dir is the other way through."
   );
 }
@@ -343,13 +340,12 @@ export interface ConfigInput {
 export function configObject(input: ConfigInput): Record<string, unknown> {
   const out: Record<string, unknown> = {
     dataDir: input.layout.store,
-    credentialsFile: input.layout.credentials,
     owner: true,
     // WHAT THE FILE BEING REPLACED SAID, first, so a flag below still wins —
     // though `carryForward` has already dropped every key this line supplied,
-    // so the two can never disagree. `dataDir` and `credentialsFile` are set
-    // ABOVE it and are never carried: moving an install is what `--force` is
-    // for, and a path from the old file would silently undo the move.
+    // so the two can never disagree. `dataDir` is set ABOVE it and is never
+    // carried: moving an install is what `--force` is for, and a path from the
+    // old file would silently undo the move.
     ...(input.carried ?? {}),
   };
   // Scar §2.18: written only when a number was SUPPLIED. There is no default
@@ -357,8 +353,8 @@ export function configObject(input: ConfigInput): Record<string, unknown> {
   // there starts being one.
   if (input.budgetBytes !== undefined) out["injectionBudgetBytes"] = input.budgetBytes;
   if (input.name !== undefined && input.name.length > 0) out["identity"] = { name: input.name };
-  // The embedder knob, only when something decided it. Absent means absent: no
-  // embedder is built, whatever a key in the environment says.
+  // The embedder knob, only when something decided it. Absent reads as the
+  // local table, on (`config.ts#resolveEmbedder`).
   if (input.embedder !== undefined) out["embedder"] = { ...input.embedder };
   return out;
 }
@@ -374,34 +370,16 @@ export interface EmbedderBlock {
  * WHICH `embedder` BLOCK AN INSTALL WRITES (roadmap C3; review of #190, MINOR 4;
  * review of #195, MAJOR 1).
  *
- * Static is the primary tier and Voyage is frozen (ROADMAP §"Amendments",
- * 2026-09-23): nothing here ever switches Voyage ON. A configuration where it
- * is already on is somebody's paid arrangement, and `--force` is consent to
- * rewrite a file, not to change which embedder it names — but a Voyage block
- * that is OFF is not an arrangement anybody is running, and turning it on is
- * a new egress, so it gets the local table. In full:
+ * There is one embedder, the local table (the Voyage seat was removed on
+ * 2026-09-24), so:
  *
- * **Turning it ON** (`--embedder`, or the terminal arm's default):
- *   1. The replaced block was ON with `kind: "voyage"` → kept, `{ enabled: true,
- *      kind: "voyage" }`. It is already sending; nothing is resurrected.
- *   2. The replaced block was ON with NO kind, beside a saved Voyage key → kept
- *      kind-less, `{ enabled: true }` — a running 0.2.0 Voyage setup; absent
- *      `kind` is how it says so.
- *   3. Everything else → `{ enabled: true, kind: "static" }`: a new install, a
- *      configuration with no block, a static block, and **any block that was
- *      OFF, whatever kind it records** — `{ enabled: false }` and
- *      `{ enabled: false, kind: "voyage" }` both come back ON as the local
- *      table, which is what doctor's `Turn on:` line promises. (Also a kind-less
- *      ON block with no Voyage key, which could never have embedded anything.)
- *
- * **Turning it OFF** (`--no-embedder`): the kind the replaced block records is
- * kept as recorded — `{ enabled: false, kind: "static" }`, `{ enabled: false,
- * kind: "voyage" }`, or kind-less `{ enabled: false }` for a 0.2.0 Voyage block
- * — and with no block at all, `{ enabled: false, kind: "static" }`. Turning it
- * back on later is an OFF block going ON, so rule 3 makes it the local table.
- *
- * `#190 MINOR 4` is rule 3's static case: `install --force --embedder` over a
- * static configuration used to write `{ enabled: true }`, which reads as Voyage.
+ *   - **Turning it ON** (`--embedder`, or the terminal arm's default) →
+ *     `{ enabled: true, kind: "static" }`, whatever the replaced block said —
+ *     which is what doctor's `Turn on:` line promises.
+ *   - **Turning it OFF** (`--no-embedder`) → the kind the replaced block
+ *     records, when it is one this build knows, else kind-less
+ *     `{ enabled: false }`; with no block at all, `{ enabled: false, kind:
+ *     "static" }`.
  *
  * `enabled` comes from the caller; `undefined` means nothing decided it, and
  * the result is then `undefined` too — no block is written and the carried one
@@ -412,24 +390,17 @@ export function resolveEmbedderBlock(input: {
   readonly enabled: boolean | undefined;
   /** The configuration being replaced, if any — read, never written. */
   readonly configPath: string;
-  /** Whether that configuration's credentials file holds `VOYAGE_API_KEY`. */
-  readonly voyageKeySaved: boolean;
 }): EmbedderBlock | undefined {
   if (input.enabled === undefined) return undefined;
+  if (input.enabled) return { enabled: true, kind: "static" };
   const was = embedderBlockIn(input.configPath);
-  const recorded = was?.["kind"];
+  if (was === null) return { enabled: false, kind: "static" };
+  const recorded = was["kind"];
   const oldKind =
     typeof recorded === "string" && (EMBEDDER_KINDS as readonly string[]).includes(recorded)
       ? (recorded as EmbedderKind)
       : undefined;
-  if (!input.enabled) {
-    if (was === null) return { enabled: false, kind: "static" };
-    return oldKind === undefined ? { enabled: false } : { enabled: false, kind: oldKind };
-  }
-  const wasOn = was !== null && was["enabled"] === true;
-  if (wasOn && oldKind === "voyage") return { enabled: true, kind: "voyage" };
-  if (wasOn && recorded === undefined && input.voyageKeySaved) return { enabled: true };
-  return { enabled: true, kind: "static" };
+  return oldKind === undefined ? { enabled: false } : { enabled: false, kind: oldKind };
 }
 
 /** The old file's `embedder` object, or null when it has none (or none that
@@ -448,65 +419,6 @@ function embedderBlockIn(configPath: string): Record<string, unknown> | null {
     : null;
 }
 
-/**
- * WHICH honored credential names an existing file actually holds. NAMES ONLY.
- *
- * THE 2026-09-04 INCIDENT, second half (I32). A forced install rewrote the
- * owner's `credentials.env` with the template below. The file went from two keys
- * to zero, the detached worker was refused at every boundary for a week, and the
- * store's clock stopped while every visible surface read healthy. `--force` is
- * consent to replace a file you are re-installing; it is not consent to destroy
- * a secret that cannot be regenerated from anything on this machine.
- *
- * It reuses `loadCredentials` rather than parsing the file a second time — the
- * quoting, the `export ` prefix, the CRLF, the first-occurrence rule are all
- * there, and a second parser is how the two would come to disagree about what
- * counts as a key. The scratch environment it fills is DISCARDED on this line:
- * nothing from it is returned, printed, emitted or compared. What comes back is
- * the list of NAMES, which is all any caller needs.
- */
-export function credentialsHeld(path: string): string[] {
-  if (!existsSync(path)) return [];
-  const scratch: NodeJS.ProcessEnv = {};
-  try {
-    // `loaded` is "the file answered this name"; with an empty scratch env
-    // nothing can be `skippedPresent`, so this is the file's whole content.
-    return loadCredentials(path, scratch).loaded;
-  } catch {
-    // An unreadable file holds nothing we can vouch for; the ordinary write
-    // path decides what happens to it.
-    return [];
-  }
-}
-
-/** The template written into a fresh `credentials.env`. Names, never values. */
-export function credentialsTemplate(): string {
-  // BOTH KEYS ARE UPGRADES (roadmap C, 2026-09-23): nothing needs either one.
-  // Recall by meaning runs on a local table with no key, and a session that
-  // ended before it was written up is written up by the next session in that
-  // project. The continuation lines keep the `#` + four-or-more-spaces shape,
-  // because `keys.ts#writeCredential` places a key AFTER its placeholder's
-  // indented block by exactly that pattern.
-  return [
-    "# Counterparts reads exactly two names from this file, and only to fill a",
-    "# gap: a value already exported in the environment always wins. Neither",
-    "# is needed — both are optional upgrades.",
-    "#",
-    `# ${API_KEY_ENV}=...   lets the worker write up a session that ended`,
-    "#                          before it was written up at once, instead of",
-    "#                          waiting for the next session in that project.",
-    "#                          It sends that conversation to Anthropic, and is",
-    `#                          used only after \`counterparts credentials set`,
-    `#                          ${API_KEY_ENV}\` asks and you say yes.`,
-    `# ${EMBED_KEY_ENV}=...      deprecated. Used only by a configuration that`,
-    "#                          already names Voyage; recall by meaning runs on",
-    "#                          a local table by default, with no key.",
-    "#",
-    "# Anything else in this file is ignored and counted. Keep it 0600.",
-    "",
-  ].join("\n");
-}
-
 /** The hooks block to paste into `~/.claude/settings.json`. Printed, never written. */
 export function settingsBlock(hookCommand = runCommand(HOOK_SCRIPT)): string {
   const hooks: Record<string, unknown> = {};
@@ -523,7 +435,7 @@ export function settingsBlock(hookCommand = runCommand(HOOK_SCRIPT)): string {
  * flag, and that is the whole reason the environment variable exists: this host
  * launches MCP servers from a STATIC registration, and `-e` is the channel that
  * registration has. It sits beside `COUNTERPARTS_DATA_DIR` because the two names
- * answer different questions — which store, and whose keys.
+ * answer different questions — which store, and which configuration.
  */
 export function mcpCommand(
   store: string,
@@ -561,7 +473,7 @@ export type WroteWhat = "created" | "kept" | "replaced";
 export interface FileResult {
   readonly path: string;
   readonly what: WroteWhat;
-  /** Octal mode after the call, for the credential file's 0600 report. */
+  /** Octal mode after the call. */
   readonly mode?: string;
 }
 

@@ -68,7 +68,7 @@
 export const SHORT_LIMIT = 75;
 
 /** Where the description starts on the short page, after two spaces of indent
- *  and the name. Wide enough for `credentials`, the longest name on it. */
+ *  and the name. Wide enough for the longest name on it, with room to spare. */
 const NAME_COLUMN = 14;
 
 /** The same, for the advanced page, where `repair-merged-beliefs` lives. */
@@ -119,7 +119,6 @@ export const SHORT: Record<string, string | readonly string[]> = {
   install: "First-time setup: your memory and Claude Code — safe to run again",
   connect: "Connect an AI to your memory (Claude Code today; more soon)",
   disconnect: "Disconnect an AI",
-  credentials: "Add or change your API keys (optional upgrades)",
   scope: "Turn memory on or off for a directory",
   uninstall: "Remove Counterparts; keeps your memory unless you say otherwise",
   // ── your data ──
@@ -158,7 +157,7 @@ export const GROUPS: readonly HelpGroup[] = [
   { title: "Everyday", commands: ["ask", "status", "doctor", "dashboard", "self-page"] },
   {
     title: "Setup",
-    commands: ["install", "connect", "disconnect", "credentials", "scope", "uninstall"],
+    commands: ["install", "connect", "disconnect", "scope", "uninstall"],
   },
   { title: "Your data", commands: ["export", "backup", "remove"] },
 ];
@@ -294,26 +293,24 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "meaning (a local table that ships with the package — nothing leaves this",
     "machine; --no-embedder leaves it off) and connects Claude Code (a backup of",
     "~/.claude/settings.json is kept; `counterparts disconnect` undoes it;",
-    "--no-connect skips it). It asks about no API key: both are optional",
-    "upgrades — see `counterparts help credentials`. Run it again any time: it",
-    "keeps what is there and says `Welcome back`. If ~/.counterparts is gone and",
+    "--no-connect skips it). Run it again any time: it keeps what is there and",
+    "says `Welcome back`. If ~/.counterparts is gone and",
     "a ~/.counterparts.parked-<date> is beside it, it asks first whether to bring",
     "that memory back or start blank.",
     "",
     "Recall by meaning is also on wherever a configuration names no embedder —",
-    "an install made before it existed included — unless a Voyage key is saved",
-    "there, which keeps that older setup as it was. --no-embedder switches it",
+    "an install made before it existed included. --no-embedder switches it",
     "off; `install --force --embedder` switches it back on, keeping every other",
-    "setting and any key already saved.",
+    "setting.",
     "",
     "Each session opens with a short briefing from memory, capped by",
     "\"injectionBudgetBytes\" in claude-code.json (9000 unless --budget says",
     "otherwise). --dir moves the STORE only. --config <absolute path> moves the",
-    "CONFIG, the credentials beside it and the default store beneath it, and the",
-    "lines this command prints then carry it.",
+    "CONFIG and the default store beneath it, and the lines this command prints",
+    "then carry it.",
   ],
   init: [
-    "No host config, no credentials file, nothing under ~/.counterparts/ — that",
+    "No host config, nothing under ~/.counterparts/ — that",
     "is what install is for.",
   ],
   verify: [
@@ -331,22 +328,6 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "It prints counts by confidence and a sample of the proposed dates.",
     "--apply needs the store NAMED by --dir, never resolved for it: this is the",
     "one owner operation that rewrites thousands of canonical documents.",
-  ],
-  credentials: [
-    "With nothing after it, it says which keys are saved and which are missing —",
-    "names only, never a value. `set <NAME>` asks for the value without echoing",
-    "it; the value never touches your shell history and is never printed back.",
-    "",
-    "Both keys are upgrades; nothing needs either one.",
-    "",
-    "ANTHROPIC_API_KEY: a session that ended before it was written up is written",
-    "up by the next session in that project. With this key, setting it at a",
-    "terminal offers to have the worker write it up at once instead — which",
-    "sends that conversation to Anthropic, so it is off until you say yes.",
-    "",
-    "VOYAGE_API_KEY is deprecated. Recall by meaning runs on a local table that",
-    "ships with the package; this key is used only by a configuration that",
-    "already names Voyage, and setting it turns nothing on.",
   ],
   rebrief: [
     "It advances no sleep marker and runs no other sleep phase.",

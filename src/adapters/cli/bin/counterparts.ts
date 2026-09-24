@@ -12,9 +12,9 @@
  * REFUSES there rather than proceeding unconfirmed.
  *
  * Since 2026-09-21 it binds two more things, both from `ui.ts` and both
- * additive: the NO-ECHO read (`promptHidden`), so `credentials set` can take a
- * key from the person standing at the terminal without putting it in a
- * scrollback buffer, and what the host knows about its TERMINAL (`tty`), which
+ * additive: the NO-ECHO read (`promptHidden`), for a value that must not land in
+ * a scrollback buffer (its first caller, `credentials set`, was removed with the
+ * API keys on 2026-09-24), and what the host knows about its TERMINAL (`tty`), which
  * is the only input `ui.ts` decides colour, wrapping and interactivity from.
  * Neither changes a non-interactive run: a pipe reports no terminal, and every
  * gate in `ui.ts` is false when it does.
@@ -34,8 +34,8 @@ import { fileURLToPath } from "node:url";
 import { run } from "../commands.js";
 import { echoPrompt, hiddenPrompt } from "../ui.js";
 
-/** Everything piped in, as one string. Never logged, never echoed: the one
- *  caller is `credentials set`, and what comes through here is a secret. */
+/** Everything piped in, as one string. Never logged, never echoed
+ *  (`self-page --write --stdin` reads the page through it). */
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk as Buffer));
@@ -72,8 +72,8 @@ async function main(): Promise<number> {
       // caller keeps the bytes it had.
       ...(process.stdin.isTTY ? { prompt: ask } : {}),
       // THE NO-ECHO READ, bound to the real streams (2026-09-21, finding #2).
-      // `ui.ts` shipped `hiddenPrompt` unwired; `credentials set` is the first
-      // command that needs it, and the install prompts are the second. Bound
+      // `ui.ts` shipped `hiddenPrompt` unwired; `credentials set` was the first
+      // command that needed it (removed 2026-09-24). Bound
       // UNCONDITIONALLY, unlike `prompt`: `askHidden` is reached only from an
       // arm that has already established there is a terminal, and a
       // `promptHidden` that existed only on a terminal would make the seam's
@@ -92,8 +92,8 @@ async function main(): Promise<number> {
           : {}),
       },
     },
-    // STANDARD INPUT, for the one command that takes its argument that way
-    // (`credentials set`, whose value must never be argv). Read lazily: nothing
+    // STANDARD INPUT, for a command that takes its argument that way
+    // (`self-page --write --stdin`). Read lazily: nothing
     // touches stdin unless a command asks for it, so every other command
     // behaves exactly as it did.
     stdin: { isTty: process.stdin.isTTY === true, read: readStdin },

@@ -1543,7 +1543,7 @@ acceptance criteria. What the six did:
 - **#173, E — `install`.** No step numbers, the store step silent, Claude Code **connected
   by default** (this replaces ruling 1 of 09-21: preview-then-ask), keys one at a time with
   `[y/N]` first, and `install` as the undo of `uninstall --park` (CONTRACT 37). `credentials`
-  bare lists the names it holds; `credentials set VOYAGE_API_KEY` offers the embedder the
+  bare lists the names it holds; `credentials set` for the Voyage key offers the embedder the
   way install does, which is what makes doctor's fix line true.
 - **#174, B — the help page, and the names.** Fourteen commands in three groups, the rest
   under `counterparts help advanced`, and `help.ts` now accounts for every dispatched
@@ -1599,7 +1599,7 @@ Six items the owner agreed on 2026-09-23, one PR. What each one does now:
   from the 09-22 round" were never committed, so there was nothing to reuse): the line is
   on screen at 0.05 s, the plan at 2.06 s.
 - **Doctor's `no-credential` fix line** is the command:
-  `Run: counterparts credentials set ANTHROPIC_API_KEY`. Every other sweep stand-down
+  `Run: counterparts credentials set` for the Anthropic key. Every other sweep stand-down
   reason keeps "The sweep stood down; the reason names why." — what fixes those depends
   on the door the row names. *Left for the owner:* on a store that never had the key, this
   amber and the `OFF  Crash write-up` line are now two lines about one optional key —
@@ -1754,8 +1754,8 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
   `--budget 9000` STAYS on that line: the scripted arm invents no ceiling (scar §2.18)
   — only the conversation writes 9000 — so dropping the flag would leave the wake
   unbounded. `package.json#homepage` is `https://counterparts.ai`.
-- **A first Voyage key would have switched the default off.** `credentials set
-  VOYAGE_API_KEY` into a block-less configuration now writes the static block first
+- **A first Voyage key would have switched the default off.** `credentials set` for the
+  Voyage key into a block-less configuration now writes the static block first
   (`pinLocalTable`) and says so, on both arms.
 - **"Found" means the table FILE**, in install and in doctor's no-row path: a
   `COUNTERPARTS_STATIC_WEIGHTS_DIR` naming an empty folder resolves by name and holds
@@ -1782,3 +1782,20 @@ tier is primary while Voyage is frozen (ROADMAP §"Amendments"). What the build 
   `credentialFindings` `crash-writeup` finding is retired (review of #195, MINOR 6: on
   the merged tree it printed an OFF "add a key" line beside #192's green `next session`),
   and only `crash-write-up` is listed.
+
+## Keyless only (2026-09-24, owner's word)
+
+- **Removed:** the `credentials` command and its help entry, `keys.ts` (the one writer of
+  a secret, the crash write-up offer, the Voyage key line, `pinLocalTable`), the
+  credentials template and `credentialsHeld`, `InstallLayout.credentials`, and the
+  `credentials` kind in `uninstall`'s list of what we own. The short help page lost one
+  line (`docs/new-user-findings.md`'s screen changed with it, on the owner's word).
+- **An old `credentials.env` is left alone everywhere.** `install` no longer writes one,
+  a forced rewrite drops `credentialsFile` / `models` / `crashWriteUp` from the file it
+  rewrites, `uninstall` counts the file as foreign (so the directory stays and the file is
+  named, with one sentence saying what it is), and `start-fresh` never touched it anyway.
+- **`resolveEmbedderBlock` lost its Voyage rules:** ON is always the table; OFF keeps a
+  kind this build knows and drops `voyage`.
+- **Left in place:** `ui.ts`'s no-echo reader (`askHidden`, `hiddenPrompt`) and its
+  binding in `bin/counterparts.ts`. Its only caller was `credentials set`; it is a small,
+  tested primitive, and removing it was not part of this round.

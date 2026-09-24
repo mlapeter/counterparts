@@ -1003,15 +1003,14 @@ describe("a directory set OFF stands down the seams added after this branch fork
     const project = join(work, "project");
     mkdirSync(project, { recursive: true });
 
-    // ON (unset): a store that HAS interpreted before and now holds no key is
-    // doctor's RED credentials finding, and a red is what makes the entry point
-    // print the JSON envelope. Keyless alone stopped being red on 2026-09-20 (a
-    // store that never had a key is amber, a supported way to run) — after which
-    // this test passed only where the Checkout line happened to be red, which is
-    // every branch and no clean master. `gate.chunk` is the store's own proof the
-    // interpreter ran here (`doctor.ts#keyHistory`).
+    // ON (unset): a worker refused past the escalation threshold is doctor's
+    // RED Spawn finding, and a red is what makes the entry point print the JSON
+    // envelope. (It was a key that went missing until the keys were removed on
+    // 2026-09-24.) Seeded explicitly, because without a red of its own this
+    // test would pass only where the Checkout line happened to be red, which is
+    // every branch and no clean master.
     const seeded = Store.open({ dir: store });
-    seeded.appendEvent({ name: "gate.chunk", day: seeded.livedDay(), payload: { date: "2026-09-13" } });
+    seeded.setMeta("adapter.spawn.refusals.WATCHDOG_EXCEEDS_STALENESS", "9");
     seeded.close();
     const on = runHook("SessionStart", "red-on", project);
     expect(on.code).toBe(0);
@@ -1020,7 +1019,7 @@ describe("a directory set OFF stands down the seams added after this branch fork
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(envelope.systemMessage ?? "").toContain("counterparts:");
-    expect(envelope.systemMessage ?? "").toContain("Credentials");
+    expect(envelope.systemMessage ?? "").toContain("Spawn");
     expect(envelope.hookSpecificOutput?.additionalContext ?? "").toContain(
       "has not lived a boundary",
     );

@@ -39,7 +39,7 @@ import { SELF_TUNABLES } from "../src/core/self/index.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { ClaudeCodeAdapter, HookInput } from "../src/adapters/claude-code/hooks.js";
 import { WRITE_UP_ASK_COUNT_KEY, WRITE_UP_ASK_DATE_KEY, WRITE_UP_OPEN } from "../src/adapters/claude-code/hooks.js";
-import { API_KEY_ENV, TUNABLES, loadConfig } from "../src/adapters/claude-code/config.js";
+import { TUNABLES, loadConfig } from "../src/adapters/claude-code/config.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/config.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
@@ -73,7 +73,6 @@ let root: string;
 let storeDir: string;
 let PROJ: string;
 let OTHER: string;
-let priorKey: string | undefined;
 const open: { close(): void }[] = [];
 
 beforeEach(() => {
@@ -83,10 +82,6 @@ beforeEach(() => {
   OTHER = join(root, "other");
   mkdirSync(PROJ, { recursive: true });
   mkdirSync(OTHER, { recursive: true });
-  // No test here may see a developer's own key: the API sweep and the
-  // next-session ask both read its PRESENCE.
-  priorKey = process.env[API_KEY_ENV];
-  delete process.env[API_KEY_ENV];
 });
 
 afterEach(() => {
@@ -97,8 +92,6 @@ afterEach(() => {
       /* already closed */
     }
   }
-  if (priorKey === undefined) delete process.env[API_KEY_ENV];
-  else process.env[API_KEY_ENV] = priorKey;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -397,8 +390,6 @@ describe("the pointer: the next session start in that project is pointed at it",
       configReason: "loaded",
       config: config(),
       dir: storeDir,
-      credentials: { loaded: [], skippedPresent: [], ignored: 0, file: null } as never,
-      credentialsPath: undefined,
       store: c.store,
       today: "2026-09-23",
       refusals: {},
@@ -426,15 +417,14 @@ describe("the pointer: the next session start in that project is pointed at it",
     expect(ask.indexOf(WRITE_UP_OPEN)).toBeGreaterThan(ask.indexOf("</counterparts-scope>"));
   });
 
-  test("with the API sweep ON, a crashed session is the sweep's — a normally ended one is still pointed at", () => {
+  test("a CRASHED session is pointed at like any other — there is no sweep to leave it to (keyless, 2026-09-24)", () => {
     const s = seeder();
     ended(s, "crashed", { at: Date.now() - 3 * DAY, end: "crash" });
     ended(s, "unanswered", { at: Date.now() - 1 * DAY, end: "normal" });
     s.done();
-    process.env[API_KEY_ENV] = "sk-ant-test-not-a-real-key";
-    const ask = start("new-1", { config: { crashWriteUp: "api" } }).ask ?? "";
-    expect(ask).toContain("writeUp: unanswered");
-    expect(ask).not.toContain("crashed");
+    // Oldest first: the crashed one.
+    const ask = start("new-1").ask ?? "";
+    expect(ask).toContain("writeUp: crashed");
   });
 
   test("a throw anywhere inside the pointer costs the pointer and nothing else", () => {
@@ -845,23 +835,7 @@ describe("the door: `session_end` with `writeUp`", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the sweep is an opt-in upgrade, and it and the write-up know each other", () => {
-  function crashed(id = "crashed", daysAgo = 2): void {
-    const s = seeder();
-    ended(s, id, { at: Date.now() - daysAgo * DAY, end: "crash" });
-    s.done();
-  }
-  const reply = (): Response =>
-    new Response(
-      [
-        `event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 1 } } })}\n\n`,
-        `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: '[{"content":"The relief valve is seated before the loop is pressurised.","kind":"fact"}]' } })}\n\n`,
-        `event: message_delta\ndata: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" } })}\n\n`,
-        `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
-      ].join(""),
-      { status: 200, headers: { "content-type": "text/event-stream" } },
-    );
-  const KEY = { [API_KEY_ENV]: "sk-ant-test-not-a-real-key" };
+describe("the worker never sweeps — a crashed session waits for the next session (keyless, 2026-09-24)", () => {
   function gateReason(): unknown {
     const c = Counterpart.open({ dir: storeDir, owner: true });
     try {
@@ -871,277 +845,48 @@ describe("the sweep is an opt-in upgrade, and it and the write-up know each othe
       c.close();
     }
   }
-  function marks(): [string, string][] {
-    const c = Counterpart.open({ dir: storeDir, owner: true });
-    try {
-      return c.spans.writeUps(PROJ).map((w) => [w.session, w.by]);
-    } finally {
-      c.close();
-    }
-  }
 
-  test("WITHOUT the knob, a key alone does not run it — the gate row says `not-opted-in` and no socket opens", async () => {
-    crashed();
-    let calls = 0;
+  test("the gate row says `not-opted-in`, nothing is marked, and the next session is pointed at it", async () => {
+    const s = seeder();
+    ended(s, "crashed", { at: Date.now() - 2 * DAY, end: "crash" });
+    s.done();
     const events: Record<string, unknown>[] = [];
     const report = await runOnce({
       config: config(),
       date: "2026-09-23",
-      env: KEY,
-      fetch: async () => {
-        calls += 1;
-        throw new Error("the sweep made a model call without the opt-in");
-      },
       onEvent: (name, data) => {
         if (name === "runner.done") events.push(data);
       },
     });
     expect(report.ran).toBe(true);
-    expect(calls).toBe(0);
+    expect(report.swept).toBe(0);
     expect(events[0]?.["sweep"]).toBe("next-session");
     expect(gateReason()).toBe("not-opted-in");
-  });
-
-  test("the knob with NO key: `no-credential` on the row, the next session's job", async () => {
-    crashed();
-    const events: Record<string, unknown>[] = [];
-    await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      date: "2026-09-23",
-      env: {},
-      fetch: async () => {
-        throw new Error("no key, no call");
-      },
-      onEvent: (name, data) => {
-        if (name === "runner.done") events.push(data);
-      },
-    });
-    expect(events[0]?.["sweep"]).toBe("no-key");
-    expect(gateReason()).toBe("no-credential");
-  });
-
-  test("WITH the knob and a key it runs — and marks the session it swept, `by: \"api\"`", async () => {
-    crashed();
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    let calls = 0;
-    const report = await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      date: "2026-09-23",
-      env: KEY,
-      fetch: async () => {
-        calls += 1;
-        return reply();
-      },
-    });
-    expect(calls).toBeGreaterThan(0);
-    expect(report.swept).toBeGreaterThan(0);
-    expect(marks()).toEqual([["crashed", "api"]]);
-  });
-
-  test("a session the next session already wrote up is NOT read again: alone, no model call; beside another, marked as authored", async () => {
-    crashed("written", 3);
-    // Written up by the next session, the keyless way.
-    const { s } = await pointAndFetch("writer");
-    expect(payload(await s.call("session_end", { session: "writer", writeUp: "written", memories: [MEMORY] }))["marked"]).toBe(true);
-    s.counterpart.close();
-    open.splice(open.indexOf(s.counterpart), 1);
-
-    // Alone: the owner turns the API sweep on, and it makes no call for it.
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    let calls = 0;
-    await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      date: "2026-09-24",
-      env: KEY,
-      fetch: async () => {
-        calls += 1;
-        throw new Error("the sweep re-read a session that was written up");
-      },
-    });
-    expect(calls).toBe(0);
-  });
-
-  test("beside a session it has not seen, the written-up one's words reach the model marked as already authored", async () => {
-    crashed("written", 3);
-    const { s } = await pointAndFetch("writer");
-    expect(payload(await s.call("session_end", { session: "writer", writeUp: "written", memories: [] }))["marked"]).toBe(true);
-    s.counterpart.close();
-    open.splice(open.indexOf(s.counterpart), 1);
-    crashed("unseen", 2);
-
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    const prompts: string[] = [];
-    await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      date: "2026-09-24",
-      env: KEY,
-      fetch: async (_url: string, init: RequestInit) => {
-        const body = JSON.parse(String(init.body)) as { messages: { content: string }[] };
-        prompts.push(body.messages[0]?.content ?? "");
-        return reply();
-      },
-    });
-    expect(prompts.length).toBe(1);
-    const prompt = prompts[0] as string;
-    const before = (tag: string): string => {
-      const at = prompt.indexOf(wordsOf(tag, 30));
-      return prompt.slice(Math.max(0, at - ALREADY_AUTHORED_MARK.length - 2), at);
-    };
-    expect(before("written #0")).toContain(ALREADY_AUTHORED_MARK);
-    expect(before("unseen #0")).not.toContain(ALREADY_AUTHORED_MARK);
-    // The unseen one is marked by the sweep; the written one keeps its own mark.
-    expect(marks()).toEqual([
-      ["written", "next-session"],
-      ["unseen", "api"],
-    ]);
-  });
-
-  test("the re-review's MAJOR-A repro: one project swept is not the session finished — its words in another are read later, never retired unread", async () => {
-    // `two` talked in OTHER two days ago, then was resumed in PROJ two hours ago.
-    const seed = seeder();
-    const early = Date.now() - 2 * DAY;
-    const late = Date.now() - 2 * HOUR;
-    seed.set(early);
-    recordSession(storeDir, { sessionId: "two", scope: OTHER, phase: "start", at: early });
-    seed.c.captureSpans({
-      session: "two",
-      scope: OTHER,
-      turns: [
-        { role: "user", text: wordsOf("OTHER-WORDS", 600) },
-        { role: "assistant", text: "(two, in OTHER) understood." },
-      ],
-    });
-    seed.c.boundary({ session: "two", scope: OTHER, kind: "stop" });
-    seed.set(late);
-    recordSession(storeDir, { sessionId: "two", scope: PROJ, phase: "start", at: late });
-    seed.c.captureSpans({
-      session: "two",
-      scope: PROJ,
-      turns: [
-        { role: "user", text: wordsOf("PROJ-WORDS", 600) },
-        { role: "assistant", text: "(two, in PROJ) understood." },
-      ],
-    });
-    expect(seed.c.episodeAsk("two", { turns: 9, bytes: 6_000 }).asked).toBe(true);
-    seed.c.boundary({ session: "two", scope: PROJ, kind: "stop" });
-    seed.done();
-
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    const prompts: string[] = [];
-    const reading = async (_url: string, init: RequestInit): Promise<Response> => {
-      prompts.push((JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[0]?.content ?? "");
-      return reply();
-    };
-    const liveIn = (scope: string): number => {
-      const c = Counterpart.open({ dir: storeDir, owner: true });
-      try {
-        return c.spans.spans(scope).filter((x) => x.session === "two").length;
-      } finally {
-        c.close();
-      }
-    };
-
-    // Run 1: OTHER is stale and swept; PROJ is two hours old and is not.
-    await runOnce({ config: config({ crashWriteUp: "api" }), date: "2026-09-23", env: KEY, fetch: reading });
-    expect(prompts.length).toBe(1);
-    expect(prompts[0]).toContain("OTHER-WORDS");
-    expect(prompts[0]).not.toContain("PROJ-WORDS");
-    // NOT marked: PROJ still holds its words, so the session is not finished.
-    expect(marks()).toEqual([]);
     const c = Counterpart.open({ dir: storeDir, owner: true });
-    expect(c.spans.writeUps(OTHER)).toEqual([]);
-    expect(planRetention(c.spans, writeUpSources(c.store, FIRST_ASK)).find((h) => h.session === "two")?.facts.writtenUp).toBe(false);
-    c.close();
-    expect(liveIn(PROJ)).toBe(1);
-
-    // Later: PROJ goes stale too. Its words are READ — not retired unread — and
-    // only now is the session marked.
-    const bounds = join(storeDir, "spans", keyFor(PROJ), "boundaries.jsonl");
-    const aged = readFileSync(bounds, "utf8")
-      .split("\n")
-      .filter((l) => l.trim().length > 0)
-      .map((l) => {
-        const r = JSON.parse(l) as { at: number };
-        return JSON.stringify({ ...r, at: r.at - 13 * HOUR });
-      });
-    writeFileSync(bounds, `${aged.join("\n")}\n`, "utf8");
-    await runOnce({ config: config({ crashWriteUp: "api" }), date: "2026-09-24", env: KEY, fetch: reading });
-    expect(prompts.length).toBe(2);
-    expect(prompts[1]).toContain("PROJ-WORDS");
-    expect(liveIn(PROJ)).toBe(0);
-    expect(marks()).toEqual([["two", "api"]]);
-  });
-
-  test("the review's 401-for-4-days repro: a QUARANTINED session is NOT marked — still owed, offered to a next session, never deleted (MAJOR 5)", async () => {
-    crashed();
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    const revoked = async (): Promise<Response> => new Response("invalid x-api-key", { status: 401 });
-    const standing = (): { owes?: boolean; verdict?: string } => {
-      const c = Counterpart.open({ dir: storeDir, owner: true });
-      try {
-        const h = planRetention(c.spans, writeUpSources(c.store, FIRST_ASK)).find((x) => x.session === "crashed");
-        const later = verdicts(c).later.get("crashed");
-        return { ...(h === undefined ? {} : { owes: h.owes }), ...(later === undefined ? {} : { verdict: later }) };
-      } finally {
-        c.close();
-      }
-    };
-    let quarantined = 0;
-    for (const date of ["2026-09-23", "2026-09-24", "2026-09-25", "2026-09-26"]) {
-      const report = await runOnce({ config: config({ crashWriteUp: "api" }), date, env: KEY, fetch: revoked });
-      expect(report.ran).toBe(true);
-      const c = Counterpart.open({ dir: storeDir, owner: true });
-      quarantined = c.spans.quarantined(PROJ).length;
+    try {
+      expect(c.spans.writeUps(PROJ)).toEqual([]);
+    } finally {
       c.close();
-      expect(marks()).toEqual([]);
-      if (quarantined > 0) break;
     }
-    expect(quarantined).toBeGreaterThan(0);
-    // The review's repro, to the letter: the registry forgets the record a week
-    // after its last write. Not marked; still owed; kept however old.
-    rmSync(join(storeDir, "sessions", "crashed.json"), { force: true });
-    expect(marks()).toEqual([]);
-    expect(standing()).toEqual({ owes: true, verdict: "kept-owed" });
-    // With the sweep still on, the next session is offered what it could not read.
-    const ask = start("next", { config: { crashWriteUp: "api" } }).ask ?? "";
-    expect(ask).toContain("writeUp: crashed");
-    const s = server();
-    const got = payload(await s.call("session_end", { session: "next", writeUp: "crashed" }));
-    expect(String(got["text"])).toContain(wordsOf("crashed #0", 40));
+    expect(start("new-1").ask ?? "").toContain("writeUp: crashed");
   });
 
-  test("a clean sweep marks `api`; a chunk put back for a retry is not marked", async () => {
-    crashed();
-    process.env[API_KEY_ENV] = KEY[API_KEY_ENV];
-    await runOnce({
-      config: config({ crashWriteUp: "api" }),
-      date: "2026-09-23",
-      env: KEY,
-      fetch: async () => new Response("overloaded", { status: 529 }),
-    });
-    expect(marks()).toEqual([]);
-    await runOnce({ config: config({ crashWriteUp: "api" }), date: "2026-09-24", env: KEY, fetch: async () => reply() });
-    expect(marks()).toEqual([["crashed", "api"]]);
-  });
-
-  test("the knob reads an unknown value as `next-session` — memory stays on — and names it (m3)", () => {
-    expect(loadConfig({ dataDir: "/x", crashWriteUp: "api" }).config.crashWriteUp).toBe("api");
-    expect(loadConfig({ dataDir: "/x", crashWriteUp: "next-session" }).config.crashWriteUp).toBe("next-session");
-    for (const bad of ["API", "api ", true, 1, null, "sweep"]) {
-      const loaded = loadConfig({ dataDir: "/x", crashWriteUp: bad });
+  test("an old `crashWriteUp` in the configuration is ignored and named — memory stays on", () => {
+    for (const value of ["api", "API", true, null, "sweep"]) {
+      const loaded = loadConfig({ dataDir: "/x", crashWriteUp: value });
       expect(loaded.ok).toBe(true);
       expect(loaded.config.observer).toBeUndefined();
       expect(loaded.config.dataDir).toBe("/x");
-      expect(loaded.config.crashWriteUp).toBeUndefined();
-      expect(loaded.config.crashWriteUpIgnored).toContain("crashWriteUp was");
+      expect((loaded.config.retired ?? []).join(" ")).toContain('"crashWriteUp" is no longer used');
     }
-    expect(loadConfig({ dataDir: "/x" }).config.crashWriteUp).toBeUndefined();
+    // The one value that was always the behaviour is not worth a note.
+    expect(loadConfig({ dataDir: "/x", crashWriteUp: "next-session" }).config.retired).toBeUndefined();
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("doctor: one line, `Crash write-up`", () => {
-  function line(over: Partial<AdapterConfig> = {}, keys: string[] = []): { severity: string; detail: string } {
+  function line(over: Partial<AdapterConfig> = {}): { severity: string; detail: string } {
     const c = Counterpart.open({ dir: storeDir, owner: true });
     open.push(c);
     const findings = doctorFindings({
@@ -1149,8 +894,6 @@ describe("doctor: one line, `Crash write-up`", () => {
       configReason: "loaded",
       config: config(over),
       dir: storeDir,
-      credentials: { loaded: keys, skippedPresent: [], ignored: 0, file: null } as never,
-      credentialsPath: undefined,
       store: c.store,
       today: "2026-09-23",
       refusals: {},
@@ -1161,27 +904,15 @@ describe("doctor: one line, `Crash write-up`", () => {
     return { severity: f?.severity ?? "missing", detail: f?.detail ?? "" };
   }
 
-  test("green `next session` by default; `on (API)` with the knob and the key; amber with the knob and no key", () => {
+  test("green `next session` by default — the only route", () => {
     expect(line()).toEqual({ severity: "green", detail: "next session" });
-    expect(line({ crashWriteUp: "api" }, [API_KEY_ENV])).toEqual({ severity: "green", detail: "on (API)" });
-    expect(line({ crashWriteUp: "api" }).severity).toBe("amber");
   });
 
-  test("an ignored knob value is named on the line (m3)", () => {
-    const f = line({ crashWriteUpIgnored: 'crashWriteUp was "API", which is neither "api" nor "next-session"; using next-session' });
-    expect(f.severity).toBe("amber");
-    expect(f.detail).toContain('crashWriteUp was "API"');
-  });
-
-  test("under `api`, a crashed session the sweep will still read is not counted as waiting on a next session (m4)", () => {
+  test("a crashed session counts as waiting like any other", () => {
     const s = seeder();
     ended(s, "crashed", { at: Date.now() - 5 * DAY, end: "crash" });
     ended(s, "unanswered", { at: Date.now() - 1 * DAY, end: "normal" });
     s.done();
-    expect(line({ crashWriteUp: "api" }, [API_KEY_ENV])).toEqual({
-      severity: "green",
-      detail: "on (API) — 1 session awaiting a write-up",
-    });
     expect(line().detail).toBe("next session — 2 sessions awaiting a write-up, 1 older than 3 days");
   });
 
@@ -1208,8 +939,6 @@ describe("doctor: one line, `Crash write-up`", () => {
       configReason: "loaded",
       config: config(),
       dir: storeDir,
-      credentials: { loaded: [], skippedPresent: [], ignored: 0, file: null } as never,
-      credentialsPath: undefined,
       store: c.store,
       today: "2026-09-23",
       refusals: {},
