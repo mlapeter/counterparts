@@ -47,9 +47,9 @@ a badge or softer copy when the site is next touched.
    this section. Each ships with its own gauge on the dashboard. The owner reads the gauges on his
    real store; sessions use the demo store. Candidates: the four not built, similarity merge in
    consolidation, the partial three, U7 (yesterday's work missing from the wake), and re-checking
-   the static embedder's tuning on real turns. Also a bug: schema cards never fade (`fadeSweep` has
-   no caller). Prospective needs a date field, which is a schema change, so the Reconnect recipe
-   (E) and a snapshot before migration come first.
+   the static embedder's tuning on real turns. (The bug where schema cards never faded is fixed:
+   #215 gave `fadeSweep` a caller, the sleep `fade` phase.) Prospective needs a date field, which
+   is a schema change; the Reconnect recipe (E) and the snapshot before migration (#214) are in.
    - Contradictions nobody declared (raised on Reddit, 09-24). A conflict resolves only when
      the writer marks it with `updates:`. Two memories that disagree without that link both
      stay live, and recall can surface both. A possible fix, if it shows up in real use: a
