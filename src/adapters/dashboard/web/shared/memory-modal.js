@@ -1,10 +1,12 @@
 /* One memory, opened — from any row, dot or reference on any page. Resolved at
    the moment it is opened, so a memory that left the store says so. */
+import { act, resultHtml } from "./actions.js";
 import { api, fail } from "./api.js";
 import { emptyBox } from "./absence.js";
 import { esc } from "./dom.js";
 import { headline, n2, n3, said } from "./format.js";
 import { openModal, section } from "./modal.js";
+import { confirmTyped } from "./widgets/confirm.js";
 
 export async function openMemory(id) {
   let d;
@@ -23,7 +25,9 @@ export async function openMemory(id) {
       (d.askedFor ? "<span>you asked for " + esc(d.askedFor) + ", which forwards here</span>" : "") +
       "<span class='path'>rev " + esc(String(d.revision)) + " · " + esc(d.contentHash || "—") + "</span>" +
       "<button class='copy' data-id=\"" + esc(d.id) + "\" onclick=\"copyId(this)\">copy id</button>" +
+      "<button class='copy act-danger' data-id=\"" + esc(d.id) + "\" onclick=\"removeMemory(this)\">remove…</button>" +
       "</div>" +
+      "<div id='remove-out'></div>" +
     "<div class='body'>" + (d.confidential ? '<span class="withheld">' + esc(d.text) + "</span>" : esc(d.text)) + "</div>" +
     (d.journal
       ? "<p style='color:var(--purple);font-size:11px;line-height:1.7;margin:-4px 0 14px'>" +
@@ -86,6 +90,33 @@ export function copyId(btn) {
   btn.textContent = id;
 }
 
+/**
+ * REMOVE, the loud way — the console's own two steps. First the dry run
+ * (`counterparts remove <id>`), whose plan is shown in the confirmation; then,
+ * only once the owner has typed the id back, `remove <id> --confirm`, with what
+ * they typed handed to the console's own prompt.
+ */
+export async function removeMemory(btn) {
+  const id = btn.dataset.id || "";
+  const out = document.getElementById("remove-out");
+  const show = (html) => { if (out) out.innerHTML = html; };
+  btn.disabled = true;
+  const plan = await act("remove", { id });
+  btn.disabled = false;
+  if (plan.error || !plan.ok) return show(resultHtml(plan));
+  const typed = await confirmTyped({
+    title: "Remove this memory permanently?",
+    bodyHtml: "<div style='color:var(--dim);margin-bottom:6px'>What the console plans to do:</div>" + resultHtml(plan),
+    phrase: id,
+    action: "remove it",
+  });
+  if (typed === null) return show("<div class='act-out'>Nothing was removed.</div>");
+  show(resultHtml({ out: ["removing…"] }));
+  const r = await act("remove", { id, confirm: typed });
+  show(resultHtml(r));
+}
+
 // Every row on every page opens a memory through an inline `onclick` string.
 window.openMemory = openMemory;
 window.copyId = copyId;
+window.removeMemory = removeMemory;

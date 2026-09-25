@@ -371,8 +371,10 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
   dashboard: [
     "It reads the store your CONFIGURATION names — the one the hooks and the",
     "memory tools open — so it needs no --dir. The page is served on 127.0.0.1",
-    "and nowhere else, in observer mode: it strengthens nothing, deposits",
-    "nothing, and writes no file of its own.",
+    "and nowhere else. Looking is observer mode: it strengthens nothing and",
+    "deposits nothing. What you do there on purpose — a note, a removal, a",
+    "backup, an export, a scope, a rebrief, a verify, an ask — runs through",
+    "these same commands, and a removal asks you to type the id back.",
   ],
   help: [
     "With no command it prints the short map — the same page `counterparts",

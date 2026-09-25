@@ -10,7 +10,8 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 
 | file | what it is |
 |---|---|
-| `server.ts` | `node:http` on 127.0.0.1, the Host allowlist, `router()`: `/`, `/brain`, the favicon, `/api/*`, and the static files |
+| `server.ts` | `node:http` on 127.0.0.1, the Host allowlist, `router()` (GET: `/`, `/brain`, the favicon, `/api/*`, the static files), and the POST hand-off to `actions.ts` |
+| `actions.ts` | managing: `POST /api/action/<name>` — the same-origin + per-launch-token guard, argument validation, and the console's own `run()` (loaded lazily; never handed the observer source) |
 | `static.ts` | `resolveStatic()`: which URL paths are static files and where they live (pure; no fs) |
 | `views.ts` | the index of `views/`: re-exports every view, so callers import from here |
 | `views/<name>.ts` | one module per `/api` view: `meta`, `overview`, `memories`, `memory`, `search`, `mind`, `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse` |
@@ -40,14 +41,16 @@ shared/
   format.js           n2 n3 pct said livedSpan headline
   colors.js           COL BANDCOL ACCENT (canvas needs JS values)
   absence.js          emptyBox absenceLine — the "(none yet)" / "(never run)" block
-  api.js              api() (the only fetch; GET only) and fail()
+  api.js              api() (looking: GET only) and fail()
+  actions.js          act() (managing: the one POST, with the page's token) and resultHtml()
   canvas.js           fit hitTest roundRect clip wrapText
   tip.js modal.js     showTip/hideTip; openModal/closeModal/section
-  memory-modal.js     openMemory, copyId (window globals: rows use inline onclick)
+  memory-modal.js     openMemory, copyId, removeMemory (window globals: rows use inline onclick)
   event-modal.js      openEvent (window global)
   state.js            tabs {current, loaded}; live {lastSeq, fingerprint}
   widgets/            card rows table chart tiles bar feed .css; bar.js (bandBars),
-                      feed.js (renderFeed, live-feed registry), chapters.js (chapterRows)
+                      feed.js (renderFeed, live-feed registry), chapters.js (chapterRows),
+                      confirm.js + .css (confirmTyped: type a phrase back to confirm)
 pages/<tab>/
   index.js            default export { name, mount(section), render(), refresh?, show?,
                       resize?, redraw?, onEvents?, onDeposit? }; composes its sections' markup

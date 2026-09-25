@@ -473,6 +473,12 @@ describe("the observer guarantee, restated for a web adapter", () => {
       get(d.src, "/");
       get(d.src, "/brain");
       get(d.src, "/favicon.svg");
+      // LOOKING NEVER ACTS: every action path, reached the way a link, an
+      // <img> or a prefetch would reach it, is refused before anything runs.
+      for (const name of ["note", "remove", "backup", "export", "scope", "rebrief", "verify", "ask", "install"]) {
+        expect(get(d.src, `/api/action/${name}?text=x&id=mem_000000000000&confirm=mem_000000000000`).status).toBe(405);
+      }
+      expect(get(d.src, "/api/action").status).toBe(405);
       expect(diff(before, canonical(seeded.dir))).toEqual([]);
     } finally {
       d.close();
@@ -710,14 +716,31 @@ describe("the page's static files", () => {
     expect(existsSync(join(WEB, "app.html"))).toBe(true);
   });
 
-  test("the page only ever GETs: one fetch, in shared/api.js, with no method", () => {
+  /**
+   * LOOKING GETs; MANAGING POSTs, from exactly one declared module (owner,
+   * 2026-09-25: the dashboard is also where the owner manages memory, through
+   * the console's own doors). Two fetches, no more: `shared/api.js`, which
+   * still names no method and so can only GET, and `shared/actions.js`, whose
+   * one method is POST and which always carries the page's action token. A
+   * third fetch anywhere — or a POST in the looking path — fails here.
+   */
+  test("the page GETs to look and POSTs only from shared/actions.js to act", () => {
     const WEB_JS = walkWeb(WEB).filter((f) => f.endsWith(".js"));
     const code = (f: string): string =>
       readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
     const fetching = WEB_JS.filter((f) => /\bfetch\s*\(/.test(code(f))).map((f) => relative(WEB, f));
-    expect(fetching).toEqual(["shared/api.js"]);
-    const api = readFileSync(join(WEB, "shared/api.js"), "utf8");
+    expect(fetching.sort()).toEqual(["shared/actions.js", "shared/api.js"]);
+    const api = code(join(WEB, "shared/api.js"));
     expect(/method\s*:/.test(api)).toBe(false);
+    const actions = code(join(WEB, "shared/actions.js"));
+    expect([...actions.matchAll(/method\s*:\s*("[^"]*"|'[^']*'|\w+)/g)].map((m) => m[1])).toEqual(['"POST"']);
+    expect(actions).toContain('"x-counterparts-token"');
+    expect(actions).toContain('"/api/action/"');
+    // And no other module names a method at all.
+    for (const f of WEB_JS) {
+      if (relative(WEB, f) === "shared/actions.js") continue;
+      expect(`${relative(WEB, f)}: ${/\bmethod\s*:/.test(code(f))}`).toBe(`${relative(WEB, f)}: false`);
+    }
     for (const f of WEB_JS) {
       const src = code(f);
       expect(`${relative(WEB, f)}: ${/XMLHttpRequest|sendBeacon|WebSocket|EventSource|localStorage|indexedDB/.test(src)}`)
@@ -1450,7 +1473,10 @@ describe("starting the thing", () => {
       dir: "/tmp/x",
       port: 5000,
       defaultStore: false,
+      config: undefined,
     });
+    // `--config` names the configuration the page's scope/rebrief actions use.
+    expect(parseServe(["serve", "--dir", "/tmp/x", "--config", "/tmp/c.json"]).config).toBe("/tmp/c.json");
     expect(parseServe(["status"]).serve).toBe(false);
     expect(parseServe(["serve"]).port).toBeUndefined();
     expect(parseServe(["serve"]).defaultStore).toBe(false);
