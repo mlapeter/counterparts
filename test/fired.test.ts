@@ -60,9 +60,11 @@ function at(date: string, clock = "T12:00:00Z"): number {
   return Date.parse(`${date}${clock}`);
 }
 
-/** A store whose PROVENANCE clock is the one this test names. */
-function store(now: number = at(TODAY)): Store {
-  const s = Store.open({ dir, now: () => now });
+/** A store whose PROVENANCE clock is the one this test names, and whose zone
+ *  is pinned — UTC unless a test says otherwise — so the calendar windows read
+ *  the same on any machine (the windows are the store's zone since 2026-09-25). */
+function store(now: number = at(TODAY), timeZone = "UTC"): Store {
+  const s = Store.open({ dir, now: () => now, timeZone });
   stores.push(s);
   return s;
 }
@@ -578,11 +580,12 @@ describe("the seven-day windows are right at a UTC date boundary", () => {
   });
 
   /**
-   * A row with no `date` in its payload falls back to its WALL CLOCK, and the
-   * wall clock is read in UTC — the same spelling every date in this store uses.
-   * The two rows below straddle one UTC midnight by a second.
+   * A row with no `date` in its payload falls back to its WALL CLOCK, read in
+   * the store's zone (UTC until 2026-09-25; the person's since — docs/time.md).
+   * The store here is pinned to UTC, and the two rows below straddle one UTC
+   * midnight by a second.
    */
-  test("a row with no date of its own is placed by its wall clock, in UTC", () => {
+  test("a row with no date of its own is placed by its wall clock, in the store's zone", () => {
     const inside = store(at("2026-09-11", "T00:00:00Z"));
     inside.appendEvent({ name: "adapter.boundary", day: inside.livedDay() });
     expect(pick(report(inside), "capture").firedInWindow).toBe(1);
@@ -593,6 +596,15 @@ describe("the seven-day windows are right at a UTC date boundary", () => {
     const briefing = pick(report(outside), "briefing");
     expect(briefing.firedInWindow).toBe(0);
     expect(briefing.firedInPreviousWindow).toBe(1);
+    expect(briefing.lastFired).toBe("2026-09-10");
+  });
+
+  test("the same instant in Denver is still the evening before, and falls outside", () => {
+    // 00:00 UTC on the 11th is 18:00 MDT on the 10th: the person's day.
+    const s = store(at("2026-09-11", "T00:00:00Z"), "America/Denver");
+    s.appendEvent({ name: "self.briefing", day: s.livedDay() });
+    const briefing = pick(report(s), "briefing");
+    expect(briefing.firedInWindow).toBe(0);
     expect(briefing.lastFired).toBe("2026-09-10");
   });
 
@@ -813,7 +825,7 @@ describe("counterparts mechanisms --all (the full fired report)", () => {
 
     const { code, text } = await fired();
     expect(code).toBe(0);
-    expect(text).toContain("what has fired — 2026-09-11→2026-09-17 (UTC)");
+    expect(text).toContain("what has fired — 2026-09-11→2026-09-17, against");
     // The group that says something changed leads the page.
     expect(text).toContain("Fired last week and not once this week:");
     expect(text.indexOf("QUIET (")).toBeLessThan(text.indexOf("FIRING ("));

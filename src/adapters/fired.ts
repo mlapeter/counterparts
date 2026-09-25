@@ -31,7 +31,11 @@
  *      GROUP BY, so the events are read once — ascending, as `eventLog` returns
  *      them — and grouped here. A read that hits its ceiling says so and reports
  *      its totals as a floor rather than as a number.
- *   2. **Windows are CALENDAR days, UTC.** The lived clock is advanced by the
+ *   2. **Windows are CALENDAR days, in the person's zone** (UTC until
+ *      2026-09-25; docs/time.md moved every person's day to local, and this
+ *      is a read-only view over moments, so it follows — `Store#zone`). A row
+ *      that carries its own `date` (a hook's) is read as written; hooks stamp
+ *      that local too since the same day. The lived clock is advanced by the
  *      worker and has run seven lived days across fifteen calendar ones on the
  *      owner's own store, so a lived-day window would silently drop rows. The
  *      `sinceDay` bound is used only to keep the SQL cheap; a lived day is never
@@ -49,7 +53,7 @@
  *      from, and it still reads only fields a writer already fills.
  */
 import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
-import { dateOf } from "../core/store/index.js";
+import { addDays, daysBetween as calendarDaysBetween, localDate } from "../core/time.js";
 import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
 import type { DurableEventName } from "./dashboard/registries.js";
 
@@ -973,11 +977,13 @@ export interface FiredOptions {
   readonly probes?: boolean;
 }
 
-/** `YYYY-MM-DD`, `back` days before `today`. UTC, like every date in this store. */
+/** `YYYY-MM-DD`, `back` days before `today` — label arithmetic (`time.ts`). */
 export function daysBefore(today: string, back: number): string {
-  const at = Date.parse(`${today}T00:00:00Z`);
-  if (Number.isNaN(at)) return today;
-  return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+  try {
+    return addDays(today, -back);
+  } catch {
+    return today;
+  }
 }
 
 /** True when this mechanism's refusal channel is younger than the window the
@@ -988,12 +994,13 @@ function comparisonIsTooYoung(id: string, w: Window): boolean {
   return since !== undefined && since > w.previousFrom;
 }
 
-/** Whole UTC days from `from` to `to`, 0 when either date does not parse. */
+/** Whole calendar days from `from` to `to`, 0 when either date does not parse. */
 export function daysBetween(from: string, to: string): number {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
-  return Math.round((b - a) / 86_400_000);
+  try {
+    return calendarDaysBetween(from, to);
+  } catch {
+    return 0;
+  }
 }
 
 /** The lived clock, or 0. A diagnostic may not become the thing that throws. */
@@ -1015,6 +1022,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     to: today,
     previousFrom: daysBefore(today, FIRED_DAYS * 2 - 1),
     previousTo: daysBefore(today, FIRED_DAYS),
+    zone: store.zone(),
   };
   const log = readLog(store, window);
   const probed = opts.probes === false ? null : readProbes(store, window);
@@ -1097,6 +1105,8 @@ interface Window {
   readonly to: string;
   readonly previousFrom: string;
   readonly previousTo: string;
+  /** The zone a moment's calendar date is read in (`Store#zone`). */
+  readonly zone: string;
 }
 
 /** A reading of one piece of evidence, before the state is decided. */
@@ -1383,7 +1393,7 @@ function tallyRow(
   age: { oldest: string | null },
 ): void {
   const payload = payloadOf(row);
-  const date = rowDate(row, payload);
+  const date = rowDate(row, payload, w.zone);
   if (age.oldest === null || date < age.oldest) age.oldest = date;
   const t = countInto(byName, row.name, date, w);
   // THE FILTERED TALLIES, in the same pass (`Evidence.positive`). They count
@@ -1426,10 +1436,10 @@ function countInto(
 
 /** The CALENDAR date a row is about: its own field, else the wall clock it was
  *  written at. `day` is the lived-day column and answers a different question. */
-function rowDate(row: EventRow, payload: Record<string, unknown>): string {
+function rowDate(row: EventRow, payload: Record<string, unknown>, zone: string): string {
   const date = payload["date"];
   if (typeof date === "string" && date.length === 10) return date;
-  return dateOf(row.at);
+  return localDate(row.at, zone);
 }
 
 function payloadOf(row: EventRow): Record<string, unknown> {
@@ -1587,6 +1597,7 @@ interface Probed {
   readonly byId: ReadonlyMap<string, ProbeTally>;
   readonly livedDay: number;
   readonly truncated: boolean;
+  readonly zone: string;
 }
 
 /**
@@ -1618,7 +1629,7 @@ function readProbes(store: ReadOnlyStore, w: Window): Probed {
     // the row prints `lived day N` rather than a date so the reader can see
     // which clock answered.
     if (when !== null) {
-      const date = dateOf(when);
+      const date = localDate(when, w.zone);
       if (date >= w.from && date <= w.to) t.inWindow += 1;
       else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
       return;
@@ -1645,7 +1656,7 @@ function readProbes(store: ReadOnlyStore, w: Window): Probed {
       bump(`versions:${v.reason}`, { livedDay: v.version_day, at: v.archived_at });
     }
   }
-  return { byId, livedDay, truncated: scanned.length < ids.length };
+  return { byId, livedDay, truncated: scanned.length < ids.length, zone: w.zone };
 }
 
 function probeReading(probe: ProbeId, undated: string | null, probed: Probed | null): Reading {
@@ -1664,7 +1675,7 @@ function probeReading(probe: ProbeId, undated: string | null, probed: Probed | n
     inPreviousWindow: t.inPreviousWindow,
   };
   if (t.lastAt !== null) {
-    return { ...counted, lastFired: dateOf(t.lastAt), lastFiredIsDate: true };
+    return { ...counted, lastFired: localDate(t.lastAt, probed.zone), lastFiredIsDate: true };
   }
   if (t.lastLivedDay !== null) {
     return {

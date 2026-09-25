@@ -39,7 +39,14 @@ export interface ProseDoc {
   title?: string;
   /** When it happened, at stated precision: `2026`, `2026-08`, or `2026-08-25`. Never rounded. */
   happenedOn?: string;
-  /** When it was learned (ISO date). Supersession reasoning needs it. */
+  /**
+   * The calendar date this memory is ABOUT — a reminder's date — as the person
+   * said it: `2026-10-15`, `2026-10`, `2026`, or `2026-10-20..2026-10-31`
+   * (`core/time.ts`). Schema v7's `event_date`. Never a moment, never rounded.
+   */
+  eventDate?: string;
+  /** When it was learned (ISO date). Supersession reasoning needs it. Since
+   *  2026-09-25 the LOCAL date of the row's `created_at`; UTC before. */
   learnedOn: string;
   /** Which lived day it was born on — the decay clock's integer (scar E8). */
   bornDay: number;

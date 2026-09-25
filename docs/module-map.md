@@ -23,6 +23,8 @@ code and the `NOTES.md` / `INTERFACE-GAPS.md` next to it.*
 | `prospective/` | prospective memory | Future intentions, cued by time or context; fire / suppress / reference telemetry. |
 | `handoff/` | working context for a place | The per-directory handoff: where the work here stands, written as a field on the end-of-session ask, shown as a two-line pointer at the next wake in that directory, expiring in lived days. **Never a memory** — out of recall, out of credit, out of consolidation, out of identity. **Added 2026-09-20 (E1, spec §6.4 / §15 item 6).** |
 | `sleep/` | systems consolidation | Pure math on a cycle: decay tick (active-day clock), floor-pruning (real forgetting), re-render of the wake briefing. Zero standing model calls. |
+| *(`time.ts`)* | — (a clock, not a memory) | The one module that converts: a moment (UTC ms from `store.now()`) to a person's local date or clock line, "today" in a zone, and calendar dates as said (day, month, year, range). A file, not a module; a test keeps hand-built dates out of `src/`. **Added 2026-09-25 (`docs/time.md`).** |
+| *(`feelings-wheel.ts`)* | — (a vocabulary) | The feelings wheel as a typed list: six cores, the middle and outer rings, valence, and the key scheme (`<core>.<word>` only for a word printed under two cores). Read by `store/` to validate the `feelings` table. **Added 2026-09-25.** |
 | *(observer)* | — (instrument stance) | **RESOLVED (owner, 2026-08-25): a MODE, not a module** — one predicate threaded through the core API, checked at the store seam. Spec moved to `docs/observer-mode.md`. |
 
 **Third open question (check-in): the `remember`/`encode` boundary.** With the

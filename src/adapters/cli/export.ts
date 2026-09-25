@@ -255,8 +255,12 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
       counts.notRendered.push(id);
       continue;
     }
-    const text = render(id, doc);
-    if (text === null) continue;
+    const rendered = render(id, doc);
+    if (rendered === null) continue;
+    // THE MEMORY'S FEELINGS TRAVEL WITH IT (schema v7, review N7): a short
+    // section after the body, one line each, so the readable copy says what the
+    // database does. The database export carries the table whole.
+    const text = rendered + feelingsSection(store, id);
     put(pathFor(store, row, doc), text);
     counts.rows += 1;
     if (row.type === "episode") counts.journal += 1;
@@ -293,6 +297,25 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
 }
 
 /** Where one row's markdown goes in the tree. Ids only; never a title. */
+/** `\n## Feelings\n\n- owner · fear · worried · 0.6 — carried by …`, or "" when none. */
+function feelingsSection(store: Store, id: string): string {
+  let rows;
+  try {
+    rows = store.feelingsFor(id);
+  } catch {
+    return "";
+  }
+  if (rows.length === 0) return "";
+  const index = new Map(rows.map((r, i) => [r.id, i + 1]));
+  const lines = rows.map((r, i) => {
+    const word = r.emotion === "other" ? `other: ${r.other_word ?? ""}` : r.emotion;
+    const under = r.beneath_id === null ? "" : ` · over #${String(index.get(r.beneath_id) ?? "?")}`;
+    const by = r.carried_by.length === 0 ? "" : ` — carried by: ${r.carried_by.replace(/\r?\n/g, " ")}`;
+    return `${String(i + 1)}. ${r.whose} · ${r.core} · ${word} · ${String(r.strength)}${under}${by}`;
+  });
+  return `\n\n## Feelings\n\n${lines.join("\n")}\n`;
+}
+
 function pathFor(store: Store, row: MemoryRow, doc: ProseDoc): string {
   if (row.type === "episode") return journalRelativePath(doc);
   if (row.type === "schema") {
@@ -710,7 +733,8 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
     "## What is here",
     "",
     "- `memories/<kind>/<id>.md` — one file per memory, grouped by kind. The file name is",
-    "  the memory's id; the title, dates and everything else are in the frontmatter.",
+    "  the memory's id; the title, dates and everything else are in the frontmatter, and",
+    "  any feelings recorded on it are a `## Feelings` list after the words.",
     census.archived === 0
       ? "  None of them is archived: every memory here is a live one."
       : `  ${String(census.archived)} of them ${census.archived === 1 ? "is" : "are"} ARCHIVED — faded, superseded or merged.` +

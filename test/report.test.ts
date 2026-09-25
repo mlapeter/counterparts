@@ -31,6 +31,7 @@ import { join } from "node:path";
 
 import { Counterpart, SWEEP_GATE_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import { todayIn } from "../src/core/time.js";
 import { doctorFindings, reportLines } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding } from "../src/adapters/claude-code/index.js";
 import { EXIT, printDoctorReport, run } from "../src/adapters/cli/index.js";
@@ -161,7 +162,9 @@ describe("doctor: plain output never changes", () => {
     });
     expect(code === EXIT.ok || code === 1).toBe(true);
     // The header and the summary are `reportLines`' own, in its own places.
-    expect(c.out[0]).toBe(`counterparts doctor — ${new Date().toISOString().slice(0, 10)} (UTC)`);
+    // The person's day, and no "(UTC)" since 2026-09-25: the zone in use is
+    // named on the Clock line (docs/time.md).
+    expect(c.out[0]).toBe(`counterparts doctor — ${todayIn()}`);
     expect(c.out[1]).toBe("");
     expect(c.out[c.out.length - 1] ?? "").toMatch(/^\d+ red, \d+ amber(, \d+ off)?, \d+ green\.$/);
     // No blank line anywhere in the body: the grouping is the terminal arm's.

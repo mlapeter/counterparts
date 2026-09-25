@@ -1054,7 +1054,7 @@ describe("the surfaces that report it", () => {
 
   test("E2's young rule: on a day-1 store the writer is TOO NEW TO GRADE, not `never`", () => {
     const c = counterpart();
-    const today = dateOf(c.store.now());
+    const today = c.store.today();
     const report = firedReport(c.store, today);
     // E2's rule, both clocks: under two lived days AND no durable row older
     // than two calendar days. A store minutes old opened this view with
@@ -1085,7 +1085,7 @@ describe("the surfaces that report it", () => {
     expect(f?.severity).toBe("green");
     expect(f?.data["young"]).toBe(true);
     expect(f?.fix).toBe("");
-    expect(firedReport(c.store, dateOf(c.store.now())).young).toBe(true);
+    expect(firedReport(c.store, c.store.today()).young).toBe(true);
   });
 
   test("the writer declares NO refusal channel, and that is the honest answer", () => {
@@ -1108,7 +1108,7 @@ describe("the surfaces that report it", () => {
     expect(row?.refusals).toBeUndefined();
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);
-    const today = dateOf(c.store.now());
+    const today = c.store.today();
     // A store full of deferrals and skips still reads QUIET or FIRING — never
     // `blocked`, which would be a standing false alarm.
     c.recordPageWriterRun({ about: pageWriterAbout(today), mode: "session", outcome: "skipped", detail: "no-room" });
@@ -1135,7 +1135,7 @@ describe("the surfaces that report it", () => {
 
   test("the fired view moves from never-fired to firing when a night runs", () => {
     const c = counterpart();
-    const today = dateOf(c.store.now());
+    const today = c.store.today();
     const blind = firedReport(c.store, today).rows.find((r) => r.id === "page-writer");
     expect(["never", "new"]).toContain(blind?.state ?? "");
     c.recordPageWriterRun({

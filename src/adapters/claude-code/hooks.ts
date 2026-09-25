@@ -98,6 +98,7 @@ import {
   writerInstruction,
   writerInstructionOverhead,
 } from "../../core/self/index.js";
+import { localClock, localDate } from "../../core/time.js";
 import { capabilities, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
@@ -690,10 +691,19 @@ export class ClaudeCodeAdapter {
       // running (mechanism inventory 2026-09-17, S2).
       this.noteWakeExpectation(input, woke.sentinel);
 
-      if (budget !== undefined && woke.bytes > budget) {
+      // THE PERSON'S CLOCK, as the wake's first line (docs/time.md rule 5,
+      // 2026-09-25): `Now: Fri 25 Sep 2026, 1:40 pm MDT`, in the store's zone.
+      // OUTSIDE the wake block, above its opening comment, so the block's own
+      // byte count, both sentinels and the preface's reserve are untouched —
+      // the delivery check finds its sentinels by prefix, not by line number.
+      // It is counted wherever the host's ceiling is: the over-budget event
+      // and the room an ask may take both measure `sent`, not `woke.bytes`.
+      const lead = woke.text.length === 0 ? "" : `${this.nowLine()}\n`;
+      const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
+      if (budget !== undefined && sent > budget) {
         // Exceeding a reported limit is an EVENT, never silent degradation. The
         // bundle still goes: truncated-and-detectable beats absent.
-        this.emit("adapter.injection.overbudget", { bytes: woke.bytes, budget });
+        this.emit("adapter.injection.overbudget", { bytes: sent, budget });
       }
       this.record(WAKE_INJECTED_EVENT, input, {
         ok: woke.ok,
@@ -738,22 +748,22 @@ export class ClaudeCodeAdapter {
       // question is advisory and returns at the next session; a night that
       // passes is a day missing from the page for good (S2 review, MINOR-5).
       const scopeFirst = wantsAsk && !this.writerStarvedByScope();
-      const ask = scopeFirst ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
+      const ask = scopeFirst ? this.deliverScopeAsk(input, sent, budget) : "";
       const chosen =
-        ask.length > 0 ? ask : this.deliverPageWriterAsk(input, woke.bytes, budget, false);
-      if (ask.length > 0) this.deliverPageWriterAsk(input, woke.bytes, budget, true);
+        ask.length > 0 ? ask : this.deliverPageWriterAsk(input, sent, budget, false);
+      if (ask.length > 0) this.deliverPageWriterAsk(input, sent, budget, true);
       // THE WRITE-UP POINTER RIDES AFTER WHICHEVER ASK TOOK THE FIELD, never
       // instead of it (C2): it may coincide with either, it is measured against
       // the room BOTH of them left, and it is fail-open by construction — a
       // throw inside it costs the pointer and never the wake or the other ask.
       const chosenBytes = chosen.length === 0 ? 0 : Buffer.byteLength(`\n\n${chosen}`, "utf8");
-      const writeUp = this.deliverWriteUpAsk(input, woke.bytes + chosenBytes);
+      const writeUp = this.deliverWriteUpAsk(input, sent + chosenBytes);
       const asks = [chosen, writeUp].filter((a) => a.length > 0).join("\n\n");
       return {
         ...out,
         ok: woke.ok,
         reason: woke.reason,
-        injection: woke.text,
+        injection: `${lead}${woke.text}`,
         bytes: woke.bytes,
         sentinel: woke.sentinel,
         ask: asks.length === 0 ? null : asks,
@@ -1112,7 +1122,7 @@ export class ClaudeCodeAdapter {
       const text = writeUpPointer({
         waiting: owed.length,
         ended: held.session,
-        endedOn: calendarDate(held.clockFrom),
+        endedOn: calendarDate(held.clockFrom, this.counterpart.store.zone()),
         bytes: cut.slice(done).reduce((n, p) => n + Buffer.byteLength(p, "utf8"), 0),
         part: Math.min(done + 1, partsCount),
         of: partsCount,
@@ -1200,7 +1210,7 @@ export class ClaudeCodeAdapter {
       this.checkWakeArrival(input);
       const text = input.prompt ?? "";
       if (text.trim().length === 0) {
-        return { ...out, ok: true, reason: "empty-prompt" };
+        return { ...out, ok: true, reason: "empty-prompt", injection: this.nowLine() };
       }
       const result = this.counterpart.recallForTurn(
         {
@@ -1236,7 +1246,12 @@ export class ClaudeCodeAdapter {
         ...out,
         ok: true,
         reason: decision.reason,
-        injection: result.injection,
+        // The current local time, EVERY turn (docs/time.md rule 5; the owner
+        // asked for it on quiet turns too, 2026-09-25 — ~40 bytes), because a
+        // session can run for hours. One line ABOVE the recall note when there
+        // is one, outside it like the wake's, so the note's byte count and
+        // sentinel stand; alone when recall surfaced nothing.
+        injection: result.injection.length === 0 ? this.nowLine() : `${this.nowLine()}\n${result.injection}`,
         bytes: decision.bytes,
         sentinel: decision.sentinel,
         // The footnote tier is carried SEPARATELY from the loud one, because the
@@ -1245,6 +1260,11 @@ export class ClaudeCodeAdapter {
         footnotes: decision.footnotes,
       };
     });
+  }
+
+  /** `Now: Fri 25 Sep 2026, 1:40 pm MDT` — this adapter's clock, in the store's zone. */
+  private nowLine(): string {
+    return `Now: ${localClock(this.nowFn(), this.counterpart.store.zone())}`;
   }
 
   /**
@@ -2118,7 +2138,7 @@ export class ClaudeCodeAdapter {
    */
   private noteSpawnStart(input?: HookInput): void {
     if (this.observer) return;
-    const date = input?.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
+    const date = input?.at ?? localDate(this.nowFn(), this.counterpart.store.zone());
     try {
       this.bumpStart(date);
       this.counterpart.noteAdapterEvent(
@@ -2254,7 +2274,7 @@ export class ClaudeCodeAdapter {
   ): string | null {
     if (this.observer) return null;
     try {
-      const today = input.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
+      const today = input.at ?? localDate(this.nowFn(), this.counterpart.store.zone());
       // WHICH CODE IS LIVE, read before anything else and RECORDED. The reading
       // is bounded and never throws (`readCheckout`); the row is the mechanized
       // half — a day on master leaves one latched row, and a day the tree

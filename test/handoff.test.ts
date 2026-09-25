@@ -42,7 +42,8 @@ import {
 import type { Handoff } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
-import { Store, dateOf } from "../src/core/store/index.js";
+import { Store } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
@@ -59,7 +60,7 @@ const BODY_TWO = "Placeholder: the parser rewrite landed; next is the error mess
 // A handoff is stamped from the store's own clock (`store.today()`), not from the
 // date a wake is composed for — so the pointer's date is the day the suite runs.
 // Pinning it to the day these tests were written made them fail the next morning.
-const WRITTEN_ON = dateOf(Date.now());
+const WRITTEN_ON = localDate(Date.now()); // the person's day since 2026-09-25 (docs/time.md)
 
 let dir: string;
 let priorEnv: string | undefined;

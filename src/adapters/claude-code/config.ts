@@ -25,6 +25,8 @@
  */
 import { isAbsolute } from "node:path";
 
+import { isZone } from "../../core/time.js";
+
 import { PAGE_WRITER_MODES } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { DEFAULT_KEEP as SNAPSHOT_DEFAULT_KEEP } from "../snapshots.js";
@@ -225,6 +227,19 @@ export interface AdapterConfig {
   readonly retired?: readonly string[];
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
+  /**
+   * THE PERSON'S ZONE, an IANA name (`"America/Denver"`), when it should not
+   * follow the computer — a server set to UTC (docs/time.md rule 2). Absent,
+   * every local date follows the machine's current zone. Optional, and not
+   * asked at install: install prints the zone it detected in one line.
+   */
+  readonly timeZone?: string;
+  /**
+   * A `timeZone` this machine does not know, as written. It is IGNORED — the
+   * machine's zone is used — and doctor names it; a misspelt zone must not
+   * stand anybody's memory down the way an unreadable setting does.
+   */
+  readonly timeZoneUnknown?: string;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
   readonly observer?: boolean;
   /** The identity core's name is the OWNER's; there is no default. */
@@ -270,6 +285,8 @@ export function loadConfig(raw: unknown): LoadedConfig {
     pageWriter?: { mode: PageWriterMode; timeoutMs?: number; ignored?: string[] };
     retired?: string[];
     owner?: boolean;
+    timeZone?: string;
+    timeZoneUnknown?: string;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
   } = {};
@@ -331,6 +348,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (rec["observer"] !== undefined) {
     if (typeof rec["observer"] !== "boolean") unreadable = true;
     else out.observer = rec["observer"];
+  }
+  // Read LENIENTLY, unlike the stance keys above: a zone that is not one is
+  // ignored and named, never a reason to stand the configuration down.
+  if (rec["timeZone"] !== undefined) {
+    if (isZone(rec["timeZone"])) out.timeZone = rec["timeZone"];
+    else out.timeZoneUnknown = String(rec["timeZone"]).slice(0, 64);
   }
   const embedder = rec["embedder"];
   if (embedder !== undefined) {

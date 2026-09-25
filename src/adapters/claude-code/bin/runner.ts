@@ -332,12 +332,14 @@ export async function runOnce(input: {
       ? {}
       : { budgetBytes: config.injectionBudgetBytes }),
     ...(config.owner === undefined ? {} : { owner: config.owner }),
+    ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
     onEvent: (e) => emit(e.name, { ...(e.data ?? {}) }),
   });
   // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could
   // record anything. The `sweep.gate` row carries it; so must every failure row,
   // or a replay with a pinned date would dedup against the wall clock instead.
-  const today = input.date ?? new Date().toISOString().slice(0, 10);
+  // The person's day, in the store's zone (docs/time.md; UTC before 2026-09-25).
+  const today = input.date ?? counterpart.store.today();
 
   let lag: LagReport | null = null;
   let backfill: BackfillReport | null = null;

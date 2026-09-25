@@ -43,6 +43,16 @@ computes arrivals and nothing consumes them.
 
 ## 2. `ProseDoc` has no future-event date, and no enumeration of dated memories
 
+**Storage closed 2026-09-25 (schema v7)** — `memories.event_date` (a day, month, year or
+`a..b` range, read by `core/time.ts`, refused when unreadable), `ProseDoc.eventDate`,
+`revise({ eventDate })` (null clears it; the old date stays in the version), a partial
+index, and `Store.datedMemories(from, to)`. A new column rather than a widened
+`happenedOn`, because `schemas/` already writes every belief's `statedOn` into
+`happened_on` (store NOTES 2026-09-25). **Still open, for PR B:** nothing writes
+`event_date` yet, and `arrivals()` / `exitReport()` still scan `store.list()` and read
+`contentDates` (which keeps reading `happenedOn` and the `eventDate` meta convention); a
+range is not yet a window precision (`windows.ts` knows day and month).
+
 **Owner:** `store/`.
 **Needed:** (a) somewhere canonical for "the date this memory is ABOUT, in the future";
 (b) a way to ask which memories have one, without reading every memory.
