@@ -1,0 +1,12 @@
+/* Retrieval & strengthening. `explainer` is what Counterparts actually does, checked against
+   docs/research/mechanism-audit-2026-09-24.md; `tagline` and `inDev` are the
+   site's (regions.ts). Its light comes from `/api/mechanisms`. */
+export default {
+  id: "retrieval",
+  family: "retrieval",
+  name: "Retrieval & strengthening",
+  short: "Retrieval",
+  tagline: "Every time you remember something, you make it a little stronger.",
+  inDev: false,
+  explainer: "As you talk, it checks your words and their meaning for cues, and a few related memories come along. The ones a reply actually opens or quotes get stronger and fade more slowly; being shown alone earns nothing.",
+};

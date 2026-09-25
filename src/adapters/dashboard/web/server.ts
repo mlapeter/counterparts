@@ -76,6 +76,7 @@ import {
 } from "./actions.js";
 import type { ActionContext } from "./actions.js";
 import { firedPanel } from "./fired.js";
+import { mechanismsView } from "./views/mechanisms.js";
 import { resolveStatic } from "./static.js";
 import {
   activityView,
@@ -265,6 +266,7 @@ export function router(
     }
     if (path === "/api/health") return json(healthView(src));
     if (path === "/api/fired") return json(firedPanel(src, todayUtc()));
+    if (path === "/api/mechanisms") return json(mechanismsView(src));
     if (path === "/api/activity") {
       const sinceRaw = url.searchParams.get("sinceSeq");
       const opts: { limit: number; name?: string; sinceSeq?: number } = {

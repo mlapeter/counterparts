@@ -14,7 +14,8 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 | `actions.ts` | managing: `POST /api/action/<name>` — the same-origin + per-launch-token guard, argument validation, and the console's own `run()` (loaded lazily; never handed the observer source) |
 | `static.ts` | `resolveStatic()`: which URL paths are static files and where they live (pure; no fs) |
 | `views.ts` | the index of `views/`: re-exports every view, so callers import from here |
-| `views/<name>.ts` | one module per `/api` view: `meta`, `overview`, `memories`, `memory`, `search`, `mind`, `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse` |
+| `views/<name>.ts` | one module per `/api` view: `meta`, `overview` (the home tab's), `memories`, `memory`, `search`, `mind` (the self tab's), `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse`, `mechanisms` |
+| `views/mechanisms.ts` | `/api/mechanisms`: each mechanism's light (grey = not built, green = fired in the last 7 lived days, amber = built and quiet), one evidence line, the newest backing event `seq`s. `MECHANISM_PROOFS` is the one table saying which durable rows count as a mechanism firing |
 | `views/shared.ts` | the census and small counters every view leans on |
 | `views/rows.ts` | row shapes and builders more than one view uses (band bars, contested beliefs, chapters, lived days) |
 | `flow.ts` | the diagram's static shape: nodes, edges, which event lights which node |
@@ -34,7 +35,9 @@ shell/
   tabs.js             nav strip + showTab
   pulse.js            the 4-second poll: new events → live feeds + page hooks; store moved → page.refresh()
 shared/
-  tokens.css          colour/size variables (:root)
+  tokens.css          @font-face + colour/type variables (:root) — the site's look (counterparts.ai)
+  type.css            which face goes where: body/headings Outfit (--sans), labels/numbers/pills Courier (--mono); loaded LAST
+  fonts/              Outfit (variable, latin) + Courier Prime 400/700 (latin) .woff2, with their OFL licences
   base.css layout.css utilities.css   reset, header/nav, headings, the .cols grids, .foot/.tone-*/#err
   tip.css modal.css   the tooltip and the overlay card
   dom.js              $  esc
@@ -43,22 +46,26 @@ shared/
   absence.js          emptyBox absenceLine — the "(none yet)" / "(never run)" block
   api.js              api() (looking: GET only) and fail()
   actions.js          act() (managing: the one POST, with the page's token) and resultHtml()
-  canvas.js           fit hitTest roundRect clip wrapText
+  canvas.js           MONO (the canvas's face) fit hitTest roundRect clip wrapText
   tip.js modal.js     showTip/hideTip; openModal/closeModal/section
   memory-modal.js     openMemory, copyId, removeMemory (window globals: rows use inline onclick)
   event-modal.js      openEvent (window global)
   state.js            tabs {current, loaded}; live {lastSeq, fingerprint}
-  widgets/            card rows table chart tiles bar feed .css; bar.js (bandBars),
+  widgets/            card rows table chart tiles bar feed light .css; bar.js (bandBars),
                       feed.js (renderFeed, live-feed registry), chapters.js (chapterRows),
-                      confirm.js + .css (confirmTyped: type a phrase back to confirm)
-pages/<tab>/
+                      confirm.js + .css (confirmTyped: type a phrase back to confirm),
+                      light.js (the status dot: green / amber / grey)
+pages/<tab>/          tabs: home (was overview), memories, self (was mind), flow, health;
+                      #overview and #mind still land (shell/tabs.js RENAMED)
   index.js            default export { name, mount(section), render(), refresh?, show?,
                       resize?, redraw?, onEvents?, onDeposit? }; composes its sections' markup
   sections/*.js       one panel each: `export const markup` (its <h2> + container) and
                       `paint(d)` (or `render()` when it fetches for itself)
-  <tab>.css           styles only this page uses (memories, mind, flow, health)
-mechanisms/<name>/    (empty for now) one folder per memory mechanism — explainer, store
-                      reader, panel — served like pages/
+  <tab>.css           styles only this page uses (home, memories, self, flow, health)
+mechanisms/
+  index.js            MECHANISMS (the site's eleven, in its order) and FAMILIES (its four, with colours)
+  <id>/index.js       default export { id, family, name, short, tagline, inDev, explainer };
+                      the light comes from /api/mechanisms. Room here for a panel per mechanism later.
 ```
 
 Moving a section between pages: import its module in the other page's
@@ -66,6 +73,10 @@ Moving a section between pages: import its module in the other page's
 that page's `render` with the right payload (the data comes from that page's
 `/api` view — a section may need its view to grow a field). Its CSS may live in
 a page stylesheet; move that too.
+
+The home page's `sections/mechanisms.js` is a TEMPORARY strip (pills + lights,
+hover for the explainer and evidence, click to open the newest backing event);
+the full home design replaces it.
 
 Harness hooks `tools/visual-loop` relies on: `window.tileValue`,
 `window.flowState`, `window.particleCount`, `document.documentElement.dataset.loaded`,

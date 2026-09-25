@@ -5,8 +5,14 @@ import { $ } from "../shared/dom.js";
 import { tabs } from "../shared/state.js";
 import { PAGE, TABS } from "./pages.js";
 
+/* Old hashes still land: a bookmark to `#overview` or `#mind` (and the
+   `/brain` page's links) open the tab under its new name, and the address bar
+   is corrected to it. */
+const RENAMED = { overview: "home", mind: "self" };
+
 export function showTab(name, push) {
-  if (!TABS.includes(name)) name = "overview";
+  if (RENAMED[name]) { name = RENAMED[name]; push = true; }
+  if (!TABS.includes(name)) name = "home";
   tabs.current = name;
   for (const t of TABS) {
     $("tab-" + t).hidden = t !== name;

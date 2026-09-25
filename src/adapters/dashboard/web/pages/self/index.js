@@ -1,4 +1,4 @@
-/* The mind tab: identity, the page, the briefing, the journal, the revision
+/* The self tab (was "mind"): identity, the page, the briefing, the journal, the revision
    stories. One fetch (`/api/mind`). */
 import { api, fail } from "../../shared/api.js";
 import { $ } from "../../shared/dom.js";
@@ -20,7 +20,7 @@ const markup = `
 
 async function render() {
   let d;
-  try { d = await api("/api/mind"); } catch (e) { return fail("The mind page", e); }
+  try { d = await api("/api/mind"); } catch (e) { return fail("The self page", e); }
   $("mind-opening").textContent = d.opening;
   identityBand.paint(d);
   selfPage.paint(d);
@@ -30,7 +30,7 @@ async function render() {
 }
 
 export default {
-  name: "mind",
+  name: "self",
   mount(section) { section.innerHTML = markup; },
   render,
 };

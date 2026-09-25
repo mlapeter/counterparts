@@ -48,7 +48,7 @@ const LAPTOP = { width: 1024, height: 768 };
 const PHONE = { width: 390, height: 844 };
 
 /** Every tab on the app page, plus the poster. */
-const TABS = ["overview", "memories", "mind", "flow", "health"] as const;
+const TABS = ["home", "memories", "self", "flow", "health"] as const;
 
 interface Finding {
   readonly store: "rich" | "empty";
@@ -149,7 +149,8 @@ const PROBE = `(() => {
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
   };
   const SELECTORS = [".lede", "nav a", ".rows .meta", "th", ".legend", ".badge", ".foot",
-    ".tile .l", ".tile .s", ".gloss", ".story .said .k", ".fnode .sb", "#modal .sub .path"];
+    ".tile .l", ".tile .s", ".gloss", ".story .said .k", ".fnode .sb", "#modal .sub .path",
+    ".mech-pill", ".mech-fam"];
   const contrast = [];
   for (const sel of SELECTORS) {
     for (const el of document.querySelectorAll(sel)) {
@@ -167,7 +168,7 @@ const PROBE = `(() => {
   // header's nav measured 29.2px — found by a reviewer with a ruler, which is
   // the wrong way to find it twice.
   const taps = [];
-  for (const sel of ["nav a", ".hright a"]) {
+  for (const sel of ["nav a", ".hright a", ".mech-pill"]) {
     let worst = null;
     for (const el of document.querySelectorAll(sel)) {
       const box = el.getBoundingClientRect();
@@ -289,7 +290,7 @@ async function shoot(
       // console error nobody sees until a stranger clicks. Exercised on the
       // desktop pass, and only where there is something to click.
       if (viewport === DESKTOP && store === "rich") {
-        if (name === "overview") await modal(page, ".ev", `${store}-event-modal`, out, shots, label);
+        if (name === "home") await modal(page, ".ev", `${store}-event-modal`, out, shots, label);
         if (name === "memories") await modal(page, "#hubs .r", `${store}-memory-modal`, out, shots, label);
         if (name === "flow") await nodePanel(page, out, shots, label, store);
       }
@@ -488,7 +489,7 @@ async function liveEvent(
     if (tileBefore === "") {
       findings.push({
         store: "rich",
-        page: "overview @ note",
+        page: "home @ note",
         kind: "stale",
         text: "the 'memories held' tile could not be read from the open page — the staleness check would prove nothing",
       });
@@ -556,9 +557,9 @@ async function liveEvent(
       if (tileBefore !== "" && tileAfter === tileBefore) {
         findings.push({
           store: "rich",
-          page: "overview @ note",
+          page: "home @ note",
           kind: "stale",
-          text: `the overview's 'memories held' tile still reads "${tileAfter}" after a note deposited a memory — the first screen of the product is reporting a number the server no longer agrees with`,
+          text: `the home page's 'memories held' tile still reads "${tileAfter}" after a note deposited a memory — the first screen of the product is reporting a number the server no longer agrees with`,
         });
       } else {
         process.stdout.write(`  memories held tile: "${tileBefore}" → "${tileAfter}"\n`);

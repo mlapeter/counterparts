@@ -1,0 +1,41 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   Which face goes where, in one place. The body is Outfit (`--sans`, set on
+   `body` in base.css); everything below switches to Courier (`--mono`) — the
+   site's rule: labels, numbers, pills, ids and anything a machine printed.
+   Loaded after the page stylesheets so a page rule's family never wins by
+   accident; a new label-ish element either takes a class listed here or sets
+   `font-family:var(--mono)` itself.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* the header strip */
+nav a,.badge,.hright a{font-family:var(--mono)}
+
+/* section labels — the site's eyebrow: mono, uppercase, letter-spaced */
+h2,th,.lane h4,#modal h4,#flowdetail .lab,.story .about,.tile .l{font-family:var(--mono)}
+
+/* numbers and the lines that carry them */
+.tile .n,.bar .n,td.num,#qn,.fnode .st,.beat .day,.ev .d{font-family:var(--mono)}
+
+/* metadata, ids and machine names */
+.rows .meta,.ev .k,td .ident,.legend,.fnode .nm,.fchain,.beat .verdict,
+#modal .sub,#modal .copy,#modal .kv .k,#modal .ref .role,.heatgrid,#tip .dimline{font-family:var(--mono)}
+
+/* HEADINGS in the body face, a step heavier, as the site sets its titles */
+#flowdetail h3,.story h3,#modal h3{font-family:var(--sans);font-weight:600;letter-spacing:.2px}
+
+/* PROSE, one step up. The old sizes were set for a monospace, whose glyphs run
+   wide; Outfit at the same pixel size reads a size smaller. */
+.lede{font-size:14px}
+.rows .r,.ev,.blind,.lane .item,.story .said,#flowdetail p{font-size:12.5px}
+.bar{font-size:12.5px}
+#modal .body{font-size:13px}
+#tip{font-size:12px}
+.empty{font-size:12.5px}
+.foot{font-size:11.5px}
+
+/* COURIER RUNS LIGHT AND SMALL: the mono labels go up a notch from the sizes
+   set for the old face, toward the site's 10.5–11px floor for its labels. */
+.badge{font-size:10px}
+.tile .l,th{font-size:10.5px}
+.rows .meta,.ev .d,.legend{font-size:11px}
+.ev .k,td .ident,.beat .verdict{font-size:10.5px}

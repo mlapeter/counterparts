@@ -77,7 +77,7 @@ whole reason this tool exists is to produce images that get published.
 | `rich-<page>-1440x900-fold.png` | the first screen at the size the README publishes |
 | `log.json` | every shot, every console message, page error and 4xx, and every contrast and viewport measurement |
 
-Pages are `overview`, `memories`, `mind`, `flow`, `health` and `brain`. The
+Pages are `home`, `memories`, `self`, `flow`, `health` and `brain`. The
 brain view is not shot at 390: a portrait-phone hologram proves nothing.
 
 The run prints the **worst** contrast reading per selector across every page and
