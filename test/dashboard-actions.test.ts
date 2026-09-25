@@ -53,7 +53,10 @@ import {
 import type { ActionRequest, Run } from "../src/adapters/dashboard/web/actions.js";
 import { router, startDashboard } from "../src/adapters/dashboard/web/server.js";
 import type { RunningDashboard } from "../src/adapters/dashboard/web/server.js";
-import { seedEmpty } from "../tools/demo/seed.js";
+import { Database } from "bun:sqlite";
+
+import { Store } from "../src/core/store/index.js";
+import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 let temps: string[] = [];
 function tempDir(prefix: string): string {
@@ -289,6 +292,21 @@ describe("managing, over the wire", () => {
     }
   });
 
+  test("no page of the dashboard may be framed (clickjacking)", async () => {
+    const f = fixture();
+    const running = await startDashboard({ dir: f.dir, port: 0, config: f.config });
+    try {
+      for (const path of ["/", "/index.html", "/brain"]) {
+        const res = await fetch(`${running.url}${path}`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("x-frame-options")).toBe("DENY");
+        expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+      }
+    } finally {
+      await running.stop();
+    }
+  });
+
   test("every refused request is refused before anything runs, and moves no byte", async () => {
     const f = fixture();
     const running = await startDashboard({ dir: f.dir, port: 0, config: f.config });
@@ -430,6 +448,50 @@ describe("managing, over the wire", () => {
     }
   });
 
+  /**
+   * ASKING IS LOOKING (owner, 2026-09-25). On a FRESH store — nothing noted
+   * first, recall by meaning ON, so the meaning index is empty and the old
+   * writable open backfilled every row's vector into box 3 — the canonical
+   * boxes are byte-identical and the cache's every table is row-identical.
+   * (The cache FILE is compared by content, not bytes: `openCache` rewrites
+   * its schema row on every open, reader or not — INTERFACE-GAPS §1.)
+   */
+  test("ask on a fresh store changes nothing — canonical bytes and every cache row", async () => {
+    const root = tempDir("counterparts-actions-ask-");
+    const dir = join(root, "store");
+    await seedDemo({ dir });
+    const config = join(root, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: dir, injectionBudgetBytes: 9000 }));
+    const cacheRows = (): string => {
+      const db = new Database(join(dir, "cache", "cache.sqlite"), { readonly: true });
+      try {
+        const tables = db.query("select name from sqlite_master where type='table' order by name").all() as {
+          name: string;
+        }[];
+        return tables
+          .map((t) => {
+            const rows = db.query(`select * from "${t.name}"`).all();
+            const text = JSON.stringify(rows, (_k, v: unknown) =>
+              v instanceof Uint8Array ? Buffer.from(v).toString("hex") : v,
+            );
+            return `${t.name} ${String(rows.length)} ${createHash("sha256").update(text).digest("hex")}`;
+          })
+          .join("\n");
+      } finally {
+        db.close();
+      }
+    };
+    const beforeCanon = snapshot(dir);
+    const beforeCache = cacheRows();
+    expect(beforeCache).toContain("embeddings 0 ");
+    const r = await runAction("ask", { question: "what is on the rota?" }, { dir, config });
+    expect(r.status).toBe(200);
+    expect(r.body.exit).toBe(0);
+    expect((r.body.out ?? []).join("\n")).toContain("found");
+    expect(diff(beforeCanon, snapshot(dir))).toEqual([]);
+    expect(cacheRows()).toBe(beforeCache);
+  }, 60_000);
+
   test("ask looks without changing the canonical store", async () => {
     const f = fixture();
     const running = await startDashboard({ dir: f.dir, port: 0, config: f.config });
@@ -447,6 +509,34 @@ describe("managing, over the wire", () => {
 });
 
 describe("one action at a time, and a timeout that says what it could not do", () => {
+  test("two real actions sent in the same tick: one runs, the other is refused", async () => {
+    // No `opts.run`: the real console, loaded lazily — the path where the slot
+    // used to be claimed only after the import had been awaited.
+    const f = fixture();
+    const ctx = { dir: f.dir, config: f.config };
+    const [a, b] = await Promise.all([
+      runAction("note", { text: "The first of two notes sent together." }, ctx),
+      runAction("note", { text: "The second of two notes sent together." }, ctx),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const said = [a, b].map((r) => (r.body.out ?? []).join("\n")).join("\n");
+    expect(said.match(/Remembered mem_/g)?.length).toBe(1);
+  });
+
+  test("a note from the dashboard is filed under the store, not the server's working directory", async () => {
+    const f = fixture();
+    const r = await runAction("note", { text: "The shed key hangs behind the blue door." }, { dir: f.dir, config: f.config });
+    const id = /Remembered (mem_[0-9a-f]+)/.exec((r.body.out ?? []).join("\n"))?.[1] ?? "";
+    const store = Store.open({ dir: f.dir, observer: true });
+    try {
+      const origin = (store.readProse(id).meta as { origin?: { scope?: string } }).origin;
+      expect(origin?.scope).toBe(f.dir);
+      expect(origin?.scope).not.toBe(process.cwd());
+    } finally {
+      store.close();
+    }
+  });
+
   test("a second action while one runs is refused; a slow one reports that it is still running", async () => {
     let release: () => void = () => {};
     const slow: Run = () =>

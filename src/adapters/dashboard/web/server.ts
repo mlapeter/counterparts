@@ -143,8 +143,23 @@ function json(body: unknown, status = 200): Reply {
   };
 }
 
+/**
+ * No page of this dashboard may be framed. The page can now ACT (a removal is
+ * two clicks and a typed id), and a page another site frames invisibly is how
+ * clicks get stolen — so every HTML reply says "never inside a frame", in the
+ * old header and the current one.
+ */
+const NO_FRAMES = {
+  "x-frame-options": "DENY",
+  "content-security-policy": "frame-ancestors 'none'",
+} as const;
+
 function html(body: string): Reply {
-  return { status: 200, headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE }, body };
+  return {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE, ...NO_FRAMES },
+    body,
+  };
 }
 
 /**

@@ -452,6 +452,16 @@ export interface RunOptions {
    * pass it and get `realDashboard()`, which loads the server module lazily.
    */
   dashboard?: DashboardSeam;
+  /**
+   * WHERE A NOTE IS FILED — the scope `note` stamps on what it writes. Real
+   * terminal runs pass nothing and get the working directory, which is where
+   * the person typing is. The dashboard passes its store's own directory: a
+   * note written in the browser was not written from any project, and the
+   * server's working directory is only wherever it happened to be launched.
+   * (The store dir is the same "no project" answer `mcp/server.ts#resolveScope`
+   * falls back to.)
+   */
+  scope?: string;
 }
 
 /**
@@ -1663,7 +1673,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
-        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir());
+        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir(), opts.scope);
       // ONE COMMAND, TWO NAMES — the same function, not a forwarding shim, so
       // there is no arm where one spelling can behave differently from the other.
       case "ask":
@@ -4833,6 +4843,7 @@ async function noteCommand(
   parsed: Parsed,
   env: Record<string, string | undefined>,
   home: string,
+  filedUnder?: string,
 ): Promise<number> {
   const text = parsed.positional.join(" ").trim();
   if (text.length === 0) {
@@ -4863,7 +4874,7 @@ async function noteCommand(
     // printed was that something had been remembered.
     io.out(`Store: ${counterpart.store.dir}`);
     const session = "console";
-    const scope = process.cwd();
+    const scope = filedUnder ?? process.cwd();
     // Step 1 of 2, and the ORDER is the rule (see the docblock above).
     const captured = counterpart.captureJot({ session, scope, text });
     const ownSpanHash = captured.spans[0]?.hash ?? null;
@@ -5035,8 +5046,15 @@ async function recallCommand(
   // Opened WITH the embedder's identity, the way `mcp/index.ts#openServer`
   // opens the server's store: the store reconciles box 3's tag at open, so a
   // held or mismatched meaning index ranks nothing rather than a cosine across
-  // two models. That open may write the tag once, as every hook's open does.
-  const counterpart = openCounterpart(dir, false, undefined, embedder?.embed);
+  // two models.
+  //
+  // AND IN OBSERVER STANCE (owner, 2026-09-25: asking is looking, and looking
+  // changes nothing). A writable open here backfilled the meaning index — on a
+  // fresh store, one `ask` embedded and wrote every row's vector into box 3 —
+  // and asking from the dashboard runs this same function. Under observer the
+  // question is still embedded and answered; nothing is written, the cache
+  // included. The backfill is the worker's and the hooks' job.
+  const counterpart = openCounterpart(dir, true, undefined, embedder?.embed);
   try {
     // Same rule as `note` and `status`: say which store answered.
     if (parsed.flags["json"] !== true) io.out(`Store: ${counterpart.store.dir}`);

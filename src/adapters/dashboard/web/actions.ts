@@ -420,6 +420,7 @@ export type Run = (
     io: { out(line: string): void; err(line: string): void; prompt?: (q: string) => Promise<string> };
     env?: Record<string, string | undefined>;
     home?: string;
+    scope?: string;
   },
 ) => Promise<number>;
 
@@ -510,12 +511,21 @@ export async function runAction(
         }),
   };
 
-  const run = opts.run ?? (await cliRun());
-  const work = run(built.argv, {
-    io,
-    ...(ctx.env === undefined ? {} : { env: ctx.env }),
-    ...(ctx.home === undefined ? {} : { home: ctx.home }),
-  });
+  // THE SLOT IS CLAIMED BEFORE ANY AWAIT. Everything above is synchronous, so
+  // two requests in the same tick cannot both pass the check above and both
+  // run: the second sees `running` set here. (The first version claimed it
+  // after `await cliRun()`, and two notes sent together were both written.)
+  const work = (async (): Promise<number> => {
+    const run = opts.run ?? (await cliRun());
+    return run(built.argv, {
+      io,
+      ...(ctx.env === undefined ? {} : { env: ctx.env }),
+      ...(ctx.home === undefined ? {} : { home: ctx.home }),
+      // A note from the browser is filed under the store itself, not under
+      // whatever directory this server was launched from (see `RunOptions.scope`).
+      scope: ctx.dir,
+    });
+  })();
   const slot = work.then(
     () => undefined,
     () => undefined,

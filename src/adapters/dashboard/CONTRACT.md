@@ -53,7 +53,7 @@ code holds no write handle to any canonical store. **[A]** MANAGING is the owner
 and is not artificially limited: an action the CLI offers (note, remove, backup, export,
 scope, rebrief, …) may be offered here, run through the CLI's own door — the same code and
 the same checks — never through the observer source; a destructive one asks the owner to
-confirm. For now `install`, `uninstall` and `start-fresh` stay terminal-only. **[M]** Render-time id resolution everywhere; no memory body text is
+confirm. For now `install`, `uninstall` and `start-fresh` stay terminal-only. A known limit, not solved here: the page and its action token are served to anything that can reach the loopback port, so on a machine shared with other OS users another local user could manage this memory, not only read it. **[M]** Render-time id resolution everywhere; no memory body text is
 persisted into dashboard state. **[M]** Totality: every registered axis appears or is
 marked absent. **[A]** Views stay readable by a non-engineer — the owner is the acceptance
 test.

@@ -17,6 +17,7 @@ export const markup = `
         <textarea id="note-text" rows="3" spellcheck="true" placeholder="the thing to remember"></textarea>
         <div class="act-row"><input id="note-title" type="text" autocomplete="off" placeholder="title (optional)">
           <button class="act-btn" id="note-go" type="button">remember</button></div>
+        <div class="act-cmd" style="margin-top:6px">filed under this store, not under any project folder</div>
         <div id="note-out"></div>
       </details>
     </div>`;
