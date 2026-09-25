@@ -200,7 +200,7 @@ describe("the lights, on a seeded store", () => {
     expect(by["decay"]?.evidence).toContain(`lived day ${v.livedDay - MECHANISM_DAYS}`);
     expect(by["association"]?.status).toBe("amber");
     expect(by["retrieval"]?.status).toBe("green");
-    expect(by["retrieval"]?.evidence).toStartWith("1 turns brought memories to mind");
+    expect(by["retrieval"]?.evidence).toStartWith("1 turn brought memories to mind");
   });
 });
 

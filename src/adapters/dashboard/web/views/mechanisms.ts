@@ -41,8 +41,9 @@ type Payload = Record<string, unknown>;
 /** One kind of row that proves a mechanism fired. */
 interface Proof {
   readonly event: DurableEventName;
-  /** What a unit of it is, after the number: "archived at the floor". */
-  readonly says: string;
+  /** What a unit of it is, after the number — [one, many]:
+   *  ["memory archived at the floor", "memories archived at the floor"]. */
+  readonly says: readonly [string, string];
   /** Sum this numeric payload field instead of counting rows; a row whose
    *  field is not a number above zero does not count at all (the `positive`
    *  rule of `adapters/fired.ts`: a row that lands whether or not the
@@ -77,8 +78,8 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     family: "encoding",
     built: true,
     proofs: [
-      { event: "gate.deposit", sum: "accepted", says: "memories scored as they were written" },
-      { event: "gate.chunk", sum: "accepted", says: "memories scored from a crash write-up" },
+      { event: "gate.deposit", sum: "accepted", says: ["memory scored as it was written", "memories scored as they were written"] },
+      { event: "gate.chunk", sum: "accepted", says: ["memory scored from a crash write-up", "memories scored from a crash write-up"] },
     ],
   },
   {
@@ -97,11 +98,11 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     family: "storage",
     built: true,
     proofs: [
-      { event: "band.transition", where: (p) => p["site"] === "decay", says: "memories faded a band" },
-      { event: "memory.pruned", says: "memories archived at the floor" },
+      { event: "band.transition", where: (p) => p["site"] === "decay", says: ["memory faded a band", "memories faded a band"] },
+      { event: "memory.pruned", says: ["memory archived at the floor", "memories archived at the floor"] },
       // The entity-card fade has no row of its own; it is a count on the
       // nightly cycle row, so only nights that faded something count.
-      { event: "sleep.cycle", sum: "faded", says: "unused cards faded" },
+      { event: "sleep.cycle", sum: "faded", says: ["unused card faded", "unused cards faded"] },
     ],
   },
   {
@@ -122,10 +123,10 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
       {
         event: "recall.decision",
         where: (p) => num(p["surfacedCount"]) + num(p["footnoteCount"]) > 0,
-        says: "turns brought memories to mind",
+        says: ["turn brought memories to mind", "turns brought memories to mind"],
       },
-      { event: "mcp.recall", says: "deliberate look-ups" },
-      { event: "recall.credit", sum: "credited", says: "memories strengthened by being used" },
+      { event: "mcp.recall", says: ["deliberate look-up", "deliberate look-ups"] },
+      { event: "recall.credit", sum: "credited", says: ["memory strengthened by being used", "memories strengthened by being used"] },
     ],
   },
   {
@@ -135,7 +136,7 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     id: "association",
     family: "retrieval",
     built: true,
-    proofs: [{ event: "associate.flush", sum: "rows", says: "links written" }],
+    proofs: [{ event: "associate.flush", sum: "rows", says: ["link written", "links written"] }],
   },
   {
     // `prospective.fire` exists and only the demo seeder calls `fire()`: no
@@ -155,9 +156,9 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     family: "transformation",
     built: true,
     proofs: [
-      { event: "band.promoted", says: "memories became core" },
-      { event: "memory.merged", says: "exact duplicates merged" },
-      { event: "band.transition", where: (p) => p["site"] === "consolidate", says: "memories rose a band" },
+      { event: "band.promoted", says: ["memory became core", "memories became core"] },
+      { event: "memory.merged", says: ["exact duplicate merged", "exact duplicates merged"] },
+      { event: "band.transition", where: (p) => p["site"] === "consolidate", says: ["memory rose a band", "memories rose a band"] },
     ],
   },
   {
@@ -167,7 +168,7 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     id: "reconsolidation",
     family: "transformation",
     built: true,
-    proofs: [{ event: "revision.pressure", says: "corrections weighed against old memories" }],
+    proofs: [{ event: "revision.pressure", says: ["correction weighed against an old memory", "corrections weighed against old memories"] }],
   },
   {
     // A band label only; nothing distils episodes into knowledge.
@@ -266,7 +267,7 @@ export function mechanismsView(src: DashboardSource): MechanismsView {
           backing.push(row);
         }
       }
-      if (total > 0) parts.push(`${total} ${proof.says}`);
+      if (total > 0) parts.push(`${total} ${total === 1 ? proof.says[0] : proof.says[1]}`);
     }
     if (parts.length > 0) {
       const events = backing
@@ -275,7 +276,10 @@ export function mechanismsView(src: DashboardSource): MechanismsView {
         .map((r) => r.seq);
       return { id: m.id, family: m.family, status: "green", evidence: `${parts.join(", ")} in the last ${MECHANISM_DAYS} lived days.`, events };
     }
-    // Built, and nothing inside the window: when was it last seen at all?
+    // Built, and nothing inside the window: when was it last seen at all? Only
+    // the newest LOOKBACK rows of each name are searched, so a name with that
+    // many non-counting rows since its last real firing reads "no record" —
+    // acceptable for a scaffold; a real "last fired" wants its own query.
     let lastDay: number | null = null;
     for (const proof of m.proofs) {
       for (const row of store.eventLog({ name: proof.event, order: "desc", limit: LOOKBACK })) {
