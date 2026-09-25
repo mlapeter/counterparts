@@ -1,5 +1,6 @@
 /**
- * The local web dashboard's server — `node:http`, one page, JSON under `/api`.
+ * The local web dashboard's server — `node:http`, one page (and the static
+ * modules it is built from), JSON under `/api`.
  *
  * CONTRACT OQ1 asked terminal or local web and the build answered "terminal, for
  * now" with a named revision condition: *the moment the owner wants to click.*
@@ -35,10 +36,13 @@
  * ## The filesystem exception, named
  *
  * This is the ONE file in `adapters/dashboard/` that imports `node:fs`, and it
- * imports exactly `readFileSync`, to serve two static HTML files that ship
- * beside it. The directory-wide ban exists to mechanize "no memory body text is
- * persisted into dashboard state" — there is no state file because nothing here
- * can open one — and a read-only import preserves that exactly.
+ * imports exactly `readFileSync`, to serve the static files that ship beside
+ * it: the two HTML pages, and the page's own `.js`/`.css` modules under `web/`
+ * — only the paths `static.ts` resolves (a fixed set of folders, an allow-listed
+ * set of extensions, no traversal). The directory-wide ban exists to mechanize
+ * "no memory body text is persisted into dashboard state" — there is no state
+ * file because nothing here can open one — and a read-only import preserves
+ * that exactly.
  * `test/dashboard.test.ts` encodes the exception per-file and asserts the
  * binding, so it cannot quietly widen into a write.
  */
@@ -52,6 +56,7 @@ import { isStoreError, today as todayUtc } from "../../../core/store/index.js";
 import { Dashboard } from "../index.js";
 import type { DashboardSource } from "../source.js";
 import { firedPanel } from "./fired.js";
+import { resolveStatic } from "./static.js";
 import {
   activityView,
   eventDetail,
@@ -106,6 +111,8 @@ export interface Reply {
   readonly status: number;
   readonly headers: Record<string, string>;
   readonly body: string;
+  /** A binary static file (a font), sent instead of `body`. */
+  readonly bytes?: Uint8Array;
 }
 
 function json(body: unknown, status = 200): Reply {
@@ -129,6 +136,23 @@ function page(file: string): Reply {
       { error: `the dashboard page is missing from the install (${file}). Reinstall, or run from a checkout.` },
       500,
     );
+  }
+}
+
+/**
+ * One of the page's static modules, already resolved by `static.ts`. Read per
+ * request and never cached, like the HTML: a checkout edited under a running
+ * server shows the edit on reload. Anything unreadable is the ordinary 404.
+ */
+function staticFile(path: string): Reply | null {
+  const found = resolveStatic(path, HERE);
+  if (found === null) return null;
+  const headers = { "content-type": found.contentType, ...NO_STORE };
+  try {
+    if (found.text) return { status: 200, headers, body: readFileSync(found.file, "utf8") };
+    return { status: 200, headers, body: "", bytes: readFileSync(found.file) };
+  } catch {
+    return json({ error: `not found: ${path}` }, 404);
   }
 }
 
@@ -202,6 +226,8 @@ export function router(url: URL, host: string | null, src: DashboardSource): Rep
       const detail = eventDetail(src, seq);
       return detail.found ? json(detail) : json({ error: "no event with that seq in the kept window" }, 404);
     }
+    const asset = staticFile(path);
+    if (asset !== null) return asset;
     return json({ error: `not found: ${path}` }, 404);
   } catch (err) {
     // A store refusal reaches the page as its code and its detail — ids and
@@ -256,7 +282,7 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
       };
     }
     res.writeHead(reply.status, reply.headers);
-    res.end(reply.body);
+    res.end(reply.bytes ?? reply.body);
   });
 
   return new Promise<RunningDashboard>((ok, fail) => {

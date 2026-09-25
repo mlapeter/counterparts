@@ -337,7 +337,8 @@ interface AdapterSource {
  * THE ONE FILE WITH A FILESYSTEM AND A SOCKET, named here rather than waved
  * through by a wildcard.
  *
- * `web/server.ts` serves two static HTML pages that ship beside it, so it needs
+ * `web/server.ts` serves the static files that ship beside it (the two HTML
+ * pages, and the page's own `.js`/`.css` modules under `web/`), so it needs
  * `node:fs` — and it binds a loopback port, so it needs `node:http`. Neither
  * weakens what the directory-wide ban actually mechanizes ("no memory body text
  * is persisted into any dashboard state file: there IS no state file"), because
@@ -357,7 +358,10 @@ function adapterSources(): AdapterSource[] {
         walk(full);
         continue;
       }
-      if (!entry.name.endsWith(".ts")) continue;
+      // The TypeScript, and the page's browser modules (`web/**/*.js`): the
+      // same scans hold for both — a browser module has no business naming a
+      // write method or a filesystem either, and may import only its siblings.
+      if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".js")) continue;
       const raw = readFileSync(full, "utf8");
       const decommented = raw.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
       const imports = [
@@ -485,6 +489,8 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
   test("no source file in the adapter calls a WRITE_METHOD or imports a filesystem", () => {
     const sources = adapterSources();
     expect(sources.length).toBeGreaterThan(5);
+    // The browser modules are in the scan, not only the TypeScript.
+    expect(sources.some((s) => s.path === "web/shared/api.js")).toBe(true);
 
     const FS_MODULES = ["node:fs", "fs", "node:fs/promises", "fs/promises"];
     const FS_CALLS = [

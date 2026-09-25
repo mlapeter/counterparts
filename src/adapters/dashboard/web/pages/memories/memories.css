@@ -1,0 +1,5 @@
+.searchrow{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+#q{flex:1;min-width:220px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  color:inherit;font:inherit;font-size:12px;padding:10px 13px;outline:none}
+#q:focus{border-color:var(--cyan);box-shadow:0 0 12px rgba(0,229,255,.12)}
+#qn{color:var(--dim);font-size:11px;white-space:nowrap}

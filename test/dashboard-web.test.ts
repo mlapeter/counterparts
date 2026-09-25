@@ -32,9 +32,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
@@ -52,6 +52,7 @@ import {
   router,
   startDashboard,
 } from "../src/adapters/dashboard/web/server.js";
+import { STATIC_TYPES, resolveStatic } from "../src/adapters/dashboard/web/static.js";
 import {
   activityView,
   divergentPair,
@@ -577,6 +578,152 @@ describe("the two refusals", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE PAGE'S OWN STATIC FILES. The page is plain browser ES modules and
+ * stylesheets under `web/` (see `web/README.md`), so the server hands out a
+ * small static tree — through `static.ts`'s resolver and `server.ts`'s one
+ * `readFileSync`. What has to hold: only the named folders and extensions are
+ * reachable, no spelling of `..` escapes `web/`, the server's own source is never
+ * a file you can fetch, every type is right (a module script with the wrong
+ * MIME is refused by the browser), and every file the page asks for exists.
+ */
+describe("the page's static files", () => {
+  const WEB = fileURLToPath(new URL("../src/adapters/dashboard/web/", import.meta.url));
+  const walkWeb = (at: string, out: string[] = []): string[] => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const full = join(at, entry.name);
+      if (entry.isDirectory()) walkWeb(full, out);
+      else out.push(full);
+    }
+    return out;
+  };
+
+  test("the resolver serves the named folders and extensions, and nothing else", () => {
+    const ok = (path: string): string | null => {
+      const found = resolveStatic(path, WEB);
+      return found === null ? null : `${relative(WEB, found.file)} ${found.contentType}`;
+    };
+    expect(ok("/app.js")).toBe("app.js text/javascript; charset=utf-8");
+    expect(ok("/shared/base.css")).toBe("shared/base.css text/css; charset=utf-8");
+    expect(ok("/pages/flow/sections/diagram.js")).toBe("pages/flow/sections/diagram.js text/javascript; charset=utf-8");
+    expect(ok("/shell/pulse.js")).toBe("shell/pulse.js text/javascript; charset=utf-8");
+    expect(ok("/mechanisms/decay/panel.js")).toBe("mechanisms/decay/panel.js text/javascript; charset=utf-8");
+    expect(ok("/shared/fonts/mono.woff2")).toBe("shared/fonts/mono.woff2 font/woff2");
+    const refused = [
+      // the server's own source, the views, the HTML (which has its own routes)
+      "/server.ts", "/views.ts", "/static.ts", "/views/meta.ts", "/app.html", "/brain.html", "/README.md",
+      "/shared/x.ts", "/shared/x.html", "/shared/x.json", "/shared/x", "/shared/.hidden.js", "/other/x.js",
+      "/", "/shared/", "/shared//x.js", "/app.js/", "/api/meta",
+      // traversal, raw and encoded, and the other escapes
+      "/shared/../server.ts", "/shared/../../../../etc/passwd.js", "/shared/./base.css",
+      "/shared/%2e%2e/server.ts", "/shared/%2E%2E/server.ts", "/shared/%2e%2e%2fserver.ts", "/shared%2f..%2fserver.ts",
+      "/shared/..%5cserver.ts", "/shared/%5c..%5cserver.js", "/shared\\..\\x.js", "/shared/%00.js", "/shared/x.js%00.css",
+      "/shared/%252e%252e/server.js", "/shared/%E0%A4%A.js", "/shared/...js", "/shared/a..b.js",
+      "//etc/passwd.js", "shared/base.css", "/%2fetc/passwd.js",
+    ];
+    for (const path of refused) expect(`${path} → ${ok(path)}`).toBe(`${path} → null`);
+    // The extension list is exactly the three; a new one is a decision, not a drift.
+    expect(Object.keys(STATIC_TYPES).sort()).toEqual([".css", ".js", ".woff2"]);
+  });
+
+  test("through the router: right types, no-store, the Host refusal first, and a JSON 404 otherwise", () => {
+    const d = open(emptyDir);
+    try {
+      const js = router(new URL(`http://${HOST}/app.js`), HOST, d.src);
+      expect(js.status).toBe(200);
+      expect(js.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+      expect(js.headers["cache-control"]).toBe("no-store");
+      expect(js.body).toContain("import ");
+      const css = router(new URL(`http://${HOST}/shared/tokens.css`), HOST, d.src);
+      expect(css.status).toBe(200);
+      expect(css.headers["content-type"]).toBe("text/css; charset=utf-8");
+      expect(css.body).toContain("--cyan");
+      // A module that does not exist, the server's own files, and every traversal
+      // spelling the URL parser lets through — all the ordinary 404.
+      for (const path of ["/shared/nope.js", "/server.ts", "/views.ts", "/app.html", "/brain.html",
+        "/shared/../server.ts", "/shared/%2e%2e/server.ts", "/pages/%2e%2e/%2e%2e/server.ts", "/shared/..%5cserver.ts",
+        "/shared/%2e%2e%2f%2e%2e%2fserver.ts", "/pages/flow"]) {
+        const res = get(d.src, path);
+        expect(`${path} → ${res.status}`).toBe(`${path} → 404`);
+        expect(String(res.json["error"])).toContain("not found");
+      }
+      expect(get(d.src, "/app.js", "evil.example").status).toBe(403);
+    } finally {
+      d.close();
+    }
+  });
+
+  test("every file the page asks for exists and is served — links, scripts and every import", () => {
+    const d = open(emptyDir);
+    try {
+      const shell = readFileSync(join(WEB, "app.html"), "utf8");
+      const wanted = new Set<string>();
+      for (const m of shell.matchAll(/(?:href|src)="(\/[^"]+)"/g)) {
+        const url = m[1] as string;
+        if (url === "/favicon.svg" || url === "/brain") continue;
+        wanted.add(url);
+      }
+      expect(wanted.has("/app.js")).toBe(true);
+      // Follow every static import from every module the page can load.
+      const seen = new Set<string>();
+      const queue = [...wanted].filter((u) => u.endsWith(".js"));
+      while (queue.length > 0) {
+        const url = queue.pop() as string;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        const found = resolveStatic(url, WEB);
+        expect(`${url} → ${found === null ? "unservable" : "ok"}`).toBe(`${url} → ok`);
+        if (found === null) continue;
+        const src = readFileSync(found.file, "utf8");
+        for (const m of src.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+"([^"]+)";?$/gm)) {
+          const spec = m[1] as string;
+          expect(`${url} imports ${spec}`).toMatch(/imports \.\.?\//);
+          const target = "/" + relative(WEB, resolve(dirname(found.file), spec)).split("\\").join("/");
+          wanted.add(target);
+          queue.push(target);
+        }
+      }
+      for (const url of wanted) {
+        const res = router(new URL(`http://${HOST}${url}`), HOST, d.src);
+        expect(`${url} → ${res.status}`).toBe(`${url} → 200`);
+      }
+      // And nothing client-side sits where it cannot be served: every .js/.css
+      // under web/ resolves, and every one of them is reached from the shell.
+      const client = walkWeb(WEB)
+        .filter((f) => f.endsWith(".js") || f.endsWith(".css"))
+        .map((f) => "/" + relative(WEB, f).split("\\").join("/"));
+      for (const url of client) {
+        expect(`${url} → ${resolveStatic(url, WEB) === null ? "unservable" : "ok"}`).toBe(`${url} → ok`);
+        expect(`${url} → ${wanted.has(url) ? "loaded" : "orphan"}`).toBe(`${url} → loaded`);
+      }
+    } finally {
+      d.close();
+    }
+  });
+
+  test("the web tree holds no symlink, so the resolver's prefix check is the whole story", () => {
+    const links = walkWeb(WEB).filter((f) => lstatSync(f).isSymbolicLink());
+    expect(links).toEqual([]);
+    expect(existsSync(join(WEB, "app.html"))).toBe(true);
+  });
+
+  test("the page only ever GETs: one fetch, in shared/api.js, with no method", () => {
+    const WEB_JS = walkWeb(WEB).filter((f) => f.endsWith(".js"));
+    const code = (f: string): string =>
+      readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
+    const fetching = WEB_JS.filter((f) => /\bfetch\s*\(/.test(code(f))).map((f) => relative(WEB, f));
+    expect(fetching).toEqual(["shared/api.js"]);
+    const api = readFileSync(join(WEB, "shared/api.js"), "utf8");
+    expect(/method\s*:/.test(api)).toBe(false);
+    for (const f of WEB_JS) {
+      const src = code(f);
+      expect(`${relative(WEB, f)}: ${/XMLHttpRequest|sendBeacon|WebSocket|EventSource|localStorage|indexedDB/.test(src)}`)
+        .toBe(`${relative(WEB, f)}: false`);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 describe("totality: nothing the core can record has nowhere to go", () => {
   test("every durable event name maps to a flow node", () => {
     const unmapped = DURABLE_EVENT_NAMES.filter((name) => nodeOf(name) === null);
@@ -902,20 +1049,31 @@ describe("the shapes the page draws with", () => {
    * the boot path (which owns the feed).
    */
   test("the poll's refresh re-reads the overview, not only the flow diagram", () => {
-    const app = readFileSync(
-      fileURLToPath(new URL("../src/adapters/dashboard/web/app.html", import.meta.url)),
-      "utf8",
-    );
-    const start = app.indexOf("async function refreshCounters(");
-    expect(start).toBeGreaterThan(0);
-    const body = app.slice(start, app.indexOf("\n}", start));
-    expect(body).toContain("/api/overview");
-    expect(body).toContain("paintOverview(");
-    expect(body).toContain("/api/flow");
+    // The page is split into modules (`web/README.md`): the pulse re-reads every
+    // page that has a `refresh`, and the overview and the flow page each have one.
+    const read = (rel: string): string =>
+      readFileSync(fileURLToPath(new URL(`../src/adapters/dashboard/web/${rel}`, import.meta.url)), "utf8");
+    const body = (src: string, signature: string): string => {
+      const start = src.indexOf(signature);
+      expect(start).toBeGreaterThan(0);
+      return src.slice(start, src.indexOf("\n}", start));
+    };
+    const pulse = body(read("shell/pulse.js"), "export async function refreshCounters(");
+    expect(pulse).toContain("for (const page of PAGES)");
+    expect(pulse).toContain("page.refresh()");
+    const overview = read("pages/overview/index.js");
+    const overviewRefresh = body(overview, "async function refresh(");
+    expect(overviewRefresh).toContain("/api/overview");
+    expect(overviewRefresh).toContain("paintOverview(");
+    expect(body(read("pages/flow/index.js"), "async function refresh(")).toContain("/api/flow");
+    // Both pages are in the registry the pulse walks, and export the hook.
+    const registry = read("shell/pages.js");
+    expect(registry).toContain("overview, memories, mind, flow, health");
+    expect(overview).toMatch(/export default \{[\s\S]*\brefresh,/);
     // And the paint is a function of its own, so the refresh path can skip the
     // feed the poll is prepending into.
-    expect(app).toContain("function paintOverview(d, withFeed)");
-    expect(app).toContain("window.tileValue");
+    expect(overview).toContain("export function paintOverview(d, withFeed)");
+    expect(read("pages/overview/sections/tiles.js")).toContain("window.tileValue");
   });
 
   test("an empty store's row count is zero and its emptiness agrees with it", () => {

@@ -1,0 +1,20 @@
+#flowbox{padding:4px}
+#flowcv{width:100%;display:block;cursor:pointer}
+/* Below ~900px the diagram becomes a LIST of the same fourteen nodes. A canvas
+   shrunk to a phone is text clipped mid-word inside overlapping boxes; the data
+   behind it is a list of {label, sub, state} records, and a list is honest. */
+#flowlist{padding:4px 2px}
+.fnode{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:baseline;
+  padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius);
+  margin:6px 4px;cursor:pointer;background:var(--card)}
+.fnode:hover,.fnode.on{border-color:var(--glow);background:var(--hover)}
+.fnode .nm{font-size:11.5px;letter-spacing:1.4px}
+.fnode .sb{color:var(--dim);font-size:10px;display:block;margin-top:3px;letter-spacing:0}
+.fnode .st{font-size:10.5px;color:var(--ink);white-space:nowrap;text-align:right}
+.fnode.silent .st{color:var(--dim)}
+.fchain{color:var(--faint);font-size:9px;letter-spacing:1px;text-align:center;padding:1px 0}
+#flowdetail h3{color:var(--cyan);font-size:13px;font-weight:400;letter-spacing:1.5px;margin-bottom:6px}
+#flowdetail .brain{color:var(--purple);font-size:11px;line-height:1.65;margin:8px 0}
+#flowdetail .breaks{color:var(--amber);font-size:11px;line-height:1.65;margin:8px 0}
+#flowdetail .lab{color:var(--faint);font-size:9px;text-transform:uppercase;letter-spacing:1.4px;margin-top:12px}
+#flowdetail p{font-size:11.5px;margin:6px 0;line-height:1.7}
