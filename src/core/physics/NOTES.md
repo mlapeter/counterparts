@@ -134,6 +134,49 @@ decided twice.)*
    The FALLBACK channel is untouched: its ceiling and its interpreter-supplied
    dimensions are exactly what they were. CAL, and a working default.
 
+## Spacing credit (2026-09-25)
+
+The owner's "rich get richer", on a four-day-old store with few personal memories: one
+emotional memory sat in the wake's "Nearby, if it helps:" lane nearly every session, the
+assistant mentioned it, the mention was credited, and `creditUse` added the full tier
+weight on every new lived day whatever the gap — so `uses`, and with it `stability`
+(`S_BASE × (1 + BETA × ln(1 + uses))`), climbed every day it was shown. The other half of
+the loop, the lane's ordering, is `self/`'s (self NOTES §26).
+
+- **The curve.** `credit = w × max(SPACING_FLOOR, 1 − exp(−gap / SPACING_DAYS))`, `gap`
+  in lived days since `lastUsedDay`. Smooth, monotone, below 1 for every finite gap. At
+  `SPACING_DAYS = 7`: 0.13 the next day, 0.35 at 3 days, 0.63 at a week, 0.86 at two
+  weeks, 0.95 at three. `SPACING_FLOOR = 0.1` never binds at 7 (gap ≥ 1 gives 0.133) and
+  exists so a longer time constant cannot make a real use worth nothing.
+- **Why 7.** Full credit should arrive where forgetting has visibly begun, since
+  re-learning what was fading is what spacing rewards. The shortest stability any memory
+  has is `S_BASE / kappa = 60` lived days (fact); at 7 days decay has taken ~11%, at 14
+  ~21%, at 21 ~30%. A lived day is an ACTIVE day, and the owner's clock ran 7 lived days
+  across 15 calendar ones in September, so this is slower in calendar time than the
+  literature's gaps — on purpose: nothing should become near-immortal by being talked
+  about daily. Measured in `test/hints-nearby.test.ts`'s ten-render simulation: seven
+  credited showings came to ~1.26 uses where they used to be 7.
+- **`reinforcedDays` is NOT scaled — decided, and why.** Promotion (`N_PROMOTION_DAYS = 3`,
+  owner ruling) counts distinct lived days a memory proved useful; it is an occasion
+  count, not a magnitude, and the "two days is not three" guarantee is about days. So three
+  days in a row still count three. What changes is the rep arm of `base`: `rep = 0.12 ×
+  uses` now needs well-spaced use to climb, so a rep-driven memory (skill, place, entity,
+  fact) reaches the identity floor more slowly under massed use. A salience-driven memory
+  (self, person) was never rep-driven and promotes exactly as before on three distinct days.
+  That leaves one path to identity through daily wake echoes — a high-salience memory
+  mentioned three days running — and the thing that stops the wake manufacturing those
+  days is the hints lane's habituation (self NOTES §26), not a second rule here.
+- **`AUTHORED_DEFAULT_CLAIM`'s arithmetic.** Its note said "rep 0.3 needs 3 credited days";
+  that is now three FULL credits — three well-spaced days, not three in a row. The comment
+  was amended in place; the constant and its bound (`0.25 + CONS_BONUS < THETA_SEM`) are
+  unchanged.
+- **The store needed nothing.** `Store.reinforce` applies `creditUse`'s verdict
+  absolutely and `uses` is a REAL column; the new `spacing` / `credit` fields ride on the
+  returned `CreditOutcome` for any caller that wants to report them.
+- Tests that pinned `uses` as a COUNT of credits (lifecycle, entity-named) now pin
+  `reinforcedDays`, which is what they were counting; tests that pin the amount compute it
+  with `spacingFactor`.
+
 ## Observations for the owner (arithmetic vs prose)
 
 - **§5.6's "a slow kind cannot cross from rest in fewer than ~3 lived days" is

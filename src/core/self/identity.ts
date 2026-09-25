@@ -37,6 +37,51 @@ export interface Ranked {
   readonly personScoped: boolean;
   /** Lived day this element last rendered in a wake; -1 never. Identity only. */
   readonly lastRendered: number;
+  /**
+   * Hints only (2026-09-25): WHY this hint ranked where it did. `score` is what
+   * the lane is sorted by — strength x context boost x habituation — and the
+   * rest is its working, ids and numbers only, so the briefing row can say per
+   * hint whether it was context-boosted or habituated. Absent on every other
+   * lane, which still sorts by strength or rotation.
+   */
+  readonly hint?: HintWhy;
+}
+
+/** Where a hint came from, relative to the session the render was composed for. */
+export type HintContext = "session" | "scope" | "elsewhere" | "no-scope";
+
+/** The habituation state a hint was ranked under. */
+export type HintHabit =
+  /** Never kept in a published hints lane, or its load has fully recovered. */
+  | "fresh"
+  /** Shown, and still carrying some of that showing's load. */
+  | "habituated"
+  /** Used AFTER it had left the wake — organic use, which resets the load. */
+  | "reset";
+
+export interface HintWhy {
+  readonly score: number;
+  readonly context: HintContext;
+  /** The multiplier `context` bought: 1 for elsewhere / no-scope. */
+  readonly boost: number;
+  readonly habit: HintHabit;
+  /** Accumulated showing load after recovery, at this day. 0 when fresh or reset. */
+  readonly load: number;
+  /** `1 / (1 + HINT_HABITUATION x load)` — 1 when fresh or reset. */
+  readonly habituation: number;
+}
+
+/**
+ * WHERE the render is composed FOR (2026-09-25). The briefing is rendered once
+ * per lived day in the detached worker, and read by sessions in every directory
+ * until the next render — so this is the scope and session of the boundary that
+ * triggered the render, the nearest thing to "here" a pre-rendered bundle can
+ * know (NOTES, "Nearby by context and habituation"). Absent: no context boost,
+ * which is what every non-host caller (rebrief, replay, tests) gets.
+ */
+export interface RenderHere {
+  readonly scope?: string | null;
+  readonly session?: string | null;
 }
 
 /**
@@ -56,6 +101,48 @@ export function lastRenderedOf(store: Store): Map<string, number> {
   return out;
 }
 
+/**
+ * Meta key prefix for a hint's SHOWN history (2026-09-25): `self.hinted.<id>` =
+ * `<day>:<load>:<closed>`. `day` is the lived day of the render that last KEPT
+ * it in the hints lane, `load` the accumulated showing load as of that day, and
+ * `closed` the lived day of the first render that dropped it again, or `-`
+ * while it is still in the published bundle. Written by `Self.boundary` on a
+ * real publish only, beside `RENDERED_PREFIX`; no schema change. This is the
+ * only shown history there is: the durable `self.briefing` row carried counts
+ * and trimmed ids, never the kept hints, until this change.
+ */
+export const HINTED_PREFIX = "self.hinted.";
+
+export interface HintRecord {
+  readonly day: number;
+  readonly load: number;
+  /** Null while the hint is in the live bundle. */
+  readonly closed: number | null;
+}
+
+export function parseHintRecord(value: string): HintRecord | null {
+  const [d, l, c] = value.split(":");
+  const day = Number.parseInt(d ?? "", 10);
+  const load = Number.parseFloat(l ?? "");
+  if (!Number.isFinite(day) || !Number.isFinite(load) || load < 0) return null;
+  if (c === undefined || c === "-") return { day, load, closed: null };
+  const closed = Number.parseInt(c, 10);
+  return Number.isFinite(closed) ? { day, load, closed } : null;
+}
+
+export function formatHintRecord(r: HintRecord): string {
+  return `${r.day}:${Math.round(r.load * 10_000) / 10_000}:${r.closed === null ? "-" : r.closed}`;
+}
+
+export function hintedOf(store: Store): Map<string, HintRecord> {
+  const out = new Map<string, HintRecord>();
+  for (const [key, value] of store.metaWithPrefix(HINTED_PREFIX)) {
+    const r = parseHintRecord(value);
+    if (r !== null) out.set(key.slice(HINTED_PREFIX.length), r);
+  }
+  return out;
+}
+
 export interface Scanned {
   readonly id: string;
   readonly kind: Kind;
@@ -69,6 +156,11 @@ export interface Scanned {
    *  dates a MIGRATED element differently — its encode date is an upper bound. */
   readonly source: string | null;
   readonly lastRendered: number;
+  /** Where it was minted — `origin_scope` / `origin_session`. Null when unrecorded. */
+  readonly originScope: string | null;
+  readonly originSession: string | null;
+  /** Its shown history as a hint (`HINTED_PREFIX`), or null if never kept. */
+  readonly hinted: HintRecord | null;
 }
 
 /**
@@ -78,6 +170,7 @@ export interface Scanned {
 export function scanActive(store: Store, day: number): Scanned[] {
   const out: Scanned[] = [];
   const rendered = lastRenderedOf(store);
+  const hinted = hintedOf(store);
   for (const id of store.list({ type: "memory", archived: false })) {
     const row = store.row(id);
     if (row === undefined) continue;
@@ -102,9 +195,16 @@ export function scanActive(store: Store, day: number): Scanned[] {
       unresolved: doc.meta["unresolved"] === true,
       source: row.source,
       lastRendered: rendered.get(id) ?? -1,
+      originScope: nonEmpty(row.origin_scope),
+      originSession: nonEmpty(row.origin_session),
+      hinted: hinted.get(id) ?? null,
     });
   }
   return out;
+}
+
+function nonEmpty(v: string | null | undefined): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v : null;
 }
 
 function byStrength(a: Ranked, b: Ranked): number {
@@ -130,6 +230,145 @@ function byRotation(a: Ranked, b: Ranked): number {
 }
 
 /**
+ * Hints order (2026-09-25): by `score` = strength x context boost x
+ * habituation, then the strength order breaks ties. Not `byStrength`: craft
+ * still uses that, and a hint's `strength` field keeps meaning strength.
+ */
+function byHintScore(a: Ranked, b: Ranked): number {
+  const sa = a.hint?.score ?? a.strength;
+  const sb = b.hint?.score ?? b.strength;
+  if (sb !== sa) return sb - sa;
+  return byStrength(a, b);
+}
+
+// ── hints: context and habituation (2026-09-25) ─────────────────────────────
+
+/**
+ * The habituation reading of one memory's shown history, at day `day`.
+ *
+ *   - Never kept as a hint → fresh, factor 1.
+ *   - Kept, then LEFT the bundle (`closed`), then used on a later lived day
+ *     than the render that dropped it → reset, factor 1. That is organic use:
+ *     the memory was not on display, so the use was not the display's echo.
+ *   - Otherwise the load recovers exponentially from the day it was last kept,
+ *     time constant `HINT_RECOVERY_DAYS`. A record still OPEN (it is in the
+ *     live bundle) also settles its pending showing here: +1 if it was not used
+ *     since, +`HINT_USED_STEP` if it was. A use while on display is NOT a full
+ *     reset, on purpose: it cannot be told from the display prompting it, and
+ *     "shown → mentioned → credited → shown again" is the loop this exists to
+ *     break (NOTES, "Nearby by context and habituation").
+ *
+ * On the record's own lived day (a second render the same day) nothing settles
+ * and nothing recovers: one showing per lived day, as with credit.
+ */
+export function habituationOf(
+  record: HintRecord | null,
+  lastUsedDay: number,
+  day: number,
+  t: SelfTunables,
+): { habit: HintHabit; load: number; habituation: number; settled: number } {
+  if (record === null) return { habit: "fresh", load: 0, habituation: 1, settled: 0 };
+  if (record.closed !== null && lastUsedDay > record.closed) {
+    return { habit: "reset", load: 0, habituation: 1, settled: 0 };
+  }
+  const elapsed = Math.max(0, day - record.day);
+  // `settled` = the load AS OF `record.day`, the pending showing included.
+  const settled =
+    record.closed !== null || elapsed === 0
+      ? record.load
+      : record.load + (lastUsedDay >= record.day ? t.HINT_USED_STEP : 1);
+  const load = settled * Math.exp(-elapsed / t.HINT_RECOVERY_DAYS);
+  const habituation = 1 / (1 + t.HINT_HABITUATION * load);
+  return { habit: load > 0 ? "habituated" : "fresh", load, habituation, settled };
+}
+
+/** The context boost for a memory minted at `originScope` / `originSession`. */
+export function contextOf(
+  s: Pick<Scanned, "originScope" | "originSession">,
+  here: RenderHere | undefined,
+  t: SelfTunables,
+): { context: HintContext; boost: number } {
+  const scope = nonEmpty(here?.scope);
+  const session = nonEmpty(here?.session);
+  if (scope === null && session === null) return { context: "no-scope", boost: 1 };
+  const sameScope = scope !== null && s.originScope === scope;
+  const sameSession = session !== null && s.originSession === session;
+  if (sameSession) {
+    return {
+      context: "session",
+      boost: (sameScope ? t.HINT_SCOPE_BOOST : 1) * t.HINT_SESSION_BOOST,
+    };
+  }
+  if (sameScope) return { context: "scope", boost: t.HINT_SCOPE_BOOST };
+  return { context: "elsewhere", boost: 1 };
+}
+
+/**
+ * The lived day of the memory's last REAL use, or -1 if it was never credited.
+ * A never-used memory carries `lastUsedDay === birthDay` (birth is not a use,
+ * and `creditUse` refuses it), so reading `lastUsedDay` raw would count a hint
+ * first shown on the day it was minted as "used while on display".
+ */
+function lastRealUse(s: Scanned): number {
+  return s.physics.lastUsedDay > s.physics.birthDay ? s.physics.lastUsedDay : -1;
+}
+
+function hintWhy(s: Scanned, day: number, here: RenderHere | undefined, t: SelfTunables): HintWhy {
+  const { context, boost } = contextOf(s, here, t);
+  const h = habituationOf(s.hinted, lastRealUse(s), day, t);
+  return {
+    score: s.strength * boost * h.habituation,
+    context,
+    boost,
+    habit: h.habit,
+    load: h.load,
+    habituation: h.habituation,
+  };
+}
+
+/**
+ * The shown-history writes one publish owes, as meta entries. Pure:
+ * `Self.boundary` applies them on a real publish and on nothing else (an
+ * observer composes and deposits nothing; `build` never writes).
+ *
+ *   - every hint the bundle KEPT (rendered, not merely ranked — the same rule
+ *     as `RENDERED_PREFIX`): `{day, load as of today, open}`;
+ *   - every record that was OPEN (in the previous bundle) and is not kept now:
+ *     closed at today, with its pending showing settled.
+ *
+ * A record already kept on this same lived day is left as it is.
+ */
+export function hintRecordWrites(
+  scanned: readonly Scanned[],
+  keptHints: readonly string[],
+  day: number,
+  t: SelfTunables,
+): (readonly [string, string])[] {
+  const kept = new Set(keptHints);
+  const out: (readonly [string, string])[] = [];
+  for (const s of scanned) {
+    const r = s.hinted;
+    if (kept.has(s.id)) {
+      if (r !== null && r.closed === null && r.day === day) continue;
+      const h = habituationOf(r, lastRealUse(s), day, t);
+      out.push([`${HINTED_PREFIX}${s.id}`, formatHintRecord({ day, load: h.load, closed: null })]);
+      continue;
+    }
+    if (r !== null && r.closed === null) {
+      // Closing always settles the pending showing — including on the record's
+      // own day (a same-day rebrief that dropped it), where `habituationOf`
+      // deliberately settles nothing because the hint might be kept again.
+      const step = lastRealUse(s) >= r.day ? t.HINT_USED_STEP : 1;
+      out.push([
+        `${HINTED_PREFIX}${s.id}`,
+        formatHintRecord({ day: r.day, load: r.load + step, closed: day }),
+      ]);
+    }
+  }
+  return out;
+}
+
+/**
  * Threads order: person-scoped first, then oldest-opened first. The trim eats
  * from the END of the lane, so long-held relational debts drop last
  * (behavioral-spec §1 G4 — *truncation must never be iteration luck*).
@@ -140,8 +379,9 @@ function byThreadAge(a: Ranked, b: Ranked): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function rank(s: Scanned, lane: LaneName): Ranked {
+function rank(s: Scanned, lane: LaneName, hint?: HintWhy): Ranked {
   return {
+    ...(hint === undefined ? {} : { hint }),
     id: s.id,
     lane,
     kind: s.kind,
@@ -176,7 +416,12 @@ export interface Lanes {
  *   craft    — skill-kind, not already in identity, above the warm floor. The
  *              procedural self is rendered as CONTENT, never a pointer (§1).
  *   threads  — `unresolved` memories: person-scoped first, oldest-opened first.
- *   hints    — everything else warm enough to be worth a nudge, strongest first.
+ *   hints    — everything else warm enough to be worth a nudge, ordered by
+ *              strength x context boost x habituation (2026-09-25; it was
+ *              "strongest first", which let one strong memory hold the lane
+ *              every day — NOTES, "Nearby by context and habituation"). The
+ *              warm floor still reads STRENGTH alone: context and habituation
+ *              reorder the lane, they never admit a memory or bar one.
  *   horizon  — the caller's arriving occasions, in the order supplied
  *              (`prospective/` owns the ordering — INTERFACE-GAPS #3).
  *
@@ -187,6 +432,8 @@ export function rankLanes(
   scanned: readonly Scanned[],
   horizon: readonly Ranked[],
   t: SelfTunables,
+  here?: RenderHere,
+  day?: number,
 ): Lanes {
   const identity: Ranked[] = [];
   const craft: Ranked[] = [];
@@ -207,13 +454,16 @@ export function rankLanes(
       craft.push(rank(s, "craft"));
       continue;
     }
-    hints.push(rank(s, "hints"));
+    // `day` absent: no clock to settle habituation against, so the reading is
+    // taken at the record's own day (nothing settles, nothing recovers). Only
+    // the pure-ranking tests call it that way; `Self.build` always passes one.
+    hints.push(rank(s, "hints", hintWhy(s, day ?? s.hinted?.day ?? 0, here, t)));
   }
 
   identity.sort(byRotation);
   craft.sort(byStrength);
   threads.sort(byThreadAge);
-  hints.sort(byStrength);
+  hints.sort(byHintScore);
 
   return {
     identity: identity.slice(0, t.IDENTITY_MAX),

@@ -144,19 +144,21 @@ describe("a person named in memory bodies keeps their card", () => {
     const st = store();
     const s = Schemas.open({ store: st });
     const ada = mention(s, "Ada Lovelace", "person", 0, ["Ada"]);
-    const before = st.physicsOf(ada).uses;
+    // Counted in OCCASIONS (`reinforcedDays`): since the spacing rule (physics,
+    // 2026-09-25) `uses` grows by the tier weight x a spacing factor, not by 1.
+    const before = st.physicsOf(ada).reinforcedDays ?? 0;
 
     // Name and alias both in one text: one credit.
     const first = s.creditNamedIn({ text: "Ada Lovelace called; Ada sounded well.", day: 3, ref: "m1" });
     expect(first.credited).toEqual([ada]);
-    expect(st.physicsOf(ada).uses).toBe(before + 1);
+    expect(st.physicsOf(ada).reinforcedDays).toBe(before + 1);
     expect(st.physicsOf(ada).lastUsedDay).toBe(3);
 
     // A second memory the same lived day: named, not credited again.
     const again = s.creditNamedIn({ text: "Ada again, later that day.", day: 3, ref: "m2" });
     expect(again.credited).toEqual([]);
     expect(again.refused).toEqual([ada]);
-    expect(st.physicsOf(ada).uses).toBe(before + 1);
+    expect(st.physicsOf(ada).reinforcedDays).toBe(before + 1);
 
     // The birth day is not a use either.
     const born = mention(s, "Babbage", "person", 5);
@@ -447,7 +449,7 @@ describe("every door that mints credits the cards it names", () => {
   test("a session-end dump titled with the name is credited once, by the title path", async () => {
     const c = root();
     const ada = withAda(c);
-    const uses = c.store.physicsOf(ada).uses;
+    const days = c.store.physicsOf(ada).reinforcedDays ?? 0;
     const out = await c.submitSessionEnd(
       { content: "Ada is running the garden committee this spring.", kind: "person", title: "Ada" },
       { session: "s1", scope: "proj" },
@@ -455,7 +457,7 @@ describe("every door that mints credits the cards it names", () => {
     expect(out.deposited).toBe(true);
     expect(c.events("counterpart.mention")[0]?.data?.["reason"]).toBe("existing");
     expect(c.events("counterpart.mention.named")).toHaveLength(0);
-    expect(c.store.physicsOf(ada).uses).toBe(uses + 1);
+    expect(c.store.physicsOf(ada).reinforcedDays).toBe(days + 1);
   });
 
   test("a crash-fallback sweep naming the person refreshes the card", async () => {

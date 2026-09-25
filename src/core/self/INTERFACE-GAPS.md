@@ -299,3 +299,19 @@ Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 
 
 **What does not need it:** correctness. `journal` was classified before anything
 wrote it (scar §2.11) and a test asserts a snapshot carries the copies.
+
+## 12. The hints lane's "here" is the render's session, not the reader's — OPEN 2026-09-25
+
+The hints lane boosts memories minted in the scope the render is composed for (NOTES
+§26). The render runs once per lived day, at the first boundary, and one bundle is read
+from every directory until the next — so the boost follows whichever session TRIGGERED
+the day's render, not the session reading the wake. `Counterpart.sessionEnd({ here })`
+carries that session's scope in; nothing carries the reader's.
+
+**What would close it:** per-directory selection at wake, on the handoff pointer's
+pattern (`Counterpart.addHandoffPointer`, `briefing.ts#spliceBeforeSentinel`): the
+boundary publishes the hint candidates with their pre-context scores and resolved lines,
+reserves the lane's bytes, and the wake — which knows `here.scope` — applies the boost,
+picks within the reserved bytes, and splices. That puts ranking arithmetic on the
+zero-compute wake path (CONTRACT: "zero compute at wake") and moves the shown-history
+write to delivery time, so it wants a decision, not a drive-by.

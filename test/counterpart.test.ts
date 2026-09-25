@@ -52,6 +52,7 @@ import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
 import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
 import { Store, isDatabaseSidecar } from "../src/core/store/index.js";
+import { spacingFactor } from "../src/core/physics/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -959,7 +960,8 @@ describe("co-activation crosses the process line on disk", () => {
     // The hook's half already landed: the credit is physics', and the deltas
     // are on disk.
     expect(summary.reason).toBe("credited");
-    expect(c.store.physicsOf(a).uses).toBe(1);
+    // One lived day after birth: the tier weight x the one-day spacing factor.
+    expect(c.store.physicsOf(a).uses).toBeCloseTo(spacingFactor(1), 10);
 
     const store = c.store as unknown as { linkMany: (rows: readonly unknown[]) => void };
     store.linkMany = () => {

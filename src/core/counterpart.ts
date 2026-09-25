@@ -831,6 +831,9 @@ export interface SessionEndInput {
   sweep?: SweepEntry | SweepSkipped;
   /** Override the ceiling reported at wake, for this boundary only. */
   budgetBytes?: number;
+  /** The scope and session this boundary closed (2026-09-25). The briefing this
+   *  cycle renders boosts hints minted there (`self/identity.ts#RenderHere`). */
+  here?: WakeHere;
 }
 
 /** What an appended chapter comes back as, gate verdict included. */
@@ -906,6 +909,7 @@ const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
  */
 const RENDERED_EVENT = "self.briefing.rendered";
 const TRIM_EVENT = "self.briefing.trim";
+const HINT_EVENT = "self.briefing.hint";
 const TRIMMED_FIELD = "trimmed";
 const CLOCK_PHASE: Phase = "clock";
 
@@ -2537,6 +2541,7 @@ export class Counterpart {
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
+      ...(input.here === undefined ? {} : { here: input.here }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // The PHYSICS date key, and the host's to supply — every live entry point
@@ -3063,6 +3068,12 @@ export class Counterpart {
             lane: stringField(e, "lane"),
           })),
           trimmedTotal: trims.length,
+          // WHY each rendered hint ranked where it did (2026-09-25): ids and
+          // numbers, copied off `self/`'s own events, never re-derived here.
+          hints: briefing
+            .filter((e) => e.name === HINT_EVENT)
+            .slice(0, BRIEFING_TRIM_LOG_CAP)
+            .map((e) => ({ id: e.ref ?? null, ...(e.data ?? {}) })),
         },
       });
     } catch (err) {

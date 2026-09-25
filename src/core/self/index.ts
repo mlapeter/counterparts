@@ -49,6 +49,7 @@ import {
   byteLength,
   RENDERED_PREFIX,
   enumerate,
+  hintRecordWrites,
   findIdentityCore,
   identityCoreName,
   rankLanes,
@@ -61,6 +62,7 @@ import type {
   LaneName,
   Lanes,
   Ranked,
+  RenderHere,
   Scanned,
   SchemaBytesReport,
 } from "./identity.js";
@@ -247,6 +249,13 @@ export interface BoundaryRequest extends BriefingRequest {
    * and the two must not render the same sentence.
    */
   readonly omit?: (s: Scanned) => boolean;
+  /**
+   * The scope and session this render is composed FOR (2026-09-25) — the
+   * boundary that triggered it. Hints minted there rank higher; absent, the
+   * hints lane gets no context boost. See `identity.ts#RenderHere` for why this
+   * is the triggering session and not the one that will read the bundle.
+   */
+  readonly here?: RenderHere;
 }
 
 export type PublishReason = "published" | "observer";
@@ -515,12 +524,26 @@ export class Self {
    * callable — a private half is a promise, not a seam.
    */
   build(req: BoundaryRequest): BriefingResult {
+    return this.composeFor(req).briefing;
+  }
+
+  /**
+   * `build`, plus the scan and the lanes it ranked from — which `boundary` needs
+   * to write the hints lane's shown history (2026-09-25) without a second scan.
+   */
+  private composeFor(req: BoundaryRequest): {
+    briefing: BriefingResult;
+    scanned: readonly Scanned[];
+    lanes: Lanes;
+  } {
     const all = scanActive(this.store, req.day);
     // `omit` (see the field): the owner's wake passes none and this is a no-op;
     // a composition bound for a model call outside this machine passes one.
     const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
     const horizon: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
-    const lanes: Lanes = rankLanes(scanned, horizon, this.tunables);
+    // `here` (2026-09-25): the scope and session this render is composed FOR,
+    // which boosts same-scope hints. `req.day` settles habituation.
+    const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, req.here, req.day);
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
     // dates a migrated element as an upper bound, and a second row read per
@@ -570,7 +593,7 @@ export class Self {
     // one, whatever the ceiling did (MINOR-D).
     const page = block === NO_ROOM ? null : block;
     const pageExists = block !== null;
-    return render(
+    const briefing = render(
       lanes,
       {
         budgetBytes: req.budgetBytes,
@@ -582,6 +605,7 @@ export class Self {
       resolve,
       this.tunables,
     );
+    return { briefing, scanned, lanes };
   }
 
   // ── the self page ────────────────────────────────────────────────────────
@@ -1225,12 +1249,30 @@ export class Self {
    */
   boundary(req: BoundaryRequest): BoundaryResult {
     if (req.identityCore !== undefined) this.ensureIdentityCore(req.identityCore);
-    const briefing = this.build(req);
+    const { briefing, scanned, lanes } = this.composeFor(req);
     const schema = schemaBytes(this.store, req.day, this.tunables);
     const hash = hashText(briefing.text);
 
     for (const t of briefing.trimmed) {
       this.emit("self.briefing.trim", t.id, { lane: t.lane, strength: round(t.strength) });
+    }
+    // WHY EACH KEPT HINT RANKED WHERE IT DID (2026-09-25), one event per hint
+    // that RENDERED, in lane order. Ids and numbers only; the composition root
+    // folds them into the durable `self.briefing` row beside the trims, so the
+    // dashboard and `mechanisms` can read "context-boosted" or "habituated" off
+    // the store rather than off a ring that died with the worker.
+    const keptHints = new Set(briefing.kept.hints);
+    for (const r of lanes.hints) {
+      if (!keptHints.has(r.id) || r.hint === undefined) continue;
+      this.emit("self.briefing.hint", r.id, {
+        strength: round(r.strength),
+        score: round(r.hint.score),
+        context: r.hint.context,
+        boost: round(r.hint.boost),
+        habit: r.hint.habit,
+        load: round(r.hint.load),
+        habituation: round(r.hint.habituation),
+      });
     }
     this.emit("self.briefing.rendered", undefined, {
       day: req.day,
@@ -1305,6 +1347,12 @@ export class Self {
         briefing.kept.identity.map((id) => [`${RENDERED_PREFIX}${id}`, String(req.day)] as const),
       );
     }
+    // The hints lane's shown history (2026-09-25), the habituation's memory.
+    // Same rule as the rotation above: KEPT, not ranked, and on a real publish
+    // only. It also closes the records of hints the previous bundle carried and
+    // this one dropped, so a later use can be told from the display's echo.
+    const hinted = hintRecordWrites(scanned, briefing.kept.hints, req.day, this.tunables);
+    if (hinted.length > 0) this.store.setMetaMany(hinted);
     this.emit("self.briefing.published", undefined, { bytes: briefing.bytes, hash });
     // THE JOURNAL'S BACKFILL (F6), and this is the only place it runs.
     //

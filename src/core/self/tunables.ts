@@ -50,6 +50,41 @@ export interface SelfTunables {
    *  "identity is re-inhabited, not retrieved"). CAL. */
   WARM_FLOOR: number;
 
+  // ── the hints lane: context and habituation (2026-09-25) ──────────────────
+  // The owner's "rich get richer": one strong memory held "Nearby, if it
+  // helps:" nearly every session, got mentioned, got credited, and so stayed
+  // strongest. The lane now sorts by strength x context boost x habituation
+  // (`identity.ts#rankLanes`). All five are working defaults, held lightly.
+  /**
+   * The multiplier a hint minted in the SAME SCOPE as the render's session
+   * gets. CAL. 1.5 means a local memory outranks one from elsewhere when it has
+   * at least two thirds of its strength — a nudge, not a silo: the weakest warm
+   * local hint (WARM_FLOOR 0.35 → 0.525) still loses to anything from
+   * elsewhere above ~0.53, i.e. to every semantic-band memory (THETA_SEM 0.5)
+   * that has not decayed.
+   */
+  HINT_SCOPE_BOOST: number;
+  /** A further multiplier for a hint minted in the SESSION the render was
+   *  composed for — "the last session here". Small, because those memories are
+   *  the freshest and already at full strength. CAL. */
+  HINT_SESSION_BOOST: number;
+  /**
+   * How hard showing load bites: `habituation = 1 / (1 + this x load)`. CAL.
+   * At 1.0, one ignored showing (load 1 before recovery) halves a hint's pull;
+   * a hint shown AND mentioned every day settles near load 1.3 (factor ~0.44),
+   * so a 0.8 memory scores ~0.35 and yields to a fresh 0.4 one by the sixth
+   * daily render even if it is mentioned every time, by the third if it is
+   * ignored. See NOTES for the arithmetic.
+   */
+  HINT_HABITUATION: number;
+  /** The load a showing adds when the memory WAS used while on display (an
+   *  ignored showing adds 1). Not 0: a use while shown cannot be told from the
+   *  display prompting it, which is the loop. CAL. */
+  HINT_USED_STEP: number;
+  /** Lived days for showing load to recover by a factor of e. At 3, a hint that
+   *  rotated out is back to 75-85% of its pull after a week of lived days. CAL. */
+  HINT_RECOVERY_DAYS: number;
+
   // ── the self page (plan 2026-09-18, S1) ───────────────────────────────────
   /**
    * Bytes of the WAKE the page may take. A page longer than this renders cut, at
@@ -184,6 +219,12 @@ export const SELF_TUNABLES: SelfTunables = {
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   WARM_FLOOR: 0.35,
+
+  HINT_SCOPE_BOOST: 1.5,
+  HINT_SESSION_BOOST: 1.2,
+  HINT_HABITUATION: 1.0,
+  HINT_USED_STEP: 0.5,
+  HINT_RECOVERY_DAYS: 3,
 
   PAGE_WAKE_BYTES: 6_144,
   PAGE_MAX_BYTES: 16_384,

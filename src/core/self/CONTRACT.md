@@ -36,6 +36,16 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   rendered the same three of twenty identity beliefs every day (IMPROVEMENTS U6): eight tied
   at the clamp, oldest-born won, and the oldest-born were the ones written on migration day
   under a fresh clock.
+- **The hints lane is ordered by strength × context × habituation, not strength alone.**
+  *Changed 2026-09-25 (NOTES §26), the owner's "rich get richer": strongest-first let one
+  memory hold "Nearby, if it helps:" nearly every session, and being mentioned kept it
+  strongest.* A hint minted in the scope (and session) the render is composed for is
+  boosted; a hint kept in a published bundle and not used since carries a showing load
+  that lowers its pull and recovers over lived days; a use after it left the bundle resets
+  it. `Self.boundary` keeps the shown history in `self.hinted.<id>` meta keys (no schema)
+  and says per rendered hint why it ranked (`self.briefing.hint`, folded into the durable
+  `self.briefing` row as `hints`). The warm floor still reads strength alone, and the
+  identity lane is untouched.
 - **Zero compute, zero model calls, zero network at wake**; the cost was paid by the
   previous boundary, so cold-start cost is constant in store size. [v1 §1 G1]
 - **A composed byte budget, a declared trim order (v1: hints → craft → threads → horizon →
@@ -412,6 +422,11 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
+| `HINT_SCOPE_BOOST` | 1.5 | Multiplier on a hint minted in the scope the render is composed for (2026-09-25, NOTES §26). A nudge, not a silo. |
+| `HINT_SESSION_BOOST` | 1.2 | Further multiplier on a hint minted in that session — "the last session here". |
+| `HINT_HABITUATION` | 1.0 | How hard showing load bites: `habituation = 1 / (1 + this × load)`. |
+| `HINT_USED_STEP` | 0.5 | Load a showing adds when the memory was used while on display (an ignored showing adds 1). |
+| `HINT_RECOVERY_DAYS` | 3 | Lived days for showing load to recover by a factor of e. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
 | `PAGE_WAKE_BYTES` | 6,144 | Bytes of the wake the self page may take, clamped to the caller's budget. Over it the page RENDERS cut, at a paragraph or line boundary, with a marker naming both numbers. |
 | `PAGE_MAX_BYTES` | 16,384 | The hard WRITE limit. Past it a revision is refused rather than cut — what gets cut at write time is the only copy. |

@@ -215,7 +215,11 @@ describe("the lifecycle, through the adapter", () => {
     expect(promotedOn).toBe(firstEligibleConsolidate as number);
     const physics = c.store.physicsOf(id);
     expect(physics.reinforcedDays).toBe(promotedOn as number);
-    expect(physics.uses).toBe(promotedOn as number);
+    // One credited OCCASION per lived day; since the spacing rule (physics,
+    // 2026-09-25) `uses` is the spaced MAGNITUDE of those occasions, so the
+    // count this test is about lives in `reinforcedDays`.
+    expect(physics.uses).toBeGreaterThan(0);
+    expect(physics.uses).toBeLessThan(promotedOn as number);
     expect(physics.promotedIdentity).toBe(true);
     expect(c.store.row(id)?.band).toBe("identity");
 
@@ -281,7 +285,7 @@ describe("the lifecycle, through the adapter", () => {
         expansions: [{ atTurn: 3, ids: [id] }],
       }),
     );
-    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
     expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
     expect(creditRows(c).at(-1)?.reason).toBe("credited");
   });
@@ -304,7 +308,7 @@ describe("the lifecycle, through the adapter", () => {
     const row = creditRows(c).at(-1);
     expect(row?.reason).toBe("credited");
     expect(row?.ids).toEqual([id]);
-    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
     const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
       refused?: Record<string, number>;
     };
@@ -349,7 +353,7 @@ describe("the lifecycle, through the adapter", () => {
     const row = creditRows(c).at(-1);
     expect(row?.reason).toBe("credited");
     expect(row?.credited).toBe(1);
-    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
     // The OQ4 probe's input rides on the same row: what was EXPANDED, whether
     // or not it was credited.
     const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
@@ -425,7 +429,7 @@ describe("the lifecycle, through the adapter", () => {
     expect(payload.credited).toBe(2);
     expect(payload.ids).toEqual([first, last]);
     expect(Object.values(payload.refused ?? {}).reduce((n, v) => n + v, 0)).toBe(1);
-    expect(c.store.physicsOf(last).uses).toBe(1);
+    expect(c.store.physicsOf(last).reinforcedDays).toBe(1);
   });
 
   test("RULING R2: one session spanning three lived days, expanding the same memory each day, credits each day", async () => {
@@ -445,14 +449,14 @@ describe("the lifecycle, through the adapter", () => {
         { role: "assistant" as const, text: `Day ${i + 1}: looked it up again; still the split, still no cache in the backups.` },
       ];
       a.stop(input({ sessionId: "s-long", at: date, turns, expansions: [{ atTurn: turns.length - 1, ids: [id] }] }));
-      expect(c.store.physicsOf(id).uses).toBe(i + 1);
+      expect(c.store.physicsOf(id).reinforcedDays).toBe(i + 1);
       expect(c.store.physicsOf(id).reinforcedDays).toBe(i + 1);
       await c.sessionEnd({ date, at: date });
     }
     // And within ONE day the same memory still credits once.
     turns = [...turns, { role: "user" as const, text: "Once more?" }, { role: "assistant" as const, text: "Once more, same day." }];
     a.stop(input({ sessionId: "s-long", at: "2026-01-04", turns, expansions: [{ atTurn: turns.length - 1, ids: [id] }] }));
-    expect(c.store.physicsOf(id).uses).toBe(3);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(3);
     const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
       refused?: Record<string, number>;
     };
@@ -517,8 +521,8 @@ describe("the lifecycle, through the adapter", () => {
     const after2 = creditRows(c).at(-1);
     expect(after2?.expanded).toBe(1);
     expect(after2?.ids).toEqual([other]);
-    expect(c.store.physicsOf(first).uses).toBe(1);
-    expect(c.store.physicsOf(other).uses).toBe(1);
+    expect(c.store.physicsOf(first).reinforcedDays).toBe(1);
+    expect(c.store.physicsOf(other).reinforcedDays).toBe(1);
   });
 });
 
@@ -611,7 +615,7 @@ describe("the handle door (G50)", () => {
     // WHY the log answered: `resolvedHandles` on its own cannot tell an idle
     // table from an absent or unreadable one (I32's shape).
     expect(p["expansionsRead"]).toBe("ok");
-    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
     expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
   });
 
@@ -970,7 +974,7 @@ describe("the handle door, across projects (G50 review)", () => {
     expect(p["credited"]).toBe(1);
     expect(p["resolvedHandles"]).toBe(1);
     expect(p["unresolvedHandles"]).toBe(0);
-    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
   });
 });
 
@@ -1067,7 +1071,7 @@ describe("the handle door, before this session started (G50 review)", () => {
     const p = creditPayload(a.counterpart);
     expect(p["credited"]).toBe(1);
     expect(p["resolvedHandles"]).toBe(1);
-    expect(a.counterpart.store.physicsOf(id).uses).toBe(1);
+    expect(a.counterpart.store.physicsOf(id).reinforcedDays).toBe(1);
   });
 });
 

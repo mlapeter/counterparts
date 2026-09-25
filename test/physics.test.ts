@@ -25,6 +25,8 @@ import {
   computedSal,
   cosine,
   creditUse,
+  reinforcedDays,
+  spacingFactor,
   dayKey,
   decay,
   decayCurve,
@@ -168,7 +170,7 @@ describe("[M] guarantee 1 — physics makes no model calls and performs no I/O",
   test("state-changing operations return next state instead of mutating", () => {
     const m = mem({ kind: "fact", birthDay: 0, lastUsedDay: 0 });
     const out = creditUse(m, 3, "referenced");
-    expect(out.next.uses).toBe(1);
+    expect(out.next.uses).toBeCloseTo(spacingFactor(3), 10);
     expect(m.uses).toBe(0); // the input is untouched
   });
 });
@@ -658,6 +660,71 @@ describe("§5.5 reinforcement — graded, retrospective, at most once a day", ()
   test("a backdated credit is refused rather than silently reordering the clock", () => {
     const used = { ...m, lastUsedDay: 40 };
     expect(creditUse(used, 20, "referenced").reason).toBe("stale-day");
+  });
+});
+
+describe("§5.5 the spacing effect (2026-09-25) — massed use buys less than spaced use", () => {
+  const m = mem({ kind: "fact", birthDay: 0, lastUsedDay: 0 });
+
+  test("a next-day use adds less than a long-gap use, and neither adds more than the tier weight", () => {
+    const nextDay = creditUse({ ...m, lastUsedDay: 9 }, 10, "referenced");
+    const longGap = creditUse({ ...m, lastUsedDay: 0 }, 30, "referenced");
+    expect(nextDay.credited && longGap.credited).toBe(true);
+    expect(nextDay.credit).toBeLessThan(longGap.credit);
+    expect(longGap.credit).toBeLessThan(TUNABLES.W_REFERENCED);
+    expect(longGap.credit).toBeGreaterThan(0.95 * TUNABLES.W_REFERENCED);
+    expect(nextDay.next.uses - m.uses).toBeCloseTo(nextDay.credit, 12);
+    expect(nextDay.credit).toBeCloseTo(TUNABLES.W_REFERENCED * spacingFactor(1), 12);
+    // The surfaced tier scales the same way.
+    const surfaced = creditUse({ ...m, lastUsedDay: 9 }, 10, "surfaced");
+    expect(surfaced.credit).toBeCloseTo(TUNABLES.W_SURFACED * spacingFactor(1), 12);
+  });
+
+  test("the factor is smooth, rising, floored, and below one", () => {
+    let prev = 0;
+    for (let gap = 1; gap <= 60; gap += 1) {
+      const f = spacingFactor(gap);
+      expect(f).toBeGreaterThanOrEqual(TUNABLES.SPACING_FLOOR);
+      expect(f).toBeLessThan(1);
+      expect(f).toBeGreaterThan(prev);
+      prev = f;
+    }
+    expect(spacingFactor(0)).toBe(TUNABLES.SPACING_FLOOR);
+    expect(spacingFactor(-3)).toBe(TUNABLES.SPACING_FLOOR);
+  });
+
+  test("the guards are unchanged and still run first — a refused use adds nothing", () => {
+    const born = creditUse(m, 0, "referenced");
+    expect(born).toMatchObject({ credited: false, reason: "birth-day", credit: 0, spacing: 0 });
+    const used = { ...m, lastUsedDay: 5 };
+    expect(creditUse(used, 5, "referenced")).toMatchObject({
+      credited: false,
+      reason: "already-credited-today",
+      credit: 0,
+    });
+    expect(creditUse(used, 3, "referenced")).toMatchObject({ credited: false, reason: "stale-day", credit: 0 });
+    expect(creditUse(used, 9, "footnoted")).toMatchObject({ credited: false, reason: "ignorable-tier", credit: 0 });
+  });
+
+  test("reinforcedDays still counts the OCCASION, one per distinct lived day, whatever the gap", () => {
+    let massed = m;
+    for (const d of [1, 2, 3]) massed = { ...massed, ...creditUse(massed, d, "referenced").next };
+    let spaced = m;
+    for (const d of [10, 20, 30]) spaced = { ...spaced, ...creditUse(spaced, d, "referenced").next };
+    expect(reinforcedDays(massed)).toBe(3);
+    expect(reinforcedDays(spaced)).toBe(3);
+    // ...but the magnitude differs: three days in a row buy far less than three weeks apart.
+    expect(massed.uses).toBeLessThan(0.5);
+    expect(spaced.uses).toBeGreaterThan(2);
+    expect(stability(massed)).toBeLessThan(stability(spaced));
+  });
+
+  test("ten consecutive days of use buy less than three well-spaced ones", () => {
+    let daily = m;
+    for (let d = 1; d <= 10; d += 1) daily = { ...daily, ...creditUse(daily, d, "referenced").next };
+    let spaced = m;
+    for (const d of [14, 28, 42]) spaced = { ...spaced, ...creditUse(spaced, d, "referenced").next };
+    expect(daily.uses).toBeLessThan(spaced.uses);
   });
 });
 
