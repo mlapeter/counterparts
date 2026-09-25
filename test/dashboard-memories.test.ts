@@ -102,6 +102,12 @@ describe("the list: every memory, newest first, paged by the server", () => {
       }
       expect(seen.size).toBe(first.total);
       expect(first.total).toBe(first.counts.live + first.counts.archived);
+      // A schema row says whether it is an entity or a belief; a memory says nothing.
+      const all = getList(src, "?state=all&limit=200");
+      const roles = new Set(all.rows.filter((r) => r.schema).map((r) => r.schemaRole));
+      expect(roles.has("entity")).toBe(true);
+      expect(roles.has("belief")).toBe(true);
+      for (const r of all.rows) if (!r.schema) expect(r.schemaRole).toBeNull();
     });
   });
 
@@ -178,6 +184,8 @@ describe("the memories view speaks in words", () => {
         expect(k.fadeSpeed).toBeGreaterThan(0);
         expect(k.fadeSpeed).toBeLessThanOrEqual(1);
       }
+      expect(v.memories + v.schemas).toBe(v.total);
+      expect(v.schemas).toBeGreaterThan(0);
       const fact = v.kinds.find((k) => k.kind === "fact");
       expect(fact?.fadeSpeed).toBe(1);
       const sum = v.strengthByBand.reduce((a, s) => a + Object.values(s.bands).reduce((x, y) => x + y, 0), 0);

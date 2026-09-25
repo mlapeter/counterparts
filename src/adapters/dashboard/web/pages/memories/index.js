@@ -31,11 +31,17 @@ async function render() {
   await list.render();
 }
 
+/** "121 memories and 24 entities and beliefs" — the census counts both, and
+ *  `counterparts status` prints them apart, so this page does too. */
+function heldWords(d) {
+  const m = d.memories + (d.memories === 1 ? " memory" : " memories");
+  return d.schemas ? m + " and " + d.schemas + (d.schemas === 1 ? " entity or belief" : " entities and beliefs") : m;
+}
+
 function lede(d) {
   if (d.total === 0) return "Nothing held yet. Write a note, or just talk — what matters settles here.";
-  if (d.total < 20) return "A young memory: " + d.total + (d.total === 1 ? " thing" : " things") +
-    " so far. Every one is below, with its words; it fills in as we talk.";
-  return d.total + " memories. Search by words, ask a question, or browse every one below, newest first.";
+  if (d.total < 20) return "A young memory: " + heldWords(d) + " so far. Every one is below, with its words; it fills in as we talk.";
+  return heldWords(d) + ". Search by words, ask a question, or browse every one below, newest first.";
 }
 
 export default {

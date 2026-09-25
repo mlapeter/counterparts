@@ -55,7 +55,9 @@ export function mount() {
 export function paint(d) {
   data = d;
   const plotted = d.points.length;
-  $("con-sub").textContent = "— " + d.total + (d.total === 1 ? " memory" : " memories") +
+  const held = d.memories + (d.memories === 1 ? " memory" : " memories") +
+    (d.schemas ? " and " + d.schemas + (d.schemas === 1 ? " entity or belief" : " entities and beliefs") : "");
+  $("con-sub").textContent = "— " + held +
     (plotted < d.total ? " (the " + plotted + " strongest are plotted)" : "");
   $("con-foot").innerHTML =
     "<span>older →</span><span>size: how much it mattered when it arrived</span>" +

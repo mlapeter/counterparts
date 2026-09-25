@@ -50,6 +50,10 @@ export interface HubRow {
 export interface MemoriesView {
   readonly day: number;
   readonly total: number;
+  /** Of `total`: memories proper — the number `counterparts status` prints. */
+  readonly memories: number;
+  /** Of `total`: entities and beliefs about them (schema rows). */
+  readonly schemas: number;
   readonly points: MemoryLine[];
   readonly distribution: { from: number; to: number; count: number }[];
   /** Strength in ten steps, each step split by today's band — the scatter's
@@ -135,6 +139,8 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
   return {
     day,
     total: rows.length,
+    memories: rows.filter((r) => !r.schema).length,
+    schemas: rows.filter((r) => r.schema).length,
     strengthByBand,
     points: rows.slice(0, limit),
     pointsAbsent: rows.length === 0 ? (everLived ? NONE : NEVER) : null,
@@ -216,6 +222,8 @@ export interface ListRow {
   readonly archivedReason: string | null;
   /** An entity or a belief about one (a schema row), not a memory proper. */
   readonly schema: boolean;
+  /** For a schema row: what it is — "entity", "belief", "current state". */
+  readonly schemaRole: string | null;
 }
 
 export interface MemoryListView {
@@ -256,6 +264,18 @@ export function archiveWords(reason: string | null, superseded: boolean): string
 }
 
 export const LIST_MAX = 200;
+
+/** A schema row's role, from its own meta: an entity has no `entityId` to hang on. */
+function schemaRole(meta: string): string {
+  try {
+    const m = JSON.parse(meta) as Record<string, unknown>;
+    if (m["role"] === "current-state") return "current state";
+    if (typeof m["entityId"] === "string") return "belief";
+    return "entity";
+  } catch {
+    return "entity";
+  }
+}
 
 function firstLine(body: string, width: number): string {
   const line = body
@@ -356,6 +376,7 @@ export function memoryListView(
       archived: r.archived ? archiveWords(row?.archived_reason ?? null, (row?.superseded_by ?? null) !== null) : null,
       archivedReason: r.archived ? (row?.archived_reason ?? null) : null,
       schema: row?.type === "schema",
+      schemaRole: row?.type === "schema" ? schemaRole(row.meta) : null,
     };
   });
   const everLived = day > 0 || live + archived > 0;

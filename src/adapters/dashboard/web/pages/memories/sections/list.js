@@ -91,7 +91,7 @@ function paintRows(d) {
       '<div class="mwords">' + words +
         (r.archived ? '<div class="mwhy">archived: ' + esc(r.archived) + "</div>" : "") + "</div>" +
       '<div class="mmeta">' +
-        '<span class="mkind">' + esc(KIND_LABEL[r.kind] || r.kind) + (r.schema && r.kind !== "entity" ? " · belief" : "") + "</span>" +
+        '<span class="mkind">' + esc(KIND_LABEL[r.kind] || r.kind) + (r.schemaRole ? " · " + esc(r.schemaRole) : "") + "</span>" +
         '<span class="mstr" title="' + pct + '% strong"><span class="strack"><span style="width:' + pct + '%;background:' +
           (BANDCOL[r.band] || "var(--dim)") + '"></span></span><span class="spct">' + pct + "%</span></span>" +
         '<span class="mage">' + (r.livedDays === 0 ? "today" : r.livedDays + (r.livedDays === 1 ? " day" : " days")) + "</span>" +
