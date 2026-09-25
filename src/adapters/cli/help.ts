@@ -129,7 +129,7 @@ export const SHORT: Record<string, string | readonly string[]> = {
   //    build's. Finding #18 is exactly this list read by somebody who had just
   //    installed the package.
   note: "Remember something on purpose, right now",
-  fired: "Which parts of memory have actually run, and which never have",
+  mechanisms: "Which parts of memory are working, one line each",
   init: "Make a second, separate memory store — a scratch one",
   "start-fresh": "Set this memory aside and start blank; --undo brings it back",
   verify: "Count the search index against what is actually stored",
@@ -139,9 +139,10 @@ export const SHORT: Record<string, string | readonly string[]> = {
   "repair-dates": "One-off repair: give imported memories their real dates",
   "repair-merged-beliefs": "One-off repair: put back beliefs a cleanup pass filed away",
   "probe-oq4": "A measurement: which footnotes were opened again later",
-  // ── the three that are on no page, and `UNLISTED` says why ──
+  // ── the ones that are on no page, and `UNLISTED` says why ──
   help: "What it does, and every flag it takes",
   recall: "Ask memory a question",
+  fired: "Which parts of memory are working, one line each",
   version: "The version of Counterparts you have",
 };
 
@@ -174,7 +175,7 @@ export const GROUPS: readonly HelpGroup[] = [
  */
 export const ADVANCED: readonly string[] = [
   "note",
-  "fired",
+  "mechanisms",
   "init",
   "start-fresh",
   "verify",
@@ -202,6 +203,9 @@ export const UNLISTED: Record<string, string> = {
   // the right one for what the machinery does. `ask` is the word a PERSON
   // reaches for, so that is the one on the map; both dispatch, forever.
   recall: "the unlisted spelling of `ask` — it still dispatches, and always will",
+  // Renamed 2026-09-25: the owner found the old name's page a wall of text, and
+  // `mechanisms` is the word the site uses. Scripts that say `fired` keep working.
+  fired: "the older name of `mechanisms` — it still dispatches, the same command",
   // `counterparts --version` is what a person types; `counterparts version` is
   // the same answer for anybody who types the verb. Neither belongs on a map of
   // things to do with a memory.
@@ -342,10 +346,18 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "recall CONTRACT §7. The footnote header is the one string the probe varies",
     "(recall/render.ts).",
   ],
+  mechanisms: [
+    "One line per memory mechanism: ● working this week, ◐ built but not firing,",
+    "○ not built yet, each with the count behind it; then the plumbing in one",
+    "line, naming only what is failing. `counterparts fired` is its older name.",
+    "",
+    "--all prints the full report, SILENT FIRST: when each part last fired, how",
+    "many times in the last 7 days, what it turned away, and — for the ones",
+    "nothing durable records — which row would fix that.",
+  ],
   fired: [
-    "One line each, SILENT FIRST: when it last fired, how many times in the last",
-    "7 days, what it turned away, and — for the ones nothing durable records —",
-    "which row would fix that.",
+    "`counterparts mechanisms` is the same command, and it is the listed",
+    "spelling; this one stays so scripts that call it keep working.",
   ],
   "self-page": [
     "With no flags it prints the page, its size, its version and the date it was",

@@ -131,6 +131,8 @@ import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-e
 // so the three surfaces cannot disagree about what "silent" means.
 import { STATE_MEANING, STATE_ORDER, firedReport } from "../fired.js";
 import type { FiredReport, FiredState } from "../fired.js";
+// The short view over the same reading: one line per memory mechanism.
+import { mechanismsLines } from "./mechanisms.js";
 // The two snapshot readers `status` shares with doctor: the DIRECTORY is what
 // says how many copies you have, and a row only says what a run once wrote.
 import { readSnapshotsDir, resolveSnapshotsDir } from "../snapshots.js";
@@ -283,6 +285,10 @@ export const COMMANDS = [
   "probe-oq4",
   // Constitution 11's last sentence as a command: which mechanisms fired this
   // week, which have gone quiet, and which record nothing at all. Read-only.
+  // ONE COMMAND, TWO NAMES (2026-09-25): `mechanisms` is the listed spelling
+  // and prints one line per memory mechanism; `fired` is its older name and
+  // dispatches for good. `--all` on either prints the full `fired` report.
+  "mechanisms",
   "fired",
   // I32's reading: whether the background half is alive. (Its partner, the
   // `credentials` command, went with the API keys on 2026-09-24.)
@@ -670,14 +676,15 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rebrief: ["budget", "config"],
   // Read-only, like `status`: rows in, a table out.
   "probe-oq4": [],
+  mechanisms: ["all"],
   fired: ["all"],
   // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
   // the host configuration, and on a machine with two of them the reading is
   // about whichever one the hooks read.
   // `--all` unfolds the screen: on a terminal `doctor` folds every green
   // worker-internal line into one, and this prints them all. Shared with
-  // `fired`, whose `--all` means the same thing — every mechanism, including
-  // the quiet ones.
+  // `mechanisms` (and its older name `fired`), whose `--all` means the same
+  // thing — every mechanism and every part, in full.
   doctor: ["config", "json", "all"],
   // `--config` because the registry sits BESIDE the configuration, so the flag
   // that says which configuration also says which registry. `--observer` is
@@ -743,8 +750,10 @@ export const COMMAND_BLURB: Record<Command, string> = {
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
   "probe-oq4":
     "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows. Read-only.",
+  mechanisms:
+    "Is each memory mechanism working? One line per mechanism, with a light (● working this week, ◐ built but not firing, ○ not built yet) and the count from the store behind it, then the plumbing in one line that names only what is failing. --all prints the full report: every part, silent first, when it last fired, how often in the last 7 days, what it turned away, and why the store cannot tell for the ones nothing records. Read-only.",
   fired:
-    "Which mechanisms have actually fired. One line each, silent first: when it last fired, how often in the last 7 days, what it turned away, and — for the ones nothing records — why the store cannot tell. Read-only.",
+    "The older name of `mechanisms` — the same command, the same output. --all prints the full report. Read-only.",
   doctor:
     "Is the background half alive? The config, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
   scope:
@@ -856,11 +865,11 @@ const FLAG_HELP: Record<string, string> = {
   apply: "actually do it — without this, it is a dry run",
   layout:
     "also print which directories the store keeps and which of them a backup carries",
-  // TRUE OF BOTH COMMANDS THAT TAKE IT, as the table requires: `fired --all`
-  // prints every mechanism including the quiet ones, `doctor --all` prints
-  // every line including the green ones a terminal folds away.
+  // TRUE OF EVERY COMMAND THAT TAKES IT, as the table requires: `mechanisms
+  // --all` (and `fired --all`) prints the full report of every part, `doctor
+  // --all` prints every line including the green ones a terminal folds away.
   all:
-    "print every line, including the mechanisms a store this new has had nothing to do with yet",
+    "print every line in full, including the parts a store this new has had nothing to do with yet",
   config:
     "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it, ask and note read whether recall by meaning is on from it, and counterparts-hook and counterparts-mcp take the same flag (the server, the same variable)",
   batch: "rows per transaction while converting (default 500)",
@@ -1697,6 +1706,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
       case "probe-oq4":
         return probeCommand(dir, io, typeof parsed.flags["dir"] === "string");
+      case "mechanisms":
       case "fired":
         return firedCommand(
           dir,
@@ -1842,13 +1852,18 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
 }
 
 /**
- * `fired` — which mechanisms have actually fired, and which have not.
+ * `mechanisms` (and its older name `fired`) — which mechanisms have actually
+ * fired, and which have not.
+ *
+ * Two views over ONE reading. The default is the short one a regular user
+ * reads: a line per memory mechanism the site names, and the plumbing in one
+ * line (`mechanisms.ts`). `--all` is the full report below, unchanged.
  *
  * Read-only, and the same store-absent and open rules as `status`: it opens the
  * store in OBSERVER stance whatever the console's own stance is, because reading
  * what fired must not be able to change it.
  *
- * SILENT FIRST is the whole shape of the output. A page that opened with
+ * SILENT FIRST is the whole shape of the full report. A page that opened with
  * everything that worked would bury the one thing worth acting on — constitution
  * 11's "one that stays silent is diagnosed and fixed" needs the silences on the
  * first screen, and every group carries the one line that says what its state
@@ -1873,7 +1888,8 @@ function firedCommand(
     return EXIT.failed;
   }
   try {
-    for (const line of firedLines(firedReport(store, dateOf(now())), all)) io.out(line);
+    const report = firedReport(store, dateOf(now()));
+    for (const line of all ? firedLines(report, true) : mechanismsLines(report)) io.out(line);
     return EXIT.ok;
   } finally {
     store.close();
@@ -2099,7 +2115,7 @@ export function firedLines(report: FiredReport, all = false): string[] {
       `This store is on lived day ${String(report.livedDay)} — ${age}. Most mechanisms have had ` +
         `nothing to do yet, so below is only what HAS fired and anything that was stopped. The ` +
         `full roll-call of ${String(report.rows.length)} comes back on its own once the store is ` +
-        "old enough for silence to mean something — or run `counterparts fired --all` now.",
+        "old enough for silence to mean something — or run `counterparts mechanisms --all` now.",
       "",
     );
   }
@@ -2414,7 +2430,7 @@ function statusCommand(
     if (beganSaid !== null) say(`Began: ${beganSaid}`);
     const asides = [
       "Memories is the number the wake preface states; the journal does not decay.",
-      "counterparts doctor grades all of this; counterparts fired says which mechanisms have run.",
+      "counterparts doctor grades all of this; counterparts mechanisms says which mechanisms are working.",
     ];
     say("");
     for (const aside of asides) say(`  ${aside}`);
