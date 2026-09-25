@@ -3,8 +3,9 @@
 ## 1. Purpose
 
 The owner's window: what was remembered, what faded, what changed and why — visually, at a
-glance. The direct instrument of constitution line 16, and the owner's tool for judging
-Counterparts against v1 during the parallel run.
+glance. The direct instrument of constitution line 16. Since 2026-09-25 it is also meant to
+be the owner's main command center: most people will use the terminal once, to install,
+and manage their memory here by clicking (the owner's own preference too).
 
 ## 2. Brain analog
 
@@ -45,10 +46,14 @@ Legibility is the product's answer to the trust question a brain never has to fa
 the written self page and its versions (2026-09-18; shown as a list with bodies, newest
 first — there is no precedent here for a text diff between two revisions, and a page is
 prose a person reads rather than a field that changed).
-**Outputs** — rendered views only. **Guarantees:** **[M]** the dashboard runs in observer
-mode by construction (`docs/observer-mode.md`): it strengthens nothing, deposits nothing,
-resolves no references, and a test asserts its process holds no write handle to any
-canonical store. **[M]** Render-time id resolution everywhere; no memory body text is
+**Outputs** — rendered views, and the owner's management actions. **Guarantees:** **[M]**
+LOOKING is observer mode by construction (`docs/observer-mode.md`): every view strengthens
+nothing, deposits nothing, resolves no references, and a test asserts the adapter's own
+code holds no write handle to any canonical store. **[A]** MANAGING is the owner's own act
+and is not artificially limited: an action the CLI offers (note, remove, backup, export,
+scope, rebrief, …) may be offered here, run through the CLI's own door — the same code and
+the same checks — never through the observer source; a destructive one asks the owner to
+confirm. For now `install`, `uninstall` and `start-fresh` stay terminal-only. **[M]** Render-time id resolution everywhere; no memory body text is
 persisted into dashboard state. **[M]** Totality: every registered axis appears or is
 marked absent. **[A]** Views stay readable by a non-engineer — the owner is the acceptance
 test.
