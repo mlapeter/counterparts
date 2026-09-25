@@ -5,6 +5,16 @@
 An instrument leaves the store as it found it: read-only in both directions, everywhere,
 by construction.
 
+**What it covers is observing, not managing** (owner, 2026-09-25). Looking at memory —
+browsing, searching, asking, opening a memory, reading the self page, rendering any view —
+must never change it: no strengthening, no credit, no edges, nothing deposited. That stays
+exactly as strict as below. It does not limit the owner managing their own memory on
+purpose (writing a note, removing a memory, backing up, exporting, scoping a directory,
+rebuilding the briefing). Those are deliberate owner actions, and a surface that mostly
+observes — the dashboard — may offer them the same as the CLI does. What keeps the two
+apart is that a management action runs through the same door the CLI uses, never through
+the observer's read path, so nothing that only looks can acquire the ability to write.
+
 ## 2. Brain analog
 
 **None — this is an explicit anti-Heisenberg deviation** (constitution line 12). In humans
