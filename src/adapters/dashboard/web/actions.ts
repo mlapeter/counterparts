@@ -288,6 +288,8 @@ export function buildArgv(name: ActionName, body: Body, ctx: ActionContext): Bui
       }
       const argv = ["ask", ...dir, ...withConfig(ctx)];
       if (flag(body, "full")) argv.push("--full");
+      // The answers as data, so the page can list them and open each one.
+      if (flag(body, "json")) argv.push("--json");
       if (id !== undefined) return { argv: [...argv, "--id", id] };
       return { argv: [...argv, "--", words(question as string, "question")] };
     }

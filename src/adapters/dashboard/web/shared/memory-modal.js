@@ -114,6 +114,8 @@ export async function removeMemory(btn) {
   show(resultHtml({ out: ["removing…"] }));
   const r = await act("remove", { id, confirm: typed });
   show(resultHtml(r));
+  // Pages that list memories re-read now, not on the next poll.
+  if (r && r.ok) window.dispatchEvent(new CustomEvent("counterparts:changed"));
 }
 
 // Every row on every page opens a memory through an inline `onclick` string.

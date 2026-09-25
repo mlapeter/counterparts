@@ -291,7 +291,7 @@ async function shoot(
       // desktop pass, and only where there is something to click.
       if (viewport === DESKTOP && store === "rich") {
         if (name === "home") await modal(page, ".ev", `${store}-event-modal`, out, shots, label);
-        if (name === "memories") await modal(page, "#hubs .r", `${store}-memory-modal`, out, shots, label);
+        if (name === "memories") await modal(page, "#mlist .mrow", `${store}-memory-modal`, out, shots, label);
         if (name === "flow") await nodePanel(page, out, shots, label, store);
       }
     }
