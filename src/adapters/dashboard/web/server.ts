@@ -63,8 +63,9 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isStoreError, today as todayUtc } from "../../../core/store/index.js";
+import { dataDir, isStoreError } from "../../../core/store/index.js";
 import { Dashboard } from "../index.js";
+import { UPGRADE_PENDING_SENTENCE, upgradePending } from "../upgrade.js";
 import type { DashboardSource } from "../source.js";
 import {
   MAX_BODY_BYTES,
@@ -210,6 +211,10 @@ function intParam(url: URL, name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function forbiddenHost(): Reply {
+  return json({ error: "forbidden: this dashboard answers only to localhost, 127.0.0.1 or [::1]" }, 403);
+}
+
 /**
  * Resolve one request against an already-open observer source.
  *
@@ -223,12 +228,7 @@ export function router(
   src: DashboardSource,
   opts: { readonly token?: string } = {},
 ): Reply {
-  if (!isAllowedHost(host)) {
-    return json(
-      { error: "forbidden: this dashboard answers only to localhost, 127.0.0.1 or [::1]" },
-      403,
-    );
-  }
+  if (!isAllowedHost(host)) return forbiddenHost();
   const path = url.pathname;
   try {
     // LOOKING NEVER ACTS: an action path reached by GET is refused, whatever
@@ -277,7 +277,7 @@ export function router(
       return detail.found ? json(detail) : json({ error: `no such node: ${key}` }, 404);
     }
     if (path === "/api/health") return json(healthView(src));
-    if (path === "/api/fired") return json(firedPanel(src, todayUtc()));
+    if (path === "/api/fired") return json(firedPanel(src, src.store.today()));
     if (path === "/api/mechanisms") return json(mechanismsView(src));
     if (path === "/api/mechanism") {
       const panel = mechanismPanel(src, url.searchParams.get("id") ?? "");
@@ -311,6 +311,28 @@ export function router(
   }
 }
 
+/** The whole page while the store waits for its upgrade: calm, self-contained, no script. */
+const UPGRADE_PENDING_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>counterparts</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#04070c;color:#c5cdd8;
+  font:17px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;box-sizing:border-box}
+main{max-width:34rem}
+h1{font-size:13px;letter-spacing:.35em;text-transform:uppercase;color:#00e5ff;font-weight:600;margin:0 0 18px}
+p{margin:0}
+</style></head>
+<body><main><h1>Counterparts</h1><p>${UPGRADE_PENDING_SENTENCE}</p></main></body></html>
+`;
+
+function upgradePendingReply(path: string): Reply {
+  if (path.startsWith("/api/")) {
+    return json({ error: "upgrade-pending", message: UPGRADE_PENDING_SENTENCE }, 503);
+  }
+  return { status: 200, headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE }, body: UPGRADE_PENDING_PAGE };
+}
+
 /** Every management action is a POST under here: `/api/action/<name>`. */
 export const ACTION_PREFIX = "/api/action/";
 
@@ -334,6 +356,9 @@ export interface RunningDashboard {
   /** This launch's action token (the page carries it; tests read it here). */
   readonly token: string;
   readonly server: Server;
+  /** True while the store waits for its one-time upgrade (`upgradePending`):
+   *  every page says so until a session has upgraded it and the store opens. */
+  readonly upgradePending: boolean;
   stop(): Promise<void>;
 }
 
@@ -349,9 +374,28 @@ function resolvePort(opts: ServeOptions): number {
  * for 0 — and closing it closes the store.
  */
 export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboard> {
-  const dashboard = Dashboard.open({ ...(opts.dir === undefined ? {} : { dir: opts.dir }) });
-  const src = dashboard.source;
-  const dir = dashboard.store.dir;
+  const openOpts = opts.dir === undefined ? {} : { dir: opts.dir };
+  // A store waiting for its upgrade is not an error to the owner: the server
+  // still starts, says so on every page, and tries the store again on each
+  // request, so a reload after a session has upgraded it shows the dashboard.
+  let dashboard: Dashboard | null;
+  try {
+    dashboard = Dashboard.open(openOpts);
+  } catch (err) {
+    if (!upgradePending(err)) throw err;
+    dashboard = null;
+  }
+  const pendingAtStart = dashboard === null;
+  const current = (): Dashboard | null => {
+    if (dashboard !== null) return dashboard;
+    try {
+      dashboard = Dashboard.open(openOpts);
+    } catch (err) {
+      if (!upgradePending(err)) throw err;
+    }
+    return dashboard;
+  };
+  const dir = dashboard === null ? (opts.dir ?? dataDir()) : dashboard.store.dir;
   const token = newActionToken();
   // What an action is told about where to run: two strings, the store's
   // directory and the configuration's path. NOT the source above.
@@ -365,6 +409,11 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
     const method = req.method ?? "GET";
     const rawPath = (req.url ?? "/").split("?")[0] ?? "/";
     if (method === "POST" && rawPath.startsWith(ACTION_PREFIX)) {
+      if (dashboard === null) {
+        req.resume();
+        send(res, 503, { error: "upgrade-pending", message: UPGRADE_PENDING_SENTENCE });
+        return;
+      }
       void handleAction(req, res, rawPath.slice(ACTION_PREFIX.length), token, boundPort, actionContext);
       return;
     }
@@ -377,7 +426,13 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
     }
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-      reply = router(url, req.headers.host ?? null, src, { token });
+      const open = current();
+      reply =
+        open === null
+          ? isAllowedHost(req.headers.host ?? null)
+            ? upgradePendingReply(url.pathname)
+            : forbiddenHost()
+          : router(url, req.headers.host ?? null, open.source, { token });
     } catch (err) {
       reply = {
         status: 500,
@@ -402,10 +457,11 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
         dir,
         token,
         server,
+        upgradePending: pendingAtStart,
         stop: () =>
           new Promise<void>((done) => {
             server.close(() => {
-              dashboard.close();
+              dashboard?.close();
               done();
             });
             // Node keeps a server open while a keep-alive socket lives; the

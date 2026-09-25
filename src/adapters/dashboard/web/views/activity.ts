@@ -4,6 +4,7 @@
  * Split out of `web/views.ts`, which re-exports every public name from here;
  * the four rules in that file's header apply to every line below.
  */
+import { localClock } from "../../../../core/time.js";
 import { NEVER, NONE } from "../../layout.js";
 import { DURABLE_EVENTS, DURABLE_EVENT_NAMES } from "../../registries.js";
 import type { DurableEventName } from "../../registries.js";
@@ -65,10 +66,15 @@ export function activityView(
   };
 }
 
-export function eventDetail(src: DashboardSource, seq: number): { found: boolean; event: NarratedEvent | null } {
+/** One record, opened. `when` is its moment on the reader's clock, converted
+ *  here (`core/time.ts`), so the page never builds a date itself. */
+export function eventDetail(
+  src: DashboardSource,
+  seq: number,
+): { found: boolean; event: NarratedEvent | null; when: string | null } {
   const store = src.store;
   for (const row of store.eventLog({ limit: LOG_CEILING })) {
-    if (row.seq === seq) return { found: true, event: narrate(store, row) };
+    if (row.seq === seq) return { found: true, event: narrate(store, row), when: localClock(row.at, store.zone()) };
   }
-  return { found: false, event: null };
+  return { found: false, event: null, when: null };
 }

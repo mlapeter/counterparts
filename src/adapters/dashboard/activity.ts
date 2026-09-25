@@ -17,6 +17,7 @@
  * keeping only the ones latched by a `dedupKey`. A feed that showed six rows
  * without saying that would be quietly claiming six things ever happened.
  */
+import { localClock } from "../../core/time.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
 import { NEVER, NONE, heading, indent, plural, stack, subheading, table, truncate } from "./layout.js";
@@ -64,7 +65,7 @@ export function renderActivity(src: DashboardSource, opts: ActivityOptions = {})
 
   const rows: string[][] = [];
   for (const row of shown) {
-    const when = new Date(row.at).toISOString().replace("T", " ").slice(0, 19);
+    const when = localClock(row.at, store.zone());
     const subject = row.ref === null ? style.dim("—") : resolveRef(store, row.ref, 44).label;
     rows.push([`day ${row.day}`, style.dim(when), row.name, subject]);
     const detail = payloadLine(src, row.payload, style);

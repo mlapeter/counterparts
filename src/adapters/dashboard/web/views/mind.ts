@@ -18,7 +18,7 @@ import type { PageVersion } from "../../../../core/self/index.js";
 import { TUNABLES as SLEEP, isJournal } from "../../../../core/sleep/index.js";
 import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
-import { dateOf } from "../../../../core/store/index.js";
+import { localDate } from "../../../../core/time.js";
 import type { DashboardSource } from "../../source.js";
 import { WITHHELD, reveal } from "../reveal.js";
 import { chapters, contestedRows, livedDays } from "./rows.js";
@@ -323,10 +323,10 @@ const JOURNAL_LIMIT = 60;
 // the page's history — a timeline, oldest first
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The store's own calendar day for a clock reading (the same rollover `revisedOn` uses). */
-function dateOfMs(at: number): string | null {
+/** The person's calendar day for a clock reading, in the store's zone (`core/time.ts`). */
+function dateOfMs(at: number, zone: string): string | null {
   if (!Number.isFinite(at) || at <= 0) return null;
-  return dateOf(at);
+  return localDate(at, zone);
 }
 
 /**
@@ -342,6 +342,7 @@ function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["sel
   const versions = src.self.pageVersions().slice().sort((a, b) => a.seq - b.seq);
   const at = new Map<number, number>();
   const pageId = page?.id ?? null;
+  const zone = src.store.zone();
   try {
     const rows = pageId === null
       ? src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, limit: LOG_LIMIT })
@@ -359,7 +360,7 @@ function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["sel
     seq: v.seq,
     current: false,
     day: v.day,
-    date: at.has(v.seq - 1) ? dateOfMs(at.get(v.seq - 1) as number) : null,
+    date: at.has(v.seq - 1) ? dateOfMs(at.get(v.seq - 1) as number, zone) : null,
     by: v.by,
     reason: v.reason,
     body: v.body,
@@ -371,7 +372,7 @@ function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["sel
       seq: page.version + 1,
       current: true,
       day: page.revisedDay,
-      date: page.revisedOn.length > 0 ? page.revisedOn : at.has(page.version) ? dateOfMs(at.get(page.version) as number) : null,
+      date: page.revisedOn.length > 0 ? page.revisedOn : at.has(page.version) ? dateOfMs(at.get(page.version) as number, zone) : null,
       by: page.by,
       reason: page.reason,
       body: page.body,
