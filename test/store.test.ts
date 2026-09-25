@@ -63,6 +63,7 @@ import { bodyOf, makeBodyUnreadable, versionBodies } from "./store-fixture.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
 // the seam's copy of it is pinned equal rather than hoped equal.
 import { MERGE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
+import { spacingFactor } from "../src/core/physics/index.js";
 
 const STORE_SRC = fileURLToPath(new URL("../src/core/store/", import.meta.url));
 
@@ -820,8 +821,10 @@ describe("box 2 — canonical operational state", () => {
     const credit = s.reinforce(a, 5); // tier defaults to "referenced" (w = 1)
     expect(credit.credited).toBe(true);
     expect(credit.reason).toBe("credited");
-    expect(credit.next).toMatchObject({ uses: 4, reinforcedDays: 3, lastUsedDay: 5 });
-    expect(s.physicsOf(a).uses).toBe(4);
+    // w x the spacing factor for a five-lived-day gap (physics, 2026-09-25).
+    const added = spacingFactor(5);
+    expect(credit.next).toMatchObject({ uses: 3 + added, reinforcedDays: 3, lastUsedDay: 5 });
+    expect(s.physicsOf(a).uses).toBeCloseTo(3 + added, 10);
     expect(s.physicsOf(a).reinforcedDays).toBe(3);
     expect(s.physicsOf(a).lastUsedDay).toBe(5);
 
@@ -850,13 +853,19 @@ describe("box 2 — canonical operational state", () => {
     const id = s.put(mem("A")); // birthDay 0
     // Birth-day refusal comes from physics, through the store, for free.
     expect(s.reinforce(id, 0, "surfaced")).toMatchObject({ credited: false, reason: "birth-day" });
-    expect(s.reinforce(id, 1, "surfaced").next).toMatchObject({ uses: 0.25, reinforcedDays: 1 });
+    // Every credited use is the tier weight x the spacing factor (2026-09-25);
+    // each of these is one lived day after the last.
+    const surfaced = 0.25 * spacingFactor(1);
+    expect(s.reinforce(id, 1, "surfaced").next).toMatchObject({ uses: surfaced, reinforcedDays: 1 });
     // Same-day second credit refused (not summed, as the old store rule did).
     expect(s.reinforce(id, 1, "surfaced")).toMatchObject({ credited: false, reason: "already-credited-today" });
     // Ignorable tier never trains.
     expect(s.reinforce(id, 2, "footnoted")).toMatchObject({ credited: false, reason: "ignorable-tier" });
-    expect(s.reinforce(id, 2, "referenced").next).toMatchObject({ uses: 1.25, reinforcedDays: 2 });
-    expect(s.physicsOf(id).uses).toBe(1.25);
+    expect(s.reinforce(id, 2, "referenced").next).toMatchObject({
+      uses: surfaced + spacingFactor(1),
+      reinforcedDays: 2,
+    });
+    expect(s.physicsOf(id).uses).toBeCloseTo(surfaced + spacingFactor(1), 10);
     expect(s.physicsOf(id).reinforcedDays).toBe(2);
   });
 

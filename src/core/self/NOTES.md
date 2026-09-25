@@ -1208,3 +1208,92 @@ proving it). For the nights either side of the change, rows written before carry
 no caller moved. The self page and each chapter's episode row also record their writer in
 the store's `model` column (store NOTES 2026-09-25) beside `meta.models`.
 
+## 26. "Nearby" by context and habituation, not strength alone (2026-09-25)
+
+The owner's "rich get richer", four days into a fresh store with few personal memories:
+one emotional memory (a conversation about an AI named Han) sat in "Nearby, if it helps:"
+almost every session. The assistant mentioned it, the mention was credited as a use, the
+use made it stronger, and `rankLanes` filled hints strongest first — so it showed again.
+Two causes, two changes: `physics#creditUse` now credits by spacing (physics NOTES,
+"Spacing credit"), and the hints lane here is ordered by
+
+    score = strength × context boost × habituation
+
+with the warm floor still read on strength alone (context and habituation reorder the
+lane; they never admit or bar a memory). Identity is untouched — the owner wants the core
+self and beliefs to come through in every project — and so are craft and threads.
+
+**Where the shown history comes from.** The brief pointed at the `self.briefing` row and
+`adapter.wake.injected` / `adapter.wake.delivered`. Checked: the durable `self.briefing`
+row carried lane COUNTS and trimmed ids, never the kept hint ids (those lived only in the
+in-process `BriefingResult.kept`), and the adapter's delivery rows carry counts and bytes.
+So the history is new, in meta, beside the identity rotation's `self.rendered.<id>`:
+`self.hinted.<id> = <day>:<load>:<closed>`, written by `Self.boundary` on a real publish
+only (never by `build`, never under observer). `day` is the render that last KEPT it
+(rendered, not merely ranked — a hint the budget trimmed was not shown), `load` its
+accumulated showing load as of that day, `closed` the day of the first render that dropped
+it again (`-` while it is in the live bundle). No schema change. "Shown" means PUBLISHED —
+the same approximation the identity rotation makes; `adapter.wake.delivered` would be the
+truer signal, and it is adapter-side.
+
+**Habituation** (`identity.ts#habituationOf`):
+
+- Never kept → fresh, factor 1.
+- While it is in the live bundle, each render settles the previous showing: +1 load if it
+  was not used since, +`HINT_USED_STEP` (0.5) if it was. **A use while on display is not a
+  full reset — a deliberate departure from "using it resets it".** A use while the memory
+  is on display cannot be told from the display prompting it, and "shown → mentioned →
+  credited → shown again" is exactly the loop; a full reset there would leave the loop
+  intact. So a use on display softens the load, and only a use AFTER it left the bundle
+  (`lastUsedDay > closed`) resets it outright — organic use, not the wake's echo. The use
+  on the day of the dropping render itself is ambiguous (that day's first session still
+  read the old bundle) and does not reset.
+- Load recovers as `exp(−elapsed / HINT_RECOVERY_DAYS)` from the day it was last kept.
+- `habituation = 1 / (1 + HINT_HABITUATION × load)`.
+- One showing per lived day: a second render the same day (a `rebrief`) that keeps the hint
+  settles nothing; one that DROPS it closes the record with that day's showing counted.
+- "Used" means a real credit: a never-credited memory carries `lastUsedDay === birthDay`,
+  so the reading uses the last use only when it is later than the birth day. Without that,
+  a hint first shown on the day it was minted read as "used while on display" (found in
+  review, pinned by a test).
+
+The arithmetic at the defaults (H = 1.0, used step 0.5, recovery 3 lived days, one render
+per lived day): a hint ignored every day it is shown settles near load 2.5 (factor ~0.28);
+one mentioned every time settles near 1.3 (~0.44). So a 0.8 memory falls to ~0.35 and
+yields to a fresh 0.4 one by about the sixth render even if mentioned every time, by the
+third if ignored. Out of the lane, it is back to 75–85% of its pull after a week of lived
+days. The simulation test (`test/hints-nearby.test.ts`) runs ten renders with one 0.87
+memory credited every time it shows and five warm ones at 0.73–0.78, two hint slots: it
+showed on 7 of 10 renders (previously 10), all five others got a turn, and its seven
+credited showings came to ~1.26 uses (previously 7).
+
+**Context** (`identity.ts#contextOf`). `HINT_SCOPE_BOOST = 1.5` for a memory whose
+`origin_scope` is the scope the render is composed for; × `HINT_SESSION_BOOST = 1.2` more
+when its `origin_session` is that session. A nudge, not a silo: a local memory outranks
+one from elsewhere only with at least two thirds of its strength, and the weakest warm
+local hint (0.35 × 1.5 = 0.525) still loses to anything from elsewhere above ~0.53 —
+every undecayed semantic-band memory. A memory with no recorded scope (migrated, or a
+pre-origin row) is simply "elsewhere".
+
+**The approximation, stated plainly.** The briefing is rendered ONCE per lived day, in the
+detached worker at the first boundary of that day (the `briefing` phase's daily marker),
+and one bundle is read by sessions in every directory until the next render. So "the scope
+the render is composed for" is the scope and session of the boundary that TRIGGERED the
+render — threaded `runner.ts` → `Counterpart.sessionEnd({ here })` → `selfRenderer` →
+`BoundaryRequest.here` — not the directory the next session opens in. A day whose first
+session ended in `~` gives every session that day hints boosted toward `~`. This is the
+light version; the honest upgrade is per-directory selection AT WAKE, the way the handoff
+pointer is spliced (`Counterpart.addHandoffPointer`): the boundary publishes the hint
+candidates with their scores, and the wake, which knows `here.scope`, picks and splices the
+lane. That touches the zero-compute wake path and the trim, so it was left for a decision.
+`rebrief` passes no `here` and gets no boost.
+
+**Visibility.** `Self.boundary` emits one `self.briefing.hint` per RENDERED hint, in lane
+order — `{strength, score, context, boost, habit, load, habituation}` with the id as
+`ref` — and the composition root folds them into the durable `self.briefing` row as
+`hints` (capped at `BRIEFING_TRIM_LOG_CAP`, like the trims). Ids, words from a closed
+vocabulary, and numbers; never text. Nothing on the dashboard reads it yet.
+
+**Held lightly.** All five knobs are CAL working defaults in `tunables.ts`; the shape
+(multiplicative score, exponential recovery, used-on-display softening) is the part worth
+arguing with.

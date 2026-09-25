@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_LENGTH_NORM, Store } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
-import { USE_TIER_WEIGHT } from "../src/core/physics/index.js";
+import { USE_TIER_WEIGHT, spacingFactor } from "../src/core/physics/index.js";
 import {
   FRAMING,
   MIN_RARITY_STORE,
@@ -789,7 +789,9 @@ describe("the footnote tier trains nothing, proved through the seam", () => {
     const out = r.resolveUse("s1", id, "referenced");
     expect(out.credited).toBe(true);
     expect(out.reason).toBe("credited");
-    expect(s.physicsOf(id).uses).toBe(USE_TIER_WEIGHT.referenced);
+    // The spacing rule (2026-09-25): the first use one lived day after birth
+    // adds the tier weight x the one-day spacing factor.
+    expect(s.physicsOf(id).uses).toBeCloseTo(USE_TIER_WEIGHT.referenced * spacingFactor(1), 10);
     expect(s.physicsOf(id).reinforcedDays).toBe(1);
   });
 

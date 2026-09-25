@@ -71,7 +71,8 @@ export const TUNABLES = {
    *   - `AUTHORED_DEFAULT_CLAIM + CONS_BONUS = 0.45 < THETA_SEM = 0.5`, and the
    *     largest `wSal` is 1.0, so a defaulted memory CANNOT reach the semantic
    *     band on the default alone — not even after consolidation. It gets there
-   *     only by being used (rep 0.3 needs 3 credited days) or by an author
+   *     only by being used (rep 0.3 needs 3 FULL credits — since the 2026-09-25
+   *     spacing rule, three well-spaced credited days, not three in a row) or by an author
    *     actually claiming something. That is the structural form of v1's scar:
    *     a mode-0.8 self-claim parked ~75% of the store above THETA_SEM.
    *   - 0.25 < 0.34, the measured mean of the claims authors DID make, so
@@ -110,6 +111,34 @@ export const TUNABLES = {
   W_REFERENCED: 1.0,
   W_SURFACED: 0.25,
   W_FOOTNOTED: 0.0,
+  /**
+   * CAL. THE SPACING EFFECT (2026-09-25, owner's "rich get richer"). A credited
+   * use adds `w x spacingFactor(gap)` to `uses`, where `gap` is the lived days
+   * since `lastUsedDay` and `spacingFactor = max(SPACING_FLOOR, 1 - exp(-gap /
+   * SPACING_DAYS))`: a use the day after the last one adds little, a use after a
+   * long gap adds (nearly) the whole tier weight — massed practice buys less
+   * than spaced practice, as in people.
+   *
+   * WHY 7 LIVED DAYS. The curve should reach "full credit" where forgetting has
+   * visibly started, because re-learning what was on its way out is the thing
+   * spacing rewards. The shortest stability any memory has is S_BASE / kappa =
+   * 60 lived days (fact, kappa 1.0); at 7 days `exp(-7/60)` has taken ~11% off
+   * strength, at 14 days ~21%, at 21 days ~30%. With 7 as the time constant the
+   * factor reads 0.13 next day, 0.35 at 3 days, 0.63 at a week, 0.86 at two
+   * weeks and 0.95 at three — so the daily loop that motivated this (shown in
+   * the wake, mentioned, credited, shown again) gains ~0.13 uses a day instead
+   * of 1.0, and `stability` (which grows with log(1 + uses)) barely moves. A
+   * lived day is an ACTIVE day (clock.ts), so on the owner's measured pace (7
+   * lived across 15 calendar days in September) "a week" is closer to two
+   * calendar weeks — slower than the literature's optimal gaps, on purpose:
+   * nothing here should make a memory immortal by being talked about daily.
+   * WORKING DEFAULT, to be re-read against replay.
+   */
+  SPACING_DAYS: 7,
+  /** The smallest fraction of the tier weight any credited use adds. With
+   *  SPACING_DAYS = 7 it never binds (gap >= 1 gives 0.133); it is here so a
+   *  longer SPACING_DAYS cannot make a real use worth nothing. CAL. */
+  SPACING_FLOOR: 0.1,
 
   // --- §5.6 revision ---
   /** Pressure stability, lived days. Same curve FAMILY as memory decay, its own
@@ -668,7 +697,13 @@ export type CreditReason =
 export interface CreditOutcome {
   credited: boolean;
   reason: CreditReason;
+  /** The TIER weight (§5.5). What was actually added is `credit`. */
   w: number;
+  /** The spacing factor for this occasion, in [SPACING_FLOOR, 1). 0 when nothing
+   *  was credited. */
+  spacing: number;
+  /** What this occasion added to `uses`: `w x spacing`. 0 when not credited. */
+  credit: number;
   /** State to persist. Identical to the input state when nothing was credited. */
   next: Pick<MemoryPhysics, "uses" | "lastUsedDay" | "reinforcedDays">;
 }
@@ -686,16 +721,43 @@ export function creditUse(m: MemoryPhysics, d: number, tier: UseTier): CreditOut
   const w = USE_TIER_WEIGHT[tier];
   const days = reinforcedDays(m);
   const unchanged = { uses: m.uses, lastUsedDay: m.lastUsedDay, reinforcedDays: days };
-  if (w <= 0) return { credited: false, reason: "ignorable-tier", w, next: unchanged };
-  if (d === m.birthDay) return { credited: false, reason: "birth-day", w, next: unchanged };
-  if (d < m.lastUsedDay) return { credited: false, reason: "stale-day", w, next: unchanged };
-  if (d === m.lastUsedDay) return { credited: false, reason: "already-credited-today", w, next: unchanged };
+  const refused = (reason: CreditReason): CreditOutcome => ({
+    credited: false,
+    reason,
+    w,
+    spacing: 0,
+    credit: 0,
+    next: unchanged,
+  });
+  if (w <= 0) return refused("ignorable-tier");
+  if (d === m.birthDay) return refused("birth-day");
+  if (d < m.lastUsedDay) return refused("stale-day");
+  if (d === m.lastUsedDay) return refused("already-credited-today");
+  // THE SPACING EFFECT (2026-09-25). Only `uses` is scaled. `reinforcedDays`
+  // still counts the OCCASION, one per distinct lived day, because promotion's
+  // N = 3 is a count of separate days a memory proved useful, not a magnitude
+  // (NOTES, "Spacing credit"). The guards above are unchanged and run first.
+  const spacing = spacingFactor(d - m.lastUsedDay);
+  const credit = w * spacing;
   return {
     credited: true,
     reason: "credited",
     w,
-    next: { uses: m.uses + w, lastUsedDay: d, reinforcedDays: days + 1 },
+    spacing,
+    credit,
+    next: { uses: m.uses + credit, lastUsedDay: d, reinforcedDays: days + 1 },
   };
+}
+
+/**
+ * The spacing factor for a use `gap` lived days after the last one:
+ * `max(SPACING_FLOOR, 1 - exp(-gap / SPACING_DAYS))`. Smooth, monotone rising,
+ * below 1 for every finite gap. A non-positive gap (which `creditUse`'s guards
+ * never let through) reads as the floor rather than as zero or negative credit.
+ */
+export function spacingFactor(gap: number): number {
+  if (!(gap > 0)) return TUNABLES.SPACING_FLOOR;
+  return Math.max(TUNABLES.SPACING_FLOOR, 1 - Math.exp(-gap / TUNABLES.SPACING_DAYS));
 }
 
 // ---------------------------------------------------------------------------

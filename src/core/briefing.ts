@@ -27,6 +27,7 @@ export interface BriefingRenderer {
     day: number;
     budgetBytes: number;
     horizon?: readonly { id: string }[];
+    here?: { scope?: string | null; session?: string | null };
   }): { briefing: { bytes: number; elements: number } };
 }
 
@@ -39,6 +40,12 @@ export interface RendererOptions {
   /** The calendar date the horizon asks about. Without it, no horizon lane. */
   at?: string;
   prospective?: HorizonSource;
+  /**
+   * The scope and session the render is composed FOR (2026-09-25): the boundary
+   * that triggered it. Handed to `self/` unread; it boosts same-scope hints.
+   * Absent (rebrief, replay): no context boost.
+   */
+  here?: { scope?: string | null; session?: string | null };
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -61,6 +68,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,
       ...(horizon === undefined ? {} : { horizon }),
+      ...(opts.here === undefined ? {} : { here: opts.here }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };

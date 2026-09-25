@@ -188,12 +188,23 @@ S_base  = 60      β = 0.5                                            # both TUN
 
 ```
 w = 1.00 referenced by the reply | 0.25 surfaced-unused | 0.00 footnoted    # TUNABLE
-uses(m) += w ;  last_used_day(m) := d   (only when w > 0)
+gap = d − last_used_day(m)                                    # lived days, ≥ 1 after the guards
+spacing = max(SPACING_FLOOR, 1 − exp(−gap / SPACING_DAYS))    # 0.1, 7 — CAL
+uses(m) += w × spacing ;  last_used_day(m) := d ;  reinforced_days(m) += 1   (only when w > 0)
 ```
 
 At most one credited occasion per memory per lived day, and never on its birth day [v1 §10
 G9]. Credit is retrospective, resolved at the boundary when the reply is known [v1 §10 G1].
 The ignorable tier never trains.
+
+*Amended 2026-09-25 (the spacing effect).* A use soon after the last one adds little; a use
+after a long gap adds nearly the whole tier weight, as with spaced versus massed practice in
+people. Before this, every new lived day added the full `w`, so a memory shown in the wake,
+mentioned, and credited daily grew stability without limit ("rich get richer"). Only `uses`
+is scaled: `reinforced_days` still counts the occasion, one per distinct lived day, because
+§5.3's `N = 3` counts separate days a memory proved useful, not a magnitude (NOTES,
+"Spacing credit"). The guards (birth day, already credited today, stale day) run first and
+are unchanged.
 
 ### 5.6 Revision — declared, pressure-accumulated, no second object
 

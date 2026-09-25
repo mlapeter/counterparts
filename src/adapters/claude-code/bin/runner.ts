@@ -390,6 +390,11 @@ export async function runOnce(input: {
       date: today,
       at: today,
       sweep: { skipped: "not-opted-in" },
+      // WHERE this boundary closed (2026-09-25): the day's briefing, if this run
+      // renders it, boosts hints minted in this scope and session.
+      ...(input.scope === undefined || input.scope.length === 0
+        ? {}
+        : { here: { scope: input.scope, session: input.session ?? null } }),
     });
     const swept = report.sweeps.reduce((n, s) => n + s.spansSwept, 0);
     const minted = report.sweeps.reduce((n, s) => n + s.proposals, 0);
