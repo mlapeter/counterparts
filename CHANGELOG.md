@@ -1,6 +1,38 @@
 # Changelog
 
-## 0.3.1 — unreleased
+## 0.3.2 — unreleased
+
+Dates and times follow your clock, and the store's format moves to v7.
+
+**Before upgrading, close every Claude Code session.** The first session after the upgrade
+saves a copy of the store and then updates its format; a session left open is still
+running the old memory server, so in any you missed, run `/mcp` and choose Reconnect.
+If your store is not in the default place (a `dataDir` outside `~/.counterparts/store`,
+or `COUNTERPARTS_DATA_DIR`), set `snapshots.dir` in the config first: the upgrade will
+not run without somewhere to save that copy, and memory stays off until it is set
+(`doctor` says so).
+
+- **Your day is your local day.** The day a memory was learned, "today", and the dates
+  in `doctor` and `counterparts fired` now use this computer's time zone instead of UTC,
+  so a memory saved at 11:50 pm belongs to that evening. Console commands read the zone
+  from the config beside the store, as the hooks do. Memories saved before keep the
+  dates they have. A `timeZone` setting in the config (for example `"America/Denver"`)
+  pins a zone, for a machine set to UTC; install says which zone it found.
+- **Sessions know what time it is.** The wake opens with a line like
+  `Now: Fri 25 Sep 2026, 1:40 pm MDT`, and every turn carries the current time too.
+- **Each memory records when it was written and changed, and which model wrote it.**
+  Notes, end-of-session memories, journal chapters and the self page carry the model the
+  session was using.
+- **Feelings can be recorded on a memory** — several per memory, yours and Claude's side
+  by side, each named on a feelings wheel (six core emotions and the finer words under
+  them) with a strength and what carried it. `note` and `session_end` take them; a word
+  not on the wheel is kept, and the reply suggests the nearest ones. They change nothing
+  about how memories are held yet.
+- **The store can hold a reminder's date** — a day, a month, or a range like
+  `2026-10-20..2026-10-31` — ready for reminders to use in a later release.
+- One module now does every date conversion, and a test keeps it that way.
+
+## 0.3.1 — 2026-09-25
 
 A small release of fixes. No change to the store's format, so no migration and no
 Reconnect.

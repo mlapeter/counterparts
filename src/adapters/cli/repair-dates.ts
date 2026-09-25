@@ -60,6 +60,7 @@
  * keeps its history. The owner runs `--apply`; nothing here runs it for him.
  */
 import { Store, storeExists } from "../../core/store/index.js";
+import { utcDate } from "../../core/time.js";
 
 /** No memory in either lineage predates this. A parse below it is a coincidence. */
 export const PLAUSIBLE_FLOOR = "2015-01-01";
@@ -132,8 +133,9 @@ const ISO_MONTH = /(?<!\d)(\d{4})-(\d{2})(?![\d-])/;
 
 const TIER_ORDER: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
 
+/** UTC on purpose: this repairs PRE-v7 rows, whose `learned_on` was UTC. */
 function dateOfMs(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  return utcDate(ms);
 }
 
 /** A real calendar day inside the window the store could plausibly have lived. */

@@ -24,6 +24,7 @@ import { sourceOf } from "../src/adapters/dashboard/source.js";
 import { mindView } from "../src/adapters/dashboard/web/views.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store, dateOf } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "../src/core/self/index.js";
 
 const PAGE = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder.`;
@@ -305,7 +306,7 @@ describe("the page is visible where mechanisms are", () => {
   test("`fired` carries one row for the page, blind before a write and firing after", () => {
     withPage(null);
     const before = Store.open({ dir, observer: true });
-    const blind = firedReport(before, dateOf(Date.now())).rows.find((r) => r.id === "self-page");
+    const blind = firedReport(before, localDate(Date.now())).rows.find((r) => r.id === "self-page");
     expect(blind).toBeDefined();
     // Never fired, and its evidence is younger than the window: `new`, which is
     // the state that says "not yet a worry" rather than "broken".
@@ -314,7 +315,7 @@ describe("the page is visible where mechanisms are", () => {
 
     withPage(PAGE);
     const after = Store.open({ dir, observer: true });
-    const row = firedReport(after, dateOf(Date.now())).rows.find((r) => r.id === "self-page");
+    const row = firedReport(after, localDate(Date.now())).rows.find((r) => r.id === "self-page");
     expect(row?.state).toBe("firing");
     expect(row?.firedInWindow).toBe(1);
     after.close();

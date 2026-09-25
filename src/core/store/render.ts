@@ -29,6 +29,7 @@ interface Payload {
   type: ProseType;
   title?: string;
   happenedOn?: string;
+  eventDate?: string;
   learnedOn: string;
   bornDay: number;
   meta: Record<string, unknown>;
@@ -44,6 +45,7 @@ function toPayload(doc: ProseDoc): Payload {
   };
   if (doc.title !== undefined) p.title = doc.title;
   if (doc.happenedOn !== undefined) p.happenedOn = doc.happenedOn;
+  if (doc.eventDate !== undefined) p.eventDate = doc.eventDate;
   return p;
 }
 
@@ -52,6 +54,7 @@ function humanLines(p: Payload): string[] {
   const lines = [`id: ${p.id}`, `type: ${p.type}`];
   if (p.title !== undefined) lines.push(`title: ${oneLine(p.title)}`);
   if (p.happenedOn !== undefined) lines.push(`happened: ${p.happenedOn}`);
+  if (p.eventDate !== undefined) lines.push(`date: ${p.eventDate}`);
   lines.push(`learned: ${p.learnedOn}`, `bornDay: ${p.bornDay}`);
   return lines;
 }

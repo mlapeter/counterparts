@@ -50,7 +50,7 @@
  */
 import { TUNABLES as PHYSICS, clampSalienceAtSeam } from "./physics/index.js";
 import type { Proposal } from "./remember/index.js";
-import { dateOf } from "./store/index.js";
+import { localDate } from "./time.js";
 import type { Store } from "./store/index.js";
 import type { Band, Salience } from "./types.js";
 
@@ -95,6 +95,14 @@ export interface MintOptions {
   /** Explicit override. Absent, the direction is read off `updates.method` —
    *  see `directionOf`, which is where the rule and its reasons live. */
   claimDirection?: ClaimDirection;
+  /**
+   * The model that wrote this deposit, as the host reported it (schema v7's
+   * `memories.model`). Host state, never an author field: the MCP server reads
+   * it off the session registry record (`mcp/server.ts`), the same relay a
+   * chapter's model takes. The sweep passes none — its words are an
+   * interpreter's retelling, not a named model's — and the column is NULL.
+   */
+  model?: string;
 }
 
 export interface MintResult {
@@ -183,8 +191,11 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // default (`store.today()`) is only the fallback for a proposal with no
   // usable instant. The lived day is untouched: `physics.birthDay` below is
   // still `proposal.day`, and the two clocks stay separate.
+  //
+  // In the person's zone since 2026-09-25 (docs/time.md rule 3): an 11:50 pm
+  // deposit belongs to that local day, not to the UTC one it is already in.
   const learnedOn =
-    Number.isFinite(proposal.at) && proposal.at > 0 ? dateOf(proposal.at) : store.today();
+    Number.isFinite(proposal.at) && proposal.at > 0 ? localDate(proposal.at, store.zone()) : store.today();
 
   const id = store.put({
     type: "memory",
@@ -194,6 +205,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     ...(proposal.title === null ? {} : { title: proposal.title }),
     meta,
     band: opts.band ?? "episodic",
+    ...(opts.model === undefined ? {} : { model: opts.model }),
     salience: clamp.salience,
     physics: { birthDay: proposal.day, lastUsedDay: proposal.day },
     // Engine-set provenance (F9-light): the channel as recorded fact, and ids

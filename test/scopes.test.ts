@@ -1120,8 +1120,10 @@ describe("the first-launch question", () => {
     expect(SCOPE_ASK).toContain("`scope` tool");
     expect(SCOPE_ASK).toContain("counterparts scope . --on");
     // The wake itself is untouched: its byte count and its sentinel still
-    // describe the bundle and nothing else (§1 G2, scar §2.3).
-    expect(first.bytes).toBe(Buffer.byteLength(first.injection, "utf8"));
+    // describe the bundle and nothing else (§1 G2, scar §2.3) — not even the
+    // clock line that rides above it since 2026-09-25 (docs/time.md rule 5).
+    expect(first.injection).toMatch(/^Now: [^\n]+\n/);
+    expect(first.bytes).toBe(Buffer.byteLength(first.injection.replace(/^Now: [^\n]+\n/, ""), "utf8"));
 
     // Recorded on the session, so a SessionStart that fires again — a resume, a
     // clear — does not ask a second time.

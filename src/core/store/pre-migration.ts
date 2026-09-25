@@ -16,6 +16,7 @@
  * If the copy cannot be made, the caller does not migrate.
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync } from "node:fs";
+import { utcDate } from "../time.js";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { openDb } from "./db.js";
@@ -196,7 +197,8 @@ function reusableCopy(dir: string, dbPath: string, from: string, to: number, now
     return null;
   }
   const want = { from: stampForName(from), to: stampForName(String(to)) };
-  const today = new Date(now).toISOString().slice(0, 10);
+  // The folder names begin with a UTC instant, so "today" here is the UTC day.
+  const today = utcDate(now);
   const lastWrite = Math.max(mtimeOf(dbPath), mtimeOf(`${dbPath}-wal`));
   const candidates = names
     .filter((n) => {

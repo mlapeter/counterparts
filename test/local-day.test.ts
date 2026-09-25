@@ -12,6 +12,12 @@
  * or any other zone the machine happens to be in. The one test of the default
  * compares it with the machine's own getters, which is what "local" means.
  *
+ * 2026-09-25 (docs/time.md): `learned_on` moved to the local day too, in the
+ * STORE's zone. `clocked` pins that zone to UTC — the provenance calendar these
+ * tests were written against — so they go on proving the east-of-UTC guard for
+ * a `Self` whose zone differs from its store's, on any machine. The last
+ * describe is the production case: one zone for both, and the guard is moot.
+ *
  * Hermetic: a fresh temp data dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -51,9 +57,9 @@ afterEach(() => {
 });
 
 /** A store on a clock the test turns by hand. */
-function clocked(start: string): { store: Store; set(iso: string): void } {
+function clocked(start: string, timeZone = "UTC"): { store: Store; set(iso: string): void } {
   let at = Date.parse(start);
-  const store = Store.open({ dir, now: () => at });
+  const store = Store.open({ dir, now: () => at, timeZone });
   open.push(store);
   return {
     store,
@@ -99,8 +105,8 @@ describe("the helper", () => {
     const c = Counterpart.open({ dir, now: () => at });
     open.push(c);
     expect(c.self.calendarToday()).toBe(calendarDate(at));
-    // The provenance date is untouched: still UTC, still `store/`'s.
-    expect(c.store.today()).toBe("2026-09-19");
+    // Since 2026-09-25 the provenance date is the same machine-local day.
+    expect(c.store.today()).toBe(calendarDate(at));
   });
 });
 
@@ -424,7 +430,7 @@ describe("a chapter's heading names the LOCAL date it was written on (owner, 202
     const first = self.appendChapter("s1", "The evening's account.", { day: 4 });
     const body = t.store.readProse(first.episodeId ?? "").body;
     expect(body.startsWith("## chapter 1 — Fri 18 Sep 2026 · lived day 4\n\nThe evening's account.")).toBe(true);
-    // The provenance date is untouched: still UTC.
+    // The provenance date is the STORE's zone's day — pinned to UTC here.
     expect(t.store.readProse(first.episodeId ?? "").learnedOn).toBe("2026-09-19");
     // A later chapter, after local midnight, is dated by its own writing.
     t.set("2026-09-19T06:00:00Z"); // 01:00 CDT, the 19th
@@ -436,3 +442,60 @@ describe("a chapter's heading names the LOCAL date it was written on (owner, 202
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+describe("one zone for the store and the self (docs/time.md, 2026-09-25)", () => {
+  test("Tokyo at 01:00: the night is the plain local yesterday — the rows it names are local too", () => {
+    const t = clocked("2026-09-19T16:00:00Z", "Asia/Tokyo"); // 01:00 JST on the 20th
+    const self = new Self({ store: t.store });
+    expect(t.store.today()).toBe("2026-09-20");
+    expect(self.calendarToday()).toBe("2026-09-20");
+    expect(pageWriterNight(t.store)).toEqual({ today: "2026-09-20", about: "2026-09-19" });
+  });
+
+  test("Chicago at 20:00 on the 18th: the heading AND learned_on say the 18th", () => {
+    const t = clocked("2026-09-19T01:00:00Z", "America/Chicago");
+    const self = new Self({ store: t.store, gate: () => ({ ok: true }) });
+    self.openChapter("s1", SUBSTANCE, 4);
+    const first = self.appendChapter("s1", "The evening's account.", { day: 4 });
+    const doc = t.store.readProse(first.episodeId ?? "");
+    expect(doc.body.startsWith("## chapter 1 — Fri 18 Sep 2026 · lived day 4")).toBe(true);
+    expect(doc.learnedOn).toBe("2026-09-18");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the lived clock across the change (store NOTES 2026-09-25)", () => {
+  test("west of UTC on the evening of the upgrade: a local date behind the last UTC one holds the day, and the next date moves it", async () => {
+    const at = Date.parse("2026-09-26T02:00:00Z"); // 20:00 MDT on the 25th
+    const c = Counterpart.open({ dir, now: () => at, timeZone: "America/Denver" });
+    open.push(c);
+    // The old build's last boundary stamped UTC's date, already the 26th.
+    await c.sessionEnd({ date: "2026-09-26" });
+    const day = c.store.livedDay();
+    // The new build stamps the person's date, still the 25th: ONE day back
+    // is the same lived day (review S1) — held, no failure row, nothing moved.
+    await c.sessionEnd({ date: "2026-09-25" });
+    expect(c.store.livedDay()).toBe(day);
+    expect(c.store.getMeta("lastActiveDate")).toBe("2026-09-26");
+    expect(c.events("sleep.clock.failed")).toEqual([]);
+    expect(c.store.events("store.clock.held").length).toBe(1);
+    const cycles = c.store.eventLog({ name: "sleep.cycle" });
+    expect(cycles.some((r) => String(r.payload ?? "").includes("clock-failed"))).toBe(false);
+    // The local 26th is the day already counted; the 27th moves the clock on.
+    await c.sessionEnd({ date: "2026-09-26" });
+    expect(c.store.livedDay()).toBe(day);
+    await c.sessionEnd({ date: "2026-09-27" });
+    expect(c.store.livedDay()).toBe(day + 1);
+  });
+
+  test("a real jump back of more than a day is still refused, loudly", async () => {
+    const c = Counterpart.open({ dir, now: () => Date.parse("2026-09-26T02:00:00Z"), timeZone: "America/Denver" });
+    open.push(c);
+    await c.sessionEnd({ date: "2026-09-26" });
+    const day = c.store.livedDay();
+    await c.sessionEnd({ date: "2026-09-24" });
+    expect(c.store.livedDay()).toBe(day);
+    expect(c.events("sleep.clock.failed").length).toBeGreaterThan(0);
+    expect(() => c.store.advanceClock("2026-09-24")).toThrow(/CLOCK_BACKWARDS/);
+  });
+});

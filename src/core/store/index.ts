@@ -41,6 +41,19 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
+import { isModelId } from "../types.js";
+import {
+  calendarOverlaps,
+  compareCalendarDates,
+  daysBetween,
+  isCalendarDate,
+  isDay,
+  localDate,
+  resolveZone,
+  utcDate,
+} from "../time.js";
+import { checkFeelings } from "./feelings.js";
+import type { AddFeelingsResult, FeelingInput, FeelingRow } from "./feelings.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { Db, Statement, WalFold } from "./db.js";
@@ -113,6 +126,7 @@ export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
 export * from "./render.js";
+export * from "./feelings.js";
 export type { Db, Statement, WalFold } from "./db.js";
 export type {
   MemoryRow,
@@ -233,6 +247,14 @@ export interface StoreOptions extends Stance {
    * before. A seeder, a replay harness and a migration pass one.
    */
   now?: () => number;
+  /**
+   * The zone a moment is read in when this store names a person's day —
+   * `learned_on`, `today()`, the day the store began (docs/time.md, 2026-09-25).
+   * An IANA name from the host's config (`timeZone`); absent or unknown, the
+   * machine's CURRENT zone, resolved at every call so a laptop that moves shows
+   * where it is now (`time.ts#resolveZone`).
+   */
+  timeZone?: string;
   onEvent?: (event: StoreEvent) => void;
   /**
    * Where the copy taken before a schema migration goes. Absent ⇒ beside the
@@ -251,6 +273,19 @@ export interface PutInput {
   title?: string;
   happenedOn?: string;
   learnedOn?: string;
+  /**
+   * The calendar date this memory is ABOUT, as the person said it — `2026-10-15`,
+   * `2026-10`, `2026`, or `2026-10-20..2026-10-31` (`time.ts#parseCalendarDate`).
+   * A reminder's date. Refused by name when it is not one (`EVENT_DATE_INVALID`):
+   * a date that cannot be read is a reminder that will never come up.
+   */
+  eventDate?: string;
+  /**
+   * The model id that wrote these words, as the host reported it (schema v7).
+   * Screened with `isModelId`; anything else — or absent — writes NULL, which
+   * reads "not a named model" (the sweep, the owner, an unknown host).
+   */
+  model?: string;
   meta?: Record<string, unknown>;
   band?: Band;
   salience?: Partial<Salience>;
@@ -303,6 +338,18 @@ export interface StoredMemory {
    *  `confidentialByMeta` at every write). Carried on the read so a caller gates
    *  on a boolean rather than on JSON it had to re-interpret. */
   confidential: boolean;
+  /** v7 moments, UTC ms (docs/time.md). Null on a row written before v7. */
+  createdAt: number | null;
+  updatedAt: number | null;
+  /** v7: the model that wrote the current words; null = not a named model. */
+  model: string | null;
+}
+
+/** One memory with a reminder date, as `Store.datedMemories` returns it. */
+export interface DatedMemory {
+  readonly id: string;
+  /** As stated — never widened, never narrowed. */
+  readonly eventDate: string;
 }
 
 export interface PruneReport {
@@ -588,6 +635,7 @@ export const WRITE_METHODS = [
   "link",
   "linkMany",
   "setProspective",
+  "addFeelings",
   "advanceClock",
   "setMeta",
   "setMetaMany",
@@ -749,6 +797,8 @@ export class Store {
   readonly migration: MigrationNote | null;
   /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
   private readonly nowFn: () => number;
+  /** The configured zone, as given; `zone()` resolves it per call. */
+  private readonly configuredZone: string | undefined;
   private readonly onEvent: ((e: StoreEvent) => void) | undefined;
   private readonly ring: StoreEvent[] = [];
 
@@ -762,6 +812,7 @@ export class Store {
     this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.embed = opts.embed;
     this.nowFn = opts.now ?? Date.now;
+    this.configuredZone = opts.timeZone;
     this.onEvent = opts.onEvent;
 
     // ── THE PRE-ROWS REFUSAL, AND IT IS THE FIRST THING THAT HAPPENS ───────
@@ -838,6 +889,8 @@ export class Store {
     let migration = null as MigrationNote | null;
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: !this.observer,
+      // For the v7 migration's clamp of `lastActiveDate` (review S1).
+      localToday: localDate(this.nowFn(), resolveZone(this.configuredZone)),
       retentionDays: this.retentionDays,
       ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
       onMigrated: (note) => {
@@ -912,7 +965,8 @@ export class Store {
       this.ops.run(
         "INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)",
         STORE_CREATED_KEY,
-        dateOf(this.nowFn()),
+        // The person's day (2026-09-25); a store made before this carries UTC.
+        this.today(),
       );
     }
     // The owner-op capability. Handed to the seam module, never to a caller:
@@ -1187,16 +1241,23 @@ export class Store {
    * thinks it is" asks here rather than reading the ambient clock, so a seeded,
    * replayed or migrated store dates its rows by the run it is replaying.
    *
-   * UTC, like every other date this codebase writes (the hooks' own
-   * `new Date().toISOString().slice(0, 10)`, `sleep/cycle.ts#todayDate`). Local
-   * dating is a separate question with a separate answer; see NOTES 2026-09-05.
+   * `today()` is the person's calendar day — the LOCAL date of `now()` in
+   * `zone()` (docs/time.md, 2026-09-25). It was UTC until then, on the reasoning
+   * NOTES 2026-09-05 records: provenance and the hooks' dates on one calendar.
+   * They moved together, so they are still on one — the local one.
    */
   now(): number {
     return this.nowFn();
   }
 
   today(): string {
-    return dateOf(this.nowFn());
+    return localDate(this.nowFn(), this.zone());
+  }
+
+  /** The zone this store reads a person's day in: the configured one, else the
+   *  machine's current zone, resolved now (`time.ts#resolveZone`). */
+  zone(): string {
+    return resolveZone(this.configuredZone);
   }
 
   /** Copies, ordered oldest first. Optionally filtered by name. */
@@ -1289,6 +1350,12 @@ export class Store {
       meta?: Record<string, unknown>;
       learnedOn?: string;
       happenedOn?: string;
+      /** A new reminder date, or `null` to clear it (a reschedule, a cancel). */
+      eventDate?: string | null;
+      /** Who wrote the new words (see `PutInput.model`). A revise that changes
+       *  the BODY and names no model records NULL: the words are no longer the
+       *  last model's. A revise that leaves the body alone keeps the model. */
+      model?: string;
       reason?: string;
     },
   ): number {
@@ -1301,22 +1368,29 @@ export class Store {
       // a `wx` collision loop and a crash window between the two; it is now a
       // row written beside the update, so "an overwrite keeps the prior version"
       // is a property of the transaction rather than of the ordering (§5 G5).
+      const at = this.nowFn();
+      const eventDate =
+        patch.eventDate === undefined || patch.eventDate === null ? patch.eventDate : assertEventDate(patch.eventDate, id);
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
-            title, body, meta, learned_on, happened_on)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+            title, body, meta, learned_on, happened_on, created_at, model, event_date)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         seq,
         patch.reason ?? "revise",
         this.livedDay(),
-        this.nowFn(),
+        at,
         row.content_hash,
         row.title,
         row.body,
         row.meta,
         row.learned_on,
         row.happened_on,
+        // The archived words' own moment: when they were last written.
+        row.updated_at ?? row.created_at,
+        row.model,
+        row.event_date,
       );
       const next: ProseDoc = {
         ...prior,
@@ -1326,6 +1400,14 @@ export class Store {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
       if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
+      if (eventDate === null) delete next.eventDate;
+      else if (eventDate !== undefined) next.eventDate = eventDate;
+      const model =
+        patch.model !== undefined
+          ? modelOrNull(patch.model)
+          : patch.body !== undefined
+            ? null
+            : row.model;
       // THE SAME RULE AS `put`, through the same function. `patch.body ?? ...`
       // accepts `""` happily, and on this floor that would write the one state
       // no write path may produce — a row whose hash names words its body no
@@ -1337,7 +1419,8 @@ export class Store {
       this.ops.run(
         `UPDATE memories
             SET content_hash = ?, revision = ?, title = ?, body = ?, meta = ?,
-                confidential = ?, learned_on = ?, happened_on = ?
+                confidential = ?, learned_on = ?, happened_on = ?,
+                event_date = ?, model = ?, updated_at = ?
           WHERE id = ?`,
         nextHash,
         seq,
@@ -1350,6 +1433,9 @@ export class Store {
         confidentialByMeta(next.meta) ? 1 : 0,
         next.learnedOn,
         next.happenedOn ?? null,
+        next.eventDate ?? null,
+        model,
+        at,
         id,
       );
       return { doc: next, seq, hash: nextHash };
@@ -1373,16 +1459,17 @@ export class Store {
       // body too, so the text is held twice for as long as the version row
       // lives — the honest cost of rows over files, bounded by the 90-day
       // version prune (owner ruling 1). See `store/NOTES.md`.
+      const at = this.nowFn();
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
-            title, body, meta, learned_on, happened_on)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            title, body, meta, learned_on, happened_on, created_at, model, event_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         oldId,
         row.revision + 1,
         reason,
         this.livedDay(),
-        this.nowFn(),
+        at,
         row.content_hash,
         created.id,
         row.title,
@@ -1390,13 +1477,18 @@ export class Store {
         row.meta,
         row.learned_on,
         row.happened_on,
+        row.updated_at ?? row.created_at,
+        row.model,
+        row.event_date,
       );
       this.ops.run(
-        `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?
+        `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?,
+                updated_at = ?
           WHERE id = ?`,
         created.id,
         reason,
         row.revision + 1,
+        at,
         oldId,
       );
       return { doc: created, newId: created.id };
@@ -1414,7 +1506,12 @@ export class Store {
   archive(id: string, reason: string): void {
     this.mutate("archive", () => {
       this.requireRow(id);
-      this.ops.run("UPDATE memories SET archived = 1, archived_reason = ? WHERE id = ?", reason, id);
+      this.ops.run(
+        "UPDATE memories SET archived = 1, archived_reason = ?, updated_at = ? WHERE id = ?",
+        reason,
+        this.nowFn(),
+        id,
+      );
     });
     // Out of the index, not out of the store: `read`, `resolve` and the version
     // chain are untouched. An archived row was never deliverable — `activate`
@@ -1507,13 +1604,8 @@ export class Store {
 
   link(edge: EdgeInput): void {
     this.mutate("link", () => {
-      this.ops.run(
-        "INSERT OR REPLACE INTO edges (src, dst, weight, last_day) VALUES (?, ?, ?, ?)",
-        edge.src,
-        edge.dst,
-        edge.weight,
-        edge.day,
-      );
+      const at = this.nowFn();
+      this.ops.run(EDGE_UPSERT, edge.src, edge.dst, edge.weight, edge.day, at, at);
     });
     this.emit("store.link", edge.src, { dst: edge.dst, weight: edge.weight });
   }
@@ -1521,10 +1613,9 @@ export class Store {
   /** Multi-row and foreign-keyed: one bad endpoint rolls the whole batch back. */
   linkMany(edges: readonly EdgeInput[]): void {
     this.mutate("linkMany", () => {
-      const st = this.ops.prepare(
-        "INSERT OR REPLACE INTO edges (src, dst, weight, last_day) VALUES (?, ?, ?, ?)",
-      );
-      for (const e of edges) st.run(e.src, e.dst, e.weight, e.day);
+      const st = this.ops.prepare(EDGE_UPSERT);
+      const at = this.nowFn();
+      for (const e of edges) st.run(e.src, e.dst, e.weight, e.day, at, at);
     });
     this.emit("store.link", undefined, { count: edges.length });
   }
@@ -1532,10 +1623,18 @@ export class Store {
   setProspective(entry: ProspectiveInput): void {
     this.mutate("setProspective", () => {
       this.requireRow(entry.memoryId);
+      // An UPSERT, not `INSERT OR REPLACE`: a replace deletes the row first and
+      // would reset `created_at` on every state change (v7).
+      const at = this.nowFn();
       this.ops.run(
-        `INSERT OR REPLACE INTO prospective
-           (memory_id, window_key, event_date, precision, state, fires, last_fired_day)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO prospective
+           (memory_id, window_key, event_date, precision, state, fires, last_fired_day,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (memory_id, window_key) DO UPDATE SET
+           event_date = excluded.event_date, precision = excluded.precision,
+           state = excluded.state, fires = excluded.fires,
+           last_fired_day = excluded.last_fired_day, updated_at = excluded.updated_at`,
         entry.memoryId,
         entry.windowKey,
         entry.eventDate,
@@ -1543,6 +1642,8 @@ export class Store {
         entry.state,
         entry.fires ?? 0,
         entry.lastFiredDay ?? null,
+        at,
+        at,
       );
     });
     this.emit("store.prospective", entry.memoryId, {
@@ -1551,11 +1652,66 @@ export class Store {
     });
   }
 
+  /**
+   * Record feelings on a memory (schema v7; `store/feelings.ts`). All or none:
+   * one bad input refuses the call `FEELING_INVALID` and writes nothing. An
+   * emotion not on the wheel is stored as `other` with the word kept, and the
+   * result's `notices` name the nearest wheel keys so the caller can rewrite.
+   * `beneath` is an existing feeling's id ON THIS MEMORY or another input's
+   * index. `model` is the writer's model id, screened like `PutInput.model`.
+   */
+  addFeelings(memoryId: string, inputs: readonly FeelingInput[], opts: { model?: string } = {}): AddFeelingsResult {
+    const { rows, notices } = checkFeelings(inputs);
+    const ids = rows.map(() => `fel_${randomBytes(6).toString("hex")}`);
+    this.mutate("addFeelings", () => {
+      this.requireRow(memoryId);
+      const at = this.nowFn();
+      const model = modelOrNull(opts.model);
+      const insert = this.ops.prepare(
+        `INSERT INTO feelings
+           (id, memory_id, whose, core, emotion, other_word, strength, beneath_id, carried_by, model,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      );
+      rows.forEach((r, i) =>
+        insert.run(ids[i] as string, memoryId, r.whose, r.core, r.emotion, r.otherWord, r.strength, r.carriedBy, model, at, at),
+      );
+      // THEN the links, so an input may sit on one listed after it.
+      rows.forEach((r, i) => {
+        if (r.beneath === null) return;
+        let under: string;
+        if (typeof r.beneath === "number") {
+          under = ids[r.beneath] as string;
+        } else {
+          const found = this.ops.get<{ memory_id: string }>("SELECT memory_id FROM feelings WHERE id = ?", r.beneath);
+          if (found === undefined || found.memory_id !== memoryId) {
+            throw new StoreError("FEELING_INVALID", { index: i, reason: "beneath-not-on-this-memory" });
+          }
+          under = r.beneath;
+        }
+        this.ops.run("UPDATE feelings SET beneath_id = ? WHERE id = ?", under, ids[i] as string);
+      });
+    });
+    this.emit("store.feelings", memoryId, { count: rows.length, other: notices.length });
+    return { ids, notices };
+  }
+
   /** The active-day clock (scar E8): days actually lived, not calendar days. */
   advanceClock(date: string): number {
     const day = this.mutate("advanceClock", () => {
       const last = this.getMeta("lastActiveDate") ?? "";
       if (last !== "" && date < last) {
+        // ONE CALENDAR DAY BACK IS THE SAME LIVED DAY (review S1, 2026-09-25).
+        // Since the person's day became local, a date one day behind the last
+        // one is ordinary: the upgrade evening west of UTC (the last 0.3.1
+        // boundary stamped UTC's tomorrow), or a flight west across midnight.
+        // It is lived time that already counted, so it holds the day — no
+        // advance, no rewrite of `lastActiveDate`, no failure. A real jump back
+        // of more than a day is still refused, as it always was.
+        if (isDay(date) && isDay(last) && daysBetween(date, last) <= 1) {
+          this.emit("store.clock.held", undefined, { date, last });
+          return this.livedDay();
+        }
         throw new StoreError("CLOCK_BACKWARDS", { date, last });
       }
       if (date === last) return this.livedDay();
@@ -2362,6 +2518,9 @@ export class Store {
       revision: row.revision,
       contentHash: row.content_hash,
       confidential: row.confidential === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      model: row.model,
     };
   }
 
@@ -2417,6 +2576,69 @@ export class Store {
     const { clause, args } = memoryWhere(filter);
     const sql = `SELECT COUNT(*) AS n FROM memories ${clause}`;
     return this.ops.get<{ n: number }>(sql, ...args)?.n ?? 0;
+  }
+
+  /**
+   * LIVE memories whose reminder date (`event_date`) covers any day from `from`
+   * to `to`, inclusive — `YYYY-MM-DD` both (prospective/INTERFACE-GAPS §2).
+   * Ordered by the date, earliest first, then id.
+   *
+   * The SQL bound is loose on purpose and the exact test is `time.ts`'s: a
+   * month `2026-10` sorts BEFORE `2026-10-01` as text and a range's text runs
+   * past its first day, so a plain `BETWEEN` would miss both. The index answers
+   * "starts no later than `to`" (`'~'` sorts after every digit and `..`), and
+   * `calendarOverlaps` decides the rest. A memory with only the older meta
+   * convention (`meta.eventDate`) is not here; `prospective/contentDates`
+   * still reads that.
+   */
+  datedMemories(from: string, to: string): DatedMemory[] {
+    const rows = this.ops.all<{ id: string; event_date: string }>(
+      `SELECT id, event_date FROM memories
+        WHERE event_date IS NOT NULL AND event_date <= ? AND archived = 0`,
+      `${to}~`,
+    );
+    return rows
+      .filter((r) => calendarOverlaps(r.event_date, from, to))
+      .sort((a, b) => compareCalendarDates(a.event_date, b.event_date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((r) => ({ id: r.id, eventDate: r.event_date }));
+  }
+
+  /** A memory's feelings, oldest first (then in the order written). A removed memory has none. */
+  feelingsFor(memoryId: string): FeelingRow[] {
+    return this.ops.all<FeelingRow>(
+      "SELECT * FROM feelings WHERE memory_id = ? ORDER BY created_at, rowid",
+      memoryId,
+    );
+  }
+
+  /**
+   * How many feelings, by `whose` and by `core` or `emotion` (an `other` counts
+   * under `other`), recorded from `from` to `to` — the person's calendar days,
+   * inclusive, read in `zone()`; either end may be left open. Counts only: no
+   * word of any feeling leaves here.
+   */
+  feelingCounts(
+    opts: { by: "core" | "emotion"; whose?: string; from?: string; to?: string },
+  ): { whose: string; key: string; count: number }[] {
+    const col = opts.by === "core" ? "core" : "emotion";
+    const rows = this.ops.all<{ whose: string; key: string; created_at: number }>(
+      `SELECT whose, ${col} AS key, created_at FROM feelings ${opts.whose === undefined ? "" : "WHERE whose = ?"}`,
+      ...(opts.whose === undefined ? [] : [opts.whose]),
+    );
+    const zone = this.zone();
+    const tally = new Map<string, { whose: string; key: string; count: number }>();
+    for (const r of rows) {
+      if (opts.from !== undefined || opts.to !== undefined) {
+        const day = localDate(r.created_at, zone);
+        if (opts.from !== undefined && day < opts.from) continue;
+        if (opts.to !== undefined && day > opts.to) continue;
+      }
+      const k = `${r.whose}\u0000${r.key}`;
+      const t = tally.get(k) ?? { whose: r.whose, key: r.key, count: 0 };
+      t.count += 1;
+      tally.set(k, t);
+    }
+    return [...tally.values()].sort((a, b) => b.count - a.count || (a.whose + a.key < b.whose + b.key ? -1 : 1));
   }
 
   versions(id: string): VersionRow[] {
@@ -2690,16 +2912,21 @@ export class Store {
       if (input.origin.spanHash !== undefined) origin["spanHash"] = input.origin.spanHash;
       if (Object.keys(origin).length > 0) meta["origin"] = origin;
     }
+    const eventDate = input.eventDate === undefined ? undefined : assertEventDate(input.eventDate, id);
+    // ONE MOMENT for the row, and `learned_on` is its local date unless the
+    // caller dated the memory itself (mint dates a deposit by its own instant).
+    const at = this.nowFn();
     const doc: ProseDoc = {
       id,
       type: input.type,
-      learnedOn: input.learnedOn ?? this.today(),
+      learnedOn: input.learnedOn ?? localDate(at, this.zone()),
       bornDay: input.physics?.birthDay ?? day,
       meta,
       body,
     };
     if (input.title !== undefined) doc.title = input.title;
     if (input.happenedOn !== undefined) doc.happenedOn = input.happenedOn;
+    if (eventDate !== undefined) doc.eventDate = eventDate;
     // Serialized (and so G6-checked) BEFORE the INSERT, for the same reason:
     // a function or a NaN in `meta` is silent data loss, and the refusal must
     // land while nothing has been written.
@@ -2719,8 +2946,8 @@ export class Store {
          promoted_identity, protected, pressure, last_challenged_day, archived,
          archived_reason, superseded_by, revision, content_hash,
          learned_on, happened_on, source, origin_session, origin_scope, origin_ref,
-         title, body, meta, confidential)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         title, body, meta, confidential, created_at, updated_at, model, event_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.type,
       input.kind,
@@ -2751,6 +2978,10 @@ export class Store {
       doc.body,
       metaJson,
       confidentialByMeta(meta) ? 1 : 0,
+      at,
+      at,
+      modelOrNull(input.model),
+      doc.eventDate ?? null,
     );
     return doc;
   }
@@ -2787,6 +3018,7 @@ export class Store {
     };
     if (row.title !== null) doc.title = row.title;
     if (row.happened_on !== null) doc.happenedOn = row.happened_on;
+    if (row.event_date !== null) doc.eventDate = row.event_date;
     return doc;
   }
 
@@ -2813,6 +3045,7 @@ export class Store {
     };
     if (version.title !== null) doc.title = version.title;
     if (version.happened_on !== null) doc.happenedOn = version.happened_on;
+    if (version.event_date !== null) doc.eventDate = version.event_date;
     return doc;
   }
 
@@ -3048,28 +3281,47 @@ export function newId(type: ProseType): string {
 }
 
 /**
- * The calendar date an INSTANT falls on — the provenance clock's only arithmetic.
+ * The UTC calendar date an INSTANT falls on.
  *
- * UTC by deliberate choice, not by accident: every other date in this codebase is
- * written with the same `toISOString().slice(0, 10)` (the hook that supplies
- * `advanceClock`'s date, `sleep/cycle.ts#todayDate`, the embedder's seat rotation),
- * so a local-dating provenance clock would put provenance and physics on two
- * different calendars. Moving all of them to local dating is a real, separate
- * question, filed in `NOTES.md` 2026-09-05 with its evidence.
+ * This WAS the provenance clock's arithmetic, UTC by deliberate choice while
+ * every other date in the codebase was UTC too (NOTES 2026-09-05). Since
+ * docs/time.md (2026-09-25) a person's day is LOCAL and is `time.ts#localDate`
+ * (a store: `store.today()`, `localDate(at, store.zone())`). What is left here
+ * is the UTC reading, kept under its old name for the callers that mean UTC on
+ * purpose — reading a pre-v7 row's `learned_on`, the tools under `tools/`, and
+ * the dashboard's `todayUtc` — so none of them changes meaning silently.
  *
- * NOT `physics/clock.ts#dayKey`. That function shifts by the BOUNDARY HOUR, which
- * is a physics idea — "which lived day does this activity belong to" — and a
- * memory taken at 01:30 was taken on the 14th no matter which lived day it counts
- * toward. Provenance does not get the boundary shift.
+ * NOT `physics/clock.ts#dayKey`: that shifts by the BOUNDARY HOUR, a physics idea.
  */
 export function dateOf(at: number): string {
-  return new Date(at).toISOString().slice(0, 10);
+  return utcDate(at);
 }
 
-/** The ambient date. Adapters and defaults only — a store reads `store.today()`. */
+/** The ambient UTC date (see `dateOf`). A store's person's day is `store.today()`. */
 export function today(): string {
-  return dateOf(Date.now());
+  return utcDate(Date.now());
 }
+
+/** The v7 column's screen: a model id the host reported, or NULL. */
+function modelOrNull(model: string | undefined): string | null {
+  return model !== undefined && isModelId(model) ? model : null;
+}
+
+/** An event date that cannot be read is a reminder that never comes up: refused
+ *  by name. Returns the date as it will be STORED — trimmed (review N5). */
+function assertEventDate(date: string, id: string): string {
+  if (!isCalendarDate(date)) throw new StoreError("EVENT_DATE_INVALID", { id, date: String(date).slice(0, 64) });
+  return date.trim();
+}
+
+/**
+ * `link` / `linkMany`: an UPSERT, not `INSERT OR REPLACE` — a replace deletes
+ * the row first and would reset `created_at` on every re-weighting (v7).
+ */
+const EDGE_UPSERT = `INSERT INTO edges (src, dst, weight, last_day, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT (src, dst) DO UPDATE SET
+    weight = excluded.weight, last_day = excluded.last_day, updated_at = excluded.updated_at`;
 
 /**
  * True when a data dir has already been initialized (used by adapters, not writes).

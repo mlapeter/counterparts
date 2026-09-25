@@ -1205,7 +1205,9 @@ describe("structural guarantees", () => {
 
   test("sleep imports only types, physics and store — and NOTHING from self/", () => {
     const files = readdirSync(SLEEP_SRC).filter((f) => f.endsWith(".ts"));
-    const allowed = /^(node:(fs|path)|\.\.\/types\.js|\.\.\/physics\/[\w.-]+\.js|\.\.\/store\/[\w.-]+\.js|\.\/[\w.-]+\.js)$/;
+    // `../time.js` since 2026-09-25: the one conversion module (docs/time.md),
+    // a leaf with no imports of its own, for `todayDate`.
+    const allowed = /^(node:(fs|path)|\.\.\/types\.js|\.\.\/time\.js|\.\.\/physics\/[\w.-]+\.js|\.\.\/store\/[\w.-]+\.js|\.\/[\w.-]+\.js)$/;
     const seen: string[] = [];
     for (const f of files) {
       const src = readFileSync(join(SLEEP_SRC, f), "utf8");

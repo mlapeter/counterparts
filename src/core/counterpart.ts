@@ -149,7 +149,9 @@ import type {
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
-import type { Embedder, StoreEvent } from "./store/index.js";
+import type {
+  AddFeelingsResult,
+  FeelingInput, Embedder, StoreEvent } from "./store/index.js";
 import { TUNABLES as PHYSICS } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
@@ -705,6 +707,12 @@ export interface CounterpartOptions extends Stance {
   identity?: IdentityCoreSpec;
   onEvent?: (e: CounterpartEvent) => void;
   now?: () => number;
+  /**
+   * The person's zone, an IANA name — the host config's `timeZone`
+   * (docs/time.md rule 2). Handed to the store, which every local date here
+   * reads through (`Store#zone`). Absent: the machine's current zone.
+   */
+  timeZone?: string;
 }
 
 /** What `wake()` returns: the bundle, plus what the host told us about itself. */
@@ -731,6 +739,8 @@ export interface DepositContext {
   scope: string;
   /** The span this deposit IS (a jot's own words), withheld from the sweep. */
   ownSpanHash?: string | null;
+  /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
+  model?: string;
 }
 
 /**
@@ -1317,6 +1327,7 @@ export class Counterpart {
       ...(opts.embed === undefined ? {} : { embed: opts.embed }),
       ...(opts.retentionDays === undefined ? {} : { retentionDays: opts.retentionDays }),
       ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
+      ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
       onEvent: (e: StoreEvent) => this.relay("store", e),
     });
 
@@ -2163,6 +2174,22 @@ export class Counterpart {
     return this.deposit(draft, "session-end", ctx);
   }
 
+  /**
+   * Feelings on a memory (schema v7, `store/feelings.ts`), through the SECRETS
+   * half of the battery: `carried_by` and an `other` word are words about the
+   * moment, and a credential must not land in them any more than in a body.
+   * Nothing else here reads them — salience, decay and recall are untouched
+   * until the emotion build. Throws what the store throws (`FEELING_INVALID`).
+   */
+  addFeelings(memoryId: string, inputs: readonly FeelingInput[], opts: { model?: string } = {}): AddFeelingsResult {
+    const clean = inputs.map((f) => ({
+      ...f,
+      ...(typeof f.carriedBy === "string" ? { carriedBy: redactSecrets(f.carriedBy) } : {}),
+      ...(typeof f.otherWord === "string" ? { otherWord: redactSecrets(f.otherWord) } : {}),
+    }));
+    return this.store.addFeelings(memoryId, clean, opts);
+  }
+
   /** An in-the-moment deliberate deposit. Channel: `authored`. Always covers
    *  its own session's words: `cover` is not taken here, and is dropped if a
    *  caller outside TypeScript sends it. */
@@ -2171,6 +2198,7 @@ export class Counterpart {
       session: ctx.session,
       scope: ctx.scope,
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
+      ...(ctx.model === undefined ? {} : { model: ctx.model }),
     });
   }
 
@@ -3519,6 +3547,7 @@ export class Counterpart {
     const mint = mintProposal(this.store, proposal, {
       self: this.self,
       channel: "authored",
+      ...(ctx.model === undefined ? {} : { model: ctx.model }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     this.emit("counterpart.deposit", mint.id, {

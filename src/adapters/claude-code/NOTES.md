@@ -1561,3 +1561,35 @@ What the build settled, beyond the CONTRACT section:
   are the item's; anything else keeps the paid-shaped rules (limit 64, blame only an
   item the embedder named). Core's `no-credential` / `no-credentials` reasons are left in
   its vocabulary, because rows already written carry them.
+
+## 2026-09-25 — the person's clock (docs/time.md)
+
+- **`timeZone` in the config** (optional, an IANA name) is read leniently: a name this
+  machine does not know is ignored, kept as `timeZoneUnknown`, and named on doctor's Clock
+  line — a misspelt zone must not stand memory down the way an unreadable setting does.
+  It reaches the store through `Counterpart.open({ timeZone })` in `openAdapter`, the
+  runner, and the MCP entry point.
+- **The hook's `at` is the person's day** (`bin/hook.ts#toHookInput`, `todayIn(zone)`),
+  so the rows it dates, the wake preface's date, prospective's "today" and the date the
+  boundary hands the lived clock are local. The evening-of-the-upgrade case (a local date
+  one day behind the last UTC one) is store NOTES 2026-09-25: refused, named, the day
+  holds.
+- **The wake's first line is `Now: Fri 25 Sep 2026, 1:40 pm MDT`**, and a turn that
+  recalls something carries the same line above its note. Both sit OUTSIDE the block they
+  precede, so the wake's byte count, its two sentinels and the preface reserve are
+  untouched, and the delivery check (which finds sentinels by prefix) reads as before.
+  The line's bytes are counted wherever the host's ceiling is: `sent`, not `woke.bytes`,
+  decides the over-budget event and the room an ask may take. `bytes` in the result is
+  still the wake's own count. **Every turn** prints the line — alone when recall surfaced
+  nothing, and on an empty prompt (owner, 2026-09-25: ~40 bytes a turn is fine). A
+  primacy stand-down still prints nothing: a muted session is muted.
+- **Doctor**: the header lost its "(UTC)"; the Clock line names the zone in use
+  (`today 2026-09-25 (America/Denver)`). `rowDate`'s fallback, the oldest-event and
+  database-birth days, and the page's staleness read that zone.
+- **Install** says the zone in one line after the name question and asks nothing:
+  "Times read in America/Denver, this computer's zone — "timeZone" in the config pins
+  another."
+
+- **Review of #231, S1 (2026-09-25):** the evening of the upgrade no longer turns doctor
+  RED. The store holds a one-day-back date as the same lived day, and the migration
+  clamps `lastActiveDate`; details are in store NOTES.

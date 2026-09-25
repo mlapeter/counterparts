@@ -27,6 +27,7 @@
  * is testable against a temp dir with a faked console.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { localDate, resolveZone, todayIn } from "../../core/time.js";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -1675,7 +1676,9 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
           dir,
           io,
           typeof parsed.flags["dir"] === "string",
-          dateOf(now()),
+          // The person's day, in the zone the config beside this store names,
+          // else this machine's (docs/time.md; UTC before 2026-09-25).
+          localDate(now(), zoneBeside(dir)),
           parsed.flags["layout"] === true,
           env,
         );
@@ -1736,7 +1739,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         );
     }
   } catch (err) {
-    io.err(`${command} failed: ${describeDirRefusal(err)}`);
+    io.err(upgradePending(err) ?? `${command} failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
 }
@@ -1781,8 +1784,35 @@ function describeDirRefusal(err: unknown, dir?: string): string {
     describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
     describePreRowsRefusal(err, `Name a store with --dir <path>.`) ??
     preRowsInDisguise(err, dir) ??
+    upgradePending(err) ??
     String((err as Error).message ?? err)
   );
+}
+
+/**
+ * A store on an OLDER schema, met by a read-only door (review N1, 2026-09-25).
+ * `STORE_UNINITIALIZED` with a `found` version below this build's reads, to an
+ * observer, like an empty store; it is not — it is waiting for the first
+ * session, which copies it and upgrades it. Doctor's sentence, said here too.
+ */
+function upgradePending(err: unknown): string | null {
+  if (!isStoreError(err, "STORE_UNINITIALIZED")) return null;
+  const found = Number.parseInt(String(err.detail["found"] ?? ""), 10);
+  // Only a store this build can migrate: v6 up. Below the floor is the
+  // pre-rows refusal's sentence, never "the next session upgrades it".
+  if (!Number.isFinite(found) || found < 6 || found >= SCHEMA_VERSION) return null;
+  return (
+    `this store is on schema v${String(found)}; the next Claude Code session copies it and upgrades it ` +
+    `to v${String(SCHEMA_VERSION)}. Nothing to do: start a session, then run this again.`
+  );
+}
+
+/** The line a read-only door prints when its open was refused. */
+function openRefusalLine(err: unknown, dir?: string): string {
+  if (dir !== undefined && preRowsInDisguise(err, dir) !== null) {
+    return `could not open the store: ${describeDirRefusal(err, dir)}`;
+  }
+  return upgradePending(err) ?? `could not open the store: ${describeDirRefusal(err, dir)}`;
 }
 
 /**
@@ -1835,9 +1865,9 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   }
   let store: Store;
   try {
-    store = Store.open({ dir, observer: true });
+    store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -1892,13 +1922,13 @@ function firedCommand(
   }
   let store: Store;
   try {
-    store = Store.open({ dir, observer: true });
+    store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
-    const report = firedReport(store, dateOf(now()));
+    const report = firedReport(store, localDate(now(), store.zone()));
     for (const line of all ? firedLines(report, true) : mechanismsLines(report)) io.out(line);
     return EXIT.ok;
   } finally {
@@ -2006,7 +2036,7 @@ async function selfPageCommand(
   try {
     counterpart = openCounterpart(dir, observer);
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -2106,7 +2136,7 @@ const YOUNG_STATES: readonly FiredState[] = ["firing", "blocked", "quiet"];
 /** The report as plain text: one mechanism per line, grouped by state. */
 export function firedLines(report: FiredReport, all = false): string[] {
   const lines = [
-    `what has fired — ${report.from}→${report.today} (UTC), against ${report.previousFrom}→${report.previousTo}`,
+    `what has fired — ${report.from}→${report.today}, against ${report.previousFrom}→${report.previousTo}`,
     "",
   ];
   const young = report.young && !all;
@@ -2193,7 +2223,7 @@ function newestBoundary(store: Store, livedDay: number): string | null {
     if (last === undefined) return null;
     const payload = JSON.parse(last.payload ?? "{}") as Record<string, unknown>;
     const date = payload["date"];
-    return typeof date === "string" && date.length === 10 ? date : dateOf(last.at);
+    return typeof date === "string" && date.length === 10 ? date : localDate(last.at, store.zone());
   } catch {
     return null;
   }
@@ -2272,9 +2302,9 @@ function statusCommand(
   }
   let store: Store;
   try {
-    store = Store.open({ dir, observer: true });
+    store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -2449,7 +2479,7 @@ function statusCommand(
     if (removals.length > 0) {
       // Owner side: the id and the date, no body and no content hash — ever.
       const rows = removals.map(
-        (row) => `  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`,
+        (row) => `  ${localDate(row.at, store.zone())}  ${row.memory_id}  by ${row.actor}`,
       );
       tail.push({ title: "Removed:", lines: rows });
       say("");
@@ -2685,7 +2715,7 @@ function installCommand(
   const existed = storeExists(layout.store);
   let store: Store;
   try {
-    store = Store.open({ dir: layout.store });
+    store = openStoreAt({ dir: layout.store });
   } catch (err) {
     io.err(prefixedRefusal(describeDirRefusal(err, layout.store)));
     return EXIT.refused;
@@ -3054,6 +3084,15 @@ async function installConversation(
       io.out(`Nice to meet you, ${answer}.`);
     }
   }
+  // THE ZONE, SAID ONCE AND NOT ASKED (docs/time.md rule 2, 2026-09-25): times
+  // follow the computer, so there is nothing to answer — but a person should
+  // see which clock their memory will read, and how to pin another.
+  const zoneSet = hostConfigFor(layout.config).config.timeZone;
+  u.hint(
+    zoneSet === undefined
+      ? `Times read in ${resolveZone(undefined)}, this computer's zone — "timeZone" in the config pins another.`
+      : `Times read in ${zoneSet}, as the config's "timeZone" says.`,
+  );
   u.blank();
 
   // ── the store and the configuration — SILENTLY ────────────────────────────
@@ -3820,7 +3859,7 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   const existed = storeExists(dir);
   let store: Store;
   try {
-    store = Store.open({ dir });
+    store = openStoreAt({ dir });
   } catch (err) {
     io.err(prefixedRefusal(describeDirRefusal(err, dir)));
     return EXIT.refused;
@@ -4368,7 +4407,7 @@ async function startFreshCommand(
   const previous = parkedStore ?? soleParked(final);
   if (!existedBefore) {
     try {
-      const store = Store.open({ dir: created });
+      const store = openStoreAt({ dir: created });
       try {
         const entries: [string, string][] = [
           [STORE_STARTED_KEY, final.date],
@@ -4486,7 +4525,7 @@ async function startFreshUndo(
   // path, of the NEW store, as an observer.
   const readRecord = (): string | null => {
     try {
-      const store = Store.open({ dir: storeDir, observer: true });
+      const store = openStoreAt({ dir: storeDir, observer: true });
       try {
         return store.getMeta(STORE_PREVIOUS_PARKED_KEY) ?? null;
       } finally {
@@ -5518,7 +5557,7 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
  * not be paid for with `--rebuild`, which drops every embedding.
  */
 function verifyPruneIndex(dir: string, io: Io): number {
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   try {
     const removed = store.pruneDeadIndex();
     io.out(`Store: ${dir}`);
@@ -5551,7 +5590,7 @@ function verifyPruneIndex(dir: string, io: Io): number {
  * lose nothing.
  */
 function verifyRetrySkipped(dir: string, io: Io): number {
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   try {
     const skipped = store.skippedVectorIds();
     const held = store.metaWithPrefix(EMBED_FAILED_PREFIX);
@@ -5584,13 +5623,13 @@ function verifyRetrySkipped(dir: string, io: Io): number {
  * which is what this read-only line is for. The cap is the sleep budget itself,
  * imported rather than restated, so the number printed is the number in force.
  */
-export function eventLogLines(log: EventLogCensus): string[] {
+export function eventLogLines(log: EventLogCensus, zone?: string): string[] {
   const cap = SLEEP_TUNABLES.BUDGETS.log;
   const wouldDelete = Math.min(log.eligible, cap);
   const oldest =
     log.oldestDay === null || log.oldestAt === null
       ? "oldest: none"
-      : `oldest: lived day ${log.oldestDay} (${dateOf(log.oldestAt)})`;
+      : `oldest: lived day ${log.oldestDay} (${localDate(log.oldestAt, zone)})`;
   return [
     `Events: ${log.rows} held (${log.latched} latched records)   ${oldest}   ` +
       `window: ${log.retentionDays} lived days (cutoff day ${log.cutoffDay})`,
@@ -5606,7 +5645,7 @@ export function eventLogLines(log: EventLogCensus): string[] {
  * out of date — dashboard INTERFACE-GAPS §1 — which is box 3's business.)
  */
 function verifyCensus(dir: string, io: Io): number {
-  const store = Store.open({ dir, observer: true });
+  const store = openStoreAt({ dir, observer: true });
   let canonical: string[];
   let live: string[];
   let denied: string[];
@@ -5681,7 +5720,7 @@ function verifyCensus(dir: string, io: Io): number {
         "and let sessions start again.",
     );
   }
-  for (const line of eventLogLines(log)) io.out(line);
+  for (const line of eventLogLines(log, store.zone())) io.out(line);
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
   // box 3 on the way in, so a cache this process cannot read usually fails the
@@ -5780,7 +5819,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: b
   // longer a reason to refuse, because the count it could not take was only
   // ever the count of what would be LOST.
   if (keepVectors) {
-    const store = Store.open({ dir });
+    const store = openStoreAt({ dir });
     try {
       const canonical = store.list().length;
       const report = store.rebuildCache({ keepVectors: true });
@@ -5819,7 +5858,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: b
     );
     return EXIT.refused;
   }
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   try {
     const canonical = store.list().length;
     const report = store.rebuildCache();
@@ -6311,10 +6350,10 @@ function backupCommand(
   // is now an ordinary failure report with an exit code.
   let store: Store;
   try {
-    store = Store.open({ dir, observer: true });
+    store = openStoreAt({ dir, observer: true });
   } catch (err) {
     io.out(`Snapshot: none — nothing was copied.`);
-    io.err(`  could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(`  ${openRefusalLine(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -6365,7 +6404,7 @@ function exportCommand(
   // the store it is reading, the durable row included).
   let store: Store;
   try {
-    store = Store.open({ dir, observer });
+    store = openStoreAt({ dir, observer });
   } catch (err) {
     io.err(`export refused: ${describeDirRefusal(err, dir)}`);
     return EXIT.refused;
@@ -6528,7 +6567,7 @@ async function removeByIdCommand(
   const planOpts = removalPlanOptions(flags);
 
   // THE PLAN, made read-only and with no lock held (scar E5).
-  const planning = Store.open({ dir, observer: true });
+  const planning = openStoreAt({ dir, observer: true });
   let plan;
   try {
     plan = planRemoval(planning, targetId, planOpts);
@@ -6559,7 +6598,7 @@ async function removeByIdCommand(
 
   // RELOAD AND RE-PLAN under the writing store: the human took time, and the
   // store may not be the store the plan was made against.
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   try {
     const outcome = removeOne(store, io, targetId, flags, now, planOpts, "scripted");
     return outcome === "removed" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
@@ -6805,7 +6844,7 @@ async function removeInteractively(
   // ONE writing store for the whole selection, and each memory re-planned under
   // it on its own — the human took time, and the store may have moved since the
   // lines above were printed.
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   let removed = 0;
   let refused = 0;
   let failed = 0;
@@ -6972,7 +7011,7 @@ function searchForRemoval(
   query: string,
 ): { candidates: RemovalCandidate[]; truncated: boolean } {
   const fetch = REMOVE_SEARCH_LIMIT * 2;
-  const store = Store.open({ dir, observer: true });
+  const store = openStoreAt({ dir, observer: true });
   try {
     const out: RemovalCandidate[] = [];
     const hits = store.search(query, fetch);
@@ -7009,7 +7048,7 @@ function inspectForRemoval(
   refused: { id: string; reason: RemovalPlan["reason"] } | null;
   entries: { line: string; plan: RemovalPlan }[];
 } {
-  const store = Store.open({ dir, observer: true });
+  const store = openStoreAt({ dir, observer: true });
   try {
     const entries: { line: string; plan: RemovalPlan }[] = [];
     for (const id of chosen) {
@@ -7135,7 +7174,7 @@ function backfillClaimsCommand(
   const floor = TUNABLES.AUTHORED_DEFAULT_CLAIM;
 
   // The plan is made read-only, as every plan here is (scar E5).
-  const planning = Store.open({ dir, observer: true });
+  const planning = openStoreAt({ dir, observer: true });
   let targets: { id: string; kind: string; dims: string }[];
   try {
     targets = backfillTargets(planning);
@@ -7159,7 +7198,7 @@ function backfillClaimsCommand(
     return EXIT.ok;
   }
 
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   let written = 0;
   const failures: string[] = [];
   try {
@@ -7374,7 +7413,7 @@ function repairMergedBeliefsCommand(
   }
 
   // The plan is made read-only, as every plan here is (scar E5).
-  const planning = Store.open({ dir, observer: true });
+  const planning = openStoreAt({ dir, observer: true });
   let targets: MergedBelief[];
   try {
     targets = mergedBeliefs(planning);
@@ -7420,7 +7459,7 @@ function repairMergedBeliefsCommand(
     return EXIT.ok;
   }
 
-  const store = Store.open({ dir });
+  const store = openStoreAt({ dir });
   let restored = 0;
   const failures: string[] = [];
   try {
@@ -7596,7 +7635,7 @@ function rebriefCommand(
   try {
     // The horizon lane asks about a calendar date; the console's own clock is
     // the only one in the room, and tests inject it.
-    const at = new Date(now()).toISOString().slice(0, 10);
+    const at = localDate(now(), counterpart.store.zone());
     const report = counterpart.rebrief({ budgetBytes: ceiling.bytes, at });
     if (!report.rendered) {
       io.err(`refused: the render declined (${report.reason}).`);
@@ -8005,9 +8044,11 @@ export function openCounterpart(
   // `embed` likewise: the option every composition root hands its embedder's
   // sync face through (`ask`, 2026-09-24).
   const snapshotsDir = observer ? undefined : snapshotsDirBeside(dir);
+  const timeZone = zoneBeside(dir);
   return Counterpart.open({
     dir,
     observer,
+    ...(timeZone === undefined ? {} : { timeZone }),
     ...(identity === undefined ? {} : { identity }),
     ...(embed === undefined ? {} : { embed }),
     ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
@@ -8020,6 +8061,28 @@ export function openCounterpart(
  * console runs puts its copy where the worker's rotation and doctor look.
  * Absent, unreadable or unset: undefined, and the store's default applies.
  */
+/**
+ * `timeZone` from the host configuration beside the store — the same file
+ * `snapshotsDirBeside` reads — so a console command names the person's day in
+ * the zone the hooks use (docs/time.md, 2026-09-25). Absent or unreadable:
+ * undefined, and the store follows the machine's zone.
+ */
+export function zoneBeside(dir: string): string | undefined {
+  const beside = join(dir, "..", "claude-code.json");
+  if (!existsSync(beside)) return undefined;
+  try {
+    return loadConfig(JSON.parse(readFileSync(beside, "utf8"))).config.timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `Store.open` for the console: the config's zone beside the store rides along. */
+function openStoreAt(opts: { dir: string; observer?: boolean }): Store {
+  const timeZone = zoneBeside(opts.dir);
+  return Store.open({ ...opts, ...(timeZone === undefined ? {} : { timeZone }) });
+}
+
 export function snapshotsDirBeside(dir: string): string | undefined {
   const beside = join(dir, "..", "claude-code.json");
   if (!existsSync(beside)) return undefined;
@@ -8217,7 +8280,8 @@ function doctorCommand(
     return EXIT.refused;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // The person's day: the config's zone, else the machine's (docs/time.md).
+  const today = todayIn(resolveZone(config.timeZone));
   let store: Store | null = null;
   try {
     // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
@@ -8230,7 +8294,7 @@ function doctorCommand(
     const open = storeExists(dir) ? readCounterpartOpen(dir, undefined, config.snapshots?.dir) : undefined;
     if (storeExists(dir)) {
       try {
-        store = Store.open({ dir, observer: true });
+        store = Store.open({ dir, observer: true, ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }) });
       } catch (err) {
         // A store BEHIND this build refuses an observer until a session has
         // upgraded it; the Store open line already grades that, so the rest of

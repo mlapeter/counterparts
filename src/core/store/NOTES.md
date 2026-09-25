@@ -1438,3 +1438,145 @@ rebuilds, and a cache the newer build stamped would make the old MCP server refu
 tool. Copy the pre-migration copy's `counterparts.sqlite` into the store directory and run
 the build that matches its `v<from>` (the newer build would migrate it again). Rows
 written since the upgrade are lost; they are not in the copy.
+
+## 2026-09-25 — schema v7: moments, the model, a reminder date, and the person's day
+
+docs/time.md (agreed with the owner that day) is the plan; this is what the store did
+about it. `core/time.ts` is the one conversion module; the store imports it and converts
+nothing by hand.
+
+**The migration.** The first additive one since the copy seam (#214) shipped: eleven
+nullable columns through `ADDED_COLUMNS`, one partial index after them
+(`DDL_AFTER_COLUMNS`, because on a v6 file the column does not exist yet while `DDL`
+runs). `OBSERVER_READ_FLOOR` moved to 7 with it, so an instrument (doctor, the
+dashboard, `status`) meets a v6 store as `STORE_UNINITIALIZED` until the next hook — a
+writer — takes the copy and migrates; doctor already grades that amber ("the next session
+upgrades it"). Measured on a store seeded by the 0.3.1 checkout (b66a736): doctor amber
+before, one `…-pre-migration-v6-to-v7` folder after the first SessionStart, 172 memories /
+2 versions / 252 edges / 5 prospective rows and 153 distinct content hashes both sides,
+doctor green after, and the 0.3.1 build refusing it `SCHEMA_AHEAD` — at open, and in an
+MCP server that was already running (`schema-ahead`, "Run /mcp and Reconnect").
+
+**Table by table.**
+
+| table | v7 columns | why |
+|---|---|---|
+| `memories` | `created_at`, `updated_at`, `model`, `event_date` | the records. `updated_at` moves when the words or the state change — `revise`, `supersede`, `archive`, an owner's unarchive — and NOT on physics bookkeeping (`updatePhysics`, `reinforce`, `setBand`): decay touches every row nightly, and an `updated_at` that meant "last sleep" would say nothing. |
+| `versions` | `created_at`, `model`, `event_date` | a version is written once and never updated, and `archived_at` is already the moment it stopped being current; `created_at` is when its WORDS were written (the head's `updated_at`, else `created_at`, at archive), so a version has both ends. `model` and `event_date` travel with the words, like `learned_on` / `happened_on` already did. No `updated_at`: nothing updates a version but the removal chase, which blanks it. |
+| `edges` | `created_at`, `updated_at` | first linked, last re-weighted. `link` / `linkMany` became an UPSERT: `INSERT OR REPLACE` deletes the row first and would reset `created_at` at every re-weighting. |
+| `prospective` | `created_at`, `updated_at` | window first recorded, last changed state; UPSERT for the same reason. |
+| `feelings` (new) | `created_at`, `updated_at` NOT NULL | a new table, so no row predates its moments; see below. |
+| `events` | none | `at` IS its moment, and the log is append-only. |
+| `removal_record`, `removal_tombstone` | none | append-only, each with its own `at`. |
+| `gate_session` | none | per-session working state, pruned by lived day; not a record anyone reads back later. |
+| `meta` | none | key/value settings, not records. |
+| box 3 (the cache) | none | declared rebuildable. |
+
+**Backfill: none.** Old rows carry NULL moments. Nothing durable holds the moment a v6
+row was written — `store.put` goes to the in-process ring, not the event log — and
+`learned_on` is a date, not a moment; the owner ruled old dates stay as they are
+(docs/time.md rule 6). NULL reads "not recorded", never a made-up time.
+
+**`model`.** The model id that wrote the current words, screened by `isModelId` (moved
+from `self/episodes.ts` to `core/types.ts` so the store can use it; `self/` re-exports
+it). The relay is the chapters' (self NOTES §24): the transcript's last assistant model →
+the session registry record → the MCP server's `sessionModel()` → `note`, `session_end`
+entries, `chapter`, and `self_page`. A server with no bound session (a `note` before any
+tool named one) records NULL, as does the sweep, the owner's console and anything the host
+did not name. On `revise`, new words with no model named set it NULL (they are no longer
+the last model's); a revise that leaves the body alone keeps it. Each version keeps the
+model that wrote IT.
+
+**The reminder date: a new `event_date` column, not a widened `happened_on`.**
+`happened_on` is already written with PAST dates that are not reminders — `schemas/`
+stamps every belief's and current-state's `statedOn` into it, and episodes pass one — so
+an index over it would hand prospective every schema row stated this week as an
+"arrival". A reminder is a different fact from when something happened, and a memory can
+carry both ("on the 20th we agreed taxes are due Oct 15"). `event_date` holds a day, a
+month, a year or a range, is refused when unreadable (`EVENT_DATE_INVALID`), travels in
+versions, is cleared by `revise({ eventDate: null })`, and is blanked by the removal chase
+along with the moments and the model. `datedMemories(from, to)` bounds the SQL loosely
+(`event_date <= to || '~'`, which the partial index answers) and decides overlap in
+`time.ts`: a month `2026-10` sorts before `2026-10-01` as text and a range's text runs
+past its first day, so a `BETWEEN` would miss both. prospective's `meta.eventDate`
+convention is still read by `contentDates`; nothing in `src/` writes it, and
+`datedMemories` does not look at it. Nothing writes `event_date` yet either — that door
+(and firing off it) is PR B.
+
+**The person's day.** `today()`, a new row's default `learned_on`, and `store.created`
+are the local date of `now()` in `zone()` — `StoreOptions.timeZone` (the host config's
+`timeZone`, threaded through `Counterpart.open`) or the machine's current zone, resolved
+per call. `dateOf` / `today` (the module functions) stay UTC under their old names, for
+the callers that mean UTC on purpose: tools, the dashboard's `todayUtc`, reading pre-v7
+rows, and the file names below. The hooks' `at` moved with it, and that date is also what
+the boundary hands `advanceClock`: west of UTC, on the evening of the upgrade (or after
+flying west), a session can present a local date one day BEHIND `lastActiveDate`. The
+store refuses it (`CLOCK_BACKWARDS`), the cycle names it (`sleep.clock.failed`) and stays
+on the lived day it already believed, and the next local date moves it on —
+`test/local-day.test.ts` "the lived clock across the change". No special case was added.
+
+**What stayed UTC, on purpose** (file names and legacy readers, not a person's day):
+snapshot folder names and their retention cutoffs (`adapters/snapshots.ts`), the
+pre-migration copy's "taken today" check (its folder name begins with a UTC instant),
+the parked-store suffix and plan date in `start-fresh` / `uninstall`, `repair-dates`
+(it repairs pre-v7 rows, whose dates were UTC), and ISO instants in log lines and file
+names. Changing a folder name's calendar is a question for the owner, not a fix.
+
+**A SQLite quirk found building the v6 fixture.** `ALTER TABLE … DROP COLUMN` fails with
+"incomplete input" when the column being dropped is the LAST one and `--` comment lines
+precede it in the stored `CREATE TABLE` text. The v7 columns on `memories` therefore sit
+with no SQL comment among them; their explanation is a JS comment above the DDL.
+
+### The `feelings` table, in the same v7 migration (owner-approved 2026-09-25)
+
+One row per feeling on a memory: `whose` (`owner` | `self` today — TEXT, so a person's
+entity id can join later without a migration), `core` (one of six), `emotion` (a key on
+the wheel, `core/feelings-wheel.ts`, or `other` with the word in `other_word`),
+`strength` 0..1 as recorded and never rewritten, `beneath_id` (another feeling on the
+SAME memory it sits on top of), `carried_by` (≤280 chars: what in the moment carried
+it), `model`, and the two moments. Indexed on `memory_id`, `(whose, core)`,
+`(whose, emotion)`. `CREATE TABLE IF NOT EXISTS` in `DDL`, so a v6 store gains it in the
+migration transaction and a fresh store has it from birth.
+
+- **`addFeelings(memoryId, inputs, { model })`** is all-or-none. `checkFeelings` is pure
+  and exported, so a door can run it BEFORE minting the memory and never leave one with
+  its feelings dropped. Refused (`FEELING_INVALID`, `{ index, reason }`): unknown
+  `whose` or `core`, strength out of range, an emotion the wheel files under ANOTHER
+  core, a `beneath` that is off this memory or loops. An emotion simply not on the wheel
+  is kept as `other`, and the result's `notices` carry the nearest keys under that core
+  (edit distance) so the caller can rewrite. `beneath` may be an existing id or another
+  input's index; rows are inserted first and linked second, so order does not matter.
+- **`feelingsFor(id)`**, and **`feelingCounts({ by, whose?, from?, to? })`** — counts by
+  `(whose, core|emotion)`, with the date range read as the person's days in `zone()`.
+  The filter runs in TypeScript over the (whose-indexed) rows; fine at today's sizes, and
+  the obvious place to push into SQL once there are many.
+- **Removal** deletes a memory's feelings in one statement (they carry words), beside its
+  edges and windows. The tombstone gained no `feelings` count — that would be a column on
+  `removal_tombstone`, and nothing needs it yet.
+- **Nothing reads them.** Salience, decay and recall are untouched; the `emotional`
+  dimension and `meta.feeling` are exactly as before. `Counterpart#addFeelings` runs
+  `carried_by` and an `other` word through `redactSecrets` first.
+
+### What the adversarial review of #231 changed (2026-09-25)
+
+The review is `docs/adversarial-review-v7-2026-09-25.md`.
+
+- **S1, the lived clock on the upgrade evening.** The review reproduced doctor going RED
+  on Sleep from 6 pm to midnight west of UTC. The old build's last boundary had stamped
+  UTC's tomorrow into `lastActiveDate`, and the first local date after the upgrade was
+  refused with `CLOCK_BACKWARDS`. There are two fixes, and either would do it alone:
+  - The v7 migration clamps `lastActiveDate` to the person's today (`localToday`, passed
+    in by the constructor). This costs at most one lived day counted twice, once; decay
+    does not notice a day.
+  - `advanceClock` treats a date ONE calendar day behind the last as the same lived day:
+    no advance, no rewrite, and no failure row, just a ring event (`store.clock.held`).
+    It covers flying west as well as the upgrade. A jump back of more than a day is still
+    `CLOCK_BACKWARDS`.
+- **N5.** An event date is stored trimmed. Year 0000 is not a calendar date. `isZone`
+  refuses bare offsets such as "+05:30", because an offset has no daylight-saving rules.
+- **N4, accepted.** A long-running MCP server resolves the machine zone at each call, but
+  a server that outlives a flight keeps the process's `TZ`. On bun that `TZ` is fixed at
+  start, so `note` writes the old zone's day until the next Reconnect.
+- **N9, accepted.** A 0.3.1 worker already mid-run during the upgrade keeps writing
+  v6-shaped SQL until its watchdog ends it. Its `INSERT OR REPLACE` on edges leaves
+  `created_at` NULL on the edges it touches. That is harmless and bounded.

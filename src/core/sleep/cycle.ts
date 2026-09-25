@@ -28,6 +28,7 @@
  */
 
 import type { Kind } from "../types.js";
+import { todayIn } from "../time.js";
 import { TUNABLES as PHYSICS, symmetryCheck } from "../physics/index.js";
 import { runBriefing } from "./briefing.js";
 import type { RenderFn } from "./briefing.js";
@@ -99,9 +100,14 @@ export interface SleepOptions {
 
 const EVENT_RING = 500;
 
-/** UTC calendar date. The lived-day mapping is the store's, not this module's. */
+/**
+ * Today's calendar date in the machine's zone — the fallback when a caller
+ * hands the cycle no date. UTC until 2026-09-25, local since (docs/time.md): the
+ * hooks' `at` moved the same day, and the two must stay one calendar. The
+ * lived-day mapping is the store's, not this module's.
+ */
 export function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIn();
 }
 
 export function runCycle(opts: SleepOptions): CycleReport {

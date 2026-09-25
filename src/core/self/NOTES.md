@@ -1191,3 +1191,20 @@ record (`adapters/sessions.ts`, optional fields already) → `mcp/server.ts#chap
 reads that record, as `corroborate` already does → `appendEpisode` opts → `meta` per
 chapter. It lags a mid-session `/model` switch by one turn (the record is refreshed at
 the boundary, and this adapter registers no `PostModelSwitch` hook).
+
+## 25. One calendar for the self and the store (2026-09-25)
+
+docs/time.md moved `learned_on` to the local day, in the STORE's zone (`Store#zone`: the
+config's `timeZone`, else the machine's). §22's "two clocks in one store" is therefore one
+clock from this date: `Self` with no `zone` of its own now uses the store's
+(`dayZone()`), and `pageWriterNight` passes the store's own yesterday as `closedThrough`,
+which in one zone IS the local yesterday — so §22's east-of-UTC guard reduces to the plain
+rule. It is kept, because it still does the right thing for a `Self` pinned to a zone apart
+from its store's (the tests in `test/local-day.test.ts` pin the store to UTC to keep
+proving it). For the nights either side of the change, rows written before carry a UTC
+`learned_on`, so a row may be read one night early or late — never twice or not at all.
+
+`calendar.ts` is now a re-export of `core/time.ts`, and `isModelId` of `core/types.ts`;
+no caller moved. The self page and each chapter's episode row also record their writer in
+the store's `model` column (store NOTES 2026-09-25) beside `meta.models`.
+

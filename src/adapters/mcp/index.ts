@@ -89,6 +89,8 @@ export interface OpenServerOptions extends Omit<McpServerOptions, "counterpart">
   /** Where the store's pre-migration copy goes — the host config's
    *  `snapshots.dir`, so it lands where rotation and doctor look. */
   snapshotsDir?: string;
+  /** The host config's `timeZone` (docs/time.md); absent, the machine's zone. */
+  timeZone?: string;
 }
 
 /** The sync face of a live embedder, when `embedder` is one. Duck-typed on purpose: this file must not import the claude-code adapter. */
@@ -108,6 +110,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(embed === undefined ? {} : { embed }),
     ...(opts.dir === undefined ? {} : { dir: opts.dir }),
     ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
+    ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
     ...(opts.observer === undefined ? {} : { observer: opts.observer }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),
   });
