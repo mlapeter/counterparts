@@ -107,7 +107,7 @@ function isProblem(msg: ConsoleMessage): boolean {
   // ONE named exemption, and it is the harness's, not the page's: taking a
   // screenshot of a live WebGL canvas makes the headless GPU read pixels back
   // mid-frame, and the driver logs a performance note about the stall. It is
-  // emitted by `page.screenshot()` on the brain view and by nothing else. Named
+  // emitted by `page.screenshot()` of the home page's brain and by nothing else. Named
   // as a string rather than waved through by type, so a real WebGL error still
   // fails the run.
   return !msg.text().includes("GPU stall due to ReadPixels");
@@ -191,40 +191,34 @@ async function shoot(
 ): Promise<void> {
   for (const viewport of [DESKTOP, LAPTOP, PHONE]) {
     const label = `${viewport.width}x${viewport.height}`;
-    // The poster IS a desktop artefact — but it has a header, two links and a
-    // ticker, and until 2026-09-05 none of them had ever been photographed on a
-    // phone, because the phone pass skipped the page entirely. A shot nobody
-    // takes is a surface nobody checks (design review, 2026-09-04). The
-    // hologram itself proves nothing at 390; its chrome does.
-    const pages: string[] = [...TABS, "brain"];
+    // The brain lives on the home page now (2026-09-25); `/brain` only
+    // redirects there, so there is no separate poster to shoot.
+    const pages: string[] = [...TABS];
     const context = await browser.newContext({ viewport, deviceScaleFactor: 2 });
     const page = await context.newPage();
     wire(page, store, findings);
 
     for (const name of pages) {
-      const target = name === "brain" ? `${url}/brain` : `${url}/#${name}`;
-      await page.goto(target, { waitUntil: "domcontentloaded" });
-      if (name === "brain") {
-        // The poster either renders or says one sentence; both are a valid
-        // screenshot, and both set the flag.
-        await page.waitForFunction(() => document.documentElement.dataset["loaded"] === "1", null, {
+      await page.goto(`${url}/#${name}`, { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => document.documentElement.dataset["loaded"] === "1", null, {
+        timeout: 20_000,
+      });
+      // The hash is applied after boot when the page was opened cold.
+      await page.evaluate((tab) => {
+        location.hash = `#${tab}`;
+        dispatchEvent(new HashChangeEvent("hashchange"));
+      }, name);
+      await page.waitForTimeout(450);
+      if (name === "home") {
+        // The brain either draws or says one calm sentence; both set the flag.
+        // Then a frame or two of the point cloud, so the shot is not an empty stage.
+        await page.waitForFunction(() => document.getElementById("home-brain")?.dataset["ready"] === "1", null, {
           timeout: 20_000,
         });
-        // A frame or two of the point cloud, so the shot is not an empty stage.
         await page.waitForTimeout(1600);
-      } else {
-        await page.waitForFunction(() => document.documentElement.dataset["loaded"] === "1", null, {
-          timeout: 20_000,
-        });
-        // The hash is applied after boot when the page was opened cold.
-        await page.evaluate((tab) => {
-          location.hash = `#${tab}`;
-          dispatchEvent(new HashChangeEvent("hashchange"));
-        }, name);
-        await page.waitForTimeout(450);
       }
       const file = join(out, `${store}-${name}-${label}.png`);
-      await page.screenshot({ path: file, fullPage: viewport !== PHONE && name !== "brain" });
+      await page.screenshot({ path: file, fullPage: viewport !== PHONE });
       shots.push({ store, page: name, viewport: label, file });
       process.stdout.write(`  ${store} · ${name} · ${label}\n`);
 
@@ -233,17 +227,14 @@ async function shoot(
       // and a fold shot of the same page render at the same text size — the
       // full page just costs the reader a screen of scrolling through a wall of
       // grey to get past it. The fold is the one that reads as a product.
-      if (viewport === DESKTOP && name !== "brain") {
+      if (viewport === DESKTOP) {
         const fold = join(out, `${store}-${name}-${label}-fold.png`);
         await page.screenshot({ path: fold });
         shots.push({ store, page: `${name}-fold`, viewport: label, file: fold });
       }
 
-      // The brain view is a full-bleed canvas with its own fixed chrome; the
-      // text probes below are about the dashboard's reading surfaces — except
-      // on a phone, where the poster's own header is exactly the surface in
-      // question and its two links are tap targets like any other.
-      if (name !== "brain" || viewport === PHONE) {
+      // The text probes: every page, every viewport.
+      {
         const probe = (await page.evaluate(PROBE)) as Omit<Measured, "store" | "page" | "viewport">;
         measures.push({ store, page: name, viewport: label, ...probe });
         if (probe.scrollWidth > probe.innerWidth + 1) {
@@ -588,9 +579,9 @@ function wire(page: Page, store: "rich" | "empty", findings: Finding[]): void {
     });
   });
   page.on("response", (res) => {
-    // The dashboard's own origin only: the brain page's CDN import is allowed
-    // to fail (it degrades to a sentence), and that failure is reported as a
-    // request failure rather than as a broken page.
+    // The dashboard's own origin only. Nothing else should be asked for at all
+    // (three.js is vendored since 2026-09-25); a stray request elsewhere shows
+    // up as a request failure rather than as a broken page.
     if (!res.url().includes("127.0.0.1")) return;
     if (res.status() >= 400) {
       findings.push({ store, page: where(), kind: "response", text: `${res.status()} ${res.url()}` });

@@ -575,9 +575,10 @@ describe("the two refusals", () => {
       expect(app.headers["content-type"]).toContain("text/html");
       expect(app.headers["cache-control"]).toBe("no-store");
       expect(app.body).toContain("<title>");
+      // The brain lives on the home page now; the old address lands there.
       const brain = router(new URL(`http://${HOST}/brain`), HOST, d.src);
-      expect(brain.status).toBe(200);
-      expect(brain.body).toContain("<title>");
+      expect(brain.status).toBe(302);
+      expect(brain.headers["location"]).toBe("/#home");
       const icon = router(new URL(`http://${HOST}/favicon.svg`), HOST, d.src);
       expect(icon.headers["content-type"]).toBe("image/svg+xml");
       expect(icon.headers["cache-control"]).toContain("max-age");

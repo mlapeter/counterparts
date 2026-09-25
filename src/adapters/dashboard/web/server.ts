@@ -37,7 +37,7 @@
  *
  * This is the ONE file in `adapters/dashboard/` that imports `node:fs`, and it
  * imports exactly `readFileSync`, to serve the static files that ship beside
- * it: the two HTML pages, and the page's own `.js`/`.css` modules under `web/`
+ * it: the HTML page, and the page's own `.js`/`.css` modules under `web/`
  * — only the paths `static.ts` resolves (a fixed set of folders, an allow-listed
  * set of extensions, no traversal). The directory-wide ban exists to mechanize
  * "no memory body text is persisted into dashboard state" — there is no state
@@ -76,6 +76,7 @@ import {
 } from "./actions.js";
 import type { ActionContext } from "./actions.js";
 import { firedPanel } from "./fired.js";
+import { mechanismPanel } from "./views/mechanism-panel.js";
 import { mechanismsView } from "./views/mechanisms.js";
 import { resolveStatic } from "./static.js";
 import {
@@ -99,7 +100,6 @@ export const PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_PATH = join(HERE, "app.html");
-const BRAIN_PATH = join(HERE, "brain.html");
 
 const NO_STORE = { "cache-control": "no-store" } as const;
 
@@ -164,7 +164,7 @@ function html(body: string): Reply {
 }
 
 /**
- * One of the two static pages. A missing file is a sentence, never a stack.
+ * The static page. A missing file is a sentence, never a stack.
  *
  * `token`, when given, fills the page's `<meta name="counterparts-action-token">`
  * — the per-launch secret every action must echo. It is hex, so it needs no
@@ -236,7 +236,8 @@ export function router(
       return json({ error: "an action is a POST from the dashboard's own page; nothing was done" }, 405);
     }
     if (path === "/" || path === "/index.html") return page(APP_PATH, opts.token);
-    if (path === "/brain") return page(BRAIN_PATH);
+    // The brain lives on the home page now; an old bookmark lands there.
+    if (path === "/brain") return { status: 302, headers: { location: "/#home", ...NO_STORE }, body: "" };
     if (path === "/favicon.svg" || path === "/favicon.ico") {
       return {
         status: 200,
@@ -267,6 +268,10 @@ export function router(
     if (path === "/api/health") return json(healthView(src));
     if (path === "/api/fired") return json(firedPanel(src, todayUtc()));
     if (path === "/api/mechanisms") return json(mechanismsView(src));
+    if (path === "/api/mechanism") {
+      const panel = mechanismPanel(src, url.searchParams.get("id") ?? "");
+      return panel.found ? json(panel) : json({ error: `no such mechanism: ${panel.id}` }, 404);
+    }
     if (path === "/api/activity") {
       const sinceRaw = url.searchParams.get("sinceSeq");
       const opts: { limit: number; name?: string; sinceSeq?: number } = {
