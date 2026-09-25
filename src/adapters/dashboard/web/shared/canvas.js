@@ -1,8 +1,8 @@
 /* Canvas helpers: crisp on any display, laid out by CSS. */
 
-/** The canvas's face: the page's `--mono`, spelled out, because a canvas cannot
- *  read a CSS variable. Keep it in step with `tokens.css`. */
-export const MONO = 'Courier, "Courier Prime", "Courier New", monospace';
+/** The canvas's face: the page's `--sans` (Outfit), spelled out, because a
+ *  canvas cannot read a CSS variable. Keep it in step with `tokens.css`. */
+export const FACE = '"Outfit", system-ui, -apple-system, "Segoe UI", sans-serif';
 
 export function fit(cv) {
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -18,7 +18,7 @@ export function fit(cv) {
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.font = "10px " + MONO;
+  ctx.font = "11px " + FACE;
   return { ctx, w, h };
 }
 

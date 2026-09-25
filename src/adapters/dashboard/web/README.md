@@ -36,7 +36,7 @@ shell/
   pulse.js            the 4-second poll: new events → live feeds + page hooks; store moved → page.refresh()
 shared/
   tokens.css          @font-face + colour/type variables (:root) — the site's look (counterparts.ai)
-  type.css            which face goes where: body/headings Outfit (--sans), labels/numbers/pills Courier (--mono); loaded LAST
+  type.css            which face goes where: Outfit (--sans) for anything read as words; Courier (--mono) only for big numbers, ids, record names; loaded LAST
   fonts/              Outfit (variable, latin) + Courier Prime 400/700 (latin) .woff2, with their OFL licences
   base.css layout.css utilities.css   reset, header/nav, headings, the .cols grids, .foot/.tone-*/#err
   tip.css modal.css   the tooltip and the overlay card
@@ -46,7 +46,7 @@ shared/
   absence.js          emptyBox absenceLine — the "(none yet)" / "(never run)" block
   api.js              api() (looking: GET only) and fail()
   actions.js          act() (managing: the one POST, with the page's token) and resultHtml()
-  canvas.js           MONO (the canvas's face) fit hitTest roundRect clip wrapText
+  canvas.js           FACE (the canvas's face, Outfit) fit hitTest roundRect clip wrapText
   tip.js modal.js     showTip/hideTip; openModal/closeModal/section
   memory-modal.js     openMemory, copyId, removeMemory (window globals: rows use inline onclick)
   event-modal.js      openEvent (window global)

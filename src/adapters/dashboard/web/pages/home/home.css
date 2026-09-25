@@ -1,13 +1,22 @@
 /* The home page's temporary mechanisms strip (sections/mechanisms.js) — the
-   site's pill row: families as mono labels in their colour, pills beneath. */
-.mechs{display:flex;flex-wrap:wrap;gap:14px 22px;margin:0 0 20px}
+   site's pill row, in Outfit: families as labels in their colour, pills
+   beneath, an "in dev" tag on the ones the site marks in development. */
+.mechs{display:flex;flex-wrap:wrap;gap:14px 22px;margin:0 0 22px}
 .mech-group{display:flex;flex-direction:column;gap:6px;flex:none;max-width:100%}
-.mech-fam{font-family:var(--mono);font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:var(--pin);padding-left:4px}
-.mech-row{display:flex;gap:4px;flex-wrap:wrap}
-.mech-pill{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 11px;border-radius:22px;
-  border:1px solid color-mix(in srgb,var(--pin) 40%,transparent);background:transparent;color:var(--dim);
-  font-family:var(--mono);font-size:11.5px;cursor:pointer}
-.mech-pill:hover,.mech-pill:focus-visible{color:var(--ink);border-color:var(--pin);outline:none}
-.mech-dev{font-family:var(--mono);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--amber)}
-#tip .dimline .light{vertical-align:0}
+.mech-fam{font-size:12.5px;font-weight:600;letter-spacing:.3px;color:var(--pin);padding-left:4px}
+.mech-row{display:flex;gap:5px;flex-wrap:wrap}
+.mech-pill{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 12px;border-radius:22px;
+  border:1px solid color-mix(in srgb,var(--pin) 40%,transparent);background:transparent;color:var(--ink);
+  font-family:var(--sans);font-size:13px;cursor:pointer}
+.mech-pill:hover,.mech-pill:focus-visible{border-color:var(--pin);background:color-mix(in srgb,var(--pin) 10%,transparent);outline:none}
+.mech-tag{font-size:10.5px;font-weight:500;color:var(--amber);border:1px solid rgba(255,215,64,.35);
+  border-radius:9px;padding:0 6px;line-height:16px;white-space:nowrap}
+.mech-dev{font-size:11px;font-weight:500;color:var(--amber);border:1px solid rgba(255,215,64,.35);
+  border-radius:9px;padding:0 7px;vertical-align:2px;white-space:nowrap}
+.mech-explainer{font-size:14px;line-height:1.7;margin:0 0 6px}
+.mech-evidence{font-size:13px;line-height:1.6;margin-bottom:4px}
+.mech-evidence b{font-weight:600}
+.mech-list{margin:0 0 4px 18px;font-size:13px;line-height:1.65}
+.mech-list li{margin:3px 0}
+#tip .dimline .light,.mech-evidence .light{vertical-align:0}
 @media(max-width:720px),(pointer:coarse){.mech-pill{min-height:44px;padding:0 14px}}

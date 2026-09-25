@@ -1,6 +1,6 @@
 /* The architecture diagram: fourteen nodes on a canvas (a list below ~900px),
    static edges, and particles that ride ONLY on real new events. */
-import { MONO, clip, fit, roundRect, wrapText } from "../../../shared/canvas.js";
+import { FACE, clip, fit, roundRect, wrapText } from "../../../shared/canvas.js";
 import { ACCENT, COL } from "../../../shared/colors.js";
 import { $, esc } from "../../../shared/dom.js";
 import { tabs } from "../../../shared/state.js";
@@ -118,7 +118,7 @@ export function drawFlow() {
     ctx.fill();
 
     if (e.label) {
-      ctx.font = "9px " + MONO;
+      ctx.font = "10.5px " + FACE;
       const tw = ctx.measureText(e.label).width;
       // A label on top of a box says nothing and hides something. Try a few
       // places along the visible curve before giving up on it entirely.
@@ -166,13 +166,13 @@ export function drawFlow() {
     ctx.stroke();
 
     ctx.fillStyle = n.silent && !on ? col + "aa" : col;
-    ctx.font = "10px " + MONO;
+    ctx.font = "11.5px " + FACE;
     ctx.fillText(clip(ctx, n.label, b.w - 18), b.x + 9, b.y + 16);
     ctx.fillStyle = "#5c6773";
-    ctx.font = "9px " + MONO;
+    ctx.font = "10.5px " + FACE;
     wrapText(ctx, n.sub, b.x + 9, b.y + 29, b.w - 16, 10, 2);
     ctx.fillStyle = n.silent ? "#39424d" : "#c5cdd8";
-    ctx.font = "9.5px " + MONO;
+    ctx.font = "11px " + FACE;
     ctx.fillText(clip(ctx, n.state, b.w - 18), b.x + 9, b.y + b.h - 9);
   }
 

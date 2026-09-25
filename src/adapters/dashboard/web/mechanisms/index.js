@@ -1,7 +1,8 @@
 /* The memory mechanisms, in the site's order (counterparts-site
    features/home-v2/content/regions.ts, the two parked ones left out), and the
    four families they are grouped by. One folder per mechanism; each module's
-   default export is { id, family, name, short, tagline, inDev, explainer }.
+   default export is { id, family, name, short, tagline, inDev, explainer,
+   built, inDevelopment } (the last two: plain-word bullets).
    Whether it is firing comes from `/api/mechanisms` (views/mechanisms.ts). */
 import salience from "./salience/index.js";
 import emotional from "./emotional/index.js";

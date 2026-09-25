@@ -1,25 +1,46 @@
 /* TEMPORARY: the eleven mechanisms as a compact strip — pills in their four
-   families, each with its light; hover (or focus) for what it does and what
-   the store says it did. The full home design replaces this. It fetches for
-   itself (`/api/mechanisms`) so the rest of the page does not wait on it. */
+   families, each with its light and, where the site marks it so, an "in dev"
+   tag. Hover (or focus) for a one-line reminder; click for a small card: what
+   it does, what the store says it did (with the rows behind it), and what is
+   built vs still in development. The full home design replaces this. It
+   fetches for itself (`/api/mechanisms`) so the rest of the page does not wait. */
 import { MECHANISMS, FAMILIES } from "../../../mechanisms/index.js";
 import { api, fail } from "../../../shared/api.js";
 import { $, esc } from "../../../shared/dom.js";
-import { openEvent } from "../../../shared/event-modal.js";
+import "../../../shared/event-modal.js"; // window.openEvent, for the card's record rows
+import { openModal, section } from "../../../shared/modal.js";
 import { hideTip, showTip } from "../../../shared/tip.js";
 import { LIGHT_WORD, light } from "../../../shared/widgets/light.js";
 
 export const markup = `
-    <h2>How it remembers <small>— lit by what fired in the last 7 lived days</small></h2>
+    <h2>How it remembers <small>— lit by what fired in the last 7 lived days. Click one for what it does.</small></h2>
     <div class="mechs" id="mech-strip" role="group" aria-label="Memory mechanisms, by stage"></div>`;
 
 let byId = {};
 
+function lightOf(m) { return byId[m.id] || { status: "grey", evidence: "", events: [] }; }
+
 function tipHtml(m) {
-  const l = byId[m.id] || { status: "grey", evidence: "" };
+  const l = lightOf(m);
   return "<b>" + esc(m.name) + "</b>" + (m.inDev ? ' <span class="mech-dev">in development</span>' : "") +
-    "<div>" + esc(m.explainer) + "</div>" +
     '<div class="dimline">' + light(l.status) + " " + esc(LIGHT_WORD[l.status] || "") + " — " + esc(l.evidence) + "</div>";
+}
+
+const bullets = (xs) => xs.length === 0 ? "" : '<ul class="mech-list">' + xs.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+
+/** The detail card: explainer, the light's evidence and records, built vs in development. */
+function openCard(m) {
+  const l = lightOf(m);
+  openModal(
+    "<h3>" + esc(m.name) + (m.inDev ? ' <span class="mech-dev">in development</span>' : "") + "</h3>" +
+    '<div class="sub">' + esc(m.tagline) + "</div>" +
+    '<p class="mech-explainer">' + esc(m.explainer) + "</p>" +
+    section("what the store says", '<div class="mech-evidence">' + light(l.status) + " <b>" + esc(LIGHT_WORD[l.status] || "") + "</b> — " + esc(l.evidence) + "</div>" +
+      (l.events.length === 0 ? "" : l.events.map((seq) =>
+        '<div class="ref" onclick="openEvent(' + Number(seq) + ')"><span class="role">record</span>#' + Number(seq) + " — open it</div>").join(""))) +
+    section("what's built", bullets(m.built), "Nothing yet.") +
+    section("what's still in development", bullets(m.inDevelopment), "Nothing outstanding for this one.")
+  );
 }
 
 export function paint(view) {
@@ -31,7 +52,7 @@ export function paint(view) {
         MECHANISMS.filter((m) => m.family === f.key).map((m) => {
           const l = byId[m.id] || { status: "grey" };
           return '<button type="button" class="mech-pill" data-id="' + esc(m.id) + '">' +
-            light(l.status) + esc(m.short) + "</button>";
+            light(l.status) + esc(m.short) + (m.inDev ? '<span class="mech-tag">in dev</span>' : "") + "</button>";
         }).join("") +
       "</div></div>"
   ).join("");
@@ -42,11 +63,7 @@ export function paint(view) {
     el.addEventListener("focus", show);
     el.addEventListener("mouseleave", hideTip);
     el.addEventListener("blur", hideTip);
-    // A lit pill opens the newest row behind its light.
-    el.addEventListener("click", () => {
-      const l = byId[m.id];
-      if (l && l.events.length > 0) { hideTip(); openEvent(l.events[0]); }
-    });
+    el.addEventListener("click", () => { hideTip(); openCard(m); });
   }
 }
 

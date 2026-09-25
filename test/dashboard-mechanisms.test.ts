@@ -84,7 +84,10 @@ describe("the mapping", () => {
       .sort();
     expect(folders).toEqual([...SITE_IDS].sort());
     const index = (await import(join(WEB, "mechanisms/index.js"))) as {
-      MECHANISMS: { id: string; family: string; name: string; short: string; explainer: string; inDev: boolean }[];
+      MECHANISMS: {
+        id: string; family: string; name: string; short: string; explainer: string; inDev: boolean;
+        built: string[]; inDevelopment: string[];
+      }[];
       FAMILIES: { key: string }[];
     };
     expect(index.MECHANISMS.map((m) => m.id)).toEqual(SITE_IDS);
@@ -97,6 +100,12 @@ describe("the mapping", () => {
       // One or two plain sentences.
       const sentences = m.explainer.split(/(?<=[.!?])\s+/).filter((s) => s.length > 0);
       expect(`${m.id}: ${sentences.length}`).toMatch(/: [12]$/);
+      // What's built / what's still in development: 2–4 plain bullets in all.
+      const bullets = m.built.length + m.inDevelopment.length;
+      expect(`${m.id}: ${bullets >= 1 && bullets <= 4}`).toBe(`${m.id}: true`);
+      // A grey mechanism claims nothing built beyond what exists without firing.
+      const proof = MECHANISM_PROOFS.find((p) => p.id === m.id);
+      if (proof && !proof.built) expect(m.inDevelopment.length).toBeGreaterThan(0);
     }
   });
 

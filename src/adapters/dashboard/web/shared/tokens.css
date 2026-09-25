@@ -1,8 +1,8 @@
 /* ───────────────────────────────────────────────────────────────────────────
    The glow theme, and the only theme — now the website's (counterparts.ai,
    `features/home-v2/styles/home-v2.css`), so the dashboard and the site read
-   as one thing: near-black ground, neon cyan and purple, Outfit for prose and
-   headings, Courier for labels, numbers, pills and anything machine-shaped.
+   as one thing: near-black ground, neon cyan and purple, Outfit for anything
+   read as words, Courier only for big numbers and ids (see type.css).
    Every colour is a variable so a second theme is a block, not a rewrite.
 
    The faces are SELF-HOSTED from this origin (`shared/fonts/`, OFL licences
