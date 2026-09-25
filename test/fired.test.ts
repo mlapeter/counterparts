@@ -415,6 +415,83 @@ describe("every state is reachable from a fixture", () => {
     expect(ready.rows.find((x) => x.id === "prune")?.state).not.toBe("blocked");
   });
 
+  describe("the entity-card fade rides the cycle row, filtered on its count (2026-09-25)", () => {
+    // A date after the row's `since`, so every state asserted below is about
+    // the fixture and not about the grace window.
+    const DAY = "2026-09-25";
+    const FADE_SKIPS = {
+      phase: "fade",
+      status: "ran",
+      reason: "ok",
+      // What a real sweep says of the cards that stayed: every blocker of every
+      // card, the self card's `identity-core` included.
+      skipped: { "blocked:identity-core": 1, "blocked:has-live-attached-elements": 9 },
+    };
+    const PRUNE_SKIPS = {
+      phase: "prune",
+      status: "ran",
+      reason: "ok",
+      skipped: { "blocked:dwell-too-short": 240, "blocked:protected": 2 },
+    };
+
+    test("a cycle that faded nothing is not a fade — and is still a cycle", () => {
+      const s = store();
+      row(s, "sleep.cycle", DAY, { faded: 0, phases: [FADE_SKIPS, PRUNE_SKIPS] });
+      // A cycle that died before it could count writes `null`, not 0 (scar
+      // §2.4); that is not a firing either.
+      row(s, "sleep.cycle", daysBefore(DAY, 1), { faded: null });
+      const r = report(s, DAY);
+
+      const fade = pick(r, "fade");
+      expect(fade.total).toBe(0);
+      expect(fade.firedInWindow).toBe(0);
+      expect(fade.lastFired).toBe(null);
+      expect(fade.state).toBe("new");
+      expect(fade.evidence).toBe("sleep.cycle (faded > 0)");
+      // NO refusal column: neither its own phase's blockers nor another phase's
+      // on the same row reach it.
+      expect(fade.refusedInWindow).toBe(0);
+      expect(fade.topRefusal).toBe(null);
+
+      // The unfiltered reading of the same row is untouched.
+      const cycle = pick(r, "sleep-cycle");
+      expect(cycle.state).toBe("firing");
+      expect(cycle.total).toBe(2);
+      expect(cycle.firedInWindow).toBe(2);
+      expect(cycle.evidence).toBe("sleep.cycle");
+      // And prune still reads only its own gates off it.
+      expect(pick(r, "prune").topRefusal).toBe("protected ×2");
+
+      // Once the grace is gone, a store whose cycles never faded a card is
+      // `never`, which is true: nothing has been quiet for months yet.
+      expect(pick(report(s, "2026-10-10"), "fade").state).toBe("never");
+    });
+
+    test("a cycle that faded cards counts once, dated by the row", () => {
+      const s = store();
+      row(s, "sleep.cycle", daysBefore(DAY, 20), { faded: 1 });
+      row(s, "sleep.cycle", daysBefore(DAY, 2), { faded: 2, phases: [FADE_SKIPS, PRUNE_SKIPS] });
+      row(s, "sleep.cycle", daysBefore(DAY, 1), { faded: 0 });
+      const r = report(s, DAY);
+
+      const fade = pick(r, "fade");
+      expect(fade.state).toBe("firing");
+      // ROWS, like every line on this page: the night that faded two cards is
+      // one firing, and the night that faded none is not one.
+      expect(fade.total).toBe(2);
+      expect(fade.firedInWindow).toBe(1);
+      expect(fade.lastFired).toBe(daysBefore(DAY, 2));
+      expect(fade.lastFiredIsDate).toBe(true);
+      expect(fade.refusedInWindow).toBe(0);
+
+      expect(pick(r, "sleep-cycle").total).toBe(3);
+      expect(pick(r, "sleep-cycle").lastFired).toBe(daysBefore(DAY, 1));
+
+      // A month on, the fade is quiet — it has faded before, not lately.
+      expect(pick(report(s, "2026-10-25"), "fade").state).toBe("quiet");
+    });
+  });
+
   test("a refusal row with no reason still COUNTS — the store knew and the view said no (MINOR 4)", () => {
     // `reasonOnce` used to return nothing for a row whose payload carries no
     // readable `reason`, so a store holding an `adapter.spawn.refused` row with

@@ -143,7 +143,27 @@ export type ProbeId =
   | `versions:${string}`;
 
 export type Evidence =
-  | { readonly kind: "event"; readonly names: readonly DurableEventName[] }
+  | {
+      readonly kind: "event";
+      readonly names: readonly DurableEventName[];
+      /**
+       * A NUMERIC PAYLOAD FIELD THAT MUST BE ABOVE ZERO for a row to count
+       * (2026-09-25, the entity-card fade). Some mechanisms have no row of their
+       * own and ride a row that lands whether they did anything or not: the fade
+       * is a count on the nightly `sleep.cycle` row, and reading that row plain
+       * would grade every night as a fade. With this set, a row counts toward
+       * `total`, the two windows and `lastFired` only when `payload[positive]`
+       * is a number greater than zero — a `null` (a cycle that died before it
+       * could count, scar §2.4) is not a zero and is not a firing either.
+       *
+       * The unit is still ROWS, like every other line on this page: a night that
+       * faded three cards is one firing. And a filtered reading carries NO
+       * refusals of its own — the row's refusal reader answers for every phase
+       * on it, and none of that is this mechanism's to claim. A mechanism that
+       * wants a refusal column names one with `Mechanism.refusals`.
+       */
+      readonly positive?: string;
+    }
   /** `undated`: the one line to print when the probe yields a count and no date
    *  at all — a column with no history is blind however many rows it holds. */
   | { readonly kind: "probe"; readonly probe: ProbeId; readonly undated?: string }
@@ -533,6 +553,31 @@ export const MECHANISMS: readonly Mechanism[] = [
       only: ["protected", "in-live-revision-chain"],
       since: "2026-09-20",
     },
+  },
+  {
+    // The entity-card fade (#215, 2026-09-24): its own sleep phase right after
+    // the prune, which now leaves cards alone (sleep NOTES §17). Its per-card
+    // events — `schema.faded`, `sleep.faded` — are in-process ring events, and
+    // the card itself is archived `faded-by-decay` with no date, so the one
+    // DURABLE trace is the `faded` count on the cycle row. Read plain, that row
+    // would make every night a fade; `positive` takes only the nights that
+    // faded something.
+    //
+    // **NO REFUSAL COLUMN, deliberately.** The phase's `fade/blocked:<reason>`
+    // skips count EVERY blocker of every card that stayed — `blockedBy` lists
+    // all the reasons a card may not fade, not the one that decided it — so
+    // even the rule-like ones (`has-live-attached-elements`, `identity-core`)
+    // land on cards nowhere near qualifying: the self card is blocked by
+    // `identity-core` at every sweep. Declaring them would reproduce the
+    // `dwell-too-short ×240` false alarm the prune row above describes. What
+    // would fix it: a per-card DECIDING reason, recorded only for cards whose
+    // physics verdict (the months of quiet) had already passed.
+    id: "fade",
+    label:
+      "a card nobody has mentioned in months fades out of the vocabulary (gently: months of quiet, longer for people)",
+    module: "sleep/fade.ts, schemas/index.ts",
+    evidence: { kind: "event", names: ["sleep.cycle"], positive: "faded" },
+    since: "2026-09-24",
   },
   {
     id: "revision",
@@ -1153,7 +1198,7 @@ function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null): Readin
       ? { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason }
       : m.evidence.kind === "probe"
         ? probeReading(m.evidence.probe, m.evidence.undated ?? null, probed)
-        : eventReading(m.evidence.names, log);
+        : eventReading(m.evidence.names, log, m.evidence.positive);
   if (m.refusals === undefined) return base;
   // Refusals from ANOTHER row, folded in without touching the counts that say
   // whether this mechanism fired.
@@ -1193,7 +1238,11 @@ function refusalReading(src: RefusalSource, log: LogRead): { refused: number; re
   return { refused, refusals };
 }
 
-function eventReading(names: readonly DurableEventName[], log: LogRead): Reading {
+function eventReading(
+  names: readonly DurableEventName[],
+  log: LogRead,
+  positive?: string,
+): Reading {
   let total = 0;
   let inWindow = 0;
   let inPreviousWindow = 0;
@@ -1201,7 +1250,7 @@ function eventReading(names: readonly DurableEventName[], log: LogRead): Reading
   let lastFired: string | null = null;
   const refusals = new Map<string, number>();
   for (const name of names) {
-    const t = log.byName.get(name);
+    const t = log.byName.get(positive === undefined ? name : filteredKey(name, positive));
     if (t === undefined) continue;
     total += t.total;
     inWindow += t.inWindow;
@@ -1221,7 +1270,9 @@ function eventReading(names: readonly DurableEventName[], log: LogRead): Reading
     refused,
     topRefusal: topOf(refusals),
     refusals,
-    evidence: names.join(", "),
+    // The filter is part of the evidence: `sleep.cycle` alone would read as the
+    // same row the `sleep-cycle` line is, to the reader who greps.
+    evidence: positive === undefined ? names.join(", ") : `${names.join(", ")} (${positive} > 0)`,
     refusalEvidence: names.join(", "),
     blind: null,
   };
@@ -1255,6 +1306,32 @@ interface LogRead {
    *  A truncated read is the oldest rows, so this stays right when it happens. */
   readonly oldestDate: string | null;
 }
+
+/**
+ * The tally key for a name read through a `positive` filter. A character no
+ * durable event name carries, so it cannot collide with a real one.
+ */
+function filteredKey(name: string, field: string): string {
+  return `${name}#${field}`;
+}
+
+/**
+ * Every payload filter the registry declares, by event name — derived from
+ * `MECHANISMS` rather than listed, so a row that adds a filter is tallied
+ * without a second list to keep in step.
+ */
+const POSITIVE_FIELDS: ReadonlyMap<string, readonly string[]> = (() => {
+  const out = new Map<string, string[]>();
+  for (const m of MECHANISMS) {
+    if (m.evidence.kind !== "event" || m.evidence.positive === undefined) continue;
+    for (const name of m.evidence.names) {
+      const fields = out.get(name) ?? [];
+      if (!fields.includes(m.evidence.positive)) fields.push(m.evidence.positive);
+      out.set(name, fields);
+    }
+  }
+  return out;
+})();
 
 function emptyTally(): NameTally {
   return {
@@ -1305,19 +1382,19 @@ function tallyRow(
   w: Window,
   age: { oldest: string | null },
 ): void {
-  let t = byName.get(row.name);
-  if (t === undefined) {
-    t = emptyTally();
-    byName.set(row.name, t);
-  }
-  t.total += 1;
   const payload = payloadOf(row);
   const date = rowDate(row, payload);
   if (age.oldest === null || date < age.oldest) age.oldest = date;
-  if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
+  const t = countInto(byName, row.name, date, w);
+  // THE FILTERED TALLIES, in the same pass (`Evidence.positive`). They count
+  // the row and NOTHING ELSE: the refusal reader below answers for every phase
+  // on a cycle row, and a filtered tally that copied it would hand the fade
+  // row `prune/blocked:dwell-too-short ×240` on its own line.
+  for (const field of POSITIVE_FIELDS.get(row.name) ?? []) {
+    const v = payload[field];
+    if (typeof v === "number" && v > 0) countInto(byName, filteredKey(row.name, field), date, w);
+  }
   const inWindow = date >= w.from && date <= w.to;
-  if (inWindow) t.inWindow += 1;
-  else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
   if (!inWindow) return;
   const reader = REFUSAL_READERS[row.name];
   if (reader === undefined) return;
@@ -1326,6 +1403,25 @@ function tallyRow(
     t.refused += n;
     t.refusals.set(reason, (t.refusals.get(reason) ?? 0) + n);
   }
+}
+
+/** One row counted under `key`: its total, its date, and which window it fell in. */
+function countInto(
+  byName: Map<string, NameTally>,
+  key: string,
+  date: string,
+  w: Window,
+): NameTally {
+  let t = byName.get(key);
+  if (t === undefined) {
+    t = emptyTally();
+    byName.set(key, t);
+  }
+  t.total += 1;
+  if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
+  if (date >= w.from && date <= w.to) t.inWindow += 1;
+  else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
+  return t;
 }
 
 /** The CALENDAR date a row is about: its own field, else the wall clock it was
