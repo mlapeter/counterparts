@@ -55,6 +55,13 @@ export type StoreErrorCode =
    * file to restore. Doctor's Store-open finding already has the no-path arm.
    */
   | "MEMORY_BODY_MISSING"
+  /**
+   * A reminder date (`PutInput.eventDate`, schema v7) that `time.ts` cannot
+   * read as a day, month, year or range. Refused rather than stored: a date
+   * nothing can parse is a reminder that silently never comes up.
+   * `detail` carries `{ id, date }`.
+   */
+  | "EVENT_DATE_INVALID"
   | "ID_MALFORMED"
   | "ID_UNKNOWN"
   | "ID_CYCLE"

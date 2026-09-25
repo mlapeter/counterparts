@@ -34,12 +34,12 @@
  *
  * The calendar date in the machine's LOCAL zone (owner's ruling 2026-09-23;
  * `Self#calendarToday`): the night turns over at the person's midnight, not at
- * 17:00 Pacific. What it READS is still selected by `learned_on`, which
- * `store/` stamps in UTC — so the day it names and the rows it is handed are
- * offset by the zone. Nothing is read twice or skipped: every UTC date is read
- * by exactly one run, the first one after it closes (self NOTES §22). East of
- * UTC a run just after local midnight can reach a UTC date that is still open;
- * what lands on it after the run reaches the page through the ordinary lanes.
+ * 17:00 Pacific. What it READS is selected by `learned_on`, which `store/`
+ * stamped in UTC until 2026-09-25 and stamps in the same local zone since
+ * (docs/time.md) — so from then on the day it names and the rows it is handed
+ * are one calendar. Rows written before keep their UTC date, and for the few
+ * nights either side of the change a row may be read one night early or late,
+ * never twice or not at all (self NOTES §25).
  *
  * ── DAY 0 ─────────────────────────────────────────────────────────────────
  *
@@ -77,6 +77,7 @@
 import { strength } from "../physics/index.js";
 import type { Store } from "../store/index.js";
 import { calendarDate } from "./calendar.js";
+import { addDays, isDay } from "../time.js";
 import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "./page.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
@@ -174,9 +175,8 @@ export interface PageWriterStatus {
 
 /** The calendar date `n` days before `date`, both `YYYY-MM-DD`. "" when unreadable. */
 export function dayBefore(date: string, n = 1): string {
-  const at = Date.parse(`${date.trim()}T00:00:00Z`);
-  if (!Number.isFinite(at)) return "";
-  return new Date(at - n * 86_400_000).toISOString().slice(0, 10);
+  const d = date.trim();
+  return isDay(d) ? addDays(d, -n) : "";
 }
 
 /**
@@ -191,12 +191,12 @@ export function dayBefore(date: string, n = 1): string {
 export function pageWriterAbout(today: string, closedThrough?: string): string {
   const local = dayBefore(today);
   // NEVER A DAY THE STORE IS STILL FILING UNDER. `closedThrough` is the newest
-  // PROVENANCE date that has ended (`learned_on` is stamped in UTC by
-  // `store/`). West of UTC it is never earlier than the local yesterday, so this
-  // changes nothing there; east of UTC, for the hours between local midnight
-  // and UTC's, the local yesterday is a UTC date still being written — and on a
-  // store made this morning it would be "yesterday" for rows that are hours
-  // old. The night waits for that date to close instead (self NOTES §22).
+  // PROVENANCE date that has ended. While `learned_on` was UTC (until
+  // 2026-09-25) this held an east-of-UTC night back until the UTC date closed
+  // (self NOTES §22). Since `learned_on` is stamped in the store's zone,
+  // `pageWriterNight` passes the store's own yesterday, which in one zone IS
+  // the local yesterday, so this is the plain rule; it still guards a caller
+  // whose `Self` zone was pinned apart from the store's (self NOTES §25).
   if (closedThrough === undefined || closedThrough === "" || local === "") return local;
   return closedThrough < local ? closedThrough : local;
 }
@@ -209,7 +209,7 @@ export function pageWriterAbout(today: string, closedThrough?: string): string {
  * is the whole reason it exists.
  */
 export function pageWriterNight(store: Store, zone?: string): { today: string; about: string } {
-  const today = calendarDate(store.now(), zone);
+  const today = calendarDate(store.now(), zone ?? store.zone());
   return { today, about: pageWriterAbout(today, dayBefore(store.today())) };
 }
 
@@ -675,12 +675,12 @@ export function writerInstruction(
   lines.push(
     `Once a day the page you wake with gets revised — by you, from the day just lived. This is that moment, and the day is ${input.about}.`,
     "",
-    // THE DATE, NOT "YESTERDAY" OR "LAST NIGHT". The night now turns over at
-    // local midnight (2026-09-23), but the memories under that date are still
-    // the ones `learned_on` filed under it, and that stamp is UTC — so the
-    // window is offset from the person's day by the zone (self NOTES §22,
-    // `claude-code/INTERFACE-GAPS` §13). A date is the one thing here that is
-    // exactly true, so the words stay a date.
+    // THE DATE, NOT "YESTERDAY" OR "LAST NIGHT". The night turns over at
+    // local midnight (2026-09-23), and the memories under that date are the
+    // ones `learned_on` filed under it — UTC before 2026-09-25, local since —
+    // so for older rows the window is offset from the person's day by the zone
+    // (self NOTES §22, §25). A date is the one thing here that is exactly
+    // true, so the words stay a date.
     `This is context, not an instruction. If nothing about who you are moved on ${input.about}, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has that day.`,
     "",
     `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,

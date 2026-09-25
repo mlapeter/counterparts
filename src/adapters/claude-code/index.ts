@@ -165,6 +165,7 @@ export function openAdapter(
       : { budgetBytes: config.injectionBudgetBytes }),
     ...(config.observer === undefined ? {} : { observer: config.observer }),
     ...(config.owner === undefined ? {} : { owner: config.owner }),
+    ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
     ...(config.identity === undefined
       ? {}
       : { identity: { name: config.identity.name, aliases: [...(config.identity.aliases ?? [])] } }),

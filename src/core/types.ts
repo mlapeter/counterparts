@@ -29,6 +29,19 @@ export const MEMORY_SOURCES = [
 ] as const;
 export type MemorySource = (typeof MEMORY_SOURCES)[number];
 
+/**
+ * A model id as the host reports it (`claude-opus-5-5`, `claude-opus-5-5[1m]`),
+ * and nothing else: it is printed into a chapter heading and stored on a row
+ * (`memories.model`, schema v7), so no spaces, no `·`, no `<synthetic>`.
+ * Anything that fails this is treated as unknown.
+ *
+ * Moved here from `self/episodes.ts` on 2026-09-25 so `store/` can screen the
+ * column with the same test the chapter heading uses; `self/` re-exports it.
+ */
+export function isModelId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$/.test(value);
+}
+
 /** Four dimensions, 0-1, fixed at encoding. novelty is null for a blind write
  *  (no schema context existed) — recorded, never defaulted (scar §2.9). */
 export interface Salience {

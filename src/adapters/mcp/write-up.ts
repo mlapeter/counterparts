@@ -266,7 +266,7 @@ async function handOver(
       reason: "part",
       session: input.session,
       ended,
-      endedOn: calendarDate(st.held.clockFrom),
+      endedOn: calendarDate(st.held.clockFrom, counterpart.store.zone()),
       part,
       of: parts.length,
       next:

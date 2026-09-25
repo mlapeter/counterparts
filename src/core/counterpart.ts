@@ -705,6 +705,12 @@ export interface CounterpartOptions extends Stance {
   identity?: IdentityCoreSpec;
   onEvent?: (e: CounterpartEvent) => void;
   now?: () => number;
+  /**
+   * The person's zone, an IANA name — the host config's `timeZone`
+   * (docs/time.md rule 2). Handed to the store, which every local date here
+   * reads through (`Store#zone`). Absent: the machine's current zone.
+   */
+  timeZone?: string;
 }
 
 /** What `wake()` returns: the bundle, plus what the host told us about itself. */
@@ -731,6 +737,8 @@ export interface DepositContext {
   scope: string;
   /** The span this deposit IS (a jot's own words), withheld from the sweep. */
   ownSpanHash?: string | null;
+  /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
+  model?: string;
 }
 
 /**
@@ -1317,6 +1325,7 @@ export class Counterpart {
       ...(opts.embed === undefined ? {} : { embed: opts.embed }),
       ...(opts.retentionDays === undefined ? {} : { retentionDays: opts.retentionDays }),
       ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
+      ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
       onEvent: (e: StoreEvent) => this.relay("store", e),
     });
 
@@ -2171,6 +2180,7 @@ export class Counterpart {
       session: ctx.session,
       scope: ctx.scope,
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
+      ...(ctx.model === undefined ? {} : { model: ctx.model }),
     });
   }
 
@@ -3519,6 +3529,7 @@ export class Counterpart {
     const mint = mintProposal(this.store, proposal, {
       self: this.self,
       channel: "authored",
+      ...(ctx.model === undefined ? {} : { model: ctx.model }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     this.emit("counterpart.deposit", mint.id, {

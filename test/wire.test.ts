@@ -1109,6 +1109,10 @@ describe("install, at a terminal", () => {
 
     const said = text(c.out);
     expect(said).toContain("Nice to meet you, Ada.");
+    // The zone is SAID, never asked (docs/time.md rule 2): one line, and no
+    // question was added for it.
+    expect(text([...c.out, ...c.err])).toMatch(/Times read in \S+, this computer's zone/);
+    expect(c.asked.length).toBe(1);
     expect(said).toContain("Connecting Claude Code…");
     expect(said).toContain("Done. Your memory lives at ~/.counterparts.");
     expect(said).toContain("Restart Claude Code, then run `counterparts doctor`");

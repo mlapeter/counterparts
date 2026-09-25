@@ -171,6 +171,8 @@ export function questionEmbedder(path = CONFIG_PATH): {
   reason: string;
   /** The configuration's `snapshots.dir`, for the store's pre-migration copy. */
   snapshotsDir?: string;
+  /** The configuration's `timeZone` (docs/time.md), when it names a real zone. */
+  timeZone?: string;
 } {
   let raw: unknown;
   try {
@@ -187,6 +189,7 @@ export function questionEmbedder(path = CONFIG_PATH): {
   return {
     reason: load.reason,
     ...(config.snapshots?.dir === undefined ? {} : { snapshotsDir: config.snapshots.dir }),
+    ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is
     // the gate and an observer gets none.
     embedder: openEmbedder(config),
@@ -231,7 +234,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const { embedder, reason, snapshotsDir } = questionEmbedder(choice.path);
+  const { embedder, reason, snapshotsDir, timeZone } = questionEmbedder(choice.path);
   const unreadable = namedUnreadableRefusal(choice, reason);
   if (unreadable !== null) {
     process.stderr.write(`${unreadable}\n`);
@@ -294,6 +297,7 @@ async function main(): Promise<void> {
     scopesFile,
     embedder,
     ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
+    ...(timeZone === undefined ? {} : { timeZone }),
   });
   // THE BUILD THIS PROCESS WILL KEEP FOR THE REST OF THE SESSION, left where
   // the hooks can compare it with the installed one every turn

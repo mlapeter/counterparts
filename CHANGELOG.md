@@ -1,6 +1,29 @@
 # Changelog
 
-## 0.3.1 — unreleased
+## 0.3.2 — unreleased
+
+Dates and times follow your clock, and the store's format moves to v7.
+
+**Before upgrading, close every Claude Code session.** The first session after the upgrade
+saves a copy of the store and then updates its format; a session left open is still
+running the old memory server, so in any you missed, run `/mcp` and choose Reconnect.
+
+- **Your day is your local day.** The day a memory was learned, "today", and the dates
+  in `doctor` and `counterparts fired` now use this computer's time zone instead of UTC,
+  so a memory saved at 11:50 pm belongs to that evening. Memories saved before keep the
+  dates they have. A `timeZone` setting in the config (for example `"America/Denver"`)
+  pins a zone, for a machine set to UTC; install says which zone it found.
+- **Sessions know what time it is.** The wake opens with a line like
+  `Now: Fri 25 Sep 2026, 1:40 pm MDT`, and each turn that recalls something carries the
+  current time too.
+- **Each memory records when it was written and changed, and which model wrote it.**
+  Notes, end-of-session memories, journal chapters and the self page carry the model the
+  session was using.
+- **The store can hold a reminder's date** — a day, a month, or a range like
+  `2026-10-20..2026-10-31` — ready for reminders to use in a later release.
+- One module now does every date conversion, and a test keeps it that way.
+
+## 0.3.1 — 2026-09-25
 
 A small release of fixes. No change to the store's format, so no migration and no
 Reconnect.

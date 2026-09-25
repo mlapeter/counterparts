@@ -207,8 +207,10 @@ export interface SelfOptions {
   now?: () => number;
   /**
    * The IANA zone the CALENDAR day is taken in — the ask cap's day and the page
-   * writer's night (`calendar.ts`). Absent: the machine's own zone, which is the
-   * owner's ruling of 2026-09-23. A test pins it so it passes on any machine.
+   * writer's night (`core/time.ts`). Absent: the STORE's zone (`Store#zone`: the
+   * config's `timeZone`, else the machine's), so the day a chapter is headed
+   * with and the `learned_on` its rows carry are one calendar (2026-09-25). A
+   * test pins it so it passes on any machine.
    */
   zone?: string;
 }
@@ -423,6 +425,13 @@ export interface PageWriteOptions {
    */
   readonly ifVersion?: number;
   readonly day?: number;
+  /**
+   * The model writing the page, from host state (schema v7's `memories.model`;
+   * the prior version keeps the model that wrote IT). The MCP door reads it off
+   * the session registry record; the owner's console and a door with no named
+   * model leave it out, and the row records NULL.
+   */
+  readonly model?: string;
 }
 
 export interface PageVersion {
@@ -482,14 +491,19 @@ export class Self {
 
   /**
    * TODAY, AS THE PERSON LIVES IT — the calendar date in the local zone, read off
-   * the store's own provenance clock (`calendar.ts`). The ask cap and the page
-   * writer's schedule read THIS; every PROVENANCE date (`revisedOn`,
-   * `learnedOn`, a clearing's `on`) still reads `store.today()`, which is UTC,
-   * because those are `store/`'s and a date a row was stamped with is compared
-   * against dates stamped the same way.
+   * the store's own provenance clock (`core/time.ts`). The ask cap and the page
+   * writer's schedule read THIS. Every PROVENANCE date (`revisedOn`,
+   * `learnedOn`, a clearing's `on`) reads `store.today()`, which was UTC until
+   * 2026-09-25 and is now the same local day in the store's zone — so the two
+   * agree unless a caller pinned `zone` apart from the store's.
    */
   calendarToday(): string {
-    return calendarDate(this.store.now(), this.zone);
+    return calendarDate(this.store.now(), this.dayZone());
+  }
+
+  /** The zone this `Self` names days in: its own when pinned, else the store's. */
+  private dayZone(): string {
+    return this.zone ?? this.store.zone();
   }
 
   // ── the briefing ─────────────────────────────────────────────────────────
@@ -866,6 +880,7 @@ export class Self {
         body: text,
         meta,
         learnedOn: this.store.today(),
+        ...(opts.model === undefined ? {} : { model: opts.model }),
         // PROTECTED AT BIRTH — the one flag that keeps the floor prune off it
         // (`physics#pruneVerdict` blocks on it by name). It is not a
         // confidentiality class and it buys no exemption anywhere else.
@@ -874,7 +889,13 @@ export class Self {
       version = 0;
     } else {
       id = existing;
-      version = this.store.revise(id, { body: text, title: PAGE_TITLE, meta, reason: opts.reason });
+      version = this.store.revise(id, {
+        body: text,
+        title: PAGE_TITLE,
+        meta,
+        reason: opts.reason,
+        ...(opts.model === undefined ? {} : { model: opts.model }),
+      });
       // A page written before this flag existed — or one whose row was minted by
       // hand — is put beyond the prune here rather than at some later repair.
       if (this.store.row(id)?.protected !== 1) this.store.updatePhysics(id, { protected: true });
@@ -935,7 +956,7 @@ export class Self {
     // The night is ours to decide unless the caller named a day: the LOCAL
     // calendar, held back to a provenance date that has closed (`writer.ts#
     // pageWriterNight`). A caller that passes `today` gets the plain rule.
-    const night = opts.today === undefined ? pageWriterNight(this.store, this.zone) : null;
+    const night = opts.today === undefined ? pageWriterNight(this.store, this.dayZone()) : null;
     return pageWriterDue(this.store, {
       mode: opts.mode,
       today: opts.today ?? (night as { today: string }).today,
@@ -1742,7 +1763,7 @@ export class Self {
     // the heading prints it beside the lived day (owner, 2026-09-24).
     const append: Parameters<typeof appendChapter>[3] = {
       day: d,
-      date: calendarDate(this.store.now(), this.zone),
+      date: calendarDate(this.store.now(), this.dayZone()),
     };
     if (opts.title !== undefined) append.title = opts.title;
     if (opts.happenedOn !== undefined) append.happenedOn = opts.happenedOn;

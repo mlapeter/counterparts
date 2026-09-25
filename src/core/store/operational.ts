@@ -19,6 +19,18 @@ import { preMigrationDir, snapshotBeforeMigration } from "./pre-migration.js";
 import type { ProseType } from "./prose.js";
 
 /**
+ * Bumped to 7 (2026-09-25, docs/time.md): the first ADDITIVE migration since the
+ * copy-before-migrating seam (#214) shipped. Every table that holds records
+ * gains its MOMENTS — `created_at` / `updated_at`, UTC ms from `store.now()` —
+ * and `memories` gains `model` (which model wrote the words) and `event_date`
+ * (the calendar date the memory is ABOUT, as the person said it: a day, a
+ * month, a year or a range). `versions` carries `created_at`, `model` and
+ * `event_date` of the words it archived. All nullable, all through
+ * `ADDED_COLUMNS`, so a v6 store migrates in one transaction after its copy is
+ * taken, and rows written before carry NULL: the owner ruled old dates stay as
+ * they are (docs/time.md rule 6). The table-by-table reasoning is in
+ * `store/NOTES.md` 2026-09-25.
+ *
  * Bumped to 6 (2026-09-20, the floor): **the memory IS the row.** `title`,
  * `body`, `meta` and `confidential` are columns on `memories`; a version row
  * carries its own `title`/`body`/`meta` plus the two provenance dates; and
@@ -48,7 +60,7 @@ import type { ProseType } from "./prose.js";
  * migrated open MUST converge on the identical schema; a test asserts
  * table_info equality.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 /**
  * The oldest schema an OBSERVER may open without a migration having run.
  *
@@ -60,8 +72,15 @@ export const SCHEMA_VERSION = 6;
  * the refusal a reader actually meets is `STORE_PRE_ROWS`, which names the last
  * build that CAN read it (`floor/v5-last`) instead of asking for a migration
  * that does not exist.
+ *
+ * Raised to 7 with v7 (2026-09-25): every read of a row now names the v7
+ * columns, and a v6 file has none of them, so an instrument meets
+ * `STORE_UNINITIALIZED` on a v6 store until the first WRITER opens it — the
+ * next hook, which migrates it after taking its copy. A floor below the
+ * version would mean every read tolerating missing columns, which is the
+ * shape v5's exemption had and v6 dropped.
  */
-export const OBSERVER_READ_FLOOR = 6;
+export const OBSERVER_READ_FLOOR = 7;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2).
  *
  *  Owner ruling 1, 2026-09-18: the prune STAYS, at 90. It now deletes the words
@@ -96,6 +115,14 @@ const DDL: readonly string[] = [
      key   TEXT PRIMARY KEY,
      value TEXT NOT NULL
    )`,
+  // v7 (2026-09-25, docs/time.md) appends four columns to `memories`:
+  // `created_at` / `updated_at` (MOMENTS, UTC ms from `store.now()` — the words
+  // or state changing, not physics bookkeeping), `model` (the model id that
+  // wrote the words; NULL when none was named) and `event_date` (the calendar
+  // date the memory is ABOUT, as said). No SQL comment sits among them, on
+  // purpose: SQLite's `ALTER TABLE ... DROP COLUMN` fails with "incomplete
+  // input" on a last column preceded by `--` lines (measured building the v6
+  // fixture in `test/store-v7.test.ts`), and a future migration may need one.
   `CREATE TABLE IF NOT EXISTS memories (
      id                TEXT PRIMARY KEY,
      type              TEXT NOT NULL,
@@ -138,7 +165,11 @@ const DDL: readonly string[] = [
      -- The one key promoted OUT of that JSON, because it is a GATE: a gate that
      -- must parse JSON on every read is a gate that will one day fail open
      -- (confidentialByMeta, the one truth table, computes it at every write).
-     confidential      INTEGER NOT NULL DEFAULT 0
+     confidential      INTEGER NOT NULL DEFAULT 0,
+     created_at        INTEGER,
+     updated_at        INTEGER,
+     model             TEXT,
+     event_date        TEXT
    )`,
   `CREATE INDEX IF NOT EXISTS memories_band ON memories (band, archived)`,
   `CREATE INDEX IF NOT EXISTS memories_kind ON memories (kind, archived)`,
@@ -161,6 +192,12 @@ const DDL: readonly string[] = [
      -- corrected date would have silently rewritten every version behind it.
      learned_on   TEXT NOT NULL DEFAULT '',
      happened_on  TEXT,
+     -- v7: the archived words' own moment (the head's updated_at, else its
+     -- created_at, when they were archived — archived_at is when they STOPPED
+     -- being current), the model that wrote them, and their event date.
+     created_at   INTEGER,
+     model        TEXT,
+     event_date   TEXT,
      PRIMARY KEY (memory_id, seq)
    )`,
   `CREATE TABLE IF NOT EXISTS edges (
@@ -168,6 +205,9 @@ const DDL: readonly string[] = [
      dst      TEXT NOT NULL REFERENCES memories(id),
      weight   REAL NOT NULL,
      last_day INTEGER NOT NULL,
+     -- v7 moments: first linked, last re-weighted.
+     created_at INTEGER,
+     updated_at INTEGER,
      PRIMARY KEY (src, dst)
    )`,
   `CREATE TABLE IF NOT EXISTS prospective (
@@ -178,6 +218,9 @@ const DDL: readonly string[] = [
      state          TEXT NOT NULL,
      fires          INTEGER NOT NULL DEFAULT 0,
      last_fired_day INTEGER,
+     -- v7 moments: window first recorded, last changed state.
+     created_at     INTEGER,
+     updated_at     INTEGER,
      PRIMARY KEY (memory_id, window_key)
    )`,
   // SEAMS item B — per-session gate state, ONE ROW PER RECORD.
@@ -314,6 +357,13 @@ export interface MemoryRow extends Row {
   /** `confidentialByMeta(meta)` at the last write. A column, never re-derived
    *  per call site: the confidentiality class is a gate (CONTRACT §5 G13). */
   confidential: number;
+  /** v7 moments (UTC ms). NULL on a row written before v7. */
+  created_at: number | null;
+  updated_at: number | null;
+  /** v7: the model that wrote the current words; NULL = not a named model. */
+  model: string | null;
+  /** v7: the calendar date the memory is about, as said (`time.ts`). */
+  event_date: string | null;
 }
 
 export interface VersionRow extends Row {
@@ -329,6 +379,9 @@ export interface VersionRow extends Row {
   meta: string;
   learned_on: string;
   happened_on: string | null;
+  created_at: number | null;
+  model: string | null;
+  event_date: string | null;
 }
 
 export interface EdgeRow extends Row {
@@ -336,6 +389,8 @@ export interface EdgeRow extends Row {
   dst: string;
   weight: number;
   last_day: number;
+  created_at: number | null;
+  updated_at: number | null;
 }
 
 export interface ProspectiveRow extends Row {
@@ -346,6 +401,8 @@ export interface ProspectiveRow extends Row {
   state: string;
   fires: number;
   last_fired_day: number | null;
+  created_at: number | null;
+  updated_at: number | null;
 }
 
 export interface GateSessionRow extends Row {
@@ -599,6 +656,7 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
       if (now !== null) note = copyBeforeMigrating(path, now, opts);
       for (const sql of DDL) db.exec(sql);
       ensureAddedColumns(db);
+      for (const sql of DDL_AFTER_COLUMNS) db.exec(sql);
       const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
       put.run("livedDay", "0");
       put.run("lastActiveDate", "");
@@ -642,6 +700,16 @@ function copyBeforeMigrating(path: string, found: string, opts: OpenOperationalO
 }
 
 /**
+ * Indexes over columns that `ADDED_COLUMNS` may have just added, so they run
+ * AFTER it: on a v6 store `event_date` does not exist while `DDL` runs.
+ */
+const DDL_AFTER_COLUMNS: readonly string[] = [
+  // v7: `Store.datedMemories` without a scan (prospective/INTERFACE-GAPS §2).
+  // Partial, because almost no memory carries one.
+  `CREATE INDEX IF NOT EXISTS memories_event_date ON memories (event_date) WHERE event_date IS NOT NULL`,
+];
+
+/**
  * Columns added to a table AFTER it first shipped. `CREATE TABLE IF NOT EXISTS`
  * cannot grow an existing table, so a pre-existing store gains these here —
  * checked against `pragma table_info` and added one `ALTER TABLE` at a time,
@@ -650,15 +718,28 @@ function copyBeforeMigrating(path: string, found: string, opts: OpenOperationalO
  * asserts table_info equality between a fresh open and a migrated one).
  */
 export const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
-  // EMPTY at v6, and that is the floor's safety rule rather than an accident.
+  // The v6 columns are NOT listed, and that is the floor's safety rule rather
+  // than an accident. A pre-v6 store is refused by name before anything opens
+  // it, so nothing here can reach one — and `body` added through this path to a
+  // v5 store would be NULL on every row while the words sat in files this build
+  // cannot see (`SCHEMA_VERSION` above, `STORE_PRE_ROWS`).
   //
-  // A pre-v6 store is refused by name before anything opens it, so nothing here
-  // can reach one — and the v6 columns must NOT be listed: `body` added through
-  // this path to a v5 store would be NULL on every row while the words sat in
-  // files this build cannot see, and the store would be stamped v6 and
-  // unreadable by the build that can (`SCHEMA_VERSION` above, `STORE_PRE_ROWS`).
-  //
-  // The mechanism stays for whatever v7 adds additively to a v6 store.
+  // v7 (2026-09-25): additive, nullable, no default — `ALTER TABLE ADD COLUMN`
+  // cannot add NOT NULL without one, and a default would put a made-up moment
+  // on every old row. Rows written before carry NULL (docs/time.md rule 6).
+  // The fresh-CREATE DDL above lists the same columns in the same order, so
+  // both paths converge on one `table_info`.
+  { table: "memories", column: "created_at", ddl: "ALTER TABLE memories ADD COLUMN created_at INTEGER" },
+  { table: "memories", column: "updated_at", ddl: "ALTER TABLE memories ADD COLUMN updated_at INTEGER" },
+  { table: "memories", column: "model", ddl: "ALTER TABLE memories ADD COLUMN model TEXT" },
+  { table: "memories", column: "event_date", ddl: "ALTER TABLE memories ADD COLUMN event_date TEXT" },
+  { table: "versions", column: "created_at", ddl: "ALTER TABLE versions ADD COLUMN created_at INTEGER" },
+  { table: "versions", column: "model", ddl: "ALTER TABLE versions ADD COLUMN model TEXT" },
+  { table: "versions", column: "event_date", ddl: "ALTER TABLE versions ADD COLUMN event_date TEXT" },
+  { table: "edges", column: "created_at", ddl: "ALTER TABLE edges ADD COLUMN created_at INTEGER" },
+  { table: "edges", column: "updated_at", ddl: "ALTER TABLE edges ADD COLUMN updated_at INTEGER" },
+  { table: "prospective", column: "created_at", ddl: "ALTER TABLE prospective ADD COLUMN created_at INTEGER" },
+  { table: "prospective", column: "updated_at", ddl: "ALTER TABLE prospective ADD COLUMN updated_at INTEGER" },
 ];
 
 function ensureAddedColumns(db: Db): void {

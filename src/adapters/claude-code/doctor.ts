@@ -32,6 +32,7 @@
  *      nobody needed).
  */
 import { spawnSync } from "node:child_process";
+import { addDays, isDay, localDate, resolveZone } from "../../core/time.js";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -57,7 +58,6 @@ import {
   STORE_CREATED_KEY,
   Store,
   assertPreMigrationTarget,
-  dateOf,
   isStoreError,
   paths,
   pendingMigration,
@@ -209,7 +209,8 @@ export interface DoctorInput {
   readonly dir: string;
   /** Null when there is no store at `dir` — the store findings then say so. */
   readonly store: Store | null;
-  /** Today, UTC, `YYYY-MM-DD` — the same spelling every `date` field uses. */
+  /** Today in the person's zone, `YYYY-MM-DD` — the same spelling every `date`
+   *  field uses (UTC until 2026-09-25; docs/time.md). */
   readonly today: string;
   /**
    * The persisted spawn-refusal counters, `reason -> count`
@@ -779,10 +780,17 @@ function payloadOf(row: EventRow | undefined): Record<string, unknown> {
 
 /** The CALENDAR date a row is about: its own field, else the wall clock it was
  *  written at. `day` is the lived-day column and answers a different question. */
+/**
+ * The zone this reading names days in — the config's `timeZone`, else the
+ * machine's — set once at the top of `doctorFindings` (which is synchronous)
+ * so the dozen `rowDate` calls below need no extra argument.
+ */
+let readingZone: string = resolveZone(undefined);
+
 function rowDate(row: EventRow | undefined): string | null {
   if (row === undefined) return null;
   const p = payloadOf(row);
-  return typeof p["date"] === "string" && p["date"].length > 0 ? p["date"] : dateOf(row.at);
+  return typeof p["date"] === "string" && p["date"].length > 0 ? p["date"] : localDate(row.at, readingZone);
 }
 
 function num(p: Record<string, unknown>, key: string): number | null {
@@ -1312,6 +1320,18 @@ function retentionFindings(input: DoctorInput, store: Store): Finding[] {
   return [finding("retention", "green", TITLE, `${policy} · ${counts}`, "", data)];
 }
 
+/**
+ * THE ZONE IN USE, on the Clock line (docs/time.md, 2026-09-25): `(America/Denver)`,
+ * and when the config names a zone this machine does not know, that too — it
+ * was ignored, and this is where the owner sees it.
+ */
+function zoneNote(input: DoctorInput): string {
+  const unknown = input.config.timeZoneUnknown;
+  return unknown === undefined
+    ? `(${readingZone})`
+    : `(${readingZone}; timeZone "${unknown}" in the config is not a zone this machine knows, so it was ignored)`;
+}
+
 /** The two clocks, and the gap that IS I32's signature. */
 function clockFindings(input: DoctorInput, store: Store): Finding[] {
   const livedDay = store.livedDay();
@@ -1327,13 +1347,13 @@ function clockFindings(input: DoctorInput, store: Store): Finding[] {
   // the clock, so the comparison is not made and the line says why.
   if (read.unknown) {
     const facts =
-      `lived day ${livedDay}, lastActiveDate ${lastActive ?? "(unset)"}, today ${input.today} (UTC) — ` +
+      `lived day ${livedDay}, lastActiveDate ${lastActive ?? "(unset)"}, today ${input.today} ${zoneNote(input)} — ` +
       undetermined(BOUNDARY_EVENT);
     return [finding("clock", "green", "Clock", facts, "", data)];
   }
   const facts =
     `lived day ${livedDay}, lastActiveDate ${lastActive ?? "(unset)"}, ` +
-    `newest boundary ${boundary ?? "(none)"}, today ${input.today} (UTC)`;
+    `newest boundary ${boundary ?? "(none)"}, today ${input.today} ${zoneNote(input)}`;
   if (boundary !== null && (lastActive === null || lastActive < boundary)) {
     return [
       finding(
@@ -1631,25 +1651,25 @@ function storeFirstDay(store: Store): string | null {
   return readings.length === 0 ? null : readings.reduce((a, b) => (b < a ? b : a));
 }
 
-/** The calendar day (UTC) of the EARLIEST `at` among the store's event rows,
- *  or null when it has none, or none that can be read. */
+/** The calendar day (the person's zone) of the EARLIEST `at` among the store's
+ *  event rows, or null when it has none, or none that can be read. */
 function oldestEventDay(store: Store): string | null {
   try {
     const at = store.eventLogCensus().oldestAt;
-    return typeof at === "number" && Number.isFinite(at) && at > 0 ? dateOf(at) : null;
+    return typeof at === "number" && Number.isFinite(at) && at > 0 ? localDate(at, readingZone) : null;
   } catch {
     return null;
   }
 }
 
-/** The calendar day (UTC) the store's database file was born, or null when the
+/** The calendar day (the person's zone) the store's database file was born, or null when the
  *  filesystem keeps no birth time — zero, or a "birth" no earlier than the last
  *  change, which is what a filesystem without one may report instead. */
 function databaseBirthDay(dir: string): string | null {
   try {
     const stat = statSync(paths.operational(dir));
     const born = stat.birthtimeMs;
-    return Number.isFinite(born) && born > 0 && born < stat.ctimeMs ? dateOf(born) : null;
+    return Number.isFinite(born) && born > 0 && born < stat.ctimeMs ? localDate(born, readingZone) : null;
   } catch {
     return null;
   }
@@ -1677,11 +1697,9 @@ function windowPhrase(shown: string, today: string): string {
   return shown === today ? `since ${today}` : `${shown}→${today}`;
 }
 
-/** `YYYY-MM-DD`, `back` days before `today`. UTC, like every date in this store. */
+/** `YYYY-MM-DD`, `back` days before `today` — label arithmetic (`time.ts`). */
 function daysBefore(today: string, back: number): string {
-  const at = Date.parse(`${today}T00:00:00Z`);
-  if (Number.isNaN(at)) return today;
-  return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+  return isDay(today) ? addDays(today, -back) : today;
 }
 
 /** Every row of one name whose CALENDAR date is on or after `from`. */
@@ -2354,7 +2372,7 @@ export function selfPageFindings(store: Store): Finding[] {
       ),
     ];
   }
-  const stale = pageStaleOn(page.revisedOn, dateOf(store.now()), SELF_TUNABLES.PAGE_STALE_DAYS);
+  const stale = pageStaleOn(page.revisedOn, store.today(), SELF_TUNABLES.PAGE_STALE_DAYS);
   const detail =
     `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
     `${page.by === null ? "" : ` by ${page.by}`}`;
@@ -2980,6 +2998,7 @@ export function summaryLine(t: Record<Lowercase<GradeWord>, number>): string {
  * I32's own signature.
  */
 export function doctorFindings(input: DoctorInput): Finding[] {
+  readingZone = resolveZone(input.config.timeZone);
   const now = input.now ?? ((): number => Date.now());
   const deadline = input.budgetMs === undefined ? null : now() + input.budgetMs;
   const unread = input.configReason === "not-read";
@@ -3249,7 +3268,7 @@ const TITLE_COLUMN = 20;
  *  not green. */
 export function reportLines(findings: readonly Finding[], today: string): string[] {
   const ordered = worstFirst(findings);
-  const lines = [`counterparts doctor — ${today} (UTC)`, ""];
+  const lines = [`counterparts doctor — ${today}`, ""];
   for (const f of ordered) lines.push(...findingLines(f));
   lines.push("");
   lines.push(summaryLine(tally(ordered)));

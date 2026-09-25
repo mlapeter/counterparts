@@ -19,6 +19,7 @@
  *
  * Pure: no ambient clock read anywhere in this file. The caller supplies `at`.
  */
+import { addDays, daysBetween, isDay, monthBounds } from "../time.js";
 import type { ProspectiveTunables } from "./tunables.js";
 
 /** As stated. `2026` / `2026-08` / `2026-08-25` — the three shapes prose carries. */
@@ -46,29 +47,14 @@ export interface Window {
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MONTH_RE = /^(\d{4})-(\d{2})$/;
 const YEAR_RE = /^\d{4}$/;
-const DAY_MS = 86_400_000;
 
-function pad(n: number): string {
-  return n < 10 ? `0${n}` : `${n}`;
-}
-
-/** ISO day -> epoch ms at UTC midnight. Null when the date is not a real day. */
-function dayMs(iso: string): number | null {
-  const m = DAY_RE.exec(iso);
-  if (m === null) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-  const ms = Date.UTC(y, mo - 1, d);
-  // Round-trip: rejects 2026-02-30 and friends without a calendar table.
-  return isoOf(ms) === iso ? ms : null;
-}
-
-function isoOf(ms: number): string {
-  const t = new Date(ms);
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
-}
+/**
+ * The calendar arithmetic is `core/time.ts`'s (2026-09-25, docs/time.md rule 1).
+ * It used to live here on the UTC getters — correct, since a stated day is a
+ * label and not a moment, but a second copy of the one conversion module's job.
+ * Re-exported so `prospective/`'s public surface is unchanged.
+ */
+export { addDays, daysBetween, monthBounds };
 
 /**
  * The precision a date STATES. Null means "not a date this module understands",
@@ -76,37 +62,13 @@ function isoOf(ms: number): string {
  * silent skip (scar §2.4).
  */
 export function precisionOf(date: string): DatePrecision | null {
-  if (DAY_RE.test(date)) return dayMs(date) === null ? null : "day";
+  if (DAY_RE.test(date)) return isDay(date) ? "day" : null;
   const m = MONTH_RE.exec(date);
   if (m !== null) {
     const mo = Number(m[2]);
     return mo >= 1 && mo <= 12 ? "month" : null;
   }
   return YEAR_RE.test(date) ? "year" : null;
-}
-
-export function addDays(isoDay: string, n: number): string {
-  const ms = dayMs(isoDay);
-  if (ms === null) throw new Error(`addDays: not an ISO day: ${isoDay}`);
-  return isoOf(ms + n * DAY_MS);
-}
-
-/** Calendar days from `a` to `b`; negative when `b` is earlier. */
-export function daysBetween(a: string, b: string): number {
-  const x = dayMs(a);
-  const y = dayMs(b);
-  if (x === null || y === null) throw new Error(`daysBetween: not ISO days: ${a}, ${b}`);
-  return Math.round((y - x) / DAY_MS);
-}
-
-/** First and last day of a stated `YYYY-MM`. */
-export function monthBounds(month: string): { first: string; last: string } | null {
-  const m = MONTH_RE.exec(month);
-  if (m === null) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  if (mo < 1 || mo > 12) return null;
-  return { first: `${y}-${pad(mo)}-01`, last: isoOf(Date.UTC(y, mo, 0)) };
 }
 
 export function windowKey(eventDate: string, precision: WindowPrecision): string {
@@ -137,7 +99,7 @@ export function windowFor(
 ): Window | null {
   if (precision === "year") return null;
   if (precision === "day") {
-    if (dayMs(eventDate) === null) return null;
+    if (!isDay(eventDate)) return null;
     return {
       key: windowKey(eventDate, "day"),
       eventDate,

@@ -43,6 +43,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { isDay } from "../../core/time.js";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -769,11 +770,8 @@ export function parkedNameParts(
   const m = new RegExp(`^${escaped}\\.parked-(\\d{4}-\\d{2}-\\d{2})(?:-(\\d+))?$`).exec(name);
   if (m === null) return null;
   const date = m[1] ?? "";
-  // `Date.parse` of a bare ISO date is UTC midnight, and `toISOString` gives
-  // the same ten characters back — for a real day, and not for 2099-13-45,
-  // which either fails to parse or comes back as some other day.
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  // A real day, and not 2099-13-45 (`time.ts#isDay`).
+  if (!isDay(date)) return null;
   if (m[2] === undefined) return { date, ordinal: 1 };
   const ordinal = Number(m[2]);
   if (!Number.isInteger(ordinal) || ordinal < 2) return null;

@@ -39,6 +39,7 @@
  * fires).
  */
 import type { Salience } from "../types.js";
+import { isModelId } from "../types.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { hashText } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
@@ -440,14 +441,8 @@ export function chapterHeading(chapter: number, day: number, date?: string, mode
   return `## chapter ${chapter} — ${[...parts, `lived day ${day}`].join(" · ")}`;
 }
 
-/**
- * A model id as the host reports it (`claude-opus-5-5`, `claude-opus-5-5[1m]`),
- * and nothing else: it is printed into a heading, so no spaces, no `·`, no
- * `<synthetic>`. Anything that fails this is treated as unknown.
- */
-export function isModelId(value: unknown): value is string {
-  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$/.test(value);
-}
+/** The model-id screen lives in `core/types.ts` now (2026-09-25); re-exported. */
+export { isModelId };
 
 /** Which model wrote each chapter, from an episode's meta — `{ "1": "claude-opus-5-5" }`. */
 export function chapterModels(meta: Record<string, unknown>): Record<string, string> {
@@ -547,6 +542,8 @@ export function appendChapter(
       // consistent with the memory its ingestion mints (PR-2 review nit).
       source: "episode",
       origin: { session: state.sessionId },
+      // The row's `model` column (schema v7) as well as the chapter's meta.
+      ...(model === undefined ? {} : { model }),
     };
     if (opts.title !== undefined) input.title = opts.title;
     if (opts.happenedOn !== undefined) input.happenedOn = opts.happenedOn;
@@ -572,6 +569,8 @@ export function appendChapter(
       ...(Object.keys(models).length === 0 ? {} : { models }),
     },
     reason: opensChapter ? "episode-chapter" : "episode-append",
+    // The row's `model` is the LAST writer's (a body change with none is NULL).
+    ...(model === undefined ? {} : { model }),
   });
   return { episodeId: state.episodeId, chapter: num, created: false, heading: opensChapter };
 }

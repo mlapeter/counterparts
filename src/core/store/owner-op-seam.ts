@@ -200,7 +200,8 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
     db.run(
       `UPDATE versions
           SET title = NULL, body = '', meta = '{}', content_hash = '',
-              learned_on = '', happened_on = NULL
+              learned_on = '', happened_on = NULL,
+              created_at = NULL, model = NULL, event_date = NULL
         WHERE memory_id = ?`,
       id,
     );
@@ -222,7 +223,8 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
                 protected = 0, pressure = 0, last_challenged_day = NULL,
                 archived = 1, archived_reason = ?, content_hash = '',
                 title = NULL, body = '', meta = '{}', confidential = 0,
-                learned_on = '', happened_on = NULL
+                learned_on = '', happened_on = NULL,
+                created_at = NULL, updated_at = NULL, model = NULL, event_date = NULL
           WHERE id = ?`,
         REMOVED_REASON,
         id,
@@ -387,7 +389,11 @@ export function unarchiveMerged(store: Store, id: string): UnmergeReport {
     // door being honest by itself.
     if (noop) return { id, record, noop };
 
-    db.run("UPDATE memories SET archived = 0, archived_reason = NULL WHERE id = ?", id);
+    db.run(
+      "UPDATE memories SET archived = 0, archived_reason = NULL, updated_at = ? WHERE id = ?",
+      store.now(),
+      id,
+    );
     // Recorded inside the same transaction, and latched on the id, so a second
     // `--apply` over the same store writes nothing at all (§5 G3).
     store.appendEvent({

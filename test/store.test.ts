@@ -1622,7 +1622,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(store({ snapshotsDir: scratch() }).getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
-  test("ADDED_COLUMNS is EMPTY at v6, and may never name a column the floor introduced", () => {
+  test("ADDED_COLUMNS may never name a column the floor introduced", () => {
     // THE HAZARD, PINNED. `openOperational` migrates any store below
     // SCHEMA_VERSION by adding whatever columns are listed here. Were `body`
     // ever listed, a build that reached a pre-rows store would add it NULL to
@@ -1631,9 +1631,23 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     //
     // The constructor's `STORE_PRE_ROWS` refusal is what makes that
     // unreachable; this is the second lock, and it is the one that survives
-    // somebody "helpfully" relaxing the first. The MECHANISM stays for whatever
-    // v7 adds additively to a v6 store, and the test below pins that it works.
-    expect(ADDED_COLUMNS).toEqual([]);
+    // somebody "helpfully" relaxing the first. It was EMPTY at v6; v7
+    // (2026-09-25) is the first real additive migration, and lists only the
+    // moments, `model` and `event_date` — none of which a v5 store lacks in a
+    // way that hides its words.
+    expect(ADDED_COLUMNS.map((c) => `${c.table}.${c.column}`)).toEqual([
+      "memories.created_at",
+      "memories.updated_at",
+      "memories.model",
+      "memories.event_date",
+      "versions.created_at",
+      "versions.model",
+      "versions.event_date",
+      "edges.created_at",
+      "edges.updated_at",
+      "prospective.created_at",
+      "prospective.updated_at",
+    ]);
     for (const spec of ADDED_COLUMNS) {
       expect({ column: spec.column, namesAFloorColumn: V6_COLUMNS.includes(spec.column) }).toEqual({
         column: spec.column,

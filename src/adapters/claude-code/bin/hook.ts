@@ -35,6 +35,7 @@ import {
 } from "../../scopes.js";
 import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { canonicalScope, readSession } from "../../sessions.js";
+import { resolveZone, todayIn } from "../../../core/time.js";
 import { loadConfig, withEmbedderDefault } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { HOOKS, openAdapter } from "../index.js";
@@ -363,6 +364,8 @@ export function toHookInput(
     readonly scope?: string;
     readonly dataDir?: string;
     readonly env?: NodeJS.ProcessEnv;
+    /** The config's `timeZone`; absent, the machine's current zone. */
+    readonly timeZone?: string;
   } = {},
 ): HookInput {
   const scope = opts.scope ?? sessionScope(opts.dataDir, payload, opts.env ?? process.env);
@@ -390,7 +393,14 @@ export function toHookInput(
     // nothing (`hooks.ts#askAtStop`).
     ...(payload["stop_hook_active"] === true ? { reFired: true } : {}),
     ...(typeof payload["prompt"] === "string" ? { prompt: payload["prompt"] } : {}),
-    at: new Date().toISOString().slice(0, 10),
+    // THE PERSON'S DAY (docs/time.md, 2026-09-25; UTC before). It dates the
+    // hook's rows, the wake preface, the prospective "today" and the date the
+    // boundary hands the lived clock — which is why the lived clock can see a
+    // date one day BEHIND its last on the evening of an upgrade west of UTC,
+    // or after flying west: the store refuses it (`CLOCK_BACKWARDS`), the
+    // cycle stays on the day it already believed, and the next local date
+    // moves it on (store NOTES 2026-09-25).
+    at: todayIn(resolveZone(opts.timeZone)),
   };
 }
 
@@ -707,7 +717,10 @@ async function runHook(
     // that twice on the hot path. The scope is handed IN rather than resolved
     // again: it was decided above, the registry verdict was taken on it, and two
     // resolutions of one value is the shape scar §2.13 is about.
-    const input = toHookInput(payload, { scope });
+    const input = toHookInput(payload, {
+      scope,
+      ...(loaded.timeZone === undefined ? {} : { timeZone: loaded.timeZone }),
+    });
     const result = adapter.hook(name, input);
     // THE WORK HAPPENED. Recall was composed, the turn was captured, the session
     // record was written — whatever this event's job was, `adapter.hook` has

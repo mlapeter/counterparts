@@ -3245,7 +3245,7 @@ describe("verify", () => {
     // report ON the file layout, which went with the columns. What replaces it
     // is the one fact an owner looking for his markdown needs, and a store that
     // still had any prose files would be one this build refused to open.
-    expect(printed).toContain("Floor: schema v6 · bodies in rows · prose files: none");
+    expect(printed).toContain("Floor: schema v7 · bodies in rows · prose files: none");
     expect(printed).not.toContain("Prose paths:");
     // F1's line is still there, beside it.
     expect(printed).toContain("Journal mode: wal (busy timeout");

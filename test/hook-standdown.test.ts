@@ -732,6 +732,18 @@ describe("a named configuration that cannot be honoured", () => {
  * and was reached on every store that had a key. The envelope exists to carry a
  * `systemMessage`; there is none.
  */
+/**
+ * The wake's first line is the person's clock since 2026-09-25 (docs/time.md
+ * rule 5) — `Now: Fri 25 Sep 2026, 1:40 pm MDT` — and it is the one line here
+ * that moves with the wall clock. Checked for shape, then taken off, so the
+ * rest is still compared byte for byte.
+ */
+const NOW_LINE = /^Now: [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m \S+\n/;
+function withoutNow(text: string): string {
+  expect(text).toMatch(NOW_LINE);
+  return text.replace(NOW_LINE, "");
+}
+
 const HEALTHY_SESSION_START_STDOUT = [
   "No briefing has been composed yet — this store has not lived a boundary.",
   "",
@@ -748,7 +760,7 @@ describe("a hook on a working store", () => {
   test("SessionStart emits exactly what it emitted on master", () => {
     const run = runHook("SessionStart", "h1-fixed-session");
     expect(run.code).toBe(0);
-    expect(run.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+    expect(withoutNow(run.stdout)).toBe(HEALTHY_SESSION_START_STDOUT);
     expect(run.stderr).toBe("");
   });
 
@@ -1252,7 +1264,7 @@ describe("doctor reads the open, not just the directory", () => {
     expect(vf.err.join("\n")).toContain(gone);
     // The census itself still prints — it is true, and hiding it would be a
     // second kind of lying.
-    expect(vf.out.join("\n")).toContain("Floor: schema v6");
+    expect(vf.out.join("\n")).toContain("Floor: schema v7");
 
     // And a HEALTHY store still says nothing of the sort, on either door.
     const clean = join(work, "clean");
@@ -1389,8 +1401,9 @@ describe("the write-up pointer never costs the wake", () => {
     owedSessionInWork();
     const run = runHook("SessionStart", "h1-next-session");
     expect(run.code).toBe(0);
-    expect(run.stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
-    const tail = run.stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
+    const stdout = withoutNow(run.stdout);
+    expect(stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
+    const tail = stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
     expect(tail.startsWith(`\n\n${WRITE_UP_OPEN}`)).toBe(true);
     expect(tail).toContain("writeUp: ended-owing");
     // A pointer: the words come from the MCP door, never beside the wake.
@@ -1411,7 +1424,7 @@ describe("the write-up pointer never costs the wake", () => {
       const out = a.sessionStart({ sessionId: "h1-thrown", scope: canonicalScope(work) });
       expect(a.events("adapter.writeup.failed").length).toBe(1);
       const d = hostDelivery("session-start", { injection: out.injection, ask: out.ask }, {}, [null, null]);
-      expect(d.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+      expect(withoutNow(d.stdout)).toBe(HEALTHY_SESSION_START_STDOUT);
     } finally {
       a.counterpart.close();
     }

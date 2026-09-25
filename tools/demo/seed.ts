@@ -293,13 +293,19 @@ export async function seedDemo(opts: SeedOptions): Promise<SeedReport> {
   // one call cannot place a belief on its own core in the same call
   // (`entity-unknown`, measured here on the first run). Minting it in a throwaway
   // open and reopening is the honest way through with no core change.
-  Counterpart.open({ dir, owner: true, budgetBytes, identity: { name: OWNER_NAME }, now }).close();
+  //
+  // THE STORY'S ZONE IS UTC. Its days are 09:00 UTC instants (`dayOffset`), and
+  // since 2026-09-25 a row's `learned_on` is the local date of its moment
+  // (docs/time.md) — so an unpinned seed run in Honolulu dated every row the day
+  // before the story says. Pinned, the demo reads the same on every machine.
+  Counterpart.open({ dir, owner: true, budgetBytes, identity: { name: OWNER_NAME }, now, timeZone: "UTC" }).close();
 
   const c = Counterpart.open({
     dir,
     owner: true,
     budgetBytes,
     now,
+    timeZone: "UTC",
     onEvent: (e) => {
       if (e.name !== "counterpart.revision") return;
       revisions.push({

@@ -331,12 +331,14 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     database**. FILENAMES are the evidence deliberately: reading the schema version would
     mean opening a WAL store whose `-wal` a close could checkpoint away, moving the bytes
     the refusal exists to leave alone. All three names, because a store whose database was
-    moved by hand still holds every one of its words in files. `ADDED_COLUMNS` is empty and
-    may never name a v6 column, which is the second lock: `openOperational` migrates
-    anything below `SCHEMA_VERSION`, and `body` added that way would be NULL on every row
-    while the words sat in files, stamping the store v6 and unreadable by the build that can
-    read it. `OBSERVER_READ_FLOOR` is `SCHEMA_VERSION`: there is no floor below v6, because
-    a v6 instrument on a v5 store would report an empty store rather than an unreadable one.
+    moved by hand still holds every one of its words in files. `ADDED_COLUMNS` may never
+    name a v6 column (it was empty at v6 and holds v7's eleven since 2026-09-25), which is
+    the second lock: `openOperational` migrates anything below `SCHEMA_VERSION`, and `body`
+    added that way would be NULL on every row while the words sat in files, stamping the
+    store current and unreadable by the build that can read it. `OBSERVER_READ_FLOOR` is
+    `SCHEMA_VERSION`: there is no floor below the current version, because every read names
+    the current columns and an instrument on an older store would report an empty or broken
+    store rather than one waiting for its upgrade.
     There is no migration and there is not going to be one (owner ruling 6, 2026-09-18: the
     cut-over carries nothing). `test/store-portable.test.ts` builds a real v5 store by hand
     and proves the directory is byte-identical after a refused writer open, a refused
@@ -390,6 +392,17 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     version. A later open reuses a copy already taken for the same upgrade that day, or one
     the live store has not been written since. Observers never migrate and never copy.
     `NOTES.md` (2026-09-24) has the rollback steps.
+21. **[M] Two kinds of time, one conversion module** (docs/time.md, 2026-09-25). A
+    MOMENT is UTC milliseconds from the injected clock (`store.now()`): `created_at` /
+    `updated_at` on `memories`, `edges` and `prospective`, a version's `created_at` and
+    `archived_at`, an event's `at`. A CALENDAR DATE a person said is text at its stated
+    precision — `happened_on`, and `event_date` (day, month, year or `a..b` range, refused
+    as `EVENT_DATE_INVALID` when `core/time.ts` cannot read it) — and is never turned into
+    a moment. A person's day (`today()`, a new row's `learned_on`, the day the store began)
+    is the local date of a moment in `zone()`: `StoreOptions.timeZone` when it names a real
+    zone, else the machine's current zone, resolved per call. Rows written before
+    2026-09-25 keep the UTC `learned_on` they were given. `datedMemories(from, to)` answers
+    which live rows carry an `event_date` overlapping a window, from an index.
 
 ## 6. Scars honored
 
@@ -412,7 +425,7 @@ Each line: the scar, what carries it on this floor, and where it is pinned.
 | **I22** the copied-store bug | G15 — criterion kept, mechanism deleted | `test/store-portable.test.ts` "(a) `cp -R` the store, DESTROY the source outright, and the copy still reads its own words"; "(b) an owner removal run in the COPY leaves the SOURCE byte-identical"; "(d) a `backup` snapshot opens standalone and HOLDS THE WORDS after the source is gone" |
 | **I38 / I39** "database is locked" | G18 | `test/store.test.ts` "busy_timeout is set FIRST, before every other pragma (I39)"; "a second handle WAITS for a held write lock instead of failing instantly"; "a WRITER converts the file to WAL; an INSTRUMENT opening a DELETE store leaves it alone" |
 | **the stage→commit→rename crash window** (`NOTES.md` §5, deleted): a crash never leaves a row whose words are missing | G5, G6 — structurally true: the words commit with the row | `test/store.test.ts` "SIGKILL mid-write leaves the store readable, every row's words intact" |
-| **the floor's own hazard**: migrate-at-open would have destroyed the pre-rows store | G16 | `test/store-portable.test.ts` "a WRITER open throws STORE_PRE_ROWS and the directory is byte-identical afterwards"; "an OBSERVER open, and a whole session, meet the same refusal and write nothing"; "ADDED_COLUMNS is EMPTY at v6, and may never name a column the floor introduced" |
+| **the floor's own hazard**: migrate-at-open would have destroyed the pre-rows store | G16 | `test/store-portable.test.ts` "a WRITER open throws STORE_PRE_ROWS and the directory is byte-identical afterwards"; "an OBSERVER open, and a whole session, meet the same refusal and write nothing"; "ADDED_COLUMNS may never name a column the floor introduced" |
 
 **Scars that no longer apply**, named so nobody re-ports them: temp-file naming (§16 G4's
 "a crash-leaked stage must not load as a duplicate" — there is no stage), the

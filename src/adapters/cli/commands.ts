@@ -27,6 +27,7 @@
  * is testable against a temp dir with a faked console.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { localDate, resolveZone, todayIn } from "../../core/time.js";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -1675,7 +1676,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
           dir,
           io,
           typeof parsed.flags["dir"] === "string",
-          dateOf(now()),
+          // The person's day on this machine (docs/time.md; UTC before 2026-09-25).
+          localDate(now()),
           parsed.flags["layout"] === true,
           env,
         );
@@ -1898,7 +1900,7 @@ function firedCommand(
     return EXIT.failed;
   }
   try {
-    const report = firedReport(store, dateOf(now()));
+    const report = firedReport(store, localDate(now(), store.zone()));
     for (const line of all ? firedLines(report, true) : mechanismsLines(report)) io.out(line);
     return EXIT.ok;
   } finally {
@@ -2106,7 +2108,7 @@ const YOUNG_STATES: readonly FiredState[] = ["firing", "blocked", "quiet"];
 /** The report as plain text: one mechanism per line, grouped by state. */
 export function firedLines(report: FiredReport, all = false): string[] {
   const lines = [
-    `what has fired — ${report.from}→${report.today} (UTC), against ${report.previousFrom}→${report.previousTo}`,
+    `what has fired — ${report.from}→${report.today}, against ${report.previousFrom}→${report.previousTo}`,
     "",
   ];
   const young = report.young && !all;
@@ -2193,7 +2195,7 @@ function newestBoundary(store: Store, livedDay: number): string | null {
     if (last === undefined) return null;
     const payload = JSON.parse(last.payload ?? "{}") as Record<string, unknown>;
     const date = payload["date"];
-    return typeof date === "string" && date.length === 10 ? date : dateOf(last.at);
+    return typeof date === "string" && date.length === 10 ? date : localDate(last.at, store.zone());
   } catch {
     return null;
   }
@@ -2449,7 +2451,7 @@ function statusCommand(
     if (removals.length > 0) {
       // Owner side: the id and the date, no body and no content hash — ever.
       const rows = removals.map(
-        (row) => `  ${new Date(row.at).toISOString().slice(0, 10)}  ${row.memory_id}  by ${row.actor}`,
+        (row) => `  ${localDate(row.at, store.zone())}  ${row.memory_id}  by ${row.actor}`,
       );
       tail.push({ title: "Removed:", lines: rows });
       say("");
@@ -3054,6 +3056,15 @@ async function installConversation(
       io.out(`Nice to meet you, ${answer}.`);
     }
   }
+  // THE ZONE, SAID ONCE AND NOT ASKED (docs/time.md rule 2, 2026-09-25): times
+  // follow the computer, so there is nothing to answer — but a person should
+  // see which clock their memory will read, and how to pin another.
+  const zoneSet = hostConfigFor(layout.config).config.timeZone;
+  u.hint(
+    zoneSet === undefined
+      ? `Times read in ${resolveZone(undefined)}, this computer's zone — "timeZone" in the config pins another.`
+      : `Times read in ${zoneSet}, as the config's "timeZone" says.`,
+  );
   u.blank();
 
   // ── the store and the configuration — SILENTLY ────────────────────────────
@@ -5590,7 +5601,7 @@ export function eventLogLines(log: EventLogCensus): string[] {
   const oldest =
     log.oldestDay === null || log.oldestAt === null
       ? "oldest: none"
-      : `oldest: lived day ${log.oldestDay} (${dateOf(log.oldestAt)})`;
+      : `oldest: lived day ${log.oldestDay} (${localDate(log.oldestAt)})`;
   return [
     `Events: ${log.rows} held (${log.latched} latched records)   ${oldest}   ` +
       `window: ${log.retentionDays} lived days (cutoff day ${log.cutoffDay})`,
@@ -7596,7 +7607,7 @@ function rebriefCommand(
   try {
     // The horizon lane asks about a calendar date; the console's own clock is
     // the only one in the room, and tests inject it.
-    const at = new Date(now()).toISOString().slice(0, 10);
+    const at = localDate(now(), counterpart.store.zone());
     const report = counterpart.rebrief({ budgetBytes: ceiling.bytes, at });
     if (!report.rendered) {
       io.err(`refused: the render declined (${report.reason}).`);
@@ -8217,7 +8228,8 @@ function doctorCommand(
     return EXIT.refused;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // The person's day: the config's zone, else the machine's (docs/time.md).
+  const today = todayIn(resolveZone(config.timeZone));
   let store: Store | null = null;
   try {
     // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
@@ -8230,7 +8242,7 @@ function doctorCommand(
     const open = storeExists(dir) ? readCounterpartOpen(dir, undefined, config.snapshots?.dir) : undefined;
     if (storeExists(dir)) {
       try {
-        store = Store.open({ dir, observer: true });
+        store = Store.open({ dir, observer: true, ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }) });
       } catch (err) {
         // A store BEHIND this build refuses an observer until a session has
         // upgraded it; the Store open line already grades that, so the rest of

@@ -215,3 +215,38 @@ describe("the heading and its readers", () => {
     );
   });
 });
+
+describe("the row records it too — schema v7's `model` column (2026-09-25)", () => {
+  test("a bound session's chapter, note, session_end entry and page write each carry the model", async () => {
+    recordSession(store, { sessionId: SESSION, scope: project, phase: "start", model: OPUS });
+    const s = server();
+    const chapter = payload(await s.call("chapter", { session: SESSION, text: "The stretch so far, in my own words." }));
+    expect(s.counterpart.store.read(chapter["episodeId"] as string).model).toBe(OPUS);
+
+    const note = payload(await s.call("note", { text: "The kiln at the studio runs hot on the left side, so glaze tests go right." }));
+    expect(note["stored"]).toBe(true);
+    expect(s.counterpart.store.read(note["id"] as string).model).toBe(OPUS);
+
+    const ended = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "The studio's second kiln needs its thermocouple replaced before the next firing." }],
+      }),
+    );
+    const entry = (ended["outcomes"] as Record<string, unknown>[])[0] ?? {};
+    expect(entry["stored"]).toBe(true);
+    expect(s.counterpart.store.read(entry["id"] as string).model).toBe(OPUS);
+
+    const page = payload(await s.call("self_page", { body: "## Who I am\n\nSomeone who keeps glaze notes." }));
+    expect(page["stored"]).toBe(true);
+    const pageId = s.counterpart.selfPage()?.id as string;
+    expect(s.counterpart.store.read(pageId).model).toBe(OPUS);
+  });
+
+  test("an unbound note records NULL — never a guess", async () => {
+    const s = server();
+    const note = payload(await s.call("note", { text: "A note from a server that never learned its session's model." }));
+    expect(note["stored"]).toBe(true);
+    expect(s.counterpart.store.read(note["id"] as string).model).toBeNull();
+  });
+});

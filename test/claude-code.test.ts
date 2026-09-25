@@ -85,6 +85,17 @@ import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js
 import { STOP_HUMAN_LINE } from "../src/adapters/claude-code/hooks.js";
 import { toolSpec } from "../src/adapters/mcp/index.js";
 
+/**
+ * The wake's first line, and a recall note's, is the person's clock since
+ * 2026-09-25 (docs/time.md rule 5). Checked for shape and taken off, so the
+ * block underneath is compared exactly as before.
+ */
+const NOW_LINE = /^Now: [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m \S+\n/;
+function withoutNow(text: string): string {
+  expect(text).toMatch(NOW_LINE);
+  return text.replace(NOW_LINE, "");
+}
+
 const ENV = "COUNTERPARTS_DATA_DIR";
 const BUDGET_BYTES = 9000;
 
@@ -426,7 +437,7 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     const result = a.sessionStart(input());
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("absent");
-    expect(result.injection).toBe(BOOTSTRAP);
+    expect(withoutNow(result.injection)).toBe(BOOTSTRAP);
   });
 
   test("a published bundle is injected WITH its sentinel, and the sentinel is the last line", async () => {
@@ -463,7 +474,10 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
 
     const result = a.sessionStart(input());
-    const lines = result.injection.split("\n");
+    // The clock line rides ABOVE the wake block (docs/time.md rule 5), outside
+    // its accounting: everything below is the block, counted as before.
+    const wake = withoutNow(result.injection);
+    const lines = wake.split("\n");
     expect(lines[0] ?? "").toContain("<!-- counterparts:wake ");
     expect(lines[1] ?? "").toContain("Counterparts memory, day ");
     expect(lines[1] ?? "").toContain("2026-01-02");
@@ -471,7 +485,7 @@ describe("session-start — the injection carries a sentinel and honours the HOS
 
     // Counted: the hook's bytes, the sentinel's bytes and the text agree, and
     // the whole thing still fits what the host said it can carry.
-    expect(result.bytes).toBe(Buffer.byteLength(result.injection, "utf8"));
+    expect(result.bytes).toBe(Buffer.byteLength(wake, "utf8"));
     expect(result.sentinel).toContain(`bytes=${result.bytes}`);
     expect(lines[lines.length - 1] ?? "").toBe(result.sentinel as string);
     expect(result.bytes).toBeLessThanOrEqual(BUDGET_BYTES);
@@ -631,8 +645,9 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
       headInContent: true,
     });
     // The numbers that say HOW MUCH was lost: the head sentinel's declared
-    // total, against what the host actually carried.
-    expect(row["headBytes"]).toBe(Buffer.byteLength(injection, "utf8"));
+    // total (the wake block's, which the clock line above it is not part of),
+    // against what the host actually carried.
+    expect(row["headBytes"]).toBe(Buffer.byteLength(withoutNow(injection), "utf8"));
     expect(row["contentBytes"]).toBe(Buffer.byteLength(clipped, "utf8"));
     expect(row["stdoutBytes"]).toBe(Buffer.byteLength(injection, "utf8"));
     expect(row["tailBytes"]).toBe(null);
@@ -1078,6 +1093,30 @@ describe("user-prompt-submit — recall injection, footnote tier, and the anti-l
     // Two lists, not one: a footnote trains nothing, and the caller has to be
     // able to tell them apart to credit correctly (§9, §5.5).
     expect(result.surfaced.some((id) => result.footnotes.includes(id))).toBe(false);
+  });
+
+  test("a turn that recalls something carries the local time above the note, outside it", () => {
+    const { a } = seeded();
+    const result = a.userPromptSubmit(input({ prompt: "the storage split and canonical prose in markdown files" }));
+    expect(result.injection.length).toBeGreaterThan(0);
+    const note = withoutNow(result.injection);
+    // The note's own accounting is untouched by the line above it.
+    expect(Buffer.byteLength(note, "utf8")).toBe(result.bytes);
+  });
+
+  test("the clock line is the STORE's zone at the adapter's instant", () => {
+    const { spawner } = fakeSpawner();
+    const at = Date.parse("2026-09-26T05:50:00Z"); // 23:50 MDT on the 25th
+    const a = openAdapter(config({ timeZone: "America/Denver" }), {
+      command: "/bin/true",
+      args: ["runner"],
+      spawner,
+      now: () => at,
+    });
+    open.push(a.counterpart);
+    expect(a.counterpart.store.zone()).toBe("America/Denver");
+    const woke = a.sessionStart(input());
+    expect(woke.injection.split("\n")[0]).toBe("Now: Fri 25 Sep 2026, 11:50 pm MDT");
   });
 
   test("a quiet turn injects the EMPTY STRING, never an empty block", () => {

@@ -619,3 +619,13 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
 embedder is the local table, so `questionEmbedder` reads the configuration and opens the
 table (or nothing, when the configuration switches it off). The notes above about "whose
 keys" a configuration answers are history — it now answers "whose embedder knob".
+
+## 2026-09-25 — every row a tool writes names its model (schema v7)
+
+`sessionModel()` reads the bound session's registry record — the relay `chapter` has used
+since #217 — and `note`, each `session_end` entry (the write-up door's included),
+`chapter` and `self_page` pass it down to the row's `model` column. Unbound (a `note`
+before any tool named a session) it is undefined and the row records NULL. The schema gate
+is unchanged and was checked against the 0.3.1 build on a store this build migrated: the
+old server refuses every tool `schema-ahead` ("Run /mcp and Reconnect"). `status`'s
+removal dates are the person's day (`localDate(at, store.zone())`), no longer UTC.

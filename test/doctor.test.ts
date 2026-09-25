@@ -51,7 +51,8 @@ import {
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
-import { DATABASE_FILE, STORE_CREATED_KEY, Store, dateOf } from "../src/core/store/index.js";
+import { DATABASE_FILE, STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 import {
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_COPY_WRITTEN_EVENT,
@@ -487,6 +488,19 @@ describe("doctor — the reading", () => {
     expect(by(findings, "clock").severity).toBe("amber");
     expect(by(findings, "clock").detail).toContain("2026-09-04");
     expect(by(findings, "clock").detail).toContain("2026-09-11");
+  });
+
+  /** docs/time.md (2026-09-25): the zone in use rides on the Clock line, and a
+   *  zone the machine does not know is named there as ignored. */
+  test("the Clock line names the zone in use, and a timeZone that is not one", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    const pinned = doctorFindings(input({ store: s, config: { timeZone: "America/Denver" } }));
+    expect(by(pinned, "clock").detail).toContain("(America/Denver)");
+    const unknown = doctorFindings(input({ store: s, config: { timeZoneUnknown: "Mars/Olympus" } }));
+    expect(by(unknown, "clock").detail).toContain('timeZone "Mars/Olympus" in the config is not a zone this machine knows');
+    expect(by(unknown, "clock").severity).toBe("green");
   });
 
   test("a sleep cycle whose reason is not 'ran' is red", () => {
@@ -2461,8 +2475,8 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     expect(s.eventLog({ limit: 1 })).toHaveLength(0);
     const born = touchDatabase();
     if (!(born > 0)) return; // a filesystem that keeps no birth time: nothing to read
-    const bornOn = dateOf(born);
-    const today = dateOf(born + 3 * 86_400_000);
+    const bornOn = localDate(born);
+    const today = localDate(born + 3 * 86_400_000);
     const f = by(doctorFindings(input({ store: s, today })), "authorship");
     expect(f.detail.startsWith(`${bornOn}→${today}: `)).toBe(true);
     expect(f.data["shownFrom"]).toBe(bornOn);
@@ -2481,9 +2495,9 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     stores.push(s);
     s.setMeta(STORE_CREATED_KEY, "");
     s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
-    const today = dateOf(born + 6 * 86_400_000);
+    const today = localDate(born + 6 * 86_400_000);
     const f = by(doctorFindings(input({ store: s, today })), "authorship");
-    expect(f.detail.startsWith(`${dateOf(born)}→${today}: `)).toBe(true);
+    expect(f.detail.startsWith(`${localDate(born)}→${today}: `)).toBe(true);
   });
 
   test("and when the event is the earlier of the two — a file restored from a copy — the event wins", () => {
@@ -2496,9 +2510,9 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     stores.push(s);
     s.setMeta(STORE_CREATED_KEY, "");
     s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
-    const today = dateOf(born + 2 * 86_400_000);
+    const today = localDate(born + 2 * 86_400_000);
     const f = by(doctorFindings(input({ store: s, today })), "authorship");
-    expect(f.detail.startsWith(`${dateOf(firstRow)}→${today}: `)).toBe(true);
+    expect(f.detail.startsWith(`${localDate(firstRow)}→${today}: `)).toBe(true);
   });
 
   test("a `store.created` that IS there wins: the fallbacks are fallbacks", () => {

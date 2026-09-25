@@ -44,6 +44,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
+import { localDate } from "../../core/time.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
@@ -938,10 +939,12 @@ export class McpServer {
     if (salience !== undefined) draft["claimed"] = salience;
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
 
+    const model = this.sessionModel();
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
       ownSpanHash,
+      ...(model === undefined ? {} : { model }),
     });
     return this.depositResult("note", deposit);
   }
@@ -1312,7 +1315,7 @@ export class McpServer {
     for (const row of store.removalRecord()) {
       if (row.stage !== "complete") continue;
       removedIds.add(row.memory_id);
-      dates.add(new Date(row.at).toISOString().slice(0, 10));
+      dates.add(localDate(row.at, store.zone()));
       const kind = store.row(row.memory_id)?.kind ?? "unknown";
       removedKinds[kind] = (removedKinds[kind] ?? 0) + 1;
     }
@@ -1509,6 +1512,7 @@ export class McpServer {
     const outcomes: Record<string, unknown>[] = [];
     let deposited = 0;
     let duplicates = 0;
+    const model = this.sessionModel();
     for (const draft of entries) {
       let result: DepositResult;
       try {
@@ -1516,6 +1520,7 @@ export class McpServer {
           session,
           scope: this.scope,
           ...(cover === undefined ? {} : { cover }),
+          ...(model === undefined ? {} : { model }),
         });
       } catch (err) {
         // Isolation, not a lost dump: this entry failed, the rest still run.
@@ -1754,7 +1759,9 @@ export class McpServer {
     // about 09-19 writes `writer` for that run and nothing else, and a stale
     // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
     const writerFor = this.pageWriterMark(claimedSession);
+    const model = this.sessionModel();
     const written = this.counterpart.revisePage(body, {
+      ...(model === undefined ? {} : { model }),
       reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
       by: writerFor === null ? "session" : "writer",
       // WHICH SESSION, when this server has one. `note` resolves it the same
@@ -1925,6 +1932,22 @@ export class McpServer {
 
   /** Known to the hooks' registry, live, and in THIS server's scope — the same
    *  three tests `requireBoundSession` makes, asked without the side effect. */
+  /**
+   * The model the hooks last saw answer in THIS server's bound session — the
+   * relay a chapter's model takes (self NOTES §24), used since 2026-09-25 for
+   * the `model` column on every row a tool writes (schema v7). Undefined when
+   * no session is bound (`note` and `self_page` work unbound) or the record
+   * names none; the row then records NULL rather than a guess.
+   */
+  private sessionModel(): string | undefined {
+    if (this.session === null) return undefined;
+    try {
+      return readSession(this.registryDir, this.session)?.model;
+    } catch {
+      return undefined;
+    }
+  }
+
   private corroborate(claimed: string): boolean {
     const record = readSession(this.registryDir, claimed);
     if (record === null) return false;
