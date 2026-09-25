@@ -1901,7 +1901,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
         `this store is on lived day ${String(report.livedDay)} — too new to grade; nothing has fired ` +
           `because nothing has happened yet` +
           (c.blocked === 0 ? "" : `, though ${String(c.blocked)} was already stopped by something`),
-        c.blocked === 0 ? "" : "Run: counterparts fired — the blocked rows say by what.",
+        c.blocked === 0 ? "" : "Run: counterparts mechanisms --all — the blocked rows say by what.",
         data,
       ),
     ];
@@ -1938,8 +1938,8 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       "Fired",
       `${roll}. ${changed.join(". ")}`,
       report.wentBlocked.length > 0
-        ? `Run: counterparts fired — ${STATE_MEANING.blocked}, and the reason on the row names what to fix.`
-        : `Run: counterparts fired — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
+        ? `Run: counterparts mechanisms --all — ${STATE_MEANING.blocked}, and the reason on the row names what to fix.`
+        : `Run: counterparts mechanisms --all — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
       data,
     ),
   ];
@@ -2493,7 +2493,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
       "Page writer",
       detail,
       bad || overdue
-        ? "counterparts fired --dir <store> --observer shows the run's own row. A night that is owed but never delivered is usually the host's injection ceiling: the block is deferred rather than truncated, so raise injectionBudgetBytes or run the writer in host mode. counterparts self-page --write amends the page by hand meanwhile."
+        ? "counterparts mechanisms --all --dir <store> --observer shows the run's own row. A night that is owed but never delivered is usually the host's injection ceiling: the block is deferred rather than truncated, so raise injectionBudgetBytes or run the writer in host mode. counterparts self-page --write amends the page by hand meanwhile."
         : "",
       {
         ...data,

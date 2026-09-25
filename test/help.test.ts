@@ -296,7 +296,7 @@ describe("nothing of the old page was lost", () => {
     ["rebrief", "where the hooks read"],
     ["rebrief", "advances no sleep marker"],
     ["probe-oq4", "recall CONTRACT §7"],
-    ["fired", "SILENT FIRST"],
+    ["mechanisms", "SILENT FIRST"],
     ["self-page", "reaches the wake at the next boundary"],
     ["self-page", "--versions"],
     ["scope", "scopes.json"],

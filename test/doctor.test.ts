@@ -1110,7 +1110,7 @@ describe("doctor — the reading", () => {
       expect(f.severity).toBe("green");
       expect(f.detail).toContain("too new to grade");
       expect(f.detail).toContain("already stopped by something");
-      expect(f.fix).toContain("counterparts fired");
+      expect(f.fix).toContain("counterparts mechanisms --all");
       expect(f.data["blocked"]).toBe(1);
     });
 
@@ -1146,7 +1146,7 @@ describe("doctor — the reading", () => {
       expect(f.severity).toBe("amber");
       expect(f.detail).toContain("Fired last week and STOPPED this week");
       expect(f.detail).toContain("NO_CREDENTIAL");
-      expect(f.fix).toContain("counterparts fired");
+      expect(f.fix).toContain("counterparts mechanisms --all");
       expect(f.data["wentBlocked"]).toContain("NO_CREDENTIAL");
       // And the roll-call says how many, so the number and the list agree.
       expect(f.data["blocked"]).toBe(1);
@@ -1166,7 +1166,7 @@ describe("doctor — the reading", () => {
       expect(f.detail).toContain("Fired last week and not once this week:");
       expect(f.detail).toContain("the crash fallback");
       expect(f.data["wentQuiet"]).toContain("the crash fallback");
-      expect(f.fix).toContain("counterparts fired");
+      expect(f.fix).toContain("counterparts mechanisms --all");
       // Never red in this first version: a silence is a diagnosis to make, not
       // an emergency to raise (constitution 11).
       expect(anyRed(findings)).toBe(false);

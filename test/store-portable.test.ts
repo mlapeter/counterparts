@@ -696,6 +696,7 @@ describe("a store written before the floor is refused by name, and never touched
       ["migrate-cache"],
       ["migrate-cache", "--apply", "--yes"],
       ["fired"],
+      ["mechanisms"],
     ]) {
       const c = consoleAnswering("");
       const code = await run([...argv, "--dir", source], { io: c.io });

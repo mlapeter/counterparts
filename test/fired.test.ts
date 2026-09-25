@@ -789,7 +789,7 @@ describe("the tables that stand in for a mechanism with no event", () => {
 
 // ── the console ─────────────────────────────────────────────────────────────
 
-describe("counterparts fired", () => {
+describe("counterparts mechanisms --all (the full fired report)", () => {
   /** A console that collects both streams. */
   function consoleWith(): { io: Io; out: string[]; err: string[] } {
     const out: string[] = [];
@@ -799,7 +799,7 @@ describe("counterparts fired", () => {
 
   async function fired(): Promise<{ code: number; text: string; err: string }> {
     const c = consoleWith();
-    const code = await run(["fired", "--dir", dir], { io: c.io, now: () => at(TODAY) });
+    const code = await run(["mechanisms", "--all", "--dir", dir], { io: c.io, now: () => at(TODAY) });
     return { code, text: c.out.join("\n"), err: c.err.join("\n") };
   }
 
