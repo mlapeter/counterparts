@@ -34,7 +34,7 @@ export function paint(d) {
       absenceLine(d.pageAbsent, "no page has been written yet — it is written at the end of a session, from what keeps coming up, and you can amend it by hand")
     : '<div class="sp-head"><h2 class="sp-title">Who I am <small>— in my own words; the next session opens with this</small></h2>' +
         '<div class="sp-chips">' +
-          '<span class="chip">version ' + (p.version + 1) + "</span>" +
+          '<span class="chip">version ' + p.version + "</span>" +
           '<span class="chip">revised ' + esc(shortDate(p.revisedOn) || p.revisedOn || "on an unrecorded date") + "</span>" +
           '<span class="chip">by ' + esc(who(p.by)) + "</span>" +
           (p.stale ? '<span class="chip warn">not revised in a while</span>' : "") +
@@ -61,7 +61,7 @@ function paintHistory() {
       '" data-i="' + i + '" aria-pressed="' + (i === chosen) + '" title="' + esc(s.reason || "") + '">' +
       '<span class="tl-dot"></span>' +
       '<span class="tl-date">' + esc(shortDate(s.date) || (s.day !== null ? "day " + s.day : "undated")) + "</span>" +
-      '<span class="tl-who">' + esc(s.current ? "now" : "v" + s.n) + " · " + esc(s.by === "owner" ? "you" : s.by || "?") + "</span>" +
+      '<span class="tl-who">' + esc(s.current ? "now" : "v" + (s.seq - 1)) + " · " + esc(s.by === "owner" ? "you" : s.by || "?") + "</span>" +
     "</button>").join("");
   el.innerHTML =
     '<h2>How the page changed <small>— ' + steps.length + " versions; click one to see what changed</small></h2>" +
@@ -81,7 +81,7 @@ function paintVersion() {
   const s = steps[chosen];
   const prev = chosen > 0 ? steps[chosen - 1] : null;
   const head =
-    '<div class="tl-vhead"><b>' + (s.current ? "The page as it stands" : "Version " + s.n) + "</b>" +
+    '<div class="tl-vhead"><b>' + (s.current ? "The page as it stands" : "Version " + (s.seq - 1)) + "</b>" +
     '<span class="tl-meta">' + esc(shortDate(s.date) || "undated") + (s.day !== null ? " · lived day " + s.day : "") +
     " · written by " + esc(who(s.by)) + (s.bytes !== null ? " · " + s.bytes + " bytes" : "") + "</span></div>" +
     (s.reason ? '<div class="tl-why">“' + esc(s.reason) + "”</div>" : "");
@@ -102,7 +102,7 @@ function paintVersion() {
   } else {
     const rows = diffText(prev.body, s.body);
     const st = diffStats(rows);
-    body = '<div class="foot">Compared with ' + (prev.n ? "version " + prev.n : "the one before") + ": " +
+    body = '<div class="foot">Compared with ' + "version " + (prev.seq - 1) + ": " +
       '<span class="d-add">' + st.added + " line" + (st.added === 1 ? "" : "s") + " added or changed</span>, " +
       '<span class="d-del">' + st.removed + " taken out or changed</span>.</div>" +
       renderDiff(rows);

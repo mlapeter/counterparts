@@ -38,8 +38,15 @@ export function paint(d) {
   // ── the core ──
   if (s.core.length > 0) parts.push(group("In the core", "what repetition and weight earned; it no longer fades", s.core, "core"));
   // ── protected ──
-  if (s.guarded.length > 0) parts.push(group("Protected", "permanent — including permanently wrong", s.guarded, "guarded"));
-  if (s.outside.length > 0) {
+  // When nothing protected stands in the core, the two lists are the same rows:
+  // say it once, in the gloss, rather than printing them twice.
+  const sameRows = s.outside.length > 0 && s.outside.length === s.guarded.length;
+  if (s.guarded.length > 0) {
+    parts.push(group("Protected", sameRows
+      ? "permanent, including permanently wrong — and none of it has earned the core"
+      : "permanent — including permanently wrong", s.guarded, "guarded"));
+  }
+  if (s.outside.length > 0 && !sameRows) {
     parts.push(group("Permanent but not in the core", "worth a look: nothing earned these their place", s.outside, "outside"));
   }
   // ── contested ──

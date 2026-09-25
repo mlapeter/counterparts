@@ -35,5 +35,4 @@ export default {
     wake.mount(render);
   },
   render,
-  refresh: render,
 };

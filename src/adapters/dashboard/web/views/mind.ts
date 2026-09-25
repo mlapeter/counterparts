@@ -18,6 +18,7 @@ import type { PageVersion } from "../../../../core/self/index.js";
 import { TUNABLES as SLEEP, isJournal } from "../../../../core/sleep/index.js";
 import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
+import { dateOf } from "../../../../core/store/index.js";
 import type { DashboardSource } from "../../source.js";
 import { WITHHELD, reveal } from "../reveal.js";
 import { chapters, contestedRows, livedDays } from "./rows.js";
@@ -322,9 +323,10 @@ const JOURNAL_LIMIT = 60;
 // the page's history — a timeline, oldest first
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The store's own calendar day for a clock reading (the same rollover `revisedOn` uses). */
 function dateOfMs(at: number): string | null {
   if (!Number.isFinite(at) || at <= 0) return null;
-  return new Date(at).toISOString().slice(0, 10);
+  return dateOf(at);
 }
 
 /**
