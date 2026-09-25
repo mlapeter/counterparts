@@ -64,6 +64,32 @@ what the person typed; first ask at 6 typed turns or 24 KB of combined text, the
 more; 12 a day; doctor amber only on loss), #204 (store reads, WAL fold), #208 (`note` embeds on
 write). The owner confirmed all nine 09-20 defaults. #211 marked 31 closed gap entries.
 
+**2026-09-25, the mechanisms round (with the owner, all held lightly).** 0.3.1 is on npm.
+Order agreed: prospective → emotion → consolidation → association → contradictions
+(reconsolidation + interference) → schemas → gist, each talked through before it is built.
+In flight for 0.3.2: the store v7 change (#231: `core/time.ts` per `docs/time.md`, timestamps,
+the model on each memory, a reminder date, a feelings table built on a feelings wheel),
+`counterparts mechanisms` (#229, merged), spacing credit plus a "Nearby" lane chosen by context
+and habituation (the rich-get-richer loop), then reminders (the date field, ranges, the four
+tune questions from v1's rating pass, important dates said plainly).
+
+Tentative ideas, to talk through when their turn comes:
+- **Onboarding, "Her"-style.** A first conversation to learn about the person, which seeds
+  their first memories and feelings. The person describes the relationship they want, not
+  the assistant's personality. The assistant's first self-memories come from its own reactions,
+  and maybe from reading a few books or essays it picks, marked *read, not lived*. With this, the
+  rich-get-richer effect may be fine as it is, since it would reinforce what the start seeded.
+- **A journal entry per new model**, with notes from its system card on what changed, since
+  a new model changes the self. Builds on the model now recorded on each memory.
+- **A short check-in in the wake** ("how am I feeling, what do I need today"), from a poster
+  the owner shared.
+- **Emotion's behaviour:** feelings add height and slow the fading, mood-matching recall by
+  person, the feeling softens faster than the fact. Each person's feelings shape what the
+  assistant knows about them, and its own feelings shape its self. Designed in outline on
+  2026-09-25; not built.
+- **Balance across projects:** context-weighted recall should never become silos, and the
+  core identity and beliefs should come through everywhere.
+
 **Near term, beside the dashboard work:**
 - Done 2026-09-24 (merged, not yet on npm):
   - #213: prompts typed mid-turn are captured and paced.
