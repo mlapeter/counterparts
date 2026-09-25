@@ -7,8 +7,8 @@
  * the server will hand out from that tree:
  *
  *   - only `/app.js`, and files under `/shared/`, `/shell/`, `/pages/` and
- *     `/mechanisms/` — so `server.ts`, `views.ts`, the view modules and the two
- *     HTML files are NOT reachable as files (the HTML has its own routes);
+ *     `/mechanisms/` — so `server.ts`, `views.ts`, the view modules and the
+ *     HTML file are NOT reachable as files (the HTML has its own routes);
  *   - only an allow-listed extension: `.js`, `.css`, `.woff2`;
  *   - every path segment plain (`[A-Za-z0-9_-]` plus inner dots): no `..`, no
  *     `.`, no empty segment, no dotfile, no backslash, no NUL, no `%` left

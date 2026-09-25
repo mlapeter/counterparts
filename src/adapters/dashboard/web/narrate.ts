@@ -459,7 +459,7 @@ export const NARRATORS = {
         ? ""
         : ` The cap set aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`;
     return notable(
-      `The crash fallback read a transcript as ME: ${elements} element${elements === 1 ? "" : "s"} of my wake, ${num(bytes)} bytes, went in front of ${chunks} chunk${chunks === 1 ? "" : "s"}.${cut}${held}`,
+      `The crash fallback read a transcript as ME: ${elements} element${elements === 1 ? "" : "s"} of my wake, ${num(bytes, 0)} bytes, went in front of ${chunks} chunk${chunks === 1 ? "" : "s"}.${cut}${held}`,
     );
   },
 
@@ -509,12 +509,12 @@ export const NARRATORS = {
     const bytes = n(t, "bytes") ?? 0;
     const budget = n(t, "budget") ?? 0;
     const trimmed = n(t, "trimmedTotal") ?? 0;
-    const where = budget > 0 ? ` of the ${num(budget)} bytes the host said it could carry` : "";
+    const where = budget > 0 ? ` of the ${num(budget, 0)} bytes the host said it could carry` : "";
     if (trimmed === 0) {
-      return calm(`I rewrote my wake: ${num(bytes)} bytes${where}, with nothing trimmed.`);
+      return calm(`I rewrote my wake: ${num(bytes, 0)} bytes${where}, with nothing trimmed.`);
     }
     return calm(
-      `I rewrote my wake: ${num(bytes)} bytes${where}, after setting aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`,
+      `I rewrote my wake: ${num(bytes, 0)} bytes${where}, after setting aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`,
     );
   },
 
@@ -534,7 +534,7 @@ export const NARRATORS = {
           ? "the nightly writer revised my page"
           : "I amended my page";
     const because = why === null || why.length === 0 ? "" : `, ${why}`;
-    return calm(`${who}: ${num(bytes)} bytes${because}.`);
+    return calm(`${who}: ${num(bytes, 0)} bytes${because}.`);
   },
   "self.page.refused": (t) => {
     const why = s(t, "reason") ?? "refused";
@@ -560,7 +560,7 @@ export const NARRATORS = {
       case "started":
         return calm(`A windowless session of me was started to revise my page from ${about}.`);
       case "revised":
-        return calm(`My page was revised from ${about}${read}: ${num(n(t, "bytesBefore") ?? 0)} bytes became ${num(n(t, "bytesAfter") ?? 0)}.`);
+        return calm(`My page was revised from ${about}${read}: ${num(n(t, "bytesBefore") ?? 0, 0)} bytes became ${num(n(t, "bytesAfter") ?? 0, 0)}.`);
       case "nothing-to-say":
         return calm(`I read ${about}${read} and left my page as it stands — nothing about who I am moved that day.`);
       case "refused":
@@ -582,7 +582,7 @@ export const NARRATORS = {
     const created = t.p["created"] === true;
     const days = n(t, "lifeDays") ?? 0;
     return calm(
-      `I left a handoff for the next session in this directory: ${num(bytes)} bytes, ` +
+      `I left a handoff for the next session in this directory: ${num(bytes, 0)} bytes, ` +
         `${created ? "the first one here" : "replacing the one that stood"}, showing for ${num(days)} days of use.`,
     );
   },
@@ -590,12 +590,12 @@ export const NARRATORS = {
     const age = n(t, "ageDays");
     const bytes = n(t, "bytes") ?? 0;
     const when = age === null ? "" : age === 0 ? ", written today" : `, written ${num(age)} days of use ago`;
-    return calm(`I woke here and was handed the pointer to this directory's handoff${when} (${num(bytes)} bytes of the wake).`);
+    return calm(`I woke here and was handed the pointer to this directory's handoff${when} (${num(bytes, 0)} bytes of the wake).`);
   },
   "handoff.cleared": (t) => {
     const bytes = n(t, "bytes") ?? 0;
     return calm(
-      `I finished the work in this directory and retired its handoff (${num(bytes)} bytes). The next session here is handed nothing.`,
+      `I finished the work in this directory and retired its handoff (${num(bytes, 0)} bytes). The next session here is handed nothing.`,
     );
   },
   "handoff.refused": (t) => {
@@ -603,7 +603,7 @@ export const NARRATORS = {
     if (why === "no-room") {
       const budget = n(t, "budget") ?? 0;
       return calm(
-        `There was no room in this wake for the handoff pointer (the bundle would have been ${num(n(t, "bytes") ?? 0)} bytes against a ceiling of ${num(budget)}), so it was left off whole.`,
+        `There was no room in this wake for the handoff pointer (the bundle would have been ${num(n(t, "bytes") ?? 0, 0)} bytes against a ceiling of ${num(budget, 0)}), so it was left off whole.`,
       );
     }
     return calm(`A handoff was turned away (${why}). Nothing was left for the next session here.`);
