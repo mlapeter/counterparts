@@ -234,7 +234,9 @@ describe("the router answers every endpoint over a store with a life in it", () 
       const memories = get(d.src, "/api/memories").json;
       expect(Number(memories["total"])).toBeGreaterThan(50);
       expect((memories["points"] as unknown[]).length).toBeGreaterThan(50);
-      expect((memories["hubs"] as unknown[]).length).toBeGreaterThan(0);
+      // The graph hubs are the association panel's picture now (home's Explorer).
+      const association = get(d.src, "/api/mechanism?id=association").json["picture"] as { hubs: unknown[] };
+      expect(association.hubs.length).toBeGreaterThan(0);
       expect((memories["kinds"] as unknown[]).length).toBe(6);
 
       const mind = get(d.src, "/api/mind").json;

@@ -13,6 +13,7 @@ import type { DashboardSource } from "../../source.js";
 import type { NarratedEvent } from "../narrate.js";
 import { reveal } from "../reveal.js";
 import { activityView } from "./activity.js";
+import { archiveEntry } from "./archive-words.js";
 import { mechanismsView } from "./mechanisms.js";
 import { lastActive } from "./meta.js";
 import { BAND_GLOSS, chapters, contestedRows, livedDays } from "./rows.js";
@@ -56,6 +57,20 @@ export interface Hero {
   /** Mechanisms that fired in the window, and how many there are. */
   readonly working: number;
   readonly mechanisms: number;
+}
+
+/**
+ * The archived count's caption: the most common reason, in the shared plain
+ * words, when there is one the table names — archived rows are mostly cleared
+ * handoff notes, revisions and regrown journal memories, not fading.
+ */
+function archivedNote(reasons: readonly (string | null)[]): string {
+  const counts = new Map<string, number>();
+  for (const r of reasons) if (r !== null) counts.set(r, (counts.get(r) ?? 0) + 1);
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+  const entry = top === undefined ? undefined : archiveEntry(top[0]);
+  if (top === undefined || entry === undefined) return "set aside, kept, not deleted";
+  return `${counts.size === 1 ? "all" : "mostly"} ${entry.many}; kept, not deleted`;
 }
 
 export interface OverviewView {
@@ -198,7 +213,7 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
       {
         label: "archived",
         value: String(archived.length),
-        note: "faded out of use, kept, not deleted",
+        note: archivedNote(archived.map((r) => r.archived)),
         absent: archived.length === 0,
       },
     ],

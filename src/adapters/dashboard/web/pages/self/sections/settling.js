@@ -9,7 +9,7 @@ import { openModal } from "../../../shared/modal.js";
 import { storyCard } from "./stories.js";
 
 export const markup = `
-        <h2>What it's settling into <small>— the core, what's protected, what's being argued with</small></h2>
+        <h2 id="self-settling-h">What it's settling into <small>— the core, what's protected, what's being argued with</small></h2>
         <div class="card pad" id="self-settling"></div>`;
 
 const SHOW = 5;

@@ -35,4 +35,9 @@ export default {
     wake.mount(render);
   },
   render,
+  /** `#self/settling`, `#self/journal`: open the tab at that section. */
+  route({ anchor }) {
+    const h = anchor && $("self-" + anchor + "-h");
+    if (h) h.scrollIntoView({ block: "start" });
+  },
 };

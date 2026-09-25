@@ -7,7 +7,7 @@ import { said } from "../../../shared/format.js";
 import { renderMarkdown } from "../markdown.js";
 
 export const markup = `
-    <h2>Journal <small>— a chapter at the end of a session; these do not fade</small></h2>
+    <h2 id="self-journal-h">Journal <small>— a chapter at the end of a session; these do not fade</small></h2>
     <div id="self-journal"></div>`;
 
 export function paint(d) {

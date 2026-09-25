@@ -5,7 +5,6 @@
  * the four rules in that file's header apply to every line below.
  */
 import { symmetryCheck } from "../../../../core/physics/index.js";
-import { TUNABLES as SCHEMA_TUNABLES } from "../../../../core/schemas/index.js";
 import { MARKER_UNSET, MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON, readMarker } from "../../../../core/sleep/index.js";
 import type { Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
@@ -14,9 +13,7 @@ import type { DurableEventName } from "../../registries.js";
 import type { DashboardSource } from "../../source.js";
 import { reveal, revealHere } from "../reveal.js";
 
-/** `owner-op-seam.ts#REMOVED_REASON`, spelled here because that module is the
- *  store's WRITE seam and this directory imports no write seam. */
-const REMOVED_BY_OWNER = "removed-by-owner";
+import { ARCHIVE_PHRASES, REMOVED_BY_OWNER, unmappedArchiveWords } from "./archive-words.js";
 import { LOG_CEILING, eventCountsByName } from "./shared.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,23 +92,6 @@ const PHASE_GLOSS: Record<string, string> = {
   log: "sweep old log rows",
 };
 
-/**
- * EVERY `archived_reason` THE CODE WRITES, in plain words, in the order the bar
- * draws them. A reason not listed here still gets a segment ("other: <reason>"),
- * so nothing archived is ever left off the picture.
- */
-export const ARCHIVE_PHRASES: readonly (readonly [string, string])[] = [
-  ["handoff-cleared", "old handoff notes cleared"],
-  ["handoff-duplicate", "duplicate handoff notes retired"],
-  ["revised-by-pressure", "revised"],
-  ["replaced-by-declaration", "replaced by a correction"],
-  ["supersede", "replaced by a newer version"],
-  ["episode-regrown", "rebuilt from the journal"],
-  [SCHEMA_TUNABLES.FADE_REASON, "faded from use"],
-  [PRUNE_ARCHIVE_REASON, "let go at the floor"],
-  [MERGE_ARCHIVE_REASON, "merged duplicates"],
-  [REMOVED_BY_OWNER, "removed by you"],
-];
 /** Shown even at zero: the three ways out that are forgetting by design. */
 const ALWAYS_SHOWN = new Set<string>([PRUNE_ARCHIVE_REASON, MERGE_ARCHIVE_REASON, REMOVED_BY_OWNER]);
 /** How many ids one segment carries to the page. */
@@ -290,7 +270,7 @@ export function healthView(src: DashboardSource): HealthView {
   for (const [reason, ids] of byReason) {
     reasons.push({
       reason: reason === "" ? "(none)" : reason,
-      phrase: reason === "" ? "no reason recorded" : `other: ${reason}`,
+      phrase: unmappedArchiveWords(reason),
       count: ids.length,
       known: false,
       items: itemsOf(ids),

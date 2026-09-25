@@ -14,6 +14,8 @@ export const markup = `
       <div class="home-brain" id="home-brain"></div>
     </section>`;
 
+export function mount() { tiles.mount(); }
+
 export function paint(d) {
   $("home-headline").textContent = d.hero.headline;
   tiles.paint(d);

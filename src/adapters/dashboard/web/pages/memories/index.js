@@ -8,6 +8,7 @@ import * as kinds from "./sections/kinds.js";
 import * as list from "./sections/list.js";
 import * as search from "./sections/search.js";
 import * as tools from "./sections/tools.js";
+import { setFilter } from "./state.js";
 
 const markup = `
     <div class="mem-top">
@@ -62,6 +63,13 @@ export default {
   /** Coming back to the tab: the canvas may have been laid out at zero width. */
   show() { constellation.draw(); },
   resize() { if (MEM) constellation.draw(); },
+  /** `#memories?state=archived` (or live/all): open the list at that filter. */
+  route({ params }) {
+    const state = params.get("state");
+    if (!["live", "archived", "all"].includes(state)) return;
+    setFilter({ state, kind: null, band: null });
+    document.getElementById("mlist-h").scrollIntoView({ block: "start" });
+  },
   /** After boot, when this is the tab showing. */
   redraw() { constellation.draw(); },
 };

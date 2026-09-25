@@ -65,6 +65,7 @@ export default {
   name: "home",
   mount(section) {
     section.innerHTML = markup;
+    hero.mount();
     liveActivity.mount();
     // The brain is built once and kept; a failure to start is a calm sentence
     // in its place, never an error on the page.

@@ -150,7 +150,7 @@ describe("the list: every memory, newest first, paged by the server", () => {
     expect(archiveWords("handoff-cleared", false)).toBe("old handoff note cleared");
     expect(archiveWords("revised-by-pressure", true)).toContain("revised");
     expect(archiveWords("something-new", false)).toBe("archived (something-new)");
-    expect(archiveWords(null, false)).toBe("archived");
+    expect(archiveWords(null, false)).toBe("archived, no reason recorded");
   });
 
   test("an empty store names its absence rather than going blank", () => {

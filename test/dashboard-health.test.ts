@@ -28,7 +28,8 @@ import { join, relative } from "node:path";
 
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { NO_CONFIG_HOME, buildArgv, runAction } from "../src/adapters/dashboard/web/actions.js";
-import { ARCHIVE_PHRASES, healthView } from "../src/adapters/dashboard/web/views/health.js";
+import { ARCHIVE_PHRASES } from "../src/adapters/dashboard/web/views/archive-words.js";
+import { healthView } from "../src/adapters/dashboard/web/views/health.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
 import { MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";

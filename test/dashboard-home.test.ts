@@ -16,6 +16,7 @@ import { Dashboard } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { narrate } from "../src/adapters/dashboard/web/narrate.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
+import { archiveEntry } from "../src/adapters/dashboard/web/views/archive-words.js";
 import { memoriesHeld } from "../src/adapters/dashboard/web/views/shared.js";
 import { MECHANISM_PROOFS, mechanismsView } from "../src/adapters/dashboard/web/views/mechanisms.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
@@ -82,6 +83,32 @@ describe("the hero", () => {
       expect(hero.counts[0]?.value).toBe(String(held));
       expect([hero.working, hero.mechanisms]).toEqual([working, 11]);
     });
+  });
+
+  test("the archived count names its most common reason in the shared plain words", () => {
+    withSource(richDir, (src) => {
+      const counts = get(src, "/api/overview").json["hero"] as { counts: { label: string; note: string }[] };
+      const note = counts.counts.find((c) => c.label === "archived")?.note ?? "";
+      const tally = new Map<string, number>();
+      for (const id of src.store.list()) {
+        const row = src.store.row(id);
+        if (row?.archived === 1 && row.archived_reason !== null) tally.set(row.archived_reason, (tally.get(row.archived_reason) ?? 0) + 1);
+      }
+      const top = [...tally.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+      const words = top === undefined ? undefined : archiveEntry(top[0]);
+      expect(note).toContain(words === undefined ? "set aside" : words.many);
+      expect(note).toContain("kept, not deleted");
+    });
+  });
+
+  test("each hero count is a link to where it is shown in full", () => {
+    const tiles = readFileSync(join(WEB, "pages/home/sections/tiles.js"), "utf8");
+    for (const [label, to] of [
+      ["memories held", "memories?state=live"],
+      ["core memories", "self/settling"],
+      ["chapters written", "self/journal"],
+      ["archived", "memories?state=archived"],
+    ]) expect(tiles).toContain(`"${label}": "${to}"`);
   });
 
   test("a store that has lived nothing says so, and counts nothing", () => {

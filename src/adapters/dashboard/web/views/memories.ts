@@ -1,5 +1,5 @@
 /**
- * `/api/memories` — the constellation, the kinds, the hubs.
+ * `/api/memories` — the constellation and the kinds; `/api/memories/list` — every memory.
  *
  * Split out of `web/views.ts`, which re-exports every public name from here;
  * the four rules in that file's header apply to every line below.
@@ -11,7 +11,8 @@ import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
 import { BANDS, KINDS } from "../../registries.js";
 import type { DashboardSource } from "../../source.js";
-import { WITHHELD, reveal, revealHere } from "../reveal.js";
+import { WITHHELD, revealHere } from "../reveal.js";
+import { archiveWords } from "./archive-words.js";
 import { BAND_GLOSS } from "./rows.js";
 import type { BarRow } from "./rows.js";
 import { absenceFor, census, countMap } from "./shared.js";
@@ -39,14 +40,6 @@ export interface KindRow {
   readonly fadeSpeed: number;
 }
 
-export interface HubRow {
-  readonly id: string;
-  readonly text: string;
-  readonly confidential: boolean;
-  readonly weight: number;
-  readonly degree: number;
-}
-
 export interface MemoriesView {
   readonly day: number;
   readonly total: number;
@@ -61,8 +54,6 @@ export interface MemoriesView {
   readonly strengthByBand: { from: number; to: number; bands: Record<string, number> }[];
   readonly bands: BarRow[];
   readonly kinds: KindRow[];
-  readonly hubs: HubRow[];
-  readonly hubsAbsent: string | null;
   readonly pointsAbsent: string | null;
   readonly note: string;
 }
@@ -123,8 +114,6 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
     if (bucket !== undefined) bucket.count += 1;
   }
 
-  // Walked once: it reads every live row's edges, and it was walked twice.
-  const hubRows = hubs(src, 15);
   const steps = 10;
   const strengthByBand = Array.from({ length: steps }, (_, i) => ({
     from: i / steps,
@@ -167,34 +156,8 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
         fadeSpeed: fadeSpeed(tunables.kappa),
       };
     }),
-    hubs: hubRows,
-    hubsAbsent: hubRows.length === 0 ? (everLived ? NONE : NEVER) : null,
     note: "Every dot is one memory — or one of the beliefs and entities the schemas hold, which decay and consolidate the same way and are counted apart only where a headline says memories. How many lived days old across, how strong up, how much it mattered at encoding as its size. Colour is the band it is in today, computed now — not the band it was born into.",
   };
-}
-
-function hubs(src: DashboardSource, limit: number): HubRow[] {
-  const store = src.store;
-  const weight = new Map<string, { w: number; d: number }>();
-  for (const id of store.list({ archived: false })) {
-    const row = store.row(id);
-    if (row === undefined || isJournal(row)) continue;
-    for (const edge of store.edgesFrom(id)) {
-      for (const end of [id, edge.dst]) {
-        const cur = weight.get(end) ?? { w: 0, d: 0 };
-        cur.w += edge.weight;
-        cur.d += 1;
-        weight.set(end, cur);
-      }
-    }
-  }
-  return [...weight.entries()]
-    .sort((a, b) => b[1].w - a[1].w || (a[0] < b[0] ? -1 : 1))
-    .slice(0, limit)
-    .map(([id, v]) => {
-      const r = reveal(store, id, 72);
-      return { id, text: r.text ?? r.label, confidential: r.confidential, weight: v.w, degree: v.d };
-    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,22 +210,6 @@ export interface MemoryListView {
 }
 
 /** The archive reasons the core writes, said the way a person would say them. */
-const ARCHIVE_WORDS: Record<string, string> = {
-  pruned: "let go at the floor — too weak for too long",
-  merged: "merged into a near-duplicate",
-  "faded-by-decay": "faded away — nothing mentions it any more",
-  "handoff-cleared": "old handoff note cleared",
-  "handoff-duplicate": "a repeated handoff note, cleared",
-  "episode-regrown": "regrown from its episode — a newer reading replaced it",
-  "removed-by-owner": "removed by you",
-};
-
-export function archiveWords(reason: string | null, superseded: boolean): string {
-  if (reason !== null && reason in ARCHIVE_WORDS) return ARCHIVE_WORDS[reason] as string;
-  if (superseded) return "revised — a newer version replaced it";
-  return reason === null || reason.length === 0 ? "archived" : `archived (${reason})`;
-}
-
 export const LIST_MAX = 200;
 
 /** A schema row's role, from its own meta: an entity has no `entityId` to hang on. */
