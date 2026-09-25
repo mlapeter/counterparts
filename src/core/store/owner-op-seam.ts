@@ -190,6 +190,10 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
     // Rows that carry nothing anyone else points at: they simply go.
     db.run("DELETE FROM edges WHERE src = ? OR dst = ?", id, id);
     db.run("DELETE FROM prospective WHERE memory_id = ?", id);
+    // v7: a feeling carries words about the moment (`carried_by`), so it goes
+    // with the memory. One statement, so a `beneath_id` between two of them is
+    // never left dangling mid-delete.
+    db.run("DELETE FROM feelings WHERE memory_id = ?", id);
     db.run("DELETE FROM gate_session WHERE ref = ?", id);
 
     // Version rows stay (a successor's predecessor pointer lives here) and lose

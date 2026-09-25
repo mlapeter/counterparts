@@ -149,7 +149,9 @@ import type {
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
-import type { Embedder, StoreEvent } from "./store/index.js";
+import type {
+  AddFeelingsResult,
+  FeelingInput, Embedder, StoreEvent } from "./store/index.js";
 import { TUNABLES as PHYSICS } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
@@ -2170,6 +2172,22 @@ export class Counterpart {
   /** The experiencer's end-of-session dump. Channel: `authored` (SEAMS N). */
   async submitSessionEnd(draft: unknown, ctx: SessionEndDepositContext): Promise<DepositResult> {
     return this.deposit(draft, "session-end", ctx);
+  }
+
+  /**
+   * Feelings on a memory (schema v7, `store/feelings.ts`), through the SECRETS
+   * half of the battery: `carried_by` and an `other` word are words about the
+   * moment, and a credential must not land in them any more than in a body.
+   * Nothing else here reads them — salience, decay and recall are untouched
+   * until the emotion build. Throws what the store throws (`FEELING_INVALID`).
+   */
+  addFeelings(memoryId: string, inputs: readonly FeelingInput[], opts: { model?: string } = {}): AddFeelingsResult {
+    const clean = inputs.map((f) => ({
+      ...f,
+      ...(typeof f.carriedBy === "string" ? { carriedBy: redactSecrets(f.carriedBy) } : {}),
+      ...(typeof f.otherWord === "string" ? { otherWord: redactSecrets(f.otherWord) } : {}),
+    }));
+    return this.store.addFeelings(memoryId, clean, opts);
   }
 
   /** An in-the-moment deliberate deposit. Channel: `authored`. Always covers

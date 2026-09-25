@@ -1119,10 +1119,12 @@ describe("user-prompt-submit — recall injection, footnote tier, and the anti-l
     expect(woke.injection.split("\n")[0]).toBe("Now: Fri 25 Sep 2026, 11:50 pm MDT");
   });
 
-  test("a quiet turn injects the EMPTY STRING, never an empty block", () => {
+  test("a quiet turn injects the clock line alone, never an empty block", () => {
     const { a } = seeded();
     const result = a.userPromptSubmit(input({ prompt: "zygomorphic vellichor quixotry" }));
-    expect(result.injection).toBe("");
+    // Every turn carries the time since 2026-09-25 (docs/time.md rule 5).
+    expect(result.injection).toMatch(/^Now: [^\n]+$/);
+    expect(result.bytes).toBe(0);
     expect(result.ok).toBe(true);
   });
 
@@ -1131,7 +1133,7 @@ describe("user-prompt-submit — recall injection, footnote tier, and the anti-l
     const result = a.userPromptSubmit(input({ prompt: "   " }));
     expect(result.ok).toBe(true);
     expect(result.reason).toBe("empty-prompt");
-    expect(result.injection).toBe("");
+    expect(result.injection).toMatch(/^Now: [^\n]+$/);
   });
 });
 

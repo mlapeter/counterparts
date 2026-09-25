@@ -43,6 +43,8 @@ import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { isModelId } from "../types.js";
 import { calendarOverlaps, compareCalendarDates, isCalendarDate, localDate, resolveZone, utcDate } from "../time.js";
+import { checkFeelings } from "./feelings.js";
+import type { AddFeelingsResult, FeelingInput, FeelingRow } from "./feelings.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { Db, Statement, WalFold } from "./db.js";
@@ -115,6 +117,7 @@ export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
 export * from "./render.js";
+export * from "./feelings.js";
 export type { Db, Statement, WalFold } from "./db.js";
 export type {
   MemoryRow,
@@ -623,6 +626,7 @@ export const WRITE_METHODS = [
   "link",
   "linkMany",
   "setProspective",
+  "addFeelings",
   "advanceClock",
   "setMeta",
   "setMetaMany",
@@ -1636,6 +1640,50 @@ export class Store {
     });
   }
 
+  /**
+   * Record feelings on a memory (schema v7; `store/feelings.ts`). All or none:
+   * one bad input refuses the call `FEELING_INVALID` and writes nothing. An
+   * emotion not on the wheel is stored as `other` with the word kept, and the
+   * result's `notices` name the nearest wheel keys so the caller can rewrite.
+   * `beneath` is an existing feeling's id ON THIS MEMORY or another input's
+   * index. `model` is the writer's model id, screened like `PutInput.model`.
+   */
+  addFeelings(memoryId: string, inputs: readonly FeelingInput[], opts: { model?: string } = {}): AddFeelingsResult {
+    const { rows, notices } = checkFeelings(inputs);
+    const ids = rows.map(() => `fel_${randomBytes(6).toString("hex")}`);
+    this.mutate("addFeelings", () => {
+      this.requireRow(memoryId);
+      const at = this.nowFn();
+      const model = modelOrNull(opts.model);
+      const insert = this.ops.prepare(
+        `INSERT INTO feelings
+           (id, memory_id, whose, core, emotion, other_word, strength, beneath_id, carried_by, model,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      );
+      rows.forEach((r, i) =>
+        insert.run(ids[i] as string, memoryId, r.whose, r.core, r.emotion, r.otherWord, r.strength, r.carriedBy, model, at, at),
+      );
+      // THEN the links, so an input may sit on one listed after it.
+      rows.forEach((r, i) => {
+        if (r.beneath === null) return;
+        let under: string;
+        if (typeof r.beneath === "number") {
+          under = ids[r.beneath] as string;
+        } else {
+          const found = this.ops.get<{ memory_id: string }>("SELECT memory_id FROM feelings WHERE id = ?", r.beneath);
+          if (found === undefined || found.memory_id !== memoryId) {
+            throw new StoreError("FEELING_INVALID", { index: i, reason: "beneath-not-on-this-memory" });
+          }
+          under = r.beneath;
+        }
+        this.ops.run("UPDATE feelings SET beneath_id = ? WHERE id = ?", under, ids[i] as string);
+      });
+    });
+    this.emit("store.feelings", memoryId, { count: rows.length, other: notices.length });
+    return { ids, notices };
+  }
+
   /** The active-day clock (scar E8): days actually lived, not calendar days. */
   advanceClock(date: string): number {
     const day = this.mutate("advanceClock", () => {
@@ -2530,6 +2578,44 @@ export class Store {
       .filter((r) => calendarOverlaps(r.event_date, from, to))
       .sort((a, b) => compareCalendarDates(a.event_date, b.event_date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .map((r) => ({ id: r.id, eventDate: r.event_date }));
+  }
+
+  /** A memory's feelings, oldest first (then in the order written). A removed memory has none. */
+  feelingsFor(memoryId: string): FeelingRow[] {
+    return this.ops.all<FeelingRow>(
+      "SELECT * FROM feelings WHERE memory_id = ? ORDER BY created_at, rowid",
+      memoryId,
+    );
+  }
+
+  /**
+   * How many feelings, by `whose` and by `core` or `emotion` (an `other` counts
+   * under `other`), recorded from `from` to `to` — the person's calendar days,
+   * inclusive, read in `zone()`; either end may be left open. Counts only: no
+   * word of any feeling leaves here.
+   */
+  feelingCounts(
+    opts: { by: "core" | "emotion"; whose?: string; from?: string; to?: string },
+  ): { whose: string; key: string; count: number }[] {
+    const col = opts.by === "core" ? "core" : "emotion";
+    const rows = this.ops.all<{ whose: string; key: string; created_at: number }>(
+      `SELECT whose, ${col} AS key, created_at FROM feelings ${opts.whose === undefined ? "" : "WHERE whose = ?"}`,
+      ...(opts.whose === undefined ? [] : [opts.whose]),
+    );
+    const zone = this.zone();
+    const tally = new Map<string, { whose: string; key: string; count: number }>();
+    for (const r of rows) {
+      if (opts.from !== undefined || opts.to !== undefined) {
+        const day = localDate(r.created_at, zone);
+        if (opts.from !== undefined && day < opts.from) continue;
+        if (opts.to !== undefined && day > opts.to) continue;
+      }
+      const k = `${r.whose}\u0000${r.key}`;
+      const t = tally.get(k) ?? { whose: r.whose, key: r.key, count: 0 };
+      t.count += 1;
+      tally.set(k, t);
+    }
+    return [...tally.values()].sort((a, b) => b.count - a.count || (a.whose + a.key < b.whose + b.key ? -1 : 1));
   }
 
   versions(id: string): VersionRow[] {

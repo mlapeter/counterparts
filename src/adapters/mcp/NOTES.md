@@ -629,3 +629,14 @@ before any tool named a session) it is undefined and the row records NULL. The s
 is unchanged and was checked against the 0.3.1 build on a store this build migrated: the
 old server refuses every tool `schema-ahead` ("Run /mcp and Reconnect"). `status`'s
 removal dates are the person's day (`localDate(at, store.zone())`), no longer UTC.
+
+## 2026-09-25 — feelings on `note` and `session_end` (schema v7)
+
+`feelings: [{ whose, core, emotion, strength, carried_by?, beneath? }]` on a `note` or a
+`session_end` entry (`beneath` is another item's index). `readFeelings` reads and runs
+the store's pure `checkFeelings` BEFORE the deposit, so a bad list refuses its note or
+its one entry (`feelings-malformed`, naming the item and reason; siblings still run) and
+no memory lands with its feelings dropped. After a mint, `recordFeelings` writes them
+with the session's model and answers `feelings: { stored, other? }`; each `other` item
+carries the nearest wheel keys and a one-line note to rewrite with. A throw there costs
+the feelings, never the memory, and says so. No salience, decay or recall change.

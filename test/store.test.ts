@@ -1782,6 +1782,7 @@ describe("observer mode is enforced at the store seam", () => {
         state: "armed",
       },
     ],
+    addFeelings: ["mem_000000000000", [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5 }]],
     advanceClock: ["2026-08-26"],
     setMeta: ["k", "v"],
     setMetaMany: [[["k", "v"]]],

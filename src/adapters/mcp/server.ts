@@ -48,7 +48,8 @@ import { localDate } from "../../core/time.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
-import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION, StoreError, schemaAhead } from "../../core/store/index.js";
+import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION, StoreError, checkFeelings, isStoreError, schemaAhead } from "../../core/store/index.js";
+import type { FeelingInput } from "../../core/store/index.js";
 import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
@@ -940,13 +941,17 @@ export class McpServer {
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
 
     const model = this.sessionModel();
+    const feelings = readFeelings(args["feelings"]);
+    if ("refused" in feelings) {
+      return this.refuse("note", "feelings-malformed", { detail: feelings.refused });
+    }
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
       ownSpanHash,
       ...(model === undefined ? {} : { model }),
     });
-    return this.depositResult("note", deposit);
+    return this.depositResult("note", deposit, this.recordFeelings(deposit, feelings.inputs, model));
   }
 
   /**
@@ -1490,9 +1495,11 @@ export class McpServer {
     cover?: false | { readonly session: string },
   ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
     const entries: Record<string, unknown>[] = [];
+    const feelingsOf: FeelingsRead[] = [];
     for (const item of raw) {
       if (item === null || typeof item !== "object" || Array.isArray(item)) {
         entries.push({ content: "" });
+        feelingsOf.push({ inputs: [] });
         continue;
       }
       const rec = item as Record<string, unknown>;
@@ -1507,13 +1514,21 @@ export class McpServer {
       const entryDims = readDimensions(rec) ?? pickDimensions(rec);
       if (Object.keys(entryDims).length > 0) draft["salience"] = entryDims;
       entries.push(draft);
+      feelingsOf.push(readFeelings(rec["feelings"]));
     }
 
     const outcomes: Record<string, unknown>[] = [];
     let deposited = 0;
     let duplicates = 0;
     const model = this.sessionModel();
-    for (const draft of entries) {
+    for (const [n, draft] of entries.entries()) {
+      // Feelings that cannot be stored refuse THEIR entry before it mints, so
+      // no memory lands with its feelings silently dropped; siblings still run.
+      const feelings = feelingsOf[n] ?? { inputs: [] };
+      if ("refused" in feelings) {
+        outcomes.push({ stored: false, reason: "feelings-malformed", detail: feelings.refused });
+        continue;
+      }
       let result: DepositResult;
       try {
         result = await this.counterpart.submitSessionEnd(draft, {
@@ -1541,6 +1556,7 @@ export class McpServer {
         ...(result.gate === null ? {} : { gate: result.gate }),
         ...(malformed === null ? {} : { malformed }),
         ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
+        ...this.recordFeelings(result, feelings.inputs, model),
       });
     }
     return { outcomes, deposited, duplicates, entries };
@@ -2053,7 +2069,43 @@ export class McpServer {
 
   // ── result shapes ──────────────────────────────────────────────────────────
 
-  private depositResult(tool: string, deposit: DepositResult): ToolResult {
+  /**
+   * The feelings half of a deposit (schema v7): written onto the memory that
+   * just minted, and answered as `feelings: { stored, other? }` — `other`
+   * listing each emotion kept as `other` with the wheel keys nearest it, so the
+   * caller can rewrite. Nothing when none were sent or nothing minted. A throw
+   * here costs the feelings, never the memory, and says so.
+   */
+  private recordFeelings(
+    deposit: DepositResult,
+    inputs: readonly FeelingInput[],
+    model: string | undefined,
+  ): Record<string, unknown> {
+    if (inputs.length === 0 || !deposit.deposited || deposit.memoryId === null) return {};
+    try {
+      const added = this.counterpart.addFeelings(deposit.memoryId, inputs, model === undefined ? {} : { model });
+      return {
+        feelings: {
+          stored: added.ids.length,
+          ...(added.notices.length === 0
+            ? {}
+            : {
+                other: added.notices.map((n) => ({
+                  index: n.index,
+                  word: n.word,
+                  core: n.core,
+                  closest: n.closest,
+                  note: `"${n.word}" is not on the feelings wheel, so it was kept as other. If you meant one of these, say it that way next time: ${n.closest.join(", ")}.`,
+                })),
+              }),
+        },
+      };
+    } catch (err) {
+      return { feelings: { stored: 0, reason: "threw", detail: String((err as Error).message ?? err) } };
+    }
+  }
+
+  private depositResult(tool: string, deposit: DepositResult, extra: Record<string, unknown> = {}): ToolResult {
     this.emit(`mcp.${tool}`, deposit.memoryId ?? undefined, {
       stored: deposit.deposited,
       reason: deposit.reason,
@@ -2068,6 +2120,7 @@ export class McpServer {
         ...(deposit.memoryId === null ? {} : { id: deposit.memoryId }),
         ...(deposit.gate === null ? {} : { gate: deposit.gate }),
         ...(lifted ? { salienceLifted: true } : {}),
+        ...extra,
       },
       !deposit.deposited,
     );
@@ -2182,3 +2235,49 @@ function pickDimensions(rec: Record<string, unknown>): Record<string, unknown> {
   }
   return out;
 }
+
+// ── feelings on a tool call (schema v7) ─────────────────────────────────────
+
+type FeelingsRead = { inputs: FeelingInput[] } | { refused: string };
+
+/**
+ * `feelings: [{ whose, core, emotion, strength, carried_by, beneath?, other_word? }]`
+ * off a `note` or a `session_end` entry, read and CHECKED before anything
+ * mints (`store/feelings.ts#checkFeelings`, pure). `beneath` is another
+ * feeling's index in the same list. Absent is no feelings; anything that will
+ * not store is a refusal naming the item and the reason.
+ */
+function readFeelings(raw: unknown): FeelingsRead {
+  if (raw === undefined || raw === null) return { inputs: [] };
+  if (!Array.isArray(raw)) return { refused: "`feelings` is a list of objects." };
+  const inputs: FeelingInput[] = [];
+  for (const [i, item] of raw.entries()) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      return { refused: `feelings[${i}] is not an object.` };
+    }
+    const f = item as Record<string, unknown>;
+    const carried = f["carried_by"] ?? f["carriedBy"];
+    const other = f["other_word"] ?? f["otherWord"];
+    inputs.push({
+      whose: f["whose"] as string,
+      core: f["core"] as string,
+      emotion: f["emotion"] as string,
+      strength: f["strength"] as number,
+      ...(carried === undefined ? {} : { carriedBy: carried as string }),
+      ...(other === undefined ? {} : { otherWord: other as string }),
+      ...(f["beneath"] === undefined || f["beneath"] === null ? {} : { beneath: f["beneath"] as number }),
+    });
+  }
+  try {
+    checkFeelings(inputs);
+  } catch (err) {
+    if (isStoreError(err, "FEELING_INVALID")) {
+      const d = (err as { detail?: Record<string, unknown> }).detail ?? {};
+      const allowed = typeof d["allowed"] === "string" ? ` (one of ${d["allowed"]})` : "";
+      return { refused: `feelings[${String(d["index"])}]: ${String(d["reason"])}${allowed}.` };
+    }
+    throw err;
+  }
+  return { inputs };
+}
+

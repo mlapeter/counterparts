@@ -1580,9 +1580,9 @@ What the build settled, beyond the CONTRACT section:
   untouched, and the delivery check (which finds sentinels by prefix) reads as before.
   The line's bytes are counted wherever the host's ceiling is: `sent`, not `woke.bytes`,
   decides the over-budget event and the room an ask may take. `bytes` in the result is
-  still the wake's own count. A turn that surfaced nothing prints nothing, as before —
-  so a long quiet stretch carries no clock; whether a quiet turn should print the line
-  alone is left for the owner (it would be ~40 bytes on every turn).
+  still the wake's own count. **Every turn** prints the line — alone when recall surfaced
+  nothing, and on an empty prompt (owner, 2026-09-25: ~40 bytes a turn is fine). A
+  primacy stand-down still prints nothing: a muted session is muted.
 - **Doctor**: the header lost its "(UTC)"; the Clock line names the zone in use
   (`today 2026-09-25 (America/Denver)`). `rowDate`'s fallback, the oldest-event and
   database-birth days, and the page's staleness read that zone.

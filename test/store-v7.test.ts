@@ -89,6 +89,7 @@ function makeV6(at: string): { mem: string; ver: string } {
   s.close();
   const db = new Database(paths.operational(at));
   db.run("DROP INDEX IF EXISTS memories_event_date");
+  db.run("DROP TABLE feelings");
   for (const [table, column] of V7_DROPPED) db.run(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '6')");
   db.close();
@@ -98,7 +99,7 @@ function makeV6(at: string): { mem: string; ver: string } {
 function schemaOf(path: string): string[] {
   const d = new Database(path, { readonly: true });
   const out: string[] = [];
-  for (const table of ["memories", "versions", "edges", "prospective"]) {
+  for (const table of ["memories", "versions", "edges", "prospective", "feelings"]) {
     const cols = d.prepare(`PRAGMA table_info(${table})`).all() as {
       name: string;
       type: string;

@@ -9,8 +9,11 @@
  * by hand.
  */
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+
+import { openCounterpart, zoneBeside } from "../src/adapters/cli/commands.js";
 
 import {
   addDays,
@@ -259,6 +262,26 @@ describe("rule 1: nothing outside time.ts builds a date by hand", () => {
       const text = readFileSync(join(ROOT, rel), "utf8");
       const hits = codeLines(text).some(({ line }) => HAND_BUILT.some(({ re }) => re.test(line)));
       expect({ rel, hits }).toEqual({ rel, hits: true });
+    }
+  });
+});
+
+describe("the console reads the zone the config beside the store names", () => {
+  test("zoneBeside and openCounterpart honour <base>/claude-code.json's timeZone", () => {
+    const base = mkdtempSync(join(tmpdir(), "counterparts-cli-zone-"));
+    try {
+      const storeDir = join(base, "store");
+      expect(zoneBeside(storeDir)).toBeUndefined();
+      writeFileSync(join(base, "claude-code.json"), JSON.stringify({ dataDir: storeDir, timeZone: "Pacific/Honolulu" }));
+      expect(zoneBeside(storeDir)).toBe("Pacific/Honolulu");
+      const c = openCounterpart(storeDir);
+      try {
+        expect(c.store.zone()).toBe("Pacific/Honolulu");
+      } finally {
+        c.close();
+      }
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });

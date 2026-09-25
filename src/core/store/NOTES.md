@@ -1465,6 +1465,7 @@ MCP server that was already running (`schema-ahead`, "Run /mcp and Reconnect").
 | `versions` | `created_at`, `model`, `event_date` | a version is written once and never updated, and `archived_at` is already the moment it stopped being current; `created_at` is when its WORDS were written (the head's `updated_at`, else `created_at`, at archive), so a version has both ends. `model` and `event_date` travel with the words, like `learned_on` / `happened_on` already did. No `updated_at`: nothing updates a version but the removal chase, which blanks it. |
 | `edges` | `created_at`, `updated_at` | first linked, last re-weighted. `link` / `linkMany` became an UPSERT: `INSERT OR REPLACE` deletes the row first and would reset `created_at` at every re-weighting. |
 | `prospective` | `created_at`, `updated_at` | window first recorded, last changed state; UPSERT for the same reason. |
+| `feelings` (new) | `created_at`, `updated_at` NOT NULL | a new table, so no row predates its moments; see below. |
 | `events` | none | `at` IS its moment, and the log is append-only. |
 | `removal_record`, `removal_tombstone` | none | append-only, each with its own `at`. |
 | `gate_session` | none | per-session working state, pruned by lived day; not a record anyone reads back later. |
@@ -1526,3 +1527,32 @@ names. Changing a folder name's calendar is a question for the owner, not a fix.
 precede it in the stored `CREATE TABLE` text. The v7 columns on `memories` therefore sit
 with no SQL comment among them; their explanation is a JS comment above the DDL.
 
+### The `feelings` table, in the same v7 migration (owner-approved 2026-09-25)
+
+One row per feeling on a memory: `whose` (`owner` | `self` today — TEXT, so a person's
+entity id can join later without a migration), `core` (one of six), `emotion` (a key on
+the wheel, `core/feelings-wheel.ts`, or `other` with the word in `other_word`),
+`strength` 0..1 as recorded and never rewritten, `beneath_id` (another feeling on the
+SAME memory it sits on top of), `carried_by` (≤280 chars: what in the moment carried
+it), `model`, and the two moments. Indexed on `memory_id`, `(whose, core)`,
+`(whose, emotion)`. `CREATE TABLE IF NOT EXISTS` in `DDL`, so a v6 store gains it in the
+migration transaction and a fresh store has it from birth.
+
+- **`addFeelings(memoryId, inputs, { model })`** is all-or-none. `checkFeelings` is pure
+  and exported, so a door can run it BEFORE minting the memory and never leave one with
+  its feelings dropped. Refused (`FEELING_INVALID`, `{ index, reason }`): unknown
+  `whose` or `core`, strength out of range, an emotion the wheel files under ANOTHER
+  core, a `beneath` that is off this memory or loops. An emotion simply not on the wheel
+  is kept as `other`, and the result's `notices` carry the nearest keys under that core
+  (edit distance) so the caller can rewrite. `beneath` may be an existing id or another
+  input's index; rows are inserted first and linked second, so order does not matter.
+- **`feelingsFor(id)`**, and **`feelingCounts({ by, whose?, from?, to? })`** — counts by
+  `(whose, core|emotion)`, with the date range read as the person's days in `zone()`.
+  The filter runs in TypeScript over the (whose-indexed) rows; fine at today's sizes, and
+  the obvious place to push into SQL once there are many.
+- **Removal** deletes a memory's feelings in one statement (they carry words), beside its
+  edges and windows. The tombstone gained no `feelings` count — that would be a column on
+  `removal_tombstone`, and nothing needs it yet.
+- **Nothing reads them.** Salience, decay and recall are untouched; the `emotional`
+  dimension and `meta.feeling` are exactly as before. `Counterpart#addFeelings` runs
+  `carried_by` and an `other` word through `redactSecrets` first.

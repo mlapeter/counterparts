@@ -115,6 +115,42 @@ export interface ToolSpec {
 }
 
 /**
+ * `feelings` on a `note` or a `session_end` entry (schema v7, 2026-09-25): one
+ * object per feeling, spelled on the feelings wheel (`core/feelings-wheel.ts`).
+ * Stored beside the memory and read by nothing yet — salience still comes from
+ * `emotional`.
+ */
+const FEELINGS_PROPERTY = {
+  type: "array",
+  description:
+    "Optional: the feelings in this moment, one object each — mixed feelings are several, and yours and the owner's go side by side. Stored beside the memory; they change nothing about how it is held yet.",
+  items: {
+    type: "object",
+    properties: {
+      whose: { type: "string", enum: ["owner", "self"], description: "The owner's feeling, or yours." },
+      core: { type: "string", enum: ["happy", "sad", "fear", "anger", "surprise", "disgust"] },
+      emotion: {
+        type: "string",
+        description:
+          "The specific feeling on the wheel under that core (e.g. hopeful, anxious, frustrated), or your own word — kept as other, and the reply names the nearest wheel words.",
+      },
+      strength: { type: "number", minimum: 0, maximum: 1 },
+      carried_by: {
+        type: "string",
+        description: "Briefly, what in the moment carried it — the words, what happened. Not a statement of feeling.",
+      },
+      beneath: {
+        type: "integer",
+        minimum: 0,
+        description: "The index of another feeling in this list that this one sits on top of (anger over fear).",
+      },
+    },
+    required: ["whose", "core", "emotion", "strength"],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
  * `note`'s privileges. Each one is a sentence v1 would have shipped in a prompt
  * and left unenforced; each one names the file that enforces it here.
  */
@@ -219,6 +255,7 @@ const NOTE: ToolSpec = {
         description: "What sort of thing this is about. Defaults to fact.",
       },
       title: { type: "string", description: "Optional short handle for the memory." },
+      feelings: FEELINGS_PROPERTY,
     },
     required: ["text"],
     additionalProperties: false,
@@ -500,6 +537,7 @@ const SESSION_END: ToolSpec = {
               description:
                 "The id or handle of a memory this revises, if it revises one. A field — never written into `content`.",
             },
+            feelings: FEELINGS_PROPERTY,
           },
           required: ["content"],
           additionalProperties: false,

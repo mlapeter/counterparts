@@ -1210,7 +1210,7 @@ export class ClaudeCodeAdapter {
       this.checkWakeArrival(input);
       const text = input.prompt ?? "";
       if (text.trim().length === 0) {
-        return { ...out, ok: true, reason: "empty-prompt" };
+        return { ...out, ok: true, reason: "empty-prompt", injection: this.nowLine() };
       }
       const result = this.counterpart.recallForTurn(
         {
@@ -1246,11 +1246,12 @@ export class ClaudeCodeAdapter {
         ...out,
         ok: true,
         reason: decision.reason,
-        // The current local time rides ABOVE the recall note, one short line,
-        // because a session can run for hours (docs/time.md rule 5). Outside
-        // the note, like the wake's, so its byte count and sentinel stand. A
-        // turn that surfaced nothing still prints nothing.
-        injection: result.injection.length === 0 ? "" : `${this.nowLine()}\n${result.injection}`,
+        // The current local time, EVERY turn (docs/time.md rule 5; the owner
+        // asked for it on quiet turns too, 2026-09-25 — ~40 bytes), because a
+        // session can run for hours. One line ABOVE the recall note when there
+        // is one, outside it like the wake's, so the note's byte count and
+        // sentinel stand; alone when recall surfaced nothing.
+        injection: result.injection.length === 0 ? this.nowLine() : `${this.nowLine()}\n${result.injection}`,
         bytes: decision.bytes,
         sentinel: decision.sentinel,
         // The footnote tier is carried SEPARATELY from the loud one, because the

@@ -223,6 +223,29 @@ const DDL: readonly string[] = [
      updated_at     INTEGER,
      PRIMARY KEY (memory_id, window_key)
    )`,
+  // v7 (2026-09-25, owner-approved): FEELINGS ON A MEMORY, one row each —
+  // `store/feelings.ts` has the shape and the check. Content-bearing
+  // (`carried_by`, `other_word`), so the owner's removal DELETES a memory's
+  // rows, like its edges and windows. `beneath_id` points at another feeling on
+  // the same memory (anger over fear). Moments are NOT NULL here: the table is
+  // new, so no row predates them.
+  `CREATE TABLE IF NOT EXISTS feelings (
+     id          TEXT PRIMARY KEY,
+     memory_id   TEXT NOT NULL REFERENCES memories(id),
+     whose       TEXT NOT NULL,
+     core        TEXT NOT NULL,
+     emotion     TEXT NOT NULL,
+     other_word  TEXT,
+     strength    REAL NOT NULL,
+     beneath_id  TEXT REFERENCES feelings(id),
+     carried_by  TEXT NOT NULL DEFAULT '',
+     model       TEXT,
+     created_at  INTEGER NOT NULL,
+     updated_at  INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS feelings_memory ON feelings (memory_id)`,
+  `CREATE INDEX IF NOT EXISTS feelings_whose_core ON feelings (whose, core)`,
+  `CREATE INDEX IF NOT EXISTS feelings_whose_emotion ON feelings (whose, emotion)`,
   // SEAMS item B — per-session gate state, ONE ROW PER RECORD.
   //
   // It replaces `recall/`'s `meta` row at `recall.gate.<sessionId>`, which was a

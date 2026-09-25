@@ -62,6 +62,14 @@ export type StoreErrorCode =
    * `detail` carries `{ id, date }`.
    */
   | "EVENT_DATE_INVALID"
+  /**
+   * A feeling (`Store#addFeelings`, schema v7) that cannot be stored as given:
+   * an unknown `whose` or `core`, a strength outside 0..1, an emotion the wheel
+   * files under another core, a `beneath` that is not on the same memory or
+   * loops. `detail` carries `{ index, reason }`; the whole call wrote nothing.
+   * An emotion simply not on the wheel is NOT this — it is kept as `other`.
+   */
+  | "FEELING_INVALID"
   | "ID_MALFORMED"
   | "ID_UNKNOWN"
   | "ID_CYCLE"
