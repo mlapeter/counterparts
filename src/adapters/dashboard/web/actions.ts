@@ -38,14 +38,18 @@
  * ## Which commands
  *
  * `note`, `remove`, `backup`, `export`, `scope`, `rebrief`, `verify`, and the
- * read-only `ask`. `install`, `uninstall` and `start-fresh` stay terminal-only
+ * read-only `ask` and `doctor` (the health tab's checklist: `doctor --json`,
+ * the console's own reading, so the page and the terminal cannot disagree
+ * about what "healthy" means). `install`, `uninstall` and `start-fresh` stay terminal-only
  * (owner, 2026-09-25) — they are not in `ACTIONS`, so no argv for them can be
  * built here.
  */
 import { isAbsolute } from "node:path";
 
+import { REQUIRE_EXPLICIT_DIR_ENV } from "../../../core/store/paths.js";
+
 /** The actions, in the order a reader meets them. */
-export const ACTIONS = ["ask", "note", "remove", "backup", "export", "scope", "rebrief", "verify"] as const;
+export const ACTIONS = ["ask", "note", "remove", "backup", "export", "scope", "rebrief", "verify", "doctor"] as const;
 export type ActionName = (typeof ACTIONS)[number];
 
 export function isActionName(name: string): name is ActionName {
@@ -74,6 +78,9 @@ export const TIMEOUT_MS: Record<ActionName, number> = {
   backup: 30 * 60_000,
   export: 30 * 60_000,
   verify: 30 * 60_000,
+  // A read, but a wide one: the whole event log, every scope's captured words,
+  // and a few bounded `git` calls.
+  doctor: 60_000,
 };
 
 /**
@@ -200,6 +207,8 @@ export interface Built {
   readonly argv: string[];
   /** What the CLI's confirmation prompt receives — the owner's own typing. */
   readonly answer?: string;
+  /** Variables laid over the console's environment for this one run. */
+  readonly env?: Record<string, string>;
 }
 
 /** A memory id as the store accepts one: its family prefix, no whitespace, no slash. */
@@ -388,6 +397,19 @@ export function buildArgv(name: ActionName, body: Body, ctx: ActionContext): Bui
       for (const [key, f] of booleans) if (flag(body, key)) argv.push(f);
       return { argv };
     }
+    case "doctor": {
+      // No fields: the reading is the dashboard's own store, and its own
+      // configuration when it was opened through one.
+      const argv = ["doctor", ...dir, ...withConfig(ctx), "--json"];
+      if (ctx.config !== undefined) return { argv };
+      // OPENED ON A BARE STORE. Unguarded, the console would grade whatever
+      // configuration sits at the default path beside this store — on this
+      // machine, possibly the owner's live install, which is not what this page
+      // is looking at. Arming the guard for this one run takes the console's
+      // own door for that case: the store is graded alone, and its `config`
+      // line says which questions went unasked (doctor.ts, "not-read").
+      return { argv, env: { [REQUIRE_EXPLICIT_DIR_ENV]: "1" } };
+    }
   }
 }
 
@@ -517,9 +539,11 @@ export async function runAction(
   // after `await cliRun()`, and two notes sent together were both written.)
   const work = (async (): Promise<number> => {
     const run = opts.run ?? (await cliRun());
+    const env =
+      built.env === undefined ? ctx.env : { ...(ctx.env ?? (process.env as Record<string, string | undefined>)), ...built.env };
     return run(built.argv, {
       io,
-      ...(ctx.env === undefined ? {} : { env: ctx.env }),
+      ...(env === undefined ? {} : { env }),
       ...(ctx.home === undefined ? {} : { home: ctx.home }),
       // A note from the browser is filed under the store itself, not under
       // whatever directory this server was launched from (see `RunOptions.scope`).
