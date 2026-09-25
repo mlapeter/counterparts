@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 — unreleased
+## 0.3.2 — 2026-09-25
 
 Dates and times follow your clock, and the store's format moves to v7.
 
