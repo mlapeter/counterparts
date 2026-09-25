@@ -3643,6 +3643,8 @@ export interface RunningView {
   readonly url: string;
   /** The store it opened, resolved — printed, so it is never a guess. */
   readonly dir: string;
+  /** The store waits for its one-time upgrade; the page says so, and so does this. */
+  readonly upgradePending?: boolean;
   stop(): Promise<void>;
 }
 
@@ -3768,6 +3770,12 @@ async function dashboardCommand(
   // changed: a whole memory is being served, and "which one" must never be a
   // guess (constitution 16).
   io.out(`reading ${tilde(running.dir, home_)}`);
+  if (running.upgradePending === true) {
+    io.out(
+      `this store is on an older schema; the next Claude Code session copies it and upgrades it to ` +
+        `v${String(SCHEMA_VERSION)}. The page says so until then; reload it after.`,
+    );
+  }
   if (parsed.flags["no-open"] !== true) seam.open?.(running.url);
 
   await (seam.until ?? untilInterrupted)();
@@ -3790,7 +3798,7 @@ function realDashboard(env: Record<string, string | undefined>): DashboardSeam {
         ...(o.port === undefined ? {} : { port: o.port }),
         ...(o.config === undefined ? {} : { config: o.config }),
       });
-      return { url: up.url, dir: up.dir, stop: (): Promise<void> => up.stop() };
+      return { url: up.url, dir: up.dir, upgradePending: up.upgradePending, stop: (): Promise<void> => up.stop() };
     },
     open(url: string): void {
       openInBrowser(url, env);

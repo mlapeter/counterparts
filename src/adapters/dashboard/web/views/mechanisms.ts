@@ -36,10 +36,10 @@ const LOOKBACK = 500;
 export type Family = "encoding" | "storage" | "retrieval" | "transformation";
 export const FAMILIES: readonly Family[] = ["encoding", "storage", "retrieval", "transformation"];
 
-type Payload = Record<string, unknown>;
+export type Payload = Record<string, unknown>;
 
 /** One kind of row that proves a mechanism fired. */
-interface Proof {
+export interface Proof {
   readonly event: DurableEventName;
   /** What a unit of it is, after the number — [one, many]:
    *  ["memory archived at the floor", "memories archived at the floor"]. */
@@ -98,7 +98,9 @@ export const MECHANISM_PROOFS: readonly MechanismProof[] = [
     family: "storage",
     built: true,
     proofs: [
-      { event: "band.transition", where: (p) => p["site"] === "decay", says: ["memory faded a band", "memories faded a band"] },
+      // The decay site also records the CROSSING into identity (direction
+      // up), which is not a fade; only a move down counts here.
+      { event: "band.transition", where: (p) => p["site"] === "decay" && p["direction"] !== "up", says: ["memory faded a band", "memories faded a band"] },
       { event: "memory.pruned", says: ["memory archived at the floor", "memories archived at the floor"] },
       // The entity-card fade has no row of its own; it is a count on the
       // nightly cycle row, so only nights that faded something count.
@@ -212,7 +214,7 @@ export interface MechanismsView {
   readonly truncated: boolean;
 }
 
-function payloadOf(row: EventRow): Payload {
+export function payloadOf(row: EventRow): Payload {
   if (row.payload === null) return {};
   try {
     const v: unknown = JSON.parse(row.payload);
@@ -223,7 +225,7 @@ function payloadOf(row: EventRow): Payload {
 }
 
 /** The amount this row contributes, or 0 when it does not count. */
-function amount(proof: Proof, p: Payload): number {
+export function amount(proof: Proof, p: Payload): number {
   if (proof.where !== undefined && !proof.where(p)) return 0;
   if (proof.sum === undefined) return 1;
   const v = num(p[proof.sum]);

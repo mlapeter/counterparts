@@ -208,14 +208,9 @@ const ALLOWED_LINES: readonly { file: string; contains: string; why: string }[] 
   { file: "src/adapters/cli/commands.ts", contains: "${PARKED_INFIX}-${dateOf(at)}", why: "a parked-store folder suffix" },
   { file: "src/adapters/cli/start-fresh.ts", contains: "const date = dateOf(input.now);", why: "a parked-store folder suffix" },
   { file: "src/adapters/cli/uninstall.ts", contains: "dateOf(input.now)", why: "a paired-folder suffix" },
-  {
-    file: "src/adapters/dashboard/web/server.ts",
-    contains: "todayUtc()",
-    why: "dashboard session to move to time.ts (firedPanel grades local days; this passes UTC)",
-  },
 ];
 
-/** Not scanned: nothing today. The dashboard is scanned; its one exception is a line above. */
+/** Not scanned: nothing today. The dashboard is scanned, with no exceptions. */
 const SKIPPED_DIRS: readonly string[] = [];
 
 const HAND_BUILT: readonly { name: string; re: RegExp }[] = [

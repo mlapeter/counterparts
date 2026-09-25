@@ -5,15 +5,16 @@
  * the four rules in that file's header apply to every line below.
  */
 import { symmetryCheck } from "../../../../core/physics/index.js";
-import { TUNABLES as SCHEMA_TUNABLES } from "../../../../core/schemas/index.js";
 import { MARKER_UNSET, MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON, readMarker } from "../../../../core/sleep/index.js";
 import type { Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
 import { CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../../registries.js";
 import type { DurableEventName } from "../../registries.js";
 import type { DashboardSource } from "../../source.js";
-import { reveal } from "../reveal.js";
-import { LOG_CEILING, absenceFor, eventCountsByName } from "./shared.js";
+import { reveal, revealHere } from "../reveal.js";
+
+import { ARCHIVE_PHRASES, REMOVED_BY_OWNER, unmappedArchiveWords } from "./archive-words.js";
+import { LOG_CEILING, eventCountsByName } from "./shared.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // health
@@ -22,7 +23,6 @@ import { LOG_CEILING, absenceFor, eventCountsByName } from "./shared.js";
 export interface HealthView {
   readonly phases: { phase: string; day: number | null; ago: number | null; torn: boolean; absent: string | null }[];
   readonly symmetry: { kind: Kind; up: number; down: number; reason: string; ok: boolean }[];
-  readonly exits: { reason: string; count: number; gloss: string; absent: string | null }[];
   /**
    * ONE TABLE, LED BY ENGLISH. There were two — "what a host told me" over the
    * eleven `adapter.*` names, and "everything I can record durably" over all
@@ -48,7 +48,54 @@ export interface HealthView {
   readonly removals: { id: string; label: string; stage: string; actor: string; reason: string | null; at: number }[];
   readonly removalsAbsent: string | null;
   readonly blind: readonly { readonly what: string; readonly why: string }[];
+  /**
+   * THE LAST CYCLE, as one line: the newest lived day any phase finished on,
+   * which phases finished that day, and when the newest `sleep.cycle` row was
+   * written (ms; null when none is held) so the page can say "today" only when
+   * it was.
+   */
+  readonly cycle: {
+    readonly day: number | null;
+    readonly at: number | null;
+    readonly ran: number;
+    readonly total: number;
+    readonly phases: { phase: string; gloss: string; state: "ran" | "behind" | "never" | "torn"; day: number | null }[];
+  };
+  /**
+   * WHERE ARCHIVED MEMORIES WENT — every archived row counted by its
+   * `archived_reason`, each reason in plain words, with the ids behind it so a
+   * segment can list them. "Removed by you" is the removal record's memories
+   * (a removed row keeps only a skeleton), with its stage and reason.
+   */
+  readonly archive: {
+    readonly total: number;
+    readonly reasons: {
+      reason: string;
+      phrase: string;
+      count: number;
+      known: boolean;
+      items: { id: string; label: string; note: string | null }[];
+    }[];
+  };
 }
+
+/** Each phase of the cycle, in a few plain words (hover text on its dot). */
+const PHASE_GLOSS: Record<string, string> = {
+  clock: "move the lived day on",
+  decay: "let unused memories weaken",
+  consolidate: "strengthen and promote what was used",
+  prune: "let go of what fell to the floor",
+  fade: "fade cards nothing mentions any more",
+  dedup: "merge duplicates",
+  versions: "tidy old versions",
+  briefing: "write the next wake briefing",
+  log: "sweep old log rows",
+};
+
+/** Shown even at zero: the three ways out that are forgetting by design. */
+const ALWAYS_SHOWN = new Set<string>([PRUNE_ARCHIVE_REASON, MERGE_ARCHIVE_REASON, REMOVED_BY_OWNER]);
+/** How many ids one segment carries to the page. */
+const ARCHIVE_ITEMS_CAP = 200;
 
 /** The events an ADAPTER writes — the only ones that can tell the owner what a
  *  host actually did with what was composed for it. */
@@ -108,27 +155,6 @@ export function healthView(src: DashboardSource): HealthView {
     return { kind, up, down, reason: verdict.reason, ok: verdict.reason === "within-expectation" };
   });
 
-  const exitCounts = new Map<string, number>();
-  for (const id of store.list()) {
-    const row = store.row(id);
-    if (row === undefined || row.archived !== 1) continue;
-    const reason = row.archived_reason ?? "no reason recorded";
-    exitCounts.set(reason, (exitCounts.get(reason) ?? 0) + 1);
-  }
-  const namedExits: [string, string][] = [
-    [PRUNE_ARCHIVE_REASON, "let go at the floor — real forgetting, on physics' verdict alone"],
-    [MERGE_ARCHIVE_REASON, "merged into a duplicate I already held"],
-    [SCHEMA_TUNABLES.FADE_REASON, "faded out of my vocabulary"],
-  ];
-  const exits = namedExits.map(([reason, gloss]) => {
-    const count = exitCounts.get(reason) ?? 0;
-    return { reason, count, gloss, absent: absenceFor(count, everLived) };
-  });
-  for (const [reason, count] of exitCounts) {
-    if (namedExits.some(([r]) => r === reason)) continue;
-    exits.push({ reason, count, gloss: "recorded by whatever archived it", absent: null });
-  }
-
   // The merged record table. Every durable name appears exactly once — the
   // totality rule is unchanged, and the test still walks `DURABLE_EVENT_NAMES`
   // against it — but what HAS happened is ordered above what never has, so the
@@ -170,10 +196,93 @@ export function healthView(src: DashboardSource): HealthView {
     at: x.at,
   }));
 
+  // The last cycle: the newest day any phase finished on is "the last cycle";
+  // a phase whose marker is older than that is behind.
+  const newest = phases.reduce<number | null>((m, p) => (p.day === null ? m : m === null ? p.day : Math.max(m, p.day)), null);
+  const lastCycleRow = store.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 })[0];
+  const cyclePhases = phases.map((p) => ({
+    phase: p.phase,
+    gloss: PHASE_GLOSS[p.phase] ?? p.phase,
+    state: p.torn ? ("torn" as const) : p.day === null ? ("never" as const) : p.day === newest ? ("ran" as const) : ("behind" as const),
+    day: p.day,
+  }));
+  const cycle = {
+    day: newest,
+    at: lastCycleRow === undefined ? null : lastCycleRow.at,
+    ran: cyclePhases.filter((p) => p.state === "ran").length,
+    total: cyclePhases.length,
+    phases: cyclePhases,
+  };
+
+  // Where archived memories went. One pass over the rows, then the removal
+  // record for "removed by you" (a removed row keeps only a skeleton, so its
+  // words are gone and the record is what says what happened).
+  const byReason = new Map<string, string[]>();
+  for (const id of store.list()) {
+    const row = store.row(id);
+    if (row === undefined || row.archived !== 1) continue;
+    const reason = row.archived_reason ?? "";
+    if (reason === REMOVED_BY_OWNER) continue;
+    const ids = byReason.get(reason) ?? [];
+    ids.push(id);
+    byReason.set(reason, ids);
+  }
+  const removedLatest = new Map<string, (typeof removals)[number]>();
+  for (const r of removals) removedLatest.set(r.id, r);
+  const removedIds = new Set<string>(removedLatest.keys());
+  for (const id of store.list()) {
+    const row = store.row(id);
+    if (row !== undefined && row.archived === 1 && row.archived_reason === REMOVED_BY_OWNER) removedIds.add(id);
+  }
+  const reasons: HealthView["archive"]["reasons"] = [];
+  const itemsOf = (ids: readonly string[]) =>
+    ids.slice(0, ARCHIVE_ITEMS_CAP).map((id) => {
+      // The archived row's OWN words (not its successor's) when they can be
+      // shown; otherwise the named absence or the withholding.
+      const r = revealHere(store, id, 90);
+      return { id, label: r.text ?? r.label, note: null };
+    });
+  for (const [reason, phrase] of ARCHIVE_PHRASES) {
+    if (reason === REMOVED_BY_OWNER) {
+      const ids = [...removedIds];
+      if (ids.length === 0 && !ALWAYS_SHOWN.has(reason)) continue;
+      reasons.push({
+        reason,
+        phrase,
+        count: ids.length,
+        known: true,
+        items: ids.slice(0, ARCHIVE_ITEMS_CAP).map((id) => {
+          const rec = removedLatest.get(id);
+          return {
+            id,
+            label: rec?.label ?? reveal(store, id, 72).label,
+            note: rec === undefined ? null : `${rec.stage} · by ${rec.actor}${rec.reason ? ` · ${rec.reason}` : ""}`,
+          };
+        }),
+      });
+      continue;
+    }
+    const ids = byReason.get(reason) ?? [];
+    byReason.delete(reason);
+    if (ids.length === 0 && !ALWAYS_SHOWN.has(reason)) continue;
+    reasons.push({ reason, phrase, count: ids.length, known: true, items: itemsOf(ids) });
+  }
+  for (const [reason, ids] of byReason) {
+    reasons.push({
+      reason: reason === "" ? "(none)" : reason,
+      phrase: unmappedArchiveWords(reason),
+      count: ids.length,
+      known: false,
+      items: itemsOf(ids),
+    });
+  }
+  const archive = { total: reasons.reduce((n, r) => n + r.count, 0), reasons };
+
   return {
+    cycle,
+    archive,
     phases,
     symmetry,
-    exits,
     records,
     heatmap: { days, names: [...DURABLE_EVENT_NAMES], cells },
     removals,

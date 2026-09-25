@@ -1,40 +1,41 @@
-/* The health tab: the cycle, the tripwires, the ways out, what fired, what
-   can be recorded, the heatmap, the blind spots. `/api/health`, then the
-   what-fired panel's own `/api/fired`. */
+/* The health tab: "is it working?" first — doctor's checks as a checklist
+   with lights — then the last sleep cycle as one line, where archived
+   memories went as one picture, and a button that checks the search index.
+   The developer panels that used to live here (band symmetry, what fired,
+   every durable record, the heatmap, what I cannot see) are on the flow tab,
+   under the diagram. `/api/health` for the cycle and the archive; doctor and
+   verify through the actions seam (both reads). */
 import { api, fail } from "../../shared/api.js";
-import * as blind from "./sections/blind.js";
-import * as exits from "./sections/exits.js";
-import * as fired from "./sections/fired.js";
-import * as heatmap from "./sections/heatmap.js";
-import * as phases from "./sections/phases.js";
-import * as records from "./sections/records.js";
-import * as removals from "./sections/removals.js";
-import * as symmetry from "./sections/symmetry.js";
+import * as archive from "./sections/archive.js";
+import * as checks from "./sections/checks.js";
+import * as cycle from "./sections/cycle.js";
+import * as verify from "./sections/verify.js";
 
 const markup = `
-    <div class="cols">
-      <div>${phases.markup}${symmetry.markup}${exits.markup}${removals.markup}
-      </div>
-      <div>${fired.markup}${records.markup}
-      </div>
-    </div>${heatmap.markup}${blind.markup}
+    ${checks.markup}
+    ${cycle.markup}
+    ${archive.markup}
+    ${verify.markup}
   `;
 
-async function render() {
+let checked = false;
+
+async function paint() {
   let d;
   try { d = await api("/api/health"); } catch (e) { return fail("The health page", e); }
-  phases.paint(d);
-  symmetry.paint(d);
-  exits.paint(d);
-  removals.paint(d);
-  records.paint(d);
-  heatmap.paint(d);
-  blind.paint(d);
-  await fired.render();
+  cycle.paint(d);
+  archive.paint(d);
+}
+
+async function render() {
+  // Doctor runs once, when the tab is first opened; "Check again" re-runs it.
+  if (!checked) { checked = true; void checks.run(); }
+  await paint();
 }
 
 export default {
   name: "health",
-  mount(section) { section.innerHTML = markup; },
+  mount(section) { section.innerHTML = markup; verify.mount(); },
   render,
+  refresh: paint,
 };

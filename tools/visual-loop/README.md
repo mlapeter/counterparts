@@ -77,8 +77,9 @@ whole reason this tool exists is to produce images that get published.
 | `rich-<page>-1440x900-fold.png` | the first screen at the size the README publishes |
 | `log.json` | every shot, every console message, page error and 4xx, and every contrast and viewport measurement |
 
-Pages are `home`, `memories`, `self`, `flow`, `health` and `brain`. The
-brain view is not shot at 390: a portrait-phone hologram proves nothing.
+Pages are `home`, `memories`, `self`, `flow` and `health`. The brain is part
+of the home page (since 2026-09-25; `/brain` only redirects there), so it is
+shot with it, at every viewport.
 
 The run prints the **worst** contrast reading per selector across every page and
 viewport — the number to quote, rather than the best one — and the layout
@@ -115,18 +116,17 @@ no particle.
 **One named exemption**, and it belongs to the harness rather than to the page:
 taking a screenshot of a live WebGL canvas makes the headless GPU read pixels
 back mid-frame, and the driver logs `GPU stall due to ReadPixels`. It is emitted
-by `page.screenshot()` on the brain view and by nothing else. It is matched by
+by `page.screenshot()` of the home page's brain and by nothing else. It is matched by
 its text, so a real WebGL error still fails the run.
 
-The brain view's three.js comes from a pinned CDN and is **allowed** to fail —
-offline it renders one sentence and a link back, which is a valid screenshot.
-That failure is reported as a request failure like any other, so a run made
-offline will exit non-zero and say why; every other page renders fully with the
-machine unplugged.
+The brain's three.js is vendored (`web/shared/vendor/`, pinned 0.169.0, MIT)
+and served from the dashboard's own origin, so every page renders fully with
+the machine unplugged. Where WebGL is unavailable the brain says one calm
+sentence in its place, which is a valid screenshot.
 
 ## How it waits
 
 Each page sets `document.documentElement.dataset.loaded = "1"` after its first
-full render — including the brain view when it has decided it cannot load. The
-loop waits on that flag rather than on a sleep, so a slow machine takes longer
+full render, and the home page's brain sets `data-ready` on `#home-brain` once
+it is drawing or has decided it cannot. The loop waits on those flags rather than on a sleep, so a slow machine takes longer
 and a fast one does not race.

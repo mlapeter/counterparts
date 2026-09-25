@@ -13,6 +13,8 @@ import type { DashboardSource } from "../../source.js";
 import type { NarratedEvent } from "../narrate.js";
 import { reveal } from "../reveal.js";
 import { activityView } from "./activity.js";
+import { archiveEntry } from "./archive-words.js";
+import { mechanismsView } from "./mechanisms.js";
 import { lastActive } from "./meta.js";
 import { BAND_GLOSS, chapters, contestedRows, livedDays } from "./rows.js";
 import type { BarRow, ChapterRow, ContestedRow } from "./rows.js";
@@ -32,7 +34,47 @@ export interface Tile {
 }
 
 
+/** One of the three or four plain counts under the home page's headline. */
+export interface HeroCount {
+  readonly label: string;
+  readonly value: string;
+  readonly note: string;
+  /** True when the value is an absence marker or zero. */
+  readonly absent: boolean;
+}
+
+/**
+ * The home page's hero, left side: one plain headline line and a few counts in
+ * plain words. The other numbers the old tile row carried live where they are
+ * about: the lived day in the header and the headline; protected rows, the
+ * contested beliefs and the briefing's bytes on the self tab; the last cycle on
+ * the health tab.
+ */
+export interface Hero {
+  /** "Day 30. Holding 121 memories. 6 of 11 mechanisms working." */
+  readonly headline: string;
+  readonly counts: HeroCount[];
+  /** Mechanisms that fired in the window, and how many there are. */
+  readonly working: number;
+  readonly mechanisms: number;
+}
+
+/**
+ * The archived count's caption: the most common reason, in the shared plain
+ * words, when there is one the table names — archived rows are mostly cleared
+ * handoff notes, revisions and regrown journal memories, not fading.
+ */
+function archivedNote(reasons: readonly (string | null)[]): string {
+  const counts = new Map<string, number>();
+  for (const r of reasons) if (r !== null) counts.set(r, (counts.get(r) ?? 0) + 1);
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+  const entry = top === undefined ? undefined : archiveEntry(top[0]);
+  if (top === undefined || entry === undefined) return "set aside, kept, not deleted";
+  return `${counts.size === 1 ? "all" : "mostly"} ${entry.many}; kept, not deleted`;
+}
+
 export interface OverviewView {
+  readonly hero: Hero;
   readonly opening: string;
   readonly tiles: Tile[];
   readonly bands: BarRow[];
@@ -142,7 +184,45 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
         (archived.length === 0 ? "" : `, with ${archived.length} more archived`) +
         (journalCount === 0 ? "." : `, beside ${journalCount} journal ${journalCount === 1 ? "entry" : "entries"} that do not decay.`);
 
+  const mech = mechanismsView(src).mechanisms;
+  const working = mech.filter((m) => m.status === "green").length;
+  const hero: Hero = {
+    headline:
+      (day === 0 && rows.length === 0 ? "Nothing lived yet." : `Day ${day}.`) +
+      ` Holding ${held.length} ${held.length === 1 ? "memory" : "memories"}.` +
+      ` ${working} of ${mech.length} mechanisms working.`,
+    counts: [
+      {
+        label: "memories held",
+        value: String(held.length),
+        note: beliefs === 0 ? "live, and able to fade" : `plus ${beliefs} ${beliefs === 1 ? "belief or entity" : "beliefs and entities"}, counted apart`,
+        absent: held.length === 0,
+      },
+      {
+        label: "core memories",
+        value: String(e.identity.length),
+        note: "earned by use on separate days; these do not fade",
+        absent: e.identity.length === 0,
+      },
+      {
+        label: "chapters written",
+        value: String(journalCount),
+        note: "the journal, in the first person",
+        absent: journalCount === 0,
+      },
+      {
+        label: "archived",
+        value: String(archived.length),
+        note: archivedNote(archived.map((r) => r.archived)),
+        absent: archived.length === 0,
+      },
+    ],
+    working,
+    mechanisms: mech.length,
+  };
+
   return {
+    hero,
     opening,
     tiles,
     bands: BANDS.map((b) => {

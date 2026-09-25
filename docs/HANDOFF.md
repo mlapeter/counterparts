@@ -103,10 +103,10 @@ the reference for this.
   (3) Today's tabs (browse memories, journal, the self page, detailed health) one level down.
   That way the site, the dashboard and the roadmap all show the same 11 things, and a mechanism
   goes grey→green as step 5 builds it.
-- **Today's dashboard** (`src/adapters/dashboard/web/app.html`, 1,731 lines): the tabs are
+- **Today's dashboard** (`src/adapters/dashboard/web/app.html`, 1,731 lines — split into modules 2026-09-25): the tabs are
   overview / memories / mind / flow / health, about 30 sections in all, and health alone runs about
   ten screens. There is also a `/brain` page (three.js) whose regions name code modules, not
-  mechanisms. It is organized by kind of data and can't answer "is it working?" at a glance.
+  mechanisms (folded into the home tab 2026-09-25; its regions now map to mechanisms). It is organized by kind of data and can't answer "is it working?" at a glance.
 - **What each mechanism really does today:** `docs/research/mechanism-audit-2026-09-24.md`.
   4 built (salience, decay, retrieval, narrow consolidation), 3 partial and rarely firing
   (reconsolidation, emotion, association), 4 not built (interference, prospective, schemas,

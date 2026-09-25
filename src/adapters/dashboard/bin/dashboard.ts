@@ -21,6 +21,7 @@ import { Dashboard, VIEWS, VIEW_BLURB, isViewName } from "../index.js";
 import type { ViewArgs, ViewName } from "../index.js";
 import { terminalWantsColour } from "../ansi.js";
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal, isStoreError } from "../../../core/store/index.js";
+import { UPGRADE_PENDING_SENTENCE, upgradePending } from "../upgrade.js";
 import type { StoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 
@@ -298,6 +299,7 @@ export async function serve(argv: readonly string[]): Promise<number> {
       [
         `counterparts dashboard — ${running.url}`,
         `reading ${running.dir}`,
+        ...(running.upgradePending ? [UPGRADE_PENDING_SENTENCE] : []),
         // Named when it was not asked for. `--dir` is optional and the default
         // is somebody's real memory, so a `serve` typed without one should not
         // look the same as a `serve` aimed on purpose (constitution 16: the
@@ -363,6 +365,7 @@ export function describeStoreError(err: StoreError, dir: string, namedDir = fals
     // line that just named `--dir /somewhere`, creates the store in the DEFAULT
     // place instead — advice that works, somewhere else.
     case "STORE_UNINITIALIZED":
+      if (upgradePending(err)) return UPGRADE_PENDING_SENTENCE.replace("; then reload.", "; then run this again.");
       return `No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`;
     // The exact error a stranger who put the adapter's config in the wrong place
     // will hit. The CLI's `init` already teaches the rule; this says the same

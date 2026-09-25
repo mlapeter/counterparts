@@ -1,30 +1,30 @@
-/* The home tab (was "overview"): the page the dashboard opens on. One fetch
-   (`/api/overview`), painted section by section. */
+/* The home tab: the page the dashboard opens on, shaped like counterparts.ai's
+   home. The hero (one line about this memory, a few counts, the brain), the
+   mechanism panel under it, then the live feed and the latest chapters.
+
+   Two fetches: `/api/overview` for the words and the feed, `/api/mechanisms`
+   (and `/api/mechanism?id=` for the picked one) for the panel and the brain. */
 import { api, fail } from "../../shared/api.js";
 import { $ } from "../../shared/dom.js";
-import * as bands from "./sections/bands.js";
-import * as contested from "./sections/contested.js";
-import * as identity from "./sections/identity.js";
+import { mountBrain } from "./brain.js";
+import * as explorer from "./sections/explorer.js";
+import * as hero from "./sections/hero.js";
 import * as liveActivity from "./sections/live-activity.js";
-import * as mechanisms from "./sections/mechanisms.js";
-import * as protectedInk from "./sections/protected.js";
 import * as recentChapters from "./sections/recent-chapters.js";
-import * as tiles from "./sections/tiles.js";
 
 const markup = `
-    ${mechanisms.markup}
-    <p class="lede" id="ov-opening"></p>
-    ${tiles.markup}
-    <div class="cols" style="margin-top:22px">
-      <div>${bands.markup}${liveActivity.markup}${recentChapters.markup}
+    ${hero.markup}
+    ${explorer.markup}
+    <div class="cols home-below">
+      <div>${liveActivity.markup}
       </div>
-      <div>${identity.markup}${protectedInk.markup}${contested.markup}
+      <div>${recentChapters.markup}
       </div>
     </div>
   `;
 
 async function render() {
-  await Promise.all([mechanisms.render(), (async () => {
+  await Promise.all([explorer.render(), (async () => {
     let d;
     try { d = await api("/api/overview"); } catch (e) { return fail("The home page", e); }
     paintHome(d, true);
@@ -32,8 +32,8 @@ async function render() {
 }
 
 /**
- * Draw the overview from a payload. Called once at boot with the feed, and
- * again from the poll WITHOUT it whenever the store moved.
+ * Draw the home page's words from a payload. Called once at boot with the feed,
+ * and again from the poll WITHOUT it whenever the store moved.
  *
  * The feed is the one panel the poll owns: it prepends flashed rows as events
  * arrive, and a repaint from `/api/overview` underneath that would wipe them
@@ -43,24 +43,20 @@ async function render() {
  * appear).
  */
 export function paintHome(d, withFeed) {
-  $("ov-opening").textContent = d.opening;
-  tiles.paint(d);
-  bands.paint(d);
+  hero.paint(d);
   if (withFeed) liveActivity.paint(d);
-  identity.paint(d);
-  protectedInk.paint(d);
-  contested.paint(d);
   recentChapters.paint(d);
 }
 
 /**
- * The store moved: re-read the overview. THE FLOW PAGE WAS NOT THE ONLY PAGE
- * COUNTING — the overview's tiles, band bars and identity panel used to stay
- * frozen at boot while the flow tab beside them moved. The feed belongs to the
- * poll (see `paintHome`), unless it is still the absence line.
+ * The store moved: re-read the overview and the mechanisms. THE FLOW PAGE WAS
+ * NOT THE ONLY PAGE COUNTING — the home page's counts used to stay frozen at
+ * boot while the flow tab beside them moved. The feed belongs to the poll (see
+ * `paintHome`), unless it is still the absence line. The mechanisms' refresh is
+ * also what lights the brain: a mechanism whose newest row moved flares.
  */
 async function refresh() {
-  mechanisms.render();
+  explorer.refresh();
   const fresh = await api("/api/overview");
   paintHome(fresh, liveActivity.showingAbsence());
 }
@@ -69,7 +65,19 @@ export default {
   name: "home",
   mount(section) {
     section.innerHTML = markup;
+    hero.mount();
     liveActivity.mount();
+    // The brain is built once and kept; a failure to start is a calm sentence
+    // in its place, never an error on the page.
+    try {
+      explorer.attachBrain(mountBrain($("home-brain"), explorer.pickRegion));
+    } catch (e) {
+      const wrap = $("home-brain");
+      wrap.classList.add("is-nogl");
+      wrap.innerHTML = '<div class="brain-off"><p>The brain picture could not start in this browser.</p>' +
+        "<p>Everything it shows is in the mechanisms below.</p></div>";
+      wrap.dataset.ready = "1";
+    }
   },
   render,
   refresh,

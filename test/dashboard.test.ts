@@ -1214,7 +1214,8 @@ describe("activity — the recent feed, resolved at render", () => {
     await seed();
     const text = stripAnsi(dash().activity());
     expect(text).toContain("What has happened lately");
-    expect(text).toMatch(/day \d+\s+\d{4}-\d{2}-\d{2}/);
+    // The moment on the reader's clock (`core/time.ts#localClock`), not a UTC stamp.
+    expect(text).toMatch(/day \d+\s+\w{3} \d{1,2} \w{3} \d{4}, \d{1,2}:\d{2} [ap]m /);
     expect(text).toContain("revision.pressure");
     expect(text).toContain("The bounds of this feed");
     expect(text).toMatch(/Showing \d+ of \d+ events? I hold/);

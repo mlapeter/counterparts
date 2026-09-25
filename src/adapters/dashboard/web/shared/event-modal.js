@@ -9,7 +9,7 @@ export async function openEvent(seq) {
   const e = d.event;
   openModal(
     "<h3>" + esc(e.name) + "</h3>" +
-    "<div class='sub'>lived day " + e.day + " · " + new Date(e.at).toISOString().replace("T", " ").slice(0, 19) +
+    "<div class='sub'>lived day " + e.day + " · " + esc(d.when || "") +
       " · sequence " + e.seq + (e.node ? " · " + esc(e.node) : "") + "</div>" +
     "<div class='body tone-" + e.tone + "'>" + esc(e.text) + "</div>" +
     (e.subject ? "<h4>subject</h4><div class='ref'>" + esc(e.subject) + "</div>" : "") +

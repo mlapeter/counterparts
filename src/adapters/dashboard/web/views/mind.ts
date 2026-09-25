@@ -4,13 +4,23 @@
  * Split out of `web/views.ts`, which re-exports every public name from here;
  * the four rules in that file's header apply to every line below.
  */
-import { band, strength } from "../../../../core/physics/index.js";
-import { FRAMING, LANE_ORDER, pageSections } from "../../../../core/self/index.js";
+import { TUNABLES as PHYSICS, kindPhysics, promotionEligibility, sal } from "../../../../core/physics/index.js";
+import { isConfidential } from "../../../../core/recall/index.js";
+import {
+  FRAMING,
+  LANE_ORDER,
+  SELF_PAGE_REVISED_EVENT,
+  chapterModels,
+  pageSections,
+  readChapterLead,
+} from "../../../../core/self/index.js";
 import type { PageVersion } from "../../../../core/self/index.js";
+import { TUNABLES as SLEEP, isJournal } from "../../../../core/sleep/index.js";
 import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
+import { localDate } from "../../../../core/time.js";
 import type { DashboardSource } from "../../source.js";
-import { reveal } from "../reveal.js";
+import { WITHHELD, reveal } from "../reveal.js";
 import { chapters, contestedRows, livedDays } from "./rows.js";
 import type { ChapterRow, ContestedRow } from "./rows.js";
 
@@ -70,11 +80,8 @@ export interface MindView {
    * everything else here: the dashboard shows the page and its versions and
    * offers no door to write one — the doors are the MCP tool and the console.
    *
-   * The BODIES ride along rather than a diff. The current dashboard has no
-   * precedent for rendering a change between two revisions (`divergentPair` is
-   * a side-by-side of two CONTESTED statements, not a text diff), and a page is
-   * prose a person reads rather than a field that changed — so this is the
-   * simple list the brief named as the fallback, newest first.
+   * The BODIES ride along; the self tab draws them as a timeline and diffs
+   * neighbouring versions in the browser (`pages/self/diff.js`).
    */
   readonly page: {
     readonly present: boolean;
@@ -99,6 +106,114 @@ export interface MindView {
   readonly chaptersAbsent: string | null;
   readonly stories: StoryView[];
   readonly storiesAbsent: string | null;
+  /** The page's whole life, OLDEST first, the standing page last. */
+  readonly pageHistory: PageStep[];
+  /** What is settling into the core, and what is closest to it. */
+  readonly settling: SettlingView;
+  /** The published wake cut into its parts, in the order it reads. */
+  readonly wakeParts: WakePart[];
+  /** The ceiling the last render was composed to; null when no render recorded one. */
+  readonly wakeBudget: number | null;
+  /** The journal by lived day, newest first. */
+  readonly journal: JournalDay[];
+  readonly journalAbsent: string | null;
+  /** Chapters past the ones sent. 0 when all of them are here. */
+  readonly journalMore: number;
+}
+
+/** One state of the page: an archived version, or the one standing now. */
+export interface PageStep {
+  /** 1-based, oldest first — the number a person would count. */
+  readonly n: number;
+  /** The store's version seq; for the standing page, its `version` + 1. */
+  readonly seq: number;
+  readonly current: boolean;
+  readonly day: number | null;
+  /** Calendar date of the write that produced it (the durable row's clock); null when unrecorded. */
+  readonly date: string | null;
+  readonly by: string | null;
+  readonly reason: string | null;
+  readonly body: string | null;
+  readonly bytes: number | null;
+}
+
+export interface Candidate {
+  readonly id: string;
+  readonly text: string;
+  readonly confidential: boolean;
+  readonly kind: Kind;
+  /** What the memory has earned (`physics#base`), and the bar it must reach. */
+  readonly base: number;
+  readonly threshold: number;
+  /** True when consolidation's one-time bonus is already in `base`. */
+  readonly consolidated: boolean;
+  readonly bonus: number;
+  /** Distinct lived days a use was credited, and how many the rule needs. */
+  readonly days: number;
+  readonly requiredDays: number;
+  /** Both conditions met: the next consolidation pass crosses it. */
+  readonly eligible: boolean;
+}
+
+export interface SettlingRow {
+  readonly id: string;
+  readonly text: string;
+  readonly confidential: boolean;
+  readonly kind: Kind;
+}
+
+export interface SettlingView {
+  /** The identity band — the core. */
+  readonly core: SettlingRow[];
+  /** Protected (permanent) rows. */
+  readonly guarded: SettlingRow[];
+  /** Beliefs under challenge, or already revised. */
+  readonly contested: { id: string; about: string; now: string; revised: boolean; fraction: number; pressure: number; bar: number }[];
+  /** Permanent rows that do not stand in the band. */
+  readonly outside: SettlingRow[];
+  /** Identity-band rows that would not read. Shown whenever there are any. */
+  readonly unreadable: { id: string; label: string }[];
+  /** The closest candidates, closest first. */
+  readonly candidates: Candidate[];
+  /** Memories that could reach the core by use and have at least one credited day. */
+  readonly onTheWay: number;
+  /** Memories that could reach it but have never been used on a later day. */
+  readonly unused: number;
+  /** Memories whose score and kind put the core out of reach by use alone. */
+  readonly outOfReach: number;
+  /** The rule, as numbers, so the page states it rather than restating it. */
+  readonly rule: { threshold: number; days: number; everyDays: number; repCap: number; bonus: number };
+  /** Two-word absences, for each list that is empty. */
+  readonly coreAbsent: string | null;
+  readonly guardedAbsent: string | null;
+  readonly contestedAbsent: string | null;
+}
+
+export interface WakePart {
+  readonly label: string;
+  /** The lane name, "page", "furniture" — a stable key for colour. */
+  readonly key: string;
+  readonly bytes: number;
+}
+
+export interface JournalChapter {
+  readonly id: string;
+  /** The chapter number inside its session's entry. */
+  readonly chapter: number;
+  readonly title: string;
+  readonly model: string | null;
+  readonly first: string;
+  /** The chapter's own text, headings off. Null when withheld. */
+  readonly text: string | null;
+  readonly bytes: number;
+  readonly confidential: boolean;
+}
+
+export interface JournalDay {
+  readonly day: number;
+  /** As the chapter heading wrote it (`Wed 23 Sep 2026`); null when it named none. */
+  readonly date: string | null;
+  readonly chapters: JournalChapter[];
 }
 
 export function mindView(src: DashboardSource): MindView {
@@ -129,20 +244,24 @@ export function mindView(src: DashboardSource): MindView {
     };
   };
 
+  const identity = e.identity.map(shape);
+  const guarded = e.protected.map(shape);
+  const outside = e.protectedOutsideIdentity.map((id) => {
+    const r = reveal(store, id, 90);
+    return { id, text: r.text ?? r.label };
+  });
+  const stories = storyViews(src);
+
   return {
     opening:
-      `On lived day ${day} I hold ${e.identity.length} ${e.identity.length === 1 ? "element" : "elements"} in the identity band and ` +
-      `${e.protected.length} under protection. The first is what repetition and salience earned, and physics can still move it; ` +
-      "the second is ink no revision path reaches — including a revision that would be right.",
-    identity: e.identity.map(shape),
+      `Lived day ${day}. Who I am, in my own words — and, under it, how that has changed, ` +
+      "what is slowly settling into the core, what the next session will be handed, and the journal.",
+    identity,
     identityAbsent: e.identity.length === 0 ? (everLived ? NONE : NEVER) : null,
-    guarded: e.protected.map(shape),
+    guarded,
     guardedAbsent: e.protected.length === 0 ? (everLived ? NONE : NEVER) : null,
     both: e.both,
-    protectedOutsideIdentity: e.protectedOutsideIdentity.map((id) => {
-      const r = reveal(store, id, 90);
-      return { id, text: r.text ?? r.label };
-    }),
+    protectedOutsideIdentity: outside,
     unreadable,
     wake: {
       ok: wake.ok,
@@ -179,9 +298,334 @@ export function mindView(src: DashboardSource): MindView {
     pageVersions: src.self.pageVersions(),
     chapters: chapters(src, 12),
     chaptersAbsent: chapters(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
-    stories: storyViews(src),
-    storiesAbsent: contestedRows(src).length === 0 ? (everLived ? NONE : NEVER) : null,
+    stories,
+    storiesAbsent: stories.length === 0 ? (everLived ? NONE : NEVER) : null,
+    pageHistory: pageHistory(src, page),
+    settling: settlingView(src, {
+      core: identity,
+      guarded,
+      outside,
+      unreadable,
+      stories,
+      pageId: page?.id ?? null,
+      absent: everLived ? NONE : NEVER,
+    }),
+    wakeParts: wake.ok ? wakeParts(wake.text, page !== null) : [],
+    wakeBudget: lastBudget(src),
+    ...journal(src, JOURNAL_LIMIT, everLived ? NONE : NEVER),
   };
+}
+
+/** How many chapters the journal sends. The rest are counted, not dropped silently. */
+const JOURNAL_LIMIT = 60;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// the page's history — a timeline, oldest first
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The person's calendar day for a clock reading, in the store's zone (`core/time.ts`). */
+function dateOfMs(at: number, zone: string): string | null {
+  if (!Number.isFinite(at) || at <= 0) return null;
+  return localDate(at, zone);
+}
+
+/**
+ * Every state the page has been in, OLDEST first, the standing page last.
+ *
+ * `pageVersions()` already says who wrote each archived body and why; the
+ * calendar date comes from the same durable `self.page.revised` rows, matched
+ * the same way (the write that produced version `seq` recorded `version: seq - 1`).
+ * A cleared page has no standing row and keeps its history, so the timeline
+ * still draws.
+ */
+function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["self"]["page"]>): PageStep[] {
+  const versions = src.self.pageVersions().slice().sort((a, b) => a.seq - b.seq);
+  const at = new Map<number, number>();
+  const pageId = page?.id ?? null;
+  const zone = src.store.zone();
+  try {
+    const rows = pageId === null
+      ? src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, limit: LOG_LIMIT })
+      : src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, ref: pageId, limit: LOG_LIMIT });
+    for (const row of rows) {
+      const payload = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+      const v = payload["version"];
+      if (typeof v === "number") at.set(v, row.at);
+    }
+  } catch {
+    /* unreadable log: every date reads as unrecorded, never as a guess */
+  }
+  const steps: PageStep[] = versions.map((v, i) => ({
+    n: i + 1,
+    seq: v.seq,
+    current: false,
+    day: v.day,
+    date: at.has(v.seq - 1) ? dateOfMs(at.get(v.seq - 1) as number, zone) : null,
+    by: v.by,
+    reason: v.reason,
+    body: v.body,
+    bytes: v.bytes,
+  }));
+  if (page !== null) {
+    steps.push({
+      n: steps.length + 1,
+      seq: page.version + 1,
+      current: true,
+      day: page.revisedDay,
+      date: page.revisedOn.length > 0 ? page.revisedOn : at.has(page.version) ? dateOfMs(at.get(page.version) as number, zone) : null,
+      by: page.by,
+      reason: page.reason,
+      body: page.body,
+      bytes: page.bytes,
+    });
+  }
+  return steps;
+}
+
+const LOG_LIMIT = 2_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// what it's settling into — the core, and what is closest to it
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Shaped = MindView["identity"][number];
+
+/**
+ * The core as it stands, and — the part a young store needs — what is on its way.
+ *
+ * The candidates are computed with physics' OWN rule, `promotionEligibility`
+ * (base >= THETA_ID and credited use on N distinct lived days); nothing here
+ * restates the thresholds. What this adds is one honest distinction the rule
+ * implies: `base` is `max(wSal x sal, wRep x rep) + cons`, repetition caps at
+ * REP_CAP and consolidation adds CONS_BONUS once, so a memory whose best case
+ * stays under the bar can never get there by being used (mechanism audit
+ * 2026-09-24, Consolidation). Those are counted apart, not listed as "on their
+ * way". Schema rows (the page, the identity core, beliefs) are not memories and
+ * are left out, as are journal rows.
+ */
+function settlingView(
+  src: DashboardSource,
+  x: {
+    core: Shaped[];
+    guarded: Shaped[];
+    outside: { id: string; text: string }[];
+    unreadable: { id: string; label: string }[];
+    stories: StoryView[];
+    pageId: string | null;
+    absent: string;
+  },
+): SettlingView {
+  const store = src.store;
+  const raw: { id: string; kind: Kind; base: number; consolidated: boolean; days: number; eligible: boolean }[] = [];
+  let outOfReach = 0;
+  for (const id of store.list({ archived: false })) {
+    const row = store.row(id);
+    if (row === undefined || isJournal(row) || row.type === "schema" || id === x.pageId) continue;
+    let p;
+    try {
+      p = store.physicsOf(id);
+    } catch {
+      continue;
+    }
+    const v = promotionEligibility(p);
+    if (v.blockedBy.includes("already-identity")) continue;
+    const k = kindPhysics(p.kind);
+    const best = Math.max(k.wSal * sal(p.salience), k.wRep * PHYSICS.REP_CAP) + PHYSICS.CONS_BONUS;
+    if (best < v.threshold) {
+      outOfReach += 1;
+      continue;
+    }
+    raw.push({ id, kind: p.kind, base: v.base, consolidated: p.consolidated, days: v.reinforcedDays, eligible: v.eligible });
+  }
+  // Closest first: how much of each condition is met, both halves weighted
+  // alike; ties by days, then by what it has earned.
+  const closeness = (r: (typeof raw)[number]): number =>
+    Math.min(1, r.base / PHYSICS.THETA_ID) + Math.min(1, r.days / PHYSICS.N_PROMOTION_DAYS);
+  raw.sort((a, b) => closeness(b) - closeness(a) || b.days - a.days || b.base - a.base || (a.id < b.id ? -1 : 1));
+  const candidates: Candidate[] = raw.slice(0, CANDIDATE_LIMIT).map((r) => {
+    const t = reveal(store, r.id, 110);
+    return {
+      id: r.id,
+      text: t.text ?? t.label,
+      confidential: t.confidential,
+      kind: r.kind,
+      base: r.base,
+      threshold: PHYSICS.THETA_ID,
+      consolidated: r.consolidated,
+      bonus: PHYSICS.CONS_BONUS,
+      days: r.days,
+      requiredDays: PHYSICS.N_PROMOTION_DAYS,
+      eligible: r.eligible,
+    };
+  });
+  const row = (el: { id: string; text: string; confidential?: boolean; kind?: Kind }): SettlingRow => ({
+    id: el.id,
+    text: el.text,
+    confidential: el.confidential === true,
+    kind: el.kind ?? "fact",
+  });
+  return {
+    core: x.core.map(row),
+    guarded: x.guarded.map(row),
+    contested: x.stories.map((s) => ({
+      id: s.id,
+      about: s.about,
+      now: s.nowFull,
+      revised: s.revised,
+      fraction: s.fraction,
+      pressure: s.pressure,
+      bar: s.bar,
+    })),
+    outside: x.outside.map((o) => ({ id: o.id, text: o.text, confidential: false, kind: "fact" as Kind })),
+    unreadable: x.unreadable,
+    candidates,
+    onTheWay: raw.filter((r) => r.days > 0).length,
+    unused: raw.filter((r) => r.days === 0).length,
+    outOfReach,
+    rule: {
+      threshold: PHYSICS.THETA_ID,
+      days: PHYSICS.N_PROMOTION_DAYS,
+      everyDays: SLEEP.CADENCE.consolidate,
+      repCap: PHYSICS.REP_CAP,
+      bonus: PHYSICS.CONS_BONUS,
+    },
+    coreAbsent: x.core.length === 0 ? x.absent : null,
+    guardedAbsent: x.guarded.length === 0 ? x.absent : null,
+    contestedAbsent: x.stories.length === 0 ? x.absent : null,
+  };
+}
+
+const CANDIDATE_LIMIT = 5;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// the wake, in parts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PART_LABEL: Record<string, string> = {
+  furniture: "headers",
+  page: "self page",
+  identity: "who I am",
+  craft: "how I work",
+  threads: "still open",
+  hints: "nearby memories",
+  horizon: "arriving",
+};
+
+/**
+ * The published bundle cut at its OWN lane headings (`FRAMING`, from `self/`),
+ * measured in raw bytes, so the parts add up to `wake.bytes` exactly. Unlike
+ * `wakeLanes`, a markdown heading does NOT start a part here: the page carries
+ * `## Core` and `## Lately`, and those belong to the page's slice. Everything
+ * outside a lane (the framing line, the comments, the sentinel) is "headers".
+ */
+export function wakeParts(text: string, hasPage: boolean): WakePart[] {
+  const headings = new Map<string, string>();
+  for (const lane of LANE_ORDER) headings.set(FRAMING[lane], lane);
+  const bytes = new Map<string, number>();
+  const order: string[] = [];
+  const add = (key: string, n: number): void => {
+    if (!bytes.has(key)) order.push(key);
+    bytes.set(key, (bytes.get(key) ?? 0) + n);
+  };
+  let current = "furniture";
+  const lines = text.split("\n");
+  lines.forEach((raw, i) => {
+    const n = new TextEncoder().encode(raw).length + (i < lines.length - 1 ? 1 : 0);
+    const line = raw.trim();
+    const lane = headings.get(line);
+    if (lane !== undefined) {
+      current = lane === "identity" && hasPage ? "page" : lane;
+      add("furniture", n);
+      return;
+    }
+    if (line.startsWith("<!--") || line === FRAMING.context) {
+      add("furniture", n);
+      return;
+    }
+    add(current, n);
+  });
+  return order
+    .map((key) => ({ key, label: PART_LABEL[key] ?? key, bytes: bytes.get(key) ?? 0 }))
+    .filter((p) => p.bytes > 0);
+}
+
+/** The ceiling the newest durable render recorded, or null when none did. */
+function lastBudget(src: DashboardSource): number | null {
+  try {
+    const [row] = src.store.eventLog({ name: "self.briefing", order: "desc", limit: 1 });
+    if (row === undefined) return null;
+    const budget = (JSON.parse(row.payload ?? "{}") as Record<string, unknown>)["budget"];
+    return typeof budget === "number" && budget > 0 ? budget : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// the journal — chapters by lived day
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CHAPTER_SPLIT = /^(?=[ \t]*#{1,6}[ \t]*chapter[ \t]+\d+)/im;
+
+/**
+ * Every chapter, grouped by the lived day it was written on, newest first.
+ *
+ * One journal row is one session's entry and can hold several chapters, each
+ * under its own `## chapter N — <date> · <model> · lived day D` heading, so a
+ * row is split at those headings and each part read with `self/`'s own
+ * `readChapterLead`. The model falls back to the entry's `meta.models`; a
+ * chapter written before either existed shows none.
+ */
+function journal(src: DashboardSource, limit: number, absent: string): Pick<MindView, "journal" | "journalAbsent" | "journalMore"> {
+  const store = src.store;
+  const all: (JournalChapter & { day: number; date: string | null })[] = [];
+  for (const id of store.list({ archived: false })) {
+    const row = store.row(id);
+    if (row === undefined || !isJournal(row)) continue;
+    let doc;
+    try {
+      doc = store.readProse(id);
+    } catch {
+      all.push({ id, chapter: 1, title: reveal(store, id, 60).label, model: null, first: "", text: null, bytes: 0, confidential: false, day: 0, date: null });
+      continue;
+    }
+    const withheld = isConfidential(doc);
+    const models = chapterModels(doc.meta ?? {});
+    const parts = doc.body.split(CHAPTER_SPLIT).filter((p) => p.trim().length > 0);
+    const title = doc.title ?? "an unnamed chapter";
+    parts.forEach((part, i) => {
+      const lead = readChapterLead(part);
+      const n = lead.chapters[0] ?? i + 1;
+      const rest = lead.rest.trim();
+      const first = rest.split("\n").map((l) => l.trim()).find((l) => l.length > 0 && !l.startsWith("#") && !l.startsWith("<!--")) ?? "";
+      all.push({
+        id,
+        chapter: n,
+        title: parts.length > 1 ? `${title} · chapter ${n}` : title,
+        model: lead.model ?? models[String(n)] ?? null,
+        first: withheld ? WITHHELD : first.length > 200 ? `${first.slice(0, 200).trimEnd()}…` : first,
+        text: withheld ? null : rest,
+        bytes: new TextEncoder().encode(rest).length,
+        confidential: withheld,
+        day: lead.livedDay ?? doc.bornDay,
+        date: lead.date,
+      });
+    });
+  }
+  all.sort((a, b) => b.day - a.day || (a.id < b.id ? 1 : a.id > b.id ? -1 : b.chapter - a.chapter));
+  const sent = all.slice(0, limit);
+  const days: JournalDay[] = [];
+  for (const c of sent) {
+    let d = days[days.length - 1];
+    if (d === undefined || d.day !== c.day) {
+      d = { day: c.day, date: c.date, chapters: [] };
+      days.push(d);
+    }
+    if (d.date === null && c.date !== null) (d as { date: string | null }).date = c.date;
+    const { day: _day, date: _date, ...chapter } = c;
+    d.chapters.push(chapter);
+  }
+  return { journal: days, journalAbsent: all.length === 0 ? absent : null, journalMore: all.length - sent.length };
 }
 
 /**

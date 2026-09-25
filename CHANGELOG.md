@@ -32,6 +32,22 @@ not run without somewhere to save that copy, and memory stays off until it is se
   `2026-10-20..2026-10-31` — ready for reminders to use in a later release.
 - One module now does every date conversion, and a test keeps it that way.
 
+**A new dashboard** (`counterparts dashboard`):
+
+- **A new home page**: the brain beside a few plain counts, and the 11 mechanisms the
+  site describes, each lit when it is working. Click one to see what it did lately.
+- **Memories**: every memory in a list, newest first, with search, Ask, and filters for
+  kind, band and archived.
+- **Self**: the self page with its history, what is settling into the core, the
+  briefing for the next session, and the journal by day.
+- **Health**: "is it working?" as a checklist from `doctor`, the last sleep cycle, and
+  where archived memories went.
+- **Manage memory from the dashboard**: write a note, remove a memory, back up, export,
+  rebrief, check the index, and ask, through the same code as the console. Removing
+  asks you to confirm first.
+- The site's fonts, served from the package.
+- A store waiting for its upgrade shows a short page saying so, instead of an error.
+
 ## 0.3.1 — 2026-09-25
 
 A small release of fixes. No change to the store's format, so no migration and no
