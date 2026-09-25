@@ -115,7 +115,15 @@ export function checkFeelings(inputs: readonly FeelingInput[]): { rows: CheckedF
     const carriedBy = f.carriedBy ?? "";
     if (typeof carriedBy !== "string") invalid(i, "carried-by-not-a-string");
     if (carriedBy.length > CARRIED_BY_MAX_CHARS) invalid(i, "carried-by-too-long", { max: CARRIED_BY_MAX_CHARS });
+    // TYPES AND LENGTHS BEFORE ANY WORK (review S2): a non-string `otherWord`
+    // used to throw a TypeError out of `.trim()`, and a huge `emotion` was
+    // scored by edit distance before it was refused.
     if (typeof f.emotion !== "string" || f.emotion.trim().length === 0) invalid(i, "emotion-missing");
+    if (f.emotion.trim().length > OTHER_WORD_MAX_CHARS) invalid(i, "emotion-too-long", { max: OTHER_WORD_MAX_CHARS });
+    if (f.otherWord !== undefined && typeof f.otherWord !== "string") invalid(i, "other-word-not-a-string");
+    if (typeof f.otherWord === "string" && f.otherWord.trim().length > OTHER_WORD_MAX_CHARS) {
+      invalid(i, "other-word-too-long", { max: OTHER_WORD_MAX_CHARS });
+    }
     if (f.beneath !== undefined && typeof f.beneath !== "string" && typeof f.beneath !== "number") {
       invalid(i, "beneath-not-an-id-or-index");
     }

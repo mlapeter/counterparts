@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,8 @@ import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
+import { run } from "../src/adapters/cli/index.js";
+import type { Io } from "../src/adapters/cli/index.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -236,6 +238,53 @@ describe("the MCP doors", () => {
     expect([b.emotional, b.relevance, b.predictive]).toEqual([a.emotional, a.relevance, a.predictive]);
   });
 
+  test("malformed shapes refuse at the door, and never throw out of the call (review S2, S3)", async () => {
+    const s = server();
+    const cases: unknown[] = [
+      [{ whose: "owner", core: "happy", emotion: "other", other_word: {}, strength: 0.5 }],
+      [{ whose: "owner", core: "happy", emotion: "other", other_word: 7, strength: 0.5 }],
+      [{ whose: 1, core: "happy", emotion: "hopeful", strength: 0.5 }],
+      [{ whose: "owner", core: ["happy"], emotion: "hopeful", strength: 0.5 }],
+      [{ whose: "owner", core: "happy", emotion: "x".repeat(10_000), strength: 0.5 }],
+      [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5, beneath: "fel_abc" }],
+      [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5, beneath: 0.5 }],
+    ];
+    for (const [n, feelings] of cases.entries()) {
+      const out = payload(await s.call("note", { text: `A note with malformed feelings, case ${String(n)}.`, feelings }));
+      expect({ n, stored: out["stored"], reason: out["reason"] }).toEqual({ n, stored: false, reason: "feelings-malformed" });
+    }
+    expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
+  });
+
+  test("session_end: a malformed other_word refuses its own entry; the siblings land", async () => {
+    recordSession(dir, { sessionId: "s-feel-2", scope: "/tmp/feelings-project", phase: "start" });
+    const s = server();
+    const out = payload(
+      await s.call("session_end", {
+        session: "s-feel-2",
+        memories: [
+          { content: "The first entry, with an other_word that is not a word.", feelings: [{ whose: "owner", core: "sad", emotion: "other", other_word: {}, strength: 0.4 }] },
+          { content: "The second entry, a plain one that should land on its own." },
+        ],
+      }),
+    );
+    const [bad, good] = out["outcomes"] as Record<string, unknown>[];
+    expect(bad?.["reason"]).toBe("feelings-malformed");
+    expect(good?.["stored"]).toBe(true);
+  });
+
+  test("a duplicate note says its feelings were not stored (review N6)", async () => {
+    const s = server();
+    const text = "The kiln's left shelf runs hot, so glaze tests go on the right.";
+    await s.call("note", { text });
+    const again = payload(
+      await s.call("note", { text, feelings: [{ whose: "owner", core: "anger", emotion: "frustrated", strength: 0.5 }] }),
+    );
+    expect(again["stored"]).toBe(false);
+    const f = again["feelings"] as Record<string, unknown>;
+    expect([f["stored"], f["reason"]]).toEqual([0, "memory-not-stored"]);
+  });
+
   test("note: feelings that will not store refuse the note before it mints", async () => {
     const s = server();
     const out = payload(
@@ -269,3 +318,48 @@ describe("the MCP doors", () => {
     expect(bad?.["reason"]).toBe("feelings-malformed");
   });
 });
+
+describe("the console", () => {
+  function io(): { io: Io; out: string[]; err: string[] } {
+    const out: string[] = [];
+    const err: string[] = [];
+    return { io: { out: (l) => out.push(l), err: (l) => err.push(l) }, out, err };
+  }
+
+  test("markdown export carries a memory's feelings after its words (review N7)", async () => {
+    const s = Store.open({ dir });
+    const id = s.put({ type: "memory", kind: "fact", body: "The build went green after three tries." });
+    s.addFeelings(id, [
+      { whose: "owner", core: "fear", emotion: "worried", strength: 0.6, carriedBy: "two red builds" },
+      { whose: "owner", core: "happy", emotion: "other", otherWord: "unclenched", strength: 0.8, beneath: 0 },
+    ]);
+    s.close();
+    const target = mkdtempSync(join(tmpdir(), "counterparts-feelings-export-"));
+    try {
+      const c = io();
+      expect(await run(["export", "--out", join(target, "tree"), "--markdown", "--plaintext", "--dir", dir], { io: c.io })).toBe(0);
+      const text = readFileSync(join(target, "tree", "memories", "fact", `${id}.md`), "utf8");
+      expect(text).toContain("## Feelings");
+      expect(text).toContain("1. owner · fear · worried · 0.6 — carried by: two red builds");
+      expect(text).toContain("2. owner · happy · other: unclenched · 0.8 · over #1");
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  test("status on a store still at v6 says the next session upgrades it (review N1)", async () => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "before" });
+    s.close();
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '6')");
+    db.close();
+    const c = io();
+    await run(["status", "--dir", dir], { io: c.io });
+    const said = [...c.out, ...c.err].join("\n");
+    expect(said).toContain("this store is on schema v6; the next Claude Code session copies it and upgrades it to v7");
+    expect(said).not.toContain("could not open the store");
+    expect(existsSync(dir) && readdirSync(dir).length > 0).toBe(true);
+  });
+});
+

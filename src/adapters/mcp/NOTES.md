@@ -640,3 +640,25 @@ no memory lands with its feelings dropped. After a mint, `recordFeelings` writes
 with the session's model and answers `feelings: { stored, other? }`; each `other` item
 carries the nearest wheel keys and a one-line note to rewrite with. A throw there costs
 the feelings, never the memory, and says so. No salience, decay or recall change.
+
+### Review of #231 (2026-09-25)
+
+- **`note` before a bind records NULL for `model`, and that is accepted (N3).** On the
+  live host the server is launched with no `--session`, so `sessionModel()` has nothing
+  to read until a `chapter` or `session_end` binds it. Other effects of the bind:
+  - After `/model`, the first write is credited to the previous model; the record is
+    refreshed at the next boundary.
+  - A write is never credited to another session's model, because the bind is frozen for
+    the life of the process.
+- **S2 and S3.** `readFeelings` now works as follows:
+  - It checks `whose`, `core`, `emotion`, `carried_by` and `other_word` are strings before
+    anything else runs.
+  - `checkFeelings` refuses an over-long `emotion` or `other_word` before any
+    edit-distance scoring.
+  - Any throw in the reader becomes that entry's `feelings-malformed`, so the siblings in
+    a `session_end` still land.
+  - At the door, `beneath` must be an integer index, so an id can no longer pass the door
+    and fail only after the memory has minted.
+  - `other_word` is now in the published schema, so the schema and the reader agree.
+- **N6.** A note that did not land (a duplicate, a gate) answers
+  `feelings: { stored: 0, reason: "memory-not-stored" }`.

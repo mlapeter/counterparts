@@ -42,7 +42,16 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { isModelId } from "../types.js";
-import { calendarOverlaps, compareCalendarDates, isCalendarDate, localDate, resolveZone, utcDate } from "../time.js";
+import {
+  calendarOverlaps,
+  compareCalendarDates,
+  daysBetween,
+  isCalendarDate,
+  isDay,
+  localDate,
+  resolveZone,
+  utcDate,
+} from "../time.js";
 import { checkFeelings } from "./feelings.js";
 import type { AddFeelingsResult, FeelingInput, FeelingRow } from "./feelings.js";
 import { creditUse } from "../physics/index.js";
@@ -880,6 +889,8 @@ export class Store {
     let migration = null as MigrationNote | null;
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: !this.observer,
+      // For the v7 migration's clamp of `lastActiveDate` (review S1).
+      localToday: localDate(this.nowFn(), resolveZone(this.configuredZone)),
       retentionDays: this.retentionDays,
       ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
       onMigrated: (note) => {
@@ -1358,7 +1369,8 @@ export class Store {
       // row written beside the update, so "an overwrite keeps the prior version"
       // is a property of the transaction rather than of the ordering (§5 G5).
       const at = this.nowFn();
-      if (patch.eventDate !== undefined && patch.eventDate !== null) assertEventDate(patch.eventDate, id);
+      const eventDate =
+        patch.eventDate === undefined || patch.eventDate === null ? patch.eventDate : assertEventDate(patch.eventDate, id);
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
@@ -1388,8 +1400,8 @@ export class Store {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
       if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
-      if (patch.eventDate === null) delete next.eventDate;
-      else if (patch.eventDate !== undefined) next.eventDate = patch.eventDate;
+      if (eventDate === null) delete next.eventDate;
+      else if (eventDate !== undefined) next.eventDate = eventDate;
       const model =
         patch.model !== undefined
           ? modelOrNull(patch.model)
@@ -1689,6 +1701,17 @@ export class Store {
     const day = this.mutate("advanceClock", () => {
       const last = this.getMeta("lastActiveDate") ?? "";
       if (last !== "" && date < last) {
+        // ONE CALENDAR DAY BACK IS THE SAME LIVED DAY (review S1, 2026-09-25).
+        // Since the person's day became local, a date one day behind the last
+        // one is ordinary: the upgrade evening west of UTC (the last 0.3.1
+        // boundary stamped UTC's tomorrow), or a flight west across midnight.
+        // It is lived time that already counted, so it holds the day — no
+        // advance, no rewrite of `lastActiveDate`, no failure. A real jump back
+        // of more than a day is still refused, as it always was.
+        if (isDay(date) && isDay(last) && daysBetween(date, last) <= 1) {
+          this.emit("store.clock.held", undefined, { date, last });
+          return this.livedDay();
+        }
         throw new StoreError("CLOCK_BACKWARDS", { date, last });
       }
       if (date === last) return this.livedDay();
@@ -2889,7 +2912,7 @@ export class Store {
       if (input.origin.spanHash !== undefined) origin["spanHash"] = input.origin.spanHash;
       if (Object.keys(origin).length > 0) meta["origin"] = origin;
     }
-    if (input.eventDate !== undefined) assertEventDate(input.eventDate, id);
+    const eventDate = input.eventDate === undefined ? undefined : assertEventDate(input.eventDate, id);
     // ONE MOMENT for the row, and `learned_on` is its local date unless the
     // caller dated the memory itself (mint dates a deposit by its own instant).
     const at = this.nowFn();
@@ -2903,7 +2926,7 @@ export class Store {
     };
     if (input.title !== undefined) doc.title = input.title;
     if (input.happenedOn !== undefined) doc.happenedOn = input.happenedOn;
-    if (input.eventDate !== undefined) doc.eventDate = input.eventDate;
+    if (eventDate !== undefined) doc.eventDate = eventDate;
     // Serialized (and so G6-checked) BEFORE the INSERT, for the same reason:
     // a function or a NaN in `meta` is silent data loss, and the refusal must
     // land while nothing has been written.
@@ -3284,9 +3307,11 @@ function modelOrNull(model: string | undefined): string | null {
   return model !== undefined && isModelId(model) ? model : null;
 }
 
-/** An event date that cannot be read is a reminder that never comes up: refused by name. */
-function assertEventDate(date: string, id: string): void {
+/** An event date that cannot be read is a reminder that never comes up: refused
+ *  by name. Returns the date as it will be STORED — trimmed (review N5). */
+function assertEventDate(date: string, id: string): string {
   if (!isCalendarDate(date)) throw new StoreError("EVENT_DATE_INVALID", { id, date: String(date).slice(0, 64) });
+  return date.trim();
 }
 
 /**

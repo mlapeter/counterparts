@@ -472,14 +472,30 @@ describe("the lived clock across the change (store NOTES 2026-09-25)", () => {
     // The old build's last boundary stamped UTC's date, already the 26th.
     await c.sessionEnd({ date: "2026-09-26" });
     const day = c.store.livedDay();
-    // The new build stamps the person's date, still the 25th: refused by the
-    // store, named by the cycle, and the day it already believed stands.
+    // The new build stamps the person's date, still the 25th: ONE day back
+    // is the same lived day (review S1) — held, no failure row, nothing moved.
     await c.sessionEnd({ date: "2026-09-25" });
     expect(c.store.livedDay()).toBe(day);
     expect(c.store.getMeta("lastActiveDate")).toBe("2026-09-26");
-    expect(c.events("sleep.clock.failed").length).toBeGreaterThan(0);
-    // The next local date is past it, and the clock moves on as ever.
+    expect(c.events("sleep.clock.failed")).toEqual([]);
+    expect(c.store.events("store.clock.held").length).toBe(1);
+    const cycles = c.store.eventLog({ name: "sleep.cycle" });
+    expect(cycles.some((r) => String(r.payload ?? "").includes("clock-failed"))).toBe(false);
+    // The local 26th is the day already counted; the 27th moves the clock on.
+    await c.sessionEnd({ date: "2026-09-26" });
+    expect(c.store.livedDay()).toBe(day);
     await c.sessionEnd({ date: "2026-09-27" });
     expect(c.store.livedDay()).toBe(day + 1);
+  });
+
+  test("a real jump back of more than a day is still refused, loudly", async () => {
+    const c = Counterpart.open({ dir, now: () => Date.parse("2026-09-26T02:00:00Z"), timeZone: "America/Denver" });
+    open.push(c);
+    await c.sessionEnd({ date: "2026-09-26" });
+    const day = c.store.livedDay();
+    await c.sessionEnd({ date: "2026-09-24" });
+    expect(c.store.livedDay()).toBe(day);
+    expect(c.events("sleep.clock.failed").length).toBeGreaterThan(0);
+    expect(() => c.store.advanceClock("2026-09-24")).toThrow(/CLOCK_BACKWARDS/);
   });
 });

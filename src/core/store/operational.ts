@@ -491,6 +491,11 @@ export interface OpenOperationalOptions {
   readonly snapshotsDir?: string;
   /** Told once, after a migration committed, what was copied and where. */
   readonly onMigrated?: (note: MigrationNote) => void;
+  /**
+   * The person's calendar day at this open (`YYYY-MM-DD`), for a migration
+   * that moves dates onto the local calendar. v7 clamps `lastActiveDate` to it.
+   */
+  readonly localToday?: string;
 }
 
 /** What the open did to the schema, for the caller's record. */
@@ -680,6 +685,19 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
       for (const sql of DDL) db.exec(sql);
       ensureAddedColumns(db);
       for (const sql of DDL_AFTER_COLUMNS) db.exec(sql);
+      // v7 (review S1): `lastActiveDate` was a UTC date and becomes a local
+      // one. West of UTC, an evening's last boundary under the old build wrote
+      // UTC's TOMORROW, and the first local date after the upgrade would read
+      // as the clock going backwards. Clamped to the person's today, once, as
+      // the calendar changes. At most one lived day is counted twice (the
+      // evening already advanced it); decay does not notice one day.
+      if (now !== null && Number.parseInt(now, 10) < 7 && opts.localToday !== undefined && opts.localToday !== "") {
+        db.run(
+          "UPDATE meta SET value = ? WHERE key = 'lastActiveDate' AND value > ?",
+          opts.localToday,
+          opts.localToday,
+        );
+      }
       const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
       put.run("livedDay", "0");
       put.run("lastActiveDate", "");

@@ -73,6 +73,9 @@ function formatter(zone: string, shape: "date" | "clock"): Intl.DateTimeFormat {
 /** Is `name` an IANA zone this runtime knows? `"America/Denver"`, `"UTC"`. */
 export function isZone(name: unknown): name is string {
   if (typeof name !== "string" || name.trim().length === 0 || name.length > 64) return false;
+  // A NAME, never an offset (review N5): the runtime accepts "+05:30", but an
+  // offset has no daylight-saving rules, which is the reason zones are names.
+  if (!/^[A-Za-z]/.test(name)) return false;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: name });
     return true;
@@ -264,7 +267,7 @@ function dayOf(ymd: string): number | null {
   const m = DAY_RE.exec(ymd);
   if (m === null) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
+  if (y < 1 || mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
   return dayNumber(y, mo, d);
 }
 
@@ -293,11 +296,11 @@ export function parseCalendarDate(text: unknown): CalendarDate | null {
   const mm = MONTH_RE.exec(s);
   if (mm !== null) {
     const [y, mo] = [Number(mm[1]), Number(mm[2])];
-    if (mo < 1 || mo > 12) return null;
+    if (y < 1 || mo < 1 || mo > 12) return null;
     return { text: s, precision: "month", first: `${mm[1]}-${mm[2]}-01`, last: `${mm[1]}-${mm[2]}-${pad2(daysInMonth(y, mo))}` };
   }
   const yy = YEAR_RE.exec(s);
-  if (yy !== null) return { text: s, precision: "year", first: `${yy[1]}-01-01`, last: `${yy[1]}-12-31` };
+  if (yy !== null && Number(yy[1]) >= 1) return { text: s, precision: "year", first: `${yy[1]}-01-01`, last: `${yy[1]}-12-31` };
   return null;
 }
 

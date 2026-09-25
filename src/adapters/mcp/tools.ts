@@ -139,6 +139,10 @@ const FEELINGS_PROPERTY = {
         type: "string",
         description: "Briefly, what in the moment carried it — the words, what happened. Not a statement of feeling.",
       },
+      other_word: {
+        type: "string",
+        description: "Your own word, when emotion is \"other\" — or just put the word in emotion.",
+      },
       beneath: {
         type: "integer",
         minimum: 0,

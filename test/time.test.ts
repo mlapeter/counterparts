@@ -69,6 +69,11 @@ describe("a moment, in a zone", () => {
 
   test("an unknown zone name falls back to the machine's zone, never throws", () => {
     expect(isZone("Mars/Olympus")).toBe(false);
+    // An offset is not a zone: it has no daylight-saving rules (review N5).
+    expect(isZone("+05:30")).toBe(false);
+    expect(isZone("-07:00")).toBe(false);
+    expect(isCalendarDate("0000")).toBe(false);
+    expect(isCalendarDate("0000-01-01")).toBe(false);
     expect(isZone("")).toBe(false);
     expect(isZone(42)).toBe(false);
     expect(resolveZone("Mars/Olympus")).toBe(machineZone());
@@ -187,8 +192,31 @@ const ALLOWED: Record<string, string> = {
     "the LIVED-day clock (dayKey shifts by the boundary hour, a physics idea); physics.test.ts holds it to being the only Date reader in physics/",
 };
 
-/** Not scanned: another session owns these files; their date uses are listed in store/NOTES.md 2026-09-25. */
-const SKIPPED_DIRS = ["src/adapters/dashboard"];
+/**
+ * Single LINES that may call the UTC helpers (`dateOf`, the module `today()`),
+ * each with its reason — file names and parked-directory suffixes stay UTC on
+ * purpose (store NOTES 2026-09-25). Matched by file and by a substring of the
+ * line, so a NEW call in the same file is still caught (review N8).
+ */
+const ALLOWED_LINES: readonly { file: string; contains: string; why: string }[] = [
+  { file: "src/core/store/index.ts", contains: "export function dateOf(", why: "the UTC helper itself" },
+  { file: "src/core/store/index.ts", contains: "export function today()", why: "the UTC helper itself" },
+  { file: "src/adapters/snapshots.ts", contains: ": dateOf(now);", why: "a snapshot folder is named by its UTC day" },
+  { file: "src/adapters/snapshots.ts", contains: "dateOf(now - PRE_MIGRATION_KEEP_DAYS", why: "retention compared against UTC-named folders" },
+  { file: "src/adapters/snapshots.ts", contains: "dateOf(now + 86_400_000)", why: "retention compared against UTC-named folders" },
+  { file: "src/adapters/cli/commands.ts", contains: "date: dateOf(at),", why: "the parked-store plan's date, a folder suffix" },
+  { file: "src/adapters/cli/commands.ts", contains: "${PARKED_INFIX}-${dateOf(at)}", why: "a parked-store folder suffix" },
+  { file: "src/adapters/cli/start-fresh.ts", contains: "const date = dateOf(input.now);", why: "a parked-store folder suffix" },
+  { file: "src/adapters/cli/uninstall.ts", contains: "dateOf(input.now)", why: "a paired-folder suffix" },
+  {
+    file: "src/adapters/dashboard/web/server.ts",
+    contains: "todayUtc()",
+    why: "dashboard session to move to time.ts (firedPanel grades local days; this passes UTC)",
+  },
+];
+
+/** Not scanned: nothing today. The dashboard is scanned; its one exception is a line above. */
+const SKIPPED_DIRS: readonly string[] = [];
 
 const HAND_BUILT: readonly { name: string; re: RegExp }[] = [
   { name: "toISOString().slice(0, 10)", re: /toISOString\(\)\s*\.slice\(\s*0\s*,\s*10\s*\)/ },
@@ -197,6 +225,10 @@ const HAND_BUILT: readonly { name: string; re: RegExp }[] = [
   { name: "Date setters", re: /\.set(?:UTC\w+|Hours|Date|Month|FullYear)\s*\(/ },
   { name: "Date.UTC", re: /\bDate\.UTC\s*\(/ },
   { name: "toLocaleDateString / toLocaleTimeString", re: /\.toLocale(?:Date|Time)String\s*\(/ },
+  // The UTC helpers under their old names (review N8): a person's day is
+  // `localDate` / `store.today()`, so a new call here is a UTC day by accident.
+  { name: "dateOf(", re: /\bdateOf\(/ },
+  { name: "module today()", re: /(?:^|[^.\w])today(?:Utc)?\(\)(?!\s*:)/ },
 ];
 
 function tsFiles(dir: string): string[] {
@@ -244,7 +276,9 @@ describe("rule 1: nothing outside time.ts builds a date by hand", () => {
       if (rel in ALLOWED) continue;
       for (const { n, line } of codeLines(readFileSync(file, "utf8"))) {
         for (const { name, re } of HAND_BUILT) {
-          if (re.test(line)) found.push(`${rel}:${n} (${name}): ${line.trim()}`);
+          if (!re.test(line)) continue;
+          if (ALLOWED_LINES.some((a) => a.file === rel && line.includes(a.contains))) continue;
+          found.push(`${rel}:${n} (${name}): ${line.trim()}`);
         }
       }
     }
@@ -255,6 +289,17 @@ describe("rule 1: nothing outside time.ts builds a date by hand", () => {
     const lines = codeLines("const d = new Date(at).toISOString().slice(0, 10);\n// toISOString().slice(0, 10) in prose\n");
     expect(lines.length).toBe(1);
     expect(HAND_BUILT[0]?.re.test(lines[0]?.line ?? "")).toBe(true);
+  });
+
+  test("every allow-listed LINE is still there", () => {
+    for (const a of ALLOWED_LINES) {
+      const text = readFileSync(join(ROOT, a.file), "utf8");
+      expect({ file: a.file, contains: a.contains, present: text.includes(a.contains) }).toEqual({
+        file: a.file,
+        contains: a.contains,
+        present: true,
+      });
+    }
   });
 
   test("every allow-listed file still exists and still needs its entry", () => {

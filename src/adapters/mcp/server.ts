@@ -1946,14 +1946,14 @@ export class McpServer {
     return claimed;
   }
 
-  /** Known to the hooks' registry, live, and in THIS server's scope — the same
-   *  three tests `requireBoundSession` makes, asked without the side effect. */
   /**
    * The model the hooks last saw answer in THIS server's bound session — the
    * relay a chapter's model takes (self NOTES §24), used since 2026-09-25 for
    * the `model` column on every row a tool writes (schema v7). Undefined when
    * no session is bound (`note` and `self_page` work unbound) or the record
-   * names none; the row then records NULL rather than a guess.
+   * names none; the row then records NULL rather than a guess. On the live
+   * host the server is launched with no session, so a `note` before the first
+   * `chapter` / `session_end` binds it records NULL — accepted (review N3).
    */
   private sessionModel(): string | undefined {
     if (this.session === null) return undefined;
@@ -1964,6 +1964,8 @@ export class McpServer {
     }
   }
 
+  /** Known to the hooks' registry, live, and in THIS server's scope — the same
+   *  three tests `requireBoundSession` makes, asked without the side effect. */
   private corroborate(claimed: string): boolean {
     const record = readSession(this.registryDir, claimed);
     if (record === null) return false;
@@ -2081,7 +2083,18 @@ export class McpServer {
     inputs: readonly FeelingInput[],
     model: string | undefined,
   ): Record<string, unknown> {
-    if (inputs.length === 0 || !deposit.deposited || deposit.memoryId === null) return {};
+    if (inputs.length === 0) return {};
+    // A note that did not land (a duplicate, a gate) takes its feelings with it
+    // — and SAYS so (review N6), rather than dropping them without a word.
+    if (!deposit.deposited || deposit.memoryId === null) {
+      return {
+        feelings: {
+          stored: 0,
+          reason: "memory-not-stored",
+          detail: `The memory was not stored (${deposit.reason}), so its ${String(inputs.length)} feeling${inputs.length === 1 ? " was" : "s were"} not stored either.`,
+        },
+      };
+    }
     try {
       const added = this.counterpart.addFeelings(deposit.memoryId, inputs, model === undefined ? {} : { model });
       return {
@@ -2248,6 +2261,16 @@ type FeelingsRead = { inputs: FeelingInput[] } | { refused: string };
  * not store is a refusal naming the item and the reason.
  */
 function readFeelings(raw: unknown): FeelingsRead {
+  // ANY throw is this entry's refusal, never the call's (review S2): a
+  // `session_end` carries siblings that must still land.
+  try {
+    return readFeelingsOrThrow(raw);
+  } catch (err) {
+    return { refused: `feelings could not be read: ${String((err as Error).message ?? err)}` };
+  }
+}
+
+function readFeelingsOrThrow(raw: unknown): FeelingsRead {
   if (raw === undefined || raw === null) return { inputs: [] };
   if (!Array.isArray(raw)) return { refused: "`feelings` is a list of objects." };
   const inputs: FeelingInput[] = [];
@@ -2256,16 +2279,28 @@ function readFeelings(raw: unknown): FeelingsRead {
       return { refused: `feelings[${i}] is not an object.` };
     }
     const f = item as Record<string, unknown>;
-    const carried = f["carried_by"] ?? f["carriedBy"];
-    const other = f["other_word"] ?? f["otherWord"];
+    for (const key of ["whose", "core", "emotion"] as const) {
+      if (typeof f[key] !== "string") return { refused: `feelings[${i}].${key} is a word.` };
+    }
+    const carried = f["carried_by"];
+    const other = f["other_word"];
+    if (carried !== undefined && typeof carried !== "string") return { refused: `feelings[${i}].carried_by is text.` };
+    if (other !== undefined && typeof other !== "string") return { refused: `feelings[${i}].other_word is a word.` };
+    // AT THE DOOR, `beneath` is an INDEX into this list and nothing else (review
+    // S3): an id would only be checked after the memory minted, so feelings
+    // would stop being all-or-nothing with their entry.
+    const beneath = f["beneath"];
+    if (beneath !== undefined && beneath !== null && !(typeof beneath === "number" && Number.isInteger(beneath))) {
+      return { refused: `feelings[${i}].beneath is the index of another feeling in this list.` };
+    }
     inputs.push({
       whose: f["whose"] as string,
       core: f["core"] as string,
       emotion: f["emotion"] as string,
       strength: f["strength"] as number,
-      ...(carried === undefined ? {} : { carriedBy: carried as string }),
-      ...(other === undefined ? {} : { otherWord: other as string }),
-      ...(f["beneath"] === undefined || f["beneath"] === null ? {} : { beneath: f["beneath"] as number }),
+      ...(carried === undefined ? {} : { carriedBy: carried }),
+      ...(other === undefined ? {} : { otherWord: other }),
+      ...(beneath === undefined || beneath === null ? {} : { beneath: beneath as number }),
     });
   }
   try {

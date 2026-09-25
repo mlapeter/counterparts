@@ -150,6 +150,32 @@ describe("the v6 → v7 migration", () => {
   });
 });
 
+describe("the migration moves lastActiveDate onto the local calendar (review S1)", () => {
+  test("an MDT evening's UTC-tomorrow is clamped to the person's today; an earlier date is left alone", () => {
+    makeV6(dir);
+    const db = new Database(paths.operational(dir));
+    db.run("UPDATE meta SET value = '2026-09-26' WHERE key = 'lastActiveDate'");
+    db.close();
+    const snaps = join(dir, "..", `${dir.split("/").pop() ?? "x"}-snaps`);
+    // 20:00 MDT on the 25th — UTC is already the 26th.
+    const s = store({ snapshotsDir: snaps, now: () => Date.parse("2026-09-26T02:00:00Z"), timeZone: "America/Denver" });
+    expect(s.getMeta("lastActiveDate")).toBe("2026-09-25");
+    expect(s.advanceClock("2026-09-25")).toBe(s.livedDay());
+    rmSync(snaps, { recursive: true, force: true });
+  });
+
+  test("a lastActiveDate already at or before today is untouched", () => {
+    makeV6(dir);
+    const db = new Database(paths.operational(dir));
+    db.run("UPDATE meta SET value = '2026-09-20' WHERE key = 'lastActiveDate'");
+    db.close();
+    const snaps = join(dir, "..", `${dir.split("/").pop() ?? "x"}-snaps2`);
+    const s = store({ snapshotsDir: snaps, now: () => Date.parse("2026-09-26T02:00:00Z"), timeZone: "America/Denver" });
+    expect(s.getMeta("lastActiveDate")).toBe("2026-09-20");
+    rmSync(snaps, { recursive: true, force: true });
+  });
+});
+
 describe("moments (created_at / updated_at)", () => {
   test("a put stamps both from the store's clock; a revise moves updated_at and archives the words' own moment", () => {
     const c = clock("2026-09-25T15:00:00Z");
@@ -269,6 +295,13 @@ describe("event_date — a reminder's date, as said", () => {
       const id = s.put({ type: "memory", kind: "fact", body: `due ${date}`, eventDate: date });
       expect(s.readProse(id).eventDate).toBe(date);
     }
+  });
+
+  test("a date is stored trimmed, and year 0000 is not a date (review N5)", () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "x", eventDate: " 2026-10-15 " });
+    expect(s.row(id)?.event_date).toBe("2026-10-15");
+    expect(code(() => s.put({ type: "memory", kind: "fact", body: "y", eventDate: "0000" }))).toBe("EVENT_DATE_INVALID");
   });
 
   test("a date nothing can read is refused by name, and nothing is written", () => {

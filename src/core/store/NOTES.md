@@ -1556,3 +1556,27 @@ migration transaction and a fresh store has it from birth.
 - **Nothing reads them.** Salience, decay and recall are untouched; the `emotional`
   dimension and `meta.feeling` are exactly as before. `Counterpart#addFeelings` runs
   `carried_by` and an `other` word through `redactSecrets` first.
+
+### What the adversarial review of #231 changed (2026-09-25)
+
+The review is `docs/adversarial-review-v7-2026-09-25.md`.
+
+- **S1, the lived clock on the upgrade evening.** The review reproduced doctor going RED
+  on Sleep from 6 pm to midnight west of UTC. The old build's last boundary had stamped
+  UTC's tomorrow into `lastActiveDate`, and the first local date after the upgrade was
+  refused with `CLOCK_BACKWARDS`. There are two fixes, and either would do it alone:
+  - The v7 migration clamps `lastActiveDate` to the person's today (`localToday`, passed
+    in by the constructor). This costs at most one lived day counted twice, once; decay
+    does not notice a day.
+  - `advanceClock` treats a date ONE calendar day behind the last as the same lived day:
+    no advance, no rewrite, and no failure row, just a ring event (`store.clock.held`).
+    It covers flying west as well as the upgrade. A jump back of more than a day is still
+    `CLOCK_BACKWARDS`.
+- **N5.** An event date is stored trimmed. Year 0000 is not a calendar date. `isZone`
+  refuses bare offsets such as "+05:30", because an offset has no daylight-saving rules.
+- **N4, accepted.** A long-running MCP server resolves the machine zone at each call, but
+  a server that outlives a flight keeps the process's `TZ`. On bun that `TZ` is fixed at
+  start, so `note` writes the old zone's day until the next Reconnect.
+- **N9, accepted.** A 0.3.1 worker already mid-run during the upgrade keeps writing
+  v6-shaped SQL until its watchdog ends it. Its `INSERT OR REPLACE` on edges leaves
+  `created_at` NULL on the edges it touches. That is harmless and bounded.

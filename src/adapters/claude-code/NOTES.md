@@ -1589,3 +1589,7 @@ What the build settled, beyond the CONTRACT section:
 - **Install** says the zone in one line after the name question and asks nothing:
   "Times read in America/Denver, this computer's zone — "timeZone" in the config pins
   another."
+
+- **Review of #231, S1 (2026-09-25):** the evening of the upgrade no longer turns doctor
+  RED. The store holds a one-day-back date as the same lived day, and the migration
+  clamps `lastActiveDate`; details are in store NOTES.

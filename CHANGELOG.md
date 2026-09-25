@@ -7,6 +7,10 @@ Dates and times follow your clock, and the store's format moves to v7.
 **Before upgrading, close every Claude Code session.** The first session after the upgrade
 saves a copy of the store and then updates its format; a session left open is still
 running the old memory server, so in any you missed, run `/mcp` and choose Reconnect.
+If your store is not in the default place (a `dataDir` outside `~/.counterparts/store`,
+or `COUNTERPARTS_DATA_DIR`), set `snapshots.dir` in the config first: the upgrade will
+not run without somewhere to save that copy, and memory stays off until it is set
+(`doctor` says so).
 
 - **Your day is your local day.** The day a memory was learned, "today", and the dates
   in `doctor` and `counterparts fired` now use this computer's time zone instead of UTC,

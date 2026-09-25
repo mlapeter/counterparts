@@ -1739,7 +1739,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         );
     }
   } catch (err) {
-    io.err(`${command} failed: ${describeDirRefusal(err)}`);
+    io.err(upgradePending(err) ?? `${command} failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
 }
@@ -1784,8 +1784,35 @@ function describeDirRefusal(err: unknown, dir?: string): string {
     describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
     describePreRowsRefusal(err, `Name a store with --dir <path>.`) ??
     preRowsInDisguise(err, dir) ??
+    upgradePending(err) ??
     String((err as Error).message ?? err)
   );
+}
+
+/**
+ * A store on an OLDER schema, met by a read-only door (review N1, 2026-09-25).
+ * `STORE_UNINITIALIZED` with a `found` version below this build's reads, to an
+ * observer, like an empty store; it is not — it is waiting for the first
+ * session, which copies it and upgrades it. Doctor's sentence, said here too.
+ */
+function upgradePending(err: unknown): string | null {
+  if (!isStoreError(err, "STORE_UNINITIALIZED")) return null;
+  const found = Number.parseInt(String(err.detail["found"] ?? ""), 10);
+  // Only a store this build can migrate: v6 up. Below the floor is the
+  // pre-rows refusal's sentence, never "the next session upgrades it".
+  if (!Number.isFinite(found) || found < 6 || found >= SCHEMA_VERSION) return null;
+  return (
+    `this store is on schema v${String(found)}; the next Claude Code session copies it and upgrades it ` +
+    `to v${String(SCHEMA_VERSION)}. Nothing to do: start a session, then run this again.`
+  );
+}
+
+/** The line a read-only door prints when its open was refused. */
+function openRefusalLine(err: unknown, dir?: string): string {
+  if (dir !== undefined && preRowsInDisguise(err, dir) !== null) {
+    return `could not open the store: ${describeDirRefusal(err, dir)}`;
+  }
+  return upgradePending(err) ?? `could not open the store: ${describeDirRefusal(err, dir)}`;
 }
 
 /**
@@ -1840,7 +1867,7 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -1897,7 +1924,7 @@ function firedCommand(
   try {
     store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -2009,7 +2036,7 @@ async function selfPageCommand(
   try {
     counterpart = openCounterpart(dir, observer);
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -2277,7 +2304,7 @@ function statusCommand(
   try {
     store = openStoreAt({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(openRefusalLine(err, dir));
     return EXIT.failed;
   }
   try {
@@ -6326,7 +6353,7 @@ function backupCommand(
     store = openStoreAt({ dir, observer: true });
   } catch (err) {
     io.out(`Snapshot: none — nothing was copied.`);
-    io.err(`  could not open the store: ${describeDirRefusal(err, dir)}`);
+    io.err(`  ${openRefusalLine(err, dir)}`);
     return EXIT.failed;
   }
   try {
