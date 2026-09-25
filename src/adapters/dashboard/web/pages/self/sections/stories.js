@@ -1,18 +1,8 @@
-/* How I changed my mind — every credited challenge, in the order it landed. */
-import { absenceLine } from "../../../shared/absence.js";
-import { $, esc } from "../../../shared/dom.js";
+/* One revision story as a card: how a belief began, what it says now, and each
+   credited challenge in the order it landed. The settling section opens it in
+   the overlay. */
+import { esc } from "../../../shared/dom.js";
 import { n3, pct } from "../../../shared/format.js";
-
-export const markup = `
-    <h2>How I changed my mind <small>— every credited challenge, in the order it landed</small></h2>
-    <div id="mind-stories"></div>`;
-
-export function paint(d) {
-  $("mind-stories").innerHTML = d.storiesAbsent
-    ? absenceLine(d.storiesAbsent, "no belief of mine has taken a single credited challenge") +
-      '<p class="foot">That is a real answer, not an empty panel: a store with no contested belief has never had one, and this line is how I say so.</p>'
-    : d.stories.map(storyCard).join("");
-}
 
 export function storyCard(s) {
   const beats = s.beatsAbsent

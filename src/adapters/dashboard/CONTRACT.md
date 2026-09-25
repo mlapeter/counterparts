@@ -43,9 +43,8 @@ Legibility is the product's answer to the trust question a brain never has to fa
 ## 5. Contract
 
 **Inputs** — the canonical stores (read-only), the event log, the registry of kinds/bands,
-the written self page and its versions (2026-09-18; shown as a list with bodies, newest
-first — there is no precedent here for a text diff between two revisions, and a page is
-prose a person reads rather than a field that changed).
+the written self page and its versions (2026-09-18; since 2026-09-25 shown as a timeline,
+each version with what changed from the one before it).
 **Outputs** — rendered views, and the owner's management actions. **Guarantees:** **[M]**
 LOOKING is observer mode by construction (`docs/observer-mode.md`): every view strengthens
 nothing, deposits nothing, resolves no references, and a test asserts the adapter's own
