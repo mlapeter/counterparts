@@ -1,0 +1,33 @@
+.story{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+  padding:14px 16px;margin-bottom:10px}
+.story h3{font-size:12px;color:var(--cyan);font-weight:400;letter-spacing:1px;margin-bottom:2px}
+.story .about{color:var(--faint);font-size:10px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
+.story .said{font-size:11.5px;margin:5px 0;line-height:1.65}
+.story .said .k{color:var(--dim);display:inline-block;min-width:88px;vertical-align:top}
+.story .said .stmt{display:inline-block;max-width:calc(100% - 96px)}
+.story .said .stmt.click{cursor:pointer}
+.story .said .stmt.click:hover{color:var(--cyan)}
+.beat .verdict.became{color:var(--amber);cursor:pointer}
+.beat .verdict.became:hover{text-decoration:underline}
+.beat{display:grid;grid-template-columns:52px 1fr 210px;gap:11px;align-items:start;
+  padding:9px 0;border-top:1px solid var(--border);font-size:11px}
+.beat .day{color:var(--faint);font-size:10px}
+.beat .who{color:var(--ink);line-height:1.5}
+.beat .who em{color:var(--dim);font-style:normal;font-size:10px;display:block;margin-top:2px}
+.beat .track{height:7px;background:var(--deep);border-radius:4px;overflow:hidden;position:relative;
+  border:1px solid rgba(0,229,255,.07)}
+.beat .fill{height:100%;background:var(--teal)}
+.beat.crossed .fill{background:var(--amber)}
+.beat .barline{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--red);opacity:.7}
+.beat .verdict{font-size:9.5px;color:var(--dim);margin-top:4px;letter-spacing:.4px;line-height:1.5;
+  overflow-wrap:anywhere}
+.beat.crossed .verdict{color:var(--amber)}
+@media(max-width:640px){.beat{grid-template-columns:44px 1fr}.beat>div:last-child{grid-column:1/-1}}
+
+.lane{margin-bottom:12px}
+.lane h4{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--purple);
+  font-weight:400;margin-bottom:6px}
+.lane .item{font-size:11.5px;line-height:1.7;padding:4px 0 4px 14px;border-left:1px solid var(--border);
+  margin-bottom:2px;color:var(--ink)}
+.lane .item .date{color:var(--faint)}
+.wakehead{color:var(--dim);font-size:11px;margin-bottom:12px;line-height:1.65}

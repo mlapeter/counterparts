@@ -76,8 +76,9 @@ write now fails `tsc` until someone has decided which part of the machine it
 belongs to.
 
 **One exception was opened, narrowly.** `web/server.ts` is the only file in this
-directory that may import `node:fs` — `readFileSync`, for two static HTML pages
-that ship beside it — and `node:http`. The directory-wide ban mechanizes "there
+directory that may import `node:fs` — `readFileSync`, for the static files
+that ship beside it (two HTML pages, and since the 2026-09-25 module split the
+page's own `.js`/`.css` under `web/`, via `web/static.ts`) — and `node:http`. The directory-wide ban mechanizes "there
 is no dashboard state file because nothing here can open one"; a read-only
 import keeps that exactly, and the test pins the binding by name so it cannot
 widen into a write. It also joins the enumerated network-verb list in

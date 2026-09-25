@@ -1,0 +1,26 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   The glow theme, and the only theme. Navy ground, neon cyan, JetBrains Mono
+   where the machine has it, CRT scanlines over the top. Every colour is a
+   variable so a second theme is a block, not a rewrite — but there is one look
+   on purpose: this dashboard is the product's face.
+   No web fonts, no CDN, no network of any kind on this page. It renders
+   identically with the machine unplugged.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0a0e14; --card:#0d1117; --hover:#111820; --deep:#060a10;
+  --border:rgba(0,229,255,.12); --glow:rgba(0,229,255,.25);
+  /* The three text steps, measured rather than eyeballed. WCAG ratios against
+     the page ground (#0a0e14) and the card (#0d1117), which are the only two
+     backgrounds any text sits on:
+       --ink   11.8 : 1  — memory prose, table cells, node state
+       --dim    6.4 : 1 / 6.2 : 1 — the narration lede, nav, legends, headers
+       --faint  5.1 : 1 / 5.0 : 1 — the per-memory metadata row
+     The old values were 3.35 and 1.86. The 1.86 was the line carrying what was
+     remembered and when — the least legible text on the page was the one
+     constitution line 16 is actually about. The hierarchy survives as a real
+     three-step ramp; only the floor moved. */
+  --ink:#c5cdd8; --dim:#8a95a3; --faint:#79848f;
+  --cyan:#00e5ff; --purple:#b388ff; --amber:#ffd740; --teal:#00bfa5; --red:#ff5252;
+  --radius:4px;
+  --hovershadow:0 0 15px rgba(0,229,255,.15), inset 0 0 15px rgba(0,229,255,.02);
+}
