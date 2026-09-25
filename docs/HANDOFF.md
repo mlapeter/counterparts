@@ -38,8 +38,10 @@ owner is experimenting, so record what's true for now and don't turn it into rul
   onto `time.ts`, removes the `todayUtc()` allow entry in `test/time.test.ts`, and says "open a
   session to upgrade" on a v6 store.
 
+**Late 09-25 update:** 0.3.2 IS PACKED — `~/counterparts-backups/2026-09-25-0.3.2/` (PUBLISH-0.3.2.md, master 34c01fe; #231 + dashboard #239 + #229; upgrade from a 0.3.1 store verified). Owner tries it (close all sessions first) and publishes on his word. **#238 (spacing + Nearby) is HELD, not merged**: its review found the loop only slowed (the strong memory is back every day by ~day 20 over 60 simulated days; used-while-shown barely habituates; `lastUsedDay` keeps it from decaying) and spacing weakens every consecutive-day memory (slower consolidation, faster prune) without helping the loop. Rework with the owner: spacing as a bonus for long gaps rather than a penalty for short ones; `HINT_USED_STEP = 1`; score hints from decay since the last organic use; a 40+ day simulation at the default HINTS_MAX; merges (`dedup.ts:311`) and the dashboard's float `uses` (`browse.ts:216`); clear `self.hinted.*` on removal.
+
 **Next:**
-1. **0.3.2** = the dashboard redesign + #231 + spacing/Nearby. When all of it is on master: verify
+1. **0.3.2** (now packed; the steps below are what was done) = the dashboard redesign + #231 + spacing/Nearby. When all of it is on master: verify
    on a clean checkout (suite in UTC and `TZ=America/Denver`, tsc, install loop), run the
    0.3.1→v7 upgrade on a seeded store, then pack into `~/counterparts-backups/<date>-0.3.2/` with a
    PUBLISH sheet. The sheet must say: close every Claude Code session first, then `bun add -g`
