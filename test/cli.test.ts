@@ -6005,14 +6005,17 @@ describe("counterparts dashboard", () => {
   function seam(port = DASHBOARD_DEFAULT_PORT): {
     seam: DashboardSeam;
     started: { dir: string; port: number | undefined }[];
+    configs: (string | undefined)[];
     opened: string[];
     stopped: number;
   } {
     const started: { dir: string; port: number | undefined }[] = [];
+    const configs: (string | undefined)[] = [];
     const opened: string[] = [];
     const box = { stopped: 0 };
     return {
       started,
+      configs,
       opened,
       get stopped(): number {
         return box.stopped;
@@ -6020,6 +6023,7 @@ describe("counterparts dashboard", () => {
       seam: {
         start: async (o): Promise<RunningView> => {
           started.push({ dir: o.dir, port: o.port });
+          configs.push(o.config);
           return {
             url: `http://127.0.0.1:${String(o.port ?? port)}`,
             dir: o.dir,
@@ -6093,6 +6097,28 @@ describe("counterparts dashboard", () => {
     ).toBe(EXIT.ok);
     expect(s.started).toEqual([{ dir: other, port: 5050 }]);
     expect(text(c.out)).toContain("http://127.0.0.1:5050");
+  });
+
+  /**
+   * THE CONFIGURATION rides along to the dashboard for its management actions
+   * (`scope`, `rebrief`): when the store came from it, or when it was named.
+   * A bare `--dir` names a store and no configuration, so none is passed and
+   * the page's `scope` refuses rather than fall back to the default file.
+   */
+  test("the configuration is handed to the dashboard only when it was used or named", async () => {
+    configured();
+    const defaultConfig = join(outside, ".counterparts", CONFIG_FILE);
+    const other = join(outside, "second-store");
+    Store.open({ dir: other }).close();
+    const named = join(outside, "named.json");
+    writeFileSync(named, JSON.stringify({ dataDir: dir }));
+    const s = seam();
+    const opts = { io: consoleWith().io, env: {}, home: outside, dashboard: s.seam };
+    expect(await run(["dashboard", "--no-open"], opts)).toBe(EXIT.ok);
+    expect(await run(["dashboard", "--dir", other, "--no-open"], opts)).toBe(EXIT.ok);
+    expect(await run(["dashboard", "--dir", other, "--config", named, "--no-open"], opts)).toBe(EXIT.ok);
+    expect(await run(["dashboard", "--config", named, "--no-open"], opts)).toBe(EXIT.ok);
+    expect(s.configs).toEqual([defaultConfig, undefined, named, named]);
   });
 
   test("a port that is not a port is refused, and nothing is opened", async () => {

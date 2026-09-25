@@ -6,9 +6,10 @@ import * as constellation from "./sections/constellation.js";
 import * as histogram from "./sections/histogram.js";
 import * as hubs from "./sections/hubs.js";
 import * as kinds from "./sections/kinds.js";
+import * as manage from "./sections/manage.js";
 import * as search from "./sections/search.js";
 
-const markup = `${search.markup}
+const markup = `${search.markup}${manage.markup}
     <div class="cols-wide">
       <div>${constellation.markup}${histogram.markup}
       </div>
@@ -44,6 +45,7 @@ export default {
     section.innerHTML = markup;
     constellation.mount();
     search.mount();
+    manage.mount();
   },
   render,
   /** Coming back to the tab: the canvas may have been laid out at zero width. */

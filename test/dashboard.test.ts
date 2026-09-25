@@ -553,6 +553,54 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
     expect([...serverOnly].sort()).toEqual(["node:fs", "node:http"]);
   });
 
+  /**
+   * THE ONE DOOR TO MANAGING, named here rather than passed by the relative-
+   * import loophole above (owner, 2026-09-25; CONTRACT §5 [A]).
+   *
+   * The dashboard may now act — write a note, remove a memory, back up — and
+   * it does so by calling the console's own `run()`, so every check is the
+   * CLI's. That makes `web/actions.ts` the only file in the adapter that may
+   * reach `adapters/cli/`, and only LAZILY (a dynamic `import()`), so a
+   * dashboard that is only looked at never loads code that can write. And the
+   * file is never handed the observer source: it names no `DashboardSource`,
+   * `Dashboard`, `sourceOf`, `Store` or `Counterpart`, so nothing that only
+   * looks can acquire the ability to write through it.
+   */
+  test("only web/actions.ts reaches the console, lazily, and never the observer source", () => {
+    const reachingCli = adapterSources()
+      .filter((s) => s.imports.some((m) => /(^|\/)cli(\/|$)/.test(m)))
+      .map((s) => s.path);
+    expect(reachingCli).toEqual(["web/actions.ts"]);
+    const raw = readFileSync(join(ADAPTER_DIR, "web/actions.ts"), "utf8");
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
+    // Dynamic only. Every STATIC form is refused, in any file: `import … from`,
+    // a bare side-effect `import "…"`, and `export … from` (a re-export loads
+    // the module just the same).
+    const staticCli = /(^|[;\s])(import|export)\s+(?!\()(?:[^;]*?\sfrom\s*)?["'][^"']*(^|\/)cli(\/|["'])/m;
+    for (const src of adapterSources()) {
+      const text = readFileSync(join(ADAPTER_DIR, src.path), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/.*$/gm, " ");
+      expect(`${src.path}: ${staticCli.test(text)}`).toBe(`${src.path}: false`);
+    }
+    // The scan can see each static form it refuses.
+    for (const sample of [
+      'import { run } from "../../cli/index.js";',
+      'import "../../cli/index.js";',
+      'export { run } from "../../cli/index.js";',
+      'export * from "../../cli/commands.js";',
+    ]) {
+      expect(`${sample} → ${staticCli.test(sample)}`).toBe(`${sample} → true`);
+    }
+    expect(staticCli.test('const m = await import("../../cli/index.js");')).toBe(false);
+    expect(/import\s*\(\s*["']\.\.\/\.\.\/cli\/index\.js["']\s*\)/.test(code)).toBe(true);
+    for (const name of ["DashboardSource", "Dashboard", "sourceOf", "Store", "Counterpart", "ReadOnlyStore"]) {
+      expect(`${name}: ${new RegExp(`\\b${name}\\b`).test(code)}`).toBe(`${name}: false`);
+    }
+    // The terminal-only three are not actions, so no argv for them can be built.
+    expect(/["'](install|uninstall|start-fresh)["']/.test(code)).toBe(false);
+  });
+
   test("the web server's ONE filesystem import binds readFileSync and nothing else", () => {
     const server = adapterSources().find((s) => s.path === SERVER_FILE);
     expect(server).toBeDefined();

@@ -45,16 +45,36 @@
  * that exactly.
  * `test/dashboard.test.ts` encodes the exception per-file and asserts the
  * binding, so it cannot quietly widen into a write.
+ *
+ * ## Looking, and managing (2026-09-25)
+ *
+ * `router()` is LOOKING: GET only, over the observer source, and it stays a
+ * pure function of that source. MANAGING — a note, a removal, a backup, … —
+ * is a POST to `/api/action/<name>`, handled by `actions.ts` through the
+ * console's own `run()`. That path is never handed the observer source, only
+ * the store's directory and the configuration's path, and it answers only a
+ * request that passes `checkActionRequest` (same origin, the per-launch token
+ * the page carries, JSON). A GET to an action path is refused here, so no
+ * link, image or prefetch can act.
  */
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import type { Server } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isStoreError, today as todayUtc } from "../../../core/store/index.js";
 import { Dashboard } from "../index.js";
 import type { DashboardSource } from "../source.js";
+import {
+  MAX_BODY_BYTES,
+  TOKEN_HEADER,
+  TOKEN_META,
+  checkActionRequest,
+  newActionToken,
+  runAction,
+} from "./actions.js";
+import type { ActionContext } from "./actions.js";
 import { firedPanel } from "./fired.js";
 import { resolveStatic } from "./static.js";
 import {
@@ -123,14 +143,39 @@ function json(body: unknown, status = 200): Reply {
   };
 }
 
+/**
+ * No page of this dashboard may be framed. The page can now ACT (a removal is
+ * two clicks and a typed id), and a page another site frames invisibly is how
+ * clicks get stolen — so every HTML reply says "never inside a frame", in the
+ * old header and the current one.
+ */
+const NO_FRAMES = {
+  "x-frame-options": "DENY",
+  "content-security-policy": "frame-ancestors 'none'",
+} as const;
+
 function html(body: string): Reply {
-  return { status: 200, headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE }, body };
+  return {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE, ...NO_FRAMES },
+    body,
+  };
 }
 
-/** One of the two static pages. A missing file is a sentence, never a stack. */
-function page(file: string): Reply {
+/**
+ * One of the two static pages. A missing file is a sentence, never a stack.
+ *
+ * `token`, when given, fills the page's `<meta name="counterparts-action-token">`
+ * — the per-launch secret every action must echo. It is hex, so it needs no
+ * escaping, and it is only ever sent to a request that passed the Host check.
+ */
+function page(file: string, token?: string): Reply {
   try {
-    return html(readFileSync(file, "utf8"));
+    const text = readFileSync(file, "utf8");
+    if (token === undefined || !/^[0-9a-f]+$/.test(token)) return html(text);
+    return html(
+      text.replace(`<meta name="${TOKEN_META}" content="">`, `<meta name="${TOKEN_META}" content="${token}">`),
+    );
   } catch {
     return json(
       { error: `the dashboard page is missing from the install (${file}). Reinstall, or run from a checkout.` },
@@ -170,7 +215,12 @@ function intParam(url: URL, name: string, fallback: number): number {
  * an instrument that crashes its own loop on a broken store is the one moment
  * the owner most needs it to render (scar E7).
  */
-export function router(url: URL, host: string | null, src: DashboardSource): Reply {
+export function router(
+  url: URL,
+  host: string | null,
+  src: DashboardSource,
+  opts: { readonly token?: string } = {},
+): Reply {
   if (!isAllowedHost(host)) {
     return json(
       { error: "forbidden: this dashboard answers only to localhost, 127.0.0.1 or [::1]" },
@@ -179,7 +229,12 @@ export function router(url: URL, host: string | null, src: DashboardSource): Rep
   }
   const path = url.pathname;
   try {
-    if (path === "/" || path === "/index.html") return page(APP_PATH);
+    // LOOKING NEVER ACTS: an action path reached by GET is refused, whatever
+    // follows it, before any view is computed.
+    if (path === ACTION_PREFIX.slice(0, -1) || path.startsWith(ACTION_PREFIX)) {
+      return json({ error: "an action is a POST from the dashboard's own page; nothing was done" }, 405);
+    }
+    if (path === "/" || path === "/index.html") return page(APP_PATH, opts.token);
     if (path === "/brain") return page(BRAIN_PATH);
     if (path === "/favicon.svg" || path === "/favicon.ico") {
       return {
@@ -238,9 +293,18 @@ export function router(url: URL, host: string | null, src: DashboardSource): Rep
   }
 }
 
+/** Every management action is a POST under here: `/api/action/<name>`. */
+export const ACTION_PREFIX = "/api/action/";
+
 export interface ServeOptions {
   /** The data dir. Always passed explicitly by every caller in this repo. */
   readonly dir?: string;
+  /**
+   * The host configuration this dashboard was opened through, when it was —
+   * handed to the actions that read one (`scope`, `rebrief`, and the embedder
+   * knob of `note`/`ask`), exactly as `--config` would be.
+   */
+  readonly config?: string;
   /** 0 asks the OS for a free port — what the visual loop uses. */
   readonly port?: number;
 }
@@ -249,6 +313,8 @@ export interface RunningDashboard {
   readonly port: number;
   readonly url: string;
   readonly dir: string;
+  /** This launch's action token (the page carries it; tests read it here). */
+  readonly token: string;
   readonly server: Server;
   stop(): Promise<void>;
 }
@@ -268,12 +334,32 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
   const dashboard = Dashboard.open({ ...(opts.dir === undefined ? {} : { dir: opts.dir }) });
   const src = dashboard.source;
   const dir = dashboard.store.dir;
+  const token = newActionToken();
+  // What an action is told about where to run: two strings, the store's
+  // directory and the configuration's path. NOT the source above.
+  const actionContext: ActionContext = {
+    dir,
+    ...(opts.config === undefined ? {} : { config: opts.config }),
+  };
+  let boundPort = 0;
 
   const server = createServer((req, res) => {
+    const method = req.method ?? "GET";
+    const rawPath = (req.url ?? "/").split("?")[0] ?? "/";
+    if (method === "POST" && rawPath.startsWith(ACTION_PREFIX)) {
+      void handleAction(req, res, rawPath.slice(ACTION_PREFIX.length), token, boundPort, actionContext);
+      return;
+    }
     let reply: Reply;
+    if (method !== "GET" && method !== "HEAD") {
+      reply = json({ error: `${method} is not something this dashboard answers; nothing was done` }, 405);
+      res.writeHead(reply.status, { ...reply.headers, allow: "GET, HEAD" });
+      res.end(reply.body);
+      return;
+    }
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-      reply = router(url, req.headers.host ?? null, src);
+      reply = router(url, req.headers.host ?? null, src, { token });
     } catch (err) {
       reply = {
         status: 500,
@@ -291,10 +377,12 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
       server.removeListener("error", fail);
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : resolvePort(opts);
+      boundPort = port;
       ok({
         port,
         url: `http://127.0.0.1:${port}`,
         dir,
+        token,
         server,
         stop: () =>
           new Promise<void>((done) => {
@@ -308,6 +396,95 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
             server.closeAllConnections?.();
           }),
       });
+    });
+  });
+}
+
+function header(req: IncomingMessage, name: string): string | null {
+  const v = req.headers[name];
+  if (Array.isArray(v)) return v.length === 1 ? (v[0] ?? null) : null;
+  return typeof v === "string" ? v : null;
+}
+
+function send(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...NO_STORE });
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * One POST to `/api/action/<name>`: the guard, then the body (capped), then
+ * `actions.ts`. The guard runs BEFORE a byte of the body is read.
+ */
+async function handleAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+  token: string,
+  boundPort: number,
+  ctx: ActionContext,
+): Promise<void> {
+  const refused = checkActionRequest(
+    {
+      method: req.method ?? "",
+      host: header(req, "host"),
+      origin: header(req, "origin"),
+      contentType: header(req, "content-type"),
+      token: header(req, TOKEN_HEADER),
+      fetchSite: header(req, "sec-fetch-site"),
+    },
+    token,
+    boundPort,
+  );
+  if (refused !== null) {
+    req.resume();
+    send(res, refused.status, { error: refused.error });
+    return;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    const tooBig = err instanceof Error && err.message === "too-large";
+    send(res, tooBig ? 413 : 400, {
+      error: tooBig
+        ? `an action's body is at most ${String(MAX_BODY_BYTES)} bytes; nothing was done`
+        : "an action's body is JSON; nothing was done",
+    });
+    return;
+  }
+  try {
+    const result = await runAction(name, body, ctx);
+    send(res, result.status, result.body);
+  } catch (err) {
+    send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((ok, fail) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    req.on("data", (chunk: Buffer) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        done = true;
+        req.resume();
+        fail(new Error("too-large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (done) return;
+      done = true;
+      ok(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", (err) => {
+      if (done) return;
+      done = true;
+      fail(err);
     });
   });
 }

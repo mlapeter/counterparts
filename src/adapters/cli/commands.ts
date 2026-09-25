@@ -458,6 +458,16 @@ export interface RunOptions {
    * pass it and get `realDashboard()`, which loads the server module lazily.
    */
   dashboard?: DashboardSeam;
+  /**
+   * WHERE A NOTE IS FILED — the scope `note` stamps on what it writes. Real
+   * terminal runs pass nothing and get the working directory, which is where
+   * the person typing is. The dashboard passes its store's own directory: a
+   * note written in the browser was not written from any project, and the
+   * server's working directory is only wherever it happened to be launched.
+   * (The store dir is the same "no project" answer `mcp/server.ts#resolveScope`
+   * falls back to.)
+   */
+  scope?: string;
 }
 
 /**
@@ -761,7 +771,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   "self-page":
     "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
   dashboard:
-    "Open the dashboard in your browser: the web view of the store your configuration names, served on 127.0.0.1 and nowhere else. Ctrl-C stops it. Read-only — it strengthens nothing, deposits nothing, and writes no file of its own.",
+    "Open the dashboard in your browser: the web view of the store your configuration names, served on 127.0.0.1 and nowhere else. Ctrl-C stops it. Looking is read-only — it strengthens nothing and deposits nothing. What you do there on purpose (write a note, remove a memory, back up, …) runs through these same commands, and a removal asks you to type the id back.",
   version: "The version of Counterparts you have. It opens nothing.",
   help:
     "The console's own map. With no argument, the commands a person reaches for, one short line each; with 'advanced', the maintenance shelf and the three flags every command takes; with a command name, that command's whole page.",
@@ -1672,7 +1682,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
-        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir());
+        return await noteCommand(dir, io, parsed, env, opts.home ?? homedir(), opts.scope);
       // ONE COMMAND, TWO NAMES — the same function, not a forwarding shim, so
       // there is no arm where one spelling can behave differently from the other.
       case "ask":
@@ -3611,7 +3621,7 @@ export interface RunningView {
  * dashboard's own server, named in `test/claude-code.test.ts`.)
  */
 export interface DashboardSeam {
-  start(opts: { readonly dir: string; readonly port?: number }): Promise<RunningView>;
+  start(opts: { readonly dir: string; readonly port?: number; readonly config?: string }): Promise<RunningView>;
   /** Open the person's browser. Never throws: a machine with no opener, or a
    *  desktop that refuses, is not a reason for the dashboard to fail. */
   open?(url: string): void;
@@ -3689,7 +3699,19 @@ async function dashboardCommand(
   const seam = opts.dashboard ?? realDashboard(env);
   let running: RunningView;
   try {
-    running = await seam.start({ dir, ...(port === undefined ? {} : { port }) });
+    // THE CONFIGURATION rides along for the dashboard's management actions
+    // (`scope` and `rebrief` read one) — when this command resolved the store
+    // through it, or when one was named outright. A bare `--dir` names a store
+    // and no configuration, and the dashboard then offers no `scope`.
+    const config =
+      typeof parsed.flags["dir"] !== "string" || (named !== undefined && named.source !== "default")
+        ? configPath
+        : undefined;
+    running = await seam.start({
+      dir,
+      ...(port === undefined ? {} : { port }),
+      ...(config === undefined ? {} : { config }),
+    });
   } catch (err) {
     if ((err as { code?: string }).code === "EADDRINUSE") {
       io.err(
@@ -3727,6 +3749,7 @@ function realDashboard(env: Record<string, string | undefined>): DashboardSeam {
       const up = await startDashboard({
         dir: o.dir,
         ...(o.port === undefined ? {} : { port: o.port }),
+        ...(o.config === undefined ? {} : { config: o.config }),
       });
       return { url: up.url, dir: up.dir, stop: (): Promise<void> => up.stop() };
     },
@@ -4836,6 +4859,7 @@ async function noteCommand(
   parsed: Parsed,
   env: Record<string, string | undefined>,
   home: string,
+  filedUnder?: string,
 ): Promise<number> {
   const text = parsed.positional.join(" ").trim();
   if (text.length === 0) {
@@ -4866,7 +4890,7 @@ async function noteCommand(
     // printed was that something had been remembered.
     io.out(`Store: ${counterpart.store.dir}`);
     const session = "console";
-    const scope = process.cwd();
+    const scope = filedUnder ?? process.cwd();
     // Step 1 of 2, and the ORDER is the rule (see the docblock above).
     const captured = counterpart.captureJot({ session, scope, text });
     const ownSpanHash = captured.spans[0]?.hash ?? null;
@@ -5038,8 +5062,15 @@ async function recallCommand(
   // Opened WITH the embedder's identity, the way `mcp/index.ts#openServer`
   // opens the server's store: the store reconciles box 3's tag at open, so a
   // held or mismatched meaning index ranks nothing rather than a cosine across
-  // two models. That open may write the tag once, as every hook's open does.
-  const counterpart = openCounterpart(dir, false, undefined, embedder?.embed);
+  // two models.
+  //
+  // AND IN OBSERVER STANCE (owner, 2026-09-25: asking is looking, and looking
+  // changes nothing). A writable open here backfilled the meaning index — on a
+  // fresh store, one `ask` embedded and wrote every row's vector into box 3 —
+  // and asking from the dashboard runs this same function. Under observer the
+  // question is still embedded and answered; nothing is written, the cache
+  // included. The backfill is the worker's and the hooks' job.
+  const counterpart = openCounterpart(dir, true, undefined, embedder?.embed);
   try {
     // Same rule as `note` and `status`: say which store answered.
     if (parsed.flags["json"] !== true) io.out(`Store: ${counterpart.store.dir}`);

@@ -124,6 +124,8 @@ export function helpText(): string {
     "The web view:",
     "  serve --dir <path> [--port <n>]     the local dashboard, on 127.0.0.1 only",
     `                                      (default port ${SERVE_DEFAULT_PORT}, or ${SERVE_PORT_ENV})`,
+    "  serve ... --config <path>           the configuration the page's scope and rebrief",
+    "                                      actions name (absent: the page offers no scope)",
     "  serve --default-store               open the DEFAULT store instead. Without --dir",
     "                                      or --default-store, 'serve' refuses: on a machine",
     "                                      with an install the default is the owner's live",
@@ -131,7 +133,8 @@ export function helpText(): string {
     "",
     "A flag a subcommand does not take is refused before anything is opened.",
     "",
-    "It reads in observer mode and writes nothing, ever.",
+    "Looking reads in observer mode and writes nothing. The web view's management",
+    "actions (note, remove, backup, …) run through the console's own commands.",
   ];
   return lines.join("\n");
 }
@@ -151,6 +154,9 @@ export interface ServeArgs {
    *  `serve` has no confirmation to skip. The flag that puts a whole store on a
    *  socket says which store. */
   readonly defaultStore: boolean;
+  /** `--config <path>`: the host configuration the page's `scope` and
+   *  `rebrief` actions name. Absent, the page offers no `scope`. */
+  readonly config: string | undefined;
 }
 
 /**
@@ -172,7 +178,7 @@ export interface ServeArgs {
 const VIEW_FLAGS: readonly string[] = [
   "dir", "id", "limit", "band", "kind", "name", "archived", "width", "colour", "no-colour", "help", "h",
 ];
-const SERVE_FLAGS: readonly string[] = ["dir", "port", "default-store", "help", "h"];
+const SERVE_FLAGS: readonly string[] = ["dir", "port", "default-store", "config", "help", "h"];
 
 export function unknownFlag(argv: readonly string[]): string | null {
   const serve = (argv[0] ?? "") === "serve";
@@ -200,6 +206,7 @@ export function parseServe(argv: readonly string[]): ServeArgs {
     dir: parsed.dir,
     ...(port === undefined ? { port: undefined } : { port }),
     defaultStore: argv.includes("--default-store") || argv.includes("--default-store=true"),
+    config: flagValue(argv, "config"),
   };
 }
 
@@ -285,6 +292,7 @@ export async function serve(argv: readonly string[]): Promise<number> {
     const running = await startDashboard({
       ...(dir === undefined ? {} : { dir }),
       ...(args.port === undefined ? {} : { port: args.port }),
+      ...(args.config === undefined ? {} : { config: resolve(args.config) }),
     });
     process.stdout.write(
       [
@@ -300,7 +308,11 @@ export async function serve(argv: readonly string[]): Promise<number> {
         ...(dir === undefined
           ? [`(--default-store, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
           : []),
-        "observer mode: it strengthens nothing, deposits nothing, and writes no file of its own.",
+        "looking is observer mode: it strengthens nothing and deposits nothing. What you do on purpose",
+        "there (a note, a removal, a backup, …) runs through the console's own commands.",
+        ...(args.config === undefined
+          ? []
+          : [`configuration ${resolve(args.config)} (for scope and rebrief)`]),
         "ctrl-c to stop.",
         "",
       ].join("\n"),
