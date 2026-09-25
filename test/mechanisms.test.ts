@@ -163,9 +163,9 @@ describe("counterparts mechanisms", () => {
     ]);
     const { out } = await console_(["mechanisms"]);
     const plumbing = out.find((l) => l.startsWith("Plumbing:")) ?? "";
-    expect(plumbing).toContain("failing:");
-    expect(plumbing).toContain("a copy of the store could not be made (1 time)");
-    expect(plumbing).toContain("the background worker failed or was refused (1 time)");
+    expect(plumbing).toContain("failing this week:");
+    expect(plumbing).toContain("a copy of the store could not be made");
+    expect(plumbing).toContain("the background worker failed or was refused");
   });
 
   test("`fired` is the same command under its older name", async () => {

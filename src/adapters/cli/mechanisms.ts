@@ -261,12 +261,14 @@ export function plumbingLine(report: FiredReport): string {
   const failing: string[] = [];
   for (const r of plumbing) {
     const words = TROUBLE[r.id];
-    if (words !== undefined && r.firedInWindow > 0) {
-      failing.push(`${words} (${plural(r.firedInWindow, "time")})`);
-    }
+    // No count: some of these rows are latched one per reason per day, so a
+    // number here would read as attempts and understate them.
+    if (words !== undefined && r.firedInWindow > 0) failing.push(words);
   }
   const head = `Plumbing: ${plural(running, "part")} running`;
-  return failing.length === 0 ? `${head}, none failing.` : `${head}; failing: ${failing.join("; ")}.`;
+  return failing.length === 0
+    ? `${head}, none failing.`
+    : `${head}; failing this week: ${failing.join("; ")}.`;
 }
 
 /** The whole short view, as plain lines: one per mechanism in the site's four
