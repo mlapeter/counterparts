@@ -1,5 +1,71 @@
 # Handoff — resume here
 
+## 2026-09-25, evening — 0.3.1 ON NPM; 0.3.2 BEING ASSEMBLED; THE MECHANISMS ROUND IS UNDER WAY
+
+Two sessions ran on 09-25: **release/mechanisms** (this section) and **dashboard** (its plan is in
+`~/counterparts-notes/2026-09-25-dashboard-plan.md`, and it leaves its own handoff). The plan is
+the top of `docs/ROADMAP.md`, "2026-09-25, the mechanisms round". Everything is held lightly: the
+owner is experimenting, so record what's true for now and don't turn it into rules.
+
+**Done 09-25:**
+- **0.3.1 is on npm**, published and installed by the owner (#213 #214 #215 #217 #218 #220, plus the fade row #223).
+- **#229 `counterparts mechanisms`.** Its default view is the 11 site mechanisms with lights plus one
+  plumbing line. `fired` is kept as an alias and `--all` gives the full report. Its table is in
+  `cli/mechanisms.ts`, deliberately not shared with the dashboard or the site.
+- **#227 `docs/time.md`**, the time plan. Moments are stored as UTC ms and shown in local time.
+  Calendar dates are stored plain and never converted. One module (`core/time.ts`) does every
+  conversion. The zone follows the computer, with an optional config `timeZone`.
+- **#231, store v7** (adversarial review: `docs/adversarial-review-v7-2026-09-25.md`, no blockers;
+  all should-fix items fixed):
+  - `core/time.ts`
+  - `created_at`/`updated_at` on memories, edges and prospective; `created_at` on versions
+  - `model` on memories and versions
+  - `event_date` for day, month, year or range, with `Store.datedMemories`
+  - `learned_on` is now the local date
+  - a `Now:` line on every turn and in the wake
+  - a `feelings` table built on the owner's feelings wheel (`core/feelings-wheel.ts`, 113 keys).
+    `note` and `session_end` accept a `feelings` field; nothing uses it for weighting yet.
+  - On the upgrade evening, the lived day holds instead of failing.
+  - Upgrading needs every session closed, then `/mcp` → Reconnect.
+- **#236**: ROADMAP notes for the round and the tentative ideas (onboarding, a journal entry per
+  model, a check-in in the wake, emotion behaviour, cross-project balance).
+
+**In flight:**
+- **Spacing credit + the "Nearby" wake lane by context and habituation** (branch
+  `recall/spacing-and-nearby`, builder running). It fixes the rich-get-richer loop: a strongest-first
+  hints lane plus full credit for every use kept one memory (Han) on top. Verify it, then merge.
+- **The dashboard session:** 4 page PRs (#232–#235), plus a v7 follow-up that moves its three UTC spots
+  onto `time.ts`, removes the `todayUtc()` allow entry in `test/time.test.ts`, and says "open a
+  session to upgrade" on a v6 store.
+
+**Next:**
+1. **0.3.2** = the dashboard redesign + #231 + spacing/Nearby. When all of it is on master: verify
+   on a clean checkout (suite in UTC and `TZ=America/Denver`, tsc, install loop), run the
+   0.3.1→v7 upgrade on a seeded store, then pack into `~/counterparts-backups/<date>-0.3.2/` with a
+   PUBLISH sheet. The sheet must say: close every Claude Code session first, then `bun add -g`
+   the new version, then `/mcp` → Reconnect in any session left open. Publishing is on the
+   owner's word. Bump `package.json` + `SERVER_VERSION` together and date the CHANGELOG heading.
+2. **PR B, reminders (prospective)**, agreed in detail on 09-25; see Counterparts memory
+   "Prospective memory decisions for v2":
+   - a date field (day, month or range) in `note`/`session_end`; no guessing dates from text
+   - important dates said plainly on the day, minor ones as a quiet footnote
+   - no bad-day filtering for now
+   - the four tune questions from v1's rating pass (`~/bansai/eval/replay/GATES.md` finding 3):
+     stagger month warmth, space fires so a month item gets an "after" moment, only day-dated items get
+     wake lines, imminence breaks ties
+   - wire `fire()` so a reminder can't come up every turn
+
+   It builds on #231's `event_date`.
+3. **Then talk through consolidation** with the owner: "core" is out of reach (the maths tops out at
+   about 0.70 against a bar of 0.85), and whether near-copies should merge. After that come
+   association, contradictions, schemas and gist.
+4. **Emotion behaviour**, designed in outline on 09-25 (Counterparts memory "Emotion design agreed with Mike").
+
+**Also:** the owner said the `~/.bansai` store may be *read* for reference, never modified. He was
+editing `CLAUDE.md` to say so. The site's home line "It only counts feelings that were actually
+expressed" is wrong, and he'll remove it in the next site update.
+
+
 ## 2026-09-24, night — THE ROUND AFTER 0.3.0: STEPS 1–2 DONE; NEXT = THE DASHBOARD CONVERSATION (fresh session)
 
 **Start here.** The plan is the top section of `docs/ROADMAP.md` ("After 0.3.0"). A coordinator
