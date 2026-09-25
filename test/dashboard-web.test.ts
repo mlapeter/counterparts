@@ -25,6 +25,9 @@
  *      these are the runtime restatements, for a reader who reads tests.
  *   5. **Confidential rows are withheld** — the rule every other surface keeps.
  *   6. **The empty store says which kind of nothing it has**, everywhere.
+ *   7. **The page's static tree is served, and only it**: the named folders and
+ *      extensions, no traversal in any spelling, the right MIME types, every
+ *      module the shell reaches present, and the page only ever GETs.
  *
  * Hermetic (CLAUDE.md): fresh temp dirs, removed after; the seeder takes its
  * directory as an argument and reads no environment.
