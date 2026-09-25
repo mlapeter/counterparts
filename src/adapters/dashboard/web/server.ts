@@ -84,6 +84,7 @@ import {
   flowView,
   healthView,
   memoriesView,
+  memoryListView,
   memoryDetail,
   metaView,
   mindView,
@@ -249,6 +250,16 @@ export function router(
     if (path === "/api/pulse") return json(pulse(src));
     if (path === "/api/overview") return json(overviewView(src, intParam(url, "limit", 40)));
     if (path === "/api/memories") return json(memoriesView(src, { limit: intParam(url, "limit", 4000) }));
+    if (path === "/api/memories/list") {
+      const q = url.searchParams;
+      return json(memoryListView(src, {
+        state: q.get("state"),
+        kind: q.get("kind"),
+        band: q.get("band"),
+        offset: intParam(url, "offset", 0),
+        limit: intParam(url, "limit", 50),
+      }));
+    }
     if (path === "/api/memory") {
       const id = url.searchParams.get("id") ?? "";
       if (id.length === 0) return json({ error: "id is required" }, 400);
