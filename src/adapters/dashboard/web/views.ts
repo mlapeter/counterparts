@@ -54,4 +54,6 @@ export type { FlowNodeState, FlowView, NodeDetailView } from "./views/flow-view.
 export { BLIND_SPOTS, healthView } from "./views/health.js";
 export type { HealthView } from "./views/health.js";
 export { pulse } from "./views/pulse.js";
+export { MECHANISM_PROOFS, mechanismsView } from "./views/mechanisms.js";
+export type { MechanismLight, MechanismsView } from "./views/mechanisms.js";
 export { num } from "../layout.js";

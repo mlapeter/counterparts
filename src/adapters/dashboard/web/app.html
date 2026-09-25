@@ -9,11 +9,12 @@
      echoes it (web/actions.ts). Empty means this page cannot act. -->
 <meta name="counterparts-action-token" content="">
 <!--
-  The shell. Styles and scripts are modules served beside this file (see
-  README.md): no web fonts, no CDN, no network of any kind beyond this origin.
+  The shell. Styles, scripts and the two font faces are served beside this file
+  (see README.md): no CDN, no network of any kind beyond this origin.
   The <link> order IS the cascade order — it reproduces the one stylesheet this
   page used to inline, so a rule's position still decides its ties.
 -->
+<link rel="preload" href="/shared/fonts/outfit-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/shared/tokens.css">
 <link rel="stylesheet" href="/shared/base.css">
 <link rel="stylesheet" href="/shared/widgets/tiles.css">
@@ -25,13 +26,16 @@
 <link rel="stylesheet" href="/shared/widgets/table.css">
 <link rel="stylesheet" href="/shared/widgets/chart.css">
 <link rel="stylesheet" href="/shared/tip.css">
+<link rel="stylesheet" href="/shared/widgets/light.css">
+<link rel="stylesheet" href="/pages/home/home.css">
 <link rel="stylesheet" href="/pages/memories/memories.css">
-<link rel="stylesheet" href="/pages/mind/mind.css">
+<link rel="stylesheet" href="/pages/self/self.css">
 <link rel="stylesheet" href="/pages/flow/flow.css">
 <link rel="stylesheet" href="/pages/health/health.css">
 <link rel="stylesheet" href="/shared/modal.css">
 <link rel="stylesheet" href="/shared/widgets/confirm.css">
 <link rel="stylesheet" href="/shared/utilities.css">
+<link rel="stylesheet" href="/shared/type.css">
 <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -52,9 +56,9 @@
 
   <!-- One section per page; each page module (pages/<name>/index.js) writes
        its own markup into its section at load. -->
-  <section class="tab" id="tab-overview"></section>
+  <section class="tab" id="tab-home"></section>
   <section class="tab" id="tab-memories" hidden></section>
-  <section class="tab" id="tab-mind" hidden></section>
+  <section class="tab" id="tab-self" hidden></section>
   <section class="tab" id="tab-flow" hidden></section>
   <section class="tab" id="tab-health" hidden></section>
 </div>

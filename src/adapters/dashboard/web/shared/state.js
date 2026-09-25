@@ -4,7 +4,7 @@
    resolving on the next request. */
 
 /** Which tab is showing, and which have been built once. */
-export const tabs = { current: "overview", loaded: {} };
+export const tabs = { current: "home", loaded: {} };
 
 /** The pulse's bookkeeping: the newest event seen, and the cheap shape of the
  *  store (`/api/meta`'s rows + day) so a poll can notice a deposit that left no

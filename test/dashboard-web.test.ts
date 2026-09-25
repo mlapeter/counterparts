@@ -91,6 +91,7 @@ const ENDPOINTS = [
   "/api/flow",
   "/api/health",
   "/api/fired",
+  "/api/mechanisms",
   "/api/activity",
   "/api/activity?limit=5",
   "/api/activity?sinceSeq=0",
@@ -1087,19 +1088,19 @@ describe("the shapes the page draws with", () => {
     const pulse = body(read("shell/pulse.js"), "export async function refreshCounters(");
     expect(pulse).toContain("for (const page of PAGES)");
     expect(pulse).toContain("page.refresh()");
-    const overview = read("pages/overview/index.js");
+    const overview = read("pages/home/index.js");
     const overviewRefresh = body(overview, "async function refresh(");
     expect(overviewRefresh).toContain("/api/overview");
-    expect(overviewRefresh).toContain("paintOverview(");
+    expect(overviewRefresh).toContain("paintHome(");
     expect(body(read("pages/flow/index.js"), "async function refresh(")).toContain("/api/flow");
     // Both pages are in the registry the pulse walks, and export the hook.
     const registry = read("shell/pages.js");
-    expect(registry).toContain("overview, memories, mind, flow, health");
+    expect(registry).toContain("home, memories, self, flow, health");
     expect(overview).toMatch(/export default \{[\s\S]*\brefresh,/);
     // And the paint is a function of its own, so the refresh path can skip the
     // feed the poll is prepending into.
-    expect(overview).toContain("export function paintOverview(d, withFeed)");
-    expect(read("pages/overview/sections/tiles.js")).toContain("window.tileValue");
+    expect(overview).toContain("export function paintHome(d, withFeed)");
+    expect(read("pages/home/sections/tiles.js")).toContain("window.tileValue");
   });
 
   test("an empty store's row count is zero and its emptiness agrees with it", () => {

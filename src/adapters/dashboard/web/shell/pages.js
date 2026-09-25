@@ -4,12 +4,12 @@
        refresh?(), show?(), resize?(), redraw?(),     — optional
        onEvents?(fresh), onDeposit?() }               — optional, the pulse
    and `app.html` carries one `<section class="tab" id="tab-<name>">` for it. */
-import overview from "../pages/overview/index.js";
+import home from "../pages/home/index.js";
 import memories from "../pages/memories/index.js";
-import mind from "../pages/mind/index.js";
+import self from "../pages/self/index.js";
 import flow from "../pages/flow/index.js";
 import health from "../pages/health/index.js";
 
-export const PAGES = [overview, memories, mind, flow, health];
+export const PAGES = [home, memories, self, flow, health];
 export const TABS = PAGES.map((p) => p.name);
 export const PAGE = Object.fromEntries(PAGES.map((p) => [p.name, p]));

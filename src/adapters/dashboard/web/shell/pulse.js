@@ -70,7 +70,7 @@ export async function poll() {
  * image — kept its boot-time tiles: `memories held`, `lived days`, the band
  * bars, the identity panel, all frozen at whatever they were when the tab was
  * opened, while the flow tab beside it moved. Same bug, one page over. Every
- * page with a `refresh` (overview, then flow) is re-read here, in nav order,
+ * page with a `refresh` (home, then flow) is re-read here, in nav order,
  * from the one signal that catches a deposit with no durable event of its own.
  */
 export async function refreshCounters(meta) {

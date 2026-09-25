@@ -1,4 +1,4 @@
-/* The overview tab: the page the dashboard opens on. One fetch
+/* The home tab (was "overview"): the page the dashboard opens on. One fetch
    (`/api/overview`), painted section by section. */
 import { api, fail } from "../../shared/api.js";
 import { $ } from "../../shared/dom.js";
@@ -6,11 +6,13 @@ import * as bands from "./sections/bands.js";
 import * as contested from "./sections/contested.js";
 import * as identity from "./sections/identity.js";
 import * as liveActivity from "./sections/live-activity.js";
+import * as mechanisms from "./sections/mechanisms.js";
 import * as protectedInk from "./sections/protected.js";
 import * as recentChapters from "./sections/recent-chapters.js";
 import * as tiles from "./sections/tiles.js";
 
 const markup = `
+    ${mechanisms.markup}
     <p class="lede" id="ov-opening"></p>
     ${tiles.markup}
     <div class="cols" style="margin-top:22px">
@@ -22,9 +24,11 @@ const markup = `
   `;
 
 async function render() {
-  let d;
-  try { d = await api("/api/overview"); } catch (e) { return fail("The overview", e); }
-  paintOverview(d, true);
+  await Promise.all([mechanisms.render(), (async () => {
+    let d;
+    try { d = await api("/api/overview"); } catch (e) { return fail("The home page", e); }
+    paintHome(d, true);
+  })()]);
 }
 
 /**
@@ -38,7 +42,7 @@ async function render() {
  * everything to gain (a store's first event should not need a reload to
  * appear).
  */
-export function paintOverview(d, withFeed) {
+export function paintHome(d, withFeed) {
   $("ov-opening").textContent = d.opening;
   tiles.paint(d);
   bands.paint(d);
@@ -53,15 +57,16 @@ export function paintOverview(d, withFeed) {
  * The store moved: re-read the overview. THE FLOW PAGE WAS NOT THE ONLY PAGE
  * COUNTING — the overview's tiles, band bars and identity panel used to stay
  * frozen at boot while the flow tab beside them moved. The feed belongs to the
- * poll (see `paintOverview`), unless it is still the absence line.
+ * poll (see `paintHome`), unless it is still the absence line.
  */
 async function refresh() {
+  mechanisms.render();
   const fresh = await api("/api/overview");
-  paintOverview(fresh, liveActivity.showingAbsence());
+  paintHome(fresh, liveActivity.showingAbsence());
 }
 
 export default {
-  name: "overview",
+  name: "home",
   mount(section) {
     section.innerHTML = markup;
     liveActivity.mount();
