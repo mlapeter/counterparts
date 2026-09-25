@@ -801,5 +801,6 @@ What changed:
   census (otherwise `person`/`place`/`entity` would read as never exiting now that the
   prune leaves them alone). Ids and counts only, as everywhere here.
 
-`adapters/fired.ts` does not list the fade yet; its per-phase refusal reading would pick up
-`fade/blocked:*`, most of which are "not yet" (the floors), not refusals.
+2026-09-25: `adapters/fired.ts` lists it now — row `fade`, read off the `sleep.cycle` row
+only where `faded > 0` (the new `Evidence.positive` filter) — with no refusal column, because
+`fade/blocked:*` counts every blocker of every card that stayed, not the deciding one.
