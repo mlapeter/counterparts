@@ -47,6 +47,15 @@
 import { isAbsolute } from "node:path";
 
 import { REQUIRE_EXPLICIT_DIR_ENV } from "../../../core/store/paths.js";
+import { CONFIG_ENV } from "../../config-path.js";
+
+/**
+ * THE HOME A BARE-STORE ACTION RESOLVES CONFIGURATIONS UNDER: a path that does
+ * not exist, so the console's default configuration (`<home>/.counterparts/
+ * claude-code.json`) is simply absent and every knob takes its default. See
+ * `bareStore` below.
+ */
+export const NO_CONFIG_HOME = "/nonexistent/counterparts-dashboard-bare-store";
 
 /** The actions, in the order a reader meets them. */
 export const ACTIONS = ["ask", "note", "remove", "backup", "export", "scope", "rebrief", "verify", "doctor"] as const;
@@ -207,8 +216,11 @@ export interface Built {
   readonly argv: string[];
   /** What the CLI's confirmation prompt receives — the owner's own typing. */
   readonly answer?: string;
-  /** Variables laid over the console's environment for this one run. */
-  readonly env?: Record<string, string>;
+  /** Variables laid over the console's environment for this one run
+   *  (`undefined` removes one). */
+  readonly env?: Record<string, string | undefined>;
+  /** The home the console resolves configurations under, for this one run. */
+  readonly home?: string;
 }
 
 /** A memory id as the store accepts one: its family prefix, no whitespace, no slash. */
@@ -278,6 +290,38 @@ function withConfig(ctx: ActionContext): string[] {
  * so no text the owner typed can be read as a flag.
  */
 export function buildArgv(name: ActionName, body: Body, ctx: ActionContext): Built {
+  const built = argvFor(name, body, ctx);
+  return ctx.config === undefined ? { ...built, ...bareStore(name) } : built;
+}
+
+/**
+ * A DASHBOARD OPENED ON A BARE STORE NEVER REACHES A DEFAULT CONFIGURATION.
+ *
+ * With no `--config` to pass, the console would resolve one on its own —
+ * `COUNTERPARTS_CONFIG`, else `~/.counterparts/claude-code.json` — and on this
+ * machine that is possibly the owner's live install: `rebrief` took its budget
+ * from it, `ask` its recall-by-meaning setting. That is not the store this page
+ * is looking at. So every action from a bare-store dashboard runs with:
+ *
+ *   - the explicit-dir guard armed, so any door that checks it refuses rather
+ *     than falls back;
+ *   - `COUNTERPARTS_CONFIG` removed, so a stale one in the server's shell names
+ *     nothing;
+ *   - a home that does not exist, so the default configuration is ABSENT and
+ *     every knob takes its default — except `doctor`, whose host reading needs
+ *     the real home (`~/.claude`, not ours) and which, under the guard with a
+ *     `--dir`, declines to read the configuration at all and says so in its
+ *     `config` line (doctor.ts, "not-read").
+ *
+ * An action that genuinely needs a configuration (`scope`) refuses in
+ * `argvFor` before any of this.
+ */
+function bareStore(name: ActionName): Pick<Built, "env" | "home"> {
+  const env = { [REQUIRE_EXPLICIT_DIR_ENV]: "1", [CONFIG_ENV]: undefined };
+  return name === "doctor" ? { env } : { env, home: NO_CONFIG_HOME };
+}
+
+function argvFor(name: ActionName, body: Body, ctx: ActionContext): Built {
   const dir = ["--dir", ctx.dir];
   switch (name) {
     case "ask": {
@@ -399,19 +443,10 @@ export function buildArgv(name: ActionName, body: Body, ctx: ActionContext): Bui
       for (const [key, f] of booleans) if (flag(body, key)) argv.push(f);
       return { argv };
     }
-    case "doctor": {
+    case "doctor":
       // No fields: the reading is the dashboard's own store, and its own
       // configuration when it was opened through one.
-      const argv = ["doctor", ...dir, ...withConfig(ctx), "--json"];
-      if (ctx.config !== undefined) return { argv };
-      // OPENED ON A BARE STORE. Unguarded, the console would grade whatever
-      // configuration sits at the default path beside this store — on this
-      // machine, possibly the owner's live install, which is not what this page
-      // is looking at. Arming the guard for this one run takes the console's
-      // own door for that case: the store is graded alone, and its `config`
-      // line says which questions went unasked (doctor.ts, "not-read").
-      return { argv, env: { [REQUIRE_EXPLICIT_DIR_ENV]: "1" } };
-    }
+      return { argv: ["doctor", ...dir, ...withConfig(ctx), "--json"] };
   }
 }
 
@@ -546,7 +581,7 @@ export async function runAction(
     return run(built.argv, {
       io,
       ...(env === undefined ? {} : { env }),
-      ...(ctx.home === undefined ? {} : { home: ctx.home }),
+      ...(built.home !== undefined ? { home: built.home } : ctx.home === undefined ? {} : { home: ctx.home }),
       // A note from the browser is filed under the store itself, not under
       // whatever directory this server was launched from (see `RunOptions.scope`).
       scope: ctx.dir,

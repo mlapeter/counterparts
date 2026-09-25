@@ -22,12 +22,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { Dashboard } from "../src/adapters/dashboard/index.js";
-import { buildArgv, runAction } from "../src/adapters/dashboard/web/actions.js";
+import { NO_CONFIG_HOME, buildArgv, runAction } from "../src/adapters/dashboard/web/actions.js";
 import { ARCHIVE_PHRASES, healthView } from "../src/adapters/dashboard/web/views/health.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
 import { MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
@@ -76,11 +76,82 @@ describe("doctor through the actions seam", () => {
     });
   });
 
-  test("opened on a bare store, the run arms the explicit-dir guard", () => {
-    const built = buildArgv("doctor", {}, { dir: "/tmp/s" });
+  test("opened on a bare store, every action arms the guard and names no configuration", () => {
+    const bare = { dir: "/tmp/s" };
+    const built = buildArgv("doctor", {}, bare);
     expect(built.argv).toEqual(["doctor", "--dir", "/tmp/s", "--json"]);
-    expect(built.env).toEqual({ COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" });
+    expect(built.env).toEqual({ COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_CONFIG: undefined });
+    // doctor keeps the real home (its host reading is ~/.claude); the rest get one with no configuration.
+    expect(built.home).toBeUndefined();
+    const bodies: Record<string, Record<string, unknown>> = {
+      ask: { question: "what is on the rota?" },
+      note: { text: "The allotment rota is pinned inside the shed door." },
+      remove: { id: "mem_0123456789ab" },
+      backup: { out: "/tmp/out" },
+      export: { out: "/tmp/out" },
+      rebrief: {},
+      verify: {},
+    };
+    for (const [name, body] of Object.entries(bodies)) {
+      const b = buildArgv(name as Parameters<typeof buildArgv>[0], body, bare);
+      expect(`${name}: ${b.home}`).toBe(`${name}: ${NO_CONFIG_HOME}`);
+      expect(b.env?.["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"]).toBe("1");
+      expect("COUNTERPARTS_CONFIG" in (b.env ?? {})).toBe(true);
+      expect(b.argv).not.toContain("--config");
+    }
+    // scope still refuses outright without one.
+    expect(() => buildArgv("scope", { list: true }, bare)).toThrow("without one");
+    // And with a configuration nothing is laid over the console.
+    const withConfig = buildArgv("rebrief", {}, { dir: "/tmp/s", config: "/tmp/c.json" });
+    expect(withConfig.env).toBeUndefined();
+    expect(withConfig.home).toBeUndefined();
   });
+
+  /**
+   * THE HOLE THIS CLOSES (found by the Self builder, 2026-09-25): `rebrief`
+   * from a dashboard opened on a bare `--dir` took its budget from the
+   * owner's live `~/.counterparts/claude-code.json`. Here the "live" file is a
+   * marker in a fake home the console is pointed at — both as `home` and as
+   * `HOME` — with a budget no default would ever produce, and naming a store
+   * that does not exist. Neither rebrief nor note may show a trace of it.
+   */
+  test("a bare-store dashboard's rebrief and note never read the default configuration", async () => {
+    const root = tempDir("counterparts-health-nohome-");
+    const seeded = seedEmpty({ dir: join(root, "store") });
+    const home = join(root, "home");
+    const live = join(home, ".counterparts", "claude-code.json");
+    mkdirSync(join(home, ".counterparts"), { recursive: true });
+    writeFileSync(live, JSON.stringify({ dataDir: join(root, "LIVE-STORE"), injectionBudgetBytes: 4321 }));
+    const ctx = { dir: seeded.dir, home, env: { HOME: home, COUNTERPARTS_CONFIG: live } };
+
+    const rebrief = await runAction("rebrief", {}, ctx);
+    expect(rebrief.status).toBe(200);
+    const said = [...(rebrief.body.out ?? []), ...(rebrief.body.err ?? [])].join("\n");
+    expect(said).not.toContain("4321");
+    expect(said).not.toContain(live);
+    expect(said).not.toContain("LIVE-STORE");
+    // With no configuration to take a budget from, rebrief refuses in its own
+    // words ("Pass --budget …") rather than borrowing the live one's.
+    expect(rebrief.body.exit).toBe(2);
+    expect(said).toContain("--budget");
+    // Given one on the page, it composes under exactly that.
+    const budgeted = await runAction("rebrief", { budget: 9000 }, ctx);
+    const saidB = [...(budgeted.body.out ?? []), ...(budgeted.body.err ?? [])].join("\n");
+    expect(budgeted.body.exit).toBe(0);
+    expect(saidB).toContain("9000");
+    expect(saidB).not.toContain("4321");
+
+    const note = await runAction("note", { text: "The boiler service is booked for the first Tuesday in March." }, ctx);
+    expect(note.status).toBe(200);
+    const noted = [...(note.body.out ?? []), ...(note.body.err ?? [])].join("\n");
+    expect(note.body.exit).toBe(0);
+    expect(noted).not.toContain(live);
+    expect(noted).not.toContain("LIVE-STORE");
+    // The note landed in the dashboard's store, and nothing appeared beside the marker.
+    expect(noted).toContain(seeded.dir);
+    expect(readdirSync(join(home, ".counterparts"))).toEqual(["claude-code.json"]);
+    expect(existsSync(join(root, "LIVE-STORE"))).toBe(false);
+  }, 60_000);
 
   test("a doctor run leaves the store byte-identical and answers in JSON", async () => {
     const root = tempDir("counterparts-health-doctor-");
