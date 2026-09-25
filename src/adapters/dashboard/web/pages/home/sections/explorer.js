@@ -116,7 +116,8 @@ function paintBody() {
   if (!grey) {
     const feed = $("mech-feed");
     if (data === undefined) feed.innerHTML = '<p class="pic-none" style="padding:10px 14px">reading this store…</p>';
-    else renderFeed(feed, data.activity, { feedAbsent: "(none yet)" });
+    else if (data.activity.length === 0) feed.innerHTML = '<p class="pic-none" style="padding:10px 14px">No firing of this one is on record yet.</p>';
+    else renderFeed(feed, data.activity);
   }
 }
 
