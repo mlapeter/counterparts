@@ -1375,3 +1375,12 @@ invented. Not the whole battery (review of #293, B3): its content floor (20 char
 three words) is a rule for bodies and refused almost every real title ("Launch day"). A
 title that is nothing but a credential is dropped with `self.episode.title.dropped`. A copy minted before this picks the title up when its chapter next regrows —
 no backfill. `ingestKey` is the episode id and body, so the title starts no regrowth.
+
+## 2026-10-01 — the Arriving line says when it is due
+
+The horizon lane printed the learned date alone, so a watch list read `2026-09-27 · …` while
+the item was due 2026-10-03, and the one date on the line read as when it happens.
+`prospective/`'s `Arrival.eventDate` now rides to the render (`core/briefing.ts#selfRenderer`
+→ `HorizonItem.due` → `Resolved.due`), and `datePrefix` prints `2026-09-27 (due 2026-10-03) · `,
+in place of `(of …)`. A due date equal to the learned date is stated once, like the content
+date. Only horizon items carry one; nothing about what the lane selects changed.

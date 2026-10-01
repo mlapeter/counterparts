@@ -4,6 +4,8 @@
 
 - Asking about your most recent session now also brings back the notes it wrote during
   its very first turn, before the memory server knew which session it was.
+- The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
+  `2026-09-27 (due 2026-10-03) · …`.
 
 ## 0.3.10 — 2026-09-30
 

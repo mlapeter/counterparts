@@ -260,6 +260,12 @@ export interface Resolved {
   /** The content date (`ProseDoc.happenedOn`), rendered only when it DIFFERS. */
   readonly happenedOn?: string;
   /**
+   * The date an ARRIVING occasion is due (`HorizonItem.due`, 2026-10-01),
+   * rendered `(due YYYY-MM-DD)` after the learned date when it differs, in
+   * place of `(of …)`. Only horizon items carry one.
+   */
+  readonly due?: string;
+  /**
    * True when the encode date is only an UPPER BOUND — the element was known BY
    * then, not learned then. Set for migrated elements, whose `learned_on` is
    * v1's date when v1 carried one and the IMPORT date when it did not, with
@@ -439,6 +445,14 @@ export const DATE_BOUND = "by ";
 
 export function datePrefix(r: Resolved): string {
   const learned = (r.learnedOn ?? "").trim();
+  const due = (r.due ?? "").trim();
+  // AN ARRIVING OCCASION SAYS WHEN IT IS DUE (2026-10-01): a watch list read
+  // "2026-09-27 · …" while the item was due 2026-10-03, and the learned date
+  // alone reads as when it happens.
+  if (due !== "") {
+    if (learned === "") return `due ${due}${DATE_SEP}`;
+    if (due !== learned) return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (due ${due})${DATE_SEP}`;
+  }
   if (learned === "") return "";
   const happened = (r.happenedOn ?? "").trim();
   if (happened !== "" && happened !== learned) return `${learned} (of ${happened})${DATE_SEP}`;

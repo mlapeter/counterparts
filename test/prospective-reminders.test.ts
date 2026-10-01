@@ -427,6 +427,28 @@ function counterpartWithDate(date: string, mode?: "plain" | "quiet"): { c: Count
   return { c, id };
 }
 
+describe("the Arriving line says when it is due (2026-10-01)", () => {
+  test("the learned date, then the due date: never the learned date alone", () => {
+    // A watch list read "2026-09-27 · …" while the item was due 2026-10-03.
+    const { c } = counterpartWithDate("2026-10-03");
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-01" });
+    const text = c.wake(20_000, { date: "2026-10-01" }).text;
+    const lines = text.split("\n");
+    const at = lines.indexOf("Arriving:");
+    expect(at).toBeGreaterThan(-1);
+    expect(lines[at + 1]).toBe("- 2026-08-25 (due 2026-10-03) · The Portland move lands on the fourth and the truck is booked.");
+  });
+
+  test("due on the day it was learned: one date, stated once", () => {
+    const { c } = counterpartWithDate("2026-08-25");
+    c.rebrief({ budgetBytes: 20_000, at: "2026-08-24" });
+    const lines = c.wake(20_000, { date: "2026-08-24" }).text.split("\n");
+    const at = lines.indexOf("Arriving:");
+    expect(at).toBeGreaterThan(-1);
+    expect(lines[at + 1]).toBe("- 2026-08-25 · The Portland move lands on the fourth and the truck is booked.");
+  });
+});
+
 describe("Counterpart.recallForTurn spends the fires it surfaced", () => {
   test("a temporal-only footnote spends one fire, and the same lived day never offers it again", () => {
     const { c, id } = counterpartWithDate("2026-09-04");

@@ -224,6 +224,12 @@ export interface SelfOptions {
 /** An arriving occasion. `prospective/` owns the ordering (INTERFACE-GAPS #3). */
 export interface HorizonItem {
   readonly id: string;
+  /**
+   * The date the occasion is due, as `prospective/` stated it (`Arrival
+   * .eventDate`), so the "Arriving:" line says when as well as when it was
+   * learned (2026-10-01). Absent: the line carries the learned date alone.
+   */
+  readonly due?: string;
 }
 
 export interface BoundaryRequest extends BriefingRequest {
@@ -538,7 +544,18 @@ export class Self {
       docs.set(s.id, s.doc);
       sources.set(s.id, s.source);
     }
-    const resolve: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    // An arriving occasion's due date, beside its learned one (2026-10-01).
+    const dues = new Map<string, string>();
+    for (const h of req.horizon ?? []) if (h.due !== undefined && h.due.trim() !== "") dues.set(h.id, h.due.trim());
+    const resolve: Resolve =
+      dues.size === 0
+        ? base
+        : (id) => {
+            const r = base(id);
+            const due = dues.get(id);
+            return due === undefined ? r : { ...r, due };
+          };
     // THE DAY-0 LANE (NOTES §11). The lookup is guarded by the empty lane and by
     // nothing else: it reads prose, and a store with even one identity element
     // must not pay for it — nor render the line. On a store that has lived
