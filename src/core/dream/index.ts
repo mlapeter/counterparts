@@ -569,6 +569,35 @@ export interface DreamPreview {
 }
 
 /**
+ * HOW THE SESSION SAYS THE DAY'S LINE (2026-10-01, lane 8 — the 09-30 plan's
+ * build 4): once, in its first reply, as one plain sentence. The terminal line
+ * is the extra; a session whose person sees no terminal still hears it.
+ */
+export function sayOnce(who: string): string {
+  return `Tell ${who} this once, in your first reply, as one plain sentence of your own.`;
+}
+
+/**
+ * THE DAY'S LINE, HELD for a session someone can see (2026-10-01, lane 8).
+ * A headless or SDK session may START the nightly run — the start is the point
+ * — but nobody sees what it is told, so it leaves the line here and the next
+ * INTERACTIVE session says it (`Dreams#heldTold`, claimed by
+ * `Dreams#claimHeldTold`). One row, the latest run's; empty once told.
+ */
+export const NIGHT_UNTOLD_KEY = "dream.night.untold";
+
+export interface HeldTold {
+  /** The run it is about. */
+  readonly run: string;
+  /** The calendar date of the run. */
+  readonly date: string;
+  /** For the PERSON, the terminal's line. */
+  readonly notice: string;
+  /** For the MODEL. */
+  readonly context: string;
+}
+
+/**
  * THE DAY'S LINE, OFFERED and not yet claimed (`Dreams.offer`, 2026-09-29):
  * what the model is told, what the person is shown, and what the claim will
  * write. The host claims it (`Dreams.claimOffer`) only once it knows the
@@ -786,6 +815,61 @@ export class Dreams {
       });
     } catch {
       /* the log is evidence, never a reason to fail the run */
+    }
+  }
+
+  /**
+   * HOLD THE DAY'S LINE for an interactive session (2026-10-01, lane 8): the
+   * run `run` was started by a session nobody sees, so what it would have
+   * been told waits here. Never throws; nothing under observer.
+   */
+  holdTold(input: { run: string; date: string }): void {
+    if (this.ctx.observer) return;
+    try {
+      this.store.setMeta(NIGHT_UNTOLD_KEY, JSON.stringify({ run: input.run, date: input.date }));
+    } catch {
+      /* a line not held is a line not told; the run goes on */
+    }
+  }
+
+  /**
+   * THE HELD LINE, worded for `session`, if it is still worth saying on `at`:
+   * the same date, the latest run is that run and still under way (one that
+   * ended hands back what it did instead, `nightHandBackLine`), and nobody has
+   * told it. A READ.
+   */
+  heldTold(at: string, session: string): HeldTold | null {
+    try {
+      const raw = this.store.getMeta(NIGHT_UNTOLD_KEY);
+      if (raw === undefined || raw.length === 0) return null;
+      const held = JSON.parse(raw) as { run?: unknown; date?: unknown };
+      if (typeof held.run !== "string" || held.date !== at) return null;
+      const night = this.nightRun();
+      if (night === null || night.run !== held.run || night.state !== "started" || nightRunLost(night, this.store.now())) return null;
+      const who = this.ownerName() ?? "the owner";
+      const notice = `Counterparts: dreaming in the background (a few minutes). Say "no dreams" to turn it off.`;
+      const context =
+        `Counterparts: the nightly run started in the background earlier today, from a session nobody was watching (no terminal), and is still going. ${sayOnce(who)} ` +
+        `${who} may also see it in the terminal ("${notice}"). What it did comes to a later prompt. If ${who} says "no dreams", call the dream tool with phase "setting", session: ${session}, value: "off" — it takes effect from the next run.`;
+      return { run: held.run, date: at, notice, context };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * CLAIM THE HELD LINE the delivery is certainly about to show — once per
+   * run across every session (an event latch), and the row emptied. False
+   * when another session got there first or the write would not land.
+   */
+  claimHeldTold(run: string, session: string): boolean {
+    if (this.ctx.observer) return false;
+    try {
+      const won = this.store.appendEvent({ name: `${NIGHT_RUN_EVENT}.told`, day: this.store.livedDay(), ref: run, payload: { session }, dedupKey: `${NIGHT_RUN_EVENT}.told:${run}` }) > 0;
+      if (won) this.store.setMeta(NIGHT_UNTOLD_KEY, "");
+      return won;
+    } catch {
+      return false;
     }
   }
 
@@ -1068,8 +1152,10 @@ export class Dreams {
           `Counterparts: ${why}. The nightly run ${s.reflectOnly !== null ? "(the reflection alone)" : `(it ${nightSummary()})`} is starting now in the background, on its own — a separate, windowless session this host starts; there is nothing for you to launch. ` +
           // NEUTRAL about the terminal (review of #282, finding 6): the run has
           // started either way, and the host shows the person's line only when
-          // the envelope has room for it.
-          `${who} is told in the terminal when there is room ("${notice}"); if they ask, that is what is happening. What it did comes to a later prompt. ${off}`,
+          // the envelope has room for it. THE SESSION SAYS IT (2026-10-01, lane
+          // 8, build 4): once, in its first reply, one plain sentence — the
+          // terminal line is the extra.
+          `${sayOnce(who)} ${who} may also see it in the terminal ("${notice}"); if they ask, that is what is happening. What it did comes to a later prompt. ${off}`,
       };
     }
     if (fell !== null) {
@@ -1081,7 +1167,7 @@ export class Dreams {
         ...base,
         notice,
         context:
-          `Counterparts: ${why}. The background run could not start (${fell.reason ?? fell.state}). Shown to ${who} just now, in the terminal: "${notice}" Do not ask again — wait for their word. ` +
+          `Counterparts: ${why}. The background run could not start (${fell.reason ?? fell.state}). ${sayOnce(who)} The terminal may also show them: "${notice}" Then do not ask again — wait for their word. ` +
           `If they say "dream" (or yes), ${start} If they say not today, call the dream tool with phase "decline". ${off}`,
       };
     }
@@ -1095,7 +1181,7 @@ export class Dreams {
         ...base,
         notice,
         context:
-          `Counterparts: ${why}. Shown to ${who} just now, in the terminal: "${notice}" Do not ask again — wait for their word. If they say "dream" (or yes), ${reflect} ${onYourOwn} If they say not today, call the dream tool with phase "decline". ${off}`,
+          `Counterparts: ${why}. ${sayOnce(who)} The terminal may also show them: "${notice}" Then do not ask again — wait for their word. If they say "dream" (or yes), ${reflect} ${onYourOwn} If they say not today, call the dream tool with phase "decline". ${off}`,
       };
     }
     const notice = noticeFor(cut === null ? `I haven't dreamed ${since} (${String(s.newSince)} new memories).` : `my dream of ${s.leftBehind?.date ?? "a recent night"} was cut off.`);
@@ -1103,7 +1189,7 @@ export class Dreams {
       ...base,
       notice,
       context:
-        `Counterparts: ${cut === null ? `you haven't dreamed ${since} (${String(s.newSince)} new memories)` : cut}. Shown to ${who} just now, in the terminal: "${notice}" Do not ask again — wait for their word. ` +
+        `Counterparts: ${cut === null ? `you haven't dreamed ${since} (${String(s.newSince)} new memories)` : cut}. ${sayOnce(who)} The terminal may also show them: "${notice}" Then do not ask again — wait for their word. ` +
         `If they say "dream" (or yes), ${launch} ${onYourOwn} If they say not today, call it with phase "decline" and don't bring it up again today. ${off}`,
     };
   }

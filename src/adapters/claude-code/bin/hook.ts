@@ -404,6 +404,9 @@ export function toHookInput(
     ...(isEntrypoint((opts.env ?? process.env)["CLAUDE_CODE_ENTRYPOINT"])
       ? { entrypoint: (opts.env ?? process.env)["CLAUDE_CODE_ENTRYPOINT"] as string }
       : {}),
+    // IS SOMEONE THERE (2026-10-01, lane 8): the host's own word, when it
+    // gives one, ahead of the entrypoint list (`hooks.ts#isInteractive`).
+    ...attendedOf((opts.env ?? process.env)["CLAUDE_CODE_SESSION_ATTENDED"]),
     // THE PERSON'S DAY (docs/time.md, 2026-09-25; UTC before). It dates the
     // hook's rows, the wake preface, the prospective "today" and the date the
     // boundary hands the lived clock — which is why the lived clock can see a
@@ -827,6 +830,15 @@ async function runHook(
   opened.end(outcome);
 }
 
+/** `CLAUDE_CODE_SESSION_ATTENDED` as `HookInput.attended`: `1`/`true` and
+ *  `0`/`false`; anything else says nothing. */
+export function attendedOf(raw: string | undefined): { attended?: boolean } {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "1" || v === "true") return { attended: true };
+  if (v === "0" || v === "false") return { attended: false };
+  return {};
+}
+
 /** The two adapter doors `deliverTurn` needs — structural, so a test can
  *  hand it doors that throw. */
 export interface UpdateNoticeDoors {
@@ -844,6 +856,12 @@ export interface UpdateNoticeDoors {
    * line is not shown and waits for a later prompt.
    */
   claimDream?(input: HookInput, offer: DreamOffer): boolean;
+  /**
+   * Claim a HELD dream line — a run a session nobody watched started — this
+   * delivery is certainly about to show (`ClaudeCodeAdapter#claimHeld`,
+   * 2026-10-01). Absent: nothing can be claimed, so it waits.
+   */
+  claimHeld?(input: HookInput, run: string): boolean;
   /** Claim the one-time line about `auto` set back to `ask` (`ClaudeCodeAdapter#claimDreamNote`). */
   claimDreamNote?(input: HookInput): boolean;
   /**
@@ -937,7 +955,13 @@ export function deliverTurn(
     const probe = hostDelivery(name, r, payload, [...(ordered ?? []), told.notice]);
     let showDream = false;
     if (probe.dropped === null) {
-      if (told.offer === null) showDream = true;
+      if (told.held !== undefined) {
+        try {
+          showDream = doors.claimHeld?.(input, told.held) ?? false;
+        } catch {
+          showDream = false;
+        }
+      } else if (told.offer === null) showDream = true;
       else {
         try {
           showDream = doors.claimDream?.(input, told.offer) ?? false;
@@ -950,7 +974,7 @@ export function deliverTurn(
       gaveWay(doors, input, "dream", 1);
     }
     if (showDream) ordered = [...(ordered ?? []), told.notice];
-    else if (told.offer !== null) r = withoutDream(r);
+    else if (told.offer !== null || told.held !== undefined) r = withoutDream(r);
   }
   // THE ONE-TIME RESET LINE (owner decision A), under the same rule.
   const note = r.dreamNote;

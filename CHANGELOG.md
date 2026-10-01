@@ -23,6 +23,11 @@
   answer, closes it.
 - The end-of-session ask (and Desktop's write-up ask) now says to close anything dated or
   open that got done in the session, so a finished follow-up stops coming back.
+- The day's lines (the dream line, the night run's report, plain reminders, the update
+  notice) go only to a session someone can see: the terminal or Desktop's Code tab, not
+  `claude -p` or the SDK. A headless session can still start the nightly run, and the next
+  session you are in says so. The assistant now says the day's dream line itself, once, in
+  its first reply; the terminal line is extra.
 - A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
   a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
   here since" when another session wrote a chapter in that directory after it. The end-of-

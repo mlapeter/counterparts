@@ -612,6 +612,21 @@ line is claimed once a day across sessions (`dream_asks`), and again only for a 
 behind (a dream begun and quiet for 30 minutes, or — `auto` — a launch no dream followed),
 at most twice a day.
 
+**[M] Only a session someone can see claims the day's told lines (2026-10-01, lane 8, a
+working default).** `hooks.ts#isInteractive`: the host's own `CLAUDE_CODE_SESSION_ATTENDED`
+(`1` / `0`) decides when it is set; otherwise a session whose `entrypoint` is one of
+`sessions.ts#NON_INTERACTIVE_ENTRYPOINTS` (`sdk-cli` is `claude -p`; the SDKs; `mcp`; the
+GitHub action) claims none of them — the dream line, a night run's hand-back, a carried
+share, a raised contradiction, plain reminders (at SessionStart and at a prompt), the update
+notice. An unknown or absent value is a person's. It may still START the day's headless run
+(`startUnwatched`); the line it would have been told is held (`Dreams#holdTold`) and the next
+interactive prompt says it while the run is still going, claimed at delivery (`claimHeld`,
+an event latch per run) — once the run has ended its hand-back tells what it did instead. An
+`ask` is left unclaimed for the next interactive session. Every day's line now tells the
+model to say it ONCE, in its first reply, as one plain sentence (`dream/#sayOnce`); the
+terminal line is the extra. Measured that morning: the day's first prompt came from an SDK
+session with no terminal, which started the run (fine) and claimed the line nobody saw.
+
 **[M] The writer moved out of the wake and into the run (2026-09-28).** The SessionStart ask
 that handed the first session of a day the day just gone (S2's session mode, 2026-09-20) is
 RETIRED, and with it its deferral (`no-room`), its contest with the first-launch question

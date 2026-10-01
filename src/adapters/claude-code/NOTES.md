@@ -1880,3 +1880,20 @@ Working defaults, held lightly.
   nightly run's planner still live here; a host that starts either from the MCP server
   needs their paths, not an import. `deliverWriteUpAsk`'s default limit is still this
   host's `HOST_OUTPUT_CHARS`; a tool result has no such cap and should pass its own.
+
+## 2026-10-01 — the day's lines reach a session someone can see (lane 8, build 4)
+
+An SDK session (`claude -p`, `entrypoint: sdk-cli`, ~/general) sent the day's first prompt at
+09:00: it started the nightly run and claimed the once-a-day line, which nobody saw. Now
+`isInteractive` gates every told line (dream line, hand-back, carried share, raised
+contradiction, plain reminders, update notice). A headless session still starts the run
+(`startUnwatched`) and holds its line (`Dreams#holdTold`); the next interactive prompt says it
+if the run is still going, claimed at delivery (`claimHeld`, `deliverTurn`'s `held` branch,
+stripped from the model's context when the claim is lost). The model is told to say the line
+once in its first reply, one plain sentence. Not gated: the doctor notice (it returns at the
+next start) and the write-up pointer (a headless session can do a write-up).
+
+Review of #313: Claude Code exports `CLAUDE_CODE_SESSION_ATTENDED` to the processes it
+starts. Measured in a terminal session's child: `1`, beside `CLAUDE_CODE_ENTRYPOINT=cli`. Not
+measured under `claude -p`. When the variable says `1` or `0` it decides `isInteractive`; the
+entrypoint list is the fallback when it is absent or unreadable (`bin/hook.ts#attendedOf`).
