@@ -80,7 +80,8 @@ function record(over: Partial<SessionRecord> = {}): SessionRecord {
     startedAt: T0,
     lastBoundaryAt: T0,
     endedAt: null,
-    opened: { build: installedBuild(), hookPpid: process.ppid },
+    // `at` since 2026-10-01: when the creating hook stamped it.
+    opened: { build: installedBuild(), hookPpid: process.ppid, at: over.startedAt ?? T0 },
     ...over,
   };
 }

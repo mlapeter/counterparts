@@ -355,7 +355,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     ("this morning", "yesterday", "16:01–17:48") means the sessions here, not the asker,
     at work in it, and none means no lead; otherwise the session the wake's "Last here"
     line names (`Counterpart#chaptersHereFor`), then the newest one here that ended, then
-    a live sibling. WHICH ROWS: its latest chapter, shown from that chapter, and up to
+    a live sibling. WHICH ROWS: its latest episode, shown from its FIRST chapter (what
+    its title names; since 2026-10-01, its latest before), with a line saying how many
+    more it holds and that its id fetches the whole, and up to
     `RECENT_MEMORIES_MAX` (8) of the memories it wrote in this directory, newest first,
     never a dream's or a reflection's, never a replaced row or a chapter's copy (and the
     lead chapter's copies leave the rest of the list). LEAD OR PROMOTE: a thin question

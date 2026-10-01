@@ -549,7 +549,7 @@ export function recordSession(
     ...(prior?.opened !== undefined
       ? { opened: prior.opened }
       : prior === null
-        ? { opened: { build: installedBuild(), hookPpid: process.ppid } }
+        ? { opened: { build: installedBuild(), hookPpid: process.ppid, at: now } }
         : {}),
     // Carried like `config` rather than one-way, because it names a DATE: a
     // session that lives across midnight and is asked again gets the new date,
@@ -718,6 +718,47 @@ export function latestLiveSession(
   ttlMs: number = SESSION_TTL_MS,
 ): SessionRecord | null {
   return listSessions(dataDir).find((r) => hostOf(r) === host && isLive(r, now, ttlMs)) ?? null;
+}
+
+/**
+ * THE SESSION A HOST PROCESS IS RUNNING IN THIS DIRECTORY (2026-10-01,
+ * random-f2's items 4 and 12): the one live session record, in `scope`, whose
+ * opening hook's parent (`opened.hookPpid`) is `hostPid` — the process that
+ * launched the memory server asking. That is the exact match the update
+ * notice already uses (`decideUpdateNotice`), read the other way: a server
+ * launched with no session finds the one its host is running, so a `note`
+ * before the first `chapter` is filed under that session rather than under
+ * nobody. EXACT OR NOTHING: none, or more than one live match (a host that
+ * ran its hooks through a shell that did not `exec`, two sessions in one host
+ * at once), is null, and the note stays unbound as before. Never throws.
+ *
+ * AND RECENT (review of #311): a pid is reused once its process is gone, so a
+ * record whose host crashed could match a stranger. The record must have
+ * OPENED — startup, resume, clear, fork each re-stamp it — no earlier than
+ * `HOST_MATCH_SLACK_MS` before the server launched (`launchedAt`); one with
+ * no time on its stamp (an older build's) is no match.
+ */
+export const HOST_MATCH_SLACK_MS = 2 * 60_000;
+
+export function sessionOfHost(
+  dataDir: string,
+  input: { hostPid: number; scope: string; now: number; launchedAt: number; ttlMs?: number },
+): string | null {
+  try {
+    if (!Number.isSafeInteger(input.hostPid) || input.hostPid <= 1) return null;
+    const matches = listSessions(dataDir).filter(
+      (r) =>
+        r.opened?.hookPpid === input.hostPid &&
+        r.opened.at !== undefined &&
+        r.opened.at >= input.launchedAt - HOST_MATCH_SLACK_MS &&
+        hostOf(r) === DEFAULT_HOST &&
+        isLive(r, input.now, input.ttlMs ?? SESSION_TTL_MS) &&
+        sameScope(r.scope, input.scope),
+    );
+    return matches.length === 1 ? (matches[0]?.sessionId ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -997,6 +1038,10 @@ export interface SessionOpened {
   /** The stamping hook's parent process — the host, on a host that `exec`s
    *  its hooks. Compare with a server record's `hostPid`. */
   readonly hookPpid: number;
+  /** When it was stamped (2026-10-01): a host pid alone outlives its process
+   *  (a crash, then pid reuse), so a match also needs the open to be recent
+   *  against the server's launch (`sessionOfHost`). Absent on older records. */
+  readonly at?: number;
 }
 
 function parseBuild(raw: unknown): BuildStamp | null {
@@ -1017,7 +1062,8 @@ function parseOpened(raw: unknown): SessionOpened | null {
   const build = parseBuild(o["build"]);
   const hookPpid = o["hookPpid"];
   if (build === null || typeof hookPpid !== "number" || !Number.isSafeInteger(hookPpid)) return null;
-  return { build, hookPpid };
+  const at = o["at"];
+  return { build, hookPpid, ...(typeof at === "number" && Number.isFinite(at) ? { at } : {}) };
 }
 
 /**

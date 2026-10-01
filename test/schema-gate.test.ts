@@ -821,7 +821,9 @@ describe("the update notice", () => {
     for (const phase of ["boundary", "end", "start"] as const) {
       const id = `created-${phase}`;
       recordSession(dir, { sessionId: id, scope: projectDir, phase });
-      expect(readSession(dir, id)?.opened).toEqual({ build: installedBuild(), hookPpid: process.ppid });
+      // `at` (2026-10-01): when the creating hook stamped it.
+      expect(readSession(dir, id)?.opened).toMatchObject({ build: installedBuild(), hookPpid: process.ppid });
+      expect(typeof readSession(dir, id)?.opened?.at).toBe("number");
       const d = decideUpdateNotice(dir, { sessionId: id, installed: installedBuild(), alive: ALL_ALIVE });
       expect({ id, message: d.message, reason: d.reason }).toEqual({ id, message: null, reason: "no-server" });
     }

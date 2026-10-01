@@ -28,7 +28,7 @@ import { sessionsHere } from "../src/core/coverage/index.js";
 import { UNIDENTIFIED_SESSION_WORDS, sessionWords } from "../src/core/handoff/index.js";
 import { UNBOUND_SESSION, isKnownSession } from "../src/core/types.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
-import { recordSession } from "../src/adapters/sessions.js";
+import { installedBuild, recordSession, stampSessionOpened } from "../src/adapters/sessions.js";
 
 const MIN = 60_000;
 const DAY0 = Date.UTC(2026, 8, 30);
@@ -65,7 +65,7 @@ function day(): {
   c: Counterpart;
   set(t: number): void;
   /** A server launched as Claude Code launches it: told no session. */
-  unbound(): McpServer;
+  unbound(env?: Record<string, string>): McpServer;
   talk(session: string, t: number): void;
 } {
   let now = at(15, 0);
@@ -77,8 +77,8 @@ function day(): {
     set(t: number): void {
       now = t;
     },
-    unbound(): McpServer {
-      return new McpServer({ counterpart: c, scope: HERE, owner: true, registryDir: storeDir, now: () => now });
+    unbound(env?: Record<string, string>): McpServer {
+      return new McpServer({ counterpart: c, scope: HERE, owner: true, registryDir: storeDir, now: () => now, ...(env === undefined ? {} : { env }) });
     },
     talk(session: string, t: number): void {
       now = t;
@@ -182,7 +182,7 @@ describe("the recency lead and a session's notes from before it bound", () => {
     return { early, mid, late, chapter };
   }
 
-  test("a closed session's notes from before its bind lead with its chapter, each saying it was not yet identified", async () => {
+  test("a closed session's notes from before its bind lead with its chapter; one inside its stretch says so, placed by its time (2026-10-01)", async () => {
     const k = day();
     const { early, mid, late, chapter } = await afternoonA(k);
     expect(k.c.store.row(early)?.origin_session).toBe(UNBOUND_SESSION);
@@ -195,7 +195,10 @@ describe("the recency lead and a session's notes from before it bound", () => {
     expect(lead[0]).toBe(chapter);
     // Newest first: the note after the bind, then the two before it.
     expect(lead.slice(1, 4)).toEqual([late, mid, early]);
-    expect(got.find((m) => m.id === mid)?.from).toBe(`${UNIDENTIFIED_SESSION_WORDS}, ${HERE}, 09-30 16:15`);
+    // Inside A's stretch and no one else's: A's, and the words say how it was
+    // placed (random-f2's item 4). The row itself still names nobody.
+    expect(got.find((m) => m.id === mid)?.from).toBe(`session a1b2c3d4 (placed by when it was written), ${HERE}, 09-30 16:15`);
+    expect(k.c.store.row(mid)?.origin_session).toBe(UNBOUND_SESSION);
     expect(got.find((m) => m.id === late)?.from).toBe(`session a1b2c3d4, ${HERE}, 09-30 16:36`);
   });
 
@@ -227,6 +230,9 @@ describe("the recency lead and a session's notes from before it bound", () => {
     const lead = new Set(got.filter((m) => m.recent === true).map((m) => m.id));
     expect(lead.has(early)).toBe(true);
     expect(lead.has(mid)).toBe(false);
+    // Nor is it placed by its time: two sessions were at work then.
+    const named = rows(await k.unbound().call("recall", { ids: [mid] }));
+    expect(named[0]?.from).toBe(`${UNIDENTIFIED_SESSION_WORDS}, ${HERE}, 09-30 16:15`);
   });
 
   test("a note from before the bind in ANOTHER directory never leads here", async () => {
@@ -243,5 +249,105 @@ describe("the recency lead and a session's notes from before it bound", () => {
     const lead = new Set(rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" })).filter((m) => m.recent === true).map((m) => m.id));
     expect(lead.has(early)).toBe(true);
     expect(lead.has(other)).toBe(false);
+  });
+});
+
+describe("a note written before the bind is filed under its host's session (2026-10-01, items 4 and 12)", () => {
+  const HOST = 4242;
+  const CODE = { CLAUDECODE: "1" };
+  /** A session record as SessionStart leaves it: opened by HOST's hook at `t`. */
+  function opened(session: string, t: number, hookPpid = HOST): void {
+    recordSession(storeDir, { sessionId: session, scope: HERE, phase: "start", at: t, model: "claude-opus-5-5" });
+    stampSessionOpened(storeDir, session, { build: installedBuild(), hookPpid, at: t });
+  }
+  /** Claude Code's server for HOST, launched now. */
+  function launch(k: ReturnType<typeof day>, pid: number, env: Record<string, string> = CODE): McpServer {
+    const s = k.unbound(env);
+    s.recordLaunch({ pid, hostPid: HOST, heartbeatMs: 0 });
+    return s;
+  }
+
+  test("one live session here opened by this server's host: the note is that session's, and its model rides along", async () => {
+    const k = day();
+    k.set(at(16, 0));
+    opened(A, at(16, 0));
+    const a = launch(k, 90001);
+    k.set(at(16, 2));
+    // Before any turn-end: the first turn's note that #307 tried to place by time.
+    const n = idOf(await a.call("note", { text: "The garlic goes in on the full moon, a family habit." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(A);
+    expect(k.c.store.row(n)?.model).toBe("claude-opus-5-5");
+    // Nothing was frozen: a chapter for A still binds as it always did.
+    k.talk(A, at(16, 3));
+    k.set(at(16, 4));
+    const ch = await a.call("chapter", { session: A, title: "Autumn beds", text: "We planned the autumn beds: garlic on the full moon, broad beans after." });
+    expect(ch.isError).not.toBe(true);
+    a.forgetLaunch();
+  });
+
+  test("an idle tab opened early in another host does not take a sibling's note (the #307 repro)", async () => {
+    const k = day();
+    opened(A, at(9, 0), 1111);
+    k.set(at(16, 0));
+    opened(B, at(16, 0));
+    const b = launch(k, 90002);
+    k.set(at(16, 1));
+    const n = idOf(await b.call("note", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(B);
+    b.forgetLaunch();
+  });
+
+  test("not exact, nobody's: two live sessions from one host here, no launch record, or not Claude Code", async () => {
+    const k = day();
+    k.set(at(16, 0));
+    for (const s of [A, B]) opened(s, at(16, 0));
+    const two = launch(k, 90003);
+    k.set(at(16, 1));
+    const n = idOf(await two.call("note", { text: "The cold frame lid needs a new hinge before the frost." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
+    two.forgetLaunch();
+    // A server with no launch record knows no host.
+    const m = idOf(await k.unbound(CODE).call("note", { text: "The fence needs a second wire before the goats find the kale." }));
+    expect(k.c.store.row(m)?.origin_session).toBe(UNBOUND_SESSION);
+  });
+
+  test("a server whose environment is not Claude Code's does not look", async () => {
+    const k = day();
+    k.set(at(16, 0));
+    opened(A, at(16, 0));
+    const other = launch(k, 90004, {});
+    k.set(at(16, 1));
+    const n = idOf(await other.call("note", { text: "The rain barrel overflowed onto the path again last night." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
+    other.forgetLaunch();
+  });
+
+  test("a crash and a reused pid: a session opened long before this server launched is not its session", async () => {
+    const k = day();
+    // A's host crashed at 13:00, inside the liveness window still; the OS
+    // later handed its pid to a new host.
+    opened(A, at(13, 0));
+    k.set(at(16, 0));
+    const s = launch(k, 90005);
+    k.set(at(16, 1));
+    const n = idOf(await s.call("note", { text: "The compost wants turning before the cold comes in." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
+    s.forgetLaunch();
+  });
+
+  test("/resume in the same host re-stamps the open, so the resumed session is found", async () => {
+    const k = day();
+    // A was first opened yesterday morning; the host launched its server today
+    // and the person resumed A in it, which SessionStart stamps afresh.
+    opened(A, at(-14, 0));
+    k.set(at(16, 0));
+    const s = launch(k, 90006);
+    k.set(at(16, 1));
+    stampSessionOpened(storeDir, A, { build: installedBuild(), hookPpid: HOST, at: at(16, 1) });
+    recordSession(storeDir, { sessionId: A, scope: HERE, phase: "boundary", at: at(16, 1) });
+    k.set(at(16, 2));
+    const n = idOf(await s.call("note", { text: "The seed order goes in before the end of the month." }));
+    expect(k.c.store.row(n)?.origin_session).toBe(A);
+    s.forgetLaunch();
   });
 });
