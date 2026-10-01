@@ -38,7 +38,7 @@
   it is. Memories that only talk about feelings (notes on the wheel itself, say) no longer
   crowd out the moments that were actually felt.
 
-The morning catch-up and the "Yesterday" line (#TBD).
+The morning catch-up and the "Yesterday" line (#308).
 
 - **The nightly run writes up what was left unwritten, in any directory, before it
   writes the page.** Until now a conversation that ended before it was written up waited
