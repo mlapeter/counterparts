@@ -866,7 +866,7 @@ server shares (`types.ts#UNBOUND_SESSION`, "mcp"), and a recall's reader is that
 §23's `from` and the recency lead took it for a session: before the bind every such note,
 any session's, read `from: "this session, …"`; after it, `"session mcp, …"`; and the lead,
 gathering rows by `origin_session`, left out every note a session wrote before it bound
-(on the throwaway check, all twelve of A's). The live store had 46 of ~430 authored
+(on the throwaway check, all eleven of A's). The live store had 46 of ~430 authored
 memories under the id.
 
 - **In words it is nobody** (`handoff#sessionWords`): "a session that hadn't been
