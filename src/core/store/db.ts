@@ -72,11 +72,12 @@ function openRaw(path: string): { raw: RawDb; driver: Db["driver"] } {
     };
     return { raw: new DatabaseSync(path), driver: "node:sqlite" };
   } catch (cause) {
-    // node:sqlite landed in Node 22 (behind a flag) and is on by default from 23.4.
-    // package.json declares engines.node >= 22; say so rather than failing vaguely.
+    // node:sqlite is unflagged from 22.13 / 23.4; the package runs under Node from
+    // 22.15 (`adapters/node-hooks.mjs` needs `module.registerHooks`), which is what
+    // package.json's engines.node says. Say so rather than failing vaguely.
     throw new StoreError("SQLITE_UNAVAILABLE", {
       driver: "node:sqlite",
-      nodeVersionFloor: "22",
+      nodeVersionFloor: "22.15",
       running: process.versions.node,
       reason: String((cause as Error).message ?? cause),
     });

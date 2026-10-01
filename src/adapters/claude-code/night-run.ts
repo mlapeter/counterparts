@@ -68,6 +68,7 @@ import { Counterpart } from "../../core/counterpart.js";
 import type { CounterpartEvent } from "../../core/counterpart.js";
 import type { NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
+import { scriptArgs } from "../runtime.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
 import { TUNABLES } from "../config.js";
@@ -153,7 +154,7 @@ export function nightMcpConfig(input: { runtime: string; dataDir: string; config
   if (input.configPath !== undefined && input.configPath.length > 0) env[CONFIG_PATH_ENV] = input.configPath;
   if (input.session.length > 0) env[SESSION_ENV] = input.session;
   if (input.scope.length > 0) env[SCOPE_ENV] = input.scope;
-  return JSON.stringify({ mcpServers: { [NIGHT_MCP_SERVER]: { type: "stdio", command: input.runtime, args: ["run", NIGHT_MCP_SCRIPT], env } } });
+  return JSON.stringify({ mcpServers: { [NIGHT_MCP_SERVER]: { type: "stdio", command: input.runtime, args: scriptArgs(NIGHT_MCP_SCRIPT, input.runtime), env } } });
 }
 
 /** The run's turn ceiling, from the configuration or the default. */

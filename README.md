@@ -10,13 +10,17 @@ its memories itself, and they fade and grow the way yours do. It runs today with
 
 ## Install
 
-You need [bun](https://bun.sh) 1.3 or newer (`npm install` won't work; it needs bun).
+You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer.
+macOS and Linux.
 
 ```
 curl -fsSL https://bun.sh/install | bash     # if you don't have bun
 bun add -g counterparts
 counterparts
 ```
+
+With Node instead: `npm install -g counterparts`, then `counterparts`. Whichever runtime
+runs the setup is the one Claude Code's hooks and memory tools are wired to.
 
 `counterparts` walks you through setup: your name and connecting Claude Code. No API
 keys. Then restart Claude Code and check it:
@@ -106,8 +110,10 @@ More: [`docs/ELI5.md`](docs/ELI5.md) (the whole system in plain words) and
 
 ## Status
 
-Early. It's been the author's daily memory since September 2026. It runs on bun only;
-Node is untested. Expect rough edges, and please
+Early. It's been the author's daily memory since September 2026, on bun and macOS; Node
+(22.15+) and Linux pass a smoke test and an install run but have no daily user yet.
+Claude Desktop has no Linux build, so on Linux it is Claude Code only. Expect rough
+edges, and please
 [open an issue](https://github.com/mlapeter/counterparts/issues) when you hit one.
 
 There are no API keys, and nothing leaves your machine except through Claude Code

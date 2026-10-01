@@ -56,6 +56,7 @@ import {
 } from "../standdown.js";
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
+import { scriptArgs } from "../../runtime.js";
 
 /**
  * The host's own spellings of the two events that carry a notice — one
@@ -716,8 +717,8 @@ async function runHook(
   const toLog = (e: LogEvent): void => log?.event(e);
   const adapter = openAdapter(config, {
     command: process.execPath,
-    args: ["run", RUNNER_PATH],
-    nightArgs: ["run", NIGHTLY_PATH],
+    args: scriptArgs(RUNNER_PATH),
+    nightArgs: scriptArgs(NIGHTLY_PATH),
     // WHICH FILE THIS RUN READ, carried into the adapter so it can be RECORDED:
     // a hook cannot print to the owner (its stdout is the model's context), so
     // the answer goes into the session registry record and the event ring

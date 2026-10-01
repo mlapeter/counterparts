@@ -58,6 +58,8 @@ export const DEFAULT_STORE_DIR = "store";
 import { EMBEDDER_KINDS } from "../config.js";
 import type { EmbedderKind } from "../config.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
+import { parseScriptInvocation, runtimePresent, scriptArgs, shellTokens } from "../runtime.js";
+import type { RuntimeKind } from "../runtime.js";
 // `preRowsMarkersIn` reads FILENAMES and opens nothing, which is the only
 // reason a module that promises never to open a parked store may call it —
 // the same clause `start-fresh.ts` states over its own import of it.
@@ -115,9 +117,15 @@ export function shellQuote(path: string): string {
   return `"${path.replace(/(["\\$`])/g, "\\$1")}"`;
 }
 
-/** `<runtime> run <script>` — the shape both printed host commands take. */
+/**
+ * `<runtime> run <script>` under Bun, `<runtime> --import <node-hooks.mjs>
+ * <script>` under Node (`adapters/runtime.ts`) — the shape both printed host
+ * commands take. A path is quoted and a bare flag is not, so the Bun shape is
+ * exactly the one written since 2026-09-03.
+ */
 export function runCommand(script: string, exe: string = process.execPath): string {
-  return `${shellQuote(exe)} run ${shellQuote(script)}`;
+  const words = scriptArgs(script, exe).map((a) => (/^[A-Za-z-]+$/.test(a) ? a : shellQuote(a)));
+  return [shellQuote(exe), ...words].join(" ");
 }
 
 /**
@@ -562,6 +570,18 @@ export interface HostRead {
   readonly mcpName: string;
   readonly mcpFile: string;
   readonly mcpUnreadable: boolean;
+  /** The runtimes our hook commands and our MCP registration name, one row
+   *  per distinct executable (`adapters/runtime.ts`), and whether each is there. */
+  readonly runtimes: readonly HostRuntime[];
+}
+
+/** One runtime a host's configuration launches us with. */
+export interface HostRuntime {
+  readonly exe: string;
+  readonly kind: RuntimeKind;
+  readonly present: boolean;
+  /** `hooks`, `mcp`, or both. */
+  readonly used: readonly ("hooks" | "mcp")[];
 }
 
 /**
@@ -590,6 +610,8 @@ export function hookTargetPath(command: string): string | null {
   for (const raw of tokens) {
     const token = raw.replace(/^["']|["']$/g, "");
     if (!token.startsWith("/")) continue;
+    // Node's loader (`--import …/node-hooks.mjs`) is not the hook either.
+    if (/node-hooks\.mjs$/.test(token)) continue;
     // The runtime itself (…/bin/bun) is not the hook; keep looking for the
     // script it was handed.
     if (/\.(ts|js|mjs|cjs)$/.test(token)) return token;
@@ -663,6 +685,16 @@ export function readHost(
   const stale = new Map<string, string>();
   const settingsRead: string[] = [];
   const settingsUnreadable: string[] = [];
+  // WHICH RUNTIME the host launches us with — read off the same commands, never
+  // spawned: `bun run <script>` or `node --import <node-hooks.mjs> <script>`.
+  const runtimes = new Map<string, { kind: RuntimeKind; used: Set<"hooks" | "mcp"> }>();
+  const noteRuntime = (tokens: readonly string[], used: "hooks" | "mcp"): void => {
+    const run = parseScriptInvocation(tokens);
+    if (run === null) return;
+    const row = runtimes.get(run.exe) ?? { kind: run.runtime, used: new Set<"hooks" | "mcp">() };
+    row.used.add(used);
+    runtimes.set(run.exe, row);
+  };
   for (const path of hostSettingsFiles(base, cwd)) {
     const read = readJsonFile(path);
     if (read.state === "unreadable") settingsUnreadable.push(path);
@@ -681,6 +713,7 @@ export function readHost(
           const command = (h as Record<string, unknown>)["command"];
           if (typeof command !== "string" || !HOOK_COMMAND_MARK.test(command)) continue;
           events.add(event);
+          noteRuntime(shellTokens(command), "hooks");
           // A BLOCK THAT NAMES A PATH THAT IS NOT THERE fails at every session
           // start, silently. One event can carry several entries, so a live one
           // anywhere wins and a stale one is only reported when nothing on that
@@ -700,6 +733,16 @@ export function readHost(
     typeof servers === "object" &&
     !Array.isArray(servers) &&
     MCP_SERVER_NAME in (servers as Record<string, unknown>);
+  if (mcp) {
+    const entry = (servers as Record<string, unknown>)[MCP_SERVER_NAME];
+    if (entry !== null && typeof entry === "object") {
+      const command = (entry as Record<string, unknown>)["command"];
+      const args = (entry as Record<string, unknown>)["args"];
+      if (typeof command === "string" && Array.isArray(args) && args.every((a) => typeof a === "string")) {
+        noteRuntime([command, ...(args as string[])], "mcp");
+      }
+    }
+  }
   return {
     expected: [...HOST_EVENTS],
     events: [...events].sort(),
@@ -713,6 +756,12 @@ export function readHost(
     mcpName: MCP_SERVER_NAME,
     mcpFile,
     mcpUnreadable: mcpRead.state === "unreadable",
+    runtimes: [...runtimes.entries()].map(([exe, row]) => ({
+      exe,
+      kind: row.kind,
+      present: runtimePresent(exe, env),
+      used: [...row.used].sort(),
+    })),
   };
 }
 

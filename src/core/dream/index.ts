@@ -605,7 +605,11 @@ export interface DreamOffer {
 const KINDS: readonly Kind[] = ["self", "person", "entity", "skill", "place", "fact"];
 
 export class Dreams {
-  constructor(private readonly ctx: DreamContext) {}
+  private readonly ctx: DreamContext;
+
+  constructor(ctx: DreamContext) {
+    this.ctx = ctx;
+  }
 
   private get store(): Store {
     return this.ctx.store;

@@ -82,6 +82,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
+import { parseScriptInvocation, scriptArgs, shellTokens } from "../runtime.js";
 import type { Io } from "./commands.js";
 import {
   BIN,
@@ -624,50 +625,13 @@ export function isOurHookCommand(command: string): boolean {
   const first = tokens[0] ?? "";
   // The installed shim, by itself.
   if (/(^|[/\\])counterparts-hook$/.test(first)) return tail(1);
-  // `<runtime> run <our hook script>`.
-  const script = tokens[2] ?? "";
-  if (
-    tokens.length >= 3 &&
-    tokens[1] === "run" &&
-    /claude-code[/\\]bin[/\\]hook\.ts$/.test(script)
-  ) {
-    return tail(3);
+  // `<runtime> run <our hook script>`, or Node's
+  // `<runtime> --import <node-hooks.mjs> <our hook script>` (`runtime.ts`).
+  const run = parseScriptInvocation(tokens);
+  if (run !== null && /claude-code[/\\]bin[/\\]hook\.ts$/.test(run.script)) {
+    return tail(tokens.length - run.rest.length);
   }
   return false;
-}
-
-/** Split on whitespace, honouring double quotes — the only quoting
- *  `install.ts#shellQuote` produces, and therefore the only quoting a command
- *  we wrote can carry. A single quote is left in the token, which makes the
- *  match fail, which is the safe direction. */
-function shellTokens(command: string): string[] {
-  const out: string[] = [];
-  let current = "";
-  let quoted = false;
-  let started = false;
-  for (let i = 0; i < command.length; i += 1) {
-    const ch = command[i] ?? "";
-    if (ch === "\\" && quoted && i + 1 < command.length) {
-      current += command[i + 1] ?? "";
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      quoted = !quoted;
-      started = true;
-      continue;
-    }
-    if (!quoted && /\s/.test(ch)) {
-      if (started || current.length > 0) out.push(current);
-      current = "";
-      started = false;
-      continue;
-    }
-    current += ch;
-    started = true;
-  }
-  if (started || current.length > 0) out.push(current);
-  return out;
 }
 
 /** Is this inner entry one this command may rewrite or remove? */
@@ -974,8 +938,7 @@ export function mcpAddArgs(
     ...(custom === undefined || custom.length === 0 ? [] : ["-e", `${CONFIG_ENV}=${custom}`]),
     "--",
     exe,
-    "run",
-    serve,
+    ...scriptArgs(serve, exe),
   ];
 }
 
@@ -1020,12 +983,12 @@ export function readMcp(
   if (!isRecord(entry)) return { file, present: false, matches: false, unreadable: false };
   const args = entry["args"];
   const serverEnv = entry["env"];
+  const want = scriptArgs(serve, exe);
   const matches =
     entry["command"] === exe &&
     Array.isArray(args) &&
-    args.length === 2 &&
-    args[0] === "run" &&
-    args[1] === serve &&
+    args.length === want.length &&
+    want.every((a, i) => args[i] === a) &&
     isRecord(serverEnv) &&
     serverEnv[DATA_DIR_ENV] === store &&
     (custom === undefined || custom.length === 0

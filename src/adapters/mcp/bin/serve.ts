@@ -61,6 +61,7 @@ import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
+import { scriptArgs } from "../../runtime.js";
 import {
   OBSERVER_ENV,
   OWNER_ENV,
@@ -383,7 +384,7 @@ async function main(): Promise<void> {
       config,
       configPath: choice.path,
       command: process.execPath,
-      args: ["run", WORKER_RUNNER_PATH],
+      args: scriptArgs(WORKER_RUNNER_PATH),
     },
     // Called only from a `wake`, long after `server` below is assigned.
     wakeNotice: () => {

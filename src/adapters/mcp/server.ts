@@ -139,6 +139,7 @@ import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
+import { scriptArgs } from "../runtime.js";
 
 export const SERVER_NAME = "counterparts";
 /**
@@ -1033,7 +1034,7 @@ export class McpServer {
       config,
       host: DESKTOP_HOST,
       command: o.command ?? process.execPath,
-      args: o.args ?? ["run", WORKER_RUNNER_PATH],
+      args: o.args ?? scriptArgs(WORKER_RUNNER_PATH, o.command ?? process.execPath),
       ...(o.spawner === undefined ? {} : { spawner: o.spawner }),
       ...(o.configPath === undefined ? {} : { configPath: o.configPath }),
       scope: this.scopeVerdict(),
