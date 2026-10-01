@@ -54,7 +54,7 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { emotionalIntensity, sal, softenedFeeling, strength } from "../physics/index.js";
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
-import { feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
+import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
 import { confidentialByMeta, feelingValence, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
@@ -625,7 +625,7 @@ export function activate(
   const feelingRank = new Map<string, number>();
   let feelingAsk: { ranked: boolean; named: number; pool: number; core: number; strongest: boolean } | null = null;
   /** The ranked ask, read — kept for the "no topic word" test after the cut (item 3). */
-  let rankedFrame: { stored: ReadonlySet<string> } | null = null;
+  let rankedFrame: { stored: ReadonlySet<string>; proper: ReadonlySet<string> } | null = null;
   if (input.feeling !== undefined) {
     let stamps: (FeelingRow & { birth_day: number })[] = [];
     try {
@@ -637,7 +637,7 @@ export function activate(
     const tokensOf = stamps.map((f) => feelingTokens(f));
     const stored = new Set(tokensOf.flatMap((x) => [...x]));
     const ask = readFeelingAsk(input.text, input.feeling, stored, t.MIN_CUE_LENGTH);
-    if (ask.ranked) rankedFrame = { stored };
+    if (ask.ranked) rankedFrame = { stored, proper: askedNames(input.text) };
     /** memory -> its best stamp: the match tier (0 exact, 1 core), the value it ranks by, its birth day. */
     const best = new Map<string, { tier: 0 | 1; value: number; day: number }>();
     const better = (a: { tier: number; value: number; day: number }, b: { tier: number; value: number; day: number }): boolean =>
@@ -1055,8 +1055,8 @@ export function activate(
    * stamped nomination. A memory a topic word reached ("how did I feel after
    * HAN asked…") or the calendar reached keeps its place.
    */
-  function noTopicOf(list: readonly Candidate[], stored: ReadonlySet<string>): Set<string> {
-    const topic = cues.filter((c) => c.weight > 0 && !isFeelingFrameWord(c.token, stored)).map((c) => postings.get(c.token));
+  function noTopicOf(list: readonly Candidate[], stored: ReadonlySet<string>, proper: ReadonlySet<string>): Set<string> {
+    const topic = cues.filter((c) => c.weight > 0 && !isFeelingFrameWord(c.token, stored, proper)).map((c) => postings.get(c.token));
     const out = new Set<string>();
     for (const c of list) {
       if (c.feeling !== undefined || c.linkOnly === true || c.temporal > 0) continue;
@@ -1096,7 +1096,7 @@ export function activate(
             order: new Map(
               candidates.filter((c) => c.feeling !== undefined).map((c) => [c.id, feelingRank.get(c.id) ?? Number.MAX_SAFE_INTEGER]),
             ),
-            noTopic: rankedFrame === null ? new Set<string>() : noTopicOf(candidates, rankedFrame.stored),
+            noTopic: rankedFrame === null ? new Set<string>() : noTopicOf(candidates, rankedFrame.stored, rankedFrame.proper),
           },
   };
 }

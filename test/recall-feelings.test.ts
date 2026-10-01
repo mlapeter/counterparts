@@ -592,15 +592,19 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
   });
 
   test("feelingWord: everyday words and light stems land on the wheel, and nothing else does", () => {
-    expect(feelingWord("happiest")).toEqual({ word: "happy", superlative: true });
-    expect(feelingWord("happier")).toEqual({ word: "happy", superlative: false });
+    expect(feelingWord("happiest")).toEqual({ word: "happy", superlative: true, via: "stem" });
+    expect(feelingWord("happier")).toEqual({ word: "happy", superlative: false, via: "stem" });
     expect(feelingWord("sadness")?.word).toBe("sad");
-    expect(feelingWord("saddest")).toEqual({ word: "sad", superlative: true });
-    expect(feelingWord("closer")?.word).toBe("close");
-    expect(feelingWord("scary")?.word).toBe("scared");
+    expect(feelingWord("saddest")).toEqual({ word: "sad", superlative: true, via: "stem" });
+    expect(feelingWord("angrier")?.word).toBe("angry");
+    expect(feelingWord("loneliest")?.word).toBe("lonely");
+    expect(feelingWord("scary")).toEqual({ word: "scared", superlative: false, via: "everyday" });
     expect(feelingWord("shame")?.word).toBe("ashamed");
-    expect(feelingWord("proudest")).toEqual({ word: "proud", superlative: true });
-    for (const w of ["interest", "panic", "hope", "love", "worry", "latest", "honest", "matter", "user", "constructor", "tostring", "hasownproperty"]) expect(feelingWord(w)).toBeNull();
+    expect(feelingWord("proudest")).toEqual({ word: "proud", superlative: true, via: "stem" });
+    expect(feelingWord("moved")?.via).toBe("wheel");
+    // Stems only of known feeling words (review of #310): "opener", "warmer", "closer" are about things.
+    for (const w of ["interest", "panic", "hope", "love", "worry", "latest", "honest", "matter", "user", "constructor", "tostring", "hasownproperty",
+      "opener", "warmer", "closer", "joy", "pride", "curiosity"]) expect(feelingWord(w)).toBeNull();
     expect(() => readFeelingAsk("how did I feel about the constructor refactor", { asker: "self" }, new Set(), 3)).not.toThrow();
     const self = { asker: "self" as const };
     for (const q of ["I hope the build passes", "why did the kernel panic", "upset the ordering of the list"]) {
@@ -609,11 +613,38 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
     expect(readFeelingAsk("let down the drawbridge", self, new Set(), 3).named.size).toBe(0);
   });
 
+  test("review of #310: names, everyday words out of frame, and 'caught out' about a thing name nothing", () => {
+    const self = { asker: "self" as const, ownerNames: ["mike"] };
+    for (const q of [
+      "what did I learn from Joy about the launch",
+      "which endpoints I stressed in the load test",
+      "what did I plan for pride month",
+      "what did I read about the curiosity rover",
+      "I keep getting caught out of range errors",
+      "how did I warm the cache",
+      "is my opener test still flaky",
+    ]) {
+      const read = readFeelingAsk(q, self, new Set(), 3);
+      expect(read.named.size).toBe(0);
+    }
+    // The same words in a feeling's frame still name one.
+    expect(readFeelingAsk("when was I stressed", self, new Set(), 3).named.has("worried")).toBe(true);
+    expect(readFeelingAsk("when did I feel shame", self, new Set(), 3).ranked).toBe(true);
+    expect(readFeelingAsk("when was I caught out", self, new Set(), 3).named.has("caught out")).toBe(true);
+    expect(readFeelingAsk("when did I feel caught out", self, new Set(), 3).ranked).toBe(true);
+  });
+
   test("the owner's name in the possessive is the owner — beside a feel-word only", () => {
     const input = { asker: "self" as const, ownerNames: ["mike"] };
     expect(whoseAsked("what are Mike's feelings about the launch", input)).toBe("owner");
     expect(readFeelingAsk("what are Mike's feelings about the launch", input, new Set(), 3).ranked).toBe(true);
     expect(readFeelingAsk("Mike's happy path test fails", input, new Set(), 3).ranked).toBe(false);
+    expect(whoseAsked("what are James' feelings", { asker: "self", ownerNames: ["james"] })).toBe("owner");
+    // A plain plural is not the owner (review of #310): "bills", "marks".
+    const bill = { asker: "self" as const, ownerNames: ["bill", "mark"] };
+    expect(whoseAsked("how did I feel paying the bills", bill)).toBe("self");
+    expect(whoseAsked("how did I feel about the marks on the wall", bill)).toBe("self");
+    expect(whoseAsked("how did Bill's feelings change", bill)).toBe("owner");
   });
 });
 
@@ -633,6 +664,12 @@ describe("lane 6, item 2: 'most / ever / strongest / since' rank by recorded str
     expect(readFeelingAsk("when was I happiest", self, new Set(), 3).strongest).toBe(true);
     expect(readFeelingAsk("what have I felt most strongly", self, new Set(), 3).strongest).toBe(true);
     expect(readFeelingAsk("when was I happy", self, new Set(), 3).strongest).toBe(false);
+    // Only beside a feeling, and never about the recent past (review of #310).
+    expect(readFeelingAsk("what have I felt most recently", self, new Set(), 3).strongest).toBe(false);
+    expect(readFeelingAsk("how did I feel about the most recent release", self, new Set(), 3).strongest).toBe(false);
+    expect(readFeelingAsk("when was I happiest lately", self, new Set(), 3).strongest).toBe(false);
+    expect(readFeelingAsk("how did I feel about the worst bug since the launch", self, new Set(), 3).strongest).toBe(false);
+    expect(readFeelingAsk("what moved me most", self, new Set(), 3).strongest).toBe(true);
     const first = (question: string): string | undefined =>
       deliberateRecall(c, { question }, { sessionId: "l6s", owner: true }).memories[0]?.id;
     expect(first("when was I happiest")).toBe(old);
@@ -640,6 +677,7 @@ describe("lane 6, item 2: 'most / ever / strongest / since' rank by recorded str
     expect(first("what have I ever felt happy about")).toBe(old);
     // Softening is how a feeling fades, and an ordinary question keeps it.
     expect(first("when was I happy")).toBe(fresh);
+    expect(first("what have I felt most recently")).toBe(fresh);
   });
 });
 
@@ -661,6 +699,30 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     // It is answered; whether a stamped row leads it is the gate's tier (R2), unchanged here.
     const out = deliberateRecall(c, { question }, { sessionId: "l6n3", owner: true });
     expect(out.memories.map((m) => m.id)).toContain(f.topical);
+  });
+
+  test("review of #310: Will, May and a can are topics — the memory they name keeps its place", () => {
+    const s = server();
+    const c = s.counterpart;
+    uneasyStore(c);
+    const will = c.store.put({ type: "memory", kind: "person", body: "Will helped carry the couch up three flights." });
+    const may = c.store.put({ type: "memory", kind: "fact", body: "In May the release slipped twice." });
+    const can = c.store.put({ type: "memory", kind: "fact", body: "The can of paint tipped over on the porch." });
+    for (const [question, id] of [
+      ["how did I feel about Will", will],
+      ["how did I feel in May", may],
+      ["how did I feel about the can", can],
+    ] as const) {
+      const built = c.recall.build({ sessionId: `l6t-${id}`, text: question, owner: true, feeling: { asker: "self" } });
+      expect(built.feeling?.ranked).toBe(true);
+      expect(built.feeling?.noTopic.has(id)).toBe(false);
+      // It leads everything the stamps did not nominate (the felt rows of its tier come first, R2).
+      const out = deliberateRecall(c, { question }, { sessionId: `l6t2-${id}`, owner: true });
+      const ids = out.memories.map((m) => m.id);
+      const at = ids.indexOf(id);
+      expect(at).toBeGreaterThanOrEqual(0);
+      for (const before of ids.slice(0, at)) expect(built.feeling?.strengths.has(before)).toBe(true);
+    }
   });
 
   test("a question not about feeling is unchanged: 'what do I know about Han'", () => {

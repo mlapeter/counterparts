@@ -309,7 +309,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     core(s), and the writer's own word when that is ONE word; a wheel phrase ("caught out")
     answers only as the whole phrase. A question word is read through the wheel, a
     question-side everyday list (`EVERYDAY_TO_WHEEL`: shame, dread, relief…) and a light
-    stem (happiest, sadness), and the owner's name in the possessive is the owner. Two cases:
+    stem of a known feeling (happiest, sadness) — those two only in a feeling's frame — and
+    never a word capitalised mid-sentence (a name); the owner's name written with an
+    apostrophe ("Mike's") is the owner. Two cases:
     **Ranked** — a real question about feeling: a feel-word (`FEEL_WORDS`) or a word naming
     a feeling, used about a PERSON (first person singular or second person, the owner by
     word or name, and "we" for a feel-word only; `detectAffect`'s look-back, widened two
@@ -320,12 +322,14 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     then strength, then the newer stamp, are nominated with `FEELING_CUE_UNITS` (4) cue
     units × that strength — a tier-2 stamp's cue capped at the weakest tier-1 nomination's.
     The strength is SOFTENED, unless the question asks for the strongest or over all time
-    ("most", "ever", "strongest", "since", a superlative): then as recorded. They are
+    (a superlative, or "most", "ever", "strongest", "since" beside a feeling word, never
+    with "recent"/"lately"): then as recorded. They are
     appended after the cut (which is taken over the words' and meaning's rows, ranked
     without stamps, so it keeps what it keeps with no lane), and answered first within the
     tier the gate gave them, in the lane's order — vivid, felt-quiet, quiet, felt-dim, then
-    the rows NO TOPIC WORD reached (only the question's feeling and frame words, or its
-    meaning: `FeelingLane.noTopic`) whatever their tier, then dim — exempt from the dim
+    the rows NO TOPIC WORD reached (only the question's feeling and function words, or its
+    meaning; a capitalised word is always a topic: `FeelingLane.noTopic`) whatever their
+    tier, then dim — exempt from the dim
     cap. **Named only** — a feeling word used about no one ("the happy path"): its stamps
     nominate their memories as an ordinary word would (its rarity among the stamps), and
     nothing is reordered. A feeling word followed by a determiner, a possessive or

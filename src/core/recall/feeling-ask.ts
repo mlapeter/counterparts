@@ -35,10 +35,10 @@
  * **Round 2 (2026-10-01, lane 6).** Any feeling word reaches its core: a
  * question word is read through the wheel, a short question-side list of
  * everyday words off it (`EVERYDAY_TO_WHEEL`: shame, guilt, dread, relief,
- * pride…), a light stemmer (happiest, sadness, closer) and the wheel's
+ * regret…), a light stemmer (happiest, sadness) and the wheel's
  * phrases ("caught out"); its home core(s) come back as `FeelingAsk.cores`,
  * the second tier `activate.ts` matches on. "Most / ever / strongest / since"
- * set `FeelingAsk.strongest`. Nothing here is a write door: the wheel's own
+ * beside a feeling word (or a superlative) set `FeelingAsk.strongest`. Nothing here is a write door: the wheel's own
  * `ALIASES`, which decide for a writer, are untouched.
  *
  * NO MODEL CALL: a fixed vocabulary and the store's own tokenizer.
@@ -75,8 +75,11 @@ export const WHEEL_VOCABULARY: ReadonlySet<string> = new Set<string>([
  * EVERYDAY WORDS OFF THE WHEEL that name a wheel word, read on the QUESTION
  * side only (2026-10-01, lane 6). Not the wheel's `ALIASES`: those decide for
  * a writer at the write door, and this lane writes nothing. Small on purpose,
- * and nothing a question often uses about a thing ("panic", "hope", "love",
- * "worry", "pleased" are left out — the B2 scar of #293). A word that is
+ * and nothing a question often uses about a thing or a name ("panic", "hope",
+ * "love", "worry", "pleased", "joy", "pride", "curiosity" are left out — the
+ * B2 scar of #293). Like a stem, one of these names a feeling only in a
+ * feeling's frame (`readFeelingAsk`): "when was I stressed", not "the
+ * endpoints I stressed". A word that is
  * already on the wheel needs no line here (ashamed, scared, nervous, anxious,
  * lonely, proud, grateful, guilty and embarrassed are).
  */
@@ -107,17 +110,14 @@ export const EVERYDAY_TO_WHEEL: Readonly<Record<string, string>> = {
   heartbreak: "heartbroken",
   disappointment: "disappointed",
   boredom: "bored",
-  joy: "joyful",
   thrilled: "excited",
   excitement: "excited",
   elated: "ecstatic",
   delight: "delighted",
-  pride: "proud",
   gratitude: "grateful",
   relief: "relieved",
   warmth: "warm",
   affection: "affectionate",
-  curiosity: "curious",
   confusion: "confused",
   awed: "awe",
   frustration: "frustrated",
@@ -136,21 +136,36 @@ const WHEEL_PHRASE_KEYS: ReadonlyMap<string, string> = new Map(
     .map(([w, key]) => [w.join(" "), key]),
 );
 
-/** Words that ask for the strongest, or over all time (item 2 of lane 6). */
+/** Words that ask for the strongest, or over all time (item 2 of lane 6) —
+ *  only within `STRONGEST_REACH` words of a feel-word or a feeling word
+ *  ("felt most strongly", "most moved"), never "the most recent release". */
 const STRONGEST = new Set(["most", "ever", "strongest", "strongly", "since", "always", "deepest", "biggest", "hardest", "worst"]);
+const STRONGEST_REACH = 2;
+/** A question about the recent past is never one about the strongest ("what have I felt most recently"). */
+const RECENT = new Set(["recent", "recently", "lately", "latest", "last", "today", "yesterday", "tonight", "now"]);
+
+/**
+ * The wheel words a LIGHT stem may land on: feelings whose -er/-est/-ness forms
+ * are about a feeling ("happiest", "saddest", "sadness", "angrier",
+ * "loneliest"). Not every wheel word: "opener", "warmer cache", "closer" are
+ * about things.
+ */
+const STEMMABLE = new Set(["happy", "sad", "angry", "lonely", "proud", "glad", "calm", "fond", "tender", "nervous", "anxious", "grateful"]);
 
 /**
  * A question word read as a wheel word: itself when the wheel (or a stamp in
- * this store) knows it, an everyday word's wheel word, or a LIGHT stem —
- * happiest, happier, happiness → happy; saddest, sadness → sad; closer →
- * close — accepted only when the stem lands on the wheel or the everyday
- * list. `superlative` marks an "-est" form ("when was I happiest").
+ * this store) knows it (`via: "wheel"`), an everyday word's wheel word
+ * (`"everyday"`), or a LIGHT stem of a `STEMMABLE` feeling (`"stem"`) —
+ * happiest, happier, happiness → happy; saddest, sadness → sad.
+ * `superlative` marks an "-est" form ("when was I happiest").
  */
-export function feelingWord(w: string, stored: ReadonlySet<string> = new Set()): { word: string; superlative: boolean } | null {
-  const known = (x: string): string | null =>
-    x.length >= 3 && (WHEEL_VOCABULARY.has(x) || stored.has(x)) ? x : Object.hasOwn(EVERYDAY_TO_WHEEL, x) ? (EVERYDAY_TO_WHEEL[x] as string) : null;
-  const direct = known(w);
-  if (direct !== null) return { word: direct, superlative: false };
+export function feelingWord(
+  w: string,
+  stored: ReadonlySet<string> = new Set(),
+): { word: string; superlative: boolean; via: "wheel" | "everyday" | "stem" } | null {
+  if (w.length >= 3 && (WHEEL_VOCABULARY.has(w) || stored.has(w))) return { word: w, superlative: false, via: "wheel" };
+  if (Object.hasOwn(EVERYDAY_TO_WHEEL, w)) return { word: EVERYDAY_TO_WHEEL[w] as string, superlative: false, via: "everyday" };
+  const known = (x: string): string | null => (STEMMABLE.has(x) ? x : null);
   const undouble = (x: string): string => (x.length >= 4 && x[x.length - 1] === x[x.length - 2] ? x.slice(0, -1) : x);
   const tries: [string, boolean][] = [];
   if (w.endsWith("iest")) tries.push([`${w.slice(0, -4)}y`, true]);
@@ -161,7 +176,7 @@ export function feelingWord(w: string, stored: ReadonlySet<string> = new Set()):
   if (w.endsWith("er")) tries.push([w.slice(0, -2), false], [undouble(w.slice(0, -2)), false], [w.slice(0, -1), false]);
   for (const [stem, superlative] of tries) {
     const hit = known(stem);
-    if (hit !== null) return { word: hit, superlative };
+    if (hit !== null) return { word: hit, superlative, via: "stem" };
   }
   return null;
 }
@@ -182,7 +197,8 @@ export function coresOfWord(word: string): string[] {
  * the strongest? `activate.ts` uses it to tell a memory some topic word
  * reached from one only the feeling words (or the meaning) did (item 3).
  */
-export function isFeelingFrameWord(token: string, stored: ReadonlySet<string>): boolean {
+export function isFeelingFrameWord(token: string, stored: ReadonlySet<string>, names: ReadonlySet<string> = new Set()): boolean {
+  if (names.has(token)) return false;
   return (
     FEEL_WORDS.includes(token) ||
     STRONGEST.has(token) ||
@@ -201,14 +217,38 @@ export function isFeelingFrameWord(token: string, stored: ReadonlySet<string>): 
  * few memories say "when", "when was I afraid" reaches a note by "when". This
  * list only decides what counts as a TOPIC word for item 3; it weighs nothing.
  */
+// Only true function words: "will", "may", "can", "do", "it" are left out on
+// purpose (Will, May, a can, a to-do, IT), and a word the asker capitalised
+// mid-sentence is a topic whatever it is (`askedNames`).
 const QUESTION_FRAME = new Set([
-  "what", "when", "where", "which", "who", "whom", "whose", "why", "how", "whats", "whens", "hows",
-  "was", "were", "is", "are", "am", "be", "been", "being", "do", "does", "did", "done", "have", "has", "had",
-  "can", "could", "would", "should", "will", "shall", "may", "might", "must", "id", "ive", "im",
-  "the", "an", "this", "that", "these", "those", "some", "any", "all", "its", "it", "them", "they", "their",
-  "of", "to", "in", "on", "at", "for", "with", "about", "from", "by", "as", "into", "over", "after", "before",
-  "and", "or", "but", "if", "so", "than", "then", "not", "no", "very", "really", "much", "more", "time", "times",
+  "what", "when", "where", "which", "who", "whom", "whose", "why", "how", "whats",
+  "was", "were", "is", "are", "am", "be", "been", "being", "does", "did", "have", "has", "had",
+  "could", "would", "should", "ive", "im",
+  "the", "an", "this", "that", "these", "those", "some", "any", "them", "they", "their",
+  "of", "to", "in", "on", "at", "for", "with", "about", "from", "by", "as", "into",
+  "and", "or", "but", "if", "than", "then", "not", "very", "really", "time", "times",
 ]);
+
+/**
+ * Words the asker CAPITALISED other than at a sentence's start (and other than
+ * "I"): a name or a proper noun — "how did I feel about Will", "in May", "a
+ * person named Joy". Such a word is a topic (item 3), never a feeling word.
+ */
+export function askedNames(text: string): Set<string> {
+  const out = new Set<string>();
+  let start = true;
+  for (const m of text.matchAll(/[A-Za-z0-9][A-Za-z0-9'’]*|[.?!;:\n]/g)) {
+    const tok = m[0];
+    if (/^[.?!;:\n]$/.test(tok)) {
+      start = true;
+      continue;
+    }
+    const w = words(tok).join("");
+    if (!start && /^[A-Z]/.test(tok) && !FIRST.has(w) && w !== "id" && w.length >= 2) out.add(w);
+    start = false;
+  }
+  return out;
+}
 
 // Not "id" ("I'd" without its apostrophe): in this store "id" is far more often a
 // memory id, and a missed "I'd" only falls back to both.
@@ -229,12 +269,18 @@ function words(text: string): string[] {
 }
 
 /**
- * The owner's name in the possessive — "Mike's", which `words` spells `mikes`
- * (a follow-up of #293). Only a name's own `s` form, and only when the name is
- * not itself a word ending in s.
+ * The owner's name in the possessive — "Mike's" (which `words` spells
+ * `mikes`) or "James'" — as `words` spells it, read off the ORIGINAL text: only
+ * a word written with an apostrophe, so a plain plural ("bills", "marks") is
+ * never the owner Bill or Mark (a follow-up of #293).
  */
-function possessiveName(w: string, names: ReadonlySet<string>): boolean {
-  return w.length > 2 && w.endsWith("s") && !names.has(w) && names.has(w.slice(0, -1));
+function possessiveNames(text: string, names: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/([A-Za-z0-9]+)['’](s?)(?![A-Za-z0-9])/g)) {
+    const base = (m[1] as string).toLowerCase();
+    if (names.has(base)) out.add(base + (m[2] === "" ? "" : "s"));
+  }
+  return out;
 }
 
 /**
@@ -246,13 +292,14 @@ export function whoseAsked(text: string, input: FeelingAskInput): FeelingWhose |
   const other: FeelingWhose = input.asker === "self" ? "owner" : "self";
   const names = new Set((input.ownerNames ?? []).flatMap((n) => words(n)).filter((w) => w.length >= 2));
   const said = new Set<FeelingWhose>();
+  const possessive = possessiveNames(text, names);
   for (const w of words(text)) {
     if (FIRST.has(w)) said.add(input.asker);
     else if (SECOND.has(w)) said.add(other);
     else if (PLURAL.has(w)) {
       said.add("owner");
       said.add("self");
-    } else if (OWNER_WORDS.has(w) || names.has(w) || possessiveName(w, names)) said.add("owner");
+    } else if (OWNER_WORDS.has(w) || names.has(w) || possessive.has(w)) said.add("owner");
   }
   return said.size === 1 ? ([...said][0] as FeelingWhose) : null;
 }
@@ -383,7 +430,13 @@ const AFTER = 2;
  * feel-word only — "we": "what have we felt" is a feeling question, "where we
  * moved the parser" is not. Scanning back stops at a third-person subject.
  */
-function aboutAPerson(toks: readonly string[], at: number, feelWord: boolean, names: ReadonlySet<string>): boolean {
+function aboutAPerson(
+  toks: readonly string[],
+  at: number,
+  feelWord: boolean,
+  names: ReadonlySet<string>,
+  possessive: ReadonlySet<string> = new Set(),
+): boolean {
   // A POSSESSIVE is not a person feeling something: "is MY build open", "MY
   // happy path test fails" (review of #293, R3). The subject and object forms are.
   // Beside a feel-word the possessive IS the person: "what are MY feelings",
@@ -394,7 +447,7 @@ function aboutAPerson(toks: readonly string[], at: number, feelWord: boolean, na
     OWNER_WORDS.has(w) ||
     names.has(w) ||
     // The owner's name in the possessive is a possessive: a person only beside a feel-word.
-    (feelWord && possessiveName(w, names)) ||
+    (feelWord && possessive.has(w)) ||
     (feelWord && PLURAL.has(w));
   for (let j = at - 1; j >= Math.max(0, at - BEFORE); j--) {
     const w = toks[j] as string;
@@ -425,10 +478,16 @@ export function readFeelingAsk(
 ): FeelingAsk {
   const toks = words(text);
   const names = new Set((input.ownerNames ?? []).flatMap((n) => words(n)).filter((w) => w.length >= 2));
+  const possessive = possessiveNames(text, names);
+  /** Capitalised mid-sentence: a name or proper noun, never a feeling ("a person named Joy", "in May"). */
+  const proper = askedNames(text);
+  const person = (at: number, feelWord: boolean): boolean => aboutAPerson(toks, at, feelWord, names, possessive);
   const named = new Set<string>();
   const cores = new Set<string>();
+  /** Where the feel-words and feeling words stand: "most" asks for the strongest only beside one. */
+  const feelingAt: number[] = [];
   let ranked = false;
-  let strongest = false;
+  let superlative = false;
   /** A word (or phrase) that names a feeling, read as `word` on the wheel. */
   const name = (asked: string, word: string): void => {
     named.add(asked);
@@ -438,31 +497,49 @@ export function readFeelingAsk(
   // The wheel's PHRASES first ("caught out", "let down"), as two words in a
   // row — else "caught" meets the everyday frame rule alone and "out" is
   // nothing. A phrase followed by a determiner is a verb on a thing ("let
-  // down THE team").
+  // down THE team"), and it needs a PERSON right before it, directly or
+  // through a feel-word or "to be" ("I was caught out", "felt let down") —
+  // "caught out of range errors" is not a feeling.
   const inPhrase = new Set<number>();
+  const isPerson = (w: string): boolean => FIRST.has(w) || SECOND.has(w) || PLURAL.has(w) || OWNER_WORDS.has(w) || names.has(w);
   for (let i = 0; i + 1 < toks.length; i++) {
     const key = WHEEL_PHRASE_KEYS.get(`${toks[i]} ${toks[i + 1]}`);
     if (key === undefined || DETERMINERS.has(toks[i + 2] ?? "")) continue;
+    const prev = toks[i - 1] ?? "";
+    // "ashamed or caught out": a phrase joined to a feeling word shares its frame.
+    const joined = (prev === "or" || prev === "and") && feelingWord(toks[i - 2] ?? "", stored) !== null;
+    const subject =
+      joined || isPerson(prev) || ((FEEL_WORDS.includes(prev) || FEELING_FRAME.has(prev)) && isPerson(toks[i - 2] ?? ""));
+    const framed = (FEEL_WORDS.includes(prev) || FEELING_FRAME.has(prev)) && person(i, false);
+    if (!subject && !framed) continue;
     inPhrase.add(i);
     inPhrase.add(i + 1);
+    feelingAt.push(i, i + 1);
     name(`${toks[i]} ${toks[i + 1]}`, key);
-    if (aboutAPerson(toks, i, false, names) || aboutAPerson(toks, i + 1, false, names)) ranked = true;
+    // Joined to a feeling word only, it ranks as that word would: about a person.
+    if (!joined || isPerson(prev) || person(i, false)) ranked = true;
   }
+  /** A feel-word anywhere in the question: the frame an everyday word or a stem needs. */
+  const anyFeelWord = toks.some((w) => FEEL_WORDS.includes(w));
   toks.forEach((w, i) => {
-    if (STRONGEST.has(w)) strongest = true;
     if (inPhrase.has(i)) return;
     if (FEEL_WORDS.includes(w)) {
       if (OPINION.has(toks[i + 1] ?? "")) return; // "I feel like…", "I felt that…": an opinion
-      if (aboutAPerson(toks, i, true, names)) ranked = true;
+      feelingAt.push(i);
+      if (person(i, true)) ranked = true;
       return;
     }
-    if (w.length < minLength) return;
+    if (w.length < minLength || proper.has(w)) return;
     const read = feelingWord(w, stored);
     if (read === null) return;
     if (DETERMINERS.has(toks[i + 1] ?? "")) return; // a verb on a thing, not a feeling
+    const before = [toks[i - 1] ?? "", toks[i - 2] ?? ""];
+    // A word off the wheel (an everyday word, a stem) names a feeling only in
+    // a feeling's frame: a feel-word in the question, or "to be" just before
+    // ("when was I stressed", not "the endpoints I stressed").
+    if (read.via !== "wheel" && !anyFeelWord && !before.some((b) => FEELING_FRAME.has(b))) return;
     // An everyday word is a feeling only in a feeling's frame ("I was content").
     if (EVERYDAY_FEELING_WORDS.has(w) || EVERYDAY_FEELING_WORDS.has(read.word)) {
-      const before = [toks[i - 1] ?? "", toks[i - 2] ?? ""];
       const felt = before.some((b) => FEEL_WORDS.includes(b));
       if (!felt) {
         if (!before.some((b) => FEELING_FRAME.has(b))) return;
@@ -473,8 +550,18 @@ export function readFeelingAsk(
       }
     }
     name(w, read.word);
-    if (read.superlative) strongest = true;
-    if (aboutAPerson(toks, i, false, names)) ranked = true;
+    feelingAt.push(i);
+    if (read.superlative) superlative = true;
+    if (person(i, false)) ranked = true;
   });
+  // STRONGEST (item 2): a superlative feeling ("happiest"), or a "most / ever /
+  // strongest / since" word within reach of a feel-word or a feeling word
+  // ("felt most strongly", "most moved") — and never in a question about the
+  // recent past ("what have I felt most recently", "the most recent release").
+  const recent = toks.some((w) => RECENT.has(w));
+  const strongest =
+    !recent &&
+    (superlative ||
+      toks.some((w, i) => STRONGEST.has(w) && feelingAt.some((j) => Math.abs(j - i) <= STRONGEST_REACH)));
   return { ranked, named, whose: whoseAsked(text, input), cores, strongest };
 }
