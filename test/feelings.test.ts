@@ -372,9 +372,48 @@ describe("the console", () => {
     const c = io();
     await run(["status", "--dir", dir], { io: c.io });
     const said = [...c.out, ...c.err].join("\n");
-    expect(said).toContain(`this store is on schema v6; the next Claude Code session copies it and upgrades it to v${String(SCHEMA_VERSION)}`);
+    // No session in the registry: both hosts are named (2026-10-01).
+    expect(said).toContain(
+      `this store is on schema v6; the next session, in Claude Code or Claude Desktop, copies it and upgrades it to v${String(SCHEMA_VERSION)}`,
+    );
     expect(said).not.toContain("could not open the store");
     expect(existsSync(dir) && readdirSync(dir).length > 0).toBe(true);
+  });
+
+  test("the words are the host's: only Claude Desktop is never told to wait for a Claude Code session (2026-10-01)", async () => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "before" });
+    s.close();
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '6')");
+    db.close();
+    const said = async (): Promise<string> => {
+      const c = io();
+      await run(["status", "--dir", dir], { io: c.io });
+      return [...c.out, ...c.err].join("\n");
+    };
+    recordSession(dir, { sessionId: "desk-1", scope: "claude-desktop:", phase: "start", host: "claude-desktop" });
+    const desk = await said();
+    expect(desk).toContain(`Claude Desktop's memory server copies it and upgrades it to v${String(SCHEMA_VERSION)}`);
+    expect(desk).toContain("Nothing to do: open Claude Desktop (quit and reopen it if it is running), then run this again.");
+    expect(desk).not.toContain("Claude Code");
+    recordSession(dir, { sessionId: "code-1", scope: dir, phase: "start" });
+    expect(await said()).toContain("the next session, in Claude Code or Claude Desktop, copies it");
+  });
+
+  test("only Claude Code: the next Claude Code session (2026-10-01)", async () => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "before" });
+    s.close();
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '6')");
+    db.close();
+    recordSession(dir, { sessionId: "code-1", scope: dir, phase: "start" });
+    const c = io();
+    await run(["status", "--dir", dir], { io: c.io });
+    const said = [...c.out, ...c.err].join("\n");
+    expect(said).toContain(`the next Claude Code session copies it and upgrades it to v${String(SCHEMA_VERSION)}`);
+    expect(said).toContain("Nothing to do: start a Claude Code session, then run this again.");
   });
 });
 

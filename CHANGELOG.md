@@ -6,6 +6,9 @@
   its very first turn, before the memory server knew which session it was.
 - The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
   `2026-09-27 (due 2026-10-03) · …`.
+- When the console or the dashboard meets a store still waiting for its upgrade, it says who
+  will upgrade it in your hosts' words: with only Claude Desktop it no longer tells you to
+  wait for a Claude Code session.
 
 ## 0.3.10 — 2026-09-30
 

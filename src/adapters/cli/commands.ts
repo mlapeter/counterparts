@@ -234,7 +234,8 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
 import { connectDesktop, readDesktop } from "./desktop.js";
-import { DESKTOP_HOST } from "../hosts.js";
+import { DESKTOP_HOST, upgradeWords } from "../hosts.js";
+import { hostsSeen } from "../sessions.js";
 import type {
   Outcome as WireOutcome,
   ProcessLister,
@@ -1940,6 +1941,9 @@ function describeDirRefusal(err: unknown, dir?: string): string {
  * `STORE_UNINITIALIZED` with a `found` version below this build's reads, to an
  * observer, like an empty store; it is not — it is waiting for the first
  * session, which copies it and upgrades it. Doctor's sentence, said here too.
+ * WHICH session is said in the words of the hosts the store's registry has
+ * seen (`hosts.ts#upgradeWords`, 2026-10-01): with only Claude Desktop there
+ * is no Claude Code session to wait for.
  */
 function upgradePending(err: unknown): string | null {
   if (!isStoreError(err, "STORE_UNINITIALIZED")) return null;
@@ -1947,9 +1951,12 @@ function upgradePending(err: unknown): string | null {
   // Only a store this build can migrate: v6 up. Below the floor is the
   // pre-rows refusal's sentence, never "the next session upgrades it".
   if (!Number.isFinite(found) || found < 6 || found >= SCHEMA_VERSION) return null;
+  // The refusal names the database file; the registry sits beside it.
+  const path = err.detail["path"];
+  const words = upgradeWords(typeof path === "string" && path.length > 0 ? hostsSeen(dirname(path)) : new Set());
   return (
-    `this store is on schema v${String(found)}; the next Claude Code session copies it and upgrades it ` +
-    `to v${String(SCHEMA_VERSION)}. Nothing to do: start a session, then run this again.`
+    `this store is on schema v${String(found)}; ${words.who} copies it and upgrades it ` +
+    `to v${String(SCHEMA_VERSION)}. Nothing to do: ${words.open}, then run this again.`
   );
 }
 
@@ -4371,8 +4378,9 @@ async function dashboardCommand(
   // guess (constitution 16).
   io.out(`reading ${tilde(running.dir, home_)}`);
   if (running.upgradePending === true) {
+    const words = upgradeWords(hostsSeen(running.dir));
     io.out(
-      `this store is on an older schema; the next Claude Code session copies it and upgrades it to ` +
+      `this store is on an older schema; ${words.who} copies it and upgrades it to ` +
         `v${String(SCHEMA_VERSION)}. The page says so until then; reload it after.`,
     );
   }
