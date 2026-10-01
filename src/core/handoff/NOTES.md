@@ -249,7 +249,8 @@ room for more than one. What was built, and the choices the brief left open:
   elsewhere fails the share, where before the wider one turned the reserve off for both.
   The ceiling constant grew from 448 to 1,408 because the widest block grew (1,389 measured
   once the door named `retireHandoff`; 1,448 since §9's "written up to" words, measured
-  1,431); the share rule is what binds in practice (at 9,000,
+  1,431; 1,646 since §10's "may be out of date" words); the share rule is what binds in
+  practice (at 9,000,
   nothing past 1,125). Measured with sixty identity elements, one handoff against three:
   a reserve of 487 against 735 bytes at 6,000 (the share rule binds), 487 against 855 at
   7,000 and 9,000; all three carried, every wake keeping its 24 elements — a fixture whose
@@ -350,3 +351,51 @@ choices it left open:
 - **Not built**: a durable row for the line (CONTRACT §8 question 8), Desktop chats
   (question 9), and a human session name (question 6 still holds: the line prints the
   short id and the model, as the handoff does).
+
+## 10. What a waking session reads first, round 2 (2026-10-01, random-f2's view of 0.3.10)
+
+- **A stale handoff says so** (CONTRACT §5 G12). A handoff that said it was waiting on a
+  fix read as current the morning after that fix was installed. Two facts
+  that already exist decide it, at delivery: the release that wrote it against the one
+  installed (`staleWords`; the row's `build` stamp since today, else the registry's
+  `opened.build.version` for its session — the registry keeps a week, the pointer two, so
+  an unstamped row older than that says nothing), and a chapter written here by another
+  session after it. Not "its condition landed": that is a judgement, and the next session
+  is the one reading the handoff and the words beside it. The words sit right after who
+  and when, before the handoff's own first sentence. The installed version is read off
+  disk at the wake (`manifestVersionOnDisk`), because a long-running server's own is the
+  version it launched with.
+- **Who retires it.** The Stop ask now says `retireHandoff` may retire any handoff here
+  whose work is done, whoever left it — the door existed (CONTRACT §5 G3c) and only the
+  pointer's door line named it. The ask grew by one clause; its pinned length went from
+  450 to 480 characters.
+- **A recalled handoff's provenance.** Read as a memory, a handoff said "an earlier
+  session, 2026-09-23": `origin_session` is never set on it, and a row from before
+  2026-09-30 was revised in place by later sessions, so its birth date is the first
+  writer's. `handoffAuthorship` reads the writer off the meta and the time off its newest
+  `handoff.written` row, as the pointer does.
+- **Last here pairs the title with the chapter it was written with.** An episode's title
+  is set once, with chapter 1; the line printed the latest chapter's first sentence under
+  it, so a later chapter's words read as if they were what the title named. Chosen over "the
+  latest chapter alone, no title": the title is the session's own name for what it did,
+  and a time question ("what did we do yesterday") wants what was done. The count
+  ("2 chapters") says there is more behind the id. Recall's time lead does the same, with
+  "(Chapter 1 of 2; recall epi_… for every chapter.)" in FRONT, so a bounded excerpt still
+  says it.
+- **About me, from another directory.** A chapter about who I am, written in one
+  directory, did not reach a wake in another. One line, the newest such chapter inside the
+  fortnight, decided by the `about` mark on its copy (`me`, `us`, `owner`). Measured on a
+  copy of the owner's store: only day 6's chapter copies carry a mark — the reflection
+  marks what it is shown, and a chapter's copy is minted at the session's end — so the
+  chapter that prompted this is unmarked and would not show. Marking a chapter at write time
+  (`chapter` takes no `about`) is the follow-up that would make this fire on the day.
+- **A dropped line leaves a row** (`handoff.lasthere.noroom`), one per chapter per lived
+  day, with whether a handoff was carried in its place.
+- **One grouped read for the copies** (second review of #311). Whether a chapter is
+  confidential or about me is read off its copies, and `origin_ref` has no index, so one
+  `list({ originRef })` per episode was a table scan each: 300 episodes on a 15k-row store
+  took the walk from 19 ms to 1.7 s and the wake to 3.3 s. `Store#copiesOf` reads every
+  copy of the window's episodes in one scan, and the walk carries the answers
+  (`ChapterHere.confidential`, `aboutMe`). No schema change. The Yesterday line, which is
+  composed once and read by every session, leaves confidential chapters out for all.
+

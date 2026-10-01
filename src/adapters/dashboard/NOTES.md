@@ -523,8 +523,9 @@ From Fable's review of Health (2026-09-28) and the open follow-ups of #277:
   cut or left out (read off the published wake's own marker), handoffs a
   session start had no room for (`handoff.refused` `no-room` rows since the
   render), the page writer held back for room (its newest night's `no-room`).
-  A "Last here" line dropped for room is NOT shown: it is a ring event only
-  (`counterpart.lasthere.noroom`), with no durable row to read.
+  A "Last here" line dropped for room is shown too since 2026-10-01: it leaves
+  a durable `handoff.lasthere.noroom` row (one per chapter per lived day), and
+  the bar counts the distinct chapters since the render.
 - **The archive list is one line per memory.** A chapter rebuilt from the
   journal archives its previous copy each time, so the list read 61 rows for
   23 memories. The copies of one chapter (one `episodeId`) are one item with

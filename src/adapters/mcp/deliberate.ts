@@ -28,8 +28,8 @@ import { homedir } from "node:os";
 import type { Counterpart } from "../../core/counterpart.js";
 import { sessionsHere } from "../../core/coverage/index.js";
 import { wireChars } from "../../core/fit/index.js";
-import { sessionWords } from "../../core/handoff/index.js";
-import { LAST_HERE_LIFE_DAYS, chaptersBySession, latestChapter } from "../../core/handoff/last-here.js";
+import { handoffAuthorship, sessionWords } from "../../core/handoff/index.js";
+import { LAST_HERE_LIFE_DAYS, chapterFor, chaptersBySession } from "../../core/handoff/last-here.js";
 import { strength } from "../../core/physics/index.js";
 import { isConfidential, isSelfPage, localKey, readRecencyAsk, standingOf } from "../../core/recall/index.js";
 import { localStamp } from "../../core/time.js";
@@ -618,7 +618,7 @@ export function expandHandle(
         strength: strength(read.physics, store.livedDay()),
         activation: 1,
         ...standingField(store, id, true),
-        ...fromField(store, id, opts.sessionId),
+        ...fromField(store, id, opts.sessionId, counterpart.spans),
       },
     ],
   };
@@ -635,8 +635,25 @@ export function expandHandle(
  * made says so — "a dream launched from session …", "a reflection" — rather
  * than reading as that session's own words (review of #302, MAJOR-1), and one
  * carried over from an older store says that. Never throws.
+ *
+ * AN UNBOUND NOTE, PLACED BY ITS TIME (2026-10-01, random-f2's items 4 and
+ * 12). A note an unbound server wrote before 2026-10-01 names no session;
+ * since then the server finds its session by its host process at write time
+ * (`server.ts#hostSession`). For the older rows, given `spans`, the note is
+ * read as a session's when it can be no one else's — `preBindNotes`' rule: it
+ * was written in that directory, inside the stretch that session was at work
+ * there (turn-ends and held pieces), and inside no other session's — and the
+ * words say how it was placed: "session a1b2c3d4 (placed by when it was
+ * written)". Nothing is written back to the row. The registry's `startedAt`
+ * is NOT a stretch: an idle tab opened early would cover a sibling's note
+ * (#307, reverted).
  */
-export function provenanceOf(store: Counterpart["store"], id: string, reader: string | null = null): string | null {
+export function provenanceOf(
+  store: Counterpart["store"],
+  id: string,
+  reader: string | null = null,
+  spans?: Counterpart["spans"],
+): string | null {
   try {
     const row = store.row(id);
     if (row === undefined) return null;
@@ -645,7 +662,18 @@ export function provenanceOf(store: Counterpart["store"], id: string, reader: st
       const meta = JSON.parse(row.meta || "{}") as Record<string, unknown>;
       session = typeof meta["sessionId"] === "string" ? meta["sessionId"] : null;
     }
-    const named = session === null || session.length === 0 ? null : sessionWords(session, null, reader);
+    // A HANDOFF names its writer on its meta, and its birth date is the
+    // first writer's (2026-10-01): who and when come from the handoff's own
+    // record, as the wake's pointer reads them.
+    const handoff = row.type === "schema" ? handoffAuthorship(store, id) : null;
+    if (handoff !== null) session = handoff.session;
+    const placed = session === UNBOUND_SESSION && spans !== undefined ? placedByTime(spans, row) : null;
+    const named =
+      placed !== null
+        ? `${sessionWords(placed, null, reader)} (placed by when it was written)`
+        : session === null || session.length === 0
+          ? null
+          : sessionWords(session, null, reader);
     const made = nightlyMade(row);
     const who =
       made === "dream"
@@ -656,19 +684,35 @@ export function provenanceOf(store: Counterpart["store"], id: string, reader: st
             ? "carried over from an older store"
             : (named ?? "an earlier session");
     const home = homedir();
-    const scope = row.origin_scope;
+    const scope = handoff?.scope ?? row.origin_scope;
     const where =
       scope === null || scope.length === 0
         ? null
         : home.length > 1 && (scope === home || scope.startsWith(`${home}/`))
           ? `~${scope.slice(home.length)}`
           : scope;
-    const at = row.type === "episode" ? (row.updated_at ?? row.created_at) : row.created_at;
-    const when = at === null ? (row.learned_on.length > 0 ? row.learned_on : null) : localStamp(at, store.zone());
+    const at = handoff !== null ? handoff.at : row.type === "episode" ? (row.updated_at ?? row.created_at) : row.created_at;
+    const learned = handoff?.on ?? (row.learned_on.length > 0 ? row.learned_on : null);
+    const when = at === null ? learned : localStamp(at, store.zone());
     return [who, where, when].filter((p): p is string => p !== null && p.length > 0).join(", ");
   } catch {
     return null;
   }
+}
+
+/**
+ * THE ONE SESSION AN UNBOUND NOTE CAN BE (see `provenanceOf`): written in a
+ * directory, inside exactly one session's stretch there. Null otherwise.
+ */
+function placedByTime(
+  spans: Counterpart["spans"],
+  row: { origin_scope: string | null; created_at: number | null },
+): string | null {
+  const scope = row.origin_scope;
+  const at = row.created_at;
+  if (scope === null || scope.length === 0 || at === null) return null;
+  const covering = sessionsHere(spans, scope).filter((s) => at >= s.firstAt && at <= s.lastAt);
+  return covering.length === 1 ? (covering[0]?.session ?? null) : null;
 }
 
 /** Was this row made by the nightly run — a dream's, or a reflection's? */
@@ -679,8 +723,8 @@ function nightlyMade(row: { source: string | null; origin_ref: string | null }):
   return null;
 }
 
-function fromField(store: Counterpart["store"], id: string, reader: string): { from?: string } {
-  const from = provenanceOf(store, id, reader);
+function fromField(store: Counterpart["store"], id: string, reader: string, spans?: Counterpart["spans"]): { from?: string } {
+  const from = provenanceOf(store, id, reader, spans);
   return from === null ? {} : { from };
 }
 
@@ -887,7 +931,7 @@ export function answerQuestion(
       activation: verdict.activation,
       ...(tier === "dim" ? { admittedUnder: verdict.verdict } : {}),
       ...standingField(store, verdict.id, false),
-      ...fromField(store, verdict.id, opts.sessionId),
+      ...fromField(store, verdict.id, opts.sessionId, counterpart.spans),
     });
   }
 
@@ -938,6 +982,8 @@ interface RecentRows {
   /** The chapters among `ids`, whose copies leave the rest of the list. */
   readonly chapters: readonly string[];
   readonly lead: boolean;
+  /** The window the question named, when it named one. */
+  readonly window?: { readonly from: string; readonly to: string } | null;
 }
 
 /**
@@ -1042,7 +1088,7 @@ function recentRows(counterpart: Counterpart, question: string, opts: Deliberate
       if (ask.window === null && ids.length > 0) break;
     }
     if (ids.length === 0) return null;
-    return { sessions, cue: ask.cue, ids, chapters: chapterIds, lead: ask.thin };
+    return { sessions, cue: ask.cue, ids, chapters: chapterIds, lead: ask.thin, window: ask.window };
   } catch {
     return null;
   }
@@ -1094,8 +1140,10 @@ function preBindNotes(
 /**
  * THE ANSWER WITH THE RECENT SESSION'S ROWS FIRST, in their order, each marked
  * `recent`. Leading, a row the search did not reach comes in as `quiet` — put
- * there by the question, not by the gate; a chapter shows its LATEST chapter,
- * not its first (review of #302, MINOR-4). Promoting only, just the rows the
+ * there by the question, not by the gate; a chapter shows its FIRST chapter
+ * — what its title names and what was done — and says how many more it holds
+ * and that its id fetches them all (2026-10-01, random-f2's item 3; from
+ * #302's review, MINOR-4, until then, it showed its latest). Promoting only, just the rows the
  * search found move up, keeping the tier they earned. Either way the lead
  * chapters' copies leave the rest of the list (MINOR-5), and everything else
  * follows as it was ranked.
@@ -1103,7 +1151,17 @@ function preBindNotes(
 function leadWith(counterpart: Counterpart, memories: readonly Recalled[], recent: RecentRows, opts: DeliberateOptions): Recalled[] {
   const store = counterpart.store;
   const found = new Map(memories.map((m) => [m.id, m]));
-  const latest = (m: Recalled): Recalled => (m.journal ? { ...m, body: latestChapter(m.body).text.trim() || m.body } : m);
+  const latest = (m: Recalled): Recalled => {
+    if (!m.journal) return m;
+    // The first chapter, or — for a window the question named, a session that
+    // ran across days — the first chapter dated inside it (review of #311).
+    const pick = chapterFor(m.body, recent.window ?? null);
+    const text = pick.text.trim();
+    if (text.length === 0) return m;
+    // In FRONT, so a bounded excerpt still says there is more.
+    const more = pick.count > 1 ? `(Chapter ${String(pick.index + 1)} of ${String(pick.count)}; recall ${m.id} for every chapter.) ` : "";
+    return { ...m, body: `${more}${text}` };
+  };
   const lead: Recalled[] = [];
   for (const id of recent.ids) {
     const held = found.get(id);
@@ -1125,7 +1183,7 @@ function leadWith(counterpart: Counterpart, memories: readonly Recalled[], recen
           strength: strength(read.physics, store.livedDay()),
           activation: 0,
           ...standingField(store, id, false),
-          ...fromField(store, id, opts.sessionId),
+          ...fromField(store, id, opts.sessionId, counterpart.spans),
           recent: true,
         }),
       );

@@ -57,6 +57,7 @@ import {
   scanActive,
   schemaBytes,
 } from "./identity.js";
+import { coveredByPage } from "./covered.js";
 import type {
   Enumeration,
   IdentityCoreSpec,
@@ -534,7 +535,10 @@ export class Self {
     // a composition bound for a model call outside this machine passes one.
     const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
     const horizon: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
-    const lanes: Lanes = rankLanes(scanned, horizon, this.tunables);
+    const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, {
+      settledOver: settledOver(this.store),
+      coveredByPage: this.pageCovers(scanned),
+    });
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
     // dates a migrated element as an upper bound, and a second row read per
@@ -610,6 +614,28 @@ export class Self {
       resolve,
       this.tunables,
     );
+  }
+
+  /**
+   * The memories the self page already carries, for the Nearby lane to leave
+   * out (`covered.ts`): the ones the reflection that wrote it cited, and the
+   * ones whose words one paragraph of it holds. Empty with no page; never
+   * throws — a page that will not read covers nothing.
+   */
+  private pageCovers(scanned: readonly Scanned[]): Set<string> {
+    try {
+      const page = this.page();
+      if (page === null) return new Set();
+      const cited = new Set<string>();
+      const ref = /\breflection (rfl_[0-9a-f]+)/.exec(page.reason ?? "")?.[1];
+      if (page.by === "reflection" && ref !== undefined) {
+        const raw: unknown = JSON.parse(this.store.reflection(ref)?.cites ?? "[]");
+        if (Array.isArray(raw)) for (const id of raw) if (typeof id === "string") cited.add(id);
+      }
+      return coveredByPage(page.body, scanned, cited);
+    } catch {
+      return new Set();
+    }
   }
 
   // ── the self page ────────────────────────────────────────────────────────
@@ -2320,3 +2346,73 @@ export type {
   UseTier,
 };
 export { BRIEFING_TRIM_LOG_CAP, COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDER, TRIM_ORDER };
+
+/**
+ * THE MEMORIES A LATER ONE HAS SETTLED OVER (2026-10-01, random-f2's item 11):
+ * the `over` side of a settled `changed` or `corrected` pair, closed directly
+ * (a pair closed through another speaks through that one). `rankLanes` keeps
+ * them out of every lane but identity, so an answered question is not shown
+ * alone as still open.
+ *
+ * ONLY WHILE SOMETHING LIVE HOLDS (review of #311). A memory is hidden when, in
+ * the NEWEST settled pair that names it, it is the `over` — so one re-affirmed
+ * by a later pair (holds there) is not hidden by the older one — and that
+ * pair's `holds` leads to a live memory: followed through its own newer
+ * settles and through `superseded_by` to the live end.
+ * A `holds` that is archived, removed, or superseded with no live successor
+ * hides nothing, and the `over` stays visible. Never throws — a store that
+ * will not answer has settled nothing.
+ */
+export function settledOver(store: Pick<Store, "contradictions" | "row">): Set<string> {
+  const out = new Set<string>();
+  try {
+    // Oldest first, so the newest pair naming a memory is the last one seen.
+    // The store reads newest first; reversed, a tie on the clock keeps the
+    // order the pairs were made in.
+    const pairs = [...store.contradictions({ state: "settled", limit: 100_000 })]
+      .reverse()
+      .filter((p) => p.via === null && p.over !== null && p.holds !== null && (p.how === "changed" || p.how === "corrected"))
+      .sort((a, b) => a.updated_at - b.updated_at || a.created_at - b.created_at);
+    const newest = new Map<string, { role: "over" | "holds"; holds: string }>();
+    for (const p of pairs) {
+      newest.set(p.over as string, { role: "over", holds: p.holds as string });
+      newest.set(p.holds as string, { role: "holds", holds: p.holds as string });
+    }
+    const live = (id: string): boolean => {
+      const r = store.row(id);
+      return r !== undefined && r.archived === 0 && r.superseded_by === null && !(r.body === "" && r.content_hash === "");
+    };
+    const visiting = new Set<string>();
+    // Each memory's live end, once (review of #311: a 400-settle chain walked
+    // its whole tail for every link). A cycle's members memoise as null.
+    const ends = new Map<string, string | null>();
+    // The live memory `id` leads to, not hidden itself; null when none.
+    const liveEnd = (id: string, depth = 0): string | null => {
+      const known = ends.get(id);
+      if (known !== undefined) return known;
+      if (depth > 5_000 || visiting.has(id)) return null;
+      visiting.add(id);
+      let end: string | null = null;
+      try {
+        end = walk(id, depth);
+      } finally {
+        visiting.delete(id);
+      }
+      ends.set(id, end);
+      return end;
+    };
+    const walk = (id: string, depth: number): string | null => {
+      const r = store.row(id);
+      if (r === undefined) return null;
+      if (!live(id)) return r.superseded_by === null ? null : liveEnd(r.superseded_by, depth + 1);
+      // Live, and itself settled over by something live: that is the end.
+      const n = newest.get(id);
+      const further = n !== undefined && n.role === "over" ? liveEnd(n.holds, depth + 1) : null;
+      return further ?? id;
+    };
+    for (const [id, n] of newest) if (n.role === "over" && liveEnd(n.holds) !== null) out.add(id);
+  } catch {
+    return new Set();
+  }
+  return out;
+}

@@ -395,7 +395,7 @@ describe("the console", () => {
     recordSession(dir, { sessionId: "desk-1", scope: "claude-desktop:", phase: "start", host: "claude-desktop" });
     const desk = await said();
     expect(desk).toContain(`Claude Desktop's memory server copies it and upgrades it to v${String(SCHEMA_VERSION)}`);
-    expect(desk).toContain("Nothing to do: open Claude Desktop (quit and reopen it if it is running), then run this again.");
+    expect(desk).toContain("Nothing to do: open Claude Desktop, or start a new chat in it if it is already open, then run this again.");
     expect(desk).not.toContain("Claude Code");
     recordSession(dir, { sessionId: "code-1", scope: dir, phase: "start" });
     expect(await said()).toContain("the next session, in Claude Code or Claude Desktop, copies it");

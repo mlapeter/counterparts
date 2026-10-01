@@ -123,10 +123,11 @@ import {
   reserveBytes,
   Handoffs,
   isHandoffRow,
+  staleWords,
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, chaptersBySession, chaptersHere, lastHereLadder, chaptersOn, yesterdayLine } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
 import { leftAs } from "./leaving.js";
@@ -167,7 +168,7 @@ import type {
 } from "./self/index.js";
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
-import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
+import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type {
   AddFeelingsResult,
   FeelingInput, Embedder, StoreEvent, TraitInput } from "./store/index.js";
@@ -845,6 +846,25 @@ export interface WakeHere {
   readonly scope?: string;
   /** The session id, for the `handoff.shown` row. Never guessed. */
   readonly session?: string | null;
+  /**
+   * The Counterparts version installed now, as the host adapter reads it
+   * (2026-10-01): a handoff written by an older one says "written before
+   * 0.3.10 was installed". Absent: no such words.
+   */
+  readonly installed?: string | null;
+  /**
+   * The version a session OPENED with, from the host's registry
+   * (`sessions.ts#SessionRecord.opened`) — for a handoff written before rows
+   * carried their own (`handoff/#HANDOFF_META_BUILD`). Null when unknown.
+   */
+  readonly openedWith?: (session: string) => string | null;
+  /**
+   * May a chapter written in that directory be named in another directory's
+   * wake? The host's scope setting, read at delivery (review of #311): only a
+   * directory that is `on` exports; `off`, `paused`, `observer`, an unreadable
+   * setting, or no way to ask (absent) keep its chapters where they were made.
+   */
+  readonly exportsFrom?: (scope: string) => boolean;
 }
 
 export interface DepositContext {
@@ -1820,12 +1840,23 @@ export class Counterpart {
   private addHandoffPointer(result: WakeResult, here?: WakeHere): WakeResult {
     const scope = here?.scope?.trim() ?? "";
     if (scope.length === 0 || !result.ok) return result;
+    // ONE chapter walk for the whole delivery (the line, its no-room row, and
+    // each handoff's "a newer chapter here since"): a session start waits on it.
+    let chapters: Map<string, ChapterHere> = new Map();
+    let allHere: ReturnType<Counterpart["chaptersHereFor"]> = [];
+    try {
+      chapters = this.chaptersInWindow(this.store.livedDay());
+      allHere = this.chaptersHereFor(scope, null, chapters);
+    } catch {
+      chapters = new Map();
+      allHere = [];
+    }
     let ladder: ReturnType<Handoffs["pointerChoices"]> = [];
     try {
       ladder = this.handoffs.pointerChoices(
         scope,
         undefined,
-        (h, newest) => this.handoffSince(h, scope, newest),
+        (h, newest) => this.handoffSince(h, scope, newest, here, allHere),
         here?.session ?? null,
       );
     } catch {
@@ -1835,7 +1866,13 @@ export class Counterpart {
     // LAST HERE (2026-09-30): the session that last wrote a chapter in this
     // directory, finished or not — above the handoff, and the first thing
     // given up when there is not room for both (`handoff/last-here.ts`).
-    const lastHere = this.lastHereLadder(scope, here?.session ?? null);
+    const lastHere = this.lastHereLadder(scope, here?.session ?? null, chapters, here?.exportsFrom);
+    // Which chapter the line would name first, for its durable no-room row.
+    const reader = here?.session ?? null;
+    // Only for a "Last here" line proper: the about-me line alone names no
+    // chapter here, and its drop is not this row's (review of #311, NIT).
+    const named = lastHere.some((b) => b.startsWith("Last here:"));
+    const lastHereId = !named ? null : (allHere.find((c) => (reader === null || c.chapter.session !== reader) && (this.owner || c.chapter.confidential !== true))?.chapter.id ?? null);
     const newest = ladder[0];
     if (newest === undefined && lastHere.length === 0) return result;
     const budget = this.reportedBudget;
@@ -1883,6 +1920,9 @@ export class Counterpart {
       }
       if (above !== null) {
         this.emit("counterpart.lasthere.shown", undefined, { bytes: aboveBytes, lines: above.split("\n").length });
+      } else if (lastHere.length > 0) {
+        // The handoff was carried and the line above it was not.
+        this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
       return {
         ...result,
@@ -1892,8 +1932,31 @@ export class Counterpart {
       };
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
-    else this.emit("counterpart.lasthere.noroom", undefined, { budget, was: result.bytes });
+    if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
     return result;
+  }
+
+  /**
+   * The "Last here" line could not be carried at this ceiling: the ring
+   * event, and since 2026-10-01 a durable row (`LAST_HERE_NOROOM_EVENT`), one
+   * per chapter per lived day, so the dashboard's wake bar can say so. Never
+   * under observer; never throws.
+   */
+  private noteLastHereNoRoom(chapterId: string | null, opts: { budget: number | null; was: number; besideHandoff: boolean }): void {
+    this.emit("counterpart.lasthere.noroom", chapterId ?? undefined, { budget: opts.budget, was: opts.was, besideHandoff: opts.besideHandoff });
+    if (this.observer || chapterId === null) return;
+    try {
+      const day = this.store.livedDay();
+      this.store.appendEvent({
+        name: LAST_HERE_NOROOM_EVENT,
+        day,
+        ref: chapterId,
+        dedupKey: `${LAST_HERE_NOROOM_EVENT}:${chapterId}:${String(day)}`,
+        payload: { budget: opts.budget ?? 0, bytes: opts.was, besideHandoff: opts.besideHandoff },
+      });
+    } catch {
+      /* a drop that cannot be recorded is still a drop */
+    }
   }
 
   /** The handoff could not be carried at this ceiling: a ring event and the
@@ -1915,10 +1978,11 @@ export class Counterpart {
     scope: string,
     reader: string | null,
     chapters?: ReadonlyMap<string, ChapterHere>,
+    exportsFrom?: (scope: string) => boolean,
   ): string[] {
     try {
-      const found = this.chaptersHereFor(scope, reader, chapters);
-      if (found.length === 0) return [];
+      const all = chapters ?? this.chaptersInWindow(this.store.livedDay());
+      const found = this.chaptersHereFor(scope, reader, all);
       const zone = this.store.zone();
       const entries: LastHere[] = found.map((f) => ({
         chapter: f.chapter,
@@ -1926,10 +1990,50 @@ export class Counterpart {
         // `09-30 17:50` → `09-30`.
         date: localStamp(f.chapter.writtenAt, zone).split(" ")[0] ?? "",
       }));
-      return lastHereLadder(entries, reader);
+      const base = entries.length === 0 ? [] : lastHereLadder(entries, reader);
+      // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
+      // widest rungs, given up first; alone when nothing was written here.
+      const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
+      if (away === null) return base;
+      const line = elsewhereLine(away, localStamp(away.writtenAt, zone).split(" ")[0] ?? "", reader);
+      return base.length === 0 ? [line] : [...base.map((b) => `${b}\n${line}`), ...base];
     } catch {
       return [];
     }
+  }
+
+  /**
+   * THE NEWEST CHAPTER ABOUT ME FROM ANOTHER DIRECTORY, inside the fortnight
+   * (2026-10-01, random-f2's item 6): not one shown here already, not the
+   * reader's own, and with a live copy marked `me`, `us` or `owner`
+   * (`ChapterHere.aboutMe`, read with the walk's one grouped query). Null when
+   * none; throws only what the store throws.
+   */
+  private selfChapterElsewhere(
+    chapters: ReadonlyMap<string, ChapterHere>,
+    here: ReadonlySet<string>,
+    reader: string | null,
+    exportsFrom?: (scope: string) => boolean,
+  ): ChapterHere | null {
+    // Only from a directory the host says may be read elsewhere (its scope
+    // setting is on), and never a confidential chapter (review of #311). With
+    // no way to ask, nothing crosses.
+    if (exportsFrom === undefined) return null;
+    let best: ChapterHere | null = null;
+    for (const c of chapters.values()) {
+      if (here.has(c.id) || (reader !== null && c.session === reader)) continue;
+      if (c.confidential === true || c.scope === null || c.aboutMe !== true) continue;
+      if (best !== null && best.writtenAt >= c.writtenAt) continue;
+      let open = false;
+      try {
+        open = exportsFrom(c.scope);
+      } catch {
+        open = false;
+      }
+      if (!open) continue;
+      best = c;
+    }
+    return best;
   }
 
   /**
@@ -1973,7 +2077,10 @@ export class Counterpart {
   /** Every session's latest chapter among the episodes born inside the
    *  fortnight — the SQL bound on the walk (review of #300 MINOR-5). */
   private chaptersInWindow(day: number): Map<string, ChapterHere> {
-    return chaptersBySession(this.store, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS + 1) });
+    const all = chaptersBySession(this.store, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS + 1) });
+    // A confidential chapter is named to the owner only (review of #311).
+    if (this.owner) return all;
+    return new Map([...all].filter(([, c]) => c.confidential !== true));
   }
 
   /**
@@ -1986,19 +2093,27 @@ export class Counterpart {
    * that holds several (`newest` false) is asked only when it was written: it
    * never prints the rest, so the span read is skipped.
    */
-  private handoffSince(h: Handoff, scope: string, newest = true): PointerSince | null {
+  private handoffSince(
+    h: Handoff,
+    scope: string,
+    newest = true,
+    here?: WakeHere,
+    allHere?: ReturnType<Counterpart["chaptersHereFor"]>,
+  ): PointerSince | null {
     const writtenAt = this.handoffs.writtenAt(h);
     if (writtenAt === null) return null;
     const zone = this.store.zone();
-    if (!newest) return { written: localStamp(writtenAt, zone), after: null };
+    const stale = this.handoffStale(h, scope, writtenAt, here, allHere);
+    if (!newest) return { written: localStamp(writtenAt, zone), after: null, stale };
     const work = workSince(this.spans, scope, writtenAt, { writer: h.session });
     if (!work.overFloor || work.firstAt === null || work.lastAt === null) {
-      return { written: localStamp(writtenAt, zone), after: null };
+      return { written: localStamp(writtenAt, zone), after: null, stale };
     }
     // A clock time alone while the day is the one before it; the day as well
     // when it is not.
     return {
       written: localStamp(writtenAt, zone),
+      stale,
       after: {
         from: localStampAfter(work.firstAt, writtenAt, zone),
         to: localStampAfter(work.lastAt, work.firstAt, zone),
@@ -2014,6 +2129,45 @@ export class Counterpart {
   }
 
   /**
+   * WHY THIS HANDOFF MAY BE OUT OF DATE, at delivery (2026-10-01, random-f2's
+   * item 1: a handoff still said it was waiting on a fix
+   * the morning after that fix was installed). Two facts already recorded, and no
+   * judging whether what it waited on happened: the release that wrote it —
+   * the row's own stamp, else the version its session opened with — is older
+   * than the one installed now; or a session other than its writer wrote a
+   * chapter in this directory after it. Null when neither; never throws.
+   */
+  private handoffStale(
+    h: Handoff,
+    scope: string,
+    writtenAt: number,
+    here?: WakeHere,
+    allHere?: ReturnType<Counterpart["chaptersHereFor"]>,
+  ): string | null {
+    try {
+      let writtenWith = h.build ?? null;
+      if (writtenWith === null && h.session !== null && here?.openedWith !== undefined) {
+        try {
+          writtenWith = here.openedWith(h.session);
+        } catch {
+          writtenWith = null;
+        }
+      }
+      let newerChapter = false;
+      try {
+        newerChapter = (allHere ?? this.chaptersHereFor(scope, null)).some(
+          (c) => c.chapter.session !== h.session && c.chapter.writtenAt > writtenAt,
+        );
+      } catch {
+        newerChapter = false;
+      }
+      return staleWords({ writtenWith, installed: here?.installed ?? null, newerChapter });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * WRITE THIS SESSION'S HANDOFF FOR THIS DIRECTORY — the one seam, reached
    * today by the optional `handoff` field on the `session_end` tool. No second
    * ask and no second pacer: the field rides the ask that already exists
@@ -2022,13 +2176,14 @@ export class Counterpart {
    */
   writeHandoff(
     body: string,
-    ctx: { scope: string; session?: string | null; model?: string | null; day?: number },
+    ctx: { scope: string; session?: string | null; model?: string | null; build?: string | null; day?: number },
   ): HandoffWrite {
     return this.handoffs.write({
       body,
       scope: ctx.scope,
       ...(ctx.session === undefined ? {} : { session: ctx.session }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      ...(ctx.build === undefined ? {} : { build: ctx.build }),
       ...(ctx.day === undefined ? {} : { day: ctx.day }),
     });
   }
@@ -2126,7 +2281,9 @@ export class Counterpart {
       const chapters = this.chaptersInWindow(this.store.livedDay());
       if (chapters.size > 0) {
         for (const scope of this.spans.scopes()) {
-          const lines = this.lastHereLadder(scope, null, chapters).map((b) => byteLength(b));
+          // Sized as if every directory's chapters may cross: the reserve is
+          // a bound, and the boundary cannot read the host's scope setting.
+          const lines = this.lastHereLadder(scope, null, chapters, () => true).map((b) => byteLength(b));
           for (const l of lines) {
             blocks.push(l);
             for (const h of handoffBytes.get(norm(scope)) ?? []) blocks.push(l + 1 + h);

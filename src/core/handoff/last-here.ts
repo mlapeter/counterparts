@@ -23,6 +23,7 @@
  * the same reserve, by the same share rule (`reserveBytes`), and it gives way
  * to the handoff — a fortnight's unfinished work outranks orientation.
  */
+import { CORE_ABOUT_MARKS } from "../store/index.js";
 import type { Store } from "../store/index.js";
 import { localDate, readableDate } from "../time.js";
 import { isKnownSession, isModelId } from "../types.js";
@@ -44,6 +45,16 @@ export const LAST_HERE_LISTED = 3;
 /** The title's cap in the line. The id is the door to the whole chapter. */
 export const LAST_HERE_TITLE_BYTES = 100;
 
+/**
+ * THE DURABLE ROW A "LAST HERE" LINE DROPPED FOR ROOM LEAVES (2026-10-01, the
+ * brief's item 9). It was a ring event only (`counterpart.lasthere.noroom`),
+ * gone with the hook's process, so the dashboard's wake bar could not go amber
+ * for it. One per chapter per lived day (`dedupKey`); the ref is the newest
+ * chapter the line would have named; the payload says the bytes, the ceiling,
+ * and whether a handoff was carried in its place. Never under observer.
+ */
+export const LAST_HERE_NOROOM_EVENT = "handoff.lasthere.noroom";
+
 /** One session's latest chapter, as the line reads it. */
 export interface ChapterHere {
   /** The episode row (`epi_…`). */
@@ -52,8 +63,15 @@ export interface ChapterHere {
   /** The model that wrote it, when the row recorded one. */
   readonly model: string | null;
   readonly title: string | null;
-  /** The first sentence of its LATEST chapter. */
+  /**
+   * The first sentence of its FIRST chapter (2026-10-01; its latest until
+   * then). The title is set once, with chapter 1, so the two describe the
+   * same thing; a later chapter has no title of its own, and printed under
+   * the episode's title it read as the wrong evening (random-f2's item 3).
+   */
   readonly excerpt: string;
+  /** How many chapters the episode holds (1 when its body has no heading). */
+  readonly chapters: number;
   /** Epoch ms of the latest write to it, and of its first. */
   readonly writtenAt: number;
   readonly createdAt: number;
@@ -61,6 +79,15 @@ export interface ChapterHere {
   readonly writtenDay: number | null;
   /** The directory it was born in, when the row recorded one (2026-09-30 on). */
   readonly scope: string | null;
+  /**
+   * The episode, or any live memory minted from it, is confidential (review of
+   * #311). The walk reports it and its callers decide: the wake names such a
+   * chapter only to the owner, and never in another directory.
+   */
+  readonly confidential?: boolean;
+  /** A live copy of it is marked about me, us or the owner (`CORE_ABOUT_MARKS`),
+   *  read in the same grouped query (`Store#copiesOf`). */
+  readonly aboutMe?: boolean;
 }
 
 /** A chapter's session here, with the times the line prints, spelled by the caller. */
@@ -98,6 +125,13 @@ export function chaptersBySession(store: Store, opts: { fromDay?: number } = {})
   } catch {
     return out;
   }
+  // Every copy of every episode in the window, in ONE query (review of #311).
+  let copies: ReturnType<Store["copiesOf"]> | null;
+  try {
+    copies = store.copiesOf(ids);
+  } catch {
+    copies = null;
+  }
   for (const id of ids) {
     if (denied.has(id)) continue;
     try {
@@ -114,17 +148,22 @@ export function chaptersBySession(store: Store, opts: { fromDay?: number } = {})
       const writtenAt = row.updated_at ?? createdAt;
       const held = out.get(session);
       if (held !== undefined && held.writtenAt >= writtenAt) continue;
-      const { text, day } = latestChapter(row.body);
+      const { day } = latestChapter(row.body);
+      const first = firstChapter(row.body);
       out.set(session, {
         id,
         session,
         model: isModelId(row.model) ? row.model : null,
         title: row.title === null || row.title.trim().length === 0 ? null : row.title,
-        excerpt: excerpt(text),
+        excerpt: excerpt(first.text),
+        chapters: first.count,
         writtenAt,
         createdAt,
         writtenDay: day ?? (Number.isFinite(row.birth_day) ? row.birth_day : null),
         scope: row.origin_scope === null || row.origin_scope.length === 0 ? null : row.origin_scope,
+        // A store that will not say reads as confidential, and about nothing.
+        confidential: row.confidential === 1 || copies === null || (copies.get(id) ?? []).some((c) => c.confidential),
+        aboutMe: (copies?.get(id) ?? []).some((c) => c.about !== null && (CORE_ABOUT_MARKS as readonly string[]).includes(c.about)),
       });
     } catch {
       continue;
@@ -140,6 +179,58 @@ export function latestChapter(body: string): { text: string; day: number | null 
   if (last === null) return { text: body, day: null };
   const day = /lived day (\d+)/.exec(last[0])?.[1];
   return { text: body.slice((last.index ?? 0) + last[0].length), day: day === undefined ? null : Number(day) };
+}
+
+/**
+ * The text of an episode's FIRST chapter — what the episode's title names —
+ * and how many chapters it holds. A body with no engine heading is one
+ * chapter, whole.
+ */
+export function firstChapter(body: string): { text: string; count: number } {
+  const heads = [...body.matchAll(HEADING)];
+  const first = heads[0];
+  if (first === undefined) return { text: body, count: 1 };
+  const start = (first.index ?? 0) + first[0].length;
+  const next = heads[1];
+  return { text: body.slice(start, next === undefined ? undefined : next.index), count: heads.length };
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * EVERY CHAPTER OF AN EPISODE, in order, with the calendar date its engine
+ * heading names (`YYYY-MM-DD`, or null for a heading from before headings
+ * carried one). A body with no heading is one chapter with no date.
+ */
+export function chaptersOf(body: string): { text: string; date: string | null }[] {
+  const heads = [...body.matchAll(HEADING)];
+  if (heads.length === 0) return [{ text: body, date: null }];
+  return heads.map((h, i) => {
+    const start = (h.index ?? 0) + h[0].length;
+    const next = heads[i + 1];
+    const m = /(\d{1,2}) ([A-Za-z]{3}) (\d{4})/.exec(h[0]);
+    const month = m === null ? -1 : MONTHS.indexOf((m[2] ?? "").toLowerCase());
+    const date = m === null || month < 0 ? null : `${m[3] as string}-${String(month + 1).padStart(2, "0")}-${(m[1] as string).padStart(2, "0")}`;
+    return { text: body.slice(start, next === undefined ? undefined : next.index), date };
+  });
+}
+
+/**
+ * THE CHAPTER A QUESTION ABOUT A WINDOW MEANS (review of #311): the first
+ * chapter dated inside it (`from` and `to` are `YYYY-MM-DD HH:MM` keys; the
+ * date part is compared), else the first chapter. Which one it is and how
+ * many there are, for the line that says so.
+ */
+export function chapterFor(body: string, window: { readonly from: string; readonly to: string } | null): { text: string; index: number; count: number } {
+  const all = chaptersOf(body);
+  let index = 0;
+  if (window !== null) {
+    const from = window.from.slice(0, 10);
+    const to = window.to.slice(0, 10);
+    const hit = all.findIndex((c) => c.date !== null && c.date >= from && c.date <= to);
+    if (hit >= 0) index = hit;
+  }
+  return { text: all[index]?.text ?? body, index, count: all.length };
 }
 
 const norm = (s: string): string => s.trim().replace(/\/+$/, "");
@@ -180,14 +271,16 @@ export function chaptersHere(
   return out.sort((a, b) => b.chapter.writtenAt - a.chapter.writtenAt || (a.chapter.id < b.chapter.id ? 1 : -1));
 }
 
-/** `— "Title" (epi_…)`, or `— epi_…` when the chapter has no title. */
+/** `— "Title" (epi_…)`, or `— epi_…` when the chapter has no title; with
+ *  `, N chapters` inside the brackets when there is more than the first. */
 function named(c: ChapterHere): string {
-  return c.title === null ? `— ${c.id}` : `— "${excerpt(c.title, LAST_HERE_TITLE_BYTES)}" (${c.id})`;
+  const more = c.chapters > 1 ? `, ${String(c.chapters)} chapters` : "";
+  return c.title === null ? `— ${c.id}${more === "" ? "" : ` (${more.slice(2)})`}` : `— "${excerpt(c.title, LAST_HERE_TITLE_BYTES)}" (${c.id}${more})`;
 }
 
 /**
- * THE LINES, for the newest `shown` sessions here (1 or 2): the newest with its
- * first sentence, the one before it by title, and the rest written THAT DAY by
+ * THE LINES, for the newest `shown` sessions here (1 or 2): the newest with the
+ * first sentence of its first chapter, the one before it by title, and the rest written THAT DAY by
  * id. `more` false leaves the "+N more" line off — the narrowest rung.
  */
 export function lastHereBlock(
@@ -256,11 +349,21 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
     return out;
   }
   const zone = store.zone();
+  // CONFIDENTIAL CHAPTERS ARE NOT LISTED (review of #311): the line is
+  // composed once and read by every session, the owner's or not, so a title a
+  // non-owner may not see is left out for all. One grouped read for the copies.
+  let copies: ReturnType<Store["copiesOf"]> | null;
+  try {
+    copies = store.copiesOf(ids);
+  } catch {
+    copies = null;
+  }
   for (const id of ids) {
     if (denied.has(id)) continue;
     try {
       const row = store.row(id);
       if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
+      if (row.confidential === 1 || copies === null || (copies.get(id) ?? []).some((c) => c.confidential)) continue;
       let dated = 0;
       let that = 0;
       for (const m of row.body.matchAll(DATED_HEADING)) {
@@ -300,6 +403,29 @@ export function yesterdayLine(day: readonly ChaptersOnDate[], date: string): str
   });
   const rest = day.length - shown.length;
   return flatten(`Yesterday, ${date.slice(5)}: ${shown.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`);
+}
+
+/**
+ * A DIRECTORY AS THE LINE SAYS IT: the home directory as `~`, read off the
+ * path's shape (`/Users/<name>`, `/home/<name>`) so this module needs no
+ * process state. Anything else is printed as it is.
+ */
+export function placeWords(scope: string): string {
+  return flatten(scope.trim().replace(/\/+$/, "").replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"));
+}
+
+/**
+ * ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01, random-f2's item 6): a
+ * chapter written elsewhere whose copy is marked about me, us or the owner
+ * (`about`, the reflection's and the writer's mark) reaches a wake in every
+ * directory — one written in the code repository but about who I am, not
+ * about the code — did not reach a wake in another directory. Work stays where it was done: an unmarked chapter, or one marked
+ * work or world, is "last here" in its own directory only. One line, the
+ * newest such chapter, by title and id; the id is the door.
+ */
+export function elsewhereLine(chapter: ChapterHere, date: string, reader: string | null = null): string {
+  const where = chapter.scope === null ? "" : ` in ${placeWords(chapter.scope)}`;
+  return flatten(`About me, from another directory: ${sessionWords(chapter.session, chapter.model, reader)}, ${date}${where} ${named(chapter)}.`);
 }
 
 /**

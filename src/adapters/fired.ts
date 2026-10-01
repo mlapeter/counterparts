@@ -804,6 +804,9 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "a session waking in that directory was handed the pointer to a handoff",
     module: "handoff/index.ts",
     evidence: { kind: "event", names: ["handoff.shown"] },
+    // A "Last here" line dropped for room (durable since 2026-10-01) rides with
+    // the delivery it was turned away from, as `no-room` rides with writing.
+    covers: ["handoff.lasthere.noroom"],
     since: "2026-09-20",
   },
   {

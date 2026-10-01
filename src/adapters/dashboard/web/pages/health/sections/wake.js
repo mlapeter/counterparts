@@ -22,8 +22,9 @@ export const FULL_SHARE = 0.03;
 
 /**
  * What being full COST, in words — the view's `costs` (`views/health.ts#
- * wakeCosts`): the self page cut or left out, handoffs a session start had no
- * room for, the page writer held back for lack of room. Empty when nothing.
+ * wakeCosts`): the self page cut or left out, handoffs and "Last here" lines
+ * a session start had no room for, the page writer held back for lack of room.
+ * Empty when nothing.
  */
 export function costWords(c) {
   if (!c) return [];
@@ -34,6 +35,7 @@ export function costWords(c) {
       : "the self page was left out (" + kb(c.page.whole) + ")");
   }
   if (c.handoffs > 0) out.push(c.handoffs + (c.handoffs === 1 ? " handoff" : " handoffs") + " had no room at a session start");
+  if (c.lastHere > 0) out.push(c.lastHere + (c.lastHere === 1 ? " \"Last here\" line" : " \"Last here\" lines") + " had no room at a session start");
   if (c.writerHeld) out.push("the page writer held back for lack of room");
   return out;
 }

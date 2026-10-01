@@ -213,7 +213,11 @@ export function upgradeWords(hosts: ReadonlySet<string>): { readonly who: string
   const code = hosts.has(DEFAULT_HOST);
   const desk = hosts.has(DESKTOP_HOST);
   if (desk && !code) {
-    return { who: "Claude Desktop's memory server", open: "open Claude Desktop (quit and reopen it if it is running)" };
+    // Not "quit and reopen it" (2026-10-01, random-f2's item 14): with
+    // Desktop left running, the background worker its next chat starts runs
+    // the installed code and upgrades the store, as the 0.3.10 notes say.
+    // Quitting is what a running server needs to LOAD the new code (`reconnect`).
+    return { who: "Claude Desktop's memory server", open: "open Claude Desktop, or start a new chat in it if it is already open" };
   }
   if (code && !desk) return { who: "the next Claude Code session", open: "start a Claude Code session" };
   return {

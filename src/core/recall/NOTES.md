@@ -846,8 +846,10 @@ at work that day, the new session also could not tell which result was whose. Br
   3:16" is not a time.
 - **Which rows.** What the session wrote in THIS directory (`origin_scope` when set),
   never a dream's or a reflection's (their `origin_session` is the session that launched
-  the nightly run — MAJOR-1), never a replaced row; the chapter shows its LATEST chapter
-  (MINOR-4) and its copies leave the rest of the list (MINOR-5). Each row is read in its
+  the nightly run — MAJOR-1), never a replaced row; the chapter showed its LATEST chapter
+  (MINOR-4) until 2026-10-01 and shows its FIRST since — or, for a named window, the first
+  chapter dated inside it (`last-here.ts#chapterFor`) — and its copies leave the rest of
+  the list (MINOR-5). Each row is read in its
   own try (MINOR-6).
 - **Not with feeling** (MINOR-3). A ranked question about feeling (`feeling-ask.ts`,
   narrower since #301) keeps its strongest-stamp order and gets no recency lead; "how did
@@ -882,8 +884,9 @@ memories under the id.
   before. The label still says "not yet identified": the lead's reason is the window, not
   the row.
 - **Not built:** nothing is backfilled onto the rows (the window could stamp them at the
-  bind, but an inference written down reads later as a fact). An unbound asker cannot tell
-  its own live session from a sibling's; the lead already prefers the one Last here names.
+  bind, but an inference written down reads later as a fact). Since 2026-10-01 (§26) a new
+  note is filed under its session at write time, and an older one reads as placed by time.
+  An unbound asker cannot tell its own live session from a sibling's; the lead already prefers the one Last here names.
 
 ## 25. Recall by feeling, round 2 — 2026-10-01 (lane 6)
 
@@ -956,3 +959,30 @@ question's.
   words found follow them in each tier (§22's R2 order). "times I felt moved or sad": the
   quiet decoy that once led now follows the stamped rows (its words were all frame and
   feeling words).
+
+## 26. Provenance at write time, and placed by time for the rows before (2026-10-01)
+
+An inside view of 0.3.10 found most of a day's memories in one directory saying "a session
+that hadn't been identified yet", even inside a recent block the lead had attributed to one
+session.
+
+- **At write time, by process** (`sessions.ts#sessionOfHost`, `server.ts#hostSession`). The
+  host that launched the memory server is the parent of the hook that opened the session:
+  the server records it as `hostPid` at launch, the hook as `opened.hookPpid`. One live
+  record in this scope with that pid is the server's session, and a `note` (and a
+  `recall`'s reader) before any claim uses it. EXACT OR NOTHING: no match (a host that runs
+  its hooks through a shell that does not `exec`), or two live ones, leaves the note
+  unbound as before. NOT A BIND: nothing is frozen for the process, so a `/clear` in the
+  same host is found afresh, and `chapter` / `session_end` bind by claim as they did.
+  Claude Desktop is excluded (one server serves every chat; it binds per call). Review of
+  #311 added two conditions: the server's environment is Claude Code's
+  (`hosts.ts#claudeCodeEnvMarker`), and the record OPENED (its `opened.at`, stamped at
+  startup, resume, clear and fork) no earlier than `HOST_MATCH_SLACK_MS` before the server
+  launched — so a crashed host's pid, reused by a stranger, matches nothing, and a record
+  with no stamp time (an older build's) matches nothing either.
+- **The rows before, placed by time** (`provenanceOf`'s `spans`): an unbound note inside
+  exactly one session's stretch in its directory — §24's rule — reads "session a1b2c3d4
+  (placed by when it was written)". Nothing is written back. The registry's `startedAt` is
+  not a stretch (#307's reverted attempt: an idle tab opened early covered a sibling's
+  note), so a first turn's note, before the session's first turn-end, stays unidentified
+  on an old row; the write-time match is what fixes that going forward.

@@ -9,6 +9,33 @@
   start under bun when bun is on PATH, else Node. On Linux, `install --host
   claude-desktop` says Claude Desktop is not available there instead of writing a config.
   Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
+- A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
+  a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
+  here since" when another session wrote a chapter in that directory after it. The end-of-
+  session ask now says any session may retire a handoff here whose work is done.
+- Recalled by its id, a handoff says who wrote it and when, not "an earlier session" and the
+  date its row was first made.
+- "Last here" shows the first sentence of the chapter the episode's title was written with
+  (and "2 chapters" when there are more), not a later chapter's under the first one's title.
+  A question about time in recall does the same (for "yesterday" or "this morning", the first
+  chapter written then), and says how many chapters there are.
+- A note written before the memory server knows its session is filed under the session its
+  host opened in that directory, when that match is exact. An older such note, written
+  inside exactly one session's stretch, says "session a1b2c3d4 (placed by when it was
+  written)".
+- Nearby leaves out what the self page already says, a memory a later one has settled
+  (changed or corrected), and a memory already under Arriving; and it no longer ends with a
+  "(331 more nearby; recall ids…)" line.
+- A chapter about me written in another directory reaches the wake elsewhere, as one line,
+  when its memory is marked about me, us or the owner, the directory it came from is on, and
+  it is not confidential. A confidential chapter is named in "Last here" to the owner only.
+- A "Last here" line dropped for room now leaves a record, and the dashboard's Health wake
+  bar goes amber for it.
+- recall says why `considered` can be above `consideredCap` (links between memories and a
+  feeling the question named have their own bounds).
+- With only Claude Desktop, an older store waiting for its upgrade says to open Desktop or
+  start a new chat in it, not to quit and reopen it.
+
 - The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
   `2026-09-27 (due 2026-10-03) · …`.
 - When the console or the dashboard meets a store still waiting for its upgrade, it says who

@@ -3007,9 +3007,9 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
     // B1 (2026-09-23): nine lines and ~1,250 characters became two lines, and
     // the bound came down with it (was 1,300). The words themselves are pinned
-    // in `test/stop-ask-quiet.test.ts`.
+    // in `test/stop-ask-quiet.test.ts`. 450 until 2026-10-01 (the retire clause).
     expect(text.split("\n").length).toBe(2);
-    expect(text.length).toBeLessThanOrEqual(450);
+    expect(text.length).toBeLessThanOrEqual(480);
   });
 
   test("the handoff is a FIELD on the call item 1 already names — not a third tool", () => {

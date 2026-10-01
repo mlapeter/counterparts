@@ -113,6 +113,7 @@ export const LANES = {
   "adapter.wake.injected": "flow",
   "associate.flush": "flow",
   "handoff.refused": "flow",
+  "handoff.lasthere.noroom": "flow",
   "handoff.shown": "flow",
   "mcp.recall": "flow",
   "prospective.fire.refused": "flow",

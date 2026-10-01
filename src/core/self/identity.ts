@@ -319,22 +319,42 @@ export interface Lanes {
  *
  * A memory appears in exactly one lane: identity wins, then craft, then threads,
  * then hints. Two lanes showing the same statement is budget spent twice.
+ * An ARRIVING occasion is a memory too, and it comes from the caller rather
+ * than the scan, so until 2026-10-01 nothing kept it out of the other lanes:
+ * the same reminder printed under "Arriving:" and "Nearby", both with its due
+ * date (random-f2's item 13). The horizon is the more specific of the two — it
+ * says when — so a memory arriving leaves craft, threads and hints; identity
+ * still wins, and a memory there leaves the horizon instead.
+ *
+ * A memory a later one has SETTLED over (`settledOver`, 2026-10-01) is not in
+ * craft, threads, hints or the horizon: shown alone, an answered question reads
+ * as still open (random-f2's item 11). Identity keeps it — that band is earned.
+ * It stays in recall, labelled by its standing.
+ *
+ * A hint the self page already COVERS (`coveredByPage`, `covered.ts`) is not
+ * one either: Nearby is for what the page did not say (random-f2's item 5).
  */
 export function rankLanes(
   scanned: readonly Scanned[],
-  horizon: readonly Ranked[],
+  horizonIn: readonly Ranked[],
   t: SelfTunables,
+  opts: { readonly settledOver?: ReadonlySet<string>; readonly coveredByPage?: ReadonlySet<string> } = {},
 ): Lanes {
   const identity: Ranked[] = [];
   const craft: Ranked[] = [];
   const threads: Ranked[] = [];
   const hints: Ranked[] = [];
+  const settledOver = opts.settledOver ?? new Set<string>();
+  const inIdentity = new Set(scanned.filter((s) => s.band === "identity").map((s) => s.id));
+  const horizon = horizonIn.filter((h) => !inIdentity.has(h.id) && !settledOver.has(h.id));
+  const arriving = new Set(horizon.map((h) => h.id));
 
   for (const s of scanned) {
     if (s.band === "identity") {
       identity.push(rank(s, "identity"));
       continue;
     }
+    if (arriving.has(s.id) || settledOver.has(s.id)) continue;
     if (s.unresolved) {
       threads.push(rank(s, "threads"));
       continue;
@@ -344,6 +364,8 @@ export function rankLanes(
       craft.push(rank(s, "craft"));
       continue;
     }
+    // What the page already says is not "nearby" (2026-10-01, `covered.ts`).
+    if (opts.coveredByPage?.has(s.id) === true) continue;
     hints.push(rank(s, "hints", hintReading(s.physics, s.display, s.day ?? s.doc.bornDay, t)));
   }
 

@@ -66,7 +66,7 @@ import { ABOUT_MARKS, CACHE_SCHEMA_VERSION, CORE_ABOUT_MARKS, SCHEMA_VERSION, St
 import type { AboutMark, FeelingInput, TraitInput } from "../../core/store/index.js";
 import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
-import { UNBOUND_SESSION } from "../../core/types.js";
+import { UNBOUND_SESSION, isKnownSession } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
 import {
   lookupScope,
@@ -103,6 +103,7 @@ import {
   manifestVersionOnDisk,
   markNothingNew,
   readSession,
+  sessionOfHost,
   recordServerLaunch,
   refreshServerLaunch,
   sameScope,
@@ -1511,7 +1512,10 @@ export class McpServer {
     // shapes ARE readable rather than a note that lands without its date.
     const dated = readReminder(args);
     if ("refused" in dated) return this.refuse("note", dated.refused, { detail: dated.detail });
-    const session = this.session ?? UNBOUND_SESSION;
+    // Unbound, the note is filed under the session this server's host is
+    // running here, found by its process (2026-10-01, `hostSession`), and
+    // under nobody only when that is not exact.
+    const session = this.session ?? this.hostSession() ?? UNBOUND_SESSION;
 
     const captured = this.counterpart.captureJot({ session, scope: this.scope, text });
     const ownSpanHash = captured.spans[0]?.hash ?? null;
@@ -1533,7 +1537,7 @@ export class McpServer {
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
     Object.assign(draft, dated.fields);
 
-    const model = this.sessionModel();
+    const model = this.sessionModel(session);
     const feelings = readFeelings(args["feelings"]);
     if ("refused" in feelings) {
       return this.refuse("note", "feelings-malformed", { detail: feelings.refused });
@@ -1709,7 +1713,7 @@ export class McpServer {
         ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
       {
-        sessionId: this.session ?? UNBOUND_SESSION,
+        sessionId: this.session ?? this.hostSession() ?? UNBOUND_SESSION,
         owner: this.owner,
         vector: embedded.vector,
         semantic: embedded.semantic,
@@ -1939,6 +1943,14 @@ export class McpServer {
        *  in force, not the module default, or a calibration override would be
        *  invisible in the one place the number is explained. */
       consideredCap: this.counterpart.recall.tunables.MAX_CANDIDATES,
+      /** The cap bounds what the words and the meaning reached; a memory the
+       *  links or a feeling brought has its own bound, so `considered` can pass
+       *  it (2026-10-01: "considered 30, consideredCap 24" read as a broken cap). */
+      ...(result.considered > this.counterpart.recall.tunables.MAX_CANDIDATES && result.path === "question"
+        ? {
+            consideredNote: `${String(result.considered - this.counterpart.recall.tunables.MAX_CANDIDATES)} past the cap came in through links between memories or a feeling the question named; consideredCap bounds only what its words and meaning reached.`,
+          }
+        : {}),
       storeSize: result.storeSize,
       returned: bounded.memories.length,
       chars: bounded.chars,
@@ -1981,7 +1993,7 @@ export class McpServer {
       ...(result.recent === undefined
         ? {}
         : {
-            recent: `Rows marked recent: true come first because the question asked about time ("${result.recent.cue}"): they are what the session it means here (${result.recent.session}) wrote — its latest chapter (shown from that chapter, not the first), then its memories, newest first. A quiet one among them was put there by the question, not reached by the search. Everything after them is ranked as usual.`,
+            recent: `Rows marked recent: true come first because the question asked about time ("${result.recent.cue}"): they are what the session it means here (${result.recent.session}) wrote — its latest episode, shown from its first chapter (what its title names; the id fetches every chapter), then its memories, newest first. A quiet one among them was put there by the question, not reached by the search. Everything after them is ranked as usual.`,
           }),
       tiers: {
         vivid: "came clearly to mind",
@@ -2634,6 +2646,9 @@ export class McpServer {
           scope: this.scope,
           session: this.session,
           model: this.sessionModel() ?? null,
+          // The release this server is running (2026-10-01): the wake says
+          // "written before 0.3.10 was installed" once a newer one is.
+          build: this.identity?.build.version ?? installedVersion(),
         });
       }
     } catch (err) {
@@ -3434,13 +3449,42 @@ export class McpServer {
    * host the server is launched with no session, so a `note` before the first
    * `chapter` / `session_end` binds it records NULL — accepted (review N3).
    */
-  private sessionModel(): string | undefined {
-    if (this.session === null) return undefined;
+  private sessionModel(session: string | null = this.session): string | undefined {
+    if (session === null || !isKnownSession(session)) return undefined;
     try {
-      return readSession(this.registryDir, this.session)?.model;
+      return readSession(this.registryDir, session)?.model;
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * THE SESSION THIS SERVER'S HOST IS RUNNING HERE, found by process
+   * (2026-10-01, random-f2's items 4 and 12) — for a write or a read made
+   * before any claim bound this server. The host that launched this server
+   * (`identity.hostPid`, fixed at launch) is the parent of the hook that
+   * opened the session (`opened.hookPpid`), so one live record in this scope
+   * with that pid is this server's session (`sessions.ts#sessionOfHost`).
+   * Not a bind: nothing is frozen, so a later `/clear` — a new session in the
+   * same host — is found afresh, and a `chapter` claim binds as it always
+   * did. Null for Claude Desktop (one server, every chat: `bindDesktopCall`),
+   * for a server that recorded no launch, and whenever the match is not
+   * exact. Never throws.
+   */
+  private hostSession(): string | null {
+    // Claude Code only, by its own environment (review of #311): another
+    // client's host process says nothing about Claude Code's sessions.
+    if (this.desktop || this.identity === null || claudeCodeEnvMarker(this.env) === null) return null;
+    const found = sessionOfHost(this.registryDir, {
+      hostPid: this.identity.hostPid,
+      scope: this.scope,
+      now: this.nowFn(),
+      launchedAt: this.identity.startedAt,
+      ttlMs: this.sessionTtlMs,
+    });
+    // Seen, matched or not: a match nobody can see made is the failure here.
+    this.emit("mcp.session.host", found ?? undefined, { matched: found !== null });
+    return found;
   }
 
   /** Known to the hooks' registry, live, and in THIS server's scope — the same

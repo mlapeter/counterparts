@@ -1805,7 +1805,8 @@ describe("several sessions leave handoffs in one directory", () => {
       version: 9,
     });
     const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
-    const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : { written: "12-31 23:59", after: null }));
+    // Every entry may say why it may be out of date (2026-10-01).
+    const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : { written: "12-31 23:59", after: null, stale: WIDEST_POINTER_SINCE.stale ?? null }));
     const ladder = pointerLadder(hs, 999_999, { since });
     expect(ladder).toHaveLength(HANDOFF_WAKE_SHOWN + 1);
     for (const rung of ladder) expect(bytesOf(rung.block)).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
