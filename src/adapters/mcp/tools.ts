@@ -172,6 +172,19 @@ const ABOUT_PROPERTY = {
 };
 
 /**
+ * `unresolved` on a `note` or a `session_end` entry (2026-10-01, lane 8): the
+ * wake's "Still open:" lane reads this flag, and until now no write tool could
+ * set it, so the lane never fired. Closed by a later write that `updates` the
+ * memory and says `unresolved: false` (`counterpart.ts#closeThread`), or by
+ * `how: "changed"` with the resolution.
+ */
+const UNRESOLVED_PROPERTY = {
+  type: "boolean",
+  description:
+    'Optional: true for an open question or a promise still pending — it stays under "Still open" in the wake until closed. To close one: `updates` its id with `unresolved: false` (or `how: "changed"` and the answer).',
+};
+
+/**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
  * door a model writes a feeling through (note, session_end, a dream's
  * feeling-now, a reflection's feelings), 2026-09-28: a dream put a phrase in
@@ -466,6 +479,7 @@ const NOTE: ToolSpec = {
       remind: REMIND_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
+      unresolved: UNRESOLVED_PROPERTY,
       traits: TRAITS_PROPERTY,
     },
     // `text` is not required in the published schema (2026-09-29): a `settle`
@@ -794,6 +808,7 @@ const SESSION_END: ToolSpec = {
             remind: REMIND_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
+            unresolved: UNRESOLVED_PROPERTY,
             traits: TRAITS_PROPERTY,
           },
           required: ["content"],

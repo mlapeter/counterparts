@@ -340,6 +340,105 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
   });
 });
 
+describe("the `unresolved` flag: set by note and session_end, closed by updates (item 3)", () => {
+  const S = "e1e2e3e4-0000-4000-8000-00000000000e";
+
+  function server(c: Counterpart): McpServer {
+    recordSession(storeDir, { sessionId: S, scope: WORKSHOP, phase: "start", at: NOW });
+    return new McpServer({ counterpart: c, session: S, scope: WORKSHOP, owner: true, registryDir: storeDir, now: () => NOW });
+  }
+
+  const flagged = (c: Counterpart, id: string): boolean => c.store.readProse(id).meta["unresolved"] === true;
+  const stillOpen = (c: Counterpart): string => under(wake(c, LIBRARY), FRAMING.threads).join("\n");
+
+  test("note sets it; the thread is under Still open; updates with unresolved: false closes it", async () => {
+    const c = counterpart();
+    const mcp = server(c);
+    const r = await mcp.call("note", { text: "I promised to send Dana the cut list for the bookshelf by Friday.", unresolved: true });
+    const id = (r.structuredContent as Record<string, unknown>)["id"] as string;
+    expect(flagged(c, id)).toBe(true);
+    expect(stillOpen(c)).toContain("the cut list for the bookshelf");
+
+    // A revision that says nothing about the thread leaves it open.
+    await mcp.call("note", { text: "The cut list for the bookshelf needs the shelf depth first.", updates: id, how: "open" });
+    expect(flagged(c, id)).toBe(true);
+
+    const done = await mcp.call("note", { text: "Sent Dana the cut list for the bookshelf on Thursday.", updates: id, unresolved: false, how: "open" });
+    expect((done.structuredContent as Record<string, unknown>)["thread"]).toEqual({ closed: id });
+    expect(flagged(c, id)).toBe(false);
+    expect(stillOpen(c)).not.toContain("the cut list for the bookshelf");
+  });
+
+  test("a session_end entry sets it; `unresolved: true` on an update carries the thread to the newer memory", async () => {
+    const c = counterpart();
+    const mcp = server(c);
+    const first = await mcp.call("session_end", { session: S, memories: [{ content: "Which finish to use on the walnut top is still an open question.", unresolved: true }] });
+    const id = ((first.structuredContent as Record<string, unknown>)["outcomes"] as Record<string, unknown>[])[0]?.["id"] as string;
+    expect(flagged(c, id)).toBe(true);
+    const moved = await mcp.call("session_end", {
+      session: S,
+      memories: [{ content: "The walnut finish is down to oil or shellac; still to choose.", updates: id, how: "open", unresolved: true }],
+    });
+    const outcome = ((moved.structuredContent as Record<string, unknown>)["outcomes"] as Record<string, unknown>[])[0] ?? {};
+    expect(outcome["thread"]).toEqual({ closed: id });
+    expect(flagged(c, id)).toBe(false);
+    expect(flagged(c, outcome["id"] as string)).toBe(true);
+    const open = stillOpen(c);
+    expect(open).toContain("oil or shellac");
+    expect(open).not.toContain("Which finish to use");
+  });
+
+  test("how: changed with the answer closes it too, by settling", async () => {
+    const c = counterpart();
+    const mcp = server(c);
+    const r = await mcp.call("note", { text: "Whether the shop lease renews in spring is still an open question.", unresolved: true });
+    const id = (r.structuredContent as Record<string, unknown>)["id"] as string;
+    await mcp.call("note", { text: "The shop lease renewed for two more years.", updates: id, how: "changed" });
+    expect(stillOpen(c)).not.toContain("shop lease renews");
+  });
+
+  test("closing passes the revision step's checks first: protected, and — for a session not the owner's — confidential or another directory (review of #313)", async () => {
+    const openThread = (c: Counterpart, body: string, opts: { scope?: string; meta?: Record<string, unknown>; protect?: boolean } = {}): string =>
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body,
+        salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+        meta: { unresolved: true, ...(opts.meta ?? {}) },
+        origin: { scope: opts.scope ?? WORKSHOP },
+        ...(opts.protect === true ? { physics: { protected: true } } : {}),
+      });
+    const close = async (c: Counterpart, id: string, scope = WORKSHOP): Promise<Record<string, unknown> | undefined> =>
+      (await c.submitJot({ content: `Answered now: the question in ${id} is settled for good.`, updates: id, unresolved: false }, { session: "s-closer", scope })).thread as
+        | Record<string, unknown>
+        | undefined;
+
+    const owner = counterpart();
+    const guarded = openThread(owner, "Whether the bench gets a vise is an open question the owner protected.", { protect: true });
+    expect(await close(owner, guarded)).toEqual({ from: guarded, closed: false, refused: "protected-refuses-revision" });
+    expect(flagged(owner, guarded)).toBe(true);
+    // The owner may close a confidential one, and one written elsewhere.
+    const elsewhere = openThread(owner, "Whether the library extends its hours is an open question.", { scope: LIBRARY, meta: { confidential: true } });
+    expect(await close(owner, elsewhere)).toEqual({ from: elsewhere, closed: true });
+    owner.close();
+
+    const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => NOW, timeZone: ZONE });
+    open.push(guest);
+    const there = openThread(guest, "Whether the catalogue gets a second shelf is still open.", { scope: LIBRARY });
+    expect(await close(guest, there, WORKSHOP)).toEqual({ from: there, closed: false, refused: "other-directory" });
+    expect(flagged(guest, there)).toBe(true);
+    const secret = openThread(guest, "Whether the supplier renews the private terms is still open.", { meta: { confidential: true } });
+    expect(await close(guest, secret)).toEqual({ from: secret, closed: false, refused: "confidential" });
+    const mine = openThread(guest, "Whether the shop opens on Saturdays is still an open question.");
+    expect(await close(guest, mine)).toEqual({ from: mine, closed: true });
+    expect(flagged(guest, mine)).toBe(false);
+  });
+
+  test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {
+    expect(SELF_TUNABLES.THREADS_MAX).toBe(5);
+  });
+});
+
 describe("excerptOf", () => {
   test("whole when short; cut at a word with an ellipsis when long", () => {
     expect(excerptOf("short and sweet", 60)).toBe("short and sweet");

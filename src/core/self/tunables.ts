@@ -52,7 +52,8 @@ export interface SelfTunables {
   WORK_HERE_MAX: number;
   /** Characters of a work line's excerpt, after its title. CAL. */
   WORK_HERE_EXCERPT: number;
-  /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12] */
+  /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12;
+   *  5 since 2026-10-01, when a session could first set the flag — kept small] */
   THREADS_MAX: number;
   /** Most warm-shelf hints considered. CAL. */
   HINTS_MAX: number;
@@ -209,7 +210,7 @@ export const SELF_TUNABLES: SelfTunables = {
   CRAFT_AT_DELIVERY: true,
   WORK_HERE_MAX: 4,
   WORK_HERE_EXCERPT: 60,
-  THREADS_MAX: 12,
+  THREADS_MAX: 5,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   WARM_FLOOR: 0.35,

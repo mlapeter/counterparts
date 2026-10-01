@@ -128,6 +128,14 @@ export interface Proposal {
    */
   dateIntent?: DateIntent;
   /**
+   * The author SENT `unresolved` — `true` or `false` — rather than leaving
+   * it out (2026-10-01, lane 8). Read only beside a declared `updates`: the
+   * memory it revises stops being an open thread, because the thread is
+   * closed (`false`) or carried on by this one (`true`)
+   * (`Counterpart#closeThread`). Absent on a proposal no author wrote.
+   */
+  threadSaid?: boolean;
+  /**
    * The memory this proposal takes its reminder over from, set by
    * `Counterpart#carryReminder` only (never by an author): written to
    * `meta.reminderFrom` at the minting seam (prospective `DATE_FROM_META`).
@@ -201,6 +209,8 @@ export type IntakeResult =
       dropped: string[];
       /** What the draft said about its date, before any default (`DateIntent`). */
       dateIntent: DateIntent;
+      /** The draft sent `unresolved` as a boolean (`Proposal.threadSaid`). */
+      threadSaid: boolean;
     }
   | { ok: false; reason: MalformedReason; text: string | null; dropped: string[] };
 
@@ -322,7 +332,8 @@ export function intake(raw: unknown): IntakeResult {
     eventDate: eventDate !== undefined ? "set" : rec["eventDate"] === null ? "cleared" : "absent",
     remind: rec["remind"] === "plain" || rec["remind"] === "quiet" ? rec["remind"] : null,
   };
-  return { ok: true, draft: draft as Required<Pick<ProposalDraft, "content">> & ProposalDraft, dropped, dateIntent };
+  const threadSaid = typeof rec["unresolved"] === "boolean";
+  return { ok: true, draft: draft as Required<Pick<ProposalDraft, "content">> & ProposalDraft, dropped, dateIntent, threadSaid };
 }
 
 // ── the gate seam (INJECTED — see INTERFACE-GAPS.md #2) ──────────────────────
@@ -639,6 +650,7 @@ export async function submitProposal(
     eventDate: draft.eventDate ?? null,
     remind: draft.eventDate === undefined ? null : draft.remind ?? "quiet",
     dateIntent: parsed.dateIntent,
+    ...(parsed.threadSaid ? { threadSaid: true } : {}),
     at: buffer.now(),
     day: buffer.day(),
     contentHash,

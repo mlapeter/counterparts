@@ -1535,6 +1535,9 @@ export class McpServer {
     if (args["how"] !== undefined) draft["how"] = args["how"];
     if (salience !== undefined) draft["claimed"] = salience;
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
+    // AN OPEN THREAD, or the closing of one (2026-10-01, lane 8): a boolean
+    // rides as sent — `false` matters beside an `updates` (`closeThread`).
+    if (typeof args["unresolved"] === "boolean") draft["unresolved"] = args["unresolved"];
     Object.assign(draft, dated.fields);
 
     const model = this.sessionModel(session);
@@ -1563,6 +1566,7 @@ export class McpServer {
       ...this.recordTraits(deposit, traits.inputs, model),
       ...reminderEcho(deposit, dated, this.today()),
       ...this.settledOf(deposit, args["how"] !== undefined),
+      ...threadOf(deposit),
       // IN THE PAYLOAD, so it rides in `structuredContent` — which is what
       // Claude Code hands the model (the #282 lesson, f387f55).
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
@@ -2473,6 +2477,7 @@ export class McpServer {
       if (typeof rec["title"] === "string") draft["title"] = rec["title"];
       if (typeof rec["updates"] === "string") draft["updates"] = rec["updates"];
       if (rec["how"] !== undefined) draft["how"] = rec["how"];
+      if (typeof rec["unresolved"] === "boolean") draft["unresolved"] = rec["unresolved"];
       if (rec["salience"] !== undefined) draft["claimed"] = rec["salience"];
       // A bad dimension does NOT fail the batch and is not silently dropped:
       // the dimensions ride into the draft and `remember/intake` refuses that
@@ -2558,6 +2563,7 @@ export class McpServer {
         ...this.recordTraits(result, traits.inputs, model),
         ...reminderEcho(result, dated, this.today()),
         ...this.settledOf(result, draft["how"] !== undefined),
+        ...threadOf(result),
         ...(neighbours.length === 0 ? {} : { neighbours }),
       });
     }
@@ -4065,6 +4071,17 @@ function readTraits(raw: unknown): TraitsRead {
 }
 
 /** `about` on a tool call (schema v9): absent, or one of the five marks. */
+/**
+ * The open thread a deposit closed (`DepositResult.thread`, 2026-10-01), as a
+ * result carries it: `thread: { closed: <the id it updates> }`, or the reason
+ * the clear did not land. Nothing when no thread was closed.
+ */
+function threadOf(deposit: DepositResult): Record<string, unknown> {
+  const t = deposit.thread;
+  if (t === undefined) return {};
+  return { thread: t.closed ? { closed: t.from } : { closed: null, from: t.from, reason: t.refused ?? "not-recorded" } };
+}
+
 function readAbout(raw: unknown): AboutRead {
   if (raw === undefined || raw === null) return { mark: null };
   if (typeof raw !== "string" || !(ABOUT_MARKS as readonly string[]).includes(raw)) {

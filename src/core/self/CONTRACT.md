@@ -477,7 +477,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `CRAFT_AT_DELIVERY` | true | Craft is the session's directory's work, composed at delivery (`work.ts`); the stored bundle has no craft lane and Nearby leaves work out. Off: craft is skill-kind above the warm floor, store-wide. |
 | `WORK_HERE_MAX` | 4 | Work lines one delivery shows for its directory. |
 | `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
-| `THREADS_MAX` | 12 | Open threads considered. Dark on a migrated store — INTERFACE-GAPS §8, and no cap can fix a missing source. |
+| `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |
 | `HINT_RECOVERY_DAYS` | 3 | Lived days for that load to fall to 1/e once the memory stops being shown. |

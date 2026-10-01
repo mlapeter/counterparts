@@ -43,7 +43,7 @@ import { selfRenderer } from "./briefing.js";
 import { batteryGate, episodeGate, gateSweepChunk } from "./bridge.js";
 import { Dreams, Reflections } from "./dream/index.js";
 import type { VectorSource } from "./bridge.js";
-import { mintProposal } from "./mint.js";
+import { UNRESOLVED_META_KEY, mintProposal } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
@@ -949,7 +949,23 @@ export interface DepositResult {
    * settled, or why it was not. Absent when nothing was declared.
    */
   readonly revision?: RevisionApplication;
+  /**
+   * The open thread this deposit CLOSED (2026-10-01, lane 8): the memory it
+   * revises was flagged `unresolved` and the author sent `unresolved` — false
+   * (it is answered) or true (this memory carries it on). `closed` is false
+   * when it was refused (`refused`: the revision step's own reasons — see
+   * `Counterpart#closeThread`) or the clear did not land. Absent otherwise.
+   */
+  readonly thread?: { readonly from: string; readonly closed: boolean; readonly refused?: ThreadRefusal };
 }
+
+/**
+ * Why a deposit did not close the open thread it names (review of #313): the
+ * revision step's own refusals for a protected or archived row, and the two
+ * a session that is not the owner's meets — a confidential row, or a row
+ * written in another directory.
+ */
+export type ThreadRefusal = "protected-refuses-revision" | "target-archived" | "confidential" | "other-directory";
 
 /** A revision's reminder: carried over, replaced, or dropped — and moved. */
 export interface DepositReminder {
@@ -5159,6 +5175,7 @@ export class Counterpart {
     // BEFORE the revision dispatch: a current-state target is superseded there,
     // and the date must leave the row while it is still the live one.
     const reminder = carry.from === null ? null : this.moveReminder(carry, mint.id);
+    const thread = this.closeThread(proposal, mint.id);
     this.emit("counterpart.deposit", mint.id, {
       source,
       kind: proposal.kind,
@@ -5185,7 +5202,60 @@ export class Counterpart {
       covers: proposal.covers,
       ...(reminder === null ? {} : { reminder }),
       ...(revision === null ? {} : { revision }),
+      ...(thread === null ? {} : { thread }),
     };
+  }
+
+  /**
+   * CLOSING AN OPEN THREAD (2026-10-01, lane 8). A memory flagged
+   * `unresolved` is in the wake's "Still open:" lane until something closes
+   * it, and nothing could: no write tool set the flag, so no tool cleared it.
+   * Now a deposit that DECLARES `updates:` an unresolved memory and SAYS
+   * `unresolved` clears the old row's flag — `false`: it is answered; `true`:
+   * this memory carries the thread on, so it lives on one row, the newest
+   * (the reminder's rule, `moveReminder`). Left out, nothing moves: a plain
+   * revision of an open question does not answer it. `how: changed` or
+   * `corrected` closes it too, by another road (`settledOver` takes the old
+   * one out of every lane but identity).
+   *
+   * Only for an address the author declared and the store resolved, as for
+   * the reminder. `Store#revise` keeps the old meta in the version it writes.
+   * A failed clear does not fail the deposit; it is emitted and reported.
+   */
+  private closeThread(p: Proposal, successor: string): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
+    if (p.threadSaid !== true) return null;
+    const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+    if (target === null || target === successor) return null;
+    let refused: ThreadRefusal | null = null;
+    try {
+      const row = this.store.row(target);
+      if (row === undefined) return null;
+      if (this.store.readProse(target).meta[UNRESOLVED_META_KEY] !== true) return null;
+      // THE REVISION STEP'S CHECKS, FIRST (review of #313): a flag is state
+      // like any other, so what refuses a revision refuses this — the owner's
+      // protection and an archived row, in `revision.ts`'s own words — and a
+      // session that is not the owner's closes nothing confidential and
+      // nothing written in another directory.
+      if (row.protected === 1) refused = "protected-refuses-revision";
+      else if (row.archived === 1) refused = "target-archived";
+      else if (!this.owner && row.confidential === 1) refused = "confidential";
+      else if (!this.owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
+    } catch {
+      return null;
+    }
+    if (refused !== null) {
+      this.emit("counterpart.thread.refused", target, { successor, reason: refused });
+      return { from: target, closed: false, refused };
+    }
+    let closed = false;
+    try {
+      this.store.revise(target, { meta: { [UNRESOLVED_META_KEY]: false }, reason: "thread-closed" });
+      closed = true;
+    } catch (err) {
+      this.emit("counterpart.thread.close.failed", target, { successor, error: errCode(err) });
+    }
+    this.emit("counterpart.thread.closed", target, { successor, closed, carried: p.unresolved });
+    return { from: target, closed };
   }
 
   /**
