@@ -424,6 +424,28 @@ export function stopAsk(sessionId: string, chapter: number): string {
 }
 
 /**
+ * THE ENTRYPOINT CLAUDE CODE REPORTS IN DESKTOP'S CODE TAB — measured
+ * 2026-10-01: a Code-tab session's registry record carried
+ * `"entrypoint":"claude-desktop"` (from `CLAUDE_CODE_ENTRYPOINT`).
+ */
+export const CODE_TAB_ENTRYPOINT = "claude-desktop";
+
+/**
+ * THE ONE WAKE LINE A CODE-TAB SESSION GETS (2026-10-01). Measured: in Desktop's
+ * Code tab the `counterparts` tools the model sees come from Claude Desktop's
+ * own server (same name, shadowing this session's), which serves every Desktop
+ * chat and cannot tell this session's calls from a chat's unless they name it.
+ * So the wake states the id, once. The Stop ask needs no such line: it already
+ * says `session: <id>` on the two tools it names, which take it everywhere.
+ * Null outside the Code tab — a terminal session's wake is byte for byte what
+ * it was.
+ */
+export function codeTabSessionLine(input: Pick<HookInput, "entrypoint" | "sessionId">): string | null {
+  if (input.entrypoint !== CODE_TAB_ENTRYPOINT || input.sessionId.length === 0) return null;
+  return `Counterparts, Desktop's Code tab: if your counterparts tools take a \`session\` parameter, pass session: ${input.sessionId} on every call — it is how they know this session from a Desktop chat.`;
+}
+
+/**
  * WHAT THE PERSON SEES WHEN THE STOP ASK GOES OUT — one line, theirs (B1).
  *
  * The owner's rule, 2026-09-23: "whatever we display in terminal should be
@@ -537,7 +559,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // under `HOST_OUTPUT_CHARS`. What actually gave way is recorded by the
       // delivery (`noteGaveWay`) and by each ask's own deferral.
       const plain = this.plainFor(input);
-      const lead = `${woke.text.length === 0 && plain.context.length === 0 ? "" : `${this.nowLine()}\n`}${plain.context}`;
+      // DESKTOP'S CODE TAB (2026-10-01): one line, right under the clock,
+      // naming this session's id — there the counterparts tools the model sees
+      // are Claude Desktop's server, which serves a call as this session only
+      // when the call names it. A terminal session's wake is unchanged.
+      const codeTab = codeTabSessionLine(input);
+      const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}`;
       const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
       const jsonBase =
         plain.due.length === 0

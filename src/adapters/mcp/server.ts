@@ -37,6 +37,11 @@
  *      the first. A Desktop call binds the live Desktop session it names, or —
  *      naming none — the most recent one, and says so; its `wake` tool writes
  *      the registry record the hooks would have (`bindDesktopCall`, `wakeTool`).
+ *      **And it serves Desktop's Code tab when named** (2026-10-01): a call
+ *      naming a live session the HOOKS recorded (host `claude-code`) is served
+ *      as that Claude Code session for that call only — its directory, its
+ *      doors — because, measured, the Code tab's counterparts tools ARE this
+ *      server's (`claudeCodeSessionNamed`).
  *   2. **Stand-down over the wire** (§5 G5, scar E7/§2.4). Under observer every
  *      tool returns a result that SAYS it stood down, plus telemetry. A silent
  *      no-op would be indistinguishable from a broken server, which is the
@@ -333,6 +338,19 @@ export const START_PROMPT = {
 export const DESKTOP_DREAM_NOTE =
   "(Claude Desktop: there is no terminal here, so nobody has shown them that line — say it to them yourself, once, in your own words. And there is no background Agent tool: if they say dream, follow the prompt the launch returns yourself, here.)";
 
+/**
+ * WHAT A DESKTOP CALL THAT NAMED NO SESSION IS TOLD (2026-10-01: and a Claude
+ * Code session in Desktop's Code tab, whose calls land here too and cannot be
+ * told apart from a chat's, is told how to correct itself).
+ */
+export function desktopBindNote(session: string): string {
+  return `No session was named, so this call was filed under the most recent Claude Desktop session — Desktop chat ${session}. Every tool takes "session" here: pass the id wake gave this chat, so its calls stay together — and no other chat's write-up ask reaches it. If you are a Claude Code session (Desktop's Code tab), pass your own session id — the one your wake or Stop ask names — and the call is filed under your session and its directory instead.`;
+}
+
+/** What a Desktop call that needs a session is told when none is live. */
+export const NO_DESKTOP_SESSION =
+  "No Claude Desktop session is live. Call the `wake` tool first: it starts this chat's session and returns its id. (In a Claude Code session — Desktop's Code tab — do not call wake: pass the session id your wake or Stop ask names.)";
+
 /** The write-up ask a Desktop tool result carries once the session is due one. */
 export function desktopWriteUpAsk(session: string): string {
   return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what is worth keeping with session_end (session: ${session}; memories: [] if nothing is), and add a chapter with the chapter tool (session: ${session}) if the chat was about something.`;
@@ -458,8 +476,10 @@ export class McpServer {
   /** The session the HOST named at launch, if it could. Never changes. */
   readonly launchedSession: string | null;
   /** The place this server files under. Fixed at construction — except that a
-   *  Claude Desktop client turns it into `claude-desktop:` at `initialize`. */
-  scope: string;
+   *  Claude Desktop client turns it into `claude-desktop:` at `initialize`.
+   *  The SERVER's place: a Code-tab call served as a Claude Code session reads
+   *  `scope` as that session's directory for the call (`callAs`), never this. */
+  private placeScope: string;
   scopeSource: ScopeSource;
   /** Did the host say this is the owner's session? Read through `owner`. */
   private readonly ownerClaimed: boolean;
@@ -510,6 +530,17 @@ export class McpServer {
   private callSession: string | null = null;
   private callBoundBy: "named" | "most-recent" | null = null;
   private callRefusal: { reason: string; detail: string } | null = null;
+  /**
+   * DESKTOP'S CODE TAB, SERVED AS ITSELF (2026-10-01). Measured: a Code-tab
+   * session's `mcp__counterparts__*` tools are THIS server's (Desktop's, same
+   * name, shadowing the session's own). A Desktop call that names a live
+   * session the hooks recorded — host `claude-code` — is served as that
+   * session: `session` and `scope` read from here for the call, and nothing
+   * Desktop-only (bind note, pacer, ask) touches it. Set at the top of `call`,
+   * cleared in its `finally`: never sticky, so the next chat's call cannot
+   * inherit it.
+   */
+  private callAs: { session: string; scope: string } | null = null;
   private readonly lifecycleOpts: NonNullable<McpServerOptions["lifecycle"]>;
   private lifecycleInst: Lifecycle | null = null;
   private readonly wakeNotice: (() => string | null) | undefined;
@@ -521,7 +552,7 @@ export class McpServer {
     this.launchedSession =
       opts.session !== undefined && opts.session.length > 0 ? opts.session : null;
     const scope = resolveScope(opts.scope, opts.counterpart.store.dir);
-    this.scope = scope.scope;
+    this.placeScope = scope.scope;
     this.scopeSource = scope.source;
     this.registryDir = opts.registryDir ?? opts.counterpart.store.dir;
     this.scopesFile =
@@ -560,10 +591,32 @@ export class McpServer {
     this.counterpart.store.guardWrites((site) => this.writeGuard(site));
   }
 
+  /** The place a call files under: the Claude Code session's directory for a
+   *  Code-tab call this Desktop server serves as that session (`callAs`), else
+   *  this server's own place. */
+  get scope(): string {
+    return this.callAs?.scope ?? this.placeScope;
+  }
+
+  set scope(value: string) {
+    this.placeScope = value;
+  }
+
   /** The session this server may deposit under: the host's, else the bound
-   *  claim — which, for Claude Desktop, is this call's (`bindDesktopCall`). */
+   *  claim — which, for Claude Desktop, is this call's: the Claude Code session
+   *  it names (`callAs`), or the Desktop session `bindDesktopCall` bound. */
   get session(): string | null {
-    return this.launchedSession ?? (this.desktop ? this.callSession : this.lazySession);
+    return this.launchedSession ?? (this.desktop ? (this.callAs?.session ?? this.callSession) : this.lazySession);
+  }
+
+  /**
+   * WHOSE WORDS a result says about the PLACE (scope off / paused / on): a
+   * Code-tab call served as a Claude Code session is in a directory, and
+   * speaks Claude Code's. How to load a newer build stays this process's
+   * host's (`this.host`): the process holding the old build is Desktop's.
+   */
+  private get placeHost(): string {
+    return this.callAs !== null ? DEFAULT_HOST : this.host;
   }
 
   /**
@@ -605,8 +658,8 @@ export class McpServer {
   private becomeDesktop(client: string): void {
     const wasDesktop = this.desktop;
     this.host = DESKTOP_HOST;
-    if (this.scopeSource !== "flag" && this.scope !== DESKTOP_SCOPE) {
-      this.scope = DESKTOP_SCOPE;
+    if (this.scopeSource !== "flag" && this.placeScope !== DESKTOP_SCOPE) {
+      this.placeScope = DESKTOP_SCOPE;
       this.scopeSource = "host";
       const identity = this.identity;
       if (identity !== null) {
@@ -752,9 +805,16 @@ export class McpServer {
     // set `off` (every tool but `scope` refuses there anyway), or as an observer.
     // Desktop's place is read ONCE for the call: `off` here, `observer` for
     // every stand-down check the tool makes (`observer`).
+    //
+    // DESKTOP'S CODE TAB (2026-10-01): a call naming a live session the HOOKS
+    // recorded is served as that Claude Code session — decided FIRST, so the
+    // place read just below is that session's directory (its `off`, `paused`,
+    // `observer`), and so it is never a Desktop call: no bind, no pacer, no ask.
+    this.callAs = this.desktop && name !== "wake" ? this.claudeCodeSessionNamed(args) : null;
     const place = this.desktop ? stanceOfMode(this.scopeVerdict().mode) : null;
     this.callObserver = place === null ? null : place === "observer";
-    const desktopCall = this.desktop && name !== "wake" && !this.observer && place !== "off";
+    if (this.callAs !== null) this.emit("mcp.session.served", this.callAs.session, { tool: name, host: DEFAULT_HOST });
+    const desktopCall = this.desktop && this.callAs === null && name !== "wake" && !this.observer && place !== "off";
     if (desktopCall) this.bindDesktopCall(args);
     let result: ToolResult | null = null;
     try {
@@ -772,10 +832,33 @@ export class McpServer {
       this.callBoundBy = null;
       this.callRefusal = null;
       this.callObserver = null;
+      this.callAs = null;
     }
   }
 
   // ── Claude Desktop: the session a call belongs to ──────────────────────────
+
+  /**
+   * IS THIS CALL A CLAUDE CODE SESSION'S? (Desktop's Code tab, 2026-10-01.)
+   * Measured live: a Code-tab session's own server stays Claude Code's, but the
+   * `counterparts` tools its model sees are THIS one's — Desktop's, same name.
+   * So a call naming a session is served as that Claude Code session when the
+   * id names a record the HOOKS wrote (host `claude-code`; only the hooks write
+   * one, so a model cannot invent it) that is live by the evidence
+   * `requireBoundSession` asks — known, not ended, not silent past the TTL.
+   * Its directory is the record's `scope`. Anything else — no id, a Desktop
+   * id, an unknown or dead one — is not this, and `bindDesktopCall` answers it
+   * as before. Reads only.
+   */
+  private claudeCodeSessionNamed(args: Record<string, unknown>): { session: string; scope: string } | null {
+    const claimed = args["session"];
+    if (typeof claimed !== "string" || !isSessionId(claimed)) return null;
+    const record = readSession(this.registryDir, claimed);
+    if (record === null || hostOf(record) !== DEFAULT_HOST) return null;
+    if (!isLive(record, this.nowFn(), this.sessionTtlMs)) return null;
+    if (record.scope.length === 0) return null;
+    return { session: claimed, scope: record.scope };
+  }
 
   /**
    * BIND THIS CALL (Claude Desktop, 2026-09-30). The id the call NAMES, when it
@@ -794,10 +877,19 @@ export class McpServer {
     const claimed = args["session"];
     if (typeof claimed === "string" && claimed.length > 0) {
       const record = isSessionId(claimed) ? readSession(this.registryDir, claimed) : null;
+      // A CLAUDE CODE SESSION that reached here is one `claudeCodeSessionNamed`
+      // turned down: recorded by the hooks, but no longer live.
+      if (record !== null && hostOf(record) === DEFAULT_HOST) {
+        this.callRefusal = {
+          reason: "session-not-live",
+          detail: "That Claude Code session has ended or has been silent too long to still be writing its own day. Its memories belong to the sweep now.",
+        };
+        return;
+      }
       if (record === null || hostOf(record) !== DESKTOP_HOST) {
         this.callRefusal = {
           reason: "session-unknown",
-          detail: "No Claude Desktop session by that id is recorded. Use the id `wake` returned for this chat, exactly — or call `wake` to start one.",
+          detail: "No session by that id is recorded — not a Claude Desktop chat's, and not a Claude Code session's. In a Desktop chat, use the id `wake` returned for this chat, exactly, or call `wake` to start one; in a Claude Code session, use the id your wake or Stop ask names.",
         };
         return;
       }
@@ -816,7 +908,7 @@ export class McpServer {
     if (latest === null) {
       this.callRefusal = {
         reason: "session-required",
-        detail: "No Claude Desktop session is live. Call the `wake` tool first: it starts this chat's session and returns its id.",
+        detail: NO_DESKTOP_SESSION,
       };
       return;
     }
@@ -867,7 +959,7 @@ export class McpServer {
     if (this.callBoundBy === "most-recent") {
       extra["boundTo"] = session;
       extra["boundBy"] = "most-recent";
-      extra["bindNote"] = `No session was named, so this call was filed under the most recent Claude Desktop session (${session}). Every tool takes "session" here: pass the id wake gave this chat, so its calls stay together — and no other chat's write-up ask reaches it.`;
+      extra["bindNote"] = desktopBindNote(session);
     }
     if (ask) extra["writeUpAsk"] = desktopWriteUpAsk(session);
     if (Object.keys(extra).length === 0) return result;
@@ -1071,7 +1163,7 @@ export class McpServer {
     this.identity = {
       pid: opts.pid ?? process.pid,
       hostPid: opts.hostPid ?? process.ppid,
-      scope: canonicalScope(this.scope),
+      scope: canonicalScope(this.placeScope),
       startedAt: this.nowFn(),
       build: installedBuild(),
     };
@@ -1104,7 +1196,9 @@ export class McpServer {
     const identity = this.identity;
     if (identity === null) return null;
     try {
-      const off = stanceOfMode(this.scopeVerdict().mode) === "off";
+      // The SERVER's place, never a call's: this tick can land while a
+      // Code-tab call served as a Claude Code session is awaiting (`callAs`).
+      const off = stanceOfMode(this.scopeVerdict(this.placeScope).mode) === "off";
       if (off) {
         if (!this.launchOff || first) forgetServerLaunch(this.registryDir, identity.pid);
         if (!this.launchOff && !first) this.emit("mcp.launch.scope", undefined, { recorded: false });
@@ -1151,9 +1245,9 @@ export class McpServer {
    * on — the same fail direction the hooks take, and for the same reason (a
    * tool may not fail on host trivia).
    */
-  private scopeVerdict(): ScopeVerdict {
+  private scopeVerdict(scope: string = this.scope): ScopeVerdict {
     if (this.scopesFile === null) return { mode: "unset", matched: null, entry: null };
-    return lookupScope(readScopes(this.scopesFile).registry, this.scope);
+    return lookupScope(readScopes(this.scopesFile).registry, scope);
   }
 
   /** The named refusal every tool but `scope` gets in a directory set `off`. */
@@ -1164,7 +1258,7 @@ export class McpServer {
       ...(verdict.matched === null ? {} : { setBy: verdict.matched }),
       // In the host's words (`hosts.ts`): Claude Code's name a directory and
       // `counterparts scope .`; Desktop's name its own place.
-      detail: verdict.mode === "paused" ? wordingFor(this.host).pausedRefusal : wordingFor(this.host).offRefusal,
+      detail: verdict.mode === "paused" ? wordingFor(this.placeHost).pausedRefusal : wordingFor(this.placeHost).offRefusal,
     });
   }
 
@@ -1297,7 +1391,7 @@ export class McpServer {
         // hooks and their boundaries — the text is what it always was, and why
         // it says what it says sits beside it in the table — and Desktop,
         // which has neither, gets its own.
-        detail: target === "off" || target === "paused" ? wordingFor(this.host).scopeOff : wordingFor(this.host).scopeOn,
+        detail: target === "off" || target === "paused" ? wordingFor(this.placeHost).scopeOff : wordingFor(this.placeHost).scopeOn,
       },
       false,
     );
@@ -3343,10 +3437,7 @@ export class McpServer {
     // `bindDesktopCall` — per call, never frozen for the process — and a call
     // it could not bind is refused here by the reason it found.
     if (this.desktop) {
-      const why = this.callRefusal ?? {
-        reason: "session-required",
-        detail: "No Claude Desktop session is live. Call the `wake` tool first: it starts this chat's session and returns its id.",
-      };
+      const why = this.callRefusal ?? { reason: "session-required", detail: NO_DESKTOP_SESSION };
       this.emit("mcp.session.unbound", undefined, { reason: why.reason, host: this.host });
       return this.refuse(tool, why.reason, { detail: why.detail });
     }

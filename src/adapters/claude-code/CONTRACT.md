@@ -718,6 +718,10 @@ did not get.
   longer the reported injection budget) → plain reminders due today (they wait for the
   first prompt, unclaimed) → the wake, which is never cut at delivery: it was composed to
   its own budget at the boundary, trimming hints → craft → threads → horizon → identity.
+  The clock line rides with the wake — and, in Desktop's Code tab only (entrypoint
+  `claude-desktop`, 2026-10-01), one line under it naming the session id to pass as
+  `session`, because there the counterparts tools are Desktop's server
+  (`hooks.ts#codeTabSessionLine`; mcp CONTRACT G21). A terminal session's wake is unchanged.
   A reminder reaches the person only in the JSON form, so when one is due and it fits
   beside the wake in that form, the two asks are measured against THAT form (escaped,
   under 9,500) and it is they that give way (review of #285, S2). A wake too full for the

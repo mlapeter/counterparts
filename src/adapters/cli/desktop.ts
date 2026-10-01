@@ -26,7 +26,11 @@
  * from this file wins over `~/.claude.json`'s `counterparts`. Both are written
  * by this package and both name the store the configuration names, so which
  * one wins changes nothing — and doctor says so, and turns amber only if the
- * two point at different stores (`readDesktop`).
+ * two point at different stores (`readDesktop`). Measured 2026-10-01: what
+ * wins is Desktop's RUNNING server (Desktop mode, shared by its chats), not a
+ * Claude Code copy of this entry — so the Code-tab wake names the session id
+ * and that server serves a call naming it as the Claude Code session
+ * (`mcp/server.ts#claudeCodeSessionNamed`).
  *
  * The home directory is always the caller's (`install`'s `home`, a test's fake
  * one): nothing here reads `os.homedir()`.

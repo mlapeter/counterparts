@@ -919,3 +919,42 @@ across days sees a step on the day this is installed. The CHANGELOG says so.
 
 The `recall` tool's description now says that in a question about feeling "I" is the
 counterpart and "you" the owner (review of #293, B1).
+
+## 2026-10-01 — Desktop's Code tab reaches Desktop's server (lane 5)
+
+Measured live, read-only: a Code-tab session (entrypoint `claude-desktop`) was woken by
+its own SessionStart hook, and its own MCP server (child of the tab's `claude` CLI, with
+Claude Code's env markers) stayed in Claude Code mode — guarantee 18 held. But the
+`mcp__counterparts__*` tools the model saw were Claude Desktop's server's (`wake` in the
+list, `recall` taking `session`): same name, Desktop's shadows the session's own. An
+unnamed `status` from the tab was filed under the most recent Desktop chat. Guarantee
+18's picture of the Code tab — a Claude Code client that "gets the handshake, tools and
+refusals it always got" — was half right: its own server is Claude Code's, but the tools
+its model calls are Desktop's.
+
+So the Desktop server serves a Code-tab call AS the Claude Code session it names
+(guarantee 21). What the build learned:
+
+- **Per call, not sticky, and not by mutating `scope`.** `scope` became an accessor over
+  `placeScope` (the server's place) and `callAs` (the call's), and `session` reads
+  `callAs` first. The heartbeat is an unref'd timer and a call awaits (embedders), so a
+  tick can land mid-call; `beat()` reads `placeScope` explicitly. Both are pinned by a
+  test that fails when either is reverted (`test/codetab-session.test.ts`).
+- **The binding decision comes before the place is read**, so the project's own
+  `off`/`paused`/`observer` govern the call, and `desktopCall` is false for it — no bind
+  note, no pacer, no `mcp.desktop.call`, no ask. `mcp.session.served` marks it.
+- **Two host lookups.** A result's words about the PLACE (scope on/off/paused) are Claude
+  Code's for a served call (`placeHost`); the reconnect sentence stays Desktop's, because
+  the process holding an old build is Desktop's.
+- **Refusals stopped telling a Code-tab model to `wake`**: `session-required`,
+  `session-unknown` and the bind note now carry the Claude Code clause, and an ENDED
+  hook-registered id answers `session-not-live`, not `session-unknown`.
+- **The Stop ask was left alone**: it already says `session: <id>` on the two tools it
+  names, which take `session` on every host. The wake line (`hooks.ts#codeTabSessionLine`)
+  carries the instruction for the rest.
+- **Left as is, named:** a Code-tab model that calls `wake` anyway mints a Desktop
+  session (the server cannot tell; the description is the mitigation). `note`/`recall`/
+  `status` naming a dead id still run unbound under `claude-desktop:`, as any refused
+  named id always did. A served call reads `scopes.json` from the Desktop server's config
+  dir — the same file as the hooks' when both were installed from one configuration.
+

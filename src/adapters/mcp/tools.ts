@@ -1377,7 +1377,7 @@ export const WAKE: ToolSpec = {
     "Call it once, at the start of a chat, before answering the first message. Then pass the session id it returns as `session` on session_end, chapter, dream and reflect in this chat; a call that leaves it out is filed under the most recent Desktop session, and says so.",
   negativeExamples: [
     "Do NOT call it again later in the same chat to refresh what you know — it starts a new session. Ask `recall` a question instead.",
-    "Do NOT call it in Claude Code: it is not offered there, because the host's hook already woke the session.",
+    "Do NOT call it in a Claude Code session — Desktop's Code tab included, where these tools are Claude Desktop's: the hook already woke you, and a wake here would start a second session beside yours. Pass your session id — the one your wake or Stop ask names — as `session` instead.",
   ],
   privileges: [
     {
@@ -1410,12 +1410,14 @@ export const WAKE: ToolSpec = {
  * In Desktop every call binds per call, and a call that cannot name its session
  * falls back to the most recent one, which may be ANOTHER chat's. So the
  * Desktop copy of every tool's schema carries an optional `session`; Claude
- * Code's schemas are untouched.
+ * Code's schemas are untouched. Since 2026-10-01 it also carries a Claude Code
+ * session's id from Desktop's Code tab, whose tools are this server's: a live
+ * hook-registered id is served as that session (`mcp/server.ts#claudeCodeSessionNamed`).
  */
 const DESKTOP_SESSION_PROPERTY = {
   type: "string",
   description:
-    "This chat's session id — the one the wake tool returned. Pass it on every call, so the call is filed under this chat and not the most recent Desktop session.",
+    "This chat's session id from the wake tool — or, in a Claude Code session (Desktop's Code tab), the id your wake or Stop ask names. Pass it on every call, so the call is filed under your own session and not the most recent Desktop chat's.",
 };
 
 function withDesktopSession(spec: ToolSpec): ToolSpec {

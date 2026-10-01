@@ -3724,7 +3724,7 @@ function desktopFindings(reading: DesktopReading, store: Store | null, dir: stri
         "desktop",
         "amber",
         "Claude Desktop",
-        `Desktop's Code tab loads Desktop's counterparts entry in place of ~/.claude.json's, and the two name different stores (${reading.dataDir ?? "?"} and ${reading.codeDataDir ?? "?"})`,
+        `Desktop's Code tab gets its counterparts tools from Desktop's entry, which shadows ~/.claude.json's, and the two name different stores (${reading.dataDir ?? "?"} and ${reading.codeDataDir ?? "?"})`,
         fix,
         data,
       ),
@@ -3751,7 +3751,9 @@ function desktopFindings(reading: DesktopReading, store: Store | null, dir: stri
     ...(desktop.length === 0
       ? []
       : [`${String(desktop.length)} Desktop ${desktop.length === 1 ? "session" : "sessions"} this week, not measured for write-ups (Desktop chat keeps no transcript)`]),
-    ...(reading.codeTab ? ["its Code tab uses this entry in place of ~/.claude.json's — both name this store"] : []),
+    // Measured 2026-10-01: the Code tab's counterparts tools are Desktop's
+    // server, which serves a Code-tab session when the call names its id.
+    ...(reading.codeTab ? ["its Code tab's counterparts tools come from this entry's server, which shadows ~/.claude.json's — both name this store, and Code-tab sessions pass their session id"] : []),
   ];
   return [finding("desktop", "green", "Claude Desktop", parts.join("; "), "", data)];
 }
