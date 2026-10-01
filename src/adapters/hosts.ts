@@ -54,6 +54,15 @@ export const DESKTOP_HOST = "claude-desktop";
 export const DESKTOP_SCOPE = "claude-desktop:";
 
 /**
+ * THE ENTRYPOINT CLAUDE CODE REPORTS IN DESKTOP'S CODE TAB — measured
+ * 2026-10-01: a Code-tab session's registry record carried
+ * `"entrypoint":"claude-desktop"` (from `CLAUDE_CODE_ENTRYPOINT`). The hooks
+ * add the Code-tab wake line for it; Desktop's MCP server serves a named
+ * Claude Code session only when its record says it (mcp CONTRACT G21).
+ */
+export const CODE_TAB_ENTRYPOINT = "claude-desktop";
+
+/**
  * A SCOPE THAT IS A NAME, NOT A PATH — `claude-desktop:`, or a later
  * `claude-desktop:<something>`. A lowercase host-shaped token of two or more
  * characters, then a colon, and no path separator anywhere: no absolute path,
@@ -81,7 +90,11 @@ export function isPseudoScope(scope: string): boolean {
  * environment carries any of them was started BY Claude Code — Desktop's Code
  * tab included — whatever name its client sends, and keeps Claude Code's
  * behaviour: the Code tab's client name was never measured, and a Code-tab
- * server turned into Desktop's would refuse every hook-registered session.
+ * server turned into Desktop's would file every call that names no session
+ * under the most recent Desktop chat, and serve the session's own id only as
+ * Desktop's server does (mcp CONTRACT G21). (Measured 2026-10-01: the Code
+ * tab's own server does stay Claude Code's — but the counterparts tools its
+ * model calls are Desktop's server, which is why G21 exists.)
  * Returns the variable that said so, or null.
  */
 export const CLAUDE_CODE_ENV_MARKERS = ["CLAUDE_PROJECT_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"] as const;

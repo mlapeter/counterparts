@@ -26,7 +26,9 @@
   still lands under the most recent Desktop chat; its result now says which chat, and tells a
   Claude Code session to pass its own id. The `wake` tool's description no longer says it is
   never offered in Claude Code, and doctor's Claude Desktop line says the Code tab's tools
-  come from Desktop's server. Terminal sessions are unchanged.
+  come from Desktop's server. Terminal sessions are unchanged. Each prompt now also marks
+  its session as still running, so a Code-tab session left idle for hours is recognised
+  again at its next prompt, and a call whose session id wasn't accepted says why.
 
 ## 0.3.10 — 2026-09-30
 

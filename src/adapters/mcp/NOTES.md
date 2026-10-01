@@ -953,8 +953,24 @@ So the Desktop server serves a Code-tab call AS the Claude Code session it names
   names, which take `session` on every host. The wake line (`hooks.ts#codeTabSessionLine`)
   carries the instruction for the rest.
 - **Left as is, named:** a Code-tab model that calls `wake` anyway mints a Desktop
-  session (the server cannot tell; the description is the mitigation). `note`/`recall`/
-  `status` naming a dead id still run unbound under `claude-desktop:`, as any refused
-  named id always did. A served call reads `scopes.json` from the Desktop server's config
-  dir — the same file as the hooks' when both were installed from one configuration.
+  session (the server cannot tell; the description is the mitigation). A served call
+  reads `scopes.json` from the Desktop server's config dir — the same file as the hooks'
+  when both were installed from one configuration.
+
+### After the review of #309
+
+- **Observer leaked through the `scope` door.** Desktop exempts `claude-desktop:`'s own
+  `observer` there so the tool can set it back; a served call inherited the exemption
+  and could lift an observer PROJECT from inside. A served call now stands where Claude
+  Code's server stands (`this.observer`).
+- **The Code tab only** (coordinator's decision): `claudeCodeSessionNamed` requires the
+  record's `entrypoint` to be `claude-desktop`; a terminal session is refused
+  `session-not-code-tab`.
+- **A stale id was filed silently.** Only a Stop refreshed liveness (TTL 4 h), so a Code
+  tab idle past it had its first turn's `note` land unbound under `claude-desktop:` as
+  `stored: true`. Root fix: the prompt hook refreshes an EXISTING record before the model
+  calls anything (never creates one — a missing record is the off→on flip, and a
+  claude-code test pins that). And any named id that did not bind now says why on the
+  result (`sessionRefused`, `sessionNote`).
+- `DESKTOP_INSTRUCTIONS` and the unnamed-handoff refusal now carry the Code-tab clause.
 

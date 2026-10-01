@@ -80,7 +80,7 @@ import {
 import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
 import { randomUUID } from "node:crypto";
 
-import { DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, claudeCodeEnvMarker, hostOfClient, wordingFor } from "../hosts.js";
+import { CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, claudeCodeEnvMarker, hostOfClient, wordingFor } from "../hosts.js";
 import { TUNABLES as ADAPTER_TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
@@ -319,7 +319,7 @@ export interface McpServerOptions {
  * a host that reads it learns the one thing it needs to.
  */
 export const DESKTOP_INSTRUCTIONS =
-  "Counterparts is your memory. At the start of each chat, before answering, call its wake tool once: it returns this chat's briefing and a session id to pass on session_end, chapter, dream and reflect.";
+  "Counterparts is your memory. At the start of each chat, before answering, call its wake tool once: it returns this chat's briefing and a session id to pass on session_end, chapter, dream and reflect. In a Claude Code session (Desktop's Code tab) the hook already woke you: do not call wake — pass your own session id, the one your wake or Stop ask names, as `session` on every call.";
 
 /** The MCP prompt a Desktop person can pick (brief item 6). */
 export const START_PROMPT = {
@@ -855,6 +855,9 @@ export class McpServer {
     if (typeof claimed !== "string" || !isSessionId(claimed)) return null;
     const record = readSession(this.registryDir, claimed);
     if (record === null || hostOf(record) !== DEFAULT_HOST) return null;
+    // THE CODE TAB'S ONLY (coordinator's decision, review of #309): a terminal
+    // session has its own server; Desktop's has no reason to act for it.
+    if (record.entrypoint !== CODE_TAB_ENTRYPOINT) return null;
     if (!isLive(record, this.nowFn(), this.sessionTtlMs)) return null;
     if (record.scope.length === 0) return null;
     return { session: claimed, scope: record.scope };
@@ -878,7 +881,14 @@ export class McpServer {
     if (typeof claimed === "string" && claimed.length > 0) {
       const record = isSessionId(claimed) ? readSession(this.registryDir, claimed) : null;
       // A CLAUDE CODE SESSION that reached here is one `claudeCodeSessionNamed`
-      // turned down: recorded by the hooks, but no longer live.
+      // turned down: outside the Code tab, or no longer live.
+      if (record !== null && hostOf(record) === DEFAULT_HOST && record.entrypoint !== CODE_TAB_ENTRYPOINT) {
+        this.callRefusal = {
+          reason: "session-not-code-tab",
+          detail: "That is a Claude Code session outside Desktop's Code tab. It has its own counterparts server; this one is Claude Desktop's, and serves a Claude Code session only from the Code tab.",
+        };
+        return;
+      }
       if (record !== null && hostOf(record) === DEFAULT_HOST) {
         this.callRefusal = {
           reason: "session-not-live",
@@ -929,7 +939,7 @@ export class McpServer {
    */
   private afterDesktopCall(name: string, result: ToolResult): ToolResult {
     const session = this.callSession;
-    if (session === null) return result;
+    if (session === null) return this.withUnboundReason(result);
     const writing = name === "session_end" || name === "chapter";
     let ask = false;
     try {
@@ -964,6 +974,26 @@ export class McpServer {
     if (ask) extra["writeUpAsk"] = desktopWriteUpAsk(session);
     if (Object.keys(extra).length === 0) return result;
     return this.result({ ...result.structuredContent, ...extra }, result.isError === true);
+  }
+
+  /**
+   * A NAMED SESSION THAT DID NOT BIND, SAID ON THE RESULT (review of #309). A
+   * tool that needs a session already refuses with the reason; one that does
+   * not (`note`, `recall`, `status`, …) runs unbound under `claude-desktop:`,
+   * and used to say nothing — so a Code-tab note under a stale id came back
+   * `stored: true` with nobody the wiser. Now the result carries why.
+   */
+  private withUnboundReason(result: ToolResult): ToolResult {
+    const why = this.callRefusal;
+    if (why === null || result.structuredContent["reason"] === why.reason) return result;
+    return this.result(
+      {
+        ...result.structuredContent,
+        sessionRefused: why.reason,
+        sessionNote: `${why.detail} So this call ran with no session, under Claude Desktop's place (claude-desktop:).`,
+      },
+      result.isError === true,
+    );
   }
 
   /** The lifecycle Desktop's `wake` runs a session start with — built on first
@@ -1314,7 +1344,11 @@ export class McpServer {
     // entry does not lock this door: the scope tool is how that entry is
     // changed back, as it is the one door an `off` leaves open. The store's own
     // observer bit still does.
-    if (this.desktop ? this.storeObserver : this.observer) return this.standDown("scope");
+    // A call served AS a Claude Code session (G21) stands where that session's
+    // own server stands: its directory's `observer` locks this door too, as it
+    // does in Claude Code (review of #309) — Desktop's exemption is for
+    // `claude-desktop:`'s own entry only.
+    if (this.desktop && this.callAs === null ? this.storeObserver : this.observer) return this.standDown("scope");
     if (file === null) {
       return this.refuse("scope", "no-registry", {
         detail:
@@ -2589,7 +2623,7 @@ export class McpServer {
    */
   private unnamedHandoffField(raw: unknown): Record<string, unknown> | null {
     if (raw === undefined || raw === null) return null;
-    const detail = `Name your session to leave or retire a handoff: session: <the id wake gave this chat>. This call named none, so it was filed under the most recent Claude Desktop session (${this.session ?? "none"}), which may be another chat's.`;
+    const detail = `Name your session to leave or retire a handoff: session: <the id wake gave this chat> — or, in a Claude Code session (Desktop's Code tab), the id your wake or Stop ask names. This call named none, so it was filed under the most recent Claude Desktop session (${this.session ?? "none"}), which may be another chat's.`;
     try {
       const out = this.counterpart.refuseHandoff("session-unnamed", { session: this.session });
       this.emit("mcp.handoff", undefined, { written: false, reason: out.reason, bytes: 0 });

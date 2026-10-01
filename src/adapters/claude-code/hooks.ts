@@ -56,7 +56,7 @@ import { newNightRunId } from "../../core/dream/index.js";
 import type { DreamOffer } from "../../core/dream/index.js";
 import type { BoundaryKind } from "../../core/remember/index.js";
 
-import { isDesktopScratchWorkspace } from "../hosts.js";
+import { CODE_TAB_ENTRYPOINT, isDesktopScratchWorkspace } from "../hosts.js";
 import { stanceOfMode } from "../scopes.js";
 import {
   decideUpdateNotice,
@@ -423,12 +423,8 @@ export function stopAsk(sessionId: string, chapter: number): string {
   ].join("\n");
 }
 
-/**
- * THE ENTRYPOINT CLAUDE CODE REPORTS IN DESKTOP'S CODE TAB — measured
- * 2026-10-01: a Code-tab session's registry record carried
- * `"entrypoint":"claude-desktop"` (from `CLAUDE_CODE_ENTRYPOINT`).
- */
-export const CODE_TAB_ENTRYPOINT = "claude-desktop";
+/** Re-exported where the hooks' callers already look (`hosts.ts` owns it). */
+export { CODE_TAB_ENTRYPOINT };
 
 /**
  * THE ONE WAKE LINE A CODE-TAB SESSION GETS (2026-10-01). Measured: in Desktop's
@@ -717,6 +713,19 @@ export class ClaudeCodeAdapter extends Lifecycle {
    */
   userPromptSubmit(input: HookInput): HookResult {
     return this.guard("user-prompt-submit", input, (out) => {
+      // LIVENESS AT THE PROMPT TOO (2026-10-01, review of #309). Only a Stop
+      // used to refresh the record, so a session idle past `SESSION_TTL_MS`
+      // read as dead to the MCP side until its first answer ENDED — and in
+      // Desktop's Code tab, whose tools are Desktop's server (mcp CONTRACT
+      // G21), that turn's calls ran unbound, filed under `claude-desktop:`.
+      // This hook runs before the model makes any call, so the session is live
+      // again by the time it names its id. Before the delivery verdict, like
+      // the Stop's: the registry is not delivery. It REFRESHES a record and
+      // never creates one: a session with no record is the off→on flip
+      // (#92 review, F1), which the Stop alone may make bindable.
+      if (input.sessionId.length > 0 && readSession(this.counterpart.store.dir, input.sessionId) !== null) {
+        this.noteSession("boundary", input);
+      }
       // The stand-down precedes the delivery check for the same reason it
       // precedes the recall: a muted session rendered nothing, so there is no
       // expectation to test and a "not delivered" record would be a lie.
@@ -1330,8 +1339,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
   /**
    * Close the question for this session. `boundary` creates a record when one is
    * missing, so this is only ever called with a record already read — and it is
-   * written at the clock the record already carried, because a prompt is not a
-   * boundary and the lazy bind's liveness window is measured from those.
+   * written at the clock the record already carried (which, since 2026-10-01,
+   * this same prompt has already refreshed: `userPromptSubmit`).
    */
   private markWakeChecked(input: HookInput, prior: SessionRecord): void {
     try {

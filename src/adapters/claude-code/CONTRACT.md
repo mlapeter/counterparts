@@ -254,8 +254,10 @@ row, saying which source answered, existed until the keys were removed — §1a.
     later hook process needs: which configuration was read, whether the first-launch
     question went out, the wake's sentinel and whether its arrival has been checked, the
     model that last answered — which the `chapter` tool records per chapter), Stop
-    refreshes the clock — creating the record when it is missing — and SessionEnd closes
-    it. The writes
+    refreshes the clock — creating the record when it is missing — UserPromptSubmit
+    refreshes it too but never creates one (2026-10-01: so a session idle past the TTL
+    is live again before its model's first call; a missing record stays the off→on
+    signal), and SessionEnd closes it. The writes
     are atomic (temp + rename), tiny, and silent on failure, because a hook may not fail
     the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists because this
     host launches its MCP servers from a static configuration and cannot tell them which

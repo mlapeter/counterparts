@@ -26,6 +26,7 @@ import { dirname, join } from "node:path";
 
 import { DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, wordingFor } from "../src/adapters/hosts.js";
 import {
+  DESKTOP_INSTRUCTIONS,
   NO_DESKTOP_SESSION,
   WAKE,
   encodeMessage,
@@ -37,7 +38,7 @@ import {
 import type { McpServer, Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { TUNABLES } from "../src/adapters/config.js";
 import { SESSION_TTL_MS, hostOf, readSession, recordSession } from "../src/adapters/sessions.js";
-import { lookupScope, readScopes } from "../src/adapters/scopes.js";
+import { lookupScope, readScopes, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { CODE_TAB_ENTRYPOINT, codeTabSessionLine } from "../src/adapters/claude-code/hooks.js";
@@ -244,13 +245,13 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     const t = clock();
     const s = desktopServer({ now: t.now });
     // Ended: the hooks wrote its end.
-    recordSession(dir, { sessionId: "tab-ended", scope: project, phase: "start", at: t.now() });
-    recordSession(dir, { sessionId: "tab-ended", scope: project, phase: "end", at: t.now() });
+    recordSession(dir, { sessionId: "tab-ended", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
+    recordSession(dir, { sessionId: "tab-ended", scope: project, phase: "end", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     const ended = payload(await s.call("chapter", { session: "tab-ended", text: "x" }));
     expect(ended["reason"]).toBe("session-not-live");
     expect(String(ended["detail"])).toContain("Claude Code session");
     // Stale: silent past the TTL.
-    recordSession(dir, { sessionId: "tab-quiet", scope: project, phase: "start", at: t.now() });
+    recordSession(dir, { sessionId: "tab-quiet", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     t.advance(SESSION_TTL_MS + MIN);
     expect(payload(await s.call("session_end", { session: "tab-quiet", memories: [] }))["reason"]).toBe("session-not-live");
     // Unknown: no record at all.
@@ -270,7 +271,7 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     const scopesFile = join(root, "config", "scopes.json");
     mkdirSync(dirname(scopesFile), { recursive: true });
     const s = desktopServer({ now: t.now, scopesFile });
-    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now() });
+    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     const chat = payload(await s.call("wake", {}))["session"] as string;
 
     // The scope tool, named, sets the PROJECT — in Claude Code's words.
@@ -310,7 +311,7 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     };
     s = desktopServer({ now: t.now, scopesFile, embedder });
     expect(s.recordLaunch({ pid: 999_001, hostPid: 999_000, heartbeatMs: 0 })?.scope).toBe(DESKTOP_SCOPE);
-    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now() });
+    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     // Desktop's place OFF; the Code tab's project stays on.
     expect(payload(await s.call("scope", { mode: "off" }))["scope"]).toBe(DESKTOP_SCOPE);
     const out = payload(await s.call("recall", { session: "tab-1", question: "the relief valve on the reservoir loop" }));
@@ -328,7 +329,7 @@ describe("no session named from the Code tab: it still files under the most rece
   test("the bind note names the Desktop chat and tells a Claude Code session to pass its own id", async () => {
     const t = clock();
     const s = desktopServer({ now: t.now });
-    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now() });
+    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     const chat = payload(await s.call("wake", {}))["session"] as string;
     const out = payload(await s.call("status", {}));
     expect(out["boundTo"]).toBe(chat);
@@ -370,5 +371,75 @@ describe("the Code-tab wake line, and the descriptions", () => {
     const session = ((note["inputSchema"] as { properties: Record<string, { description: string }> }).properties["session"]);
     expect(session?.description).toContain("in a Claude Code session");
     expect(session?.description).toContain("wake or Stop ask names");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("review of #309", () => {
+  test("observer in the Code tab's project: a served `scope` call stands down — it cannot lift the observer from inside", async () => {
+    const t = clock();
+    const scopesFile = join(root, "config", "scopes.json");
+    mkdirSync(dirname(scopesFile), { recursive: true });
+    writeScopes(scopesFile, setScope(null, project, "observer", { at: new Date().toISOString() }));
+    const s = desktopServer({ now: t.now, scopesFile });
+    recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
+    const out = payload(await s.call("scope", { session: "tab-1", mode: "on" }));
+    expect(out["set"]).not.toBe(true);
+    expect(s.events("mcp.scope.set")).toEqual([]);
+    expect(lookupScope(readScopes(scopesFile).registry, project).mode).toBe("observer");
+    // Its note stands down too, and writes nothing.
+    const noted = payload(await s.call("note", { session: "tab-1", text: "Should not land in an observer project." }));
+    expect(noted["stored"]).not.toBe(true);
+    // Desktop's own place is not observer: its scope tool still works there.
+    expect(payload(await s.call("scope", { mode: "on" }))["set"]).toBe(true);
+  });
+
+  test("a terminal Claude Code session is not Desktop's to serve: refused by name, and an unbound call says why", async () => {
+    const t = clock();
+    const s = desktopServer({ now: t.now });
+    recordSession(dir, { sessionId: "term-1", scope: project, phase: "start", at: t.now(), entrypoint: "cli" });
+    recordSession(dir, { sessionId: "old-1", scope: project, phase: "start", at: t.now() });
+    for (const id of ["term-1", "old-1"]) {
+      const refused = payload(await s.call("chapter", { session: id, text: "x" }));
+      expect(refused["reason"]).toBe("session-not-code-tab");
+      expect(String(refused["detail"])).toContain("outside Desktop's Code tab");
+    }
+    const noted = payload(await s.call("note", { session: "term-1", text: "The bus to the reservoir leaves at ten past the hour." }));
+    expect(noted["stored"]).toBe(true);
+    expect(noted["sessionRefused"]).toBe("session-not-code-tab");
+    expect(String(noted["sessionNote"])).toContain("claude-desktop:");
+    expect(s.counterpart.store.row(noted["id"] as string)?.origin_scope).toBe(DESKTOP_SCOPE);
+    expect(s.events("mcp.session.served")).toEqual([]);
+  });
+
+  test("idle past the TTL, then a prompt: the prompt hook makes the Code-tab session live again before the model's first call", async () => {
+    const realNow = Date.now();
+    // The session started, answered, then sat idle past the TTL.
+    recordSession(dir, { sessionId: "tab-idle", scope: project, phase: "start", at: realNow - SESSION_TTL_MS - 10 * MIN, entrypoint: CODE_TAB_ENTRYPOINT });
+    const s = desktopServer();
+    // Before the prompt: a note under that id is not filed silently — it says why it ran unbound.
+    const before = payload(await s.call("note", { session: "tab-idle", text: "Before the prompt: the reservoir gate locks at dusk." }));
+    expect(before["sessionRefused"]).toBe("session-not-live");
+    expect(String(before["sessionNote"])).toContain("no session");
+    // The person types; the UserPromptSubmit hook runs before the model calls anything.
+    const a = openAdapter({ dataDir: dir, owner: true }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
+    open.push(a.counterpart);
+    a.userPromptSubmit({ sessionId: "tab-idle", scope: project, at: localDate(Date.now()), prompt: "where were we on the gate?", entrypoint: CODE_TAB_ENTRYPOINT });
+    expect(readSession(dir, "tab-idle")?.lastBoundaryAt ?? 0).toBeGreaterThanOrEqual(realNow);
+    // Now the call is served as the session, in its project.
+    const after = payload(await s.call("note", { session: "tab-idle", text: "After the prompt: the reservoir gate locks at dusk, not at nine." }));
+    expect(after["stored"]).toBe(true);
+    expect(after["sessionRefused"]).toBeUndefined();
+    expect(s.counterpart.store.row(after["id"] as string)?.origin_scope).toBe(project);
+    expect(s.counterpart.store.row(after["id"] as string)?.origin_session).toBe("tab-idle");
+  });
+
+  test("the handshake's instructions and the unnamed-handoff refusal tell a Claude Code session not to wake", async () => {
+    expect(DESKTOP_INSTRUCTIONS).toContain("do not call wake");
+    const t = clock();
+    const s = desktopServer({ now: t.now });
+    payload(await s.call("wake", {}));
+    const out = payload(await s.call("session_end", { memories: [], handoff: "unnamed" }));
+    expect(String((out["handoff"] as Record<string, unknown>)["detail"])).toContain("Claude Code session (Desktop's Code tab)");
   });
 });

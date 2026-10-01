@@ -329,13 +329,15 @@ actually wrote (chapter), the written self page or the version a write to it pro
 21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
     Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
     server (same name, shadowing the session's own). So a Desktop call whose `session`
-    names a registry record the HOOKS wrote — host `claude-code`, live by the evidence
-    `requireBoundSession` asks (known, not ended, not silent past the TTL) — is served as
+    names a registry record the HOOKS wrote — host `claude-code`, entrypoint
+    `claude-desktop` (the Code tab's only: a terminal session has its own server, and is
+    refused `session-not-code-tab`), live by the evidence `requireBoundSession` asks
+    (known, not ended, not silent past the TTL; the prompt hook refreshes it) — is served as
     that Claude Code session, for that call only (`server.ts#claudeCodeSessionNamed`,
     `callAs`): its directory is the call's `scope` (its `off`/`paused`/`observer`, and
     the `scope` tool sets it), its id is the call's `session`, and `session_end` /
     `chapter` / `dream` / `reflect` / handoffs take it exactly as Claude Code's own server
-    would. It is not a Desktop call: no bind note, no pacer, no `writeUpAsk`, no
+    would — its `observer` included: the `scope` tool stands down there, as in Claude Code. It is not a Desktop call: no bind note, no pacer, no `writeUpAsk`, no
     `mcp.desktop.call` (event `mcp.session.served` instead), and words about the place are
     Claude Code's (the reconnect sentence stays Desktop's — the process is Desktop's).
     Only the hooks write such a record, so a model cannot invent one; an ended or stale
@@ -344,7 +346,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     call's. The Code tab's wake states the id (`claude-code/hooks.ts#codeTabSessionLine`,
     entrypoint `claude-desktop`); an unnamed call still falls back to the most recent
     Desktop chat, and its `bindNote` names that chat and tells a Claude Code session to
-    pass its own id.
+    pass its own id. A NAMED id that did not bind, on a tool that runs unbound anyway
+    (`note`, `recall`, `status`, …), says so on the result: `sessionRefused` (the reason)
+    and `sessionNote` (review of #309).
 
 ### The residual risk of the lazy bind, named
 
