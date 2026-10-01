@@ -44,7 +44,7 @@ const NAMES = {
   stance: "Mode",
   budget: "Time budget",
   retired: "Old settings",
-  lookups: "Looking things up while dreaming",
+  lookups: "Looking things up whole",
 };
 
 /**
