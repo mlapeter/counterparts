@@ -27,7 +27,7 @@ each mechanism is working. It should run in whatever AI host people use.
 ## Next
 
 1. **More hosts.** Claude Desktop chat shipped in 0.3.9 (host seam, then a `wake` tool for Desktop). Next: the owner tries it in his own Desktop, then claude.ai if it's doable.
-2. **Emotion, the rest**, now the wheel has landed (and with it, negative feelings softening faster than positive ones): a later feeling sits beside the first, and the self page reads the pattern of feelings over weeks.
+2. **Emotion, what's left**: recall by feeling (any feeling word maps to its core when asked, the word falls back to its core, "most" / "ever" ranks by original strength, memories about the feeling system rank lower); coverage (only ~14% of memories carry a feeling, and how more get one is under discussion); the self page reading the pattern of feelings over weeks; re-feeling in awake sessions.
 3. **Mechanisms**, one at a time, each talked through before it's built.
 4. **Dashboard**: finish the walk (Health, Flow, mobile).
 5. **Platforms**: Linux/WSL, then Windows, then Node.
@@ -43,7 +43,7 @@ each mechanism is working. It should run in whatever AI host people use.
 | ⬜ **Not built** | schemas |
 
 **What's left:**
-- **Emotion**: feelings already add weight and slow fading. The new wheel and valence-aware softening shipped in 0.3.10. Now: re-feeling on recall, and recognition feeding the self. Notes: the 2026-09-30 emotion walk.
+- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
 - **Schemas**: beliefs and entities that grow from what's lived.
 - **Episodic → semantic**: gist, where many episodes become one understanding.
 - **Interference**: similar memories competing, not just contradictions.
