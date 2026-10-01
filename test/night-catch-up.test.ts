@@ -278,6 +278,33 @@ describe("end to end: an owed session from yesterday, in another directory, writ
     expect(night?.detail).toContain("catch-up: wrote up 2 of 2 sessions (2 parts); nothing left owed");
   });
 
+  test("a session of several parts is written up whole in one night: the runner goes on from part to part", async () => {
+    const words = "the reservoir loop keeps its pressure only when the relief valve is seated first. ".repeat(70);
+    lived("big-1", proj, { pieces: 12, say: (i) => `big-1 #${String(i)}: ${words}` });
+    const seen: ChildPlan[] = [];
+    await runNight({
+      open: () => openNightCounterpart(config()),
+      config: config(),
+      run: "nrn_big",
+      session: "s-launch",
+      scope: launch,
+      kind: { kind: "night" },
+      date: TODAY(),
+      startCatchUp: drivingChild(seen),
+      start: async () => ({ code: 0, timedOut: false, error: null }),
+    });
+    expect(seen[0]?.stdin).toMatch(/- big-1: lived .*; parts 1–3 of 3 tonight\./);
+    expect(owes("big-1")).toBe(false);
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    expect(catchUpOf(c.store, "nrn_big")).toMatchObject({ state: "done", granted: 1, written: 1, parts: 3, left: 0 });
+    const mine = c.store
+      .list({ type: "memory", archived: false })
+      .map((id) => c.store.row(id))
+      .filter((r) => r?.origin_session === "big-1");
+    expect(mine.length).toBe(3);
+  });
+
   test("a quiet night — nothing owed — starts no catch-up child and writes no row", async () => {
     const seen: ChildPlan[] = [];
     await runNight({
