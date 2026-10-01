@@ -143,8 +143,12 @@ import {
   byteLength,
   markWakeBehind,
   noteWakeCaught,
+  settledOver,
   spliceBeforeSentinel,
   wakeBehind,
+  workHere,
+  workHereBlock,
+  workHereBytes,
   writerInstruction,
 } from "./self/index.js";
 import type {
@@ -161,6 +165,7 @@ import type {
   PageWriterRun,
   PageWriterStatus,
   SelfPage,
+  SelfTunables,
   WakeDelivery,
   WakeResult,
   WakeTrigger,
@@ -827,6 +832,12 @@ export interface CounterpartOptions extends Stance {
    * it does not write the page. Absent: `session`, the config's own default.
    */
   pageWriterMode?: PageWriterMode;
+  /**
+   * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
+   * defaults. Added 2026-10-01 so the craft lane's switch
+   * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
+   */
+  selfTunables?: Partial<SelfTunables>;
 }
 
 /** What `wake()` returns: the bundle, plus what the host told us about itself. */
@@ -1638,6 +1649,7 @@ export class Counterpart {
       },
       onMemoryMinted: (m) => this.creditNamedIn(m.title, m.body, m.day, m.id, "episode"),
       now: this.nowFn,
+      ...(opts.selfTunables === undefined ? {} : { tunables: opts.selfTunables }),
     });
     this.recall = new Recall({
       store: this.store,
@@ -1874,8 +1886,13 @@ export class Counterpart {
     const named = lastHere.some((b) => b.startsWith("Last here:"));
     const lastHereId = !named ? null : (allHere.find((c) => (reader === null || c.chapter.session !== reader) && (this.owner || c.chapter.confidential !== true))?.chapter.id ?? null);
     const newest = ladder[0];
-    if (newest === undefined && lastHere.length === 0) return result;
     const budget = this.reportedBudget;
+    // THIS DIRECTORY'S WORK (2026-10-01, lane 8): the craft lane, composed
+    // here because the stored bundle has no directory. It goes ABOVE whatever
+    // handoff block is chosen, in the room that block leaves — the handoff and
+    // "Last here" are chosen first and never give way to it (`withWorkHere`).
+    const work = this.workHereLines(scope);
+    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget);
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
@@ -1924,16 +1941,60 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return {
-        ...result,
-        text: spliced.text,
-        bytes: spliced.bytes,
-        sentinel: spliced.sentinel,
-      };
+      return this.withWorkHere(result, block, work, budget);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    return result;
+    return this.withWorkHere(result, null, work, budget);
+  }
+
+  /**
+   * THIS DIRECTORY'S WORK LINES, best first (`self/work.ts#workHere`), or none
+   * — with the switch off, with no directory, or with a store that will not
+   * answer. What a later memory settled over is left out, as every lane but
+   * identity leaves it out. Never throws.
+   */
+  private workHereLines(scope: string): string[] {
+    const t = this.self.tunables;
+    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return [];
+    try {
+      return workHere(this.store, scope, {
+        day: this.store.livedDay(),
+        max: t.WORK_HERE_MAX,
+        excerpt: t.WORK_HERE_EXCERPT,
+        skip: settledOver(this.store),
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * THE DELIVERY'S FOOT: the work lines that fit, widest first, above the
+   * chosen handoff `block` (or alone when there is none), spliced in ONE go
+   * above the sentinel. The block was chosen against the bundle without the
+   * work lines, so they can only take room it left; when not even one line
+   * fits, the block is spliced alone, exactly as before, and a ring event
+   * says the lines had no room. With no lines and no block, the bundle is
+   * returned untouched. Never throws.
+   */
+  private withWorkHere(result: WakeResult, block: string | null, lines: readonly string[], budget: number | null): WakeResult {
+    const spliced = (text: string): WakeResult | null => {
+      const s = spliceBeforeSentinel(result.text, text);
+      if (!s.applied || (budget !== null && s.bytes > budget)) return null;
+      return { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel };
+    };
+    for (let k = lines.length; k > 0; k--) {
+      const work = workHereBlock(lines.slice(0, k));
+      const out = spliced(block === null ? work : `${work}\n\n${block}`);
+      if (out === null) continue;
+      this.emit("counterpart.work.shown", undefined, { lines: k, of: lines.length, bytes: out.bytes - result.bytes });
+      return out;
+    }
+    if (lines.length > 0) this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+    if (block === null) return result;
+    const s = spliceBeforeSentinel(result.text, block);
+    return s.applied ? { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel } : result;
   }
 
   /**
@@ -2293,7 +2354,32 @@ export class Counterpart {
     } catch {
       /* no chapter lines is the reserve as it was */
     }
-    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes);
+    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes) + this.workReserveBytes(budgetBytes);
+  }
+
+  /**
+   * THE ROOM THE WORK LINES NEED (2026-10-01, lane 8), beside the handoff's
+   * and under the same share rule (`handoff/#reserveBytes`): the widest
+   * directory's whole block, with the margin, while it is at most an eighth
+   * of the budget; nothing past that, and nothing with the switch off or no
+   * work anywhere. Its OWN term, not a rung of the handoff's: the handoff
+   * block alone already sits near the eighth at the owner's ceiling, so a
+   * combined candidate would never pass and the lines would never be carried.
+   * What it takes comes out of the stored lanes by their trim order — Nearby
+   * first. Never throws.
+   */
+  private workReserveBytes(budgetBytes: number): number {
+    if (!this.self.tunables.CRAFT_AT_DELIVERY) return 0;
+    try {
+      const blocks: number[] = [];
+      for (const scope of this.spans.scopes()) {
+        const lines = this.workHereLines(scope);
+        if (lines.length > 0) blocks.push(workHereBytes(lines));
+      }
+      return reserveBytes(blocks, budgetBytes);
+    } catch {
+      return 0;
+    }
   }
 
   /** The DELIVERY-side record, distinct from the render-side one (scar §2.3). */

@@ -22,6 +22,7 @@ import type { Band, Kind, MemoryPhysics } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { ProseDoc, ReadOnlyStore, Store, WakeDisplayRow } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
+import { isWorkMemory } from "./work.js";
 
 export type LaneName = "identity" | "craft" | "threads" | "hints" | "horizon";
 
@@ -165,6 +166,11 @@ export interface Scanned {
   readonly display?: WakeDisplayRow;
   /** The lived day this scan read strength at. */
   readonly day?: number;
+  /** What it is about (`ABOUT_MARKS`), or null when unmarked. Absent on a
+   *  hand-built test row: read as unmarked. */
+  readonly about?: string | null;
+  /** The directory it was written in (`origin_scope`), or null. */
+  readonly originScope?: string | null;
 }
 
 /**
@@ -201,6 +207,8 @@ export function scanActive(store: Store, day: number): Scanned[] {
       lastRendered: rendered.get(id) ?? -1,
       ...(displays.has(id) ? { display: displays.get(id) as WakeDisplayRow } : {}),
       day,
+      about: row.about ?? null,
+      originScope: row.origin_scope ?? null,
     });
   }
   return out;
@@ -310,6 +318,7 @@ export interface Lanes {
  *              door.
  *   craft    — skill-kind, not already in identity, above the warm floor. The
  *              procedural self is rendered as CONTENT, never a pointer (§1).
+ *              Empty under `workAtDelivery` (below): composed per directory.
  *   threads  — `unresolved` memories: person-scoped first, oldest-opened first.
  *   hints    — everything else warm enough to be worth a nudge, by `hintReading`:
  *              organic strength x habituation, so one strong memory cannot
@@ -333,12 +342,26 @@ export interface Lanes {
  *
  * A hint the self page already COVERS (`coveredByPage`, `covered.ts`) is not
  * one either: Nearby is for what the page did not say (random-f2's item 5).
+ *
+ * WORK AT DELIVERY (`workAtDelivery`, 2026-10-01, lane 8): a work memory
+ * (`work.ts#isWorkMemory`) is in no lane of the STORED composition. The
+ * bundle is composed once per store and read in every directory, while work
+ * belongs to the directory it was done in — so the craft lane is composed at
+ * delivery, for the session's directory, beside "Last here"
+ * (`handoff/work-here.ts`, `counterpart.ts#addHandoffPointer`), and Nearby is
+ * left with what is personal. An unresolved work memory is still a thread:
+ * an open question stays open wherever the session wakes. Off, the lanes are
+ * what they were before: craft is skill-kind above the warm floor.
  */
 export function rankLanes(
   scanned: readonly Scanned[],
   horizonIn: readonly Ranked[],
   t: SelfTunables,
-  opts: { readonly settledOver?: ReadonlySet<string>; readonly coveredByPage?: ReadonlySet<string> } = {},
+  opts: {
+    readonly settledOver?: ReadonlySet<string>;
+    readonly coveredByPage?: ReadonlySet<string>;
+    readonly workAtDelivery?: boolean;
+  } = {},
 ): Lanes {
   const identity: Ranked[] = [];
   const craft: Ranked[] = [];
@@ -357,6 +380,17 @@ export function rankLanes(
     if (arriving.has(s.id) || settledOver.has(s.id)) continue;
     if (s.unresolved) {
       threads.push(rank(s, "threads"));
+      continue;
+    }
+    if (
+      opts.workAtDelivery === true &&
+      isWorkMemory({
+        about: s.about ?? null,
+        kind: s.kind,
+        originScope: s.originScope ?? null,
+        journal: typeof s.doc.meta["episodeId"] === "string",
+      })
+    ) {
       continue;
     }
     if (s.strength < t.WARM_FLOOR) continue;

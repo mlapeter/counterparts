@@ -203,6 +203,15 @@ function statementLines(text: string): string[] {
 
 const PASS_GATE: EpisodeGate = () => ({ ok: true });
 
+/**
+ * The stored lanes as they were before lane 8 (2026-10-01): craft is
+ * skill-kind above the warm floor, store-wide. The tests that use it are
+ * about the RENDER — lane order, dates, the share, the day-0 line — which the
+ * switch leaves as it was; the craft lane composed at delivery is tested in
+ * `test/wake-lanes.test.ts`.
+ */
+const STORE_WIDE_CRAFT = { CRAFT_AT_DELIVERY: false } as const;
+
 function emptyLanes(): Lanes {
   return { identity: [], craft: [], threads: [], hints: [], horizon: [] };
 }
@@ -215,7 +224,7 @@ describe("the wake briefing — composition", () => {
     craft(s, "I read the whole file before editing one line of it.");
     thread(s, "The question about the house move is still open.");
     hint(s, "The bus route changed and adds ten minutes.");
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, tunables: STORE_WIDE_CRAFT });
 
     const out = self.build({ budgetBytes: 100_000, day: 0 });
     const at = (needle: string): number => out.text.indexOf(needle);
@@ -329,7 +338,7 @@ describe("the wake briefing — the day-0 lane", () => {
 
   test("it stands beside the other lanes, and displaces none of them", () => {
     const s = store();
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, tunables: STORE_WIDE_CRAFT });
     self.ensureIdentityCore({ name: "Dana" });
     craft(s, "I read the whole file before editing one line of it.");
     thread(s, "The question about the house move is still open.");
@@ -776,7 +785,7 @@ describe("the wake briefing — every element carries its date", () => {
       salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
       learnedOn: "2026-09-04",
     });
-    const out = new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 });
+    const out = new Self({ store: s, tunables: STORE_WIDE_CRAFT }).build({ budgetBytes: 100_000, day: 0 });
 
     expect(out.elements).toBe(4);
     const lines = statementLines(out.text);
@@ -1015,7 +1024,7 @@ describe("the wake briefing — every element carries its date", () => {
         learnedOn: "2026-08-14",
       });
     }
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, tunables: STORE_WIDE_CRAFT });
     const BUDGET = 9_000;
     const out = self.build({ budgetBytes: BUDGET, day: 0 });
 
@@ -1298,7 +1307,7 @@ describe("identity ordering and enumeration", () => {
       source: "episode",
     });
 
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, tunables: STORE_WIDE_CRAFT });
     const out = self.build({ budgetBytes: 8_000, day: 0 });
     for (const lane of Object.values(out.kept)) {
       for (const id of lane) expect(id.startsWith("epi_")).toBe(false);

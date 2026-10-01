@@ -40,7 +40,7 @@ import {
 } from "../src/core/handoff/last-here.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { readRecencyAsk } from "../src/core/recall/index.js";
-import { readSentinel } from "../src/core/self/index.js";
+import { WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
 import { deliberateRecall } from "../src/adapters/mcp/deliberate.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -310,11 +310,20 @@ describe("its room in the wake", () => {
     k.c.writeHandoff("The parser rewrite is half done; the empty input still fails.", { scope: HERE, session: "e1e1e1e1-0000" });
     k.c.writeHandoff("The docs pass is waiting on the parser; nothing else is blocked.", { scope: HERE, session: "f2f2f2f2-0000" });
     // The same handoff ladder with no chapter line: A's own wake, since a
-    // session's own chapter is not "last here" and A left no handoff.
+    // session's own chapter is not "last here" and A left no handoff. The
+    // directory's work lines (lane 8) take what room the two leave, so they
+    // are not part of the comparison either.
     const handoffPart = (t: string): string =>
       t
         .split("\n")
-        .filter((l) => l.length > 0 && !/^(Last here:|Before it:|\+\d+ more here on )/.test(l) && !/^<!-- counterparts:wake/.test(l))
+        .filter(
+          (l) =>
+            l.length > 0 &&
+            !/^(Last here:|Before it:|\+\d+ more here on )/.test(l) &&
+            !/^<!-- counterparts:wake/.test(l) &&
+            l !== WORK_HERE_HEADING &&
+            !/^- .*\(mem_[0-9a-f]+\)$/.test(l),
+        )
         .join("\n");
     const base = k.c.wake(100_000, { date: "2026-09-30" }, { scope: THERE, session: B }).bytes;
     let lineGivenUpForWider = false;

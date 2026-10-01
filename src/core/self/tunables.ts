@@ -37,8 +37,21 @@ export interface SelfTunables {
    *  that ceiling, which is v1's whole non-identity wake, and still gives
    *  identity four of the long migrated elements (or ~20 v2-native ones). */
   IDENTITY_SHARE: number;
-  /** Most craft (skill-kind) elements considered. CAL. */
+  /** Most craft (skill-kind) elements considered. CAL. Read only while
+   *  `CRAFT_AT_DELIVERY` is off. */
   CRAFT_MAX: number;
+  /**
+   * CRAFT IS THIS DIRECTORY'S WORK, COMPOSED AT DELIVERY (2026-10-01, lane 8,
+   * a working default held lightly). On: a work memory (`work.ts#isWorkMemory`)
+   * is in no lane of the stored bundle, and the session's directory gets its
+   * own "Work here" lines at delivery (`work.ts#workHere`). Off: craft is
+   * skill-kind above the warm floor, store-wide, as before.
+   */
+  CRAFT_AT_DELIVERY: boolean;
+  /** How many work lines one delivery shows for its directory. CAL. */
+  WORK_HERE_MAX: number;
+  /** Characters of a work line's excerpt, after its title. CAL. */
+  WORK_HERE_EXCERPT: number;
   /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12] */
   THREADS_MAX: number;
   /** Most warm-shelf hints considered. CAL. */
@@ -193,6 +206,9 @@ export const SELF_TUNABLES: SelfTunables = {
   IDENTITY_MAX: 24,
   IDENTITY_SHARE: 0.5,
   CRAFT_MAX: 8,
+  CRAFT_AT_DELIVERY: true,
+  WORK_HERE_MAX: 4,
+  WORK_HERE_EXCERPT: 60,
   THREADS_MAX: 12,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,

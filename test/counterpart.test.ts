@@ -276,7 +276,9 @@ describe("the full pipeline — wake, live, write, retrieve, credit, sleep, wake
     expect(briefing?.status).toBe("ran");
 
     // ── and the next wake carries what the session learned ───────────────────
-    const woke = c.wake(BUDGET_BYTES);
+    // In the directory it was learned in: an unmarked fact written in "proj"
+    // is that directory's work, delivered there (lane 8, 2026-10-01).
+    const woke = c.wake(BUDGET_BYTES, { date: "2026-01-03" }, { scope: "proj" });
     expect(woke.ok).toBe(true);
     expect(woke.text).toContain("storage split");
   });
@@ -1327,7 +1329,8 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     expect(report.sweeps.some((s) => s.ran)).toBe(true);
     // The cycle saw it: the memory exists and the briefing rendered after it.
     expect(c.store.list({ type: "memory" }).length).toBe(1);
-    expect(c.wake(BUDGET_BYTES).text).toContain("any editor");
+    // Delivered in the directory it was recovered from (lane 8: it is that directory's work).
+    expect(c.wake(BUDGET_BYTES, { date: "2026-01-02" }, { scope: "proj" }).text).toContain("any editor");
   });
 });
 

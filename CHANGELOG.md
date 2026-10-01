@@ -9,6 +9,11 @@
   start under bun when bun is on PATH, else Node. On Linux, `install --host
   claude-desktop` says Claude Desktop is not available there instead of writing a config.
   Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
+- The wake's craft lane is now the work done in the directory the session opens in: "Work
+  here, if it helps:" lists that directory's newest few work memories (marked `work`, or
+  unmarked skills and facts written there), each a title, a short excerpt and its id.
+  Nearby keeps what is personal, so a session in one project no longer wakes to another
+  project's plumbing.
 - A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
   a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
   here since" when another session wrote a chapter in that directory after it. The end-of-

@@ -168,7 +168,7 @@ const ABOUT_PROPERTY = {
   type: "string",
   enum: ["me", "us", "owner", "work", "world"],
   description:
-    "Optional: what this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (the craft: how a job is done), world (anything else). Leave it out when unsure. Only me, us and owner can become part of who I am.",
+    "What this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (the craft: how a job is done), world (anything else). Mark anything personal — people, feelings, life outside the work — owner or us: left unmarked, a fact written in a project counts as that project's work and is shown only there. Only me, us and owner can become part of who I am.",
 };
 
 /**

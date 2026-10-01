@@ -1,0 +1,275 @@
+/**
+ * THE WAKE'S LANES DO WHAT THEY WERE MEANT FOR (2026-10-01, lane 8).
+ *
+ * Craft is this directory's work, composed at delivery for the directory the
+ * session opens in; Nearby is what is personal. Every memory here is invented
+ * for the test.
+ *
+ * Hermetic: every test makes its own temp directory and removes it. The clock
+ * is pinned and the zone is UTC.
+ */
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { Counterpart } from "../src/core/counterpart.js";
+import {
+  FRAMING,
+  SELF_TUNABLES,
+  WORK_HERE_HEADING,
+  excerptOf,
+  isWorkMemory,
+  readSentinel,
+} from "../src/core/self/index.js";
+import type { AboutMark } from "../src/core/store/index.js";
+import type { Kind } from "../src/core/types.js";
+
+const ZONE = "UTC";
+const NOW = Date.UTC(2026, 9, 1, 15, 0);
+const BUDGET = 9_000;
+
+let root: string;
+let storeDir: string;
+let WORKSHOP: string;
+let LIBRARY: string;
+const open: { close(): void }[] = [];
+
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-wake-lanes-")));
+  storeDir = join(root, "store");
+  WORKSHOP = join(root, "workshop");
+  LIBRARY = join(root, "library");
+  mkdirSync(WORKSHOP, { recursive: true });
+  mkdirSync(LIBRARY, { recursive: true });
+});
+
+afterEach(() => {
+  for (const c of open.splice(0)) {
+    try {
+      c.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+function counterpart(tunables?: Record<string, unknown>): Counterpart {
+  const c = Counterpart.open({
+    dir: storeDir,
+    owner: true,
+    now: () => NOW,
+    timeZone: ZONE,
+    ...(tunables === undefined ? {} : { selfTunables: tunables }),
+  });
+  open.push(c);
+  return c;
+}
+
+function put(
+  c: Counterpart,
+  body: string,
+  opts: { kind?: Kind; about?: AboutMark; scope?: string; title?: string; born?: number; meta?: Record<string, unknown> } = {},
+): string {
+  return c.store.put({
+    type: "memory",
+    kind: opts.kind ?? "fact",
+    body,
+    salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+    ...(opts.title === undefined ? {} : { title: opts.title }),
+    ...(opts.about === undefined ? {} : { about: opts.about, aboutBy: "writer" as const }),
+    ...(opts.scope === undefined ? {} : { origin: { scope: opts.scope } }),
+    ...(opts.meta === undefined ? {} : { meta: opts.meta }),
+    ...(opts.born === undefined ? {} : { physics: { birthDay: opts.born, lastUsedDay: opts.born } }),
+  });
+}
+
+function wake(c: Counterpart, scope: string, budget = BUDGET): string {
+  c.rebrief({ budgetBytes: budget, at: "2026-10-01" });
+  return c.wake(budget, { date: "2026-10-01" }, { scope, session: "s-reader" }).text;
+}
+
+/** The lines under one heading, up to the next blank line. */
+function under(text: string, heading: string): string[] {
+  const lines = text.split("\n");
+  const at = lines.indexOf(heading);
+  if (at < 0) return [];
+  const out: string[] = [];
+  for (let i = at + 1; i < lines.length && (lines[i] ?? "").length > 0; i++) out.push(lines[i] as string);
+  return out;
+}
+
+describe("what is work (self/work.ts#isWorkMemory)", () => {
+  const base = { originScope: "/w", journal: false } as const;
+  test("marked: work is work, any kind; the personal marks are not", () => {
+    for (const kind of ["fact", "skill", "self", "person", "entity", "place"] as Kind[]) {
+      expect(isWorkMemory({ ...base, about: "work", kind })).toBe(true);
+    }
+    for (const about of ["me", "us", "owner", "world"]) {
+      expect(isWorkMemory({ ...base, about, kind: "fact" })).toBe(false);
+      expect(isWorkMemory({ ...base, about, kind: "skill" })).toBe(false);
+    }
+  });
+
+  test("unmarked: by kind — a skill is work; a fact, entity or place is work when it has a directory", () => {
+    expect(isWorkMemory({ ...base, about: null, kind: "skill" })).toBe(true);
+    expect(isWorkMemory({ about: null, kind: "skill", originScope: null, journal: false })).toBe(true);
+    for (const kind of ["fact", "entity", "place"] as Kind[]) {
+      expect(isWorkMemory({ ...base, about: null, kind })).toBe(true);
+      expect(isWorkMemory({ about: null, kind, originScope: null, journal: false })).toBe(false);
+      expect(isWorkMemory({ about: null, kind, originScope: "  ", journal: false })).toBe(false);
+    }
+    expect(isWorkMemory({ ...base, about: null, kind: "self" })).toBe(false);
+    expect(isWorkMemory({ ...base, about: null, kind: "person" })).toBe(false);
+  });
+
+  test("a name scope is not a directory: an unmarked Desktop chat fact stays personal (review of #313)", () => {
+    expect(isWorkMemory({ about: null, kind: "fact", originScope: "claude-desktop:", journal: false })).toBe(false);
+    expect(isWorkMemory({ about: null, kind: "fact", originScope: "claude-desktop:proj", journal: false })).toBe(false);
+    expect(isWorkMemory({ about: null, kind: "fact", originScope: "relative/dir", journal: false })).toBe(false);
+    expect(isWorkMemory({ about: null, kind: "fact", originScope: "C:\\work\\proj", journal: false })).toBe(true);
+    // A skill is how a job is done wherever it was written; marked work is work.
+    expect(isWorkMemory({ about: null, kind: "skill", originScope: "claude-desktop:", journal: false })).toBe(true);
+  });
+
+  test("an unmarked person or self memory is personal wherever it was written", () => {
+    for (const kind of ["person", "self"] as Kind[]) {
+      expect(isWorkMemory({ about: null, kind, originScope: "/w", journal: false })).toBe(false);
+    }
+  });
+
+  test("a journal copy is never work, whatever its mark", () => {
+    expect(isWorkMemory({ ...base, about: "work", kind: "self", journal: true })).toBe(false);
+  });
+});
+
+describe("Nearby is personal; work waits for its directory", () => {
+  test("a work-marked memory and an unmarked fact from a directory leave Nearby; the personal ones stay", () => {
+    const c = counterpart();
+    put(c, "Dana's sister is moving to the coast in the spring.", { kind: "person", scope: WORKSHOP });
+    put(c, "Lunch by the window was the best part of the week.", { scope: "claude-desktop:" });
+    const work = put(c, "The parser rejects a trailing comma in the config file.", { about: "work", scope: WORKSHOP });
+    const unmarked = put(c, "The build cache lives under the project's tmp folder.", { scope: WORKSHOP });
+    const skill = put(c, "I run the narrow test file before the whole suite.", { kind: "skill" });
+    put(c, "Dana likes a short answer first and the reasons after.", { about: "owner", scope: WORKSHOP });
+    put(c, "The ferry stops running at nine in winter.");
+    const text = wake(c, LIBRARY);
+    const nearby = under(text, FRAMING.hints).join("\n");
+    expect(nearby).toContain("Dana likes a short answer first");
+    expect(nearby).toContain("The ferry stops running at nine");
+    expect(nearby).toContain("sister is moving to the coast");
+    expect(nearby).toContain("Lunch by the window");
+    for (const id of [work, unmarked, skill]) expect(text).not.toContain(id);
+    expect(text).not.toContain("trailing comma");
+    expect(text).not.toContain("build cache");
+    expect(text).not.toContain("narrow test file");
+    // The stored bundle has no craft lane any more: it is composed per directory.
+    expect(text).not.toContain(FRAMING.craft);
+    expect(readSentinel(text).intact).toBe(true);
+  });
+
+  test("the switch off is the lanes as they were: skill above the warm floor is craft, a fact is Nearby", () => {
+    const c = counterpart({ CRAFT_AT_DELIVERY: false });
+    put(c, "The build cache lives under the project's tmp folder.", { scope: WORKSHOP, about: "work" });
+    put(c, "I run the narrow test file before the whole suite.", { kind: "skill" });
+    const text = wake(c, WORKSHOP);
+    expect(under(text, FRAMING.craft).join("\n")).toContain("narrow test file");
+    expect(under(text, FRAMING.hints).join("\n")).toContain("build cache");
+    expect(text).not.toContain(WORK_HERE_HEADING);
+  });
+});
+
+describe("the craft lane, composed at delivery for the session's directory", () => {
+  test("a session in the workshop gets the workshop's work; one in the library does not", () => {
+    const c = counterpart();
+    const w1 = put(c, "The parser rejects a trailing comma in the config file.", { about: "work", scope: WORKSHOP, title: "Trailing commas" });
+    const w2 = put(c, "I run the narrow test file before the whole suite.", { kind: "skill", scope: WORKSHOP });
+    const lib = put(c, "The catalogue sorts by the second word of a title.", { about: "work", scope: LIBRARY });
+    const here = wake(c, WORKSHOP);
+    const lines = under(here, WORK_HERE_HEADING);
+    expect(lines.length).toBe(2);
+    expect(lines.join("\n")).toContain(w1);
+    expect(lines.join("\n")).toContain(w2);
+    expect(here).not.toContain(lib);
+    // Title, an excerpt, and the id the recall tool expands.
+    expect(lines.find((l) => l.includes(w1))).toMatch(/^- 20\d\d-\d\d-\d\d · Trailing commas — The parser rejects .*\(mem_[0-9a-f]+\)$/);
+    const there = wake(c, LIBRARY);
+    expect(under(there, WORK_HERE_HEADING)).toEqual([expect.stringContaining(lib)]);
+    expect(there).not.toContain(w1);
+  });
+
+  test("newest first, then strength; at most WORK_HERE_MAX lines", () => {
+    const c = counterpart();
+    const ids: string[] = [];
+    for (let i = 0; i < SELF_TUNABLES.WORK_HERE_MAX + 2; i++) {
+      ids.push(put(c, `Workshop finding number ${String(i)}: the jig needs a shim on the left.`, { about: "work", scope: WORKSHOP, born: i }));
+    }
+    const lines = under(wake(c, WORKSHOP), WORK_HERE_HEADING);
+    expect(lines.length).toBe(SELF_TUNABLES.WORK_HERE_MAX);
+    const newestFirst = [...ids].reverse().slice(0, SELF_TUNABLES.WORK_HERE_MAX);
+    lines.forEach((l, i) => expect(l).toContain(newestFirst[i] as string));
+  });
+
+  test("not a thread, not a reminder, not a journal copy, not confidential, not settled over — and never shown twice", () => {
+    const c = counterpart();
+    const shown = put(c, "The glue sets in twenty minutes at room temperature.", { about: "work", scope: WORKSHOP });
+    const open = put(c, "Which clamp fits the long board is still an open question.", { about: "work", scope: WORKSHOP, meta: { unresolved: true } });
+    const copy = put(c, "Chapter copy: a long day at the bench.", { about: "work", scope: WORKSHOP, kind: "self", meta: { episodeId: "epi_000000000001" } });
+    const secret = put(c, "The supplier's account terms are private.", { about: "work", scope: WORKSHOP, meta: { confidential: true } });
+    const text = wake(c, WORKSHOP);
+    const lines = under(text, WORK_HERE_HEADING);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain(shown);
+    // The unresolved work memory is a thread, shown store-wide, once.
+    expect(under(text, FRAMING.threads).join("\n")).toContain("Which clamp fits");
+    expect(text.split(open).length - 1).toBeLessThanOrEqual(1);
+    expect(text).not.toContain(copy);
+    expect(text).not.toContain(secret);
+    // No id anywhere in the bundle twice.
+    const ids = text.match(/mem_[0-9a-f]{12}/g) ?? [];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("it sits above Last here and the handoff, and gives way to them", () => {
+    const c = counterpart();
+    for (let i = 0; i < 4; i++) {
+      put(c, `Workshop finding ${String(i)}: ${"the jig needs a shim on the left side, and the fence drifts. ".repeat(2)}`, { about: "work", scope: WORKSHOP, born: i });
+    }
+    c.writeHandoff("The cabinet doors are hung; the drawers still need runners.", { scope: WORKSHOP, session: "s-writer-0000" });
+    const text = wake(c, WORKSHOP);
+    const work = text.indexOf(WORK_HERE_HEADING);
+    const handoff = text.indexOf("Where I left off");
+    expect(work).toBeGreaterThan(0);
+    expect(handoff).toBeGreaterThan(work);
+    // A ceiling with room for the handoff and not for the work: the handoff stays.
+    const full = c.wake(BUDGET, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
+    const workBytes = new TextEncoder().encode(`${[WORK_HERE_HEADING, ...under(full.text, WORK_HERE_HEADING)].join("\n")}\n\n`).length;
+    const tight = full.bytes - workBytes + 10;
+    const squeezed = c.wake(tight, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
+    expect(squeezed.bytes).toBeLessThanOrEqual(tight);
+    expect(squeezed.text).toContain("Where I left off");
+    expect(under(squeezed.text, WORK_HERE_HEADING).length).toBeLessThan(4);
+    expect(readSentinel(squeezed.text).intact).toBe(true);
+  });
+
+  test("the boundary reserves the work lines' room, once there is work in a directory sessions open in", () => {
+    const c = counterpart();
+    const before = c.rebrief({ budgetBytes: BUDGET, at: "2026-10-01" }).composeBudget ?? 0;
+    put(c, "The parser rejects a trailing comma in the config file.", { about: "work", scope: WORKSHOP });
+    c.captureSpans({ session: "s-writer-0000", scope: WORKSHOP, turns: [{ role: "user", text: "the drawers, then the doors" }] });
+    const after = c.rebrief({ budgetBytes: BUDGET, at: "2026-10-01" }).composeBudget ?? 0;
+    expect(after).toBeLessThan(before);
+    expect(before - after).toBeLessThanOrEqual(BUDGET / 8);
+  });
+});
+
+describe("excerptOf", () => {
+  test("whole when short; cut at a word with an ellipsis when long", () => {
+    expect(excerptOf("short and sweet", 60)).toBe("short and sweet");
+    const cut = excerptOf("one two three four five six seven eight nine ten", 20);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(21);
+    expect(cut).toBe("one two three four…");
+  });
+});

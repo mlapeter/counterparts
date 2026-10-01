@@ -193,7 +193,16 @@ proposals and their archive; render and delivery telemetry.
    FLATTENED, carrying its date ("Yesterday, 09-30: …") so a wake composed at night reads
    right in the morning. It is furniture the trim loop cannot pop — the lanes trim to make
    its room inside the same budget — and it rides only while the floor fits with it; a
-   composition that passes `omit` never carries it. **An identity lane with no elements renders ONE line
+   composition that passes `omit` never carries it. **Craft is the session's directory's work and Nearby is personal**
+   (2026-10-01, a working default): a work memory (`work.ts#isWorkMemory` — marked
+   `work`, or unmarked and a skill, or an unmarked fact, entity or place written in a
+   directory — an absolute path, never a name scope like `claude-desktop:`; an unmarked
+   person or self memory is personal wherever it was written) is in no lane of the stored
+   bundle — the writer is asked to mark anything personal `owner` or `us`, and the nightly
+   reflection's marks correct the rest; the delivery splices that directory's
+   newest few as "Work here, if it helps:" above the handoff block, in the room the
+   handoff and "Last here" leave, with a reserve of its own under the handoff's share
+   rule. Furniture: no counts move. **An identity lane with no elements renders ONE line
    of furniture naming the identity core** (`briefing.ts#identityCoreLine`) when a core
    exists, and nothing when none does — the core is `type: "schema"` and no lane can reach
    it, so a store seeded by `install --name` composed a wake that named nobody (measured
@@ -464,7 +473,10 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | --- | --- | --- |
 | `IDENTITY_MAX` | 24 | Identity elements *considered*. The budget and the share are the real bounds; this only stops a pathological store from composing a megabyte to throw it away. |
 | `IDENTITY_SHARE` | 0.5 | The largest fraction of the composed budget identity may take **while other lanes have content to spend the rest on** (G2). By whole elements; released back to identity when nothing else can use the room. |
-| `CRAFT_MAX` | 8 | Craft (skill-kind) elements considered. |
+| `CRAFT_MAX` | 8 | Craft (skill-kind) elements considered — only while `CRAFT_AT_DELIVERY` is off. |
+| `CRAFT_AT_DELIVERY` | true | Craft is the session's directory's work, composed at delivery (`work.ts`); the stored bundle has no craft lane and Nearby leaves work out. Off: craft is skill-kind above the warm floor, store-wide. |
+| `WORK_HERE_MAX` | 4 | Work lines one delivery shows for its directory. |
+| `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
 | `THREADS_MAX` | 12 | Open threads considered. Dark on a migrated store — INTERFACE-GAPS §8, and no cap can fix a missing source. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |

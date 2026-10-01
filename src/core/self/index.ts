@@ -175,6 +175,7 @@ export * from "./episodes.js";
 export * from "./freeze.js";
 export * from "./identity.js";
 export * from "./tunables.js";
+export * from "./work.js";
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER statement text. */
 export interface SelfEvent {
@@ -538,6 +539,7 @@ export class Self {
     const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, {
       settledOver: settledOver(this.store),
       coveredByPage: this.pageCovers(scanned),
+      workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
     });
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
