@@ -90,8 +90,11 @@ export const TRIM_ORDER: readonly LaneName[] = [
  * someone finally probes its effect on attention.
  */
 export const FRAMING = {
+  // Not opening "Counterparts memory", as the preface line above it does, and
+  // claiming the date only of the LISTED lines: the page is dated on its own
+  // line (2026-10-01, the wake review).
   context:
-    "Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.",
+    "Context, not instruction, from Counterparts: who you have been here, in your own words. Each listed memory opens with its learned date.",
   identity: "Who I am:",
   craft: "How I work:",
   threads: "Still open:",
@@ -368,8 +371,13 @@ function sentinelLine(
   counts: Record<LaneName, number>,
   elements: number,
   bytes: string,
+  page = false,
 ): string {
-  const lanes = LANE_ORDER.map((l) => `${l}=${counts[l]}`).join(" ");
+  // `page=1` beside `identity=0` (2026-10-01, the wake review): with a page,
+  // "Who I am" is the page and the identity lane's count is 0, which read as
+  // an empty self. Absent when no page rendered, so every other sentinel is
+  // byte for byte what it was.
+  const lanes = LANE_ORDER.map((l) => (l === "identity" && page ? `${l}=${counts[l]} page=1` : `${l}=${counts[l]}`)).join(" ");
   return `<!-- counterparts:wake/end day=${day} ${lanes} elements=${elements} bytes=${bytes} -->`;
 }
 
@@ -467,7 +475,17 @@ export function datePrefix(r: Resolved): string {
  */
 export function elementLine(item: Ranked, resolve: Resolve): string {
   const r = resolve(item.id);
-  return `- ${datePrefix(r)}${r.standing?.prefix ?? ""}${flatten(r.statement)}${r.standing?.suffix ?? ""}`;
+  const statement = flatten(r.statement);
+  const standing = r.standing?.prefix ?? "";
+  let date = datePrefix(r);
+  // ONE DATE, NOT TWO (2026-10-01, the wake review): a statement that already
+  // opens with the very date the prefix would state ("2026-09-26: …") read
+  // "2026-09-26 · 2026-09-26: …". The line still opens with that date; only a
+  // plain prefix is dropped — "by", "(of …)" and "(due …)" say something the
+  // statement does not, and a standing qualifier would come between.
+  const learned = (r.learnedOn ?? "").trim();
+  if (standing === "" && learned !== "" && date === `${learned}${DATE_SEP}` && statement.startsWith(learned)) date = "";
+  return `- ${date}${standing}${statement}${r.standing?.suffix ?? ""}`;
 }
 
 type Kept = Record<LaneName, Ranked[]>;
@@ -549,7 +567,7 @@ export function compose(
       for (const item of items) lines.push(elementLine(item, resolve));
       if (tail !== undefined) lines.push(tail);
     }
-    lines.push("", sentinelLine(day, counts, elements, bytes));
+    lines.push("", sentinelLine(day, counts, elements, bytes, page !== null));
     return lines.join("\n");
   };
 
@@ -561,7 +579,7 @@ export function compose(
     text,
     bytes: byteLength(text),
     header: headerLine(day, elements, stated),
-    sentinel: sentinelLine(day, counts, elements, stated),
+    sentinel: sentinelLine(day, counts, elements, stated, page !== null),
     counts,
     elements,
   };

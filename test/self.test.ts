@@ -826,6 +826,29 @@ describe("the wake briefing — every element carries its date", () => {
     expect(lines).toContain("- 2026-09-01 · Today's standup moved to ten.");
   });
 
+  test("a statement that opens with its own learned date is not given it twice (2026-10-01)", () => {
+    // The wake review: "2026-09-26 · 2026-09-26: …" on a Nearby line.
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "2026-09-01: the standup moved to ten.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-01",
+    });
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "2026-08-30: the old standup time was nine.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-01",
+    });
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
+    expect(lines).toContain("- 2026-09-01: the standup moved to ten.");
+    // Another date in front is the statement's own, not the learned one: both stay.
+    expect(lines).toContain("- 2026-09-01 · 2026-08-30: the old standup time was nine.");
+  });
+
   test("a MIGRATED element's date is an upper bound — 'by', never a plain claim", () => {
     // Live 2026-09-05, the first dated wake: all eleven elements read
     // "2026-09-03 ·", the import day, a July incident among them. The importer

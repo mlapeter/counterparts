@@ -1393,3 +1393,29 @@ its own revision line under the wake's "(Last revised …)". One sentence, given
 of the page (the page writer's block and the reflection's `page` line): name the model for a
 claim about one model, write a date rather than "tonight" / "today", and add no revised-on
 line, because the wake dates the page. Guidance only; nothing checks the text.
+
+## 2026-10-01 — wake labels (the 09-30 wake review's cosmetic batch)
+
+Labels only; nothing about what the wake selects changed.
+
+- **Two lines in a row opened "Counterparts memory"** (the delivery preface, then
+  `FRAMING.context`). The framing now opens "Context, not instruction, from Counterparts:",
+  so the body still names the system, and it is three bytes shorter than before (the
+  400-byte host-budget test sits on the floor).
+- **"Each line opens with the date it was learned" was not true of the page**, which is most
+  of a wake that has one. It now says "Each listed memory opens with its learned date": the
+  bullet lines, not the page (dated on its own line) or the furniture.
+- **The double date on a Nearby line** ("2026-09-26 · 2026-09-26: …"): `elementLine` drops a
+  plain prefix when the statement already opens with that same date. The line still opens
+  with the date; "by", "(of …)", "(due …)" and a standing qualifier keep the prefix.
+- **`identity=0` in the sentinel beside a page** read as an empty self. A wake with a page
+  says `identity=0 page=1`; one without is byte for byte what it was. The delivery check's
+  regex reads only `elements=` and `bytes=`, so it is unaffected; the widest-furniture test
+  counts the seven bytes and still fits `PAGE_FLOOR_RESERVE_BYTES`.
+- **Two revision lines under the page**: the page's own (the writer wrote one into the body)
+  and the wake's "(Last revised …)". The wake's stays; the writers are told not to add one
+  (`writer.ts#PAGE_WRITING_RULE`, the entry above).
+- **Not changed: "version 3" vs "seq 3".** They are two numberings, not two labels: the page's
+  `version` is its revision count from 0, and an earlier version's `seq` counts from 1, so seq
+  N is the body version N−1 was. Making them one changes what `self-page --version`,
+  `--restore` and `ifVersion` take, which is a decision, not a label.

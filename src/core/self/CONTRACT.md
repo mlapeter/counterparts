@@ -205,7 +205,9 @@ proposals and their archive; render and delivery telemetry.
    bundle is delivered exactly as found — never rewritten. **Every rendered element opens
    with the date it was learned** — `- YYYY-MM-DD · statement`, and
    `- YYYY-MM-DD (of YYYY-MM-DD) · statement` when the content date differs (neutral,
-   because the horizon lane's dates are in the future). Leading, not trailing: the age is
+   because the horizon lane's dates are in the future), `- YYYY-MM-DD (due YYYY-MM-DD) ·
+   statement` for an arriving occasion (2026-10-01), and no prefix when the statement
+   already opens with that same date. Leading, not trailing: the age is
    read before the claim, the element's own text still ends the line, and it costs 14 bytes
    at day precision against 21 for a trailing form — counted in the composed budget and in
    the identity share, on the same line the sentinel counts. The element text itself is
