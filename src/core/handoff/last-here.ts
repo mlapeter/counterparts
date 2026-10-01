@@ -23,6 +23,7 @@
  * the same reserve, by the same share rule (`reserveBytes`), and it gives way
  * to the handoff — a fortnight's unfinished work outranks orientation.
  */
+import { CORE_ABOUT_MARKS } from "../store/index.js";
 import type { Store } from "../store/index.js";
 import { localDate, readableDate } from "../time.js";
 import { isKnownSession, isModelId } from "../types.js";
@@ -84,6 +85,9 @@ export interface ChapterHere {
    * chapter only to the owner, and never in another directory.
    */
   readonly confidential?: boolean;
+  /** A live copy of it is marked about me, us or the owner (`CORE_ABOUT_MARKS`),
+   *  read in the same grouped query (`Store#copiesOf`). */
+  readonly aboutMe?: boolean;
 }
 
 /** A chapter's session here, with the times the line prints, spelled by the caller. */
@@ -121,6 +125,13 @@ export function chaptersBySession(store: Store, opts: { fromDay?: number } = {})
   } catch {
     return out;
   }
+  // Every copy of every episode in the window, in ONE query (review of #311).
+  let copies: ReturnType<Store["copiesOf"]> | null;
+  try {
+    copies = store.copiesOf(ids);
+  } catch {
+    copies = null;
+  }
   for (const id of ids) {
     if (denied.has(id)) continue;
     try {
@@ -150,22 +161,15 @@ export function chaptersBySession(store: Store, opts: { fromDay?: number } = {})
         createdAt,
         writtenDay: day ?? (Number.isFinite(row.birth_day) ? row.birth_day : null),
         scope: row.origin_scope === null || row.origin_scope.length === 0 ? null : row.origin_scope,
-        confidential: row.confidential === 1 || copiesConfidential(store, id),
+        // A store that will not say reads as confidential, and about nothing.
+        confidential: row.confidential === 1 || copies === null || (copies.get(id) ?? []).some((c) => c.confidential),
+        aboutMe: (copies?.get(id) ?? []).some((c) => c.about !== null && (CORE_ABOUT_MARKS as readonly string[]).includes(c.about)),
       });
     } catch {
       continue;
     }
   }
   return out;
-}
-
-/** Is any live memory minted from this episode confidential? Unreadable reads as yes. */
-function copiesConfidential(store: Store, episodeId: string): boolean {
-  try {
-    return store.list({ type: "memory", archived: false, originRef: episodeId }).some((id) => store.row(id)?.confidential === 1);
-  } catch {
-    return true;
-  }
 }
 
 /** The text of an episode's LAST chapter, and the lived day its heading names. */
@@ -345,11 +349,21 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
     return out;
   }
   const zone = store.zone();
+  // CONFIDENTIAL CHAPTERS ARE NOT LISTED (review of #311): the line is
+  // composed once and read by every session, the owner's or not, so a title a
+  // non-owner may not see is left out for all. One grouped read for the copies.
+  let copies: ReturnType<Store["copiesOf"]> | null;
+  try {
+    copies = store.copiesOf(ids);
+  } catch {
+    copies = null;
+  }
   for (const id of ids) {
     if (denied.has(id)) continue;
     try {
       const row = store.row(id);
       if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
+      if (row.confidential === 1 || copies === null || (copies.get(id) ?? []).some((c) => c.confidential)) continue;
       let dated = 0;
       let that = 0;
       for (const m of row.body.matchAll(DATED_HEADING)) {

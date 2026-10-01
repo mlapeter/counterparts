@@ -2006,8 +2006,8 @@ export class Counterpart {
    * THE NEWEST CHAPTER ABOUT ME FROM ANOTHER DIRECTORY, inside the fortnight
    * (2026-10-01, random-f2's item 6): not one shown here already, not the
    * reader's own, and with a live copy marked `me`, `us` or `owner`
-   * (`CORE_ABOUT_MARKS`). One SQL-bounded read per chapter in the window (a
-   * handful). Null when none; throws only what the store throws.
+   * (`ChapterHere.aboutMe`, read with the walk's one grouped query). Null when
+   * none; throws only what the store throws.
    */
   private selfChapterElsewhere(
     chapters: ReadonlyMap<string, ChapterHere>,
@@ -2019,16 +2019,10 @@ export class Counterpart {
     // setting is on), and never a confidential chapter (review of #311). With
     // no way to ask, nothing crosses.
     if (exportsFrom === undefined) return null;
-    // One read per chapter per walk: the reserve asks once per directory.
-    let marks = this.aboutMeMarks.get(chapters);
-    if (marks === undefined) {
-      marks = new Map();
-      this.aboutMeMarks.set(chapters, marks);
-    }
     let best: ChapterHere | null = null;
     for (const c of chapters.values()) {
       if (here.has(c.id) || (reader !== null && c.session === reader)) continue;
-      if (c.confidential === true || c.scope === null) continue;
+      if (c.confidential === true || c.scope === null || c.aboutMe !== true) continue;
       if (best !== null && best.writtenAt >= c.writtenAt) continue;
       let open = false;
       try {
@@ -2037,21 +2031,10 @@ export class Counterpart {
         open = false;
       }
       if (!open) continue;
-      let marked = marks.get(c.id);
-      if (marked === undefined) {
-        marked = this.store.list({ type: "memory", archived: false, originRef: c.id }).some((id) => {
-          const about = this.store.row(id)?.about ?? null;
-          return about !== null && (CORE_ABOUT_MARKS as readonly string[]).includes(about);
-        });
-        marks.set(c.id, marked);
-      }
-      if (marked) best = c;
+      best = c;
     }
     return best;
   }
-
-  /** `selfChapterElsewhere`'s answers, per chapter walk (a walk is one map). */
-  private readonly aboutMeMarks = new WeakMap<ReadonlyMap<string, ChapterHere>, Map<string, boolean>>();
 
   /**
    * THE CHAPTERS "LAST HERE" WOULD NAME for this directory, newest first, with

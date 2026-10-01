@@ -4044,6 +4044,36 @@ export class Store {
   }
 
   /**
+   * THE LIVE MEMORIES MINTED FROM THESE ROWS (`origin_ref`), grouped by the
+   * row they came from, each with what a wake's line needs to decide on it:
+   * confidentiality and the `about` mark (2026-10-01, review of #311).
+   * `origin_ref` has no index, so a per-row `list({ originRef })` was a scan
+   * per episode — 300 episodes on a 15k-row store cost the wake seconds. This
+   * is ONE scan for the whole set, in chunks the SQL parameter limit allows.
+   * No schema change. Never returns a removed row's words; ids and flags only.
+   */
+  copiesOf(refs: readonly string[]): Map<string, { id: string; confidential: boolean; about: string | null }[]> {
+    const out = new Map<string, { id: string; confidential: boolean; about: string | null }[]>();
+    const unique = [...new Set(refs)];
+    const CHUNK = 500;
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const part = unique.slice(i, i + CHUNK);
+      const rows = this.ops.all<{ id: string; origin_ref: string; confidential: number; about: string | null }>(
+        `SELECT id, origin_ref, confidential, about FROM memories
+          WHERE type = 'memory' AND archived = 0 AND origin_ref IN (${part.map(() => "?").join(", ")})
+          ORDER BY id`,
+        ...part,
+      );
+      for (const r of rows) {
+        const held = out.get(r.origin_ref) ?? [];
+        held.push({ id: r.id, confidential: r.confidential === 1, about: r.about });
+        out.set(r.origin_ref, held);
+      }
+    }
+    return out;
+  }
+
+  /**
    * How many rows `list()` would return, counted in SQL rather than materialized.
    * The same filter, the same WHERE, one number — for the callers that want the
    * SIZE of the store (the wake's delivery preface states it) and would otherwise

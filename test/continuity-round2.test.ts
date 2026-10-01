@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { Counterpart } from "../src/core/counterpart.js";
 import { settle } from "../src/core/contradictions.js";
 import { staleWords, versionOlder } from "../src/core/handoff/index.js";
-import { LAST_HERE_NOROOM_EVENT, chapterFor, firstChapter } from "../src/core/handoff/last-here.js";
+import { LAST_HERE_NOROOM_EVENT, chapterFor, chaptersBySession, chaptersOn, firstChapter } from "../src/core/handoff/last-here.js";
 import { rankLanes, scanActive, settledOver } from "../src/core/self/index.js";
 import type { Ranked, Scanned } from "../src/core/self/index.js";
 import { coveredByPage, wordsOf } from "../src/core/self/covered.js";
@@ -506,4 +506,83 @@ describe("Nearby leaves out what the page already says (item 6)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("confidential titles stay out of the stored Yesterday line, and the walks stay fast (review of #311)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "counterparts-round2-perf-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const put = (s: Store, title: string, meta: Record<string, unknown> = {}, session = A): string =>
+    s.put({
+      type: "episode",
+      kind: "self",
+      title,
+      body: "## chapter 1 — Tue 29 Sep 2026 · lived day 0\n\nThe beds were weeded and the paths raked.\n",
+      meta: { sessionId: session, chapters: 1, ...meta },
+      source: "episode",
+      origin: { session, scope: "/tmp/garden" },
+    });
+
+  test("Yesterday lists neither a confidential episode nor one with a confidential copy", () => {
+    const s = Store.open({ dir });
+    try {
+      const plain = put(s, "Weeding the beds");
+      const secret = put(s, "A private matter", { confidential: true });
+      const viaCopy = put(s, "Another private matter");
+      s.put({ type: "memory", kind: "fact", body: "A private detail from that chapter.", source: "episode", origin: { session: A, ref: viaCopy }, meta: { confidential: true } });
+      const ids = chaptersOn(s, "2026-09-29").map((d) => d.id);
+      expect(ids).toEqual([plain]);
+      expect(ids).not.toContain(secret);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("one grouped read: 300 episodes among 15,000 memories walk well inside 200 ms", () => {
+    const s = Store.open({ dir });
+    try {
+      const episodes: string[] = [];
+      for (let i = 0; i < 300; i++) episodes.push(put(s, `Garden day ${String(i)}`, {}, `${String(i).padStart(8, "0")}-0000-4000-8000-000000000000`));
+      for (let i = 0; i < 14_700; i++) {
+        s.put({
+          type: "memory",
+          kind: "fact",
+          body: `Garden note ${String(i)}: the bed by the fence wants mulch before the frost comes.`,
+          ...(i % 50 === 0 ? { source: "episode", origin: { session: A, ref: episodes[i % 300] as string }, about: "me" as const } : {}),
+        });
+      }
+      const t0 = performance.now();
+      const all = chaptersBySession(s, { fromDay: 0 });
+      const ms = performance.now() - t0;
+      expect(all.size).toBe(300);
+      expect([...all.values()].some((c) => c.aboutMe === true)).toBe(true);
+      expect(ms).toBeLessThan(200);
+    } finally {
+      s.close();
+    }
+  }, 300_000);
+
+  test("a 400-settle chain is read once per memory, not once per link", () => {
+    const s = Store.open({ dir });
+    try {
+      const ids: string[] = [];
+      for (let i = 0; i < 401; i++) ids.push(s.put({ type: "memory", kind: "fact", body: `The bakery opens at ${String(i)} minutes past six from week ${String(i)}.` }));
+      for (let i = 1; i < ids.length; i++) {
+        expect(settle(s, { holds: ids[i] as string, over: ids[i - 1] as string, how: "changed", actor: "owner", why: "chain" }).ok).toBe(true);
+      }
+      const t0 = performance.now();
+      const over = settledOver(s);
+      const ms = performance.now() - t0;
+      expect(over.size).toBe(400);
+      expect(over.has(ids[400] as string)).toBe(false);
+      expect(ms).toBeLessThan(500);
+    } finally {
+      s.close();
+    }
+  }, 300_000);
 });

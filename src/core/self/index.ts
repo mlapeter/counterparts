@@ -2383,21 +2383,32 @@ export function settledOver(store: Pick<Store, "contradictions" | "row">): Set<s
       return r !== undefined && r.archived === 0 && r.superseded_by === null && !(r.body === "" && r.content_hash === "");
     };
     const visiting = new Set<string>();
+    // Each memory's live end, once (review of #311: a 400-settle chain walked
+    // its whole tail for every link). A cycle's members memoise as null.
+    const ends = new Map<string, string | null>();
     // The live memory `id` leads to, not hidden itself; null when none.
     const liveEnd = (id: string, depth = 0): string | null => {
-      if (depth > 64 || visiting.has(id)) return null;
+      const known = ends.get(id);
+      if (known !== undefined) return known;
+      if (depth > 5_000 || visiting.has(id)) return null;
       visiting.add(id);
+      let end: string | null = null;
       try {
-        const r = store.row(id);
-        if (r === undefined) return null;
-        if (!live(id)) return r.superseded_by === null ? null : liveEnd(r.superseded_by, depth + 1);
-        // Live, and itself settled over by something live: that is the end.
-        const n = newest.get(id);
-        const further = n !== undefined && n.role === "over" ? liveEnd(n.holds, depth + 1) : null;
-        return further ?? id;
+        end = walk(id, depth);
       } finally {
         visiting.delete(id);
       }
+      ends.set(id, end);
+      return end;
+    };
+    const walk = (id: string, depth: number): string | null => {
+      const r = store.row(id);
+      if (r === undefined) return null;
+      if (!live(id)) return r.superseded_by === null ? null : liveEnd(r.superseded_by, depth + 1);
+      // Live, and itself settled over by something live: that is the end.
+      const n = newest.get(id);
+      const further = n !== undefined && n.role === "over" ? liveEnd(n.holds, depth + 1) : null;
+      return further ?? id;
     };
     for (const [id, n] of newest) if (n.role === "over" && liveEnd(n.holds) !== null) out.add(id);
   } catch {

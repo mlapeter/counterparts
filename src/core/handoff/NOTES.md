@@ -391,4 +391,11 @@ choices it left open:
   (`chapter` takes no `about`) is the follow-up that would make this fire on the day.
 - **A dropped line leaves a row** (`handoff.lasthere.noroom`), one per chapter per lived
   day, with whether a handoff was carried in its place.
+- **One grouped read for the copies** (second review of #311). Whether a chapter is
+  confidential or about me is read off its copies, and `origin_ref` has no index, so one
+  `list({ originRef })` per episode was a table scan each: 300 episodes on a 15k-row store
+  took the walk from 19 ms to 1.7 s and the wake to 3.3 s. `Store#copiesOf` reads every
+  copy of the window's episodes in one scan, and the walk carries the answers
+  (`ChapterHere.confidential`, `aboutMe`). No schema change. The Yesterday line, which is
+  composed once and read by every session, leaves confidential chapters out for all.
 
