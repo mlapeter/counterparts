@@ -440,7 +440,7 @@ const NOTE: ToolSpec = {
       updates: {
         type: "string",
         description:
-          "The id or handle of a memory this revises, if it revises one. A field — never written into the text.",
+          "The id or handle of a memory this revises, if it revises one. A field — never written into the text. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
       },
       how: HOW_PROPERTY,
       settle: SETTLE_PROPERTY,
@@ -642,7 +642,7 @@ const SESSION_END: ToolSpec = {
   summary:
     "The MEMORIES half of the Stop ask's return channel: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen. The other half is `chapter`.",
   admission:
-    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
+    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week, and one that `updates` anything dated or open now done.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
@@ -801,7 +801,7 @@ const SESSION_END: ToolSpec = {
             updates: {
               type: "string",
               description:
-                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`.",
+                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
             },
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,

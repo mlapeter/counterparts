@@ -526,8 +526,8 @@ describe("the pace is what the person typed; conversation text from both roles i
 describe("the person reads one line, the model reads two (decision 1)", () => {
   test("PINNED: the model's ask, word for word — it may not grow without this test changing", () => {
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: SID — set `handoff` on it only if work here is unfinished, and `retireHandoff` any here, anyone's, now done.\n" +
-        "2) Write chapter 3 of this session's episode with the counterparts chapter tool, session: SID. Nothing worth keeping is a real answer: send `memories: []`.",
+      "Counterparts, before this session closes: 1) hand back what's worth keeping with the counterparts session_end tool, session: SID — `handoff` only if work here is unfinished, `retireHandoff` any here, anyone's, now done, and `updates` anything dated or open now done.\n" +
+        "2) Write chapter 3 with the counterparts chapter tool, session: SID. Nothing worth keeping is a real answer: send `memories: []`.",
     );
   });
 
@@ -547,21 +547,27 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     expect(text.split(UUID).length - 1).toBe(2);
     expect(lines[0]).toContain("session_end tool");
     expect(lines[1]).toContain("chapter tool");
-    // The two clauses about WHETHER to write, and nothing about HOW: the field
-    // detail lives in the tools' own descriptions.
-    expect(text).toContain("set `handoff` on it only if work here is unfinished");
+    // The clauses about WHETHER to write, and nothing about HOW: the field
+    // detail lives in the tools' own descriptions. One names a field since
+    // 2026-10-01 (lane 8): a dated follow-up kept arriving after it was done
+    // because nothing prompted the session to close it, so the ask says to
+    // `updates` what got done — `eventDate: null` / `unresolved: false` are
+    // on the field's own description.
+    expect(text).toContain("`handoff` only if work here is unfinished");
+    expect(text).toContain("`updates` anything dated or open now done");
     expect(text).toContain("Nothing worth keeping is a real answer");
     expect(text).not.toContain("salience");
-    expect(text).not.toContain("updates");
+    expect(text).not.toContain("eventDate");
     // Less than two fifths of the nine-line text it replaces (~1,250
     // characters with a real id). 450 until 2026-10-01, when the retire
-    // clause was added (random-f2's item 1).
+    // clause was added (random-f2's item 1); the close clause the same day
+    // fit inside it, by words taken out elsewhere.
     expect(text.length).toBeLessThanOrEqual(480);
   });
 
   test("the chapter number is the store's, on every chapter including the first", () => {
-    expect(stopAsk("s1", 1)).toContain("Write chapter 1 of");
-    expect(stopAsk("s1", 4)).toContain("Write chapter 4 of");
+    expect(stopAsk("s1", 1)).toContain("Write chapter 1 with");
+    expect(stopAsk("s1", 4)).toContain("Write chapter 4 with");
   });
 
   /**

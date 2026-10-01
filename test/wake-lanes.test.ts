@@ -24,8 +24,9 @@ import {
 } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
 import type { Kind } from "../src/core/types.js";
-import { McpServer } from "../src/adapters/mcp/server.js";
-import { toolSpec } from "../src/adapters/mcp/tools.js";
+import { stopAsk } from "../src/adapters/claude-code/hooks.js";
+import { McpServer, desktopWriteUpAsk } from "../src/adapters/mcp/server.js";
+import { renderDescription, toolSpec } from "../src/adapters/mcp/tools.js";
 import { recordSession } from "../src/adapters/sessions.js";
 
 const ZONE = "UTC";
@@ -436,6 +437,24 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
 
   test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {
     expect(SELF_TUNABLES.THREADS_MAX).toBe(5);
+  });
+});
+
+describe("the write-up ask says to close what got done (item 4)", () => {
+  test("the Stop ask, the Desktop write-up ask and session_end's served description each say it; the field says how", () => {
+    const clause = "`updates` anything dated or open now done";
+    const ask = stopAsk("123e4567-e89b-12d3-a456-426614174000", 2);
+    expect(ask).toContain(clause);
+    // The widest it gets: a real UUID and a four-digit chapter, with a margin under the 480 pin.
+    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(470);
+    expect(desktopWriteUpAsk("s1")).toContain(clause);
+    // Inside the 2,048 characters Claude Code serves of a tool description.
+    expect(renderDescription(toolSpec("session_end")!).slice(0, 2_048)).toContain(clause);
+    const entry = (toolSpec("session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, { description: string }> } } } })
+      .properties.memories.items.properties;
+    expect(entry["updates"]?.description).toContain("with `eventDate: null` or `unresolved: false`");
+    const note = (toolSpec("note")?.inputSchema as { properties: Record<string, { description: string }> }).properties;
+    expect(note["updates"]?.description).toContain("with `eventDate: null` or `unresolved: false`");
   });
 });
 

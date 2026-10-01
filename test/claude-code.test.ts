@@ -2981,10 +2981,13 @@ describe("the one ask names the session and BOTH tools that take it", () => {
   test("`updates` and salience are the TOOL's to explain now, and it does (B1)", () => {
     // Four notes on the live host arrived as "updates: mem_x. …" in their own
     // body text, unlinked, because the old ask said "say `updates: <id>`". The
-    // ask no longer mentions either field; the description the model reads
-    // while filling them does, and must keep doing so.
+    // ask no longer explains either field; the description the model reads
+    // while filling them does, and must keep doing so. Since 2026-10-01 (lane
+    // 8) it NAMES `updates` once, as what closes a dated or open memory whose
+    // work got done — never the `updates: <id>` form that was copied into prose.
     const text = stopAsk("s1", 1);
-    expect(text).not.toContain("updates");
+    expect(text).not.toContain("updates:");
+    expect(text.split("updates").length - 1).toBe(1);
     expect(text).not.toContain("salience");
     const spec = JSON.stringify(toolSpec("session_end"));
     expect(spec).toContain("`updates` is a FIELD on an entry, not prose");
@@ -2999,8 +3002,8 @@ describe("the one ask names the session and BOTH tools that take it", () => {
   });
 
   test("the chapter it asks for names its NUMBER, and the number is the store's", () => {
-    expect(stopAsk("s1", 3)).toContain("Write chapter 3 of");
-    expect(stopAsk("s1", 1)).toContain("Write chapter 1 of");
+    expect(stopAsk("s1", 3)).toContain("Write chapter 3 with");
+    expect(stopAsk("s1", 1)).toContain("Write chapter 1 with");
   });
 
   test("it stays short — two lines, a model reads this at every Stop that is due one", () => {
@@ -3017,7 +3020,7 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     // not an ask: there is one pacer (`askAtStop` → `episodeAsk`), one text, and
     // the handoff names no tool of its own.
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
-    expect(text).toContain("set `handoff` on it only if work here is unfinished");
+    expect(text).toContain("`handoff` only if work here is unfinished");
     // Exactly two numbered items, and no third tool named.
     expect(text.match(/(^|: )\d\) /gm)?.length).toBe(2);
     expect(text).not.toContain("handoff tool");

@@ -404,8 +404,15 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  *     and, since 2026-10-01, `retireHandoff` for a handoff here whose work is
  *     done, whoever left it (a handoff that waited on a release never learned
  *     the release landed: random-f2's item 1),
+ *     and, also since 2026-10-01 (lane 8), to `updates` anything dated or open
+ *     that got done here — a dated follow-up kept arriving after it was done,
+ *     because nothing prompted the session to close it; how (`eventDate:
+ *     null`, `unresolved: false`) is on the field's own description,
  *     and "nothing worth keeping is a real answer", which the server now
- *     accepts as `memories: []`.
+ *     accepts as `memories: []`. The words that clause needed came out of
+ *     the rest ("what's worth keeping", and "Write chapter N with" for
+ *     "Write chapter N of this session's episode with"), so with a real id and a
+ *     four-digit chapter number it is 465 characters, inside the 480 pin.
  *
  * Everything else the old text said — `updates` is a FIELD, salience is a floor
  * and the author's to claim, what an episode is for, what a handoff is — is
@@ -421,8 +428,8 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    `${STOP_ASK_OPENER} 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: ${sessionId} — set \`handoff\` on it only if work here is unfinished, and \`retireHandoff\` any here, anyone's, now done.`,
-    `2) Write chapter ${String(chapter)} of this session's episode with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
+    `${STOP_ASK_OPENER} 1) hand back what's worth keeping with the counterparts session_end tool, session: ${sessionId} — \`handoff\` only if work here is unfinished, \`retireHandoff\` any here, anyone's, now done, and \`updates\` anything dated or open now done.`,
+    `2) Write chapter ${String(chapter)} with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
   ].join("\n");
 }
 

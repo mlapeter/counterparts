@@ -21,6 +21,8 @@
   promise still pending; the wake shows those under "Still open:" (at most five). A later
   write that `updates` one with `unresolved: false`, or with `how: "changed"` and the
   answer, closes it.
+- The end-of-session ask (and Desktop's write-up ask) now says to close anything dated or
+  open that got done in the session, so a finished follow-up stops coming back.
 - A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
   a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
   here since" when another session wrote a chapter in that directory after it. The end-of-

@@ -356,7 +356,7 @@ export const NO_DESKTOP_SESSION =
 
 /** The write-up ask a Desktop tool result carries once the session is due one. */
 export function desktopWriteUpAsk(session: string): string {
-  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what is worth keeping with session_end (session: ${session}; memories: [] if nothing is), and add a chapter with the chapter tool (session: ${session}) if the chat was about something.`;
+  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what is worth keeping with session_end (session: ${session}; memories: [] if nothing is; \`updates\` anything dated or open now done), and add a chapter with the chapter tool (session: ${session}) if the chat was about something.`;
 }
 
 /** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */
