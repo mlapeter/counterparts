@@ -37,7 +37,7 @@ import type { AdapterConfig, HookInput, SpawnPlan } from "../src/adapters/claude
 import { ENVELOPE_MAX_CHARS, deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { nightRunFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
-import { recordSession } from "../src/adapters/sessions.js";
+import { readSession, recordSession } from "../src/adapters/sessions.js";
 import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { toolDefinitions } from "../src/adapters/mcp/tools.js";
@@ -601,25 +601,28 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
   test("a session left open overnight (stale in the registry) still starts a run the child's MCP server will serve — the session is PINNED, not lazy-bound", async () => {
     const a = autoHooks();
     setAuto(a);
-    // The session's last boundary was nine hours ago; a prompt is not a boundary.
+    // The session's last boundary was nine hours ago.
     recordSession(dir, { sessionId: "s1", scope: "proj", phase: "start" });
     offsetMs = 9 * 60 * 60_000;
+    const later = (): number => Date.now() + offsetMs;
+    // Stale, the lazy bind the child used to rely on refuses the call.
+    const lazy = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, now: later });
+    const refused = await lazy.call("dream", { phase: "writer", session: "s1" });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.structuredContent)).toContain("session-not-live");
     a.userPromptSubmit({ sessionId: "s1", scope: "proj", turns: [], at: AT, prompt: "morning" });
+    // Since 2026-10-01 the prompt refreshes the session's record (review of #309) —
+    // but the run's child does not depend on that: it is pinned.
+    expect(readSession(dir, "s1")?.lastBoundaryAt ?? 0).toBeGreaterThan(Date.now() + offsetMs - 60_000);
     const runner = nightPlans()[0];
     if (runner === undefined) throw new Error("no run started");
     // What bin/nightly.ts hands its child, and how the child's server reads it.
     const child = planNightChild({ config: { dataDir: dir }, run: "nrn_x", prompt: "p", scope: String(runner.env["COUNTERPARTS_SCOPE"]), session: String(runner.env["COUNTERPARTS_SESSION"]) });
     const launched = launchOptions([], child.env);
     expect(launched.session).toBe("s1");
-    const later = (): number => Date.now() + offsetMs;
     const pinned = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, now: later, ...(launched.session === undefined ? {} : { session: launched.session }) });
     const ok = await pinned.call("dream", { phase: "writer", session: "s1" });
     expect(ok.isError ?? false).toBe(false);
-    // The lazy bind the child used to rely on refuses the same call.
-    const lazy = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, now: later });
-    const refused = await lazy.call("dream", { phase: "writer", session: "s1" });
-    expect(refused.isError).toBe(true);
-    expect(JSON.stringify(refused.structuredContent)).toContain("session-not-live");
   });
 
   test("a run that could not even be started (no runner) falls back to the ask in the SAME prompt, and says why", () => {

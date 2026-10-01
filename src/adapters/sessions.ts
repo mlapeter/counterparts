@@ -100,7 +100,9 @@ export const SESSIONS_DIR = "sessions";
 /**
  * **CAL.** How long after its last boundary a session may still be claimed.
  *
- * Every Stop refreshes `lastBoundaryAt`, and the Stop ask is delivered AT
+ * Every Stop refreshes `lastBoundaryAt` — and, since 2026-10-01, every prompt
+ * refreshes an existing record too (`claude-code/hooks.ts#userPromptSubmit`) —
+ * and the Stop ask is delivered AT
  * a Stop — so this window never has to cover an ordinary session's length, only
  * the gap between an ask and the answer. Four hours is well past any plausible
  * think-time (a session left open over lunch still binds) and comfortably short

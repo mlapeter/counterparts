@@ -362,9 +362,13 @@ describe("binding, per call", () => {
     const t = clock();
     const s = desktopServer({ now: t.now });
     const live = payload(await s.call("wake", {}))["session"] as string;
-    recordSession(dir, { sessionId: "cc-1", scope: join(root, "proj"), phase: "start", at: t.now() });
+    recordSession(dir, { sessionId: "cc-1", scope: join(root, "proj"), phase: "start", at: t.now(), entrypoint: "claude-desktop" });
+    recordSession(dir, { sessionId: "cc-1", scope: join(root, "proj"), phase: "end", at: t.now(), entrypoint: "claude-desktop" });
     expect(payload(await s.call("chapter", { session: "nobody", text: "x" }))["reason"]).toBe("session-unknown");
-    expect(payload(await s.call("chapter", { session: "cc-1", text: "x" }))["reason"]).toBe("session-unknown");
+    // A Claude Code session the hooks recorded is served as itself while live
+    // (Desktop's Code tab, 2026-10-01: test/codetab-session.test.ts); ended, it
+    // is refused by name — and the most recent Desktop chat is not substituted.
+    expect(payload(await s.call("chapter", { session: "cc-1", text: "x" }))["reason"]).toBe("session-not-live");
     t.advance(5 * HOUR);
     const stale = payload(await s.call("chapter", { session: live, text: "x" }));
     expect(stale["reason"]).toBe("session-not-live");
@@ -892,7 +896,7 @@ describe("install --host claude-desktop", () => {
     expect(reading).toMatchObject({ state: "entry", dataDir: dir, codeTab: true, codeDataDir: dir });
     const green = desktopLine(reading);
     expect(green?.severity).toBe("green");
-    expect(green?.detail).toContain("its Code tab uses this entry in place of ~/.claude.json's");
+    expect(green?.detail).toContain("its Code tab's counterparts tools come from this entry's server, which shadows ~/.claude.json's");
 
     writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: { command: "/bun", env: { COUNTERPARTS_DATA_DIR: "/some/other/store" } } } }));
     const amber = desktopLine(readDesktop(home, {}));

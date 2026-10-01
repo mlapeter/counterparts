@@ -254,8 +254,10 @@ row, saying which source answered, existed until the keys were removed — §1a.
     later hook process needs: which configuration was read, whether the first-launch
     question went out, the wake's sentinel and whether its arrival has been checked, the
     model that last answered — which the `chapter` tool records per chapter), Stop
-    refreshes the clock — creating the record when it is missing — and SessionEnd closes
-    it. The writes
+    refreshes the clock — creating the record when it is missing — UserPromptSubmit
+    refreshes it too but never creates one (2026-10-01: so a session idle past the TTL
+    is live again before its model's first call; a missing record stays the off→on
+    signal), and SessionEnd closes it. The writes
     are atomic (temp + rename), tiny, and silent on failure, because a hook may not fail
     the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists because this
     host launches its MCP servers from a static configuration and cannot tell them which
@@ -718,6 +720,10 @@ did not get.
   longer the reported injection budget) → plain reminders due today (they wait for the
   first prompt, unclaimed) → the wake, which is never cut at delivery: it was composed to
   its own budget at the boundary, trimming hints → craft → threads → horizon → identity.
+  The clock line rides with the wake — and, in Desktop's Code tab only (entrypoint
+  `claude-desktop`, 2026-10-01), one line under it naming the session id to pass as
+  `session`, because there the counterparts tools are Desktop's server
+  (`hooks.ts#codeTabSessionLine`; mcp CONTRACT G21). A terminal session's wake is unchanged.
   A reminder reaches the person only in the JSON form, so when one is due and it fits
   beside the wake in that form, the two asks are measured against THAT form (escaped,
   under 9,500) and it is they that give way (review of #285, S2). A wake too full for the

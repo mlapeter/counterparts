@@ -17,7 +17,9 @@ update, what switching the scope does — come from the host this server serves
 says it is Desktop (§5 G18) this server is its own hook: a tenth tool, `wake` — offered to
 Desktop only, never in `TOOL_NAMES` — mints the session and returns the briefing
 SessionStart composes (G20); calls bind per call (G19); and the write-up ask rides on a tool
-result. Every Desktop chat shares one place, the pseudo-scope `claude-desktop:`.
+result. Every Desktop chat shares one place, the pseudo-scope `claude-desktop:`. Desktop's
+Code tab calls this same server, and a call naming its Claude Code session is served as
+that session (G21).
 
 ## 2. Brain analog
 
@@ -290,11 +292,14 @@ actually wrote (chapter), the written self page or the version a write to it pro
     measured, and this makes that not matter. Any other client — Claude Code, Desktop's Code tab off
     the same config entry, an unnamed one — gets the handshake, tools and refusals it
     always got; `wake` is an unknown tool there, and `prompts/*` method-not-found.
+    (Measured 2026-10-01: that holds for the Code tab's OWN server, but the counterparts
+    tools its model calls are Desktop's server's — guarantee 21.)
 19. **[M] Desktop binds PER CALL, and says when it guessed** (2026-09-30). Guarantee 10's
     once-for-the-process bind would file every Desktop chat under the first; one server
     serves them all and the wire carries no conversation id. So each Desktop call binds
     afresh: the `session` it names, when that is a live Desktop session in the registry
-    (else refused by name — `session-unknown`, `session-not-live` — never substituted),
+    (a live Claude Code session is served as itself instead — guarantee 21; anything else
+    is refused by name — `session-unknown`, `session-not-live` — never substituted),
     or, when it names none, the most recent live Desktop session, and the result carries
     `boundTo` / `boundBy: "most-recent"` and a line saying so. With none live, a tool that
     needs a session refuses `session-required` and names `wake`. Every Desktop tool schema
@@ -321,6 +326,29 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `TOOL_RESULT_CHARS`; it starts the worker. It never asks the first-launch question,
     never touches primacy, and never starts the headless nightly run. It sits under the
     schema gate like every tool.
+21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
+    Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
+    server (same name, shadowing the session's own). So a Desktop call whose `session`
+    names a registry record the HOOKS wrote — host `claude-code`, entrypoint
+    `claude-desktop` (the Code tab's only: a terminal session has its own server, and is
+    refused `session-not-code-tab`), live by the evidence `requireBoundSession` asks
+    (known, not ended, not silent past the TTL; the prompt hook refreshes it) — is served as
+    that Claude Code session, for that call only (`server.ts#claudeCodeSessionNamed`,
+    `callAs`): its directory is the call's `scope` (its `off`/`paused`/`observer`, and
+    the `scope` tool sets it), its id is the call's `session`, and `session_end` /
+    `chapter` / `dream` / `reflect` / handoffs take it exactly as Claude Code's own server
+    would — its `observer` included: the `scope` tool stands down there, as in Claude Code. It is not a Desktop call: no bind note, no pacer, no `writeUpAsk`, no
+    `mcp.desktop.call` (event `mcp.session.served` instead), and words about the place are
+    Claude Code's (the reconnect sentence stays Desktop's — the process is Desktop's).
+    Only the hooks write such a record, so a model cannot invent one; an ended or stale
+    one is `session-not-live`. Cleared in `call`'s `finally` — never sticky, so no other
+    chat's call inherits it — and the heartbeat reads the server's own place, never the
+    call's. The Code tab's wake states the id (`claude-code/hooks.ts#codeTabSessionLine`,
+    entrypoint `claude-desktop`); an unnamed call still falls back to the most recent
+    Desktop chat, and its `bindNote` names that chat and tells a Claude Code session to
+    pass its own id. A NAMED id that did not bind, on a tool that runs unbound anyway
+    (`note`, `recall`, `status`, …), says so on the result: `sessionRefused` (the reason)
+    and `sessionNote` (review of #309).
 
 ### The residual risk of the lazy bind, named
 

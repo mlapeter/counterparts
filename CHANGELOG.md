@@ -14,6 +14,21 @@
   says only the listed memories open with a date (the page is dated on its own line); a
   memory whose words already start with its date shows that date once; and the closing
   comment says `page=1` beside `identity=0` when the wake carries the page.
+- Claude Desktop's Code tab files its memories under its own session again. There, the
+  counterparts tools the assistant sees turned out to be Claude Desktop's memory server, not
+  the session's own (both are named `counterparts`, and Desktop's wins), so a Code-tab
+  session's notes, chapters and write-ups were filed under the most recent Desktop chat, or
+  refused. Now the Code tab's wake gives the assistant one line with its session id, and a
+  call that passes that id is filed exactly as Claude Code would file it: in that session's
+  folder, under that session, with no Desktop write-up reminder added. Only a session Claude
+  Code's hooks recorded, and that is still running, is taken this way, and only for that one
+  call, so it can't spill into a Desktop chat's next call. A Code-tab call that passes no id
+  still lands under the most recent Desktop chat; its result now says which chat, and tells a
+  Claude Code session to pass its own id. The `wake` tool's description no longer says it is
+  never offered in Claude Code, and doctor's Claude Desktop line says the Code tab's tools
+  come from Desktop's server. Terminal sessions are unchanged. Each prompt now also marks
+  its session as still running, so a Code-tab session left idle for hours is recognised
+  again at its next prompt, and a call whose session id wasn't accepted says why.
 
 ## 0.3.10 — 2026-09-30
 

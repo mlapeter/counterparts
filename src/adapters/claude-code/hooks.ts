@@ -56,7 +56,7 @@ import { newNightRunId } from "../../core/dream/index.js";
 import type { DreamOffer } from "../../core/dream/index.js";
 import type { BoundaryKind } from "../../core/remember/index.js";
 
-import { isDesktopScratchWorkspace } from "../hosts.js";
+import { CODE_TAB_ENTRYPOINT, isDesktopScratchWorkspace } from "../hosts.js";
 import { stanceOfMode } from "../scopes.js";
 import {
   decideUpdateNotice,
@@ -423,6 +423,24 @@ export function stopAsk(sessionId: string, chapter: number): string {
   ].join("\n");
 }
 
+/** Re-exported where the hooks' callers already look (`hosts.ts` owns it). */
+export { CODE_TAB_ENTRYPOINT };
+
+/**
+ * THE ONE WAKE LINE A CODE-TAB SESSION GETS (2026-10-01). Measured: in Desktop's
+ * Code tab the `counterparts` tools the model sees come from Claude Desktop's
+ * own server (same name, shadowing this session's), which serves every Desktop
+ * chat and cannot tell this session's calls from a chat's unless they name it.
+ * So the wake states the id, once. The Stop ask needs no such line: it already
+ * says `session: <id>` on the two tools it names, which take it everywhere.
+ * Null outside the Code tab — a terminal session's wake is byte for byte what
+ * it was.
+ */
+export function codeTabSessionLine(input: Pick<HookInput, "entrypoint" | "sessionId">): string | null {
+  if (input.entrypoint !== CODE_TAB_ENTRYPOINT || input.sessionId.length === 0) return null;
+  return `Counterparts, Desktop's Code tab: if your counterparts tools take a \`session\` parameter, pass session: ${input.sessionId} on every call — it is how they know this session from a Desktop chat.`;
+}
+
 /**
  * WHAT THE PERSON SEES WHEN THE STOP ASK GOES OUT — one line, theirs (B1).
  *
@@ -537,7 +555,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // under `HOST_OUTPUT_CHARS`. What actually gave way is recorded by the
       // delivery (`noteGaveWay`) and by each ask's own deferral.
       const plain = this.plainFor(input);
-      const lead = `${woke.text.length === 0 && plain.context.length === 0 ? "" : `${this.nowLine()}\n`}${plain.context}`;
+      // DESKTOP'S CODE TAB (2026-10-01): one line, right under the clock,
+      // naming this session's id — there the counterparts tools the model sees
+      // are Claude Desktop's server, which serves a call as this session only
+      // when the call names it. A terminal session's wake is unchanged.
+      const codeTab = codeTabSessionLine(input);
+      const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}`;
       const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
       const jsonBase =
         plain.due.length === 0
@@ -690,6 +713,19 @@ export class ClaudeCodeAdapter extends Lifecycle {
    */
   userPromptSubmit(input: HookInput): HookResult {
     return this.guard("user-prompt-submit", input, (out) => {
+      // LIVENESS AT THE PROMPT TOO (2026-10-01, review of #309). Only a Stop
+      // used to refresh the record, so a session idle past `SESSION_TTL_MS`
+      // read as dead to the MCP side until its first answer ENDED — and in
+      // Desktop's Code tab, whose tools are Desktop's server (mcp CONTRACT
+      // G21), that turn's calls ran unbound, filed under `claude-desktop:`.
+      // This hook runs before the model makes any call, so the session is live
+      // again by the time it names its id. Before the delivery verdict, like
+      // the Stop's: the registry is not delivery. It REFRESHES a record and
+      // never creates one: a session with no record is the off→on flip
+      // (#92 review, F1), which the Stop alone may make bindable.
+      if (input.sessionId.length > 0 && readSession(this.counterpart.store.dir, input.sessionId) !== null) {
+        this.noteSession("boundary", input);
+      }
       // The stand-down precedes the delivery check for the same reason it
       // precedes the recall: a muted session rendered nothing, so there is no
       // expectation to test and a "not delivered" record would be a lie.
@@ -1303,8 +1339,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
   /**
    * Close the question for this session. `boundary` creates a record when one is
    * missing, so this is only ever called with a record already read — and it is
-   * written at the clock the record already carried, because a prompt is not a
-   * boundary and the lazy bind's liveness window is measured from those.
+   * written at the clock the record already carried (which, since 2026-10-01,
+   * this same prompt has already refreshed: `userPromptSubmit`).
    */
   private markWakeChecked(input: HookInput, prior: SessionRecord): void {
     try {
