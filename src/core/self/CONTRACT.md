@@ -179,7 +179,14 @@ proposals and their archive; render and delivery telemetry.
    to `MORE_LINE_IDS` ids the recall tool reads whole (`briefing.ts#moreLine`). It goes in
    only while the whole still fits the budget, lanes that trim last first; one that does
    not fit is left out and the trim's count stays in telemetry. Identity says nothing
-   while the page replaces the list. **The "Yesterday" line** (2026-10-01, wake build 3, a
+   while the page replaces the list, and Nearby says nothing at all since 2026-10-01: what
+   it leaves out is the rest of the warm store, which recall finds by asking.
+   **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
+   later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
+   arriving is under Arriving only; and a hint the self page already covers — cited by the
+   reflection that wrote it, or held by one page sentence's rare words (`covered.ts`) — is
+   not a hint. A settled-over memory stays hidden only while a live memory holds over it.
+   **The "Yesterday" line** (2026-10-01, wake build 3, a
    working default): when the caller hands one (`BriefingRequest.yesterday` — the root
    composes it from yesterday's chapters, titles and ids, no model run,
    `handoff/last-here.ts#yesterdayLine`), it is printed under the framing line, one line,

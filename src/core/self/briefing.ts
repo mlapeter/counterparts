@@ -127,13 +127,17 @@ export const MORE_NOUN: Readonly<Record<LaneName, string>> = {
 };
 
 /** The order lanes are offered room for their line: the reverse of the trim
- *  order, so the lanes that are cut last are also told about first. */
+ *  order, so the lanes that are cut last are also told about first.
+ *
+ *  NOT NEARBY (2026-10-01, random-f2's item 5): what the hints lane leaves
+ *  out is everything else warm in the store — "(331 more nearby; recall ids
+ *  …)" counted the store and named five ids nobody chose. Recall finds those
+ *  by asking. The other lanes' lines name a bounded list worth naming. */
 const MORE_ORDER: readonly LaneName[] = [
   "identity",
   "horizon",
   "threads",
   "craft",
-  "hints",
 ];
 
 /** `(3 more still open; recall ids: mem_…, mem_…, mem_…)` */

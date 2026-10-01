@@ -1419,3 +1419,31 @@ Labels only; nothing about what the wake selects changed.
   `version` is its revision count from 0, and an earlier version's `seq` counts from 1, so seq
   N is the body version N−1 was. Making them one changes what `self-page --version`,
   `--restore` and `ifVersion` take, which is a decision, not a label.
+
+## 2026-10-01 — what Nearby and Arriving leave out (an inside view of 0.3.10)
+
+- **An answered question shown alone.** Nearby carried an "Open: …?" memory without the
+  later memory that answered it. A memory that is the `over` of a settled `changed` or
+  `corrected` pair (`settledOver`) now leaves craft, threads, Nearby and Arriving;
+  identity keeps it, labelled, because that band is earned. Left out rather than shown as
+  "Earlier (now [id]): …" because the line's words are still the question. ONLY WHILE
+  SOMETHING LIVE HOLDS (review of #311): the pair that counts is the newest one naming the
+  memory (so one re-affirmed by a newer pair is shown), and its `holds` is followed through
+  newer settles and `superseded_by` to a live memory; an archived or removed `holds` hides
+  nothing. Why that pair was never flagged: two nightly dreams had both memories in their
+  bundle and flagged nothing; an open question and its answer do not DISAGREE, and the
+  dream's contradiction pass is asked for disagreement. Not built: a pass for "answered".
+- **The same memory under Arriving and Nearby.** The horizon came from the caller and was
+  never deduplicated against the scan; a memory arriving now leaves the other lanes.
+- **Nearby repeating the page.** `covered.ts`: the reflection's cites, or a hint one page
+  SENTENCE holds at `PAGE_COVER_SHARE` (0.35) of its rare-word weight. The first version
+  compared whole paragraphs at 0.2, which dropped a new fact that merely shared a subject
+  with a one-paragraph page (review of #311). Measured on a copy of the owner's store at
+  sentence level, no Nearby candidate passed 0.13, so in practice the cites are what cover;
+  the word test catches a near restatement.
+- **"(331 more nearby; recall ids…)"** is gone: it counted the warm store.
+- **Not built: directory weighting** (the brief's 6b). The lanes are composed once per
+  store and read in every directory, so "weight the directory you woke in" needs a
+  delivery-time choice among published candidates, with the sentinel's counts re-solved.
+  On the probe copy, a reading directory's Nearby was four work memories from the code
+  repository.
