@@ -1,95 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.3.11 — 2026-10-01
 
-- **Runs under Node 22.15 or newer, and on Linux.** `npm install -g counterparts` works
-  without bun. The setup wires Claude Code to whichever runtime ran it (`bun run …` under
-  bun, `node --import …/node-hooks.mjs …` under Node), and `counterparts doctor` has a
-  Runtime line naming it and saying whether it is still there. The four commands now
-  start under bun when bun is on PATH, else Node. On Linux, `install --host
-  claude-desktop` says Claude Desktop is not available there instead of writing a config.
-  Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
-- The wake's craft lane is now the work done in the directory the session opens in: "Work
-  here, if it helps:" lists that directory's newest few work memories (marked `work`, or
-  unmarked skills and facts written there), each a title, a short excerpt and its id.
-  Nearby keeps what is personal, so a session in one project no longer wakes to another
-  project's plumbing.
-- The chapter tool takes `about` (me, us, owner, work or world), and the chapter's memory
-  copy keeps it. A chapter marked me, us or owner reaches the wake in other directories;
-  one marked work stays in its own.
-- `note` and `session_end` entries take `unresolved: true` for an open question or a
-  promise still pending; the wake shows those under "Still open:" (at most five). A later
-  write that `updates` one with `unresolved: false`, or with `how: "changed"` and the
-  answer, closes it.
-- The end-of-session ask (and Desktop's write-up ask) now says to close anything dated or
-  open that got done in the session, so a finished follow-up stops coming back.
-- The day's lines (the dream line, the night run's report, plain reminders, the update
-  notice) go only to a session someone can see: the terminal or Desktop's Code tab, not
-  `claude -p` or the SDK. A headless session can still start the nightly run, and the next
-  session you are in says so. The assistant now says the day's dream line itself, once, in
-  its first reply; the terminal line is extra.
-- A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
-  a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
-  here since" when another session wrote a chapter in that directory after it. The end-of-
-  session ask now says any session may retire a handoff here whose work is done.
-- Recalled by its id, a handoff says who wrote it and when, not "an earlier session" and the
-  date its row was first made.
-- "Last here" shows the first sentence of the chapter the episode's title was written with
-  (and "2 chapters" when there are more), not a later chapter's under the first one's title.
-  A question about time in recall does the same (for "yesterday" or "this morning", the first
-  chapter written then), and says how many chapters there are.
-- A note written before the memory server knows its session is filed under the session its
-  host opened in that directory, when that match is exact. An older such note, written
-  inside exactly one session's stretch, says "session a1b2c3d4 (placed by when it was
-  written)".
-- Nearby leaves out what the self page already says, a memory a later one has settled
-  (changed or corrected), and a memory already under Arriving; and it no longer ends with a
-  "(331 more nearby; recall ids…)" line.
-- A chapter about me written in another directory reaches the wake elsewhere, as one line,
-  when its memory is marked about me, us or the owner, the directory it came from is on, and
-  it is not confidential. A confidential chapter is named in "Last here" to the owner only.
-- A "Last here" line dropped for room now leaves a record, and the dashboard's Health wake
-  bar goes amber for it.
-- recall says why `considered` can be above `consideredCap` (links between memories and a
-  feeling the question named have their own bounds).
-- With only Claude Desktop, an older store waiting for its upgrade says to open Desktop or
-  start a new chat in it, not to quit and reopen it.
-
-- The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
-  `2026-09-27 (due 2026-10-03) · …`.
-- When the console or the dashboard meets a store still waiting for its upgrade, it says who
-  will upgrade it in your hosts' words: with only Claude Desktop it no longer tells you to
-  wait for a Claude Code session.
-- Whoever rewrites the self page (the page writer, or the nightly reflection) is asked to name
-  the model when a claim is about one model, to write dates rather than "tonight" or
-  "today" (the page is read on later days), and not to add a revised-on line of its own.
-- Wake labels: the line under the header no longer also starts "Counterparts memory", and it
-  says only the listed memories open with a date (the page is dated on its own line); a
-  memory whose words already start with its date shows that date once; and the closing
-  comment says `page=1` beside `identity=0` when the wake carries the page.
-- Claude Desktop's Code tab files its memories under its own session again. There, the
-  counterparts tools the assistant sees turned out to be Claude Desktop's memory server, not
-  the session's own (both are named `counterparts`, and Desktop's wins), so a Code-tab
-  session's notes, chapters and write-ups were filed under the most recent Desktop chat, or
-  refused. Now the Code tab's wake gives the assistant one line with its session id, and a
-  call that passes that id is filed exactly as Claude Code would file it: in that session's
-  folder, under that session, with no Desktop write-up reminder added. Only a session Claude
-  Code's hooks recorded, and that is still running, is taken this way, and only for that one
-  call, so it can't spill into a Desktop chat's next call. A Code-tab call that passes no id
-  still lands under the most recent Desktop chat; its result now says which chat, and tells a
-  Claude Code session to pass its own id. The `wake` tool's description no longer says it is
-  never offered in Claude Code, and doctor's Claude Desktop line says the Code tab's tools
-  come from Desktop's server. Terminal sessions are unchanged. Each prompt now also marks
-  its session as still running, so a Code-tab session left idle for hours is recognised
-  again at its next prompt, and a call whose session id wasn't accepted says why.
-- Asking recall by feeling finds more of what was felt. Any feeling word reaches its family on
-  the wheel: "when was I afraid", with nothing recorded as afraid, answers with the strongest
-  uneasy moments, and a moment recorded as afraid still comes first. Everyday words off the
-  wheel ("shame", "dread", "relief"), forms like "happiest" or "sadness", and phrases like
-  "caught out" are understood, and so is your name in the possessive ("Mike's feelings"). Asking for the most, the
-  strongest, or "ever" ranks by how strongly something was felt at the time, not by how fresh
-  it is. Memories that only talk about feelings (notes on the wheel itself, say) no longer
-  crowd out the moments that were actually felt.
+The nightly run now writes up the sessions that ended before they were written up, in
+any directory, before it writes the page, and the wake gets a dated "Yesterday" line.
+The wake splits work from personal: "Work here" lists the work done in the directory the
+session opens in, and Nearby keeps what is personal, so a session in one project no
+longer wakes to another project's plumbing. Counterparts runs under Node 22.15 or newer,
+and on Linux. Claude Desktop's Code tab files its memories under its own session again,
+asking by feeling finds more of what was felt, and the wake says when a handoff may be
+out of date. **The store's format does not change** (still v11): nothing is upgraded and
+no pre-migration copy is taken, and 0.3.10 can open a store 0.3.11 has used.
 
 The morning catch-up and the "Yesterday" line (#308).
 
@@ -127,6 +48,140 @@ The morning catch-up and the "Yesterday" line (#308).
   owed) on the Nightly run and Write-ups lines, and counts yesterday's Claude Desktop
   chats as unmeasured rather than lost. `counterparts log` shows an
   `adapter.night.writeup` line for it.
+
+The wake: work here, and what is personal (#313).
+
+- The wake's craft lane is now the work done in the directory the session opens in: "Work
+  here, if it helps:" lists that directory's newest few work memories (marked `work`, or
+  unmarked skills and facts written there), each a title, a short excerpt and its id.
+  Nearby keeps what is personal, so a session in one project no longer wakes to another
+  project's plumbing.
+- The chapter tool takes `about` (me, us, owner, work or world), and the chapter's memory
+  copy keeps it. A chapter marked me, us or owner reaches the wake in other directories;
+  one marked work stays in its own.
+- `note` and `session_end` entries take `unresolved: true` for an open question or a
+  promise still pending; the wake shows those under "Still open:" (at most five). A later
+  write that `updates` one with `unresolved: false`, or with `how: "changed"` and the
+  answer, closes it.
+- The end-of-session ask (and Desktop's write-up ask) now says to close anything dated or
+  open that got done in the session, so a finished follow-up stops coming back.
+- The day's lines (the dream line, the night run's report, plain reminders, the update
+  notice) go only to a session someone can see: the terminal or Desktop's Code tab, not
+  `claude -p` or the SDK. A headless session can still start the nightly run, and the next
+  session you are in says so. The assistant now says the day's dream line itself, once, in
+  its first reply; the terminal line is extra.
+
+Node and Linux (#312).
+
+- **Runs under Node 22.15 or newer, and on Linux.** `npm install -g counterparts` works
+  without bun. The setup wires Claude Code to whichever runtime ran it (`bun run …` under
+  bun, `node --import …/node-hooks.mjs …` under Node), and `counterparts doctor` has a
+  Runtime line naming it and saying whether it is still there. The four commands now
+  start under bun when bun is on PATH, else Node. On Linux, `install --host
+  claude-desktop` says Claude Desktop is not available there instead of writing a config.
+  Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
+
+Continuity, round 2 (#311).
+
+- A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
+  a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
+  here since" when another session wrote a chapter in that directory after it. The end-of-
+  session ask now says any session may retire a handoff here whose work is done.
+- Recalled by its id, a handoff says who wrote it and when, not "an earlier session" and the
+  date its row was first made.
+- "Last here" shows the first sentence of the chapter the episode's title was written with
+  (and "2 chapters" when there are more), not a later chapter's under the first one's title.
+  A question about time in recall does the same (for "yesterday" or "this morning", the first
+  chapter written then), and says how many chapters there are.
+- A note written before the memory server knows its session is filed under the session its
+  host opened in that directory, when that match is exact. An older such note, written
+  inside exactly one session's stretch, says "session a1b2c3d4 (placed by when it was
+  written)".
+- Nearby leaves out what the self page already says, a memory a later one has settled
+  (changed or corrected), and a memory already under Arriving; and it no longer ends with a
+  "(331 more nearby; recall ids…)" line.
+- A chapter about me written in another directory reaches the wake elsewhere, as one line,
+  when its memory is marked about me, us or the owner, the directory it came from is on, and
+  it is not confidential. A confidential chapter is named in "Last here" to the owner only.
+- A "Last here" line dropped for room now leaves a record, and the dashboard's Health wake
+  bar goes amber for it.
+- recall says why `considered` can be above `consideredCap` (links between memories and a
+  feeling the question named have their own bounds).
+- With only Claude Desktop, an older store waiting for its upgrade says to open Desktop or
+  start a new chat in it, not to quit and reopen it.
+
+Claude Desktop's Code tab (#309).
+
+- Claude Desktop's Code tab files its memories under its own session again. There, the
+  counterparts tools the assistant sees turned out to be Claude Desktop's memory server, not
+  the session's own (both are named `counterparts`, and Desktop's wins), so a Code-tab
+  session's notes, chapters and write-ups were filed under the most recent Desktop chat, or
+  refused. Now the Code tab's wake gives the assistant one line with its session id, and a
+  call that passes that id is filed exactly as Claude Code would file it: in that session's
+  folder, under that session, with no Desktop write-up reminder added. Only a session Claude
+  Code's hooks recorded, and that is still running, is taken this way, and only for that one
+  call, so it can't spill into a Desktop chat's next call. A Code-tab call that passes no id
+  still lands under the most recent Desktop chat; its result now says which chat, and tells a
+  Claude Code session to pass its own id. The `wake` tool's description no longer says it is
+  never offered in Claude Code, and doctor's Claude Desktop line says the Code tab's tools
+  come from Desktop's server. Terminal sessions are unchanged. Each prompt now also marks
+  its session as still running, so a Code-tab session left idle for hours is recognised
+  again at its next prompt, and a call whose session id wasn't accepted says why.
+
+Recall by feeling, round 2 (#310).
+
+- Asking recall by feeling finds more of what was felt. Any feeling word reaches its family on
+  the wheel: "when was I afraid", with nothing recorded as afraid, answers with the strongest
+  uneasy moments, and a moment recorded as afraid still comes first. Everyday words off the
+  wheel ("shame", "dread", "relief"), forms like "happiest" or "sadness", and phrases like
+  "caught out" are understood, and so is your name in the possessive ("Mike's feelings"). Asking for the most, the
+  strongest, or "ever" ranks by how strongly something was felt at the time, not by how fresh
+  it is. Memories that only talk about feelings (notes on the wheel itself, say) no longer
+  crowd out the moments that were actually felt.
+
+Dashboard Health (#306).
+
+- A full wake is the normal state, so the Health wake bar is green for it ("The wake is
+  full — normal: …"). It turns amber only when being full cost something (the self page
+  cut or left out, a handoff a session start had no room for, the page writer held back
+  for room), and the line names the cost.
+- The archive list shows one line per memory: a chapter's copies are one item that says
+  how many times, and opens the newest.
+- The folded rows under "all fine" use the same plain words as the main rows ("… —
+  harmless; nothing to do") and no longer say "You may remove".
+- The last sleep shown is the last one that did something, not a check that found
+  nothing to do. The map's `?` describes the three named rings.
+- The Lookups row is "Looked up in dreams and reflections", in doctor's words. A dream's
+  start says how many memories wait for the next night and how many aged out, and a merge
+  the dream saw less than whole says so ("seen only as a line").
+
+Small fixes (#307).
+
+- The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
+  `2026-09-27 (due 2026-10-03) · …`.
+- When the console or the dashboard meets a store still waiting for its upgrade, it says who
+  will upgrade it in your hosts' words: with only Claude Desktop it no longer tells you to
+  wait for a Claude Code session.
+- Whoever rewrites the self page (the page writer, or the nightly reflection) is asked to name
+  the model when a claim is about one model, to write dates rather than "tonight" or
+  "today" (the page is read on later days), and not to add a revised-on line of its own.
+- Wake labels: the line under the header no longer also starts "Counterparts memory", and it
+  says only the listed memories open with a date (the page is dated on its own line); a
+  memory whose words already start with its date shows that date once; and the closing
+  comment says `page=1` beside `identity=0` when the wake carries the page.
+- The install loop (`tools/install-loop`, in the package) reads what it captured with a
+  here-string, so a long output can no longer fail a check that had matched.
+
+Not proven here.
+
+- No one uses Counterparts on Node daily yet. Linux was tested on arm64 Debian, in a
+  container. Dreaming and the nightly run under Node go through the same wiring, but
+  were not run, since that needs a real `claude`. Windows was not attempted.
+- The night catch-up was checked in tests and in a throwaway home with a stand-in
+  `claude` that drives the memory server as the real one's single tool would, never with
+  a real `claude -p` or on a real store.
+- The Code tab's sessions were measured read-only on a real Desktop, and the serving was
+  checked in tests, not on a day's real use.
 
 ## 0.3.10 — 2026-09-30
 
