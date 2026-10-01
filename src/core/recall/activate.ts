@@ -54,7 +54,7 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { emotionalIntensity, sal, softenedFeeling, strength } from "../physics/index.js";
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
-import { feelingTokens, readFeelingAsk } from "./feeling-ask.js";
+import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
 import { confidentialByMeta, feelingValence, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
@@ -259,8 +259,18 @@ export interface FeelingLane {
   /** A real question about feeling: the answer is ranked by the stamps. */
   readonly ranked: boolean;
   readonly named: number;
+  /** Memories whose stamps answered (either tier). */
   readonly pool: number;
+  /** Of `pool`, the memories only the second tier (a named word's core) reached. */
+  readonly core: number;
+  /** Ranked by recorded strength ("most", "ever", "since"…), not softened. */
+  readonly strongest: boolean;
+  /** Nominated candidates: the strength each was ranked by (softened, or as recorded on `strongest`). */
   readonly strengths: ReadonlyMap<string, number>;
+  /** Nominated candidates: their place in the lane's order — tier, strength, the newer stamp (0 = first). */
+  readonly order: ReadonlyMap<string, number>;
+  /** On a ranked ask: candidates nothing but the feeling words or the meaning reached (item 3, `noTopicOf`). */
+  readonly noTopic: ReadonlySet<string>;
 }
 
 /**
@@ -611,7 +621,11 @@ export function activate(
   // withholds it anyway); a chapter and its copy take one slot between them.
   const feelingOf = new Map<string, number>();
   const stampCue = new Map<string, number>();
-  let feelingAsk: { ranked: boolean; named: number; pool: number } | null = null;
+  /** A nominated memory's place in the lane's order (0 = first). */
+  const feelingRank = new Map<string, number>();
+  let feelingAsk: { ranked: boolean; named: number; pool: number; core: number; strongest: boolean } | null = null;
+  /** The ranked ask, read — kept for the "no topic word" test after the cut (item 3). */
+  let rankedFrame: { stored: ReadonlySet<string>; proper: ReadonlySet<string> } | null = null;
   if (input.feeling !== undefined) {
     let stamps: (FeelingRow & { birth_day: number })[] = [];
     try {
@@ -623,7 +637,11 @@ export function activate(
     const tokensOf = stamps.map((f) => feelingTokens(f));
     const stored = new Set(tokensOf.flatMap((x) => [...x]));
     const ask = readFeelingAsk(input.text, input.feeling, stored, t.MIN_CUE_LENGTH);
-    const best = new Map<string, number>();
+    if (ask.ranked) rankedFrame = { stored, proper: askedNames(input.text) };
+    /** memory -> its best stamp: the match tier (0 exact, 1 core), the value it ranks by, its birth day. */
+    const best = new Map<string, { tier: 0 | 1; value: number; day: number }>();
+    const better = (a: { tier: number; value: number; day: number }, b: { tier: number; value: number; day: number }): boolean =>
+      a.tier !== b.tier ? a.tier < b.tier : a.value !== b.value ? a.value > b.value : a.day > b.day;
     /** memory -> the question's feeling words its stamps answer to. */
     const answered = new Map<string, Set<string>>();
     const everyStamp = ask.ranked && ask.named.size === 0;
@@ -632,38 +650,67 @@ export function activate(
         if (ask.whose !== null && f.whose !== ask.whose) return;
         const answers = tokensOf[i] as Set<string>;
         const hit = [...ask.named].filter((w) => answers.has(w));
-        if (!everyStamp && hit.length === 0) return;
+        // TIERED (lane 6, item 1): a stamp the question's words name ranks
+        // first; on a RANKED ask, a stamp under one of those words' cores
+        // ranks after every one of them — "afraid" with no afraid stamp
+        // answers with the strongest uneasy ones, and an afraid stamp leads.
+        const tier: 0 | 1 | null =
+          everyStamp || hit.length > 0 ? 0 : ask.ranked && stampCores(f).some((c) => ask.cores.has(c)) ? 1 : null;
+        if (tier === null) return;
+        // Softened (how a feeling fades) unless the question asks for the
+        // strongest or over all time (lane 6, item 2): then as recorded.
         const soft = softenedFeeling(f.strength, input.day - f.birth_day, feelingValence(f));
-        if (!(soft > 0)) return;
-        if (soft > (best.get(f.memory_id) ?? 0)) best.set(f.memory_id, soft);
-        const words = answered.get(f.memory_id) ?? new Set<string>();
-        for (const w of hit) words.add(w);
-        answered.set(f.memory_id, words);
+        const value = ask.strongest && ask.ranked ? f.strength : soft;
+        if (!(value > 0) || !(soft > 0)) return;
+        const mine = { tier, value, day: f.birth_day };
+        const had = best.get(f.memory_id);
+        if (had === undefined || better(mine, had)) best.set(f.memory_id, mine);
+        if (hit.length > 0) {
+          const words = answered.get(f.memory_id) ?? new Set<string>();
+          for (const w of hit) words.add(w);
+          answered.set(f.memory_id, words);
+        }
       });
       // A named word's rarity AMONG THE STAMPS: how many memories it reaches.
       const stampDf = new Map<string, number>();
       for (const words of answered.values()) for (const w of words) stampDf.set(w, (stampDf.get(w) ?? 0) + 1);
-      const order = [...best].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+      // Tier, then value, then the newer stamp, then the id.
+      const order = [...best].sort((a, b) => (better(a[1], b[1]) ? -1 : better(b[1], a[1]) ? 1 : a[0] < b[0] ? -1 : 1));
       const slots = new Set<string>();
-      for (const [id, soft] of order) {
+      /** The weakest exact nomination's value: a core-tier stamp brings no more cue than it. */
+      let weakestExact = Number.POSITIVE_INFINITY;
+      for (const [id, { tier, value }] of order) {
         if (slots.size >= t.FEELING_CANDIDATES_MAX) break;
         const row = recallable(id);
         if (row === undefined) continue;
         if (input.feeling.owner !== true && row.confidential === 1) continue;
         const slot = journalCopyOf(row) ?? id;
         if (slots.has(slot)) continue;
+        // A core match never brings more cue than the weakest exact one, so it
+        // can outrank an exact match in the gate only by its own words.
+        const cueValue = tier === 0 ? value : Math.min(value, weakestExact);
         const add = ask.ranked
-          ? t.FEELING_CUE_UNITS * cueUnit * soft
+          ? t.FEELING_CUE_UNITS * cueUnit * cueValue
           : [...(answered.get(id) ?? [])].reduce((sum, w) => sum + informativeness(stampDf.get(w) ?? 1, storeSize), 0);
         if (!(add > 0)) continue;
         slots.add(slot);
-        if (ask.ranked) feelingOf.set(id, soft);
+        if (tier === 0) weakestExact = Math.min(weakestExact, value);
+        if (ask.ranked) {
+          feelingOf.set(id, value);
+          feelingRank.set(id, feelingRank.size);
+        }
         stampCue.set(id, add);
         cueScore.set(id, (cueScore.get(id) ?? 0) + add);
         ids.add(id);
       }
     }
-    feelingAsk = { ranked: ask.ranked, named: ask.named.size, pool: best.size };
+    feelingAsk = {
+      ranked: ask.ranked,
+      named: ask.named.size,
+      pool: best.size,
+      core: [...best.values()].filter((b) => b.tier === 1).length,
+      strongest: ask.ranked && ask.strongest,
+    };
   }
 
   let scored: Scored[] = [];
@@ -744,6 +791,9 @@ export function activate(
       byId.set(chapterId, { ...chapter, cue, temporal, semantic, arrival, activation, sal, cutKey: salienceRank(activation, sal, t), feeling, stamp });
       collapsedInto.set(copyId, chapterId);
       absorbed.set(chapterId, [...(absorbed.get(chapterId) ?? []), copyId]);
+      // The pair's place in the feeling lane's order is the better half's.
+      const rank = Math.min(feelingRank.get(chapterId) ?? Number.POSITIVE_INFINITY, feelingRank.get(copyId) ?? Number.POSITIVE_INFINITY);
+      if (Number.isFinite(rank)) feelingRank.set(chapterId, rank);
       matchCount.set(chapterId, Math.max(matchCount.get(chapterId) ?? 0, matchCount.get(copyId) ?? 0));
       if (unambiguousMatch.has(copyId)) unambiguousMatch.add(chapterId);
       gone.add(copyId);
@@ -995,6 +1045,27 @@ export function activate(
     });
   }
 
+  /**
+   * ITEM 3 of lane 6 (2026-10-01): on a RANKED question about feeling, the
+   * candidates the stamps did not nominate and that NO TOPIC WORD reached —
+   * only the question's feeling words (`isFeelingFrameWord`: feel-words,
+   * feeling words, "most"/"strongly"), or only its meaning. A memory ABOUT the
+   * feeling system (the wheel, the cores, emotion research) is full of
+   * feeling words and has no stamp; `deliberate.ts` answers these below every
+   * stamped nomination. A memory a topic word reached ("how did I feel after
+   * HAN asked…") or the calendar reached keeps its place.
+   */
+  function noTopicOf(list: readonly Candidate[], stored: ReadonlySet<string>, proper: ReadonlySet<string>): Set<string> {
+    const topic = cues.filter((c) => c.weight > 0 && !isFeelingFrameWord(c.token, stored, proper)).map((c) => postings.get(c.token));
+    const out = new Set<string>();
+    for (const c of list) {
+      if (c.feeling !== undefined || c.linkOnly === true || c.temporal > 0) continue;
+      const reached = [c.id, ...(absorbed.get(c.id) ?? [])].some((id) => topic.some((byDoc) => byDoc?.has(id) === true));
+      if (!reached) out.add(c.id);
+    }
+    return out;
+  }
+
   return {
     cues,
     candidates,
@@ -1022,6 +1093,10 @@ export function activate(
         : {
             ...feelingAsk,
             strengths: new Map(candidates.filter((c) => c.feeling !== undefined).map((c) => [c.id, c.feeling as number])),
+            order: new Map(
+              candidates.filter((c) => c.feeling !== undefined).map((c) => [c.id, feelingRank.get(c.id) ?? Number.MAX_SAFE_INTEGER]),
+            ),
+            noTopic: rankedFrame === null ? new Set<string>() : noTopicOf(candidates, rankedFrame.stored, rankedFrame.proper),
           },
   };
 }

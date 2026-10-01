@@ -815,17 +815,22 @@ export function answerQuestion(
   // A QUESTION ABOUT FEELING (2026-09-30, U13), when it is a RANKED one (a
   // real question about feeling, `recall/feeling-ask.ts`): the memories its
   // stamps nominated have their own bound (`FEELING_CANDIDATES_MAX`), so the
-  // dim cap is for the rest, and they lead the tier the gate gave them,
-  // strongest stamp first — the words, meaning and recency (the rest of
-  // activation) only break a tie. The tiers keep their order (review of #293,
-  // S3 and R2): vivid; the felt quiet rows, then the other quiet ones; the felt
-  // dim rows, then the other dim ones. So a quiet note that merely says "moved"
-  // follows the quiet stamped rows, and no answer the words found is put below
-  // a row the gate thought less of. Everything a hard
-  // gate or confidentiality refused above stays refused. A feeling named about
-  // no one ("the happy path") nominates as an ordinary cue and changes nothing
-  // here.
-  const felt = built.feeling?.ranked === true ? built.feeling.strengths : new Map<string, number>();
+  // dim cap is for the rest, and they lead the tier the gate gave them, in the
+  // lane's order — the words a stamp answers to before a named word's core,
+  // then strength, then the newer stamp (2026-10-01, lane 6). The tiers keep
+  // their order (review of #293, S3 and R2): vivid; the felt quiet rows, then
+  // the other quiet ones; the felt dim rows; then the rows NO TOPIC WORD
+  // reached (lane 6, item 3 — only the feeling words or the meaning did: a
+  // memory about the feeling system, full of feeling words, with no stamp),
+  // whatever their tier; then the other dim ones. So a quiet note that merely
+  // says "moved" follows every stamped row, and no answer a topic word found
+  // is put below a row the gate thought less of. Everything a hard gate or
+  // confidentiality refused above stays refused. A feeling named about no one
+  // ("the happy path") nominates as an ordinary cue and changes nothing here.
+  const ranked = built.feeling?.ranked === true;
+  const felt = ranked ? (built.feeling?.strengths ?? new Map<string, number>()) : new Map<string, number>();
+  const feltOrder = built.feeling?.order ?? new Map<string, number>();
+  const noTopic = ranked ? (built.feeling?.noTopic ?? new Set<string>()) : new Set<string>();
   const feltDim = dim.filter((v) => felt.has(v.id));
   const plainDim = dim.filter((v) => !felt.has(v.id));
   plainDim.sort((a, b) => b.activation - a.activation);
@@ -835,18 +840,28 @@ export function answerQuestion(
   // effort and the cap is what stopped them.
   for (const v of plainDim.slice(DELIBERATE_DIM_CAP)) blocked(`dim-cap:${v.verdict}`);
   if (felt.size > 0) {
-    // Vivid; felt-quiet, quiet; felt-dim, dim (review of #293, R2): a quiet
-    // answer the words found is never put below a stamped row the gate left dim.
-    const group = (a: { verdict: CandidateVerdict; tier: Tier }): number =>
-      a.tier === "vivid" ? 0 : a.tier === "quiet" ? (felt.has(a.verdict.id) ? 1 : 2) : felt.has(a.verdict.id) ? 3 : 4;
+    // Vivid; felt-quiet, quiet; felt-dim; no topic word; dim.
+    const tierRank: Record<Tier, number> = { vivid: 0, quiet: 1, dim: 2 };
+    const group = (a: { verdict: CandidateVerdict; tier: Tier }): number => {
+      if (felt.has(a.verdict.id)) return a.tier === "vivid" ? 0 : a.tier === "quiet" ? 1 : 3;
+      if (noTopic.has(a.verdict.id)) return 4;
+      return a.tier === "vivid" ? 0 : a.tier === "quiet" ? 2 : 5;
+    };
     const order = new Map(admitted.map((a, i) => [a.verdict.id, i]));
     admitted.sort((a, b) => {
       const ga = group(a) - group(b);
       if (ga !== 0) return ga;
-      const fa = felt.get(a.verdict.id) ?? -1;
-      const fb = felt.get(b.verdict.id) ?? -1;
-      if (fa !== fb) return fb - fa;
-      if (fa >= 0) return b.verdict.activation - a.verdict.activation;
+      const fa = felt.has(a.verdict.id);
+      const fb = felt.has(b.verdict.id);
+      if (fa !== fb) return fa ? -1 : 1;
+      if (fa) {
+        const ra = feltOrder.get(a.verdict.id) ?? Number.MAX_SAFE_INTEGER;
+        const rb = feltOrder.get(b.verdict.id) ?? Number.MAX_SAFE_INTEGER;
+        if (ra !== rb) return ra - rb;
+        return b.verdict.activation - a.verdict.activation;
+      }
+      const ta = tierRank[a.tier] - tierRank[b.tier];
+      if (ta !== 0) return ta;
       return (order.get(a.verdict.id) ?? 0) - (order.get(b.verdict.id) ?? 0);
     });
   }

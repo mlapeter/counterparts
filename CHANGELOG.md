@@ -29,6 +29,14 @@
   come from Desktop's server. Terminal sessions are unchanged. Each prompt now also marks
   its session as still running, so a Code-tab session left idle for hours is recognised
   again at its next prompt, and a call whose session id wasn't accepted says why.
+- Asking recall by feeling finds more of what was felt. Any feeling word reaches its family on
+  the wheel: "when was I afraid", with nothing recorded as afraid, answers with the strongest
+  uneasy moments, and a moment recorded as afraid still comes first. Everyday words off the
+  wheel ("shame", "dread", "relief"), forms like "happiest" or "sadness", and phrases like
+  "caught out" are understood, and so is your name in the possessive ("Mike's feelings"). Asking for the most, the
+  strongest, or "ever" ranks by how strongly something was felt at the time, not by how fresh
+  it is. Memories that only talk about feelings (notes on the wheel itself, say) no longer
+  crowd out the moments that were actually felt.
 
 ## 0.3.10 — 2026-09-30
 
