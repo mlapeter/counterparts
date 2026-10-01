@@ -310,7 +310,7 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     answers only as the whole phrase. A question word is read through the wheel, a
     question-side everyday list (`EVERYDAY_TO_WHEEL`: shame, dread, relief…) and a light
     stem of a known feeling (happiest, sadness) — those two only in a feeling's frame — and
-    never a word capitalised mid-sentence (a name); the owner's name written with an
+    never a word off the wheel capitalised mid-sentence (a name); the owner's name written with an
     apostrophe ("Mike's") is the owner. Two cases:
     **Ranked** — a real question about feeling: a feel-word (`FEEL_WORDS`) or a word naming
     a feeling, used about a PERSON (first person singular or second person, the owner by

@@ -217,13 +217,13 @@ export function isFeelingFrameWord(token: string, stored: ReadonlySet<string>, n
  * few memories say "when", "when was I afraid" reaches a note by "when". This
  * list only decides what counts as a TOPIC word for item 3; it weighs nothing.
  */
-// Only true function words: "will", "may", "can", "do", "it" are left out on
-// purpose (Will, May, a can, a to-do, IT), and a word the asker capitalised
-// mid-sentence is a topic whatever it is (`askedNames`).
+// Only function words. Lower-case "will", "may", "can", "do" are here; the
+// asker's capitalised Will or May is a topic anyway (`askedNames`, checked
+// first). "it", "done" and "id" are left out (IT, a to-do, a memory id).
 const QUESTION_FRAME = new Set([
   "what", "when", "where", "which", "who", "whom", "whose", "why", "how", "whats",
-  "was", "were", "is", "are", "am", "be", "been", "being", "does", "did", "have", "has", "had",
-  "could", "would", "should", "ive", "im",
+  "was", "were", "is", "are", "am", "be", "been", "being", "do", "does", "did", "have", "has", "had",
+  "can", "could", "will", "would", "should", "may", "ive", "im",
   "the", "an", "this", "that", "these", "those", "some", "any", "them", "they", "their",
   "of", "to", "in", "on", "at", "for", "with", "about", "from", "by", "as", "into",
   "and", "or", "but", "if", "than", "then", "not", "very", "really", "time", "times",
@@ -233,9 +233,13 @@ const QUESTION_FRAME = new Set([
  * Words the asker CAPITALISED other than at a sentence's start (and other than
  * "I"): a name or a proper noun — "how did I feel about Will", "in May", "a
  * person named Joy". Such a word is a topic (item 3), never a feeling word.
+ * Not a word on the wheel ("I felt Sad" is still sad), and nothing in a
+ * question typed all in capitals.
  */
 export function askedNames(text: string): Set<string> {
   const out = new Set<string>();
+  // A question typed in capitals ("WHEN WAS I SAD") capitalises nothing in particular.
+  if (!/[a-z]/.test(text)) return out;
   let start = true;
   for (const m of text.matchAll(/[A-Za-z0-9][A-Za-z0-9'’]*|[.?!;:\n]/g)) {
     const tok = m[0];
@@ -244,7 +248,8 @@ export function askedNames(text: string): Set<string> {
       continue;
     }
     const w = words(tok).join("");
-    if (!start && /^[A-Z]/.test(tok) && !FIRST.has(w) && w !== "id" && w.length >= 2) out.add(w);
+    // A wheel word or core stays a feeling whatever its case ("when was I Sad").
+    if (!start && /^[A-Z]/.test(tok) && !FIRST.has(w) && w !== "id" && w.length >= 2 && !WHEEL_VOCABULARY.has(w)) out.add(w);
     start = false;
   }
   return out;
@@ -505,6 +510,8 @@ export function readFeelingAsk(
   for (let i = 0; i + 1 < toks.length; i++) {
     const key = WHEEL_PHRASE_KEYS.get(`${toks[i]} ${toks[i + 1]}`);
     if (key === undefined || DETERMINERS.has(toks[i + 2] ?? "")) continue;
+    // "caught out of range errors", "caught out on a typo": a preposition after it makes it a thing's state.
+    if (key === "caught out" && (PREPOSITIONS.has(toks[i + 2] ?? "") || toks[i + 2] === "from")) continue;
     const prev = toks[i - 1] ?? "";
     // "ashamed or caught out": a phrase joined to a feeling word shares its frame.
     const joined = (prev === "or" || prev === "and") && feelingWord(toks[i - 2] ?? "", stored) !== null;

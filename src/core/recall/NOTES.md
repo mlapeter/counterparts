@@ -909,8 +909,8 @@ question's.
   its home core. Wheel phrases are matched whole ("caught out" as two words in a row, before
   the everyday-frame rule could eat "caught"), and only with a person as its subject — right
   before it, or through a feel-word or "to be" ("I was caught out", "felt let down"), or
-  joined to a feeling word ("ashamed or caught out"); "caught out of range errors" is not
-  one. A stamp answers to the phrase as one token with a space, which no single question
+  joined to a feeling word ("ashamed or caught out"), and never with a preposition after it
+  ("where I caught out of range errors" is not one). A stamp answers to the phrase as one token with a space, which no single question
   word can equal, so "out" is still nothing. `EVERYDAY_TO_WHEEL` is question-side only and
   small; it leaves out words a question often uses about a thing or a name (panic, hope,
   love, worry, pleased, joy, pride, curiosity — the B2 scar). The stemmer tries
@@ -918,7 +918,8 @@ question's.
   angry, lonely, proud…): "opener", "warmer", "closer" are about things. An everyday word or
   a stem names a feeling only in a feeling's frame — a feel-word in the question, or "to be"
   among the two words before ("when was I stressed", not "the endpoints I stressed"). A word
-  the asker capitalised mid-sentence is a name, never a feeling ("a person named Joy").
+  the asker capitalised mid-sentence is a name, never a feeling ("a person named Joy") —
+  unless it is on the wheel.
   The owner's name in the possessive is the owner only when it was written with an
   apostrophe ("Mike's", "James'"): "bills" and "marks" are never Bill or Mark. Beside a
   non-feel word it is a possessive, as "my" is.
@@ -935,10 +936,12 @@ question's.
   a cue token with weight that is not a feel-word, a feeling word, a "most/strongly" word,
   a person word or a question-frame word (`QUESTION_FRAME`: wh-words, auxiliaries,
   determiners, prepositions, "times") — the cue channel has no stop list, so on a small
-  store "when" alone would count. The frame list holds only true function words: will, may,
-  can, do, done, it and id are left out (Will, May, a can, a to-do, IT), and a word the
-  asker capitalised mid-sentence is always a topic (`askedNames`; review of #310, where
-  "how did I feel about Will" had put the Will memory fifth). A row the calendar reached
+  store "when" alone would count. A word the asker capitalised mid-sentence is always a
+  topic (`askedNames`; review of #310, where "how did I feel about Will" had put the Will
+  memory fifth), so lower-case will, may, can and do stay function words; it, done and id
+  are left out (IT, a to-do, a memory id). A wheel word is never a capitalised name ("when
+  was I Sad", "I felt Sad"), and a question typed all in capitals names nothing (second
+  review of #310). A row the calendar reached
   keeps its place. A memory with
   a stamp the question did not nominate counts as unstamped here. No blacklist of
   feeling-system memories: one asked about by a topic word ("what did we decide about the

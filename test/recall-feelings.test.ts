@@ -621,6 +621,8 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
       "what did I plan for pride month",
       "what did I read about the curiosity rover",
       "I keep getting caught out of range errors",
+      "where I caught out of range errors",
+      "where we caught out of range errors",
       "how did I warm the cache",
       "is my opener test still flaky",
     ]) {
@@ -701,17 +703,36 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     expect(out.memories.map((m) => m.id)).toContain(f.topical);
   });
 
-  test("review of #310: Will, May and a can are topics — the memory they name keeps its place", () => {
+  test("second review of #310: a capitalised wheel word is still a feeling; a lower-case 'can' is frame", () => {
+    const s = server();
+    const c = s.counterpart;
+    for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
+    const sad = c.store.put({ type: "memory", kind: "self", body: "The evening the old store was finally archived." });
+    c.store.addFeelings(sad, [{ whose: "self", core: "sad", emotion: "wistful", strength: 0.6 }]);
+    for (const question of ["when was I Sad", "I felt Sad", "WHEN WAS I SAD"]) {
+      expect(readFeelingAsk(question, { asker: "self" }, new Set(), 3).named.has("sad")).toBe(true);
+      expect(deliberateRecall(c, { question }, { sessionId: "cap", owner: true }).memories[0]?.id).toBe(sad);
+    }
+    // A wheel note asked about only through frame words stays below the stamped rows.
+    uneasyStore(c);
+    const note = c.store.put({ type: "memory", kind: "fact", body: "Wheel note: what you can do when afraid is file it under uneasy." });
+    const built = c.recall.build({ sessionId: "can", text: "what can I do when I feel afraid", owner: true, feeling: { asker: "self" } });
+    expect(built.decision.verdicts.some((v) => v.id === note)).toBe(true);
+    expect(built.feeling?.noTopic.has(note)).toBe(true);
+  });
+
+  test("review of #310: Will, May and Can, capitalised, are topics — the memory they name keeps its place", () => {
     const s = server();
     const c = s.counterpart;
     uneasyStore(c);
     const will = c.store.put({ type: "memory", kind: "person", body: "Will helped carry the couch up three flights." });
     const may = c.store.put({ type: "memory", kind: "fact", body: "In May the release slipped twice." });
-    const can = c.store.put({ type: "memory", kind: "fact", body: "The can of paint tipped over on the porch." });
+    const can = c.store.put({ type: "memory", kind: "fact", body: "The Can of paint tipped over on the porch." });
+    // Lower-case will/may/can are function words (second review); the asker's capitals make a topic.
     for (const [question, id] of [
       ["how did I feel about Will", will],
       ["how did I feel in May", may],
-      ["how did I feel about the can", can],
+      ["how did I feel about the Can", can],
     ] as const) {
       const built = c.recall.build({ sessionId: `l6t-${id}`, text: question, owner: true, feeling: { asker: "self" } });
       expect(built.feeling?.ranked).toBe(true);
