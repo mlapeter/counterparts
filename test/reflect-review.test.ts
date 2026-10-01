@@ -19,6 +19,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { REFLECTED_FEELING_KEY, TUNABLES as SLEEP, aboutMe, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
 import { V9_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { PAGE_WRITING_RULE } from "../src/core/self/index.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -562,6 +563,16 @@ describe("lanes: a reflection and an organic use on one lived day", () => {
 // ---------------------------------------------------------------------------
 
 describe("owner rulings on the review's decisions", () => {
+  test("the page line says how the page is worded, the same rule the page writer is given (2026-10-01)", () => {
+    const c = brain();
+    nextDay(c);
+    nextDay(c);
+    mem(c, "Mike and I finished the release together.", { kind: "person", about: "us" });
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(begun.instructions).toContain(PAGE_WRITING_RULE);
+  });
+
   test("D1: closed, a reflection may only move a mark toward work or world", () => {
     const c = brain();
     c.store.setMeta(REFLECTED_FEELING_KEY, "off");

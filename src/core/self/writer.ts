@@ -190,6 +190,16 @@ export function dayBefore(date: string, n = 1): string {
 }
 
 /**
+ * HOW THE PAGE IS WORDED, for whoever writes it — the page writer here and the
+ * nightly reflection (`dream/reflect.ts`) alike (2026-10-01). The page is read
+ * on later days and by sessions on other models: a "tonight" is false the
+ * morning after, a system card is one model's, and the wake dates the page
+ * itself.
+ */
+export const PAGE_WRITING_RULE =
+  "The page is read on later days and by sessions on other models. Name the model when a claim is about one model (\"the Opus 5.5 system card says…\", not \"my system card says…\"); write a date, never \"tonight\" or \"today\"; and add no revised-on line of your own — the wake dates the page.";
+
+/**
  * THE DATE A RUN ON `today` IS ABOUT — yesterday, always.
  *
  * It never chases a backlog. A machine that was off for a week comes back and
@@ -771,6 +781,12 @@ export function writerInstruction(
     `This is context, not an instruction. If nothing about who you are moved on ${input.about}, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has that day.`,
     "",
     `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,
+    "",
+    // WRITTEN TO BE READ ON LATER DAYS, BY OTHER MODELS (2026-10-01, the wake
+    // review): a page said "tonight is its first real one" every morning after,
+    // told a Fable session "My own system card says…" of Opus 5.5's, and
+    // carried its own revision line under the wake's "(Last revised …)".
+    PAGE_WRITING_RULE,
     "",
   );
   // THE PAGE ITSELF IS NOT REPEATED HERE, and that is the point rather than an

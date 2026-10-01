@@ -1384,3 +1384,12 @@ the item was due 2026-10-03, and the one date on the line read as when it happen
 → `HorizonItem.due` → `Resolved.due`), and `datePrefix` prints `2026-09-27 (due 2026-10-03) · `,
 in place of `(of …)`. A due date equal to the learned date is stated once, like the content
 date. Only horizon items carry one; nothing about what the lane selects changed.
+
+## 2026-10-01 — how the page is worded (`writer.ts#PAGE_WRITING_RULE`)
+
+The wake review found a page that said "tonight is its first real one" every morning after it
+was written, told a Fable session "My own system card says…" of Opus 5.5's card, and carried
+its own revision line under the wake's "(Last revised …)". One sentence, given to both writers
+of the page (the page writer's block and the reflection's `page` line): name the model for a
+claim about one model, write a date rather than "tonight" / "today", and add no revised-on
+line, because the wake dates the page. Guidance only; nothing checks the text.

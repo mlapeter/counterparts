@@ -9,6 +9,9 @@
 - When the console or the dashboard meets a store still waiting for its upgrade, it says who
   will upgrade it in your hosts' words: with only Claude Desktop it no longer tells you to
   wait for a Claude Code session.
+- Whoever rewrites the self page (the page writer, or the nightly reflection) is asked to name
+  the model when a claim is about one model, to write dates rather than "tonight" or
+  "today" (the page is read on later days), and not to add a revised-on line of its own.
 
 ## 0.3.10 — 2026-09-30
 
