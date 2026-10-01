@@ -1002,3 +1002,13 @@ So the Desktop server serves a Code-tab call AS the Claude Code session it names
   to a turn already written up is left out with it). Both the pointer's part count and the
   door's parts read the one `writeUpEntries`, so they agree; a part count recorded before
   this build may grow by the replies' bytes, which the door already tolerates.
+
+## 2026-10-01 — `chapter` takes an `about` mark (lane 8)
+
+#311 found a chapter's copy crosses directories only when marked me, us or owner, and
+nothing a session could send set that mark: the copy was minted unmarked and only a
+reflection or the v9 upgrade marked one. The chapter tool now takes `about`; the
+description asks for it and says a session that was only building is `work`. The mark
+goes on the episode's meta and on the live copy at once (a closed regrow window would
+otherwise never carry it), and a regrown copy takes its predecessor's mark, so a
+reflection's later mark is kept too. A later chapter's mark replaces an earlier one.

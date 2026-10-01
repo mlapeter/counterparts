@@ -2744,6 +2744,11 @@ export class McpServer {
     }
     const session = this.session as string;
     const title = args["title"];
+    // WHAT THE SESSION WAS ABOUT (2026-10-01, lane 8), carried to the
+    // chapter's memory copy: a malformed one refuses the call before anything
+    // is written, as on `note`.
+    const about = readAbout(args["about"]);
+    if ("refused" in about) return this.refuse("chapter", "about-malformed", { detail: about.refused });
     // The model the hooks last saw answer in this session. A Stop records it
     // before its ask goes out, so the chapter that answers the ask has it.
     const model = readSession(this.registryDir, session)?.model;
@@ -2754,6 +2759,7 @@ export class McpServer {
         scope: this.scope,
         ...(typeof title === "string" && title.length > 0 ? { title } : {}),
         ...(model === undefined ? {} : { model }),
+        ...(about.mark === null ? {} : { about: about.mark }),
       });
     } catch (err) {
       // A journal that throws must not look like a journal that refused.
@@ -2776,6 +2782,7 @@ export class McpServer {
         chapter: written.chapter,
         created: written.created,
         ...(written.gate === null ? {} : { gate: written.gate }),
+        ...(about.mark === null || !written.appended ? {} : { about: about.mark }),
       },
       !written.appended,
     );

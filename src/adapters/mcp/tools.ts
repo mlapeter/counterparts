@@ -864,6 +864,11 @@ const CHAPTER: ToolSpec = {
       mechanizedBy: "src/core/counterpart.ts#sessionEnd -> src/core/self/index.ts#reconcileEpisodes -> ingestEpisode",
     },
     {
+      claim:
+        "`about` is carried to the chapter's memory copy, and kept when the copy regrows; a later chapter's mark replaces an earlier one. Only me, us and owner let the chapter reach a wake in another directory.",
+      mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#ingestEpisode -> src/core/counterpart.ts#selfChapterElsewhere",
+    },
+    {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },
@@ -884,6 +889,12 @@ const CHAPTER: ToolSpec = {
       title: {
         type: "string",
         description: "One line: what this session's episode is — the line a later index shows for all of it, so it can be told apart without being read. Set on the first chapter only.",
+      },
+      about: {
+        type: "string",
+        enum: ["me", "us", "owner", "work", "world"],
+        description:
+          "What this session was about, by meaning — me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's memory copy, and only me, us or owner carry the chapter into a wake in another directory. A session that was only building is work; one about people, feelings or life outside the work is owner or us.",
       },
     },
     required: ["text"],

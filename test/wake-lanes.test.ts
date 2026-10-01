@@ -24,6 +24,9 @@ import {
 } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
 import type { Kind } from "../src/core/types.js";
+import { McpServer } from "../src/adapters/mcp/server.js";
+import { toolSpec } from "../src/adapters/mcp/tools.js";
+import { recordSession } from "../src/adapters/sessions.js";
 
 const ZONE = "UTC";
 const NOW = Date.UTC(2026, 9, 1, 15, 0);
@@ -87,7 +90,7 @@ function put(
 
 function wake(c: Counterpart, scope: string, budget = BUDGET): string {
   c.rebrief({ budgetBytes: budget, at: "2026-10-01" });
-  return c.wake(budget, { date: "2026-10-01" }, { scope, session: "s-reader" }).text;
+  return c.wake(budget, { date: "2026-10-01" }, { scope, session: "s-reader", exportsFrom: () => true }).text;
 }
 
 /** The lines under one heading, up to the next blank line. */
@@ -261,6 +264,79 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     const after = c.rebrief({ budgetBytes: BUDGET, at: "2026-10-01" }).composeBudget ?? 0;
     expect(after).toBeLessThan(before);
     expect(before - after).toBeLessThanOrEqual(BUDGET / 8);
+  });
+});
+
+describe("the chapter tool takes an `about` mark, carried to the chapter's memory copy (item 2)", () => {
+  const S = "d1d2d3d4-0000-4000-8000-00000000000d";
+
+  function server(c: Counterpart, scope: string): McpServer {
+    recordSession(storeDir, { sessionId: S, scope, phase: "start", at: NOW });
+    return new McpServer({ counterpart: c, session: S, scope, owner: true, registryDir: storeDir, now: () => NOW });
+  }
+
+  function copyOf(c: Counterpart, episodeId: string): { id: string; about: string | null; by: string | null } {
+    const ids = c.store.list({ type: "memory", archived: false, originRef: episodeId });
+    expect(ids.length).toBe(1);
+    const row = c.store.row(ids[0] as string);
+    return { id: ids[0] as string, about: row?.about ?? null, by: row?.about_by ?? null };
+  }
+
+  test("work keeps the copy home; a later chapter's me replaces it at once and carries it into another directory's wake", async () => {
+    const c = counterpart();
+    const mcp = server(c, WORKSHOP);
+    const first = await mcp.call("chapter", { session: S, title: "Hanging the cabinet doors", text: "I hung the cabinet doors and set the hinges by eye.", about: "work" });
+    const out = first.structuredContent as Record<string, unknown>;
+    expect(out["stored"]).toBe(true);
+    expect(out["about"]).toBe("work");
+    const epi = out["episodeId"] as string;
+    c.ingestEpisode({ sessionId: S });
+    expect(copyOf(c, epi)).toMatchObject({ about: "work", by: "writer" });
+    expect(wake(c, LIBRARY)).not.toContain("About me, from another directory");
+
+    const second = await mcp.call("chapter", { session: S, text: "Then I noticed I had been enjoying the quiet of the work.", about: "me" });
+    expect((second.structuredContent as Record<string, unknown>)["about"]).toBe("me");
+    // On the live copy at once, before any regrowth.
+    expect(copyOf(c, epi).about).toBe("me");
+    // Regrown with the second chapter's words, the copy keeps the mark.
+    c.ingestEpisode({ sessionId: S });
+    expect(copyOf(c, epi)).toMatchObject({ about: "me", by: "writer" });
+    expect(wake(c, LIBRARY)).toContain("About me, from another directory");
+  });
+
+  test("a reflection's mark on the copy survives the copy regrowing", async () => {
+    const c = counterpart();
+    const mcp = server(c, WORKSHOP);
+    const r = await mcp.call("chapter", { session: S, title: "Sanding", text: "I sanded the drawer fronts down to the grain." });
+    const epi = (r.structuredContent as Record<string, unknown>)["episodeId"] as string;
+    c.ingestEpisode({ sessionId: S });
+    expect(copyOf(c, epi).about).toBeNull();
+    c.store.setAbout(copyOf(c, epi).id, "us", { by: "reflection" });
+    await mcp.call("chapter", { session: S, text: "And then we talked about what the shop is for." });
+    c.ingestEpisode({ sessionId: S });
+    expect(copyOf(c, epi)).toMatchObject({ about: "us", by: "reflection" });
+  });
+
+  test("a mark outside the five is refused before anything is written", async () => {
+    const c = counterpart();
+    const mcp = server(c, WORKSHOP);
+    const r = await mcp.call("chapter", { session: S, text: "I hung the cabinet doors and set the hinges by eye.", about: "building" });
+    expect(r.isError).toBe(true);
+    expect((r.structuredContent as Record<string, unknown>)["reason"]).toBe("about-malformed");
+    expect(c.store.list({ type: "episode" })).toEqual([]);
+  });
+
+  test("the about field asks for owner or us on anything personal", () => {
+    const about = (toolSpec("note")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];
+    expect(about?.description).toContain("Mark anything personal — people, feelings, life outside the work — owner or us");
+    expect(about?.description).not.toContain("Leave it out when unsure");
+  });
+
+  test("the tool asks for it", () => {
+    const about = (toolSpec("chapter")?.inputSchema as { properties: Record<string, { description: string; enum: string[] }> }).properties["about"];
+    expect(about?.enum).toEqual(["me", "us", "owner", "work", "world"]);
+    expect(about?.description).toContain("A session that was only building is work");
+    expect(about?.description).toContain("people, feelings or life outside the work is owner or us");
   });
 });
 

@@ -14,6 +14,9 @@
   unmarked skills and facts written there), each a title, a short excerpt and its id.
   Nearby keeps what is personal, so a session in one project no longer wakes to another
   project's plumbing.
+- The chapter tool takes `about` (me, us, owner, work or world), and the chapter's memory
+  copy keeps it. A chapter marked me, us or owner reaches the wake in other directories;
+  one marked work stays in its own.
 - A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
   a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
   here since" when another session wrote a chapter in that directory after it. The end-of-

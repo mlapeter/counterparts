@@ -175,6 +175,7 @@ import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type {
+  AboutMark,
   AddFeelingsResult,
   FeelingInput, Embedder, StoreEvent, TraitInput } from "./store/index.js";
 import { TUNABLES as PHYSICS, band as bandOf } from "./physics/index.js";
@@ -3271,8 +3272,10 @@ export class Counterpart {
     text: string,
     /** `model`: the model writing this chapter, when the host knows it.
      *  `scope`: the project it was written in — the one whose unwritten pieces
-     *  it writes up (`coverage/`); without it, a chapter claims nothing. */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string } = {},
+     *  it writes up (`coverage/`); without it, a chapter claims nothing.
+     *  `about`: what the session was about, carried to the chapter's memory
+     *  copy (2026-10-01, `self/index.ts#appendChapter`). */
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark } = {},
   ): ChapterResult {
     const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {

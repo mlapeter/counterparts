@@ -1490,3 +1490,10 @@ Labels only; nothing about what the wake selects changed.
   `WORK_HERE_MAX × WORK_HERE_READ_PER_LINE` reads whatever the store's size.
 - **The `omit` composition** (the background writer woken as the self) has no directory
   to deliver work lines to, so it now sees neither a craft lane nor work hints.
+
+## 2026-10-01 — a chapter's `about`, carried to its copy (lane 8)
+
+`appendChapter` takes `about` (`EPISODE_ABOUT_META` on the episode, and `setAbout` on the
+live copy, found by `origin_ref`); `ingestEpisode` gives a new copy the mark of the copy it
+replaces, else the episode's own. Latest act wins: the writer's chapter-time mark, then a
+reflection's on the copy, are both on the copy's row by the time it regrows.
