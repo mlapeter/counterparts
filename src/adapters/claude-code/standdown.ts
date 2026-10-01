@@ -168,6 +168,15 @@ function preRowsReason(err: unknown): string | null {
   );
 }
 
+/** A Node that will not hand over `node:sqlite` (review of #312): the fix is a
+ *  runtime, so the reason names the runtime, the version and the way out rather
+ *  than a binding nobody chose. */
+function sqliteReason(err: unknown): string | null {
+  if (!isStoreError(err, "SQLITE_UNAVAILABLE") || err.detail["driver"] !== "node:sqlite") return null;
+  const running = typeof err.detail["running"] === "string" ? err.detail["running"] : "this version";
+  return `Node ${running} can't load node:sqlite; use Node 22.15 or later, or Bun`;
+}
+
 /** The failed pre-migration copy, with what stopped it — doctor opens as an
  *  observer and never migrates, so this is the one place the why is said. */
 function migrationReason(err: unknown): string | null {
@@ -201,7 +210,7 @@ function readFault(err: unknown): StandDownFault {
   if (isStoreError(err)) {
     return {
       code: err.code,
-      reason: preRowsReason(err) ?? migrationReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
+      reason: preRowsReason(err) ?? migrationReason(err) ?? sqliteReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
       kind,
     };
   }

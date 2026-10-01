@@ -437,7 +437,11 @@ function refusalOf(err: unknown): string {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class Reflections {
-  constructor(private readonly ctx: ReflectContext) {}
+  private readonly ctx: ReflectContext;
+
+  constructor(ctx: ReflectContext) {
+    this.ctx = ctx;
+  }
 
   private get store(): Store {
     return this.ctx.store;

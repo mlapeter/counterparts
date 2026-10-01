@@ -36,9 +36,10 @@
  * one): nothing here reads `os.homedir()`.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { CONFIG_ENV } from "../config-path.js";
+import { scriptArgs } from "../runtime.js";
 import { hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
 import { sightSettings, writeSettings } from "./wire.js";
 
@@ -48,6 +49,23 @@ const DATA_DIR_VAR = "COUNTERPARTS_DATA_DIR";
 /** Where Claude Desktop keeps its MCP servers, under a home directory (macOS). */
 export function desktopConfigPath(home: string): string {
   return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+}
+
+/**
+ * Why Claude Desktop cannot be connected on this platform, or null. The config
+ * path above is macOS's, and that is the only one this package knows: there is
+ * no Claude Desktop for Linux, and Windows keeps it elsewhere. Asked before
+ * `install --host claude-desktop` makes anything, so a Linux run never creates
+ * a `~/Library` it has no use for. A Desktop config folder that IS there under
+ * `home` is used wherever it is — it is somebody's own, and the file it holds is
+ * the one this would write.
+ */
+export function desktopUnavailable(platform: string = process.platform, home?: string): string | null {
+  if (platform === "darwin") return null;
+  if (home !== undefined && existsSync(dirname(desktopConfigPath(home)))) return null;
+  return platform === "linux"
+    ? "Claude Desktop is not available on Linux, so there is nothing to connect. Nothing was changed; `counterparts install` connects Claude Code."
+    : `Connecting Claude Desktop is only supported on macOS so far (this is ${platform}). Nothing was changed.`;
 }
 
 /** The `mcpServers.counterparts` entry this install writes. */
@@ -61,7 +79,7 @@ export interface DesktopEntry {
 export function desktopEntry(store: string, exe: string, configPath?: string): DesktopEntry {
   return {
     command: exe,
-    args: ["run", MCP_SCRIPT],
+    args: scriptArgs(MCP_SCRIPT, exe),
     env: {
       [DATA_DIR_VAR]: store,
       ...(configPath === undefined || configPath.length === 0 ? {} : { [CONFIG_ENV]: configPath }),

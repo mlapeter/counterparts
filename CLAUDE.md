@@ -34,9 +34,11 @@ tests, module CONTRACTs, and `docs/harvest/`.
 ## Toolchain
 
 - TypeScript strict, ESM. Runtime: **bun** — the TypeScript sources run directly, no
-  build step. **Node is untested at launch**: the store binds `bun:sqlite` under bun and
-  `node:sqlite` under Node (22.5+ flagged, 23.4+ default), but nobody has run it there.
-  bun at `~/.bun/bin/bun` for tests (`bun test`).
+  build step. **Node 22.15+ runs them too** (2026-10-01, smoke-tested on 22.15–24,
+  macOS and Linux; no daily user yet) through `src/adapters/node-hooks.mjs`, which strips
+  types and maps `./x.js` imports to `.ts`; `src/adapters/runtime.ts` is the one place
+  that knows bun from node. The store binds `bun:sqlite` or `node:sqlite`. bun at
+  `~/.bun/bin/bun` for tests (`bun test`); `bun run test:node` is the Node smoke test.
 - Runtime deps: dependency hygiene is judgment, not a vow (Amendment 15 spirit) — but
   the default is zero.
 

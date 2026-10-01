@@ -2,8 +2,9 @@
 
 ## Install
 
-You need [bun](https://bun.sh) 1.3 or newer. Counterparts runs on bun only; Node is
-untested.
+You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer,
+on macOS or Linux. With Node, install with `npm install -g counterparts` instead of the
+`bun add` line below; the rest is the same.
 
 ```
 curl -fsSL https://bun.sh/install | bash     # if you don't have bun

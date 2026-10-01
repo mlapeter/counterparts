@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Runs under Node 22.15 or newer, and on Linux.** `npm install -g counterparts` works
+  without bun. The setup wires Claude Code to whichever runtime ran it (`bun run …` under
+  bun, `node --import …/node-hooks.mjs …` under Node), and `counterparts doctor` has a
+  Runtime line naming it and saying whether it is still there. The four commands now
+  start under bun when bun is on PATH, else Node. On Linux, `install --host
+  claude-desktop` says Claude Desktop is not available there instead of writing a config.
+  Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
 - The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
   `2026-09-27 (due 2026-10-03) · …`.
 - When the console or the dashboard meets a store still waiting for its upgrade, it says who

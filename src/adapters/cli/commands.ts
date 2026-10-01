@@ -233,7 +233,8 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
-import { connectDesktop, readDesktop } from "./desktop.js";
+import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
+import { runtimeLabel } from "../runtime.js";
 import { DESKTOP_HOST, upgradeWords } from "../hosts.js";
 import { hostsSeen } from "../sessions.js";
 import type {
@@ -3460,7 +3461,7 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   io.out("");
   io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
   io.out("     environment is not your login shell's, so");
-  io.out(`     '${BIN.hook}' on a PATH that lacks bun is a`);
+  io.out(`     '${BIN.hook}' on a PATH that lacks the runtime is a`);
   io.out("     hook that never runs and says nothing.");
   io.out("");
   io.out("  2. Register the MCP server, so note, recall and session_end exist:");
@@ -3546,6 +3547,11 @@ function installDesktop(
   now: () => number,
 ): number {
   const home_ = home ?? homedir();
+  const unavailable = desktopUnavailable(process.platform, home_);
+  if (unavailable !== null) {
+    io.err(unavailable);
+    return EXIT.refused;
+  }
   const code = installCommand(parsed, io, env, home_, named, { hostSteps: false });
   if (code !== EXIT.ok) return code;
   const custom = customConfigPath(named, home_);
@@ -8962,6 +8968,7 @@ function doctorCommand(
         // when there is no `claude` to run. A PATH search, never a spawn.
         claudeOnPath: claudeOnPath(env),
         mcpAddLine: mcpCommand(dir, undefined, customConfigPath(named, home ?? homedir())),
+        consoleRuntime: runtimeLabel(),
       },
       // CLAUDE DESKTOP'S ENTRY (2026-09-30): two small reads of the host's
       // files, like `host` above. Quiet in the report when there is none.

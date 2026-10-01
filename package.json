@@ -20,13 +20,14 @@
   ],
   "type": "module",
   "engines": {
-    "bun": ">=1.3.0"
+    "bun": ">=1.3.0",
+    "node": ">=22.15.0"
   },
   "bin": {
-    "counterparts": "./src/adapters/cli/bin/counterparts.ts",
-    "counterparts-hook": "./src/adapters/claude-code/bin/hook.ts",
-    "counterparts-mcp": "./src/adapters/mcp/bin/serve.ts",
-    "counterparts-dashboard": "./src/adapters/dashboard/bin/dashboard.ts"
+    "counterparts": "./src/adapters/cli/bin/counterparts.mjs",
+    "counterparts-hook": "./src/adapters/claude-code/bin/hook.mjs",
+    "counterparts-mcp": "./src/adapters/mcp/bin/serve.mjs",
+    "counterparts-dashboard": "./src/adapters/dashboard/bin/dashboard.mjs"
   },
   "main": "./src/core/counterpart.ts",
   "types": "./src/core/counterpart.ts",
@@ -64,6 +65,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:node": "node --import ./src/adapters/node-hooks.mjs --test test/node-smoke.ts"
   }
 }

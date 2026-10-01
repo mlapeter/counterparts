@@ -1879,3 +1879,27 @@ store does with it:
 - **Counts by emotion split for a word that joined the wheel** (left as is): a word
   recorded as `other` before v11 ("sorry", "steadied") counts under `other`, the same word
   written since under its own key. `feelingCounts({ by: "emotion" })` shows both.
+
+## 2026-10-01 — the binding under Node, run for the first time
+
+- **`node:sqlite` was run, not only written for.** Under Node 22.20 and 24.9 (macOS) and
+  22.23 and 24.21 (Linux, Debian arm64) a store is created, reopened at its schema,
+  written through the MCP server's `note` and read back by `recall` with the local
+  embedder in-line, and a worker spawned by the Stop hook reaches a boundary and takes a
+  snapshot
+  (`test/node-smoke.ts`, `bun run test:node`, and a throwaway-prefix `npm install -g`).
+  The seam in `db.ts` (booleans and `undefined` normalized, the unaligned-`Buffer` copy
+  in `cache.ts`, no double close) was already right. **One thing was not, and the review
+  of #312 found it:** under `module.registerHooks`, `createRequire(…)("node:sqlite")`
+  returns NULL on Node 22.15–22.17, 23.5–23.11 and 24.0–24.3, so every open failed
+  there. `db.ts` now takes it from `process.getBuiltinModule` first (which skips the
+  hooks) and refuses a null by name; the smoke test is 6/6 on 22.15, 23.5, 24.0, 24.9
+  and 22.20. `node-hooks.mjs` checks the binding at start and says which Node cannot
+  load it, rather than letting a hook stand down with "memory is OFF".
+- **The floor is 22.15, and it is the loader's, not the store's.** `node:sqlite` is
+  unflagged from 22.13 / 23.4; the package needs `module.registerHooks` (22.15 / 23.5) to
+  run its TypeScript from inside `node_modules`, where Node's own type stripping refuses
+  to work. `SQLITE_UNAVAILABLE` names 22.15.
+- **Open: the store's own unit tests still run under Bun only.** They import `bun:test`;
+  porting them was not cheap, so the Node smoke test covers the binding end to end
+  instead.

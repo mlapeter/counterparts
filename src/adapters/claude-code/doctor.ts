@@ -65,6 +65,7 @@ import {
   preMigrationDir,
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
+import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
 import { acceptsReflectedFeeling, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -3674,6 +3675,51 @@ export interface HostReading {
   readonly claudeOnPath?: boolean | null;
   /** The exact `claude mcp add …` line `connect` prints when it cannot run it. */
   readonly mcpAddLine?: string;
+  /** The runtimes the hooks and the MCP registration launch us with
+   *  (`cli/install.ts#readHost`); absent when not read. */
+  readonly runtimes?: readonly {
+    readonly exe: string;
+    readonly kind: "bun" | "node";
+    readonly present: boolean;
+    readonly used: readonly string[];
+  }[];
+  /** The runtime this console is running under (`runtime.ts#runtimeLabel`). */
+  readonly consoleRuntime?: string;
+}
+
+/**
+ * WHICH RUNTIME the host starts us with (2026-10-01, Node support): Bun or
+ * Node, read off the commands `install` wrote, and whether that executable is
+ * still there. A runtime that has gone — a removed Node version manager entry,
+ * a Bun moved — fails every hook silently, exactly like a stale script path,
+ * and is graded the same: amber, with `connect` (run under the runtime you
+ * want) as the fix, since it rewrites the commands with the runtime running it.
+ * Quiet when nothing of ours is configured: the Claude Code line says that.
+ */
+function runtimeFindings(reading: HostReading): Finding[] {
+  const rows = reading.runtimes ?? [];
+  if (rows.length === 0) return [];
+  const said = rows.map((r) => `${r.used.join(" and ")} run under ${r.kind} (${r.exe})`).join("; ");
+  const console_ = reading.consoleRuntime === undefined ? "" : `; this console is ${reading.consoleRuntime}`;
+  const data: Record<string, string | number | boolean | null> = {
+    runtimes: rows.map((r) => `${r.kind}:${r.exe}:${r.present ? "present" : "missing"}`).join(","),
+    console: reading.consoleRuntime ?? null,
+  };
+  const missing = rows.filter((r) => !r.present);
+  if (missing.length === 0) return [finding("runtime", "green", "Runtime", `${said}${console_}`, "", data)];
+  return [
+    finding(
+      "runtime",
+      "amber",
+      "Runtime",
+      `${missing.map((r) => r.exe).join(", ")} ${missing.length === 1 ? "is" : "are"} not there, so nothing that runs under ${missing.length === 1 ? "it" : "them"} fires; ${said}${console_}`,
+      // `counterparts` itself runs under bun whenever bun is on PATH (the
+      // launcher prefers it), so "run it under the runtime you want" would be
+      // advice nobody can follow for Node. The explicit Node line is printed.
+      `Run: counterparts connect — it rewrites them with the runtime it runs under (bun when bun is on PATH, else Node). To wire Node with bun also installed: node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect. Then restart Claude Code.`,
+      data,
+    ),
+  ];
 }
 
 /** What the console read of Claude Desktop's config (`cli/desktop.ts#readDesktop`). */
@@ -3978,6 +4024,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // DID THE HOST STEPS TAKE (finding 4). Also read by the caller — it is four
     // small file reads outside this store, and the hook does not pay for them.
     ...(input.host === undefined ? [] : hostFindings(input.host)),
+    ...(input.host === undefined ? [] : runtimeFindings(input.host)),
     // CLAUDE DESKTOP (2026-09-30): its config entry, and when it last woke.
     ...(input.desktop === undefined ? [] : desktopFindings(input.desktop, input.store, input.dir)),
   ];

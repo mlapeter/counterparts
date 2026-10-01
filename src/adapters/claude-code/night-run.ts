@@ -68,6 +68,7 @@ import { Counterpart } from "../../core/counterpart.js";
 import type { CounterpartEvent } from "../../core/counterpart.js";
 import type { NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
+import { scriptArgs } from "../runtime.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
 import { TUNABLES } from "../config.js";
@@ -142,7 +143,7 @@ export const NIGHT_MCP_SCRIPT = fileURLToPath(new URL("../mcp/bin/serve.ts", imp
 
 /**
  * THE ONE MCP SERVER THE CHILD LOADS (owner decision B): counterparts, as the
- * install registers it (`<runtime> run <serve.ts>`, the data dir and the
+ * install registers it (`<runtime> <scriptArgs(serve.ts)>`, the data dir and the
  * configuration on its environment), plus the launching session and its
  * directory pinned — so the server binds to the run's session whatever the
  * host passes through (review of #282, finding 1). No secret in it: paths and
@@ -153,7 +154,7 @@ export function nightMcpConfig(input: { runtime: string; dataDir: string; config
   if (input.configPath !== undefined && input.configPath.length > 0) env[CONFIG_PATH_ENV] = input.configPath;
   if (input.session.length > 0) env[SESSION_ENV] = input.session;
   if (input.scope.length > 0) env[SCOPE_ENV] = input.scope;
-  return JSON.stringify({ mcpServers: { [NIGHT_MCP_SERVER]: { type: "stdio", command: input.runtime, args: ["run", NIGHT_MCP_SCRIPT], env } } });
+  return JSON.stringify({ mcpServers: { [NIGHT_MCP_SERVER]: { type: "stdio", command: input.runtime, args: scriptArgs(NIGHT_MCP_SCRIPT, input.runtime), env } } });
 }
 
 /** The run's turn ceiling, from the configuration or the default. */
@@ -264,7 +265,7 @@ export interface NightChildInput {
   readonly scope: string;
   /** The launching session: the child's MCP server is launched bound to it. */
   readonly session: string;
-  /** The runtime the MCP server runs under (`process.execPath`, bun). */
+  /** The runtime the MCP server runs under (`process.execPath`: bun or node, `runtime.ts`). */
   readonly runtime?: string;
   readonly configPath?: string;
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
