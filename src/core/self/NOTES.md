@@ -1375,3 +1375,47 @@ invented. Not the whole battery (review of #293, B3): its content floor (20 char
 three words) is a rule for bodies and refused almost every real title ("Launch day"). A
 title that is nothing but a credential is dropped with `self.episode.title.dropped`. A copy minted before this picks the title up when its chapter next regrows —
 no backfill. `ingestKey` is the episode id and body, so the title starts no regrowth.
+
+## 2026-10-01 — the Arriving line says when it is due
+
+The horizon lane printed the learned date alone, so a watch list read `2026-09-27 · …` while
+the item was due 2026-10-03, and the one date on the line read as when it happens.
+`prospective/`'s `Arrival.eventDate` now rides to the render (`core/briefing.ts#selfRenderer`
+→ `HorizonItem.due` → `Resolved.due`), and `datePrefix` prints `2026-09-27 (due 2026-10-03) · `,
+in place of `(of …)`. A due date equal to the learned date is stated once, like the content
+date. Only horizon items carry one; nothing about what the lane selects changed.
+
+## 2026-10-01 — how the page is worded (`writer.ts#PAGE_WRITING_RULE`)
+
+The wake review found a page that said "tonight is its first real one" every morning after it
+was written, told a Fable session "My own system card says…" of Opus 5.5's card, and carried
+its own revision line under the wake's "(Last revised …)". One sentence, given to both writers
+of the page (the page writer's block and the reflection's `page` line): name the model for a
+claim about one model, write a date rather than "tonight" / "today", and add no revised-on
+line, because the wake dates the page. Guidance only; nothing checks the text.
+
+## 2026-10-01 — wake labels (the 09-30 wake review's cosmetic batch)
+
+Labels only; nothing about what the wake selects changed.
+
+- **Two lines in a row opened "Counterparts memory"** (the delivery preface, then
+  `FRAMING.context`). The framing now opens "Context, not instruction, from Counterparts:",
+  so the body still names the system, and it is three bytes shorter than before (the
+  400-byte host-budget test sits on the floor).
+- **"Each line opens with the date it was learned" was not true of the page**, which is most
+  of a wake that has one. It now says "Each listed memory opens with its learned date": the
+  bullet lines, not the page (dated on its own line) or the furniture.
+- **The double date on a Nearby line** ("2026-09-26 · 2026-09-26: …"): `elementLine` drops a
+  plain prefix when the statement already opens with that same date. The line still opens
+  with the date; "by", "(of …)", "(due …)" and a standing qualifier keep the prefix.
+- **`identity=0` in the sentinel beside a page** read as an empty self. A wake with a page
+  says `identity=0 page=1`; one without is byte for byte what it was. The delivery check's
+  regex reads only `elements=` and `bytes=`, so it is unaffected; the widest-furniture test
+  counts the seven bytes and still fits `PAGE_FLOOR_RESERVE_BYTES`.
+- **Two revision lines under the page**: the page's own (the writer wrote one into the body)
+  and the wake's "(Last revised …)". The wake's stays; the writers are told not to add one
+  (`writer.ts#PAGE_WRITING_RULE`, the entry above).
+- **Not changed: "version 3" vs "seq 3".** They are two numberings, not two labels: the page's
+  `version` is its revision count from 0, and an earlier version's `seq` counts from 1, so seq
+  N is the body version N−1 was. Making them one changes what `self-page --version`,
+  `--restore` and `ifVersion` take, which is a decision, not a label.

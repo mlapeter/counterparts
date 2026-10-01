@@ -32,6 +32,10 @@
 # checked as files and processes, never as a live session.
 
 set -uo pipefail
+# Checks read a captured output with `grep … <<<"$X"`, never `printf '%s' "$X" |
+# grep -q …` (2026-10-01, the 0.3.10 release check): `grep -q` exits at its
+# first match, the `printf` still writing a large output (the MCP tools list,
+# ~61 KB) dies of SIGPIPE (141), and pipefail turns the match into a failure.
 
 REAL_HOME="$HOME"
 REAL_PATH="$PATH"
@@ -216,10 +220,10 @@ fi
 
 step "the tarball ships sources and licence, and no tests or internal tools"
 LISTING=$(tar -tzf "$WORK/$TARBALL" 2>&1)
-STOWAWAYS=$(printf '%s\n' "$LISTING" | grep -E '^package/(test|docs/harvest|\.claude|tools/(parallel|migrate|replay|demo|audit|recall-bench))/' || true)
-if printf '%s\n' "$LISTING" | grep -q '^package/LICENSE$' &&
-   printf '%s\n' "$LISTING" | grep -q '^package/src/adapters/cli/bin/counterparts.ts$' &&
-   printf '%s\n' "$LISTING" | grep -q '^package/docs/QUICKSTART.md$' &&
+STOWAWAYS=$(grep -E '^package/(test|docs/harvest|\.claude|tools/(parallel|migrate|replay|demo|audit|recall-bench))/' <<<"$LISTING" || true)
+if grep -q '^package/LICENSE$' <<<"$LISTING" &&
+   grep -q '^package/src/adapters/cli/bin/counterparts.ts$' <<<"$LISTING" &&
+   grep -q '^package/docs/QUICKSTART.md$' <<<"$LISTING" &&
    [ -z "$STOWAWAYS" ]; then
   ok
 else
@@ -282,7 +286,7 @@ else
   # a wall of text as the answer to "did that install work?" (findings #17,
   # #23). This one answers it in four words, opens no store and reads no
   # configuration. Exit 1 here kills any `set -e` wrapper.
-  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -qE '^counterparts [0-9]+\.[0-9]+'; then
+  if [ "$CODE" = "0" ] && grep -qE '^counterparts [0-9]+\.[0-9]+' <<<"$OUT"; then
     ok
   else
     no "expected 'counterparts <version>' and exit 0, got exit $CODE" "$OUT"
@@ -319,15 +323,15 @@ if [ -f "$STORE/claude-code.json" ]; then
   no "the config landed INSIDE the data dir; the layout check refuses that at open"
 else
   OUT=$(counterparts status --dir "$STORE" 2>&1)
-  if printf '%s' "$OUT" | grep -q "^Memories: "; then ok; else no "status could not open the store" "$OUT"; fi
+  if grep -q "^Memories: " <<<"$OUT"; then ok; else no "status could not open the store" "$OUT"; fi
 fi
 
 step "install wrote no credentials file (the package reads no API keys)"
 if [ ! -e "$BASE/credentials.env" ]; then ok; else no "install wrote $BASE/credentials.env"; fi
 
 step "install PRINTED the host's two steps and wrote no host file"
-if printf '%s' "$INSTALL_OUT" | grep -q 'claude mcp add counterparts' &&
-   printf '%s' "$INSTALL_OUT" | grep -q 'bin/hook.ts' &&
+if grep -q 'claude mcp add counterparts' <<<"$INSTALL_OUT" &&
+   grep -q 'bin/hook.ts' <<<"$INSTALL_OUT" &&
    [ ! -e "$HOME/.claude/settings.json" ] && [ ! -e "$HOME/.claude.json" ]; then
   ok
 else
@@ -345,7 +349,7 @@ if [ -z "$HOOK_CMD" ]; then
 else
   OUT=$(payload SessionStart "bunless-$$" | env -i HOME="$HOME" PATH="/usr/bin:/bin" sh -c "$HOOK_CMD" 2>"$WORK/bunless.err")
   CODE=$?
-  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+  if [ "$CODE" = "0" ] && grep -q "has not lived a boundary" <<<"$OUT"; then
     ok
   else
     no "the printed hook command failed without bun on PATH (exit $CODE): $HOOK_CMD" "$OUT
@@ -359,7 +363,7 @@ if true; then
   BEFORE=$(find "$STORE" -type f | sort | wc -l)
   OUT=$(eval "$CMD" 2>&1)
   AFTER=$(find "$STORE" -type f | sort | wc -l)
-  if printf '%s' "$OUT" | grep -q "^Memories: " && [ "$BEFORE" = "$AFTER" ]; then ok; else no "status failed or was not a pure read" "$OUT"; fi
+  if grep -q "^Memories: " <<<"$OUT" && [ "$BEFORE" = "$AFTER" ]; then ok; else no "status failed or was not a pure read" "$OUT"; fi
 fi
 
 # ── 3. the product, from the console ────────────────────────────────────────
@@ -374,11 +378,11 @@ FIRSTSTORE="$WORK/first-memory-store"
 step "the ONLY memory in a fresh store is recallable by question"
 counterparts init --dir "$FIRSTSTORE" >/dev/null 2>&1
 OUT=$(counterparts note "The espresso machine in the kitchen is a Rancilio Silvia." --dir "$FIRSTSTORE" 2>&1)
-if ! printf '%s' "$OUT" | grep -q "Remembered mem_"; then
+if ! grep -q "Remembered mem_" <<<"$OUT"; then
   no "the note itself failed" "$OUT"
 else
   OUT=$(counterparts recall "what espresso machine is in the kitchen?" --dir "$FIRSTSTORE" 2>&1)
-  if printf '%s' "$OUT" | grep -q "Rancilio Silvia"; then
+  if grep -q "Rancilio Silvia" <<<"$OUT"; then
     ok
   else
     no "the store's only memory did not come back (storeSize==1 regression)" "$OUT"
@@ -396,8 +400,8 @@ OUT=$(counterparts note "This must not land anywhere." --dirr "$FIRSTSTORE" 2>&1
 CODE=$?
 AFTER_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
 if [ "$CODE" = "2" ] &&
-   printf '%s' "$OUT" | grep -q "unknown flag --dirr" &&
-   printf '%s' "$OUT" | grep -q "did you mean --dir?" &&
+   grep -q "unknown flag --dirr" <<<"$OUT" &&
+   grep -q "did you mean --dir?" <<<"$OUT" &&
    [ "$BEFORE_DEFAULT" = "$AFTER_DEFAULT" ]; then
   ok
 else
@@ -419,9 +423,9 @@ HOOK_OUT=$(payload SessionStart "install-loop-guard-$$" | COUNTERPARTS_REQUIRE_E
 HOOK_CODE=$?
 AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$CODE" = "2" ] &&
-   printf '%s' "$OUT" | grep -q "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1" &&
-   printf '%s' "$OUT" | grep -q "$STORE" &&
-   printf '%s' "$OUT" | grep -q -- "--dir" &&
+   grep -q "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1" <<<"$OUT" &&
+   grep -q "$STORE" <<<"$OUT" &&
+   grep -q -- "--dir" <<<"$OUT" &&
    [ "$HOOK_CODE" = "0" ] && [ -z "$HOOK_OUT" ] &&
    grep -q "stood down" "$WORK/hook-guard.err" &&
    grep -q "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1" "$WORK/hook-guard.err" &&
@@ -436,8 +440,8 @@ fi
 step "note and recall NAME the store they wrote to or read from"
 OUT=$(counterparts note "A memory that says where it went." --dir "$FIRSTSTORE" 2>&1)
 OUT2=$(counterparts recall "where did it go?" --dir "$FIRSTSTORE" 2>&1)
-if printf '%s\n' "$OUT" | head -1 | grep -q "^Store: $FIRSTSTORE$" &&
-   printf '%s\n' "$OUT2" | head -1 | grep -q "^Store: $FIRSTSTORE$"; then
+if head -1 <<<"$OUT" | grep -q "^Store: $FIRSTSTORE$" &&
+   head -1 <<<"$OUT2" | grep -q "^Store: $FIRSTSTORE$"; then
   ok
 else
   no "the destination was not the first line" "note: $OUT
@@ -458,9 +462,9 @@ if true; then
   OUT=$(eval "$NOTE_A" 2>&1; eval "$NOTE_B" 2>&1)
   RECALL_OUT=$(eval "$RECALL_CMD" 2>&1)
   unset COUNTERPARTS_DATA_DIR
-  if printf '%s' "$RECALL_OUT" | grep -q "port 5433" &&
-     ! printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
-     printf '%s' "$RECALL_OUT" | grep -qE "found, by meaning and words\.( The top [0-9]+:)?$"; then
+  if grep -q "port 5433" <<<"$RECALL_OUT" &&
+     ! grep -q "Rancilio Silvia" <<<"$RECALL_OUT" &&
+     grep -qE "found, by meaning and words\.( The top [0-9]+:)?$" <<<"$RECALL_OUT"; then
     ok
   else
     no "recall did not pick the one memory that answers the question" "notes: $OUT
@@ -478,10 +482,10 @@ step "an answer names the TIER it came back at"
 eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
 FULL_OUT=$(eval "$RECALL_CMD --full" 2>&1)
 unset COUNTERPARTS_DATA_DIR
-if printf '%s' "$FULL_OUT" | grep -q '^  vivid = '; then VIVID=1; else VIVID=0; fi
-if printf '%s' "$FULL_OUT" | grep -q "treat these as leads"; then LEADS=1; else LEADS=0; fi
-if printf '%s' "$FULL_OUT" | grep -qE '^  (vivid|quiet|dim) = ' && [ "$VIVID" != "$LEADS" ] &&
-   ! printf '%s' "$RECALL_OUT" | grep -q "treat these as leads"; then
+if grep -q '^  vivid = ' <<<"$FULL_OUT"; then VIVID=1; else VIVID=0; fi
+if grep -q "treat these as leads" <<<"$FULL_OUT"; then LEADS=1; else LEADS=0; fi
+if grep -qE '^  (vivid|quiet|dim) = ' <<<"$FULL_OUT" && [ "$VIVID" != "$LEADS" ] &&
+   ! grep -q "treat these as leads" <<<"$RECALL_OUT"; then
   ok
 else
   no "no tier gloss under --full, its leads line disagrees with it, or the short answer still says it" "short: $RECALL_OUT
@@ -490,7 +494,7 @@ fi
 
 step "a recall that finds nothing SAYS so, in a sentence"
 OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
-if printf '%s' "$OUT" | grep -q "^Nothing found"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
+if grep -q "^Nothing found" <<<"$OUT"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
 step "the removal plan NAMES the span buffer, and says it will be chased"
 # §I2's surface, in the clean room. The dry run is all a non-interactive console
@@ -500,16 +504,16 @@ SPAN_COUNT="chase spans: 1"
 SPAN_TAIL="the removal strikes them out of it."
 SPAN_LINE="the raw capture buffer holds this"
 OUT=$(counterparts note "A note whose words ride the capture buffer before they are minted." --dir "$FIRSTSTORE" 2>&1)
-DOOMED=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+DOOMED=$(grep -o 'mem_[0-9a-f]*' <<<"$OUT" | head -1)
 if [ -z "$DOOMED" ]; then
   no "the note printed no id to remove" "$OUT"
 else
   PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
-  if printf '%s' "$PLAN" | grep -qF "$SPAN_COUNT" &&
-     printf '%s' "$PLAN" | grep -qF "chased — spans/" &&
-     printf '%s' "$PLAN" | grep -qF "$SPAN_LINE" &&
-     printf '%s' "$PLAN" | grep -qF "$SPAN_TAIL" &&
-     printf '%s' "$PLAN" | grep -q "Dry run. Nothing has changed."; then
+  if grep -qF "$SPAN_COUNT" <<<"$PLAN" &&
+     grep -qF "chased — spans/" <<<"$PLAN" &&
+     grep -qF "$SPAN_LINE" <<<"$PLAN" &&
+     grep -qF "$SPAN_TAIL" <<<"$PLAN" &&
+     grep -q "Dry run. Nothing has changed." <<<"$PLAN"; then
     ok
   else
     no "the plan did not name the buffer as a chased surface" "$PLAN"
@@ -520,7 +524,7 @@ step "remove --confirm REFUSES without an interactive prompt, and nothing moves"
 # Its OWN note and its own id: a step that borrows the previous step's variable
 # reports a false pass when that step failed before setting it.
 OUT=$(counterparts note "A second note, taken so this step owns the id it removes." --dir "$FIRSTSTORE" 2>&1)
-TARGET=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+TARGET=$(grep -o 'mem_[0-9a-f]*' <<<"$OUT" | head -1)
 if [ -z "$TARGET" ]; then
   no "the note printed no id to remove" "$OUT"
 else
@@ -529,7 +533,7 @@ else
   RC=$?
   AFTER=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
   if [ "$RC" -ne 0 ] &&
-     printf '%s' "$OUT" | grep -q "interactive confirmation" &&
+     grep -q "interactive confirmation" <<<"$OUT" &&
      [ "$BEFORE" = "$AFTER" ]; then
     ok
   else
@@ -547,7 +551,7 @@ if [ -z "$DOOMED" ]; then
   no "no id from the earlier note"
 else
   PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
-  if printf '%s' "$PLAN" | grep -qF "$MATCHED_BY"; then ok; else no "the plan did not say what it matched by" "$PLAN"; fi
+  if grep -qF "$MATCHED_BY" <<<"$PLAN"; then ok; else no "the plan did not say what it matched by" "$PLAN"; fi
 fi
 
 # ── 4. the SessionStart hook ────────────────────────────────────────────────
@@ -555,7 +559,7 @@ fi
 step "SessionStart returns the honest bootstrap line on a store that never woke"
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook.err")
 HOOK_CODE=$?
-if [ "$HOOK_CODE" = "0" ] && printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+if [ "$HOOK_CODE" = "0" ] && grep -q "has not lived a boundary" <<<"$OUT"; then
   ok
 else
   no "expected the bootstrap line and exit 0 (got exit $HOOK_CODE)" "$OUT
@@ -582,7 +586,7 @@ printf '{\n  "dataDir": "%s",\n  "injectionBudgetBytes": 9000\n}\n' "$SECOND_STO
 step "counterparts-hook --config drives the hook at a SECOND store"
 OUT=$(payload SessionStart "$SECOND_SESSION" | counterparts-hook --config "$SECOND_CONFIG" 2>"$WORK/hook-config.err")
 CODE=$?
-if [ "$CODE" != "0" ] || ! printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+if [ "$CODE" != "0" ] || ! grep -q "has not lived a boundary" <<<"$OUT"; then
   no "the hook did not run against the named config (exit $CODE)" "$OUT
 $(cat "$WORK/hook-config.err")"
 elif [ ! -f "$SECOND_STORE/sessions/$SECOND_SESSION.json" ]; then
@@ -613,8 +617,8 @@ AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
 # guards is unchanged and one clause stronger — nothing is injected, and the
 # terminal is told why. `additionalContext` is what must not be there.
 if [ "$CODE" = "0" ] &&
-   ! printf '%s' "$OUT" | grep -q "additionalContext" &&
-   printf '%s' "$OUT" | grep -q "memory is OFF for this session" &&
+   ! grep -q "additionalContext" <<<"$OUT" &&
+   grep -q "memory is OFF for this session" <<<"$OUT" &&
    grep -q "stood down" "$WORK/hook-missing.err" &&
    grep -q "could not be read" "$WORK/hook-missing.err" &&
    [ ! -e "$WORK/nowhere" ] &&
@@ -636,8 +640,8 @@ OUT=$(payload SessionStart "install-loop-relative-$$" | counterparts-hook --conf
 CODE=$?
 AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$CODE" = "0" ] &&
-   ! printf '%s' "$OUT" | grep -q "additionalContext" &&
-   printf '%s' "$OUT" | grep -q "memory is OFF for this session" &&
+   ! grep -q "additionalContext" <<<"$OUT" &&
+   grep -q "memory is OFF for this session" <<<"$OUT" &&
    grep -q "stood down" "$WORK/hook-relative.err" &&
    [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
   ok
@@ -653,9 +657,9 @@ fi
 # was the stranger's own name.
 step "the first composed wake has an empty identity lane and zero elements"
 OUT=$(counterparts rebrief --dir "$HOME/.counterparts/store" 2>&1)
-if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle" &&
-   printf '%s' "$OUT" | grep -q "identity 0" &&
-   printf '%s' "$OUT" | grep -q "elements 0"; then
+if grep -q "Re-rendered the wake bundle" <<<"$OUT" &&
+   grep -q "identity 0" <<<"$OUT" &&
+   grep -q "elements 0" <<<"$OUT"; then
   ok
 else
   no "the first rebrief declined, or ranked an identity element it should not have" "$OUT"
@@ -663,11 +667,11 @@ fi
 
 step "SessionStart injects it, and an empty identity lane still names the core"
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook-day0.err")
-if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+if grep -q "has not lived a boundary" <<<"$OUT"; then
   no "still the bootstrap line after a rebrief" "$OUT"
-elif printf '%s' "$OUT" | grep -q "Who I am:" &&
-     printf '%s' "$OUT" | grep -q "This memory is for Your Name" &&
-     printf '%s' "$OUT" | grep -q "identity=0"; then
+elif grep -q "Who I am:" <<<"$OUT" &&
+     grep -q "This memory is for Your Name" <<<"$OUT" &&
+     grep -q "identity=0" <<<"$OUT"; then
   ok
 else
   no "the wake did not name the core the install seeded" "$OUT
@@ -688,7 +692,7 @@ RPC=$(
 # and the server's framer holds an unterminated final line rather than parsing
 # it — so a missing newline silently drops the last request.
 MCP_OUT=$(printf '%s\n' "$RPC" | COUNTERPARTS_DATA_DIR="$STORE" counterparts-mcp 2>"$WORK/mcp.err")
-if printf '%s' "$MCP_OUT" | grep -q '"serverInfo"' && printf '%s' "$MCP_OUT" | grep -q '"recall"'; then
+if grep -q '"serverInfo"' <<<"$MCP_OUT" && grep -q '"recall"' <<<"$MCP_OUT"; then
   ok
 else
   no "no handshake, or no tools declared" "$MCP_OUT
@@ -708,11 +712,11 @@ RPC=$(
 )
 MCP_OUT=$(printf '%s\n' "$RPC" | COUNTERPARTS_DATA_DIR="$STORE" counterparts-mcp 2>"$WORK/mcp2.err")
 printf '%s' "$MCP_OUT" > "$WORK/mcp-roundtrip.jsonl"
-NOTED=$(printf '%s\n' "$MCP_OUT" | grep '"id":2' || true)
-RECALLED=$(printf '%s\n' "$MCP_OUT" | grep '"id":3' || true)
-if printf '%s' "$NOTED" | grep -q '"isError":true'; then
+NOTED=$(grep '"id":2' <<<"$MCP_OUT" || true)
+RECALLED=$(grep '"id":3' <<<"$MCP_OUT" || true)
+if grep -q '"isError":true' <<<"$NOTED"; then
   no "the note was refused" "$NOTED"
-elif printf '%s' "$RECALLED" | grep -q 'Rancilio Silvia'; then
+elif grep -q 'Rancilio Silvia' <<<"$RECALLED"; then
   ok
 else
   no "recall did not return the note" "note:   $NOTED
@@ -727,7 +731,7 @@ step "recall embeds the question with the local table the package installed"
 # itself, with the weights package the global install pulled in as the one
 # dependency — the keyless semantic channel, end to end, from an install. The
 # field used to read `embedder-off` here; `in-line` is the channel running.
-if printf '%s' "$RECALLED" | grep -q '"semantic":"in-line"'; then ok; else no "recall did not embed the question with the local table" "$RECALLED"; fi
+if grep -q '"semantic":"in-line"' <<<"$RECALLED"; then ok; else no "recall did not embed the question with the local table" "$RECALLED"; fi
 
 step "session_end binds LAZILY through the hooks' registry and writes the day"
 # THE FIFTH HOST BEHAVIOUR, and the only one nobody had exercised outside the
@@ -751,14 +755,14 @@ RPC=$(
 MCP_OUT=$(printf '%s\n' "$RPC" |
   COUNTERPARTS_DATA_DIR="$STORE" COUNTERPARTS_SCOPE="$HOME/project" counterparts-mcp 2>"$WORK/mcp3.err")
 printf '%s' "$MCP_OUT" > "$WORK/mcp-session-end.jsonl"
-ENDED=$(printf '%s\n' "$MCP_OUT" | grep '"id":2' || true)
+ENDED=$(grep '"id":2' <<<"$MCP_OUT" || true)
 # The refusals this step exists to catch, by name: a server that could not find
 # the record says `session-unknown`; one in the wrong project says
 # `scope-mismatch`; one that was never told an id says `session-required`.
-if printf '%s' "$ENDED" | grep -qE 'session-unknown|scope-mismatch|session-required|session-not-live'; then
+if grep -qE 'session-unknown|scope-mismatch|session-required|session-not-live' <<<"$ENDED"; then
   no "the lazy bind refused — the registry record was not usable" "$ENDED
 $(cat "$WORK/mcp3.err")"
-elif printf '%s' "$ENDED" | grep -q '"stored":true'; then
+elif grep -q '"stored":true' <<<"$ENDED"; then
   ok
 else
   no "session_end did not report a deposit" "$ENDED
@@ -777,7 +781,7 @@ RPC=$(
 )
 MCP_OUT=$(printf '%s\n' "$RPC" |
   COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG="$SECOND_CONFIG" counterparts-mcp 2>"$WORK/mcp-config.err")
-if printf '%s' "$MCP_OUT" | grep -q '"serverInfo"' &&
+if grep -q '"serverInfo"' <<<"$MCP_OUT" &&
    grep -q "config: $SECOND_CONFIG (named by COUNTERPARTS_CONFIG)" "$WORK/mcp-config.err"; then
   ok
 else
@@ -803,8 +807,8 @@ LIVE=$(printf '%s\n' "$OUT" | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
 # together and calling the total "memories" is how three surfaces came to report
 # three different sizes (round 8). `Memories:` is the number the wake states.
 if [ -n "$LIVE" ] && [ "$LIVE" -ge 1 ] 2>/dev/null &&
-   printf '%s' "$OUT" | grep -q 'Journal: ' &&
-   printf '%s' "$OUT" | grep -q 'Beliefs and entities: '; then
+   grep -q 'Journal: ' <<<"$OUT" &&
+   grep -q 'Beliefs and entities: ' <<<"$OUT"; then
   ok
 else
   no "expected at least one memory and the labelled census, read '${LIVE:-nothing}'" "$OUT"
@@ -818,8 +822,8 @@ if true; then
   OUT=$(eval "$CMD" 2>&1)
   # It must NAME the file the ceiling came from. On the default layout that is
   # the config beside the store — the same file the hooks read.
-  if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle" &&
-     printf '%s' "$OUT" | grep -q "budget 9000 bytes from $BASE/claude-code.json"; then
+  if grep -q "Re-rendered the wake bundle" <<<"$OUT" &&
+     grep -q "budget 9000 bytes from $BASE/claude-code.json" <<<"$OUT"; then
     ok
   else
     no "rebrief declined, or did not name the config it read" "$OUT"
@@ -833,7 +837,7 @@ step "rebrief on a store with NO config beside it says which file it fell back t
 # own, is the only shape that exercises it — and the point of the step is the
 # printed source line, not the number.
 OUT=$(counterparts rebrief --dir "$FIRSTSTORE" 2>&1)
-if printf '%s' "$OUT" | grep -q "budget 9000 bytes from $BASE/claude-code.json"; then
+if grep -q "budget 9000 bytes from $BASE/claude-code.json" <<<"$OUT"; then
   ok
 else
   no "the fallback to the hooks' config was silent, or named the wrong file" "$OUT"
@@ -843,9 +847,9 @@ step "rebrief with no ceiling anywhere refuses and lists every path it tried"
 NOCONFIG="$WORK/no-config-store"
 counterparts init --dir "$NOCONFIG" >/dev/null 2>&1
 OUT=$(env HOME="$WORK/empty-home" counterparts rebrief --dir "$NOCONFIG" 2>&1)
-if printf '%s' "$OUT" | grep -q "no injection ceiling" &&
-   printf '%s' "$OUT" | grep -q "$WORK/claude-code.json" &&
-   printf '%s' "$OUT" | grep -q "$WORK/empty-home/.counterparts/claude-code.json"; then
+if grep -q "no injection ceiling" <<<"$OUT" &&
+   grep -q "$WORK/claude-code.json" <<<"$OUT" &&
+   grep -q "$WORK/empty-home/.counterparts/claude-code.json" <<<"$OUT"; then
   ok
 else
   no "the refusal did not name both places it looked" "$OUT"
@@ -856,9 +860,9 @@ step "SessionStart injects the re-rendered bundle, still naming the core"
 # several distinct lived days, and this loop lives one — so the day-0 line is
 # still the honest thing to say, now over a store that has memories in it.
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook2.err")
-if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+if grep -q "has not lived a boundary" <<<"$OUT"; then
   no "still the bootstrap line after a rebrief" "$OUT"
-elif printf '%s' "$OUT" | grep -q "This memory is for Your Name"; then
+elif grep -q "This memory is for Your Name" <<<"$OUT"; then
   ok
 else
   no "the hook injected nothing, or stopped naming the core" "$(cat "$WORK/hook2.err")
@@ -869,7 +873,7 @@ step "the dashboard opens the same store"
 CMD='counterparts-dashboard status --dir "$HOME/.counterparts/store"'
 if true; then
   OUT=$(eval "$CMD" 2>&1)
-  if printf '%s' "$OUT" | grep -q "What I am, right now"; then ok; else no "the dashboard did not render its status view" "$OUT"; fi
+  if grep -q "What I am, right now" <<<"$OUT"; then ok; else no "the dashboard did not render its status view" "$OUT"; fi
 fi
 
 step "the web dashboard REFUSES to open the default store without --dir"
@@ -887,11 +891,11 @@ CODE=$?
 YES_OUT=$(perl -e 'alarm 10; exec @ARGV or exit 127' counterparts-dashboard serve --yes 2>&1)
 YES_CODE=$?
 if [ "$CODE" = "1" ] &&
-   printf '%s' "$OUT" | grep -q "Refused" &&
-   printf '%s' "$OUT" | grep -q -- "--default-store" &&
-   ! printf '%s' "$OUT" | grep -q -- "--yes" &&
+   grep -q "Refused" <<<"$OUT" &&
+   grep -q -- "--default-store" <<<"$OUT" &&
+   ! grep -q -- "--yes" <<<"$OUT" &&
    [ "$YES_CODE" = "1" ] &&
-   printf '%s' "$YES_OUT" | grep -q -- "unknown flag --yes"; then
+   grep -q -- "unknown flag --yes" <<<"$YES_OUT"; then
   ok
 else
   no "a stray 'serve' was not refused, or 'serve --yes' was not refused as unknown (exit $CODE / $YES_CODE)" "$OUT
@@ -907,8 +911,8 @@ NOWHERE="$WORK/no-store-here"
 OUT=$(counterparts status --dir "$NOWHERE" 2>&1)
 CODE=$?
 if [ "$CODE" != "0" ] &&
-   printf '%s' "$OUT" | grep -q "No store at $NOWHERE" &&
-   printf '%s' "$OUT" | grep -q "counterparts init --dir $NOWHERE" &&
+   grep -q "No store at $NOWHERE" <<<"$OUT" &&
+   grep -q "counterparts init --dir $NOWHERE" <<<"$OUT" &&
    [ ! -d "$NOWHERE" ]; then
   ok
 else
@@ -921,9 +925,9 @@ step "counterparts <command> --help prints THAT command's flags"
 OUT=$(counterparts note --help 2>&1)
 CODE=$?
 if [ "$CODE" = "0" ] &&
-   printf '%s' "$OUT" | grep -q "^counterparts note — " &&
-   printf '%s' "$OUT" | grep -q -- "--salience" &&
-   ! printf '%s' "$OUT" | grep -q -- "--confirm"; then
+   grep -q "^counterparts note — " <<<"$OUT" &&
+   grep -q -- "--salience" <<<"$OUT" &&
+   ! grep -q -- "--confirm" <<<"$OUT"; then
   ok
 else
   no "note --help did not print note's own flags (exit $CODE)" "$OUT"
@@ -945,7 +949,7 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$(eval "$CMD" 2>&1)
-  if printf '%s' "$OUT" | grep -q "Nothing is set"; then ok; else no "scope --list did not report an empty registry" "$OUT"; fi
+  if grep -q "Nothing is set" <<<"$OUT"; then ok; else no "scope --list did not report an empty registry" "$OUT"; fi
 fi
 
 step "counterparts scope . --off writes the registry beside the config"
@@ -954,7 +958,7 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$( (cd "$SCOPED" && eval "$CMD") 2>&1 )
-  if ! printf '%s' "$OUT" | grep -q "Scope set:"; then
+  if ! grep -q "Scope set:" <<<"$OUT"; then
     no "scope --off did not report what it wrote" "$OUT"
   elif [ ! -f "$BASE/scopes.json" ]; then
     no "no registry at $BASE/scopes.json"
@@ -990,7 +994,7 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$( (cd "$SCOPED" && eval "$CMD") 2>&1 )
-  if printf '%s' "$OUT" | grep -q "off" && printf '%s' "$OUT" | grep -q "Decided by"; then ok; else no "scope did not report the effective mode and its entry" "$OUT"; fi
+  if grep -q "off" <<<"$OUT" && grep -q "Decided by" <<<"$OUT"; then ok; else no "scope did not report the effective mode and its entry" "$OUT"; fi
 fi
 
 step "counterparts scope . --resume gives the directory back, and the hook wakes there"
@@ -1002,7 +1006,7 @@ else
   BACK_SESSION="install-loop-back-$$"
   BACK_PAYLOAD=$(printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s"}' "$BACK_SESSION" "$SCOPED")
   HOOK_OUT=$(printf '%s' "$BACK_PAYLOAD" | counterparts-hook 2>"$WORK/hook-back.err")
-  if ! printf '%s' "$OUT" | grep -q -- "— on."; then
+  if ! grep -q -- "— on." <<<"$OUT"; then
     no "scope --resume did not put the directory back on" "$OUT"
   elif [ -z "$HOOK_OUT" ]; then
     no "the hook stayed silent after --resume" "$(cat "$WORK/hook-back.err")"
@@ -1020,7 +1024,7 @@ mkdir -p "$WORK/lib"
 cd "$WORK/lib" || exit 1
 LIB_OUT=$("$BUN_BIN" add "$WORK/pkg/$TARBALL" 2>&1 &&
   "$BUN_BIN" -e 'import("counterparts").then((m) => console.log("Counterpart:" + typeof m.Counterpart))' 2>&1)
-if printf '%s' "$LIB_OUT" | grep -q "Counterpart:function"; then ok; else no "importing the package did not yield Counterpart" "$LIB_OUT"; fi
+if grep -q "Counterpart:function" <<<"$LIB_OUT"; then ok; else no "importing the package did not yield Counterpart" "$LIB_OUT"; fi
 cd "$WORK/pkg" || exit 1
 
 step "everything the run wrote is inside the clean room"
@@ -1142,7 +1146,7 @@ if true; then
     no "the store is gone — uninstall never deletes memory by default" "$OUT"
   elif grep -q 'bin/hook.ts' "$SETTINGS"; then
     no "the hooks were not removed" "$(cat "$SETTINGS")"
-  elif ! printf '%s' "$OUT" | grep -q 'bun remove -g counterparts'; then
+  elif ! grep -q 'bun remove -g counterparts' <<<"$OUT"; then
     no "it did not say the one command that removes the package" "$OUT"
   else
     ok
@@ -1164,11 +1168,11 @@ PLAN=$(printf 'no\n' | counterparts uninstall --config "$MINE/claude-code.json" 
 # 58's situation too.
 if [ ! -f "$MINE/taxes/2025.pdf" ] || [ "$(cat "$MINE/taxes/2025.pdf")" != "not yours" ]; then
   no "a file that is not ours was touched" "$PLAN"
-elif printf '%s' "$PLAN" | grep -q "still running\|could not check"; then
+elif grep -q "still running\|could not check" <<<"$PLAN"; then
   ok   # refused before the plan: the guard, doing its job
-elif ! printf '%s' "$PLAN" | grep -q "itself STAYS"; then
+elif ! grep -q "itself STAYS" <<<"$PLAN"; then
   no "the plan did not say the directory stays" "$PLAN"
-elif ! printf '%s' "$PLAN" | grep -q "taxes"; then
+elif ! grep -q "taxes" <<<"$PLAN"; then
   no "the plan did not name the foreign entry it is leaving" "$PLAN"
 else
   ok
@@ -1190,7 +1194,7 @@ if true; then
       no "it exited 0 and left the directory where it was" "$OUT"
     elif [ -z "$PARKED" ] || [ ! -f "$PARKED/store/counterparts.sqlite" ]; then
       no "nothing parked beside $BASE holds the store" "$OUT"
-    elif ! printf '%s' "$OUT" | grep -q 'To bring it back later'; then
+    elif ! grep -q 'To bring it back later' <<<"$OUT"; then
       # The guarded `mv` used to be the last thing on this screen; since
       # 2026-09-22 (finding #22) the way back is a command, and the shell line
       # lives in `counterparts help uninstall`.
@@ -1201,7 +1205,7 @@ if true; then
   else
     if [ ! -d "$BASE" ]; then
       no "it refused and the directory is gone anyway" "$OUT"
-    elif ! printf '%s' "$OUT" | grep -q 'Close Claude Code sessions and try again'; then
+    elif ! grep -q 'Close Claude Code sessions and try again' <<<"$OUT"; then
       no "it refused without saying what to do about it (exit $CODE)" "$OUT"
     else
       ok

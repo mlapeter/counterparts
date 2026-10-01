@@ -183,3 +183,28 @@ export const HOST_WORDING: Readonly<Record<string, HostWording>> = {
 export function wordingFor(host: string = DEFAULT_HOST): HostWording {
   return HOST_WORDING[host] ?? (HOST_WORDING[DEFAULT_HOST] as HostWording);
 }
+
+/**
+ * WHO UPGRADES A STORE ON AN OLDER SCHEMA, in the words of the hosts that use
+ * it (2026-10-01). A read-only door — the console, the dashboard — meets such a
+ * store and says the first writer will copy and upgrade it. "The next Claude
+ * Code session" is false for a person with only Claude Desktop, where that
+ * writer is Desktop's memory server as it starts. `hosts` is the set the
+ * store's session registry has seen (`sessions.ts#hostsSeen`); with both, or
+ * neither known, the words name both.
+ *
+ *   - `who` is the subject of "… copies it and upgrades it";
+ *   - `open` is what to do for it to happen, lower case, imperative.
+ */
+export function upgradeWords(hosts: ReadonlySet<string>): { readonly who: string; readonly open: string } {
+  const code = hosts.has(DEFAULT_HOST);
+  const desk = hosts.has(DESKTOP_HOST);
+  if (desk && !code) {
+    return { who: "Claude Desktop's memory server", open: "open Claude Desktop (quit and reopen it if it is running)" };
+  }
+  if (code && !desk) return { who: "the next Claude Code session", open: "start a Claude Code session" };
+  return {
+    who: "the next session, in Claude Code or Claude Desktop,",
+    open: "start a Claude Code session or open Claude Desktop",
+  };
+}

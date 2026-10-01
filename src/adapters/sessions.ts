@@ -689,6 +689,20 @@ export function listSessions(dataDir: string): SessionRecord[] {
 }
 
 /**
+ * THE HOSTS THIS STORE'S REGISTRY HAS SEEN THIS WEEK (2026-10-01): what a
+ * read-only door names as the one that will upgrade an older store
+ * (`hosts.ts#upgradeWords`). Empty when the registry holds nothing. Never
+ * throws.
+ */
+export function hostsSeen(dataDir: string): Set<string> {
+  try {
+    return new Set(listSessions(dataDir).map(hostOf));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * THE MOST RECENT LIVE SESSION OF ONE HOST — what a Claude Desktop call that
  * names no session binds to (2026-09-30). One server serves every Desktop chat
  * and the wire carries no conversation id, so when the model does not carry

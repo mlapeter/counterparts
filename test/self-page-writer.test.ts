@@ -34,6 +34,7 @@ import {
   MARKER_REDACTION,
   PAGE_WRITER_MODES,
   PAGE_WRITER_OPEN,
+  PAGE_WRITING_RULE,
   SELF_PAGE_WRITER_EVENT,
   SELF_TUNABLES,
   dayBefore,
@@ -420,6 +421,16 @@ describe("what the writer reads", () => {
     expect(built.memories.length).toBeGreaterThanOrEqual(4);
     expect(built.dropped).toBe(5 - built.memories.length);
     expect(built.memories.every((m) => m.statement.startsWith("Small"))).toBe(true);
+  });
+
+  test("the block says how the page is worded: the model named, a date not \"tonight\", no revised line of its own (2026-10-01)", () => {
+    const c = counterpart();
+    const about = pageWriterNight(c.store).about;
+    const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
+    expect(text).toContain(PAGE_WRITING_RULE);
+    expect(PAGE_WRITING_RULE).toContain("the Opus 5.5 system card says");
+    expect(PAGE_WRITING_RULE).toContain('never "tonight" or "today"');
+    expect(PAGE_WRITING_RULE).toContain("the wake dates the page");
   });
 
   test("...and when NOTHING fits, the block says 'I could not see the day', never 'the day was empty'", () => {

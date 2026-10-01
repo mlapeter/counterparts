@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- The wake's "Arriving:" lines say when each thing is due, not only when it was learned:
+  `2026-09-27 (due 2026-10-03) · …`.
+- When the console or the dashboard meets a store still waiting for its upgrade, it says who
+  will upgrade it in your hosts' words: with only Claude Desktop it no longer tells you to
+  wait for a Claude Code session.
+- Whoever rewrites the self page (the page writer, or the nightly reflection) is asked to name
+  the model when a claim is about one model, to write dates rather than "tonight" or
+  "today" (the page is read on later days), and not to add a revised-on line of its own.
+- Wake labels: the line under the header no longer also starts "Counterparts memory", and it
+  says only the listed memories open with a date (the page is dated on its own line); a
+  memory whose words already start with its date shows that date once; and the closing
+  comment says `page=1` beside `identity=0` when the wake carries the page.
+
 ## 0.3.10 — 2026-09-30
 
 Feelings now sit on a new wheel of seven cores — happy, warm, calm, curious, sad,

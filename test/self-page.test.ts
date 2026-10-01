@@ -495,7 +495,7 @@ describe("the page in the wake", () => {
   test("the reserve covers the widest furniture the wake can wrap a page in", () => {
     const header = "<!-- counterparts:wake day=999999 elements=999999 bytes=999999 -->";
     const sentinel =
-      "<!-- counterparts:wake/end day=999999 identity=999999 craft=999999 threads=999999 hints=999999 horizon=999999 elements=999999 bytes=999999 -->";
+      "<!-- counterparts:wake/end day=999999 identity=999999 page=1 craft=999999 threads=999999 hints=999999 horizon=999999 elements=999999 bytes=999999 -->";
     const dateline = pageDateline("2026-09-18", true, 999999) as string;
     const widest = byteLength(
       [header, FRAMING.context, "", FRAMING.identity, dateline, "", sentinel].join("\n"),
@@ -541,6 +541,17 @@ describe("the page in the wake", () => {
     expect(woken.ok).toBe(true);
     expect(woken.reason).toBe("delivered");
     expect(woken.text).toContain(PAGE);
+  });
+
+  test("beside a page the sentinel says page=1, so identity=0 does not read as an empty self (2026-10-01)", () => {
+    const s = store();
+    const me = self(s);
+    const without = me.build(req);
+    expect(without.sentinel).not.toContain("page=");
+    me.revisePage(PAGE, { reason: "first", by: "session" });
+    const b = me.build(req);
+    expect(b.sentinel).toContain(" identity=0 page=1 craft=");
+    expect(b.text.split("\n").at(-1)).toBe(b.sentinel);
   });
 
   test("the page renders on a composition that OMITS memories — the fallback is woken as the self", () => {

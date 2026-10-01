@@ -32,7 +32,7 @@ export interface BriefingRenderer {
 
 /** Structurally `Prospective.horizon()`. */
 export interface HorizonSource {
-  horizon(input: { at: string; day?: number }): { items: readonly { memoryId: string }[] };
+  horizon(input: { at: string; day?: number }): { items: readonly { memoryId: string; eventDate?: string }[] };
 }
 
 export interface RendererOptions {
@@ -56,7 +56,8 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
         ? undefined
         : opts.prospective
             .horizon({ at: opts.at, day: ctx.day })
-            .items.map((i) => ({ id: i.memoryId }));
+            // The date it is due rides along, so the line can say it (2026-10-01).
+            .items.map((i) => (i.eventDate === undefined ? { id: i.memoryId } : { id: i.memoryId, due: i.eventDate }));
     const result = self.boundary({
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,

@@ -11,7 +11,7 @@
  *     `from: "this session, …"` (a 0.3.9 session's note from 21:13 included);
  *   - after the bind, the same rows read `from: "session mcp, …"`;
  *   - "what do you remember from our most recent session?" led with A's
- *     chapter and its session_end memory and left out A's twelve notes,
+ *     chapter and its session_end memory and left out A's eleven notes,
  *     every one written before A bound.
  * The live store had 46 of ~430 authored memories under that id.
  *

@@ -66,7 +66,7 @@ import { fileURLToPath } from "node:url";
 import { ownerNames } from "../../../core/sleep/index.js";
 import { dataDir, isStoreError } from "../../../core/store/index.js";
 import { Dashboard } from "../index.js";
-import { UPGRADE_PENDING_SENTENCE, upgradePending } from "../upgrade.js";
+import { upgradePending, upgradePendingSentence } from "../upgrade.js";
 import type { DashboardSource } from "../source.js";
 import {
   MAX_BODY_BYTES,
@@ -327,7 +327,7 @@ export function router(
 }
 
 /** The whole page while the store waits for its upgrade: calm, self-contained, no script. */
-const UPGRADE_PENDING_PAGE = `<!doctype html>
+const upgradePendingPage = (sentence: string): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>counterparts</title>
 <style>
@@ -338,14 +338,14 @@ main{max-width:34rem}
 h1{font-size:13px;letter-spacing:.35em;text-transform:uppercase;color:#00e5ff;font-weight:600;margin:0 0 18px}
 p{margin:0}
 </style></head>
-<body><main><h1>Counterparts</h1><p>${UPGRADE_PENDING_SENTENCE}</p></main></body></html>
+<body><main><h1>Counterparts</h1><p>${sentence}</p></main></body></html>
 `;
 
-function upgradePendingReply(path: string): Reply {
+function upgradePendingReply(path: string, sentence: string): Reply {
   if (path.startsWith("/api/")) {
-    return json({ error: "upgrade-pending", message: UPGRADE_PENDING_SENTENCE }, 503);
+    return json({ error: "upgrade-pending", message: sentence }, 503);
   }
-  return { status: 200, headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE }, body: UPGRADE_PENDING_PAGE };
+  return { status: 200, headers: { "content-type": "text/html; charset=utf-8", ...NO_STORE }, body: upgradePendingPage(sentence) };
 }
 
 /** Every management action is a POST under here: `/api/action/<name>`. */
@@ -426,7 +426,7 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
     if (method === "POST" && rawPath.startsWith(ACTION_PREFIX)) {
       if (dashboard === null) {
         req.resume();
-        send(res, 503, { error: "upgrade-pending", message: UPGRADE_PENDING_SENTENCE });
+        send(res, 503, { error: "upgrade-pending", message: upgradePendingSentence(dir) });
         return;
       }
       const name = rawPath.slice(ACTION_PREFIX.length);
@@ -449,7 +449,7 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
       reply =
         open === null
           ? isAllowedHost(req.headers.host ?? null)
-            ? upgradePendingReply(url.pathname)
+            ? upgradePendingReply(url.pathname, upgradePendingSentence(dir))
             : forbiddenHost()
           : router(url, req.headers.host ?? null, open.source, { token });
     } catch (err) {
