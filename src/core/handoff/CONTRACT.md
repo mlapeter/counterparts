@@ -180,6 +180,13 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     (§6); the handoff is carried first. It is not a handoff: nothing retires it, and a
     session that finished its work and wrote a chapter needs no handoff to be found.
 
+12. **[A] The "Yesterday" line is composed here, carried by the wake** (2026-10-01, wake
+    build 3). `last-here.ts#yesterdayLine` names the chapters whose first or latest write
+    fell on a date (store zone), store-wide, oldest first: up to `YESTERDAY_SHOWN` by
+    title (cut to `YESTERDAY_TITLE_BYTES`) and id, the rest by count, the date in the line.
+    The root hands it to `self/`'s render as furniture for the day before the render's
+    date; unlike "Last here" it is in the published bundle, not spliced at delivery.
+
 ## 6. Where it sits in the wake's order — who pays, when, and how much
 
 The pointer is **furniture at the foot of the bundle**, above the tail sentinel and below

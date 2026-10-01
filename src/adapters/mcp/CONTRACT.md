@@ -230,17 +230,26 @@ actually wrote (chapter), the written self page or the version a write to it pro
     never marks the writing session "nothing new". It shares with an ordinary
     `session_end` only the bind (the WRITING session is this one, guarantee 10) and the
     road each entry takes (`server.ts#depositEntries`, extracted rather than copied: gate
-    battery, redaction, authored channel, per-entry isolation) — so the memories are
-    recorded under the writing session, never the ended one — except WHOSE words they
+    battery, redaction, authored channel, per-entry isolation) — so the proposals ride
+    under the writing session; each MEMORY, though, is the ended session's (2026-10-01):
+    its origin names that session, its `happened_on` is the day the part was lived (its
+    latest piece's date; the learned date stays the day it was written), and its meta
+    marks it `secondHand` with the writer's id (`writtenUpBy`) — except WHOSE words they
     cover, which the door says through core's `SessionEndDepositContext.cover`: none on an earlier
     part, the ENDED session's on the last, and never the writer's own (MAJOR 4). Two calls:
     **FETCH** (`writeUp`, no `memories` — or `memories: []` with no fetch on record, m2;
     `memories` is not in the schema's `required`) returns the next unwritten part of the
     ended session's captured words IN THIS PROJECT — what was said to it and what it
-    jotted, never its replies — up to `WRITE_UP_PART_BYTES` (~24 KB), and records it as
+    jotted, and (2026-10-01) its own replies, labelled `[its reply]` and each cut to
+    `WRITE_UP_REPLY_BYTES` — up to `WRITE_UP_PART_BYTES` (~24 KB), and records it as
     handed to this session (`writeUpFor`, merged into the registry record's raw JSON);
     fetching again before answering hands back the same part, and a session that has
-    answered its part is not handed the next (that is a later start's). **ANSWER**
+    answered its part is not handed the next (that is a later start's; a GRANTED runner,
+    guarantee 17, goes on to the next). **CLAIM-FIRST** (2026-10-01): a fetch claims the
+    stretch for the fetching session (`WriteUpProgress.claim`, young for
+    `WRITE_UP_CLAIM_MS`); while another session's claim is young, a fetch or an answer
+    from here is refused `claimed`, and the SessionStart pointer passes the subject over.
+    An ordinary writer lets its claim go when its part comes back. **ANSWER**
     (`writeUp` with `memories`) deposits for the part last fetched; an EMPTY batch is a
     real answer — nothing worth keeping — and closes the part without minting. The last
     part's answer marks the ended session's words here as kept (coverage), then marks it
@@ -261,7 +270,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
     `part-already-written`, `memories-required` (present and not a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
-    landed) and `io-failed` (the fetch could not record the hand-over, so hands nothing).
+    landed), `io-failed` (the fetch could not record the hand-over, so hands nothing),
+    `claimed` (another writer holds it now) and `allowance-spent` (a granted runner past
+    the part its launcher allowed tonight).
     A mark that did not land is `marked: false`: the session still owes, and the next
     fetch of it — by any session — finishes the mark without depositing (MAJOR 2). This
     file is one of the seam's two importers outside `remember/` (`test/cli.test.ts` pins
@@ -272,13 +283,20 @@ actually wrote (chapter), the written self page or the version a write to it pro
     Desktop session writing up a chat that went quiet — carries on its registry record
     the ended sessions it may write up (`sessions.ts#SessionRecord.mayWriteUp`). Only a
     LAUNCHER writes it (`sessions.ts#grantWriteUps`); no tool does, so no model can list
-    an id (a `mayWriteUp` argument is ignored). The door's rule, exactly: the subject is
-    listed in the WRITING session's own record, AND it has ended (`endedAt` set), AND it
-    is owed per `sessions.ts#owedWriteUps` asked in the SUBJECT's scope. On that path
-    `sameScope` against this server's scope is skipped, the grant stands in for the
-    SessionStart pointer, and the memories are filed under the subject's scope (the
-    project where it was lived). Everything else is guarantee 16's. Named `mayWriteUp`
-    because `writeUpFor` was already the door's per-part mark.
+    an id (a `mayWriteUp` argument is ignored). The door's rule, exactly (2026-10-01): the
+    subject is listed in the WRITING session's own record, AND it is not at work — the
+    ledger's word (#289's evidence: ended, or quiet since the calendar date changed), so
+    a crash with no `endedAt` is served — AND `sessions.ts#writeUpStanding` says it is
+    owed in a directory it was lived in (the first such, in its own order; no registry
+    record needed, and no full-first gate: the launcher chose). Every refusal says why
+    (`owes-nothing` with `why`, `live-session` with a detail). On that path `sameScope`
+    against this server's scope is skipped, the grant stands in for the SessionStart
+    pointer, the memories are filed under the subject's scope (the project where it was
+    lived), and the runner is handed the next part once its last came back, up to the
+    claim's `upTo` (the launcher's allowance). Everything else is guarantee 16's. Named
+    `mayWriteUp` because `writeUpFor` was already the door's per-part mark. The first
+    launcher is the nightly run's catch-up (`claude-code/night-catch-up.ts`), whose runner
+    is a session id of its own (`writeup-<run>`).
 18. **[M] Claude Desktop is decided by the CLIENT, and a Claude Code client sees nothing
     new** (2026-09-30). A client whose `clientInfo.name` at `initialize` is `claude-ai`
     or `local-agent-mode-*` (`hosts.ts#hostOfClient`) makes this Desktop's server: its
