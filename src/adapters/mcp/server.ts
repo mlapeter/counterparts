@@ -1549,9 +1549,6 @@ export class McpServer {
         // A question about time leads with THIS directory's most recent
         // session (2026-09-30, `recall/recency-ask.ts`).
         scope: this.scope,
-        // ...and counts that session's notes from before its server bound
-        // from when the registry says it started here (2026-10-01).
-        sessionStartedAt: (s) => this.registryStartHere(s),
       },
     );
     const resolved = this.noteHandleResolution(handle, result);
@@ -1668,24 +1665,6 @@ export class McpServer {
     } catch {
       // The ring emit above already carries this call; a telemetry write that
       // failed must not become the answer the model receives.
-    }
-  }
-
-  /**
-   * WHEN THE REGISTRY SAYS `session` STARTED IN THIS SERVER'S DIRECTORY, or
-   * null (2026-10-01): no record, an id that is not one, or a record from
-   * another directory. Read for the recency lead's pre-bind notes
-   * (`deliberate.ts#startedHere`). Never throws.
-   */
-  private registryStartHere(session: string): number | null {
-    try {
-      if (!isSessionId(session)) return null;
-      const record = readSession(this.registryDir, session);
-      if (record === null) return null;
-      const norm = (s: string): string => s.trim().replace(/\/+$/, "");
-      return norm(record.scope) === norm(this.scope) ? record.startedAt : null;
-    } catch {
-      return null;
     }
   }
 

@@ -199,52 +199,6 @@ describe("the recency lead and a session's notes from before it bound", () => {
     expect(got.find((m) => m.id === late)?.from).toBe(`session a1b2c3d4, ${HERE}, 09-30 16:36`);
   });
 
-  test("a note in the first turn, before the first turn-end, leads too: the stretch opens at the registry's start (2026-10-01)", async () => {
-    const k = day();
-    recordSession(storeDir, { sessionId: A, scope: HERE, phase: "start", at: at(16, 0), model: "claude-opus-5-5" });
-    const a = k.unbound();
-    // Written at 16:00:30, before A's first Stop at 16:01.
-    k.set(at(16, 0) + 30_000);
-    const first = idOf(await a.call("note", { text: "The rhubarb crowns get split every fourth spring." }));
-    k.talk(A, at(16, 1));
-    k.set(at(16, 5));
-    const ch = await a.call("chapter", { session: A, title: "Rhubarb", text: "We talked about splitting the rhubarb crowns." });
-    expect(ch.isError).not.toBe(true);
-    k.talk(A, at(16, 11));
-    k.c.boundary({ session: A, scope: HERE, kind: "session-end" });
-    expect(k.c.store.row(first)?.origin_session).toBe(UNBOUND_SESSION);
-    // The captured stretch alone starts at the first turn-end, after the note.
-    expect(sessionsHere(k.c.spans, HERE).find((s) => s.session === A)?.firstAt).toBe(at(16, 1));
-    recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
-    k.talk(B, at(17, 1));
-    k.set(at(17, 2));
-    const got = rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" }));
-    const lead = got.filter((m) => m.recent === true).map((m) => m.id);
-    expect(lead).toContain(first);
-  });
-
-  test("a registry start in another directory does not open the stretch here", async () => {
-    const k = day();
-    const elsewhere = join(root, "elsewhere");
-    mkdirSync(elsewhere, { recursive: true });
-    // A's registry record names another directory; its turns are here.
-    recordSession(storeDir, { sessionId: A, scope: elsewhere, phase: "start", at: at(16, 0), model: "claude-opus-5-5" });
-    const a = k.unbound();
-    k.set(at(16, 0) + 30_000);
-    const first = idOf(await a.call("note", { text: "The rhubarb crowns get split every fourth spring." }));
-    k.talk(A, at(16, 1));
-    k.set(at(16, 5));
-    const mid = idOf(await a.call("note", { text: "The water butt overflows onto the path in a storm." }));
-    k.talk(A, at(16, 11));
-    k.c.boundary({ session: A, scope: HERE, kind: "session-end" });
-    recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
-    k.talk(B, at(17, 1));
-    k.set(at(17, 2));
-    const lead = new Set(rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" })).filter((m) => m.recent === true).map((m) => m.id));
-    expect(lead.has(mid)).toBe(true);
-    expect(lead.has(first)).toBe(false);
-  });
-
   test("side by side: a note written while another session was at work here is nobody's, and does not lead", async () => {
     const k = day();
     // C works in the same directory from 16:10 to 16:20, alongside A.

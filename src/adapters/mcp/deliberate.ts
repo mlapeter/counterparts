@@ -436,15 +436,6 @@ export interface DeliberateOptions {
    * console's `ask`) it is answered as any other question.
    */
   readonly scope?: string;
-  /**
-   * When the host's session registry says a session STARTED in this
-   * directory, epoch ms — or null when it holds no record for it here
-   * (2026-10-01). The recency lead's window for a session's notes from before
-   * its server bound starts here rather than at its first turn-end, so a note
-   * written during the first turn counts. Supplied by the MCP server, which
-   * owns the registry; absent, the window is the captured stretch alone.
-   */
-  readonly sessionStartedAt?: (session: string) => number | null;
 }
 
 /**
@@ -1024,7 +1015,7 @@ function recentRows(counterpart: Counterpart, question: string, opts: Deliberate
           continue;
         }
       }
-      written.push(...preBindNotes(store, scope, session, startedHere(all, opts.sessionStartedAt)));
+      written.push(...preBindNotes(store, scope, session, all));
       written.sort((a, b) => b.at - a.at || (a.id < b.id ? 1 : -1));
       for (const w of written) {
         if (memories >= RECENT_MEMORIES_MAX) break;
@@ -1043,31 +1034,6 @@ function recentRows(counterpart: Counterpart, question: string, opts: Deliberate
 }
 
 /**
- * THE SESSIONS HERE, EACH STRETCH OPENED AT ITS REGISTRY START (2026-10-01).
- * `sessionsHere` dates a session from its first turn-end or held piece, which
- * is the END of its first turn; the host's registry knows when it started.
- * The start only ever moves a stretch EARLIER (a record a later boundary
- * created carries a later start, never an earlier one). Every session gets
- * the same widening, so "no other session was at work here" stays as strict
- * as the window it is checked against. Never throws.
- */
-function startedHere(
-  here: readonly { session: string; firstAt: number; lastAt: number }[],
-  startedAt: ((session: string) => number | null) | undefined,
-): { session: string; firstAt: number; lastAt: number }[] {
-  if (startedAt === undefined) return [...here];
-  return here.map((s) => {
-    let start: number | null = null;
-    try {
-      start = startedAt(s.session);
-    } catch {
-      start = null;
-    }
-    return start !== null && Number.isFinite(start) && start > 0 && start < s.firstAt ? { ...s, firstAt: start } : s;
-  });
-}
-
-/**
  * A SESSION'S NOTES FROM BEFORE ITS SERVER KNEW IT (the 0.3.10 release check).
  * In Claude Code the memory server learns its session only at the first
  * `chapter` or `session_end`, so a `note` before that is filed under the
@@ -1079,10 +1045,6 @@ function startedHere(
  * session — the asker included — was at work here at that moment. Two
  * sessions side by side in one directory share the stretch, so neither gets
  * the note; it is left to the ranking, as before. Never throws.
- *
- * Each stretch opens at the session's registry start when there is one
- * (`startedHere`, 2026-10-01): a note in the first turn comes before the first
- * turn-end, which is where the captured stretch alone begins.
  */
 function preBindNotes(
   store: Counterpart["store"],
