@@ -874,8 +874,13 @@ export class McpServer {
   private claudeCodeSessionNamed(args: Record<string, unknown>): { session: string; scope: string } | null {
     const claimed = args["session"];
     if (typeof claimed !== "string" || !isSessionId(claimed)) return null;
+    // NEVER A WRITE-UP RUNNER (review of #308): the nightly catch-up's runner
+    // is served only by its own pinned server, so no id with its prefix, and no
+    // record carrying a grant, is ever served through this path.
+    if (claimed.startsWith(NIGHT_RUNNER_PREFIX)) return null;
     const record = readSession(this.registryDir, claimed);
     if (record === null || hostOf(record) !== DEFAULT_HOST) return null;
+    if ((record.mayWriteUp?.length ?? 0) > 0) return null;
     // THE CODE TAB'S ONLY (coordinator's decision, review of #309): a terminal
     // session has its own server; Desktop's has no reason to act for it.
     if (record.entrypoint !== CODE_TAB_ENTRYPOINT) return null;

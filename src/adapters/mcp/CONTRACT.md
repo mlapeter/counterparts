@@ -306,7 +306,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
     runner's prefix (a `session` argument is read the same way), is refused
     `write-up-runner` on every tool but `session_end` WITH `writeUp`, `recall` and
     `status` — no ordinary `session_end`, no handoff, no `note`, no `chapter` — so it can
-    never mint first-hand memories in the launcher's directory. (A later Desktop session
+    never mint first-hand memories in the launcher's directory. Nor is a runner ever served through Desktop's Code-tab path (guarantee 21's `claudeCodeSessionNamed`): an id with the prefix, or a record carrying a grant, is not a Code-tab session there. (A later Desktop session
     given a grant would meet the same gate; that is for the Desktop build to decide.)
 18. **[M] Claude Desktop is decided by the CLIENT, and a Claude Code client sees nothing
     new** (2026-09-30). A client whose `clientInfo.name` at `initialize` is `claude-ai`
