@@ -42,8 +42,8 @@
 import type { Band, Kind } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
-import type { ProseDoc, Store } from "../store/index.js";
-import { hashText } from "../store/index.js";
+import type { AboutMark, AboutSetter, ProseDoc, Store } from "../store/index.js";
+import { ABOUT_SETTERS, aboutMarkOf, hashText } from "../store/index.js";
 import { scanSecrets } from "../encode/secrets.js";
 import {
   IDENTITY_CORE_ROLE,
@@ -130,6 +130,7 @@ import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
   NO_GATE,
+  EPISODE_ABOUT_META,
   appendChapter,
   askDue,
   askText,
@@ -175,6 +176,7 @@ export * from "./episodes.js";
 export * from "./freeze.js";
 export * from "./identity.js";
 export * from "./tunables.js";
+export * from "./work.js";
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER statement text. */
 export interface SelfEvent {
@@ -538,6 +540,7 @@ export class Self {
     const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, {
       settledOver: settledOver(this.store),
       coveredByPage: this.pageCovers(scanned),
+      workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
     });
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
@@ -1825,8 +1828,9 @@ export class Self {
     sessionId: string,
     text: string,
     /** `scope`: the directory it was written in, recorded on a NEW episode's
-     *  origin (2026-09-30). */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string } = {},
+     *  origin (2026-09-30). `about`: what the session was about — on the
+     *  episode's meta, and on its live memory copy at once (2026-10-01). */
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark } = {},
   ): ChapterAppend {
     const d = opts.day ?? this.store.livedDay();
     if (sessionId.trim().length === 0) {
@@ -1863,7 +1867,22 @@ export class Self {
     if (opts.happenedOn !== undefined) append.happenedOn = opts.happenedOn;
     if (opts.model !== undefined) append.model = opts.model;
     if (opts.scope !== undefined && opts.scope.length > 0) append.scope = opts.scope;
+    if (opts.about !== undefined) append.about = opts.about;
     const written = appendChapter(this.store, state, gatedText, append);
+    // THE MARK REACHES THE COPY NOW (2026-10-01, lane 8), not at its next
+    // regrowth — which a closed window may never bring. The latest act wins:
+    // a regrown copy carries its predecessor's mark (`ingestEpisode`), so a
+    // reflection's later mark is kept the same way. Never fails the chapter.
+    if (opts.about !== undefined) {
+      try {
+        // `Store#copiesOf`: the live copies with their marks, in one read.
+        for (const copy of this.store.copiesOf([written.episodeId]).get(written.episodeId) ?? []) {
+          if (copy.about !== opts.about) this.store.setAbout(copy.id, opts.about, { by: "writer" });
+        }
+      } catch (err) {
+        this.emit("self.episode.about.failed", written.episodeId, { error: err instanceof Error ? err.name : "UNKNOWN" });
+      }
+    }
     this.persistState(
       {
         ...state,
@@ -2049,10 +2068,20 @@ export class Self {
     if (proposal.salience !== undefined || proposal.claimed !== undefined) {
       put.salience = { ...(proposal.salience ?? {}), claimed: proposal.claimed ?? null };
     }
+    // WHAT THE COPY IS ABOUT (2026-10-01, lane 8): the copy it replaces says
+    // last — the chapter tool sets the mark on the live copy at once, and a
+    // reflection may set one later, so the latest act is on that row — and
+    // the chapter's own `about` when there is no copy yet.
+    const staleCopies = memoriesForEpisode(this.store, state.episodeId);
+    const carried = this.copyAbout(staleCopies, doc);
+    if (carried !== null) {
+      put.about = carried.mark;
+      put.aboutBy = carried.by;
+    }
     const memoryId = this.store.put(put);
 
     const archived: string[] = [];
-    for (const stale of memoriesForEpisode(this.store, state.episodeId)) {
+    for (const stale of staleCopies) {
       if (stale === memoryId) continue;
       this.store.archive(stale, "episode-regrown");
       archived.push(stale);
@@ -2086,6 +2115,27 @@ export class Self {
       gate: null,
       intake: null,
     };
+  }
+
+  /**
+   * The mark a new copy of an episode takes: the newest live copy's, with who
+   * set it, else the episode's own `meta.about` (the chapter tool's, set by
+   * the writer), else none. Never throws.
+   */
+  private copyAbout(staleCopies: readonly string[], episode: ProseDoc): { mark: AboutMark; by: AboutSetter } | null {
+    try {
+      for (const id of [...staleCopies].reverse()) {
+        const row = this.store.row(id);
+        const mark = aboutMarkOf(row?.about);
+        if (mark === null) continue;
+        const by = row?.about_by ?? "";
+        return { mark, by: (ABOUT_SETTERS as readonly string[]).includes(by) ? (by as AboutSetter) : "writer" };
+      }
+    } catch {
+      /* the episode's own mark, below */
+    }
+    const own = aboutMarkOf(episode.meta[EPISODE_ABOUT_META]);
+    return own === null ? null : { mark: own, by: "writer" };
   }
 
   /**

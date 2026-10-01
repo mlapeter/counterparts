@@ -171,7 +171,9 @@ describe("dreaming: auto | ask | off, durable and reversible", () => {
     // An offer claims nothing: the host claims it once the person's line is leaving.
     expect(c.store.dreamAsk(c.store.today())).toBeUndefined();
     const line = c.dreams.askLine({ at: c.store.today(), session: SESSION }) ?? "";
-    expect(line).toContain("Do not ask again — wait for their word.");
+    // Said once by the session, in its first reply (lane 8, build 4); then it waits.
+    expect(line).toContain("this once, in your first reply, as one plain sentence of your own.");
+    expect(line).toContain("Then do not ask again — wait for their word.");
     expect(line).toContain('value: "auto", then start today\'s run exactly as for "dream"');
     expect(c.store.dreamAsk(c.store.today())?.state).toBe("offered");
   });

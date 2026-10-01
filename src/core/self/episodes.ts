@@ -510,11 +510,19 @@ export function readChapterLead(text: string): ChapterLead {
  * append has not answered yet; every further append inside that chapter
  * continues the prose it is already part of, asked for or not.
  */
+/**
+ * The episode's `meta` key for what the session was about (2026-10-01, lane
+ * 8): the chapter tool's `about`, the latest chapter's replacing an earlier
+ * one. Its memory copy takes it (`Self#ingestEpisode`); the episode row itself
+ * has no `about` column of its own to set, being a journal row, not a memory.
+ */
+export const EPISODE_ABOUT_META = "about";
+
 export function appendChapter(
   store: Store,
   state: EpisodeState,
   text: string,
-  opts: { day: number; date?: string; model?: string; title?: string; happenedOn?: string; scope?: string },
+  opts: { day: number; date?: string; model?: string; title?: string; happenedOn?: string; scope?: string; about?: string },
 ): { episodeId: string; chapter: number; created: boolean; heading: boolean } {
   const opens = state.episodeId === null || state.asks > state.appendedAtAsk;
   const chapter = opens ? state.chapters + 1 : Math.max(1, state.chapters);
@@ -532,6 +540,7 @@ export function appendChapter(
         sessionId: state.sessionId,
         chapters: chapter,
         ...(model === undefined ? {} : { models: { [String(chapter)]: model } }),
+        ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
       },
       // The experiencer writing its own journal is the "episode" channel —
       // consistent with the memory its ingestion mints (PR-2 review nit).
@@ -565,6 +574,7 @@ export function appendChapter(
       sessionId: state.sessionId,
       chapters: Math.max(num, recorded),
       ...(Object.keys(models).length === 0 ? {} : { models }),
+      ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
     },
     reason: opensChapter ? "episode-chapter" : "episode-append",
     // The row's `model` is the LAST writer's (a body change with none is NULL).

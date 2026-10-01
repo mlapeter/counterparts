@@ -356,7 +356,7 @@ export const NO_DESKTOP_SESSION =
 
 /** The write-up ask a Desktop tool result carries once the session is due one. */
 export function desktopWriteUpAsk(session: string): string {
-  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what is worth keeping with session_end (session: ${session}; memories: [] if nothing is), and add a chapter with the chapter tool (session: ${session}) if the chat was about something.`;
+  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what is worth keeping with session_end (session: ${session}; memories: [] if nothing is; \`updates\` anything dated or open now done), and add a chapter with the chapter tool (session: ${session}) if the chat was about something.`;
 }
 
 /** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */
@@ -1535,6 +1535,9 @@ export class McpServer {
     if (args["how"] !== undefined) draft["how"] = args["how"];
     if (salience !== undefined) draft["claimed"] = salience;
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
+    // AN OPEN THREAD, or the closing of one (2026-10-01, lane 8): a boolean
+    // rides as sent — `false` matters beside an `updates` (`closeThread`).
+    if (typeof args["unresolved"] === "boolean") draft["unresolved"] = args["unresolved"];
     Object.assign(draft, dated.fields);
 
     const model = this.sessionModel(session);
@@ -1563,6 +1566,7 @@ export class McpServer {
       ...this.recordTraits(deposit, traits.inputs, model),
       ...reminderEcho(deposit, dated, this.today()),
       ...this.settledOf(deposit, args["how"] !== undefined),
+      ...threadOf(deposit),
       // IN THE PAYLOAD, so it rides in `structuredContent` — which is what
       // Claude Code hands the model (the #282 lesson, f387f55).
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
@@ -2473,6 +2477,7 @@ export class McpServer {
       if (typeof rec["title"] === "string") draft["title"] = rec["title"];
       if (typeof rec["updates"] === "string") draft["updates"] = rec["updates"];
       if (rec["how"] !== undefined) draft["how"] = rec["how"];
+      if (typeof rec["unresolved"] === "boolean") draft["unresolved"] = rec["unresolved"];
       if (rec["salience"] !== undefined) draft["claimed"] = rec["salience"];
       // A bad dimension does NOT fail the batch and is not silently dropped:
       // the dimensions ride into the draft and `remember/intake` refuses that
@@ -2558,6 +2563,7 @@ export class McpServer {
         ...this.recordTraits(result, traits.inputs, model),
         ...reminderEcho(result, dated, this.today()),
         ...this.settledOf(result, draft["how"] !== undefined),
+        ...threadOf(result),
         ...(neighbours.length === 0 ? {} : { neighbours }),
       });
     }
@@ -2744,6 +2750,11 @@ export class McpServer {
     }
     const session = this.session as string;
     const title = args["title"];
+    // WHAT THE SESSION WAS ABOUT (2026-10-01, lane 8), carried to the
+    // chapter's memory copy: a malformed one refuses the call before anything
+    // is written, as on `note`.
+    const about = readAbout(args["about"]);
+    if ("refused" in about) return this.refuse("chapter", "about-malformed", { detail: about.refused });
     // The model the hooks last saw answer in this session. A Stop records it
     // before its ask goes out, so the chapter that answers the ask has it.
     const model = readSession(this.registryDir, session)?.model;
@@ -2754,6 +2765,7 @@ export class McpServer {
         scope: this.scope,
         ...(typeof title === "string" && title.length > 0 ? { title } : {}),
         ...(model === undefined ? {} : { model }),
+        ...(about.mark === null ? {} : { about: about.mark }),
       });
     } catch (err) {
       // A journal that throws must not look like a journal that refused.
@@ -2776,6 +2788,7 @@ export class McpServer {
         chapter: written.chapter,
         created: written.created,
         ...(written.gate === null ? {} : { gate: written.gate }),
+        ...(about.mark === null || !written.appended ? {} : { about: about.mark }),
       },
       !written.appended,
     );
@@ -4058,6 +4071,17 @@ function readTraits(raw: unknown): TraitsRead {
 }
 
 /** `about` on a tool call (schema v9): absent, or one of the five marks. */
+/**
+ * The open thread a deposit closed (`DepositResult.thread`, 2026-10-01), as a
+ * result carries it: `thread: { closed: <the id it updates> }`, or the reason
+ * the clear did not land. Nothing when no thread was closed.
+ */
+function threadOf(deposit: DepositResult): Record<string, unknown> {
+  const t = deposit.thread;
+  if (t === undefined) return {};
+  return { thread: t.closed ? { closed: t.from } : { closed: null, from: t.from, reason: t.refused ?? "not-recorded" } };
+}
+
 function readAbout(raw: unknown): AboutRead {
   if (raw === undefined || raw === null) return { mark: null };
   if (typeof raw !== "string" || !(ABOUT_MARKS as readonly string[]).includes(raw)) {

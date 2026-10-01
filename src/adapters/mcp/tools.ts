@@ -168,7 +168,20 @@ const ABOUT_PROPERTY = {
   type: "string",
   enum: ["me", "us", "owner", "work", "world"],
   description:
-    "Optional: what this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (the craft: how a job is done), world (anything else). Leave it out when unsure. Only me, us and owner can become part of who I am.",
+    "What this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (the craft: how a job is done), world (anything else). Mark anything personal — people, feelings, life outside the work — owner or us: left unmarked, a fact written in a project counts as that project's work and is shown only there. Only me, us and owner can become part of who I am.",
+};
+
+/**
+ * `unresolved` on a `note` or a `session_end` entry (2026-10-01, lane 8): the
+ * wake's "Still open:" lane reads this flag, and until now no write tool could
+ * set it, so the lane never fired. Closed by a later write that `updates` the
+ * memory and says `unresolved: false` (`counterpart.ts#closeThread`), or by
+ * `how: "changed"` with the resolution.
+ */
+const UNRESOLVED_PROPERTY = {
+  type: "boolean",
+  description:
+    'Optional: true for an open question or a promise still pending — it stays under "Still open" in the wake until closed. To close one: `updates` its id with `unresolved: false` (or `how: "changed"` and the answer).',
 };
 
 /**
@@ -427,7 +440,7 @@ const NOTE: ToolSpec = {
       updates: {
         type: "string",
         description:
-          "The id or handle of a memory this revises, if it revises one. A field — never written into the text.",
+          "The id or handle of a memory this revises, if it revises one. A field — never written into the text. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
       },
       how: HOW_PROPERTY,
       settle: SETTLE_PROPERTY,
@@ -466,6 +479,7 @@ const NOTE: ToolSpec = {
       remind: REMIND_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
+      unresolved: UNRESOLVED_PROPERTY,
       traits: TRAITS_PROPERTY,
     },
     // `text` is not required in the published schema (2026-09-29): a `settle`
@@ -628,7 +642,7 @@ const SESSION_END: ToolSpec = {
   summary:
     "The MEMORIES half of the Stop ask's return channel: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen. The other half is `chapter`.",
   admission:
-    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
+    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week, and one that `updates` anything dated or open now done.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
@@ -787,13 +801,14 @@ const SESSION_END: ToolSpec = {
             updates: {
               type: "string",
               description:
-                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`.",
+                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
             },
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,
             remind: REMIND_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
+            unresolved: UNRESOLVED_PROPERTY,
             traits: TRAITS_PROPERTY,
           },
           required: ["content"],
@@ -864,6 +879,11 @@ const CHAPTER: ToolSpec = {
       mechanizedBy: "src/core/counterpart.ts#sessionEnd -> src/core/self/index.ts#reconcileEpisodes -> ingestEpisode",
     },
     {
+      claim:
+        "`about` is carried to the chapter's memory copy, and kept when the copy regrows; a later chapter's mark replaces an earlier one. Only me, us and owner let the chapter reach a wake in another directory.",
+      mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#ingestEpisode -> src/core/counterpart.ts#selfChapterElsewhere",
+    },
+    {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },
@@ -884,6 +904,12 @@ const CHAPTER: ToolSpec = {
       title: {
         type: "string",
         description: "One line: what this session's episode is — the line a later index shows for all of it, so it can be told apart without being read. Set on the first chapter only.",
+      },
+      about: {
+        type: "string",
+        enum: ["me", "us", "owner", "work", "world"],
+        description:
+          "What this session was about, by meaning — me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's memory copy, and only me, us or owner carry the chapter into a wake in another directory. A session that was only building is work; one about people, feelings or life outside the work is owner or us.",
       },
     },
     required: ["text"],

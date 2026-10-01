@@ -4074,6 +4074,30 @@ export class Store {
   }
 
   /**
+   * THE WAKE'S WORK CANDIDATES IN ONE DIRECTORY (2026-10-01, lane 8; review of
+   * #313): live memories written in `scope` that the row's own columns allow
+   * to be work — marked `work`, or unmarked and a skill, fact, entity or place
+   * — and not identity, dated, confidential or emptied; newest touched first
+   * (born or used, the later), then id, at most `limit`. The columns only:
+   * the caller reads the prose of what comes back, never of the whole store
+   * (a session start read every row's text, 370 ms at 3,000 rows).
+   */
+  workCandidates(scope: string, limit: number): string[] {
+    return this.ops
+      .all<{ id: string }>(
+        `SELECT id FROM memories
+          WHERE type = 'memory' AND archived = 0 AND origin_scope = ?
+            AND band != 'identity' AND event_date IS NULL AND confidential = 0 AND body != ''
+            AND (about = 'work' OR (about IS NULL AND kind IN ('skill', 'fact', 'entity', 'place')))
+          ORDER BY MAX(birth_day, last_used_day) DESC, id
+          LIMIT ?`,
+        scope,
+        Math.max(0, Math.floor(limit)),
+      )
+      .map((r) => r.id);
+  }
+
+  /**
    * How many rows `list()` would return, counted in SQL rather than materialized.
    * The same filter, the same WHERE, one number — for the callers that want the
    * SIZE of the store (the wake's delivery preface states it) and would otherwise

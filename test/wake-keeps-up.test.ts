@@ -258,7 +258,9 @@ describe("the wake keeps up: page, write-up, run end", () => {
     // The session answers the Stop ask through `session_end`...
     const answer = await mcp.call("session_end", {
       session: "s1",
-      memories: [{ content: "The wake re-renders at the worker after a write-up lands.", relevance: 0.9, emotional: 0.8, predictive: 0.9 }],
+      // Marked `world` so it is in the stored bundle's Nearby: an unmarked fact
+      // written in a directory is that directory's work since lane 8, delivered there.
+      memories: [{ content: "The wake re-renders at the worker after a write-up lands.", relevance: 0.9, emotional: 0.8, predictive: 0.9, about: "world" }],
     });
     expect((answer.structuredContent["outcomes"] as { stored: boolean }[])[0]?.stored).toBe(true);
     expect(published()).not.toContain("after a write-up lands");

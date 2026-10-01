@@ -93,7 +93,12 @@ dreamer is the model (a background agent the session launches), outside this pro
   line for the PERSON (the prompt hook's `systemMessage`, shown in the terminal). The
   host claims the day (`claimOffer`) only once it knows the person's line is leaving;
   unclaimed, the model's line is taken back too and the next prompt offers it again.
-  `askLine` is offer-then-claim, for callers with no terminal.
+  `askLine` is offer-then-claim, for callers with no terminal. Every rendering for the
+  model tells it to say the line once, in its first reply, as one plain sentence
+  (`sayOnce`, 2026-10-01). A run started by a session nobody watches is HELD
+  (`holdTold` → `heldTold`, worded for the reading session, while the run is still
+  going → `claimHeldTold`, an event latch per run): the host's rule for who may claim
+  is the adapter's (claude-code CONTRACT, "Only a session someone can see").
   `ask` (the default): the person is shown "I haven't dreamed since … (N new memories).
   Say "dream" to start, or "dream on your own" to let me do it each day." The model
   does not ask again; "dream" is `launch` → one background agent, "dream on your own" is

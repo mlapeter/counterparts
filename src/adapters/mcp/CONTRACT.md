@@ -111,7 +111,7 @@ that is not text is a named, durable refusal. A handoff that LANDED with an empt
 refused. The no-scope rule (an empty scope, or one
 that is the store's own directory) is asked here because this side has the canonicaliser,
 and the durable row is written by `core/handoff/`, which owns that guarantee —
-`chapter(session, text[, title])`; `scope(mode)` for this directory; `self_page` (read,
+`chapter(session, text[, title][, about])`; `scope(mode)` for this directory; `self_page` (read,
 or write with `ifVersion`); `dream(session, phase, …)` and `reflect(session, phase, …)`,
 each bound to one session as `session_end` is (their fields are `tools.ts`'s); for a
 Claude Desktop client only, `wake()` (§5 G20) and the `prompts/list` / `prompts/get` pair; the
@@ -192,7 +192,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
     between continues the chapter it is part of rather than opening another, because
     appending in the moment is the doctrine's headline case (`self/` §13 G2). The journal
     is a gated entrance like every other: the gate's text, possibly redacted, is what
-    lands.
+    lands. **`about`** (2026-10-01) is checked before anything is written (a mark outside
+    the five is refused `about-malformed`), set on the episode's meta and on its live
+    memory copy at once, and carried to every regrown copy (`self/index.ts#copyAbout`):
+    only me, us and owner let the chapter reach a wake in another directory.
 
 14. **[M] A store a newer build has migrated is never touched by this older one**
     (2026-09-23, roadmap E). `SCHEMA_AHEAD` is decided at open, and this process opens

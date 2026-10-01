@@ -43,7 +43,7 @@ import { selfRenderer } from "./briefing.js";
 import { batteryGate, episodeGate, gateSweepChunk } from "./bridge.js";
 import { Dreams, Reflections } from "./dream/index.js";
 import type { VectorSource } from "./bridge.js";
-import { mintProposal } from "./mint.js";
+import { UNRESOLVED_META_KEY, mintProposal } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
@@ -143,8 +143,12 @@ import {
   byteLength,
   markWakeBehind,
   noteWakeCaught,
+  settledOver,
   spliceBeforeSentinel,
   wakeBehind,
+  workHere,
+  workHereBlock,
+  workHereBytes,
   writerInstruction,
 } from "./self/index.js";
 import type {
@@ -161,6 +165,7 @@ import type {
   PageWriterRun,
   PageWriterStatus,
   SelfPage,
+  SelfTunables,
   WakeDelivery,
   WakeResult,
   WakeTrigger,
@@ -170,6 +175,7 @@ import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type {
+  AboutMark,
   AddFeelingsResult,
   FeelingInput, Embedder, StoreEvent, TraitInput } from "./store/index.js";
 import { TUNABLES as PHYSICS, band as bandOf } from "./physics/index.js";
@@ -827,6 +833,12 @@ export interface CounterpartOptions extends Stance {
    * it does not write the page. Absent: `session`, the config's own default.
    */
   pageWriterMode?: PageWriterMode;
+  /**
+   * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
+   * defaults. Added 2026-10-01 so the craft lane's switch
+   * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
+   */
+  selfTunables?: Partial<SelfTunables>;
 }
 
 /** What `wake()` returns: the bundle, plus what the host told us about itself. */
@@ -937,7 +949,23 @@ export interface DepositResult {
    * settled, or why it was not. Absent when nothing was declared.
    */
   readonly revision?: RevisionApplication;
+  /**
+   * The open thread this deposit CLOSED (2026-10-01, lane 8): the memory it
+   * revises was flagged `unresolved` and the author sent `unresolved` — false
+   * (it is answered) or true (this memory carries it on). `closed` is false
+   * when it was refused (`refused`: the revision step's own reasons — see
+   * `Counterpart#closeThread`) or the clear did not land. Absent otherwise.
+   */
+  readonly thread?: { readonly from: string; readonly closed: boolean; readonly refused?: ThreadRefusal };
 }
+
+/**
+ * Why a deposit did not close the open thread it names (review of #313): the
+ * revision step's own refusals for a protected or archived row, and the two
+ * a session that is not the owner's meets — a confidential row, or a row
+ * written in another directory.
+ */
+export type ThreadRefusal = "protected-refuses-revision" | "target-archived" | "confidential" | "other-directory";
 
 /** A revision's reminder: carried over, replaced, or dropped — and moved. */
 export interface DepositReminder {
@@ -1638,6 +1666,7 @@ export class Counterpart {
       },
       onMemoryMinted: (m) => this.creditNamedIn(m.title, m.body, m.day, m.id, "episode"),
       now: this.nowFn,
+      ...(opts.selfTunables === undefined ? {} : { tunables: opts.selfTunables }),
     });
     this.recall = new Recall({
       store: this.store,
@@ -1874,8 +1903,13 @@ export class Counterpart {
     const named = lastHere.some((b) => b.startsWith("Last here:"));
     const lastHereId = !named ? null : (allHere.find((c) => (reader === null || c.chapter.session !== reader) && (this.owner || c.chapter.confidential !== true))?.chapter.id ?? null);
     const newest = ladder[0];
-    if (newest === undefined && lastHere.length === 0) return result;
     const budget = this.reportedBudget;
+    // THIS DIRECTORY'S WORK (2026-10-01, lane 8): the craft lane, composed
+    // here because the stored bundle has no directory. It goes ABOVE whatever
+    // handoff block is chosen, in the room that block leaves — the handoff and
+    // "Last here" are chosen first and never give way to it (`withWorkHere`).
+    const work = this.workHereLines(scope);
+    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget);
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
@@ -1924,16 +1958,60 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return {
-        ...result,
-        text: spliced.text,
-        bytes: spliced.bytes,
-        sentinel: spliced.sentinel,
-      };
+      return this.withWorkHere(result, block, work, budget);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    return result;
+    return this.withWorkHere(result, null, work, budget);
+  }
+
+  /**
+   * THIS DIRECTORY'S WORK LINES, best first (`self/work.ts#workHere`), or none
+   * — with the switch off, with no directory, or with a store that will not
+   * answer. What a later memory settled over is left out, as every lane but
+   * identity leaves it out. Never throws.
+   */
+  private workHereLines(scope: string): string[] {
+    const t = this.self.tunables;
+    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return [];
+    try {
+      return workHere(this.store, scope, {
+        day: this.store.livedDay(),
+        max: t.WORK_HERE_MAX,
+        excerpt: t.WORK_HERE_EXCERPT,
+        skip: settledOver(this.store),
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * THE DELIVERY'S FOOT: the work lines that fit, widest first, above the
+   * chosen handoff `block` (or alone when there is none), spliced in ONE go
+   * above the sentinel. The block was chosen against the bundle without the
+   * work lines, so they can only take room it left; when not even one line
+   * fits, the block is spliced alone, exactly as before, and a ring event
+   * says the lines had no room. With no lines and no block, the bundle is
+   * returned untouched. Never throws.
+   */
+  private withWorkHere(result: WakeResult, block: string | null, lines: readonly string[], budget: number | null): WakeResult {
+    const spliced = (text: string): WakeResult | null => {
+      const s = spliceBeforeSentinel(result.text, text);
+      if (!s.applied || (budget !== null && s.bytes > budget)) return null;
+      return { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel };
+    };
+    for (let k = lines.length; k > 0; k--) {
+      const work = workHereBlock(lines.slice(0, k));
+      const out = spliced(block === null ? work : `${work}\n\n${block}`);
+      if (out === null) continue;
+      this.emit("counterpart.work.shown", undefined, { lines: k, of: lines.length, bytes: out.bytes - result.bytes });
+      return out;
+    }
+    if (lines.length > 0) this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+    if (block === null) return result;
+    const s = spliceBeforeSentinel(result.text, block);
+    return s.applied ? { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel } : result;
   }
 
   /**
@@ -2293,7 +2371,32 @@ export class Counterpart {
     } catch {
       /* no chapter lines is the reserve as it was */
     }
-    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes);
+    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes) + this.workReserveBytes(budgetBytes);
+  }
+
+  /**
+   * THE ROOM THE WORK LINES NEED (2026-10-01, lane 8), beside the handoff's
+   * and under the same share rule (`handoff/#reserveBytes`): the widest
+   * directory's whole block, with the margin, while it is at most an eighth
+   * of the budget; nothing past that, and nothing with the switch off or no
+   * work anywhere. Its OWN term, not a rung of the handoff's: the handoff
+   * block alone already sits near the eighth at the owner's ceiling, so a
+   * combined candidate would never pass and the lines would never be carried.
+   * What it takes comes out of the stored lanes by their trim order — Nearby
+   * first. Never throws.
+   */
+  private workReserveBytes(budgetBytes: number): number {
+    if (!this.self.tunables.CRAFT_AT_DELIVERY) return 0;
+    try {
+      const blocks: number[] = [];
+      for (const scope of this.spans.scopes()) {
+        const lines = this.workHereLines(scope);
+        if (lines.length > 0) blocks.push(workHereBytes(lines));
+      }
+      return reserveBytes(blocks, budgetBytes);
+    } catch {
+      return 0;
+    }
   }
 
   /** The DELIVERY-side record, distinct from the render-side one (scar §2.3). */
@@ -3185,8 +3288,10 @@ export class Counterpart {
     text: string,
     /** `model`: the model writing this chapter, when the host knows it.
      *  `scope`: the project it was written in — the one whose unwritten pieces
-     *  it writes up (`coverage/`); without it, a chapter claims nothing. */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string } = {},
+     *  it writes up (`coverage/`); without it, a chapter claims nothing.
+     *  `about`: what the session was about, carried to the chapter's memory
+     *  copy (2026-10-01, `self/index.ts#appendChapter`). */
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark } = {},
   ): ChapterResult {
     const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {
@@ -5070,6 +5175,7 @@ export class Counterpart {
     // BEFORE the revision dispatch: a current-state target is superseded there,
     // and the date must leave the row while it is still the live one.
     const reminder = carry.from === null ? null : this.moveReminder(carry, mint.id);
+    const thread = this.closeThread(proposal, mint.id);
     this.emit("counterpart.deposit", mint.id, {
       source,
       kind: proposal.kind,
@@ -5096,7 +5202,60 @@ export class Counterpart {
       covers: proposal.covers,
       ...(reminder === null ? {} : { reminder }),
       ...(revision === null ? {} : { revision }),
+      ...(thread === null ? {} : { thread }),
     };
+  }
+
+  /**
+   * CLOSING AN OPEN THREAD (2026-10-01, lane 8). A memory flagged
+   * `unresolved` is in the wake's "Still open:" lane until something closes
+   * it, and nothing could: no write tool set the flag, so no tool cleared it.
+   * Now a deposit that DECLARES `updates:` an unresolved memory and SAYS
+   * `unresolved` clears the old row's flag — `false`: it is answered; `true`:
+   * this memory carries the thread on, so it lives on one row, the newest
+   * (the reminder's rule, `moveReminder`). Left out, nothing moves: a plain
+   * revision of an open question does not answer it. `how: changed` or
+   * `corrected` closes it too, by another road (`settledOver` takes the old
+   * one out of every lane but identity).
+   *
+   * Only for an address the author declared and the store resolved, as for
+   * the reminder. `Store#revise` keeps the old meta in the version it writes.
+   * A failed clear does not fail the deposit; it is emitted and reported.
+   */
+  private closeThread(p: Proposal, successor: string): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
+    if (p.threadSaid !== true) return null;
+    const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+    if (target === null || target === successor) return null;
+    let refused: ThreadRefusal | null = null;
+    try {
+      const row = this.store.row(target);
+      if (row === undefined) return null;
+      if (this.store.readProse(target).meta[UNRESOLVED_META_KEY] !== true) return null;
+      // THE REVISION STEP'S CHECKS, FIRST (review of #313): a flag is state
+      // like any other, so what refuses a revision refuses this — the owner's
+      // protection and an archived row, in `revision.ts`'s own words — and a
+      // session that is not the owner's closes nothing confidential and
+      // nothing written in another directory.
+      if (row.protected === 1) refused = "protected-refuses-revision";
+      else if (row.archived === 1) refused = "target-archived";
+      else if (!this.owner && row.confidential === 1) refused = "confidential";
+      else if (!this.owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
+    } catch {
+      return null;
+    }
+    if (refused !== null) {
+      this.emit("counterpart.thread.refused", target, { successor, reason: refused });
+      return { from: target, closed: false, refused };
+    }
+    let closed = false;
+    try {
+      this.store.revise(target, { meta: { [UNRESOLVED_META_KEY]: false }, reason: "thread-closed" });
+      closed = true;
+    } catch (err) {
+      this.emit("counterpart.thread.close.failed", target, { successor, error: errCode(err) });
+    }
+    this.emit("counterpart.thread.closed", target, { successor, closed, carried: p.unresolved });
+    return { from: target, closed };
   }
 
   /**

@@ -4371,8 +4371,10 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     expect(code).toBe(EXIT.ok);
     expect(printed).toContain("Re-rendered the wake bundle");
     expect(printed).toContain("identity 2");
-    expect(printed).toContain("craft 1");
-    expect(printed).toContain("elements 3");
+    // The skill is this directory's work since lane 8 (2026-10-01): delivered
+    // per directory, not in the stored bundle, so the stored craft lane is empty.
+    expect(printed).toContain("craft 0");
+    expect(printed).toContain("elements 2");
     expect(printed).toContain("budget 9000 bytes from --budget");
     expect(printed).toContain("published");
 
@@ -4381,7 +4383,8 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     // The bundle is really there, and every element in it carries its date.
     expect(bundle).toContain("- 2026-07-26 · The credential fix sits uncommitted pending review.");
     expect(bundle).toContain("- 2026-09-04 · The parallel run started this morning.");
-    expect(bundle).toContain("- 2026-08-14 · I read the whole file before editing one line of it.");
+    // The skill is work, delivered in its directory (lane 8), not stored here.
+    expect(bundle).not.toContain("I read the whole file before editing one line of it.");
     expect(readSentinel(bundle).intact).toBe(true);
     // The preface's room is reserved exactly as `sessionEnd` reserves it, so the
     // first delivered line cannot blow the host's ceiling.

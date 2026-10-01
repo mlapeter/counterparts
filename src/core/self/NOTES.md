@@ -1447,3 +1447,53 @@ Labels only; nothing about what the wake selects changed.
   delivery-time choice among published candidates, with the sentinel's counts re-solved.
   On the probe copy, a reading directory's Nearby was four work memories from the code
   repository.
+
+
+## 2026-10-01 — craft is this directory's work; Nearby is personal (lane 8)
+
+- **What was measured.** On the owner's store the craft lane took only kind `skill`
+  above `WARM_FLOOR`; every skill memory was young and barely used, so craft never
+  carried a line. The technical knowledge was kind `fact`, competed in Nearby, and a
+  reading directory's wake got another project's plumbing. Both such lines on the
+  probe copy were UNMARKED facts written in the build directory.
+- **The split** (`work.ts#isWorkMemory`): `work` is work, any kind; `me`, `us`, `owner`
+  and `world` are personal; unmarked, a `skill` is work, a `fact`, `entity` or `place`
+  is work when it carries a directory (`origin_scope`) and personal when it does not,
+  and `self` and `person` are personal. A journal copy is never work. The brief's
+  suggestion ("unmarked fact: craft only in its own directory, else Nearby") would have
+  left both measured lines where they were, so it was not taken.
+- **Composed at delivery** (the "Last here" way): the stored bundle has no craft lane
+  (`rankLanes`' `workAtDelivery`, switch `CRAFT_AT_DELIVERY`), and
+  `Counterpart#addHandoffPointer` splices "Work here, if it helps:" for the session's
+  directory above the handoff block, in the room the handoff and "Last here" leave —
+  they are chosen first. The lines: newest touched first (born or used), then strength;
+  no warm floor; not a thread, a reminder, confidential, or settled over; at most
+  `WORK_HERE_MAX`, each a title, a cut excerpt and the id. Furniture: the sentinel's
+  `craft=` stays 0 and the counts do not move.
+- **Its own reserve** (`Counterpart#workReserveBytes`), under the handoff's share rule:
+  the widest directory's block, up to an eighth of the budget. It cannot be a rung of
+  the handoff's reserve: the handoff block alone sits near the eighth at 9,000 bytes.
+- **On the probe copy at 9,000 bytes**: ~/random's Nearby went from two build-directory
+  facts and one owner memory to three owner memories, and it gained four work lines
+  written in ~/random; ~/counterparts gained four work lines; both still carry the page,
+  "Last here" and the handoff.
+- **Open**: no habituation on the work lines (a memory used every day stays first);
+  unmarked facts written in a directory but really personal wait for the reflection to
+  mark them.
+- **Review of #313.** A name scope (`claude-desktop:`) is not a directory
+  (`work.ts#isDirectoryScope`: an absolute path), so Desktop chat's unmarked notes stay in
+  Nearby. Unmarked `person` and `self` memories are personal wherever written (they always
+  were; now pinned). The `about` field asks for `owner` or `us` on anything personal
+  instead of "leave it out when unsure"; the nightly reflection's marks correct what stays
+  unmarked. The candidates are filtered and capped in SQL (`Store#workCandidates`) before
+  any prose is read: about 3 ms per delivery on the probe copy, bounded by
+  `WORK_HERE_MAX × WORK_HERE_READ_PER_LINE` reads whatever the store's size.
+- **The `omit` composition** (the background writer woken as the self) has no directory
+  to deliver work lines to, so it now sees neither a craft lane nor work hints.
+
+## 2026-10-01 — a chapter's `about`, carried to its copy (lane 8)
+
+`appendChapter` takes `about` (`EPISODE_ABOUT_META` on the episode, and `setAbout` on the
+live copy, found by `origin_ref`); `ingestEpisode` gives a new copy the mark of the copy it
+replaces, else the episode's own. Latest act wins: the writer's chapter-time mark, then a
+reflection's on the copy, are both on the copy's row by the time it regrows.

@@ -59,6 +59,7 @@ import type { BoundaryKind } from "../../core/remember/index.js";
 import { CODE_TAB_ENTRYPOINT, isDesktopScratchWorkspace } from "../hosts.js";
 import { stanceOfMode } from "../scopes.js";
 import {
+  NON_INTERACTIVE_ENTRYPOINTS,
   decideUpdateNotice,
   installedBuild,
   isLive,
@@ -69,7 +70,7 @@ import {
 } from "../sessions.js";
 import type { SessionRecord } from "../sessions.js";
 import { Lifecycle, codeOf, plainContextLine, plainLine } from "../lifecycle.js";
-import type { LifecycleOptions, SessionInput } from "../lifecycle.js";
+import type { LifecycleOptions, PlainLines, SessionInput } from "../lifecycle.js";
 
 import { localDate } from "../../core/time.js";
 import { TUNABLES } from "../config.js";
@@ -156,6 +157,15 @@ export interface HookInput extends SessionInput {
    * the day's chapters on nobody.
    */
   readonly reFired?: boolean;
+  /**
+   * IS A PERSON ATTENDING THIS SESSION, as the host says it
+   * (`CLAUDE_CODE_SESSION_ATTENDED`, 2026-10-01): `1` read as true, `0` as
+   * false, anything else or absent as unknown. Found in the environment Claude
+   * Code gives the processes it starts (a terminal session read `1`, with
+   * `CLAUDE_CODE_ENTRYPOINT=cli`). When present it decides `isInteractive`;
+   * the entrypoint list is the fallback.
+   */
+  readonly attended?: boolean;
 }
 
 export interface HookResult {
@@ -241,7 +251,34 @@ export interface DreamTold {
   readonly context: string;
   /** The offer still to claim at delivery, or null when the day is already claimed. */
   readonly offer: DreamOffer | null;
+  /**
+   * The run whose HELD line this is (2026-10-01, lane 8): a run a session
+   * nobody sees started, told here to an interactive one and claimed at
+   * delivery (`ClaudeCodeAdapter#claimHeld`). Absent on the day's own line.
+   */
+  readonly held?: string;
 }
+
+/**
+ * IS SOMEONE WATCHING THIS SESSION? (2026-10-01, lane 8.) The day's told lines
+ * — the dream line, a night run's hand-back, a carried share, a raised
+ * contradiction, plain reminders, the update notice — are claimed once and
+ * never come back, so only a session a person can see may claim them: the
+ * terminal (`cli`), Desktop's Code tab (`claude-desktop`), and any value this
+ * code does not know. A headless or SDK one (`sessions.ts#NON_INTERACTIVE_
+ * ENTRYPOINTS`: `claude -p` is `sdk-cli`) — or, first, one the host itself
+ * says nobody attends (`HookInput.attended`) — leaves them for the next session
+ * that is; it may still START the nightly run. Measured 2026-10-01: the day's
+ * first prompt came from an SDK session with no terminal, which started the
+ * run (fine) and claimed the dream line (nobody saw it).
+ */
+export function isInteractive(input: Pick<HookInput, "entrypoint" | "attended">): boolean {
+  if (input.attended !== undefined) return input.attended;
+  return input.entrypoint === undefined || !NON_INTERACTIVE_ENTRYPOINTS.has(input.entrypoint);
+}
+
+/** No plain reminders: what a session nobody watches is handed. */
+const NO_PLAIN: PlainLines = { context: "", notices: [], due: [] };
 
 /**
  * The lifecycle's options (`../lifecycle.ts#LifecycleOptions`: the brain, the
@@ -404,8 +441,15 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  *     and, since 2026-10-01, `retireHandoff` for a handoff here whose work is
  *     done, whoever left it (a handoff that waited on a release never learned
  *     the release landed: random-f2's item 1),
+ *     and, also since 2026-10-01 (lane 8), to `updates` anything dated or open
+ *     that got done here — a dated follow-up kept arriving after it was done,
+ *     because nothing prompted the session to close it; how (`eventDate:
+ *     null`, `unresolved: false`) is on the field's own description,
  *     and "nothing worth keeping is a real answer", which the server now
- *     accepts as `memories: []`.
+ *     accepts as `memories: []`. The words that clause needed came out of
+ *     the rest ("what's worth keeping", and "Write chapter N with" for
+ *     "Write chapter N of this session's episode with"), so with a real id and a
+ *     four-digit chapter number it is 465 characters, inside the 480 pin.
  *
  * Everything else the old text said — `updates` is a FIELD, salience is a floor
  * and the author's to claim, what an episode is for, what a handoff is — is
@@ -421,8 +465,8 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    `${STOP_ASK_OPENER} 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: ${sessionId} — set \`handoff\` on it only if work here is unfinished, and \`retireHandoff\` any here, anyone's, now done.`,
-    `2) Write chapter ${String(chapter)} of this session's episode with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
+    `${STOP_ASK_OPENER} 1) hand back what's worth keeping with the counterparts session_end tool, session: ${sessionId} — \`handoff\` only if work here is unfinished, \`retireHandoff\` any here, anyone's, now done, and \`updates\` anything dated or open now done.`,
+    `2) Write chapter ${String(chapter)} with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
   ].join("\n");
 }
 
@@ -557,7 +601,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // delivery then sends to the first prompt) the form is plain stdout,
       // under `HOST_OUTPUT_CHARS`. What actually gave way is recorded by the
       // delivery (`noteGaveWay`) and by each ask's own deferral.
-      const plain = this.plainFor(input);
+      const plain = isInteractive(input) ? this.plainFor(input) : NO_PLAIN;
       // DESKTOP'S CODE TAB (2026-10-01): one line, right under the clock,
       // naming this session's id — there the counterparts tools the model sees
       // are Claude Desktop's server, which serves a call as this session only
@@ -739,7 +783,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // A plain reminder whose day began while this session was already open —
       // the session that runs past midnight — or that SessionStart had no room
       // for, is said at the next prompt, once (claimed at delivery).
-      const plain = this.plainFor(input);
+      const plain = isInteractive(input) ? this.plainFor(input) : NO_PLAIN;
       const told: { notices?: readonly string[]; plain?: readonly PlainReminder[]; dream?: DreamTold; dreamNote?: { notice: string; context: string } } =
         plain.due.length === 0 ? {} : { notices: plain.notices, plain: plain.due };
       // The DREAM lines (2026-09-26): the once-a-day line, and any contradiction
@@ -855,6 +899,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
   private dreamLines(input: HookInput): { text: string; told: DreamTold | null; note: { notice: string; context: string } | null } {
     const none = { text: "", told: null, note: null };
     if (this.observer || input.at === undefined || input.nightRun === true || input.sessionId.length === 0) return none;
+    if (!isInteractive(input)) {
+      this.startUnwatched(input);
+      return none;
+    }
     try {
       const dreams = this.counterpart.dreams;
       // `auto` CHANGED MEANING on this version: an explicit one is set back to
@@ -896,11 +944,55 @@ export class ClaudeCodeAdapter extends Lifecycle {
         if (offer.notice !== null) told = { notice: offer.notice, context: offer.context, offer: offer.headless ? null : offer };
         asked = told !== null || dreams.claimOffer(offer);
         if (asked) lines.push(offer.context);
+      } else {
+        // A RUN A SESSION NOBODY SAW STARTED (2026-10-01, lane 8): its line,
+        // held for this one, said once and claimed at delivery (`claimHeld`).
+        const held = dreams.heldTold(input.at, input.sessionId);
+        if (held !== null) {
+          told = { notice: held.notice, context: held.context, offer: null, held: held.run };
+          lines.push(held.context);
+        }
       }
       if (lines.length > 0) this.emit("adapter.dream.lines", { asked, raised: lines.length - (asked ? 1 : 0) });
       return { text: lines.map((l) => `${l}\n`).join(""), told, note };
     } catch {
       return none;
+    }
+  }
+
+  /**
+   * A SESSION NOBODY WATCHES (2026-10-01, lane 8): it may START the day's
+   * headless run — the start is the point — and the line it would have been
+   * told is held for the next interactive session (`Dreams#holdTold`). An
+   * ASK is left unclaimed for that session too: nobody here could answer it.
+   * Nothing else is offered, raised, carried or claimed. Never throws.
+   */
+  private startUnwatched(input: HookInput): void {
+    if (input.at === undefined) return;
+    try {
+      const dreams = this.counterpart.dreams;
+      // The one-time setting change runs first here too, so an unwatched
+      // first prompt never starts a run under an `auto` this version resets.
+      dreams.resetAutoOnce();
+      const offer = dreams.offer({ at: input.at, session: input.sessionId });
+      if (offer === null || !offer.headless || !dreams.claimOffer(offer)) return;
+      const started = this.startNightRun(input, offer);
+      const night = dreams.nightRun();
+      if (started && night !== null && night.state === "started") dreams.holdTold({ run: night.run, date: input.at });
+      this.emit("adapter.dream.unwatched", { started, entrypoint: input.entrypoint ?? null });
+    } catch {
+      /* the run is a courtesy here; nothing is lost by not starting it */
+    }
+  }
+
+  /** CLAIM A HELD LINE the delivery is certainly about to show. Never throws. */
+  claimHeld(input: HookInput, run: string): boolean {
+    try {
+      const claimed = this.counterpart.dreams.claimHeldTold(run, input.sessionId);
+      this.emit(claimed ? "adapter.dream.told" : "adapter.dream.lost", { state: "held", session: input.sessionId });
+      return claimed;
+    } catch {
+      return false;
     }
   }
 
@@ -1027,7 +1119,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * Never throws and never costs the turn: any failure is null.
    */
   updateNotice(input: HookInput): string | null {
-    if (this.observer || input.sessionId.length === 0) return null;
+    // Nobody watching, nobody told: the next interactive prompt is (lane 8).
+    if (this.observer || input.sessionId.length === 0 || !isInteractive(input)) return null;
     try {
       const decision = decideUpdateNotice(this.counterpart.store.dir, {
         sessionId: input.sessionId,

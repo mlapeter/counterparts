@@ -9,6 +9,25 @@
   start under bun when bun is on PATH, else Node. On Linux, `install --host
   claude-desktop` says Claude Desktop is not available there instead of writing a config.
   Tested on Node 22 and 24, macOS and Linux (Debian, arm64); no daily user on Node yet.
+- The wake's craft lane is now the work done in the directory the session opens in: "Work
+  here, if it helps:" lists that directory's newest few work memories (marked `work`, or
+  unmarked skills and facts written there), each a title, a short excerpt and its id.
+  Nearby keeps what is personal, so a session in one project no longer wakes to another
+  project's plumbing.
+- The chapter tool takes `about` (me, us, owner, work or world), and the chapter's memory
+  copy keeps it. A chapter marked me, us or owner reaches the wake in other directories;
+  one marked work stays in its own.
+- `note` and `session_end` entries take `unresolved: true` for an open question or a
+  promise still pending; the wake shows those under "Still open:" (at most five). A later
+  write that `updates` one with `unresolved: false`, or with `how: "changed"` and the
+  answer, closes it.
+- The end-of-session ask (and Desktop's write-up ask) now says to close anything dated or
+  open that got done in the session, so a finished follow-up stops coming back.
+- The day's lines (the dream line, the night run's report, plain reminders, the update
+  notice) go only to a session someone can see: the terminal or Desktop's Code tab, not
+  `claude -p` or the SDK. A headless session can still start the nightly run, and the next
+  session you are in says so. The assistant now says the day's dream line itself, once, in
+  its first reply; the terminal line is extra.
 - A handoff that may be out of date says so at the wake: "written 09-30 18:45 by session
   a1b2c3d4, before 0.3.10 was installed" when an older release wrote it, or "a newer chapter
   here since" when another session wrote a chapter in that directory after it. The end-of-

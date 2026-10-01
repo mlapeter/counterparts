@@ -584,7 +584,9 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     expect(turn.injection).toContain("there is nothing for you to launch");
     // Neutral about the terminal: the envelope may have had no room (review finding 6).
     expect(turn.injection).not.toContain("Shown to Mike just now");
-    expect(turn.injection).toContain("Mike is told in the terminal when there is room");
+    // The session says it once, in its first reply (lane 8, build 4); the terminal line is the extra.
+    expect(turn.injection).toContain("Tell Mike this once, in your first reply, as one plain sentence of your own.");
+    expect(turn.injection).toContain("Mike may also see it in the terminal");
     // With no room, the run has still started, the model's line stays, and only the terminal line waits.
     const full = { ...turn, injection: `${turn.injection ?? ""}\n${"x".repeat(ENVELOPE_MAX_CHARS)}` };
     const crowded = deliverTurn("user-prompt-submit", full, {}, null, doorsOf(a as unknown as ReturnType<typeof openAdapter>), input());
