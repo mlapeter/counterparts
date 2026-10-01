@@ -511,3 +511,38 @@ reach by use". And the adapter's import scan reads a quote right after the word
 The Consolidation and Dreaming LIGHTS are deliberately not here: master moved the
 mechanism lights into `src/adapters/mechanism-evidence.ts` (#250), and the
 builder wires those two there after the rebase.
+
+## 2026-10-01 — Health's known bugs, fixed (no redesign)
+
+From Fable's review of Health (2026-09-28) and the open follow-ups of #277:
+
+- **A full wake is green, and says it is normal** (Mike's ruling on H2): the
+  composition fills the room it is given, so a trim or under 3% room left
+  (`FULL_SHARE`) reads "full — normal". AMBER only when being full cost
+  something, and the line names it (`views/health.ts#wakeCosts`): the self page
+  cut or left out (read off the published wake's own marker), handoffs a
+  session start had no room for (`handoff.refused` `no-room` rows since the
+  render), the page writer held back for room (its newest night's `no-room`).
+  A "Last here" line dropped for room is NOT shown: it is a ring event only
+  (`counterpart.lasthere.noroom`), with no durable row to read.
+- **The archive list is one line per memory.** A chapter rebuilt from the
+  journal archives its previous copy each time, so the list read 61 rows for
+  23 memories. The copies of one chapter (one `episodeId`) are one item with
+  `times`; any other row is its own item, even when two memories share their
+  words. `listed` counts the rows the items cover, so "older, not listed"
+  still counts rows.
+- **"When" the last sleep ran skips checks.** `cycle.at` took the newest
+  `sleep.cycle` row, which a session end on an already-slept day writes as a
+  check ("nothing was due"); it reads past those now (`lanes.ts#isSleepCheck`).
+- **The folded doctor lines use the same plain words as the rows.** "Old
+  settings" no longer says "you may remove them" under "all fine" (the
+  terminal's `doctor --all` still does), and Lookups is named and said in words.
+- **The map's `?`** describes the three named rings, not the legend before them.
+- **#277's follow-ups:** `dream.begun` narrates what waits for the next night
+  and what aged out (a floor said as "at least"); a dream's merge or gist says how it saw an original that
+  was less than whole (`detail.fidelity`). Already moot: Tonight's "N new"
+  (Tonight left home in round 4) and `onMindMore` (it lives only in the
+  bundle a dream is handed; no durable row carries it).
+- **Counts** (329 vs 322 vs 296) were already labelled by 09-28/09-30 work:
+  Health's line says it leaves out the people and project cards, and the
+  memories grid says its journal chapters aren't scored.

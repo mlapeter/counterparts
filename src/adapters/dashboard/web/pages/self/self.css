@@ -170,6 +170,7 @@ h4.st-h{font-family:var(--sans);font-size:13.5px;font-weight:600;color:var(--ink
 .dr-mems{display:block;color:var(--dim)}
 .dr-mem{cursor:pointer;color:var(--cyan)}
 .dr-mem.withheld{color:var(--dim)}
+.dr-seen{font-style:italic}
 
 @media(max-width:640px){
   .sp-card{padding:16px 14px 12px}

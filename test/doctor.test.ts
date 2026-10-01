@@ -58,6 +58,8 @@ import {
   JOURNAL_COPY_WRITTEN_EVENT,
 } from "../src/core/self/journal-file.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { PLAIN } from "../src/adapters/dashboard/web/pages/health/sections/checks.js";
 import {
   CHECKOUT_BUDGET_MS,
   NOTICE_MAX_CHARS,
@@ -430,6 +432,14 @@ describe("doctor — the reading", () => {
     expect(retired.detail).toContain('"pageWriter.command" is no longer used');
     expect(retired.detail).toContain('"embedder.kind" "voyage"');
     expect(retired.detail).toContain('"crashWriteUp" is no longer used');
+    // The dashboard folds this green line under "all fine", so its words there
+    // carry no advice (Fable's review of Health, 2026-09-28): the same settings,
+    // said to be harmless, with nothing to do.
+    const folded = (PLAIN["retired"] as (d: unknown, detail?: string) => string | null)(retired.data, retired.detail);
+    expect(folded).not.toBeNull();
+    expect(folded).toContain('"stopAskShape" is no longer used');
+    expect(folded).not.toContain("you may remove");
+    expect(folded?.endsWith("— harmless; nothing to do")).toBe(true);
     for (const key of ["config", "retired", "embedder", "crash-write-up", "page-writer", "sweep"]) {
       const f = findings.find((x) => x.key === key);
       if (f !== undefined) expect({ key, severity: f.severity }).toEqual({ key, severity: "green" });

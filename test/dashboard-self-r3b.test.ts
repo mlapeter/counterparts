@@ -19,7 +19,9 @@ import { dayWords, stripSummary } from "../src/adapters/dashboard/web/pages/self
 // @ts-expect-error — a plain browser module, no declarations
 import { memoryItem, pageAge } from "../src/adapters/dashboard/web/pages/self/sections/wake.js";
 // @ts-expect-error — a plain browser module, no declarations
-import { MIN_APART, layout, nodeWords } from "../src/adapters/dashboard/web/pages/self/sections/map.js";
+import { MIN_APART, RING_WORDS, layout, nodeWords } from "../src/adapters/dashboard/web/pages/self/sections/map.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { ruleWords } from "../src/adapters/dashboard/web/pages/self/sections/settling.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { wakeLine } from "../src/adapters/dashboard/web/pages/health/sections/wake.js";
 
@@ -201,8 +203,9 @@ describe("the self tab, round 3b", () => {
     expect(wakeLine(w).tone).toBe("green");
     expect(wakeLine({ ...w, bytes: 4000, budget: 9000 }).line).toBe("The wake fits: 4.0 KB of 9.0 KB, 5.0 KB room left");
     const full = wakeLine({ ok: true, bytes: 8900, budget: 9000, parts: [], trimmed: 3, trimmedFrom: ["nearby memories"] });
-    expect(full.tone).toBe("amber");
-    expect(full.line).toBe("The wake is full: 8.9 KB of 9.0 KB, and the last render left out 3 lines (nearby memories) to fit");
+    // A trim is the budget working (Mike, 2026-10-01: full is normal).
+    expect(full.tone).toBe("green");
+    expect(full.line).toBe("The wake is full — normal: 8.9 KB of 9.0 KB; 3 lines (nearby memories) left out to fit");
     expect(wakeLine({ ok: false }).tone).toBe("grey");
   });
 
@@ -231,6 +234,14 @@ describe("the self tab, round 3b", () => {
       const [a, b] = [ids["felt"] as string, ids["mild"] as string].sort();
       expect(m.links).toEqual([{ a: a as string, b: b as string, weight: 0.6 }]);
     });
+  });
+
+  test("4: the map's `?` describes the map as drawn — its three named rings — not the old legend (2026-10-01)", () => {
+    const s = withSource((src) => mindView(src).settling);
+    const words = ruleWords(s) as string;
+    for (const ring of Object.values(RING_WORDS as Record<string, string>)) expect(words).toContain(`“${ring}”`);
+    expect(words).not.toContain("faint ring");
+    expect(words).toContain("brighter the more firmly it is held");
   });
 
   test("4: the layout is fixed by the data — the core in the middle, closeness as distance", () => {

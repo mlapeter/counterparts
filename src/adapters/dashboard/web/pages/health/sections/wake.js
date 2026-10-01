@@ -13,18 +13,53 @@ export const kb = (b) => (b / 1000).toFixed(1) + " KB";
 /** The parts, in reading order, with a colour each. */
 const TONE = { furniture: "p-furn", page: "p-page", identity: "p-page", craft: "p-craft", threads: "p-threads", hints: "p-hints", horizon: "p-horizon" };
 
+/**
+ * FULL: the last render trimmed to fit, or less room is left than this share
+ * of the ceiling. A full wake is the NORMAL state (Mike, 2026-10-01): the
+ * composition fills the room it is given, so full is green and says so.
+ */
+export const FULL_SHARE = 0.03;
+
+/**
+ * What being full COST, in words — the view's `costs` (`views/health.ts#
+ * wakeCosts`): the self page cut or left out, handoffs a session start had no
+ * room for, the page writer held back for lack of room. Empty when nothing.
+ */
+export function costWords(c) {
+  if (!c) return [];
+  const out = [];
+  if (c.page) {
+    out.push(c.page.shown > 0
+      ? "the self page was cut to fit (" + kb(c.page.shown) + " of " + kb(c.page.whole) + " shown)"
+      : "the self page was left out (" + kb(c.page.whole) + ")");
+  }
+  if (c.handoffs > 0) out.push(c.handoffs + (c.handoffs === 1 ? " handoff" : " handoffs") + " had no room at a session start");
+  if (c.writerHeld) out.push("the page writer held back for lack of room");
+  return out;
+}
+
 /** The row's words and its light. Pure. */
 export function wakeLine(w) {
   if (!w.ok) return { tone: "grey", line: "No wake composed yet — one is written at the end of each day" };
   const size = w.budget ? kb(w.bytes) + " of " + kb(w.budget) : kb(w.bytes) + " (its ceiling was not recorded)";
-  if (w.trimmed > 0) {
+  if (w.budget && w.bytes > w.budget) return { tone: "amber", line: "The wake runs over its ceiling: " + size };
+  const full = w.trimmed > 0 || (w.budget && w.budget - w.bytes < w.budget * FULL_SHARE);
+  const costs = costWords(w.costs);
+  if (costs.length > 0) {
     return {
       tone: "amber",
-      line: "The wake is full: " + size + ", and the last render left out " + w.trimmed + (w.trimmed === 1 ? " line" : " lines") +
-        (w.trimmedFrom.length > 0 ? " (" + w.trimmedFrom.join(", ") + ")" : "") + " to fit",
+      line: (full ? "The wake is full (" + size + "), and it cost something: " : "The wake has room (" + size + "), but ") + costs.join("; "),
     };
   }
-  if (w.budget && w.bytes > w.budget) return { tone: "amber", line: "The wake runs over its ceiling: " + size };
+  if (full) {
+    return {
+      tone: "green",
+      line: "The wake is full — normal: " + size +
+        (w.trimmed > 0
+          ? "; " + w.trimmed + (w.trimmed === 1 ? " line" : " lines") + (w.trimmedFrom.length > 0 ? " (" + w.trimmedFrom.join(", ") + ")" : "") + " left out to fit"
+          : ""),
+    };
+  }
   return { tone: "green", line: "The wake fits: " + size + (w.budget ? ", " + kb(w.budget - w.bytes) + " room left" : "") };
 }
 

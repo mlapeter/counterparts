@@ -1321,6 +1321,10 @@ export class Dreams {
       queue: b.queue.new,
       waiting: b.queue.waiting,
       agedOut: b.queue.agedOut,
+      // Floors, said as floors (2026-10-01): the queue read only so deep, and
+      // more aged out than one read holds. Absent on an ordinary night.
+      ...(b.queue.readCapped === true ? { readCapped: true } : {}),
+      ...(b.queue.agedOutAtLeast === true ? { agedOutAtLeast: true } : {}),
       whole: b.shownAs.whole,
       excerpt: b.shownAs.excerpt,
       lined: b.shownAs.line,

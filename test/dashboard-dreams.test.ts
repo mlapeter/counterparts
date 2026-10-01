@@ -195,6 +195,64 @@ describe("a dream's durable rows have somewhere to go", () => {
   });
 });
 
+describe("f8's follow-ups from #277 (2026-10-01)", () => {
+  test("a merge's originals say how the dream saw them when it was less than whole", () => {
+    const at = mkdtempSync(join(tmpdir(), "counterparts-dash-dreams-fidelity-"));
+    try {
+      Counterpart.open({ dir: at, owner: true }).close();
+      const c = Counterpart.open({ dir: at, owner: true });
+      const local: Record<string, string> = {};
+      let dream = "";
+      try {
+        c.store.advanceClock("2026-09-20");
+        const day = c.store.livedDay();
+        local["made"] = mem(c, "The kettle in the studio needs descaling every month.", "fact", day);
+        local["x"] = mem(c, "Descale the studio kettle once a month.", "fact", day);
+        local["y"] = mem(c, "The studio kettle gets limescale fast; monthly descaling.", "fact", day);
+        local["z"] = mem(c, "Limescale builds up in the studio kettle within a month.", "fact", day);
+        const begun = c.dreams.begin({ session: "s-fid", scope: "/proj" });
+        if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+        dream = begun.bundle.dream;
+        // The shape `dreams.ts` writes (core/dream/index.ts#propose): the
+        // originals and, per original, the fidelity the night's index gave it.
+        c.store.recordDreamChange(dream, {
+          action: "merge",
+          ref: local["made"] as string,
+          detail: { from: [local["x"], local["y"], local["z"]], fidelity: { [local["x"] as string]: "whole", [local["y"] as string]: "line", [local["z"] as string]: "excerpt" } },
+        });
+      } finally {
+        c.close();
+      }
+      const v = withSource(at, (src) => dreamsView(src));
+      const merge = v.dreams.find((d) => d.id === dream)?.changes.find((ch) => ch.action === "merge");
+      const seen = new Map(merge?.memories.map((m) => [m.id, m.seen]));
+      expect(seen.get(local["made"] as string)).toBeUndefined(); // what it made has no fidelity
+      expect(seen.get(local["x"] as string)).toBeUndefined(); // whole: nothing to say
+      expect(seen.get(local["y"] as string)).toBe("seen only as a line");
+      expect(seen.get(local["z"] as string)).toBe("seen as an excerpt");
+      // The page draws it beside the memory.
+      const page = readFileSync(join(import.meta.dir, "../src/adapters/dashboard/web/pages/self/sections/dreams.js"), "utf8");
+      expect(page).toContain('class="dr-seen"');
+    } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
+  });
+
+  test("dream.begun says what waits for the next night and what aged out, only when there is some", () => {
+    const say = (p: Record<string, unknown>): string => NARRATORS["dream.begun"]({ store: null as never, row: {} as never, p }).text;
+    expect(say({ fresh: 12, shown: 30 })).toBe("I began to dream, over 12 new memories and 30 in all.");
+    expect(say({ fresh: 12, shown: 30, waiting: 0, agedOut: 0 })).toBe("I began to dream, over 12 new memories and 30 in all.");
+    expect(say({ fresh: 40, shown: 52, waiting: 7, agedOut: 2 })).toBe(
+      "I began to dream, over 40 new memories and 52 in all. 7 more wait for the next night; 2 grew too old to be dreamed and will fade as usual.",
+    );
+    expect(say({ fresh: 40, shown: 52, waiting: 1 })).toBe("I began to dream, over 40 new memories and 52 in all. 1 more waits for the next night.");
+    // Floors are said as floors.
+    expect(say({ fresh: 40, shown: 52, waiting: 7, agedOut: 2, readCapped: true, agedOutAtLeast: true })).toBe(
+      "I began to dream, over 40 new memories and 52 in all. At least 7 more wait for the next night; at least 2 grew too old to be dreamed and will fade as usual.",
+    );
+  });
+});
+
 describe("read-only", () => {
   test("the views and the route write nothing — not a byte of the store moves", () => {
     const before = snapshot(dir);

@@ -29,7 +29,14 @@ import { join, relative } from "node:path";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { NO_CONFIG_HOME, buildArgv, runAction } from "../src/adapters/dashboard/web/actions.js";
 import { ARCHIVE_PHRASES } from "../src/adapters/dashboard/web/views/archive-words.js";
-import { healthView } from "../src/adapters/dashboard/web/views/health.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { PLAIN, lineOf } from "../src/adapters/dashboard/web/pages/health/sections/checks.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { FULL_SHARE, wakeLine } from "../src/adapters/dashboard/web/pages/health/sections/wake.js";
+import { healthView, pageCostOf, wakeCosts } from "../src/adapters/dashboard/web/views/health.js";
+import type { WakeCosts } from "../src/adapters/dashboard/web/views/health.js";
+import { pageTooLargeLine } from "../src/core/self/briefing.js";
+import { truncationMarker } from "../src/core/self/page.js";
 import { CORRECTED_REASON } from "../src/core/contradictions.js";
 import { DREAM_MERGE_REASON, DREAM_UNDONE_REASON } from "../src/core/dream/index.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
@@ -311,6 +318,153 @@ describe("where archived memories went", () => {
       expect(by.get("decay")?.state).toBe("ran");
       expect(h.cycle.waiting).toBe(1);
       expect(h.cycle.ran).toBe(PHASES.length - 2);
+    } finally {
+      dash.close();
+    }
+  });
+
+  test("the cycle line's 'when' is the newest sleep that did something, not a check that found nothing due (2026-10-01)", () => {
+    const dir = join(tempDir("counterparts-health-cycle-at-"), "store");
+    seedEmpty({ dir });
+    let t = 1_000_000;
+    const w = Store.open({ dir, now: () => t });
+    const ran = { phase: "decay", status: "ran", reason: "ran" };
+    const quiet = (phase: string) => ({ phase, status: "did-not-run", reason: "not-due" });
+    const check = { reason: "ran", failed: 0, phases: [{ phase: "clock", status: "ran-nothing-found", reason: "same-day" }, quiet("decay"), quiet("prune")] };
+    let sleptAt = 0;
+    try {
+      w.advanceClock("2026-09-01");
+      const today = w.livedDay();
+      for (const phase of PHASES) w.setMeta(markerKey(phase), String(today));
+      t += 1_000;
+      sleptAt = t;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: { reason: "ran", failed: 0, phases: [{ phase: "clock", status: "ran", reason: "ran" }, ran] } });
+      // Two checks after it, the newest rows of all.
+      t += 3_600_000;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: check });
+      t += 3_600_000;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: check });
+    } finally {
+      w.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      expect(healthView(dash.source).cycle.at).toBe(sleptAt);
+    } finally {
+      dash.close();
+    }
+  });
+
+  test("an archived memory rebuilt many times is one line, with how many times (2026-10-01)", () => {
+    const dir = join(tempDir("counterparts-health-archive-dupes-"), "store");
+    seedEmpty({ dir });
+    let t = 1_000;
+    const w = Store.open({ dir, now: () => (t += 1_000) });
+    const chapter = "Launch week: the first install from npm, and what it was like.";
+    const made: string[] = [];
+    try {
+      // Five copies of one chapter and two of another (each copy keeps its
+      // chapter's episodeId), rebuilt and archived in turn, and one memory
+      // archived for the same reason with its own words.
+      for (let i = 0; i < 5; i += 1) made.push(w.put({ type: "memory", kind: "self", body: chapter, meta: { episodeId: "ep_launch" } }));
+      for (let i = 0; i < 2; i += 1) made.push(w.put({ type: "memory", kind: "self", body: "The quiet week after launch.", meta: { episodeId: "ep_quiet" } }));
+      made.push(w.put({ type: "memory", kind: "self", body: "A chapter of its own, archived once.", meta: { episodeId: "ep_once" } }));
+      for (const id of made) w.archive(id, "episode-regrown");
+      // Two DIFFERENT memories with the same words stay two lines.
+      for (let i = 0; i < 2; i += 1) w.archive(w.put({ type: "memory", kind: "fact", body: "The same words, said twice by two memories." }), PRUNE_ARCHIVE_REASON);
+    } finally {
+      w.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      const r = healthView(dash.source).archive.reasons.find((x) => x.reason === "episode-regrown");
+      expect(r?.count).toBe(8);
+      expect(r?.listed).toBe(8);
+      expect(r?.items.map((i) => [i.label, i.times])).toEqual([
+        ["A chapter of its own, archived once.", 1],
+        ["The quiet week after launch.", 2],
+        [chapter, 5],
+      ]);
+      // Each line opens its newest copy.
+      expect(r?.items[2]?.id).toBe(made[4]);
+      const pruned = healthView(dash.source).archive.reasons.find((x) => x.reason === PRUNE_ARCHIVE_REASON);
+      expect(pruned?.items.map((i) => i.times)).toEqual([1, 1]);
+    } finally {
+      dash.close();
+    }
+    const page = readFileSync(join(import.meta.dir, "../src/adapters/dashboard/web/pages/health/sections/archive.js"), "utf8");
+    expect(page).toContain("timesNote(m)");
+  });
+
+  test("the folded doctor lines read through the same plain words as the rows: Lookups in words", () => {
+    const say = PLAIN["lookups"] as (d: unknown, detail?: string) => string | null;
+    // Doctor's verb ("looked up": `noteLookups` counts every one looked up,
+    // whole or not), doctor's window, and doctor's nudge when none were.
+    const detail = "last 14 lived days — dream: 3 looked up of 40 offered in part, over 2 nights; reflection: no reflection measured yet";
+    expect(say({ dreamOffered: 40, dreamLooked: 3, dreamNights: 2, reflectionOffered: 0, reflectionLooked: 0, reflections: 0, floor: false }, detail)).toBe(
+      "last 14 lived days — dreams: 3 of 40 shown only in part were looked up, over 2 nights; reflections: no reflection measured yet",
+    );
+    expect(say({ dreamOffered: 9, dreamLooked: 0, dreamNights: 1, reflectionOffered: 5, reflectionLooked: 1, reflections: 1, floor: true }, detail)).toBe(
+      "last 14 lived days — dreams: 0 of 9 shown only in part were looked up, over 1 night; reflections: 1 of 5 shown only in part were looked up, over 1 reflection (at least: more rows than were read)",
+    );
+    expect(say({ dreamOffered: 9, dreamLooked: 0, dreamNights: 1, reflectionOffered: 0, reflectionLooked: 0, reflections: 0, floor: false }, detail)).toBe(
+      "last 14 lived days — dreams: 0 of 9 shown only in part were looked up, over 1 night; reflections: no reflection measured yet. None looked up yet: if that holds, the lines may be too thin or the lookup unclear",
+    );
+    expect(say(undefined)).toBeNull();
+    // A finding with no plain words keeps doctor's own detail.
+    expect(lineOf({ key: "clock", data: {}, detail: "lived day 4 · 2026-09-04" })).toBe("lived day 4 · 2026-09-04");
+  });
+
+  test("a full wake is green and says it is normal; amber only names what being full cost (Mike, 2026-10-01)", () => {
+    const none: WakeCosts = { page: null, handoffs: 0, writerHeld: false };
+    const at = (bytes: number, budget: number, costs = none, trimmed = 0) =>
+      wakeLine({ ok: true, bytes, budget, parts: [], trimmed, trimmedFrom: trimmed > 0 ? ["nearby memories"] : [], costs });
+    expect(at(8840, 8840)).toEqual({ tone: "green", line: "The wake is full — normal: 8.8 KB of 8.8 KB" });
+    expect(at(8700, 8840).tone).toBe("green");
+    expect(at(8000, 8840).line).toBe("The wake fits: 8.0 KB of 8.8 KB, 0.8 KB room left");
+    expect(at(8840 - Math.ceil(8840 * FULL_SHARE), 8840).line).toContain("The wake fits");
+    // What it cost, named, and amber.
+    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, writerHeld: true })).toEqual({
+      tone: "amber",
+      line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; the page writer held back for lack of room",
+    });
+    expect(at(8840, 8840, { ...none, page: { shown: 0, whole: 7200 } }, 3).line).toBe(
+      "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was left out (7.2 KB)",
+    );
+    expect(at(4000, 9000, { ...none, handoffs: 1 })).toEqual({
+      tone: "amber",
+      line: "The wake has room (4.0 KB of 9.0 KB), but 1 handoff had no room at a session start",
+    });
+    // Over its ceiling is still a fault.
+    expect(at(9100, 9000).tone).toBe("amber");
+  });
+
+  test("what a full wake cost is read from existing records: the page's own marker, handoff no-room rows", () => {
+    // The page: the exact words the core prints when it cuts or leaves out the page.
+    expect(pageCostOf(`## Core\n\nShort.\n\n${truncationMarker(5800, 7200)}`)).toEqual({ shown: 5800, whole: 7200 });
+    expect(pageCostOf(`Who I am:\n${pageTooLargeLine(7200)}`)).toEqual({ shown: 0, whole: 7200 });
+    expect(pageCostOf("## Core\n\nA whole page.")).toBeNull();
+    // Handoffs: distinct handoffs refused for room since the wake was rendered.
+    const dir = join(tempDir("counterparts-health-wake-costs-"), "store");
+    seedEmpty({ dir });
+    const w = Store.open({ dir });
+    let renderDay = 0;
+    try {
+      for (const date of ["2026-09-01", "2026-09-02", "2026-09-03"]) w.advanceClock(date);
+      renderDay = w.livedDay();
+      w.appendEvent({ name: "handoff.refused", day: renderDay - 1, ref: "hnd_old", payload: { reason: "no-room", bytes: 900, budget: 9000 } });
+      w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_a", payload: { reason: "no-room", bytes: 900, budget: 9000 } });
+      w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_b", payload: { reason: "no-room", bytes: 700, budget: 9000 } });
+      w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_c", payload: { reason: "too-large", bytes: 99_000 } });
+    } finally {
+      w.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      const c = wakeCosts(dash.source, "", renderDay);
+      expect(c.handoffs).toBe(2);
+      expect(c.page).toBeNull();
+      expect(c.writerHeld).toBe(false);
     } finally {
       dash.close();
     }

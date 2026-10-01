@@ -20,9 +20,11 @@ const openIds = new Set();
 
 const STATE = { begun: "dreaming", journaled: "woke", undone: "undone" };
 
-function memoryRef(m) {
+/** One memory a change touched; an original the dream had less than whole says how it saw it. */
+export function memoryRef(m) {
   return '<span class="dr-mem' + (m.confidential ? " withheld" : "") + '" role="button" tabindex="0" onclick="openMemory(\'' +
-    esc(m.id) + '\')" onkeydown="if(event.key===\'Enter\')openMemory(\'' + esc(m.id) + '\')">' + said(m.text, m.confidential) + "</span>";
+    esc(m.id) + '\')" onkeydown="if(event.key===\'Enter\')openMemory(\'' + esc(m.id) + '\')">' + said(m.text, m.confidential) + "</span>" +
+    (m.seen ? ' <span class="dr-seen">(' + esc(m.seen) + ")</span>" : "");
 }
 
 function change(c) {

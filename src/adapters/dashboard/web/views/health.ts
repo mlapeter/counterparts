@@ -13,6 +13,7 @@ import { NEVER, NONE } from "../../layout.js";
 import { CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../../registries.js";
 import type { DurableEventName } from "../../registries.js";
 import type { DashboardSource } from "../../source.js";
+import { isSleepCheck } from "../lanes.js";
 import { reveal, revealHere } from "../reveal.js";
 
 import { ARCHIVE_PHRASES, REMOVED_BY_OWNER, unmappedArchiveWords } from "./archive-words.js";
@@ -54,9 +55,9 @@ export interface HealthView {
   readonly blind: readonly { readonly what: string; readonly why: string }[];
   /**
    * THE LAST CYCLE, as one line: the newest lived day any phase finished on,
-   * which phases finished that day, and when the newest `sleep.cycle` row was
-   * written (ms; null when none is held) so the page can say "today" only when
-   * it was.
+   * which phases finished that day, and when the newest `sleep.cycle` row that
+   * did something was written — a check that found nothing due is passed over —
+   * (ms; null when none is held) so the page can say "today" only when it was.
    */
   readonly cycle: {
     readonly day: number | null;
@@ -72,6 +73,14 @@ export interface HealthView {
    * `archived_reason`, each reason in plain words, with the ids behind it so a
    * segment can list them. "Removed by you" is the removal record's memories
    * (a removed row keeps only a skeleton), with its stage and reason.
+   *
+   * ONE LINE PER MEMORY, NOT PER ROW (2026-10-01): a chapter rebuilt from the
+   * journal archives its previous copy every time, so the list read 61 rows
+   * for 23 distinct memories (Fable's review of Health, 2026-09-28). The
+   * copies of one chapter (one `episodeId`) are one item, with `times` saying
+   * how many rows it stands for and `id` the newest of them; every other row
+   * is its own item, whatever its words. `listed` is how many rows the items
+   * cover, so "older, not listed" counts rows, as `count` does.
    */
   readonly archive: {
     readonly total: number;
@@ -80,7 +89,8 @@ export interface HealthView {
       phrase: string;
       count: number;
       known: boolean;
-      items: { id: string; label: string; note: string | null }[];
+      listed: number;
+      items: { id: string; label: string; note: string | null; times: number }[];
     }[];
   };
   /**
@@ -102,13 +112,80 @@ export interface WakeBudget {
   /** Elements the newest render dropped to fit, and the parts they came from. */
   readonly trimmed: number;
   readonly trimmedFrom: string[];
+  /** What a full wake COST, read from what is recorded (see `wakeCosts`). */
+  readonly costs: WakeCosts;
 }
+
+/**
+ * WHAT A FULL WAKE COST (Mike, 2026-10-01: a full wake is the normal state, so
+ * it is green; amber only when being full cost something, and the amber names
+ * it). Each from a record that already exists:
+ *
+ *   page       — the published wake itself: a page cut to fit carries
+ *                `page.ts#truncationMarker`, and a page with no room at all is
+ *                replaced by `briefing.ts#pageTooLargeLine`. Both name bytes.
+ *   handoffs   — `handoff.refused` rows with reason `no-room` (durable, one per
+ *                handoff per lived day) since the published wake was rendered:
+ *                how many distinct handoffs a session start could not carry.
+ *   writerHeld — the newest page-writer night was held back for lack of room
+ *                (`no-room`, the retired session-start ask's reason; old rows
+ *                still carry it).
+ *
+ * NOT here, because nothing durable records it: a "Last here" line dropped for
+ * room is a ring event only (`counterpart.lasthere.noroom`), gone with the
+ * hook's process.
+ */
+export interface WakeCosts {
+  readonly page: { readonly shown: number; readonly whole: number } | null;
+  readonly handoffs: number;
+  readonly writerHeld: boolean;
+}
+
+/** `page.ts#truncationMarker` and `briefing.ts#pageTooLargeLine`, as the wake prints them. */
+const PAGE_CUT = /\[This page is (\d+) bytes; the wake shows the first (\d+)\./;
+const PAGE_LEFT_OUT = /\(My page is (\d+) bytes — no room for it in this wake\./;
+
+/** The self page's cost, read off the published wake's own words. Pure. */
+export function pageCostOf(text: string): WakeCosts["page"] {
+  const cut = PAGE_CUT.exec(text);
+  if (cut !== null) return { whole: Number(cut[1]), shown: Number(cut[2]) };
+  const out = PAGE_LEFT_OUT.exec(text);
+  return out === null ? null : { whole: Number(out[1]), shown: 0 };
+}
+
+export function wakeCosts(src: DashboardSource, text: string, renderDay: number | null): WakeCosts {
+  const page = pageCostOf(text);
+
+  const dropped = new Set<string>();
+  try {
+    const since = renderDay ?? src.store.livedDay();
+    for (const row of src.store.eventLog({ name: "handoff.refused", sinceDay: since, order: "desc", limit: LOG_CEILING })) {
+      if (payloadOf(row.payload)["reason"] === "no-room") dropped.add(row.ref ?? `seq:${row.seq}`);
+    }
+  } catch {
+    /* no rows read is no handoff known to be dropped */
+  }
+
+  let writerHeld = false;
+  try {
+    const last = src.self.pageWriterRuns({ limit: 1 })[0];
+    if (last !== undefined) {
+      const s = src.self.pageWriterStatus(last.about, src.self.calendarToday());
+      writerHeld = s.outcome !== "revised" && s.outcome !== "nothing-to-say" && (s.run?.detail ?? "").trim() === "no-room";
+    }
+  } catch {
+    writerHeld = false;
+  }
+  return { page, handoffs: dropped.size, writerHeld };
+}
+
+const NO_COSTS: WakeCosts = { page: null, handoffs: 0, writerHeld: false };
 
 /** The wake against its ceiling. A read: `wake()` on the observer source writes nothing. */
 export function wakeBudget(src: DashboardSource): WakeBudget {
   const wake = src.self.wake();
   const render = lastRender(src);
-  if (!wake.ok) return { ok: false, bytes: 0, budget: render?.budget ?? null, parts: [], trimmed: 0, trimmedFrom: [] };
+  if (!wake.ok) return { ok: false, bytes: 0, budget: render?.budget ?? null, parts: [], trimmed: 0, trimmedFrom: [], costs: NO_COSTS };
   return {
     ok: true,
     bytes: wake.bytes,
@@ -116,6 +193,7 @@ export function wakeBudget(src: DashboardSource): WakeBudget {
     parts: wakeParts(wake.text, src.self.page() !== null),
     trimmed: render?.trimmed ?? 0,
     trimmedFrom: (render?.trimmedLanes ?? []).map(wakePartLabel),
+    costs: wakeCosts(src, wake.text, render?.day ?? null),
   };
 }
 
@@ -131,6 +209,20 @@ const PHASE_GLOSS: Record<string, string> = {
   briefing: "write the next wake briefing",
   log: "sweep old log rows",
 };
+
+/** How many `sleep.cycle` rows the cycle line reads past checks for the newest real sleep. */
+const CYCLE_LOOKBACK = 60;
+
+/** A row's payload as an object; anything unreadable is an empty one. */
+function payloadOf(raw: string | null): Record<string, unknown> {
+  if (raw === null) return {};
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Shown even at zero: the three ways out that are forgetting by design. */
 const ALWAYS_SHOWN = new Set<string>([PRUNE_ARCHIVE_REASON, MERGE_ARCHIVE_REASON, REMOVED_BY_OWNER]);
@@ -243,7 +335,14 @@ export function healthView(src: DashboardSource): HealthView {
   // day by its own cadence (consolidate runs every few lived days, not
   // nightly); one that simply wasn't due yet is waiting, with its next run.
   const newest = phases.reduce<number | null>((m, p) => (p.day === null ? m : m === null ? p.day : Math.max(m, p.day)), null);
-  const lastCycleRow = store.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 })[0];
+  // WHEN, from the newest cycle that DID something: a session end on a day
+  // that already slept writes a check row ("nothing was due"), and taking the
+  // newest row of all said "Sleep last ran today" of a night that ran
+  // yesterday (Fable's review of Health, 2026-09-28). None in the window: the
+  // line says the lived day alone.
+  const lastCycleRow = store
+    .eventLog({ name: "sleep.cycle", order: "desc", limit: CYCLE_LOOKBACK })
+    .find((row) => !isSleepCheck(payloadOf(row.payload)));
   const cyclePhases = phases.map((p) => {
     const cadence = cadenceFor(p.phase as Phase);
     const state = p.torn
@@ -295,37 +394,64 @@ export function healthView(src: DashboardSource): HealthView {
     if (row !== undefined && row.archived === 1 && row.archived_reason === REMOVED_BY_OWNER) removedIds.add(id);
   }
   const reasons: HealthView["archive"]["reasons"] = [];
-  const itemsOf = (ids: readonly string[]) =>
-    newestFirst(ids, (id) => archivedAt.get(id) ?? 0).slice(0, ARCHIVE_ITEMS_CAP).map((id) => {
+  type Item = HealthView["archive"]["reasons"][number]["items"][number];
+  /** Which MEMORY a row is a copy of: a chapter's journal copies share the
+   *  chapter's `episodeId` (`self/episodes.ts#memoriesForEpisode`); any other
+   *  row is its own memory. Never the words, which two memories can share. */
+  const memoryOf = (id: string): string => {
+    try {
+      const ep = store.readProse(id).meta["episodeId"];
+      return typeof ep === "string" && ep.length > 0 ? `episode:${ep}` : id;
+    } catch {
+      return id;
+    }
+  };
+  /** Newest first, the copies of one memory as one item (the newest row's id),
+   *  at most `ARCHIVE_ITEMS_CAP` items; `listed` is the rows they cover. */
+  const itemsOf = (ids: readonly string[]): { items: Item[]; listed: number } => {
+    const items: Item[] = [];
+    const byMemory = new Map<string, Item>();
+    let listed = 0;
+    for (const id of newestFirst(ids, (x) => archivedAt.get(x) ?? 0)) {
+      const key = memoryOf(id);
+      const same = byMemory.get(key);
+      if (same !== undefined) {
+        same.times += 1;
+        listed += 1;
+        continue;
+      }
+      if (items.length >= ARCHIVE_ITEMS_CAP) break;
       // The archived row's OWN words (not its successor's) when they can be
       // shown; otherwise the named absence or the withholding.
       const r = revealHere(store, id, 90);
-      return { id, label: r.text ?? r.label, note: null };
-    });
+      const item: Item = { id, label: r.text ?? r.label, note: null, times: 1 };
+      items.push(item);
+      byMemory.set(key, item);
+      listed += 1;
+    }
+    return { items, listed };
+  };
   for (const [reason, phrase] of ARCHIVE_PHRASES) {
     if (reason === REMOVED_BY_OWNER) {
       const ids = [...removedIds];
       if (ids.length === 0 && !ALWAYS_SHOWN.has(reason)) continue;
-      reasons.push({
-        reason,
-        phrase,
-        count: ids.length,
-        known: true,
-        items: newestFirst(ids, (id) => removedLatest.get(id)?.at ?? 0).slice(0, ARCHIVE_ITEMS_CAP).map((id) => {
-          const rec = removedLatest.get(id);
-          return {
-            id,
-            label: rec?.label ?? reveal(store, id, 72).label,
-            note: rec === undefined ? null : `${rec.stage} · by ${rec.actor}${rec.reason ? ` · ${rec.reason}` : ""}`,
-          };
-        }),
+      // Each removal is its own act, with its own stage and reason: one row each.
+      const items = newestFirst(ids, (id) => removedLatest.get(id)?.at ?? 0).slice(0, ARCHIVE_ITEMS_CAP).map((id) => {
+        const rec = removedLatest.get(id);
+        return {
+          id,
+          label: rec?.label ?? reveal(store, id, 72).label,
+          note: rec === undefined ? null : `${rec.stage} · by ${rec.actor}${rec.reason ? ` · ${rec.reason}` : ""}`,
+          times: 1,
+        };
       });
+      reasons.push({ reason, phrase, count: ids.length, known: true, listed: items.length, items });
       continue;
     }
     const ids = byReason.get(reason) ?? [];
     byReason.delete(reason);
     if (ids.length === 0 && !ALWAYS_SHOWN.has(reason)) continue;
-    reasons.push({ reason, phrase, count: ids.length, known: true, items: itemsOf(ids) });
+    reasons.push({ reason, phrase, count: ids.length, known: true, ...itemsOf(ids) });
   }
   for (const [reason, ids] of byReason) {
     reasons.push({
@@ -333,7 +459,7 @@ export function healthView(src: DashboardSource): HealthView {
       phrase: unmappedArchiveWords(reason),
       count: ids.length,
       known: false,
-      items: itemsOf(ids),
+      ...itemsOf(ids),
     });
   }
   const archive = { total: reasons.reduce((n, r) => n + r.count, 0), reasons };
