@@ -10,7 +10,7 @@
  * for real (`bun run test:node`); this file is the Bun suite's half.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,8 +27,11 @@ import {
   readHost,
   runCommand,
 } from "../src/adapters/cli/install.js";
-import { isOurHookCommand, mcpAddArgs, readMcp } from "../src/adapters/cli/wire.js";
+import { isOurHookCommand, mcpAddArgs, processMark, readMcp } from "../src/adapters/cli/wire.js";
+import { describeFault } from "../src/adapters/claude-code/standdown.js";
+import { StoreError } from "../src/core/store/index.js";
 import {
+  CLI_SCRIPT,
   NODE_HOOKS,
   currentRuntime,
   parseScriptInvocation,
@@ -224,9 +227,63 @@ describe("doctor's Runtime line", () => {
     expect(line?.severity).toBe("amber");
     expect(line?.detail).toContain(`${gone} is not there`);
     expect(line?.fix).toContain("counterparts connect");
+    // The launcher prefers bun, so the Node way is spelled out, not left to "run it under X".
+    expect(line?.fix).toContain(`node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect`);
+    expect(line?.fix).not.toContain("under the runtime you want");
   });
 
   test("nothing of ours configured: no Runtime line at all", () => {
     expect(runtimeLine().line).toBeUndefined();
+  });
+});
+
+describe("the installed commands", () => {
+  const PKG = new URL("../package.json", import.meta.url);
+  const bins = (JSON.parse(readFileSync(PKG, "utf8")) as { bin: Record<string, string> }).bin;
+
+  test("every bin is a /bin/sh launcher, executable, that imports a .ts entry beside it", () => {
+    for (const target of Object.values(bins)) {
+      const path = new URL(`../${target}`, import.meta.url);
+      const text = readFileSync(path, "utf8");
+      expect(text.startsWith("#!/bin/sh\n")).toBe(true);
+      expect(statSync(path).mode & 0o111).not.toBe(0);
+      const entry = /new URL\("\.\/([a-z-]+\.ts)"/.exec(text)?.[1];
+      expect(entry).toBeDefined();
+    }
+  });
+
+  /**
+   * THE OLD TARGETS STAY RUNNABLE (review of #312): an upgrade can leave an
+   * existing bin symlink pointing at the .ts it was made for, so those keep the
+   * bun shebang and the exec bit. A tidy-up that drops either breaks installs.
+   */
+  test("the four .ts files the bins used to point at keep their bun shebang and exec bit", () => {
+    for (const old of [
+      "src/adapters/cli/bin/counterparts.ts",
+      "src/adapters/claude-code/bin/hook.ts",
+      "src/adapters/mcp/bin/serve.ts",
+      "src/adapters/dashboard/bin/dashboard.ts",
+    ]) {
+      const path = new URL(`../${old}`, import.meta.url);
+      expect(readFileSync(path, "utf8").split("\n")[0]).toBe("#!/usr/bin/env bun");
+      expect(statSync(path).mode & 0o111).not.toBe(0);
+    }
+  });
+
+  test("a server or dashboard started through a launcher is recognised as ours", () => {
+    expect(processMark("node /p/lib/node_modules/counterparts/src/adapters/mcp/bin/serve.mjs")).toBe("an MCP server");
+    expect(processMark("bun /p/src/adapters/dashboard/bin/dashboard.mjs serve")).toBe("a dashboard");
+    expect(processMark(`/n/node --import ${NODE_HOOKS} /p/src/adapters/mcp/bin/serve.ts`)).toBe("an MCP server");
+  });
+});
+
+describe("a Node that cannot load node:sqlite", () => {
+  test("the stand-down names the Node version and the way out", () => {
+    const fault = describeFault(
+      new StoreError("SQLITE_UNAVAILABLE", { driver: "node:sqlite", nodeVersionFloor: "22.15", running: "22.14.0", reason: "x" }),
+    );
+    expect(fault.reason).toBe("Node 22.14.0 can't load node:sqlite; use Node 22.15 or later, or Bun");
+    const bun = describeFault(new StoreError("SQLITE_UNAVAILABLE", { driver: "bun:sqlite", reason: "x" }));
+    expect(bun.reason).toBe("this runtime has no SQLite binding");
   });
 });

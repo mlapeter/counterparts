@@ -8,6 +8,14 @@
  * did, else Node — and runs the same file with it; this half then loads Node's
  * TypeScript hooks when it is Node, and imports the entry.
  *
+ * **THE OLD TARGETS STAY RUNNABLE.** Until 2026-10-01 the bins pointed straight
+ * at `cli/bin/counterparts.ts`, `claude-code/bin/hook.ts`, `mcp/bin/serve.ts`
+ * and `dashboard/bin/dashboard.ts`, and an upgrade (bun's above all) can leave
+ * an existing bin symlink pointing at the `.ts` it was made for. So those four
+ * keep their `#!/usr/bin/env bun` shebang and their exec bit;
+ * `test/runtime.test.ts` holds both, so a tidy-up cannot break an install that
+ * still links there.
+ *
  * `process.argv[1]` is set to the entry's own path first: every entry runs only
  * when it is the main script (`isEntryPoint(process.argv[1], import.meta.url)`),
  * and from here the main script is this launcher.

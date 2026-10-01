@@ -67,9 +67,7 @@ function openRaw(path: string): { raw: RawDb; driver: Db["driver"] } {
     }
   }
   try {
-    const { DatabaseSync } = require_("node:sqlite") as {
-      DatabaseSync: new (p: string, o?: unknown) => RawDb;
-    };
+    const { DatabaseSync } = nodeSqlite();
     return { raw: new DatabaseSync(path), driver: "node:sqlite" };
   } catch (cause) {
     // node:sqlite is unflagged from 22.13 / 23.4; the package runs under Node from
@@ -82,6 +80,30 @@ function openRaw(path: string): { raw: RawDb; driver: Db["driver"] } {
       reason: String((cause as Error).message ?? cause),
     });
   }
+}
+
+/**
+ * `node:sqlite`, by `process.getBuiltinModule` first (Node 22.3+), `require`
+ * second.
+ *
+ * Measured 2026-10-01 (review of #312): under `module.registerHooks` — which is
+ * how the package runs on Node (`adapters/node-hooks.mjs`) — a `createRequire`
+ * of `node:sqlite` returns NULL on Node 22.15–22.17, 23.5–23.11 and 24.0–24.3,
+ * so every store open failed there with "no SQLite binding". The builtin lookup
+ * does not go through the module hooks at all. A null from either is refused
+ * here by name, never dereferenced.
+ */
+function nodeSqlite(): { DatabaseSync: new (p: string, o?: unknown) => RawDb } {
+  const builtin = (process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule;
+  const mod =
+    typeof builtin === "function" ? builtin.call(process, "node:sqlite") : require_("node:sqlite");
+  const sqlite = (mod ?? (typeof builtin === "function" ? require_("node:sqlite") : null)) as {
+    DatabaseSync?: new (p: string, o?: unknown) => RawDb;
+  } | null;
+  if (sqlite === null || sqlite === undefined || typeof sqlite.DatabaseSync !== "function") {
+    throw new Error(`Node ${process.versions.node} did not load node:sqlite`);
+  }
+  return { DatabaseSync: sqlite.DatabaseSync };
 }
 
 function norm(params: SqlParam[]): SqlValue[] {

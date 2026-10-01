@@ -34,7 +34,7 @@ tests, module CONTRACTs, and `docs/harvest/`.
 ## Toolchain
 
 - TypeScript strict, ESM. Runtime: **bun** — the TypeScript sources run directly, no
-  build step. **Node 22.15+ runs them too** (2026-10-01, smoke-tested on 22.20 and 24,
+  build step. **Node 22.15+ runs them too** (2026-10-01, smoke-tested on 22.15–24,
   macOS and Linux; no daily user yet) through `src/adapters/node-hooks.mjs`, which strips
   types and maps `./x.js` imports to `.ts`; `src/adapters/runtime.ts` is the one place
   that knows bun from node. The store binds `bun:sqlite` or `node:sqlite`. bun at

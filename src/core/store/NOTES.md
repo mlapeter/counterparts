@@ -1888,9 +1888,14 @@ store does with it:
   embedder in-line, and a worker spawned by the Stop hook reaches a boundary and takes a
   snapshot
   (`test/node-smoke.ts`, `bun run test:node`, and a throwaway-prefix `npm install -g`).
-  Nothing in this module changed for it: the seam in `db.ts` (booleans and `undefined`
-  normalized, the unaligned-`Buffer` copy in `cache.ts`, no double close) was already
-  right.
+  The seam in `db.ts` (booleans and `undefined` normalized, the unaligned-`Buffer` copy
+  in `cache.ts`, no double close) was already right. **One thing was not, and the review
+  of #312 found it:** under `module.registerHooks`, `createRequire(…)("node:sqlite")`
+  returns NULL on Node 22.15–22.17, 23.5–23.11 and 24.0–24.3, so every open failed
+  there. `db.ts` now takes it from `process.getBuiltinModule` first (which skips the
+  hooks) and refuses a null by name; the smoke test is 6/6 on 22.15, 23.5, 24.0, 24.9
+  and 22.20. `node-hooks.mjs` checks the binding at start and says which Node cannot
+  load it, rather than letting a hook stand down with "memory is OFF".
 - **The floor is 22.15, and it is the loader's, not the store's.** `node:sqlite` is
   unflagged from 22.13 / 23.4; the package needs `module.registerHooks` (22.15 / 23.5) to
   run its TypeScript from inside `node_modules`, where Node's own type stripping refuses

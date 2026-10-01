@@ -58,6 +58,23 @@ if (process.versions.bun === undefined) {
     return emitWarning.call(process, warning, ...rest);
   };
 
+  // THE FLOOR, CHECKED FOR REAL: the store needs `node:sqlite`, and a Node that
+  // cannot hand it over (too old, or started with `--no-experimental-sqlite`)
+  // would otherwise reach every hook as "memory is OFF". One line, before
+  // anything runs. `getBuiltinModule` is how `core/store/db.ts` loads it too.
+  let sqlite;
+  try {
+    sqlite = process.getBuiltinModule?.("node:sqlite");
+  } catch {
+    sqlite = undefined;
+  }
+  if (typeof sqlite?.DatabaseSync !== "function") {
+    process.stderr.write(
+      `counterparts: Node ${process.versions.node} can't load node:sqlite; use Node 22.15 or later (without --no-experimental-sqlite), or Bun.\n`,
+    );
+    process.exit(1);
+  }
+
   registerHooks({
     resolve(specifier, context, nextResolve) {
       const parent = context.parentURL;

@@ -25,6 +25,9 @@ export type RuntimeKind = "bun" | "node";
 /** The module Node loads before a script (`--import`). Absolute, from this file. */
 export const NODE_HOOKS = fileURLToPath(new URL("./node-hooks.mjs", import.meta.url));
 
+/** The console's own entry, for a command line that must name Node explicitly. */
+export const CLI_SCRIPT = fileURLToPath(new URL("./cli/bin/counterparts.ts", import.meta.url));
+
 /** The oldest Node this has been made to run on: `module.registerHooks`
  *  (22.15 / 23.5), `stripTypeScriptTypes` and unflagged `node:sqlite` (22.13). */
 export const NODE_FLOOR = "22.15";

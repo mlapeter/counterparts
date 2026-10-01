@@ -65,6 +65,7 @@ import {
   preMigrationDir,
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
+import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
 import { acceptsReflectedFeeling, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -3712,7 +3713,10 @@ function runtimeFindings(reading: HostReading): Finding[] {
       "amber",
       "Runtime",
       `${missing.map((r) => r.exe).join(", ")} ${missing.length === 1 ? "is" : "are"} not there, so nothing that runs under ${missing.length === 1 ? "it" : "them"} fires; ${said}${console_}`,
-      "Run: counterparts connect — under the runtime you want the hooks to use; it rewrites them with that runtime. Then restart Claude Code.",
+      // `counterparts` itself runs under bun whenever bun is on PATH (the
+      // launcher prefers it), so "run it under the runtime you want" would be
+      // advice nobody can follow for Node. The explicit Node line is printed.
+      `Run: counterparts connect — it rewrites them with the runtime it runs under (bun when bun is on PATH, else Node). To wire Node with bun also installed: node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect. Then restart Claude Code.`,
       data,
     ),
   ];
