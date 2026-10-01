@@ -736,7 +736,7 @@ never says it.
 - **Ranking.** The gate orders by activation and caps tiers (1 loud, 6 quiet, 5 dim), so
   the order is set in `deliberate.ts#answerQuestion`: vivid; the felt quiet rows, then
   the other quiet ones; the felt dim rows, then the other dim ones — felt rows by the
-  softened strength that nominated them, the rest of activation breaking a tie, exempt
+  softened strength that nominated them (the lane's order since §25), the rest of activation breaking a tie, exempt
   from the dim cap (review of #293, S3 and R2: the first cut put the felt rows above
   everything, and the second above the quiet tier, so a quiet text answer — the usual
   shape of a deliberate answer — landed seventh under six dim stamps).
@@ -753,7 +753,7 @@ never says it.
 - **Known limits.** "how does Katie feel about the move" names no person the store holds
   feelings for, so it ranks nothing. Wrong-core repairs kept the writer's word but not the
   core they named, and an alias kept the wheel word (`touched` → `moved`) — both answer
-  through the alias table, not the original input. No stemming.
+  through the alias table, not the original input. No stemming (a light one since §25).
   Item 3 (a feeling's journey over time) is still open.
 
 ## 23. The wheel v2 in recall — 2026-09-30
@@ -794,6 +794,8 @@ never says it.
   frustrated reads ~0.13, 0.9 joyful ~0.28). That is the fading affect bias the
   softening was built for; a question that names the feeling ("when was I frustrated")
   pools only those stamps, so it decides nothing there.
+  Since §25 a question that asks for the strongest or over all time ranks as recorded, so
+  the bias applies only to an ordinary "when was I…".
 
 **The lift, before and after M2** (fresh, strength 1, same person, `MOOD_SAME_WEIGHT` 0.3):
 
@@ -882,3 +884,55 @@ memories under the id.
 - **Not built:** nothing is backfilled onto the rows (the window could stamp them at the
   bind, but an inference written down reads later as a fact). An unbound asker cannot tell
   its own live session from a sibling's; the lead already prefers the one Last here names.
+
+## 25. Recall by feeling, round 2 — 2026-10-01 (lane 6)
+
+Seen live on 0.3.10: "when was I afraid" came back thin (no stamp of the afraid group, 18 of
+the uneasy core); "when did I feel ashamed or caught out" missed while the same question with
+"uneasy" hit; "what have I felt most strongly" favoured the latest day (softened ranking, and
+half the stamps were from one day); and feeling questions pulled in memories ABOUT the
+feeling system — the wheel, the cores, the emotion research — because their words are the
+question's.
+
+- **Tiered matching** (`feeling-ask.ts#readFeelingAsk` → `FeelingAsk.cores`, `activate.ts`).
+  Tier 1 is what the stamp answers to, as before (its word, group, label, aliases, cores, the
+  writer's own word). Tier 2, on a RANKED ask only, is a stamp under a named word's HOME core
+  (and a blend's second). Group words stay tier 1: "afraid" reaching scared is §23's rule and
+  the asker named the group. A named-only ask ("the happy path") gets no tier 2: an ordinary
+  cue does not widen to a core.
+- **"An exact stamp still leads"** is held by the cue, not by re-ordering across the gate's
+  tiers: a tier-2 nomination brings no more cue than the weakest tier-1 one, so it can sit in
+  a higher gate tier only by its own words. Within a tier the lane's order (tier, strength,
+  newer stamp) decides.
+- **Reading a word.** An `other` whose own word is on the wheel ("sheepish" kept as the
+  writer's word, which the v11 upgrade left as `other`) now reads as that word: its group,
+  its home core. Wheel phrases are matched whole ("caught out" as two words in a row, before
+  the everyday-frame rule could eat "caught"); a stamp answers to the phrase as one token
+  with a space, which no single question word can equal, so "out" is still nothing.
+  `EVERYDAY_TO_WHEEL` is question-side only and small; it leaves out words a question
+  often uses about a thing (panic, hope, love, worry, pleased — the B2 scar). The stemmer
+  tries -iest/-ier/-iness/-ness/-est/-er and accepts only a stem on the wheel or the list.
+  "Mike's" (`mikes`) is the owner; beside a non-feel word it is a possessive, as "my" is.
+- **Strongest** (`FeelingAsk.strongest`): most, ever, strongest, strongly, since, always,
+  deepest, biggest, hardest, worst, or a superlative feeling word. Then the stamps rank by
+  recorded strength, the newer stamp breaking a tie; otherwise softened, as before.
+- **Item 3 — chosen rule: structural, not a topic list.** On a ranked ask, a row the stamps
+  did not nominate and that no TOPIC word reached (`FeelingLane.noTopic`) is answered after
+  every stamped row, whatever its gate tier, and before the plain dim rows. A topic word is
+  a cue token with weight that is not a feel-word, a feeling word, a "most/strongly" word,
+  a person word or a question-frame word (`QUESTION_FRAME`: wh-words, auxiliaries,
+  determiners, prepositions, "times") — the cue channel has no stop list, so on a small
+  store "when" alone would count. A row the calendar reached keeps its place. A memory with
+  a stamp the question did not nominate counts as unstamped here. No blacklist of
+  feeling-system memories: one asked about by a topic word ("what did we decide about the
+  wheel") is answered as before.
+- **Measured** on a copy of the 2026-10-01 snapshot (titles only, on the lane's PR): "when
+  was I afraid" went from no stamped nomination (two text matches about fear and the cores
+  first) to 6 uneasy-core rows first; "ashamed or caught out" from four dim chapters to 6
+  rows stamped sheepish (the phrase's group); the Katie and yesterday controls identical row
+  for row.
+- **Known limits.** Tier 2 is topic-blind like the every-stamp pool: "how I'd treated Mike"
+  nominates the strongest uneasy stamps whether or not they are about Mike, and the rows the
+  words found follow them in each tier (§22's R2 order). "times I felt moved or sad": the
+  quiet decoy that once led now follows the stamped rows (its words were all frame and
+  feeling words).

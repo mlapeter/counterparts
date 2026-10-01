@@ -32,9 +32,18 @@
  * console's `ask`), second person the other one, the owner's names or "owner"
  * the owner, and "we" both. Nothing said, or both said: both.
  *
+ * **Round 2 (2026-10-01, lane 6).** Any feeling word reaches its core: a
+ * question word is read through the wheel, a short question-side list of
+ * everyday words off it (`EVERYDAY_TO_WHEEL`: shame, guilt, dread, relief,
+ * pride…), a light stemmer (happiest, sadness, closer) and the wheel's
+ * phrases ("caught out"); its home core(s) come back as `FeelingAsk.cores`,
+ * the second tier `activate.ts` matches on. "Most / ever / strongest / since"
+ * set `FeelingAsk.strongest`. Nothing here is a write door: the wheel's own
+ * `ALIASES`, which decide for a writer, are untouched.
+ *
  * NO MODEL CALL: a fixed vocabulary and the store's own tokenizer.
  */
-import { ALIASES, CORE_EMOTIONS, FEELINGS_WHEEL, OTHER_EMOTION, coresOfFeeling, wheelEntry } from "../feelings-wheel.js";
+import { ALIASES, CORE_EMOTIONS, FEELINGS_WHEEL, OTHER_EMOTION, coresOfFeeling, lookupWord, wheelEntry } from "../feelings-wheel.js";
 import { tokenize } from "../store/index.js";
 
 export type FeelingWhose = "owner" | "self";
@@ -62,6 +71,145 @@ export const WHEEL_VOCABULARY: ReadonlySet<string> = new Set<string>([
   ...Object.keys(ALIASES),
 ]);
 
+/**
+ * EVERYDAY WORDS OFF THE WHEEL that name a wheel word, read on the QUESTION
+ * side only (2026-10-01, lane 6). Not the wheel's `ALIASES`: those decide for
+ * a writer at the write door, and this lane writes nothing. Small on purpose,
+ * and nothing a question often uses about a thing ("panic", "hope", "love",
+ * "worry", "pleased" are left out — the B2 scar of #293). A word that is
+ * already on the wheel needs no line here (ashamed, scared, nervous, anxious,
+ * lonely, proud, grateful, guilty and embarrassed are).
+ */
+export const EVERYDAY_TO_WHEEL: Readonly<Record<string, string>> = {
+  shame: "ashamed",
+  shamed: "ashamed",
+  guilt: "guilty",
+  embarrassment: "embarrassed",
+  awkward: "embarrassed",
+  mortified: "humiliated",
+  humiliation: "humiliated",
+  fearful: "afraid",
+  dread: "afraid",
+  terror: "terrified",
+  scary: "scared",
+  anxiety: "anxious",
+  stressed: "worried",
+  uncomfortable: "uneasy",
+  unease: "uneasy",
+  insecurity: "insecure",
+  unhappy: "sad",
+  sorrow: "sad",
+  miserable: "sad",
+  upset: "sad",
+  grief: "grieving",
+  lonesome: "lonely",
+  regret: "regretful",
+  heartbreak: "heartbroken",
+  disappointment: "disappointed",
+  boredom: "bored",
+  joy: "joyful",
+  thrilled: "excited",
+  excitement: "excited",
+  elated: "ecstatic",
+  delight: "delighted",
+  pride: "proud",
+  gratitude: "grateful",
+  relief: "relieved",
+  warmth: "warm",
+  affection: "affectionate",
+  curiosity: "curious",
+  confusion: "confused",
+  awed: "awe",
+  frustration: "frustrated",
+  annoyance: "annoyed",
+  rage: "enraged",
+  fury: "furious",
+  resentment: "resentful",
+  jealousy: "jealous",
+};
+
+/** The wheel's PHRASES ("caught out", "let down", "at ease", "that's me",
+ *  "it clicked"), spelled as `words` spells a question, to their keys. */
+const WHEEL_PHRASE_KEYS: ReadonlyMap<string, string> = new Map(
+  FEELINGS_WHEEL.map((e) => [words(e.word), e.key] as const)
+    .filter(([w]) => w.length === 2)
+    .map(([w, key]) => [w.join(" "), key]),
+);
+
+/** Words that ask for the strongest, or over all time (item 2 of lane 6). */
+const STRONGEST = new Set(["most", "ever", "strongest", "strongly", "since", "always", "deepest", "biggest", "hardest", "worst"]);
+
+/**
+ * A question word read as a wheel word: itself when the wheel (or a stamp in
+ * this store) knows it, an everyday word's wheel word, or a LIGHT stem —
+ * happiest, happier, happiness → happy; saddest, sadness → sad; closer →
+ * close — accepted only when the stem lands on the wheel or the everyday
+ * list. `superlative` marks an "-est" form ("when was I happiest").
+ */
+export function feelingWord(w: string, stored: ReadonlySet<string> = new Set()): { word: string; superlative: boolean } | null {
+  const known = (x: string): string | null =>
+    x.length >= 3 && (WHEEL_VOCABULARY.has(x) || stored.has(x)) ? x : Object.hasOwn(EVERYDAY_TO_WHEEL, x) ? (EVERYDAY_TO_WHEEL[x] as string) : null;
+  const direct = known(w);
+  if (direct !== null) return { word: direct, superlative: false };
+  const undouble = (x: string): string => (x.length >= 4 && x[x.length - 1] === x[x.length - 2] ? x.slice(0, -1) : x);
+  const tries: [string, boolean][] = [];
+  if (w.endsWith("iest")) tries.push([`${w.slice(0, -4)}y`, true]);
+  if (w.endsWith("ier")) tries.push([`${w.slice(0, -3)}y`, false]);
+  if (w.endsWith("iness")) tries.push([`${w.slice(0, -5)}y`, false]);
+  if (w.endsWith("ness")) tries.push([w.slice(0, -4), false]);
+  if (w.endsWith("est")) tries.push([w.slice(0, -3), true], [undouble(w.slice(0, -3)), true], [w.slice(0, -2), true]);
+  if (w.endsWith("er")) tries.push([w.slice(0, -2), false], [undouble(w.slice(0, -2)), false], [w.slice(0, -1), false]);
+  for (const [stem, superlative] of tries) {
+    const hit = known(stem);
+    if (hit !== null) return { word: hit, superlative };
+  }
+  return null;
+}
+
+/**
+ * The cores a question's feeling word reaches (the second tier): its home core
+ * and a blend's second, for a word on the wheel; nothing for a word only a
+ * writer's own `other_word` knows.
+ */
+export function coresOfWord(word: string): string[] {
+  const entry = lookupWord(word)?.entry;
+  return entry === undefined ? [] : coresOfFeeling(entry.core, entry.key);
+}
+
+/**
+ * Is a cue token part of a feeling question's FRAME rather than its topic — a
+ * feel-word, a feeling word (as `feelingWord` reads it), or a word asking for
+ * the strongest? `activate.ts` uses it to tell a memory some topic word
+ * reached from one only the feeling words (or the meaning) did (item 3).
+ */
+export function isFeelingFrameWord(token: string, stored: ReadonlySet<string>): boolean {
+  return (
+    FEEL_WORDS.includes(token) ||
+    STRONGEST.has(token) ||
+    QUESTION_FRAME.has(token) ||
+    FIRST.has(token) ||
+    SECOND.has(token) ||
+    PLURAL.has(token) ||
+    feelingWord(token, stored) !== null
+  );
+}
+
+/**
+ * The words a question is built from rather than about: wh-words, auxiliaries,
+ * determiners, prepositions, conjunctions. The cue channel has no stop list
+ * (rarity weighs every word, `cues.ts#informativeness`), so on a store where
+ * few memories say "when", "when was I afraid" reaches a note by "when". This
+ * list only decides what counts as a TOPIC word for item 3; it weighs nothing.
+ */
+const QUESTION_FRAME = new Set([
+  "what", "when", "where", "which", "who", "whom", "whose", "why", "how", "whats", "whens", "hows",
+  "was", "were", "is", "are", "am", "be", "been", "being", "do", "does", "did", "done", "have", "has", "had",
+  "can", "could", "would", "should", "will", "shall", "may", "might", "must", "id", "ive", "im",
+  "the", "an", "this", "that", "these", "those", "some", "any", "all", "its", "it", "them", "they", "their",
+  "of", "to", "in", "on", "at", "for", "with", "about", "from", "by", "as", "into", "over", "after", "before",
+  "and", "or", "but", "if", "so", "than", "then", "not", "no", "very", "really", "much", "more", "time", "times",
+]);
+
 // Not "id" ("I'd" without its apostrophe): in this store "id" is far more often a
 // memory id, and a missed "I'd" only falls back to both.
 const FIRST = new Set(["i", "im", "ive", "me", "my", "mine", "myself"]);
@@ -81,8 +229,18 @@ function words(text: string): string[] {
 }
 
 /**
+ * The owner's name in the possessive — "Mike's", which `words` spells `mikes`
+ * (a follow-up of #293). Only a name's own `s` form, and only when the name is
+ * not itself a word ending in s.
+ */
+function possessiveName(w: string, names: ReadonlySet<string>): boolean {
+  return w.length > 2 && w.endsWith("s") && !names.has(w) && names.has(w.slice(0, -1));
+}
+
+/**
  * Whose feeling the question asks about, or null for both. `ownerNames` are
- * matched as whole words, each word of a multi-word name on its own.
+ * matched as whole words, each word of a multi-word name on its own, and in
+ * the possessive ("Mike's feelings").
  */
 export function whoseAsked(text: string, input: FeelingAskInput): FeelingWhose | null {
   const other: FeelingWhose = input.asker === "self" ? "owner" : "self";
@@ -94,24 +252,47 @@ export function whoseAsked(text: string, input: FeelingAskInput): FeelingWhose |
     else if (PLURAL.has(w)) {
       said.add("owner");
       said.add("self");
-    } else if (OWNER_WORDS.has(w) || names.has(w)) said.add("owner");
+    } else if (OWNER_WORDS.has(w) || names.has(w) || possessiveName(w, names)) said.add("owner");
   }
   return said.size === 1 ? ([...said][0] as FeelingWhose) : null;
+}
+
+/**
+ * The wheel key a stamp reads as: its emotion, or — for an `other` whose own
+ * word is on the wheel ("sheepish" kept as the writer's word) — that word's
+ * key, so it answers to its group and counts under its home core like any
+ * stamp of the word (2026-10-01, lane 6).
+ */
+function stampKey(f: { emotion: string; other_word: string | null }): string {
+  if (f.emotion !== OTHER_EMOTION) return f.emotion;
+  return f.other_word === null ? OTHER_EMOTION : (lookupWord(f.other_word)?.entry.key ?? OTHER_EMOTION);
+}
+
+/** Every core a stamp counts under (`coresOfFeeling` on `stampKey`): the second tier's match. */
+export function stampCores(f: { core: string; emotion: string; other_word: string | null }): string[] {
+  return coresOfFeeling(f.core, stampKey(f));
 }
 
 /** The words one stamp answers to. See the header. */
 export function feelingTokens(f: { core: string; emotion: string; other_word: string | null }): Set<string> {
   const out = new Set<string>();
-  // ONE word only, wheel words and aliases too (wheel v2): "caught out" or
-  // "that's me" would make "out" and "me" feeling words for the whole store —
-  // the same rule as the writer's own word below. A phrase answers to its cores.
+  // ONE word, or a PHRASE kept whole (wheel v2; phrases whole since lane 6):
+  // "caught out" or "that's me" split into words would make "out" and "me"
+  // feeling words for the whole store — the same rule as the writer's own
+  // word below. Kept whole, spelled as `words` spells a question, it answers
+  // only to the phrase asked as a phrase ("when was I caught out").
   const add = (text: string): void => {
     const toks = tokenize(text);
     if (toks.length === 1) out.add(toks[0] as string);
+    else {
+      const phrase = words(text);
+      if (phrase.length > 1) out.add(phrase.join(" "));
+    }
   };
-  if (f.emotion !== OTHER_EMOTION) {
-    const entry = wheelEntry(f.emotion);
-    add(entry?.word ?? f.emotion.split(".").pop() ?? f.emotion);
+  const key = stampKey(f);
+  if (key !== OTHER_EMOTION) {
+    const entry = wheelEntry(key);
+    add(entry?.word ?? key.split(".").pop() ?? key);
     // Its group's word too (wheel v2): "when was I afraid" reaches a stamp of
     // scared, which sits under afraid (an alias of it on the first wheel).
     if (entry?.parent !== null && entry?.parent !== undefined) add(entry.parent);
@@ -119,9 +300,9 @@ export function feelingTokens(f: { core: string; emotion: string; other_word: st
     // `wounded` group is the page's "hurt", so "when was I hurt" reaches stung.
     const label = entry?.label ?? (entry?.parent ? wheelEntry(entry.parent)?.label : undefined);
     if (label !== undefined) add(label);
-    for (const [alias, key] of Object.entries(ALIASES)) if (key === f.emotion) add(alias);
+    for (const [alias, to] of Object.entries(ALIASES)) if (to === key) add(alias);
   }
-  for (const c of coresOfFeeling(f.core, f.emotion)) add(c);
+  for (const c of coresOfFeeling(f.core, key)) add(c);
   if (f.other_word !== null) {
     // The writer's own word — ONE word only (review of #293, B2). A phrase kept
     // as the word ("at the edge of something") would make "something" a
@@ -146,6 +327,19 @@ export interface FeelingAsk {
    *  ordinary cues — they can find a memory, never lead the answer. */
   readonly named: ReadonlySet<string>;
   readonly whose: FeelingWhose | null;
+  /**
+   * The cores the named words reach (2026-10-01, lane 6): each named word's
+   * home core, and a blend's second. A RANKED question's second tier — a stamp
+   * under one of these that answers to no named word ranks after every stamp
+   * that does. Empty when nothing is named.
+   */
+  readonly cores: ReadonlySet<string>;
+  /**
+   * The question asks for the STRONGEST, or over all time ("most", "ever",
+   * "strongest", "since", a superlative like "happiest"): a ranked answer is
+   * nominated by the stamps' recorded strength, not their softened strength.
+   */
+  readonly strongest: boolean;
 }
 
 /**
@@ -199,6 +393,8 @@ function aboutAPerson(toks: readonly string[], at: number, feelWord: boolean, na
     (SECOND.has(w) && (feelWord || !POSSESSIVE.has(w))) ||
     OWNER_WORDS.has(w) ||
     names.has(w) ||
+    // The owner's name in the possessive is a possessive: a person only beside a feel-word.
+    (feelWord && possessiveName(w, names)) ||
     (feelWord && PLURAL.has(w));
   for (let j = at - 1; j >= Math.max(0, at - BEFORE); j--) {
     const w = toks[j] as string;
@@ -230,17 +426,42 @@ export function readFeelingAsk(
   const toks = words(text);
   const names = new Set((input.ownerNames ?? []).flatMap((n) => words(n)).filter((w) => w.length >= 2));
   const named = new Set<string>();
+  const cores = new Set<string>();
   let ranked = false;
+  let strongest = false;
+  /** A word (or phrase) that names a feeling, read as `word` on the wheel. */
+  const name = (asked: string, word: string): void => {
+    named.add(asked);
+    named.add(word);
+    for (const c of coresOfWord(word)) cores.add(c);
+  };
+  // The wheel's PHRASES first ("caught out", "let down"), as two words in a
+  // row — else "caught" meets the everyday frame rule alone and "out" is
+  // nothing. A phrase followed by a determiner is a verb on a thing ("let
+  // down THE team").
+  const inPhrase = new Set<number>();
+  for (let i = 0; i + 1 < toks.length; i++) {
+    const key = WHEEL_PHRASE_KEYS.get(`${toks[i]} ${toks[i + 1]}`);
+    if (key === undefined || DETERMINERS.has(toks[i + 2] ?? "")) continue;
+    inPhrase.add(i);
+    inPhrase.add(i + 1);
+    name(`${toks[i]} ${toks[i + 1]}`, key);
+    if (aboutAPerson(toks, i, false, names) || aboutAPerson(toks, i + 1, false, names)) ranked = true;
+  }
   toks.forEach((w, i) => {
+    if (STRONGEST.has(w)) strongest = true;
+    if (inPhrase.has(i)) return;
     if (FEEL_WORDS.includes(w)) {
       if (OPINION.has(toks[i + 1] ?? "")) return; // "I feel like…", "I felt that…": an opinion
       if (aboutAPerson(toks, i, true, names)) ranked = true;
       return;
     }
-    if (w.length < minLength || !(WHEEL_VOCABULARY.has(w) || stored.has(w))) return;
+    if (w.length < minLength) return;
+    const read = feelingWord(w, stored);
+    if (read === null) return;
     if (DETERMINERS.has(toks[i + 1] ?? "")) return; // a verb on a thing, not a feeling
     // An everyday word is a feeling only in a feeling's frame ("I was content").
-    if (EVERYDAY_FEELING_WORDS.has(w)) {
+    if (EVERYDAY_FEELING_WORDS.has(w) || EVERYDAY_FEELING_WORDS.has(read.word)) {
       const before = [toks[i - 1] ?? "", toks[i - 2] ?? ""];
       const felt = before.some((b) => FEEL_WORDS.includes(b));
       if (!felt) {
@@ -251,8 +472,9 @@ export function readFeelingAsk(
         if (PREPOSITIONS.has(toks[i + 1] ?? "")) return;
       }
     }
-    named.add(w);
+    name(w, read.word);
+    if (read.superlative) strongest = true;
     if (aboutAPerson(toks, i, false, names)) ranked = true;
   });
-  return { ranked, named, whose: whoseAsked(text, input) };
+  return { ranked, named, whose: whoseAsked(text, input), cores, strongest };
 }

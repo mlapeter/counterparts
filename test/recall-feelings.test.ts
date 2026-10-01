@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Counterpart } from "../src/core/counterpart.js";
-import { TUNABLES as RECALL, feelingTokens, readFeelingAsk, whoseAsked } from "../src/core/recall/index.js";
+import { TUNABLES as RECALL, feelingTokens, feelingWord, readFeelingAsk, whoseAsked } from "../src/core/recall/index.js";
 import { deliberateRecall, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { buildArgv } from "../src/adapters/dashboard/web/actions.js";
@@ -147,16 +147,15 @@ describe("U13's two failing questions return the stamped memories", () => {
     // tender is a blend under sad; moved is its own word. Neither body says either.
     // Felt rows lead the tier the gate gave them, strongest first (review of
     // #293, S3 and R2: vivid; felt-quiet, quiet; felt-dim, dim). On this small
-    // fixture the gate leaves both stamped memories dim, so the one decoy it
-    // made quiet ("the times the tiles moved and the sad empty state") comes
-    // first, and every dim decoy follows them.
+    // fixture the gate leaves both stamped memories dim. The one decoy it made
+    // quiet ("the times the tiles moved and the sad empty state") was first
+    // until lane 6 (2026-10-01, item 3): nothing but the question's frame and
+    // feeling words reached it, so it follows every stamped row now.
     const rank: Record<string, number> = { vivid: 0, quiet: 1, dim: 2 };
-    const at = ids.indexOf(f.han);
-    expect(at).toBeGreaterThanOrEqual(0);
-    expect(ids[at + 1]).toBe(f.card);
-    const hanTier = rank[rows[at]?.tier ?? "dim"] as number;
-    for (const r of rows.slice(0, at)) expect(rank[r.tier] as number).toBeLessThan(hanTier);
-    for (const r of rows.slice(at + 2)) expect(rank[r.tier] as number).toBeGreaterThanOrEqual(hanTier);
+    expect(ids.slice(0, 2)).toEqual([f.han, f.card]);
+    const quietDecoy = f.decoys[4] as string;
+    expect(ids.indexOf(quietDecoy)).toBeGreaterThan(1);
+    expect(rank[rows[ids.indexOf(quietDecoy)]?.tier ?? "dim"]).toBe(rank["quiet"]);
     // A stamp the question did not name is not nominated.
     expect(ids).not.toContain(f.week);
   });
@@ -187,10 +186,13 @@ describe("item 1: a stamp answers to the words it was written in", () => {
     // The page calls sad's `wounded` group "hurt": its words answer to hurt too.
     expect([...feelingTokens({ core: "sad", emotion: "stung", other_word: null })].sort()).toEqual(["angry", "hurt", "sad", "stung", "wounded"]);
     expect([...feelingTokens({ core: "uneasy", emotion: "other", other_word: "jittery" })].sort()).toEqual(["jittery", "uneasy"]);
-    // A wheel word of more than one word answers only to its cores (wheel v2):
-    // "caught out" must not make "out" a feeling word for the whole store.
-    expect([...feelingTokens({ core: "uneasy", emotion: "caught out", other_word: null })].sort()).toEqual(["uneasy"]);
-    expect([...feelingTokens({ core: "uneasy", emotion: "sheepish", other_word: null })].sort()).toEqual(["sheepish", "uneasy"]);
+    // A wheel word of more than one word answers to the PHRASE, kept whole
+    // (lane 6), and its cores — never to its words: "caught out" must not make
+    // "out" a feeling word for the whole store.
+    expect([...feelingTokens({ core: "uneasy", emotion: "caught out", other_word: null })].sort()).toEqual(["caught out", "uneasy"]);
+    expect([...feelingTokens({ core: "uneasy", emotion: "sheepish", other_word: null })].sort()).toEqual(["caught out", "sheepish", "uneasy"]);
+    // A writer's own word that is on the wheel reads as that word (lane 6): its group, its home core too.
+    expect([...feelingTokens({ core: "sad", emotion: "other", other_word: "sheepish" })].sort()).toEqual(["caught out", "sad", "sheepish", "uneasy"]);
     // A phrase kept as the word answers only to its longer words.
     // Only a ONE-word own word answers: a phrase would make its words feeling words for the store.
     expect(feelingTokens({ core: "fear", emotion: "other", other_word: "at the edge of something" }).has("something")).toBe(false);
@@ -515,5 +517,162 @@ describe("R3: everyday phrasings do not rank; real feeling questions still do", 
     s.counterpart.store.addFeelings(scary, [{ whose: "self", core: "fear", emotion: "scared", strength: 0.8 }]);
     const out = deliberateRecall(s.counterpart, { question: "when was I afraid" }, { sessionId: "afraid", owner: true });
     expect(out.memories[0]?.id).toBe(scary);
+  });
+});
+
+// ── round 2 (2026-10-01, lane 6): any feeling word reaches its core; the
+// strongest over all time; memories about the feeling system don't crowd ──
+
+/** Filler, a few stamped memories of the uneasy core, and one UNSTAMPED memory
+ *  about the feeling system whose words are the question's. */
+function uneasyStore(c: Counterpart): { sheepish: string[]; wheelDoc: string; topical: string } {
+  const put = (body: string, kind: "self" | "fact" = "self"): string => c.store.put({ type: "memory", kind, body });
+  for (const body of FILLER) put(body, "fact");
+  const sheepish = [
+    put("The review found the test I had quietly skipped."),
+    put("I quoted the wrong release number back to him."),
+    put("The handoff I wrote named a file that never existed."),
+  ];
+  [0.6, 0.5, 0.4].forEach((strength, i) =>
+    c.store.addFeelings(sheepish[i] as string, [{ whose: "self", core: "uneasy", emotion: "sheepish", strength }]),
+  );
+  const wheelDoc = put(
+    "Feelings wheel notes: afraid, scared and frightened sit in the uneasy core; ashamed and guilty too. When was I afraid is a question the wheel answers.",
+    "fact",
+  );
+  const topical = put("The quarterly garden plan: tomatoes, beans, and a new trellis.", "fact");
+  return { sheepish, wheelDoc, topical };
+}
+
+describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
+  test("'when was I afraid' with no afraid stamp answers with the strongest uneasy ones, above the wheel's notes", () => {
+    const s = server();
+    const f = uneasyStore(s.counterpart);
+    const out = deliberateRecall(s.counterpart, { question: "when was I afraid" }, { sessionId: "l6a", owner: true });
+    const ids = out.memories.map((m) => m.id);
+    // All three, strongest first.
+    expect(ids.slice(0, 3)).toEqual(f.sheepish);
+    // The unstamped note full of the question's words comes after every stamped row (item 3).
+    const at = ids.indexOf(f.wheelDoc);
+    if (at >= 0) expect(at).toBeGreaterThan(2);
+  });
+
+  test("an exact stamp still leads: a weaker 'scared' stamp answers 'afraid' before stronger uneasy ones", () => {
+    const s = server();
+    const c = s.counterpart;
+    const f = uneasyStore(c);
+    const scared = c.store.put({ type: "memory", kind: "self", body: "The disk filled up halfway through the backup." });
+    c.store.addFeelings(scared, [{ whose: "self", core: "uneasy", emotion: "scared", strength: 0.3 }]);
+    const out = deliberateRecall(c, { question: "when was I afraid" }, { sessionId: "l6b", owner: true });
+    const ids = out.memories.map((m) => m.id);
+    expect(ids[0]).toBe(scared);
+    expect(ids.slice(1, 4)).toEqual(f.sheepish);
+    const built = c.recall.build({ sessionId: "l6b-lane", text: "when was I afraid", owner: true, feeling: { asker: "self" } });
+    expect(built.feeling?.pool).toBe(4);
+    expect(built.feeling?.core).toBe(3);
+    // The core tier brings no more cue than the weakest exact nomination (none of these bodies shares a word with the question).
+    const cue = new Map(built.decision.verdicts.map((v) => [v.id, v.cue]));
+    expect(cue.get(scared) as number).toBeGreaterThan(0);
+    for (const id of f.sheepish) expect(cue.get(id) as number).toBeCloseTo(cue.get(scared) as number, 9);
+  });
+
+  test("'ashamed or caught out': the phrase is read whole, and 'ashamed' alone reaches the core", () => {
+    const s = server();
+    const f = uneasyStore(s.counterpart);
+    const self = { asker: "self" as const };
+    const read = readFeelingAsk("when did I feel ashamed or caught out", self, new Set(), 3);
+    expect(read.ranked).toBe(true);
+    expect(read.named.has("caught out")).toBe(true);
+    expect(read.named.has("caught")).toBe(false);
+    expect([...read.cores]).toEqual(["uneasy"]);
+    for (const question of ["when did I feel ashamed or caught out", "when did I feel ashamed", "when was I embarrassed"]) {
+      const out = deliberateRecall(s.counterpart, { question }, { sessionId: "l6c", owner: true });
+      expect(out.memories.map((m) => m.id).slice(0, 3)).toEqual(f.sheepish);
+    }
+  });
+
+  test("feelingWord: everyday words and light stems land on the wheel, and nothing else does", () => {
+    expect(feelingWord("happiest")).toEqual({ word: "happy", superlative: true });
+    expect(feelingWord("happier")).toEqual({ word: "happy", superlative: false });
+    expect(feelingWord("sadness")?.word).toBe("sad");
+    expect(feelingWord("saddest")).toEqual({ word: "sad", superlative: true });
+    expect(feelingWord("closer")?.word).toBe("close");
+    expect(feelingWord("scary")?.word).toBe("scared");
+    expect(feelingWord("shame")?.word).toBe("ashamed");
+    expect(feelingWord("proudest")).toEqual({ word: "proud", superlative: true });
+    for (const w of ["interest", "panic", "hope", "love", "worry", "latest", "honest", "matter", "user", "constructor", "tostring", "hasownproperty"]) expect(feelingWord(w)).toBeNull();
+    expect(() => readFeelingAsk("how did I feel about the constructor refactor", { asker: "self" }, new Set(), 3)).not.toThrow();
+    const self = { asker: "self" as const };
+    for (const q of ["I hope the build passes", "why did the kernel panic", "upset the ordering of the list"]) {
+      expect(readFeelingAsk(q, self, new Set(), 3).ranked).toBe(false);
+    }
+    expect(readFeelingAsk("let down the drawbridge", self, new Set(), 3).named.size).toBe(0);
+  });
+
+  test("the owner's name in the possessive is the owner — beside a feel-word only", () => {
+    const input = { asker: "self" as const, ownerNames: ["mike"] };
+    expect(whoseAsked("what are Mike's feelings about the launch", input)).toBe("owner");
+    expect(readFeelingAsk("what are Mike's feelings about the launch", input, new Set(), 3).ranked).toBe(true);
+    expect(readFeelingAsk("Mike's happy path test fails", input, new Set(), 3).ranked).toBe(false);
+  });
+});
+
+describe("lane 6, item 2: 'most / ever / strongest / since' rank by recorded strength", () => {
+  test("an old strong feeling leads 'when was I happiest'; 'when was I happy' keeps the softened order", () => {
+    const s = server();
+    const c = s.counterpart;
+    for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
+    c.store.advanceClock("2026-08-01");
+    const old = c.store.put({ type: "memory", kind: "self", body: "The afternoon the first full week replayed cleanly." });
+    c.store.addFeelings(old, [{ whose: "self", core: "happy", emotion: "joyful", strength: 0.9 }]);
+    for (let d = 2; d <= 31; d++) c.store.advanceClock(`2026-08-${String(d).padStart(2, "0")}`);
+    for (let d = 1; d <= 15; d++) c.store.advanceClock(`2026-09-${String(d).padStart(2, "0")}`);
+    const fresh = c.store.put({ type: "memory", kind: "self", body: "The dashboard tile finally lined up on the phone." });
+    c.store.addFeelings(fresh, [{ whose: "self", core: "happy", emotion: "glad", strength: 0.5 }]);
+    const self = { asker: "self" as const };
+    expect(readFeelingAsk("when was I happiest", self, new Set(), 3).strongest).toBe(true);
+    expect(readFeelingAsk("what have I felt most strongly", self, new Set(), 3).strongest).toBe(true);
+    expect(readFeelingAsk("when was I happy", self, new Set(), 3).strongest).toBe(false);
+    const first = (question: string): string | undefined =>
+      deliberateRecall(c, { question }, { sessionId: "l6s", owner: true }).memories[0]?.id;
+    expect(first("when was I happiest")).toBe(old);
+    expect(first("what have I felt most strongly")).toBe(old);
+    expect(first("what have I ever felt happy about")).toBe(old);
+    // Softening is how a feeling fades, and an ordinary question keeps it.
+    expect(first("when was I happy")).toBe(fresh);
+  });
+});
+
+describe("lane 6, item 3: memories about the feeling system don't crowd a feeling question", () => {
+  test("an unstamped row only feeling words reached sits below every stamped row; a topic word keeps its place", () => {
+    const s = server();
+    const c = s.counterpart;
+    const f = uneasyStore(c);
+    const built = c.recall.build({ sessionId: "l6n", text: "when was I afraid", owner: true, feeling: { asker: "self" } });
+    const seen = new Set(built.decision.verdicts.map((v) => v.id));
+    expect(seen.has(f.wheelDoc)).toBe(true);
+    expect(built.feeling?.noTopic.has(f.wheelDoc)).toBe(true);
+    for (const id of f.sheepish) expect(built.feeling?.noTopic.has(id)).toBe(false);
+    // A topic word: the garden plan, asked about by its own word, is not "no topic".
+    const question = "how did I feel about the garden plan";
+    const topical = c.recall.build({ sessionId: "l6n2", text: question, owner: true, feeling: { asker: "self" } });
+    expect(topical.feeling?.ranked).toBe(true);
+    expect(topical.feeling?.noTopic.has(f.topical)).toBe(false);
+    // It is answered; whether a stamped row leads it is the gate's tier (R2), unchanged here.
+    const out = deliberateRecall(c, { question }, { sessionId: "l6n3", owner: true });
+    expect(out.memories.map((m) => m.id)).toContain(f.topical);
+  });
+
+  test("a question not about feeling is unchanged: 'what do I know about Han'", () => {
+    const s = server();
+    const f = seed(s.counterpart);
+    const question = "what do I know about Han";
+    const withLane = s.counterpart.recall.build({ sessionId: "cmp6", text: question, owner: true, feeling: { asker: "self", ownerNames: ["mike"] } });
+    const without = s.counterpart.recall.build({ sessionId: "cmp6", text: question, owner: true });
+    expect(withLane.feeling?.ranked).toBe(false);
+    expect(withLane.feeling?.noTopic.size).toBe(0);
+    const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
+    expect(strip(withLane.decision)).toEqual(strip(without.decision));
+    expect(deliberateRecall(s.counterpart, { question }, { sessionId: "cmp6", owner: true }).memories[0]?.id).toBe(f.han);
   });
 });

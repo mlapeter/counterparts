@@ -304,19 +304,29 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     2026-09-30, revised after the review of #293 — working default; `feeling-ask.ts`,
     `activate.ts`). Only when the turn carries a `feeling` ask, which only the deliberate
     path sets: the ambient turn, its affect gate (G10/G11) and mood-matching (G18) are
-    unchanged. A stamp answers to its emotion word, the aliases pointing at it, its wheel
-    core(s), and the writer's own word when that is ONE word. Two cases:
+    unchanged. A stamp answers to its emotion word (an `other` whose own word is on the
+    wheel reads as that word), its group's word, the aliases pointing at it, its wheel
+    core(s), and the writer's own word when that is ONE word; a wheel phrase ("caught out")
+    answers only as the whole phrase. A question word is read through the wheel, a
+    question-side everyday list (`EVERYDAY_TO_WHEEL`: shame, dread, relief…) and a light
+    stem (happiest, sadness), and the owner's name in the possessive is the owner. Two cases:
     **Ranked** — a real question about feeling: a feel-word (`FEEL_WORDS`) or a word naming
     a feeling, used about a PERSON (first person singular or second person, the owner by
     word or name, and "we" for a feel-word only; `detectAffect`'s look-back, widened two
-    words forward for "what moved ME"). The pool is the stamps its named words answer to,
+    words forward for "what moved ME"). The pool is the stamps its named words answer to
+    (tier 1), then the stamps under those words' home cores (tier 2, lane 6 2026-10-01),
     or every stamp when none is named, of the person asked about (first person is the
-    asker; nothing said, both). The strongest `FEELING_CANDIDATES_MAX` (6) memories by
-    SOFTENED strength are nominated with `FEELING_CUE_UNITS` (4) cue units × that strength,
+    asker; nothing said, both). The first `FEELING_CANDIDATES_MAX` (6) memories by tier,
+    then strength, then the newer stamp, are nominated with `FEELING_CUE_UNITS` (4) cue
+    units × that strength — a tier-2 stamp's cue capped at the weakest tier-1 nomination's.
+    The strength is SOFTENED, unless the question asks for the strongest or over all time
+    ("most", "ever", "strongest", "since", a superlative): then as recorded. They are
     appended after the cut (which is taken over the words' and meaning's rows, ranked
     without stamps, so it keeps what it keeps with no lane), and answered first within the
-    tier the gate gave them — vivid, felt-quiet, quiet, felt-dim, dim — strongest first,
-    exempt from the dim cap. **Named only** — a feeling word used about no one ("the happy path"): its stamps
+    tier the gate gave them, in the lane's order — vivid, felt-quiet, quiet, felt-dim, then
+    the rows NO TOPIC WORD reached (only the question's feeling and frame words, or its
+    meaning: `FeelingLane.noTopic`) whatever their tier, then dim — exempt from the dim
+    cap. **Named only** — a feeling word used about no one ("the happy path"): its stamps
     nominate their memories as an ordinary word would (its rarity among the stamps), and
     nothing is reordered. A feeling word followed by a determiner, a possessive or
     "it"/"them" is a verb on a thing ("moved THE parser", "moved MY parser") and names
