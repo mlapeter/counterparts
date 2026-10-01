@@ -203,8 +203,9 @@ describe("the self tab, round 3b", () => {
     expect(wakeLine(w).tone).toBe("green");
     expect(wakeLine({ ...w, bytes: 4000, budget: 9000 }).line).toBe("The wake fits: 4.0 KB of 9.0 KB, 5.0 KB room left");
     const full = wakeLine({ ok: true, bytes: 8900, budget: 9000, parts: [], trimmed: 3, trimmedFrom: ["nearby memories"] });
-    expect(full.tone).toBe("amber");
-    expect(full.line).toBe("The wake is full: 8.9 KB of 9.0 KB, and the last render left out 3 lines (nearby memories) to fit");
+    // A trim is the budget working (Mike, 2026-10-01: full is normal).
+    expect(full.tone).toBe("green");
+    expect(full.line).toBe("The wake is full — normal: 8.9 KB of 9.0 KB; 3 lines (nearby memories) left out to fit");
     expect(wakeLine({ ok: false }).tone).toBe("grey");
   });
 

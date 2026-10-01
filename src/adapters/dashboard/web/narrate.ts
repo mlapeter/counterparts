@@ -211,12 +211,15 @@ export const NARRATORS = {
   "dream.begun": (t) => {
     const waiting = n(t, "waiting") ?? 0;
     const agedOut = n(t, "agedOut") ?? 0;
+    // A floor is said as one: the queue was read only so deep (`readCapped`),
+    // or more aged out than one read holds (`agedOutAtLeast`).
+    const atLeast = (k: string): string => (t.p[k] === true ? "at least " : "");
     const tail = [
-      waiting > 0 ? `${waiting} more ${waiting === 1 ? "waits" : "wait"} for the next night` : "",
-      agedOut > 0 ? `${agedOut} grew too old to be dreamed and will fade as usual` : "",
+      waiting > 0 ? `${atLeast("readCapped")}${waiting} more ${waiting === 1 ? "waits" : "wait"} for the next night` : "",
+      agedOut > 0 ? `${atLeast("agedOutAtLeast")}${agedOut} grew too old to be dreamed and will fade as usual` : "",
     ].filter((x) => x !== "");
     return calm(
-      `I began to dream, over ${n(t, "fresh") ?? 0} new memories and ${n(t, "shown") ?? 0} in all.${tail.length > 0 ? ` ${tail.join("; ")}.` : ""}`,
+      `I began to dream, over ${n(t, "fresh") ?? 0} new memories and ${n(t, "shown") ?? 0} in all.${tail.length > 0 ? ` ${tail.join("; ").replace(/^a/, "A")}.` : ""}`,
     );
   },
   "dream.changed": (t) => {

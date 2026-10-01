@@ -44,7 +44,7 @@ const NAMES = {
   stance: "Mode",
   budget: "Time budget",
   retired: "Old settings",
-  lookups: "Looking things up whole",
+  lookups: "Looked up in dreams and reflections",
 };
 
 /**
@@ -109,14 +109,20 @@ export const PLAIN = {
     return s.slice(0, cut) + " — harmless; nothing to do";
   },
   // Doctor's Lookups line, in words: of the memories a dream (or a
-  // reflection) was shown only in part, how many it read whole.
-  lookups: (d) => {
+  // reflection) was shown only in part, how many it looked up (doctor's verb:
+  // `fit/index.ts#noteLookups` counts every one looked up, whole or not), over
+  // doctor's own window, with its nudge when none were.
+  lookups: (d, detail) => {
     if (!d || typeof d.dreamNights !== "number") return null;
     const part = (looked, offered, runs, one, many) =>
       runs === 0 ? "no " + one + " measured yet"
-        : looked + " of " + offered + " shown only in part were read whole, over " + runs + " " + (runs === 1 ? one : many);
-    return "dreams: " + part(d.dreamLooked, d.dreamOffered, d.dreamNights, "night", "nights") +
+        : looked + " of " + offered + " shown only in part were looked up, over " + runs + " " + (runs === 1 ? one : many);
+    const window = /^last \d+ lived days?/.exec(String(detail || ""));
+    const none = d.dreamNights + d.reflections > 0 && d.dreamOffered + d.reflectionOffered > 0 && d.dreamLooked + d.reflectionLooked === 0;
+    return (window ? window[0] + " — " : "") +
+      "dreams: " + part(d.dreamLooked, d.dreamOffered, d.dreamNights, "night", "nights") +
       "; reflections: " + part(d.reflectionLooked, d.reflectionOffered, d.reflections, "reflection", "reflections") +
+      (none ? ". None looked up yet: if that holds, the lines may be too thin or the lookup unclear" : "") +
       (d.floor ? " (at least: more rows than were read)" : "");
   },
 };
