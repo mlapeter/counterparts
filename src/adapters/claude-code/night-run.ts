@@ -143,7 +143,7 @@ export const NIGHT_MCP_SCRIPT = fileURLToPath(new URL("../mcp/bin/serve.ts", imp
 
 /**
  * THE ONE MCP SERVER THE CHILD LOADS (owner decision B): counterparts, as the
- * install registers it (`<runtime> run <serve.ts>`, the data dir and the
+ * install registers it (`<runtime> <scriptArgs(serve.ts)>`, the data dir and the
  * configuration on its environment), plus the launching session and its
  * directory pinned — so the server binds to the run's session whatever the
  * host passes through (review of #282, finding 1). No secret in it: paths and
@@ -265,7 +265,7 @@ export interface NightChildInput {
   readonly scope: string;
   /** The launching session: the child's MCP server is launched bound to it. */
   readonly session: string;
-  /** The runtime the MCP server runs under (`process.execPath`, bun). */
+  /** The runtime the MCP server runs under (`process.execPath`: bun or node, `runtime.ts`). */
   readonly runtime?: string;
   readonly configPath?: string;
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;

@@ -15,7 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
-import { nightMcpConfig } from "../src/adapters/claude-code/night-run.js";
+import { CATCH_UP_TOOLS } from "../src/adapters/claude-code/night-catch-up.js";
+import { nightMcpConfig, planNightChild } from "../src/adapters/claude-code/night-run.js";
 import { desktopEntry, desktopUnavailable } from "../src/adapters/cli/desktop.js";
 import {
   HOOK_SCRIPT,
@@ -168,6 +169,27 @@ describe("what install writes, and what reads it back", () => {
     const server = Object.values(night.mcpServers)[0];
     expect(server?.command).toBe(NODE);
     expect(server?.args.slice(0, 2)).toEqual(["--import", NODE_HOOKS]);
+  });
+
+  test("both night children (the dream and #308's catch-up) start the server through the seam", () => {
+    for (const tools of [undefined, CATCH_UP_TOOLS]) {
+      const plan = planNightChild({
+        config: { dataDir: "/st" },
+        run: "r",
+        prompt: "p",
+        scope: "/p",
+        session: "s",
+        runtime: NODE,
+        baseEnv: {},
+        ...(tools === undefined ? {} : { tools }),
+      });
+      const config = JSON.parse(plan.args[plan.args.indexOf("--mcp-config") + 1] ?? "{}") as {
+        mcpServers: Record<string, { command: string; args: string[] }>;
+      };
+      const server = Object.values(config.mcpServers)[0];
+      expect(server?.command).toBe(NODE);
+      expect(server?.args).toEqual(["--import", NODE_HOOKS, MCP_SCRIPT]);
+    }
   });
 
   test("Claude Desktop is macOS only here: Linux is told so, by name", () => {
