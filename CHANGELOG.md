@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Asking about your most recent session now also brings back the notes it wrote during
+  its very first turn, before the memory server knew which session it was.
+
 ## 0.3.10 — 2026-09-30
 
 Feelings now sit on a new wheel of seven cores — happy, warm, calm, curious, sad,

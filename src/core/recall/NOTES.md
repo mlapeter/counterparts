@@ -882,3 +882,10 @@ memories under the id.
 - **Not built:** nothing is backfilled onto the rows (the window could stamp them at the
   bind, but an inference written down reads later as a fact). An unbound asker cannot tell
   its own live session from a sibling's; the lead already prefers the one Last here names.
+- **The stretch opens at the registry's start** (2026-10-01, `deliberate#startedHere`). The
+  captured stretch begins at the first turn-end, so a note written during a session's first
+  turn fell before it and was left out. Each session's stretch here now opens at its
+  registry `startedAt` when the record names this directory (the MCP server reads it and
+  passes `sessionStartedAt`); the start only ever moves a stretch earlier, and every
+  session gets it, so the "no one else at work here" check widens with the window. The
+  registry keeps a week; past that the captured stretch alone is the window, as before.
