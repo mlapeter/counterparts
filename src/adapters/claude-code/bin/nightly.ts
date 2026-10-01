@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     scope: pinnedScope() ?? "",
     kind: readKind(process.env[NIGHT_KIND_ENV]),
     configPath: choice.path,
+    onEvent: log.event,
   });
   log.end(out.state, {
     run: out.run,

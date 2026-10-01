@@ -24,6 +24,7 @@
  * to the handoff — a fortnight's unfinished work outranks orientation.
  */
 import type { Store } from "../store/index.js";
+import { localDate } from "../time.js";
 import { isKnownSession, isModelId } from "../types.js";
 import { HANDOFF_EXCERPT_BYTES, HANDOFF_LIFE_DAYS, excerpt, flatten, sessionWords } from "./index.js";
 
@@ -210,6 +211,34 @@ export function lastHereBlock(
     lines.push(`+${rest.length} more here on ${first.date}: ${ids.join(", ")}${unnamed > 0 ? `, and ${unnamed} more` : ""}.`);
   }
   return lines.map(flatten).join("\n");
+}
+
+/** How many of yesterday's chapters the "Yesterday" line names by title. */
+export const YESTERDAY_SHOWN = 4;
+
+/** A title's cap in the "Yesterday" line; the id is the door to the rest. */
+export const YESTERDAY_TITLE_BYTES = 60;
+
+/**
+ * THE "YESTERDAY" LINE (2026-10-01, build 3) — store-wide, from the chapters
+ * written on `date` (a chapter's first or latest write fell on it, in the
+ * store's zone), oldest first, each by its title and id; the rest by count.
+ * One line, CARRYING ITS DATE — "Yesterday, 09-30: …" — because the wake is
+ * composed at a boundary and served as it stands until the next: a bundle
+ * built late at night is read in the morning, and a date stays true where
+ * "yesterday" alone would not. No model run: titles and ids only. Null when
+ * that day has no chapter.
+ */
+export function yesterdayLine(chapters: ReadonlyMap<string, ChapterHere>, date: string, zone: string): string | null {
+  const day = [...chapters.values()]
+    .filter((c) => localDate(c.writtenAt, zone) === date || localDate(c.createdAt, zone) === date)
+    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  if (day.length === 0) return null;
+  const shown = day
+    .slice(0, YESTERDAY_SHOWN)
+    .map((c) => (c.title === null ? c.id : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id})`));
+  const rest = day.length - shown.length;
+  return flatten(`Yesterday, ${date.slice(5)}: ${shown.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`);
 }
 
 /**

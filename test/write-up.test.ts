@@ -159,6 +159,8 @@ function ended(
     bytes?: number;
     captures?: number;
     answered?: boolean;
+    /** False: no replies captured (a test about part sizes). */
+    replies?: boolean;
   },
 ): void {
   const scope = opts.scope ?? PROJ;
@@ -169,7 +171,7 @@ function ended(
   for (let i = 0; i < captures; i++) {
     s.set(opts.at + i * PIECE_GAP);
     turns.push({ role: "user", text: wordsOf(`${id} #${String(i)}`, per) });
-    turns.push({ role: "assistant", text: `(${id} #${String(i)}) understood.` });
+    if (opts.replies !== false) turns.push({ role: "assistant", text: `(${id} #${String(i)}) understood.` });
     s.c.captureSpans({ session: id, scope, turns: [...turns] });
   }
   if (opts.asked !== false) expect(s.c.episodeAsk(id, { turns: 9, bytes: 6_000 }).asked).toBe(true);
@@ -404,7 +406,8 @@ describe("the pointer: the next session start in that project is pointed at it",
     const m = /, part 1 of (\d+)\./.exec(one);
     const n = Number(m?.[1]);
     expect(n).toBe(3);
-    expect(one).toContain("~60 KB");
+    // ~60 KB said to it, and its twelve short replies (2026-10-01).
+    expect(one).toContain("~61 KB");
     expect(start("new-2").ask ?? "").toContain(`part 1 of ${String(n)}`);
     // The day's allowance is two: the third start that day is not pointed.
     const spent = start("new-3");
@@ -506,9 +509,9 @@ describe("the pointer: the next session start in that project is pointed at it",
 
   test("the parts are cut on entry boundaries, and an entry longer than a part is cut at a character", () => {
     const entries = [
-      { text: "a".repeat(40), kept: false, jot: false },
-      { text: "b".repeat(40), kept: true, jot: false },
-      { text: "é".repeat(100), kept: false, jot: true },
+      { text: "a".repeat(40), kept: false, jot: false, at: 1 },
+      { text: "b".repeat(40), kept: true, jot: false, at: 2 },
+      { text: "é".repeat(100), kept: false, jot: true, at: 3 },
     ];
     const parts = writeUpParts(entries, 90);
     for (const p of parts) expect(Buffer.byteLength(p, "utf8")).toBeLessThanOrEqual(90);
@@ -570,12 +573,13 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(readSession(storeDir, "new-1")?.nothingNewAt).toBeUndefined();
   });
 
-  test("a fetch returns the words — never the replies — and fetching again hands back the same part", async () => {
+  test("a fetch returns the words AND its replies, labelled (2026-10-01) — and fetching again hands back the same part", async () => {
     seeded();
     const { s, fetched } = await pointAndFetch("new-1");
     expect(fetched).toMatchObject({ reason: "part", ended: "old-1", part: 1, of: 1 });
     expect(String(fetched["text"])).toContain(wordsOf("old-1 #0", 60));
-    expect(String(fetched["text"])).not.toContain("understood.");
+    expect(String(fetched["text"])).toContain("[its reply] (old-1 #0) understood.");
+    expect(String(fetched["next"])).toContain("second-hand");
     expect(String(fetched["next"])).toContain("writeUp: old-1, part: 1");
     expect(readSession(storeDir, "new-1")?.writeUpFor).toEqual({ session: "old-1", part: 1 });
     const again = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1" }));
@@ -745,7 +749,7 @@ describe("the door: `session_end` with `writeUp`", () => {
 
   test("near the 24 KB boundary, a failed final mark is still finished by the next fetch — the kept marks do not add a part (m-B)", async () => {
     const seed = seeder();
-    ended(seed, "near", { at: Date.now() - 2 * DAY, bytes: 23_200, captures: 60 });
+    ended(seed, "near", { at: Date.now() - 2 * DAY, bytes: 23_200, captures: 60, replies: false });
     seed.done();
     const first = start("new-1").ask ?? "";
     expect(first).toContain("writeUp: near");
@@ -813,7 +817,7 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(o.counterpart.spans.writeUps(PROJ)).toEqual([]);
   });
 
-  test("an answer mints authored memories under the WRITING session, marks the old one, and a second is refused", async () => {
+  test("an answer mints authored memories through the WRITING session, filed as the OLD one's, second-hand and dated the day it was lived; marks it; a second is refused", async () => {
     seeded();
     const { s } = await pointAndFetch("new-1");
     const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", part: 1, memories: [MEMORY] }));
@@ -826,7 +830,12 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(records.some((p) => p.session === "old-1")).toBe(false);
     const id = (out["outcomes"] as { id?: string }[])[0]?.id as string;
     expect(s.counterpart.store.read(id).doc.body).toContain("relief valve");
-    expect(s.counterpart.store.row(id)).toMatchObject({ source: "authored", origin_session: "new-1" });
+    // THE OLD SESSION'S MEMORY (2026-10-01): its origin, the day it was lived
+    // as the happened date, the learned date the day it was written, and
+    // marked second-hand with its writer.
+    const row = s.counterpart.store.row(id);
+    expect(row).toMatchObject({ source: "authored", origin_session: "old-1", happened_on: localDate(Date.now() - 2 * DAY + 5 * PIECE_GAP), learned_on: TODAY() });
+    expect(JSON.parse(row?.meta ?? "{}")).toMatchObject({ secondHand: true, writtenUpBy: "new-1" });
 
     expect(s.counterpart.spans.writeUps(PROJ).map((w) => [w.session, w.by])).toEqual([["old-1", "next-session"]]);
     expect(Object.keys(readWriteUpProgress(s.counterpart.store)).filter((k) => k.startsWith("old-1|"))).toEqual([]);

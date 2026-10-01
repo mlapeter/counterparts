@@ -318,6 +318,15 @@ export interface BriefingRequest {
    * MINOR-D). Absent means the caller did not say, which reads as "no page".
    */
   readonly pageExists?: boolean;
+  /**
+   * THE "YESTERDAY" LINE (2026-10-01, build 3): one line, already composed and
+   * dated by the caller — yesterday's chapter titles with their ids, so a wake
+   * built at night still reads right in the morning. Furniture, like the page:
+   * no `- ` bullet, not in `counts`, printed under the framing line, and paid
+   * for out of the same budget (the lanes trim to make room). Dropped when even
+   * the floor would not fit with it. Absent: no line.
+   */
+  readonly yesterday?: string;
 }
 
 export interface TrimEvent {
@@ -490,6 +499,11 @@ export function elementLine(item: Ranked, resolve: Resolve): string {
 
 type Kept = Record<LaneName, Ranked[]>;
 
+/** Every lane empty — the floor a composition cannot go below. */
+function emptyKept(): Kept {
+  return { identity: [], craft: [], threads: [], hints: [], horizon: [] };
+}
+
 function emptyCounts(): Record<LaneName, number> {
   return { identity: 0, craft: 0, threads: 0, hints: 0, horizon: 0 };
 }
@@ -522,6 +536,8 @@ export function compose(
   identity?: IdentityBlock,
   /** A lane's "N more" line (`moreLine`), printed under its elements. */
   more: Partial<Record<LaneName, string>> = {},
+  /** The "Yesterday" line (`BriefingRequest.yesterday`), under the framing. */
+  yesterday?: string,
 ): Composed {
   const counts = emptyCounts();
   for (const lane of LANE_ORDER) counts[lane] = kept[lane].length;
@@ -539,6 +555,7 @@ export function compose(
 
   const build = (bytes: string): string => {
     const lines: string[] = [headerLine(day, elements, bytes), FRAMING.context];
+    if (yesterday !== undefined && yesterday.length > 0) lines.push(flatten(yesterday));
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
       if (lane === "identity") {
@@ -644,13 +661,14 @@ function offerLeftover(
   resolve: Resolve,
   coreName: string | undefined,
   identity: IdentityBlock,
+  yesterday?: string,
 ): Composed {
   let current = composed;
   while (held.length > 0) {
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve, coreName, identity);
+    const candidate = compose(kept, req.day, resolve, coreName, identity, {}, yesterday);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -700,6 +718,7 @@ function withMoreLines(
     resolve: Resolve;
     coreName: string | undefined;
     identity: IdentityBlock;
+    yesterday?: string;
   },
 ): { composed: Composed; more: Partial<Record<LaneName, number>> } {
   let current = composed;
@@ -709,7 +728,7 @@ function withMoreLines(
     const ids = ctx.lost[lane];
     if (ids === undefined || ids.length === 0) continue;
     lines[lane] = moreLine(lane, ids);
-    const candidate = compose(ctx.kept, ctx.req.day, ctx.resolve, ctx.coreName, ctx.identity, lines);
+    const candidate = compose(ctx.kept, ctx.req.day, ctx.resolve, ctx.coreName, ctx.identity, lines, ctx.yesterday);
     if (candidate.bytes > ctx.req.budgetBytes) {
       delete lines[lane];
       continue;
@@ -800,9 +819,18 @@ export function render(
   // every other lane is already gone. Held-back elements are not trimmed —
   // nothing is dropped here, and `held` is offered the leftover below.
   const held = withheldForShare(kept, req.budgetBytes, resolve, t);
+  // THE "YESTERDAY" LINE rides only while the FLOOR — no element at all — fits
+  // with it: it is furniture the trim loop cannot pop, and a ceiling too small
+  // for it is told nothing rather than published over budget.
+  const yesterday =
+    req.yesterday !== undefined &&
+    req.yesterday.length > 0 &&
+    compose(emptyKept(), req.day, resolve, coreName, identity, {}, req.yesterday).bytes <= req.budgetBytes
+      ? req.yesterday
+      : undefined;
 
   for (;;) {
-    const c = compose(kept, req.day, resolve, coreName, identity);
+    const c = compose(kept, req.day, resolve, coreName, identity, {}, yesterday);
     const fits = c.bytes <= req.budgetBytes;
     let cut: TrimEvent | null = null;
     if (!fits) {
@@ -822,7 +850,7 @@ export function render(
       // the other lanes are all present and the budget is still not spent, the
       // held-back identity elements take it back, in rank order, whole.
       const offered =
-        trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName, identity) : c;
+        trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName, identity, yesterday) : c;
       // THE "N MORE" LINES, last: they take only room nothing else wanted.
       const told = withMoreLines(offered, {
         kept,
@@ -831,6 +859,7 @@ export function render(
         resolve,
         coreName,
         identity,
+        ...(yesterday === undefined ? {} : { yesterday }),
       });
       const composed = told.composed;
       return {

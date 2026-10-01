@@ -2398,6 +2398,9 @@ export class McpServer {
      *  but a GRANTED write-up (`sessions.ts#SessionRecord.mayWriteUp`), whose
      *  memories go under the scope the subject was lived in. */
     scope?: string,
+    /** A WRITE-UP's memories (2026-10-01): whose stretch they write up and the
+     *  day it was lived — carried on each memory, marked second-hand. */
+    writeUp?: { readonly session: string; readonly happenedOn: string | null },
   ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
     const entries: Record<string, unknown>[] = [];
     const feelingsOf: FeelingsRead[] = [];
@@ -2474,6 +2477,7 @@ export class McpServer {
           scope: scope ?? this.scope,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
+          ...(writeUp === undefined ? {} : { writeUp }),
         });
       } catch (err) {
         // Isolation, not a lost dump: this entry failed, the rest still run.
@@ -2523,7 +2527,7 @@ export class McpServer {
       session,
       now: this.nowFn(),
       args,
-      deposit: (raw, cover, scope) => this.depositEntries(raw, session, cover, scope),
+      deposit: (raw, cover, scope, writeUp) => this.depositEntries(raw, session, cover, scope, writeUp),
     });
     const body = out.body;
     // The ref is the ENDED session's id only when it is one this registry

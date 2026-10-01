@@ -739,7 +739,7 @@ const SESSION_END: ToolSpec = {
       writeUp: {
         type: "string",
         description:
-          "Only when a session-start write-up pointer named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id, and the memories are this session's. Not with `handoff`.",
+          "Only when a session-start write-up pointer (or the nightly run's prompt) named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it, with its own replies labelled — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id; the memories are filed as that session's, written up second-hand. Not with `handoff`.",
       },
       part: {
         type: "integer",

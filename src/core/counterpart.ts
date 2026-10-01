@@ -126,9 +126,9 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, chaptersBySession, chaptersHere, lastHereLadder } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, chaptersBySession, chaptersHere, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
-import { localStamp, localStampAfter } from "./time.js";
+import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
 import { leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
 import {
@@ -558,6 +558,15 @@ export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
  */
 export const WRITE_UP_FAILED_EVENT = "adapter.writeup.failed";
 /**
+ * THE NIGHTLY RUN'S CATCH-UP (2026-10-01, build 3): one row per run that had
+ * anything owed — how many sessions it was granted, how many it wrote up, how
+ * many parts, and how many it left owed (the night's bound, or a session it
+ * did not finish). Ids and counts only. Written by the night's own process
+ * (`adapters/claude-code/night-run.ts`); read by doctor's Nightly and
+ * Write-ups lines.
+ */
+export const NIGHT_WRITE_UP_EVENT = "adapter.night.writeup";
+/**
  * A TURN'S CAPTURE THAT FAILED (2026-09-30): the span buffer would not take
  * the turn (`remember/spans.ts` — a failed write, or the outermost swallow).
  * Written by `captureSpans`, which is where a store is. Code and site, never
@@ -857,6 +866,10 @@ export interface SessionEndDepositContext extends DepositContext {
    *  SubmitContext.cover`. Absent: the depositing session's own (every caller
    *  but the next-session write-up's door). */
   cover?: false | { readonly session: string };
+  /** A WRITE-UP's deposit (2026-10-01): the memory is that session's, lived on
+   *  `happenedOn`, and marked second-hand (`mint.ts#MintOptions.writeUp`).
+   *  Absent: the depositing session's own memory, as ever. */
+  writeUp?: { readonly session: string; readonly happenedOn: string | null };
 }
 
 export type DepositReason =
@@ -1937,6 +1950,22 @@ export class Counterpart {
     const only = new Set(all.keys());
     const sessions = new Map(sessionsHere(this.spans, scope, { only }).map((s) => [s.session, s] as const));
     return chaptersHere(all, { scope, claimed: chapterClaims(this.spans, scope), sessions }, day, { reader });
+  }
+
+  /**
+   * THE WAKE'S "YESTERDAY" LINE (2026-10-01, build 3), for a render whose
+   * calendar date is `at`: the chapters written the day before, by title and
+   * id, the date in the line (`handoff/last-here.ts#yesterdayLine`). Undefined
+   * without a date or a chapter that day; never throws — a store that will not
+   * answer composes the wake without it.
+   */
+  private yesterdayFor(at: string | undefined): string | undefined {
+    if (at === undefined || !isDay(at)) return undefined;
+    try {
+      return yesterdayLine(this.chaptersInWindow(this.store.livedDay()), addDays(at, -1), this.store.zone()) ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Every session's latest chapter among the episodes born inside the
@@ -3547,9 +3576,11 @@ export class Counterpart {
       this.emit("counterpart.episode.reconcile.failed", undefined, { code: errCode(err) });
     }
 
+    const yesterday = this.yesterdayFor(input.at);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
+      ...(yesterday === undefined ? {} : { yesterday }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // The PHYSICS date key, and the host's to supply — every live entry point
@@ -3940,9 +3971,11 @@ export class Counterpart {
       };
     }
     const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes), 0);
+    const yesterday = this.yesterdayFor(input.at);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
+      ...(yesterday === undefined ? {} : { yesterday }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // Read before the render, as the boundary reads it (`self/behind.ts`).
@@ -4872,6 +4905,7 @@ export class Counterpart {
       self: this.self,
       channel: "authored",
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      ...(ctx.writeUp === undefined ? {} : { writeUp: ctx.writeUp }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // BEFORE the revision dispatch: a current-state target is superseded there,

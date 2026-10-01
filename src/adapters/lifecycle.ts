@@ -295,7 +295,7 @@ export function writeUpPointer(input: {
   const part = input.of <= 1 ? "" : `, part ${String(input.part)} of ${String(input.of)}`;
   return [
     WRITE_UP_OPEN,
-    `${some}; the oldest, from ${input.endedOn}, left ${size} of what was said to it${part}. To write it up, call ${WRITE_UP_TOOL} with session: ${input.live}, writeUp: ${input.ended} and no memories to get the words, then again with the memories worth keeping (or memories: []).${input.short === true ? ` ${WRITE_UP_SHORT_LINE}` : ""}`,
+    `${some}; the oldest, from ${input.endedOn}, left ${size} of what was said there${part}. To write it up, call ${WRITE_UP_TOOL} with session: ${input.live}, writeUp: ${input.ended} and no memories to get the words, then again with the memories worth keeping (or memories: []).${input.short === true ? ` ${WRITE_UP_SHORT_LINE}` : ""}`,
     WRITE_UP_CLOSE,
   ].join("\n");
 }

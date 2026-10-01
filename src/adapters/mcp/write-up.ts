@@ -98,11 +98,13 @@ import { WRITE_UP_BY, recordWriteUp } from "../../core/remember/write-up-seam.js
 import type { WriteUpReason } from "../../core/remember/write-up-seam.js";
 import { calendarDate } from "../../core/self/index.js";
 import {
+  NIGHT_RUNNER_PREFIX,
   WRITE_UP_KEPT_MARK,
   WRITE_UP_PART_BYTES,
+  WRITE_UP_REPLY_MARK,
   isSessionId,
+  liveClaim,
   markWriteUpFetched,
-  owedWriteUps,
   progressKey,
   readSession,
   readWriteUpProgress,
@@ -110,6 +112,7 @@ import {
   saveWriteUpProgress,
   writeUpEntries,
   writeUpParts,
+  writeUpPartsDated,
   writeUpPlan,
   writeUpStanding,
 } from "../sessions.js";
@@ -130,6 +133,8 @@ export const WRITE_UP_REFUSALS = [
   "memories-required",
   "nothing-landed",
   "io-failed",
+  "claimed",
+  "allowance-spent",
 ] as const;
 export type WriteUpRefusal = (typeof WRITE_UP_REFUSALS)[number];
 
@@ -162,7 +167,11 @@ export interface WriteUpDoorInput {
   readonly deposit: (
     raw: readonly unknown[],
     cover: false | { readonly session: string },
-    scope?: string,
+    scope: string | undefined,
+    /** Whose stretch the memories write up, and the day it was LIVED
+     *  (2026-10-01): each memory carries that session and date, marked
+     *  second-hand (`SessionEndDepositContext.writeUp`). */
+    writeUp: { readonly session: string; readonly happenedOn: string | null },
   ) => Promise<WriteUpDeposits>;
 }
 
@@ -233,29 +242,58 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
   // are filed where the subject was lived (`here`).
   let st: Standing;
   if (record?.mayWriteUp?.includes(ended) === true) {
-    const subject = readSession(input.registryDir, ended);
-    if (subject === null) return refused("unknown-session", { writeUp: ended });
-    if (subject.endedAt === null) {
-      return refused("live-session", { writeUp: ended, detail: "That session has not ended. It is written up once it has." });
+    // "ENDED" IS THE LEDGER'S WORD (2026-10-01, #289's evidence), not the
+    // registry's `endedAt`: a session that crashed with no end, and captured
+    // nothing since the date changed, is not at work — `writeUpStanding`'s
+    // `live-session` is exactly "still at work". And no registry record is
+    // needed: where the subject was lived is read off the buffer.
+    // NO FULL-FIRST GATE here: the launcher chose the subjects (the pointer's
+    // rotation is for a session that can be offered only one), so a small
+    // debt is not refused for a larger one waiting elsewhere.
+    const held = plan.find((h) => h.session === ended);
+    const subject = held === undefined ? readSession(input.registryDir, ended) : null;
+    const scopes = held?.scopes ?? (subject === null ? [] : [subject.scope]);
+    if (scopes.length === 0) return refused("unknown-session", { writeUp: ended });
+    let found: Extract<ReturnType<typeof writeUpStanding>, { status: "owed" }> | null = null;
+    let first: ReturnType<typeof writeUpStanding> | null = null;
+    for (const scope of scopes) {
+      const s = writeUpStanding(plan, input.registryDir, ended, scope, input.now, { progress: all });
+      if (s.status === "owed") {
+        found = s;
+        break;
+      }
+      first ??= s;
     }
-    const owed = owedWriteUps(plan, input.registryDir, subject.scope, input.now, {
-      exclude: input.session,
-      progress: all,
-    }).find((o) => o.held.session === ended);
-    if (owed === undefined) {
-      // Not owed: say why, by the same function the ordinary path asks.
-      const why = writeUpStanding(plan, input.registryDir, ended, subject.scope, input.now, { progress: all });
+    if (found === null) {
+      // NOT OWED, AND SAID WHY — every arm by name, never a bare refusal.
+      const why = first ?? { status: "unknown-session" as const };
       if (why.status === "owes-nothing") return refused("owes-nothing", { writeUp: ended, why: why.why });
-      return refused(why.status === "owed" ? "owes-nothing" : why.status, { writeUp: ended });
+      if (why.status === "live-session") {
+        return refused("live-session", { writeUp: ended, detail: "That session is still at work today. It is written up once it is not." });
+      }
+      return refused(why.status, { writeUp: ended });
     }
-    const key = progressKey(ended, owed.here);
-    st = { held: owed.held, here: owed.here, key, progress: all[key], all, granted: true };
+    const key = progressKey(ended, found.here);
+    st = { held: found.held, here: found.here, key, progress: all[key], all, granted: true };
   } else {
     const standing = writeUpStanding(plan, input.registryDir, ended, input.scope, input.now, { progress: all });
     if (standing.status === "owes-nothing") return refused("owes-nothing", { writeUp: ended, why: standing.why });
     if (standing.status !== "owed") return refused(standing.status, { writeUp: ended });
     const key = progressKey(ended, standing.here);
     st = { held: standing.held, here: standing.here, key, progress: all[key], all, granted: false };
+  }
+
+  // CLAIM-FIRST (2026-10-01): another writer holds this stretch right now — the
+  // nightly run, or a session that fetched it — so neither a fetch nor an
+  // answer from here goes through. Two writers never write the same stretch.
+  const held = liveClaim(st.progress, input.now);
+  if (held !== null && held.by !== input.session) {
+    return refused("claimed", {
+      writeUp: ended,
+      detail: held.by.startsWith(NIGHT_RUNNER_PREFIX)
+        ? "The nightly run is writing that session up now. Nothing to do here."
+        : "Another session is writing that session up now. Nothing to do here.",
+    });
   }
 
   const mine = record?.writeUpFor?.session === ended ? record.writeUpFor : undefined;
@@ -291,25 +329,44 @@ async function handOver(
   if (p !== undefined && p.answer !== undefined && p.waiting !== true) {
     return finish(input, ended, st, p.parts, p.answer, NO_DEPOSITS, true);
   }
-  if (mine?.answer !== undefined) {
+  // ONE PART PER SESSION START on the ordinary path. A GRANTED runner goes on
+  // to the next part once its last one came back (2026-10-01): its bound is
+  // the launcher's allowance (`claim.upTo`), not a session start.
+  const answered = mine?.answer !== undefined && (p?.done ?? 0) >= mine.part;
+  if (mine?.answer !== undefined && !(st.granted && answered)) {
     return refused("part-already-written", {
       writeUp: ended,
       part: mine.part,
       detail: "This session has written up its part. The next part is handed over at a later session start here.",
     });
   }
+  const current = st.granted && answered ? undefined : mine;
   const chunk = p?.chunk ?? WRITE_UP_PART_BYTES;
   const parts = writeUpParts(writeUpEntries(counterpart.spans, { session: ended, scopes: [st.here] }), chunk);
   if (parts.length === 0) return refused("owes-nothing", { writeUp: ended, why: "no-text" });
   // The same part again when this session fetched and has not answered;
   // otherwise the next one not yet written.
-  const part = mine?.part ?? Math.min((p?.done ?? 0) + 1, parts.length);
+  const part = current?.part ?? Math.min((p?.done ?? 0) + 1, parts.length);
+  // THE NIGHT'S ALLOWANCE for this subject, set by the launcher: past it, the
+  // rest is left owed — for a later night, or a session in its directory.
+  const own = liveClaim(p, input.now);
+  const upTo = own !== null && own.by === input.session ? own.upTo : undefined;
+  if (upTo !== undefined && part > upTo) {
+    return refused("allowance-spent", {
+      writeUp: ended,
+      part,
+      of: parts.length,
+      detail: "Tonight's allowance for that session is spent. The rest stays owed, for a later night or a session in its directory.",
+    });
+  }
   const next: WriteUpProgress = {
     ...(p ?? {}),
     chunk,
     parts: parts.length,
     done: Math.min(p?.done ?? 0, parts.length),
     handedAt: input.now,
+    // CLAIMED BY THIS SESSION, from the fetch until it is written (2026-10-01).
+    claim: { by: input.session, at: input.now, ...(upTo === undefined ? {} : { upTo }) },
   };
   if (!saveWriteUpProgress(counterpart.store, st.key, next)) return refused("io-failed", { writeUp: ended });
   if (!markWriteUpFetched(input.registryDir, input.session, { session: ended, part })) {
@@ -329,9 +386,15 @@ async function handOver(
       next:
         `Hand back what is worth keeping from this part with session_end: session: ${input.session}, ` +
         `writeUp: ${ended}, part: ${String(part)}, memories: [...] — in your own words, as this session's. ` +
-        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up.` +
-        (part < parts.length ? " The rest comes at later session starts here." : ""),
-      // What was said to that session here, and what it jotted. Never its replies.
+        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up. ` +
+        `Lines marked ${WRITE_UP_REPLY_MARK} are what that session said back — context for what was said to it; you are writing it up second-hand.` +
+        (part < parts.length
+          ? st.granted
+            ? " Then fetch the next part the same way (writeUp and no memories)."
+            : " The rest comes at later session starts here."
+          : ""),
+      // What was said to that session here, what it jotted, and its own
+      // replies, labelled (2026-10-01).
       text: parts[part - 1] as string,
     },
   };
@@ -375,10 +438,19 @@ async function takeBack(
   // never the writer's own. On the LAST part here, the ended session's words in
   // this project — every part has now been served, so all of them were read;
   // on an earlier part, none, or parts not yet served would read as kept.
+  // THE DAY THE PART WAS LIVED (2026-10-01): its latest piece's date, in the
+  // store's zone — recorded as each memory's happened date, while its learned
+  // date stays the day it is written.
+  const dated = writeUpPartsDated(writeUpEntries(counterpart.spans, { session: ended, scopes: [st.here] }), p.chunk);
+  const livedAt = dated[part - 1]?.lastAt ?? st.held.clockFrom;
+  const happenedOn = livedAt > 0 ? calendarDate(livedAt, counterpart.store.zone()) : null;
   const deposits =
     raw.length === 0
       ? NO_DEPOSITS
-      : await input.deposit(raw, final ? { session: ended } : false, st.granted ? st.here : undefined);
+      : await input.deposit(raw, final ? { session: ended } : false, st.granted ? st.here : undefined, {
+          session: ended,
+          happenedOn,
+        });
   if (said2 === "memories" && deposits.deposited === 0 && deposits.duplicates === 0) {
     return {
       reason: "nothing-landed",
@@ -398,7 +470,12 @@ async function takeBack(
   }
   const answered = markWriteUpFetched(input.registryDir, input.session, { session: ended, part, answer: said2 });
   if (!final) {
-    const advanced = saveWriteUpProgress(counterpart.store, st.key, { ...p, done: part });
+    // An ordinary writer is done with its one part: its claim is let go, so
+    // the next start here can be pointed at the rest. A granted runner keeps
+    // its claim and goes on (2026-10-01).
+    const { claim, ...rest } = p;
+    const kept = st.granted && claim !== undefined ? { ...rest, claim: { ...claim, at: input.now } } : rest;
+    const advanced = saveWriteUpProgress(counterpart.store, st.key, { ...kept, done: part });
     return {
       reason: "part-written",
       isError: false,
@@ -465,7 +542,8 @@ function finish(
         return q !== undefined && q.done >= q.parts && q.waiting === true;
       })(),
   );
-  const base = st.progress ?? { chunk: WRITE_UP_PART_BYTES, parts: part, done: 0, handedAt: input.now };
+  // Every part here is back: the claim is let go with it (2026-10-01).
+  const { claim: _released, ...base } = st.progress ?? { chunk: WRITE_UP_PART_BYTES, parts: part, done: 0, handedAt: input.now };
   const entries = deposits.outcomes.length;
   const common = {
     writeUp: true,

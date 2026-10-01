@@ -77,6 +77,7 @@ import { strength } from "../physics/index.js";
 import type { Store } from "../store/index.js";
 import { calendarDate } from "./calendar.js";
 import { addDays, isDay } from "../time.js";
+import { livedOn } from "../types.js";
 import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "./page.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
@@ -544,8 +545,16 @@ const MERGE_DEPTH = 4;
  * with holes in it. Followed through `meta.mergedFrom`, a few merges deep (a
  * dream may merge its own merged memory).
  */
-export function isOfDay(store: Store, row: { learned_on: string; meta: string }, about: string, depth = 0): boolean {
-  if (row.learned_on === about) return true;
+export function isOfDay(
+  store: Store,
+  row: { learned_on: string; happened_on?: string | null; meta: string },
+  about: string,
+  depth = 0,
+): boolean {
+  // THE DAY LIVED (2026-10-01): a memory written up second-hand — the
+  // morning's catch-up writing up yesterday — is yesterday's, and only
+  // yesterday's, whatever day it was written (`types.ts#livedOn`).
+  if (livedOn(row) === about) return true;
   if (depth >= MERGE_DEPTH) return false;
   let from: unknown;
   try {

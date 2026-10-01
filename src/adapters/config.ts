@@ -75,6 +75,23 @@ export const TUNABLES = {
    * this is generous. `dreaming.maxTurns` overrides it.
    */
   NIGHT_MAX_TURNS: 60,
+  /**
+   * THE MORNING CATCH-UP (2026-10-01, build 3): before the page writer, the
+   * nightly run writes up owed stretches in any directory, through a short
+   * `claude -p` of its own (`night-run.ts#runCatchUp`). Its bounds, each a
+   * working default: at most this many sessions a night...
+   */
+  NIGHT_WRITE_UP_SESSIONS: 4,
+  /** ...and at most this many bytes of their words (whole ~24 KB parts; the
+   *  first part is taken whatever its size). What is left stays owed, and the
+   *  run's row says how much. */
+  NIGHT_WRITE_UP_BYTES: 96 * 1024,
+  /** The catch-up child's watchdog, ms — inside `WRITE_UP_CLAIM_MS`, so its
+   *  claims outlive it. */
+  NIGHT_WRITE_UP_MS: 10 * 60_000,
+  /** The catch-up child's turn ceiling: two calls a part, and room to look a
+   *  tool up. */
+  NIGHT_WRITE_UP_MAX_TURNS: 40,
   /** Reference resolution at a session-ending boundary (recall §9.2), ms. The
    *  resolver stops between candidates past it and the row says so
    *  (`recall.credit` reason `budget-exceeded`); nothing is truncated silently. */

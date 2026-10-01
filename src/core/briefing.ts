@@ -27,6 +27,7 @@ export interface BriefingRenderer {
     day: number;
     budgetBytes: number;
     horizon?: readonly { id: string }[];
+    yesterday?: string;
   }): { briefing: { bytes: number; elements: number } };
 }
 
@@ -39,6 +40,9 @@ export interface RendererOptions {
   /** The calendar date the horizon asks about. Without it, no horizon lane. */
   at?: string;
   prospective?: HorizonSource;
+  /** The "Yesterday" line, composed and dated by the root from yesterday's
+   *  chapters (2026-10-01). Absent: no line. */
+  yesterday?: string;
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -62,6 +66,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,
       ...(horizon === undefined ? {} : { horizon }),
+      ...(opts.yesterday === undefined ? {} : { yesterday: opts.yesterday }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };
