@@ -526,7 +526,7 @@ describe("the pace is what the person typed; conversation text from both roles i
 describe("the person reads one line, the model reads two (decision 1)", () => {
   test("PINNED: the model's ask, word for word — it may not grow without this test changing", () => {
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: SID — set `handoff` on it only if work here is unfinished.\n" +
+      "Counterparts, before this session closes: 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: SID — set `handoff` on it only if work here is unfinished, and `retireHandoff` any here, anyone's, now done.\n" +
         "2) Write chapter 3 of this session's episode with the counterparts chapter tool, session: SID. Nothing worth keeping is a real answer: send `memories: []`.",
     );
   });
@@ -553,9 +553,10 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     expect(text).toContain("Nothing worth keeping is a real answer");
     expect(text).not.toContain("salience");
     expect(text).not.toContain("updates");
-    // Less than a third of the nine-line text it replaces (~1,250 characters
-    // with a real id).
-    expect(text.length).toBeLessThanOrEqual(450);
+    // Less than two fifths of the nine-line text it replaces (~1,250
+    // characters with a real id). 450 until 2026-10-01, when the retire
+    // clause was added (random-f2's item 1).
+    expect(text.length).toBeLessThanOrEqual(480);
   });
 
   test("the chapter number is the store's, on every chapter including the first", () => {

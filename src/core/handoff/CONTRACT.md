@@ -167,8 +167,10 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     within `LAST_HERE_LIFE_DAYS` lived days (the handoff's fortnight) carries a "Last here"
     line: who (the short session id and the model, `sessionWords`), when that session was
     at work here (its first and last `stop` turn-end and piece in this directory, never the
-    host's close), the chapter's title and id, and the first sentence of its LATEST
-    chapter (the engine's own heading is the only split). The waking session's own chapter
+    host's close), the chapter's title and id (with its chapter count past one), and the
+    first sentence of its FIRST chapter — the one its title was written with (since
+    2026-10-01; its latest until then, which paired a later chapter's words with the
+    first one's title). The engine's own heading is the only split. The waking session's own chapter
     is never "last here". Up to `LAST_HERE_SHOWN` sessions of that day are named (the one
     before by title only) and the rest of that day by id. Derived at delivery: a chapter is
     HERE when its row's `origin_scope` says so (set at birth since 2026-09-30); with none,
@@ -179,6 +181,23 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     ceiling. It is spliced above the handoff pointer and shares its reserve and share rule
     (§6); the handoff is carried first. It is not a handoff: nothing retires it, and a
     session that finished its work and wrote a chapter needs no handoff to be found.
+    A line dropped for room leaves one durable row per chapter per lived day
+    (`handoff.lasthere.noroom`, since 2026-10-01), which the dashboard's wake bar reads.
+    **About me, from another directory** (2026-10-01): the newest chapter inside the
+    fortnight written elsewhere whose copy is marked `me`, `us` or `owner` adds one line
+    (title, id, and the directory) on the widest rungs, given up first. Work stays where it
+    was done. Only from a directory the host's scope setting has `on` (`WakeHere.exportsFrom`;
+    no way to ask means nothing crosses), only a chapter whose row records its directory,
+    and NEVER a confidential one (the episode or any copy). A confidential chapter is
+    "last here" to the owner only (review of #311).
+
+12. **[M] A handoff says when it may be out of date** (2026-10-01). Beside who and when,
+    at delivery: "before 0.3.10 was installed" when the release that wrote it — stamped on
+    the row (`build`) since 2026-10-01, else the release its session opened with, from the
+    host's registry — is older than the one installed now; "a newer chapter here since"
+    when a session other than its writer wrote a chapter in this directory after it. Both
+    from records that exist; nothing judges whether what it waited on happened. The Stop
+    ask names `retireHandoff` for any handoff here whose work is done, whoever left it.
 
 12. **[A] The "Yesterday" line is composed here, carried by the wake** (2026-10-01, wake
     build 3). `last-here.ts#chaptersOn` reads, per episode, the chapters WRITTEN on a date
@@ -272,7 +291,8 @@ does not log its own refusal) · **§13 G3** (one ask at the blocked moment).
    which turns the reserve on from about 3,650 bytes of ceiling — about 3,900 for a pointer
    naming a session and a model (2,400 until 2026-09-30, when the pointer began saying how
    current it is, then who left it and how to retire it, and the reserve was sized to
-   those words). It is a judgement about
+   those words), and roughly 4,400 for one that also says why it may be out of date
+   (2026-10-01). It is a judgement about
    what a pointer is worth against a memory, made once, in numbers; the owner's hosts all
    report far more than that, so nothing he runs is near it today.
 2. **Does the host's own file memory duplicate this?** The spec names it as the thing to
@@ -302,9 +322,10 @@ does not log its own refusal) · **§13 G3** (one ask at the blocked moment).
 7. **Should an expired row be archived rather than left to the prune?** Today it sits live
    and unread for the 90 lived days `D_FLOOR_DAYS` asks for. That is correct and it is also
    a row `list()` walks for three months after it stopped mattering.
-8. **Should "Last here" leave a durable row?** It writes a ring event only
-   (`counterpart.lasthere.shown`), so the fired view cannot see it fire. A `handoff.shown`
-   twin is the obvious shape if the owner wants to watch it; left out to keep it light.
+8. **Should "Last here" leave a durable row?** When it is SHOWN, a ring event only
+   (`counterpart.lasthere.shown`), so the fired view cannot see it fire. When it is
+   DROPPED for room, a durable row since 2026-10-01 (`handoff.lasthere.noroom`), so the
+   wake bar can go amber for it.
 9. **Claude Desktop chats and "last here".** A Desktop chat records no turn-ends, so
    before 2026-09-30 its chapters were never "last here". An episode now carries its
    place on `origin_scope`, and every Desktop chat shares one place (`claude-desktop:`),

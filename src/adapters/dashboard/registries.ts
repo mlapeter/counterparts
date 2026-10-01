@@ -89,6 +89,8 @@ import {
   HANDOFF_SHOWN_EVENT,
   HANDOFF_WRITTEN_EVENT,
 } from "../../core/handoff/index.js";
+// And the "Last here" line's one durable row (2026-10-01): dropped for room.
+import { LAST_HERE_NOROOM_EVENT } from "../../core/handoff/last-here.js";
 // Raw-transcript retention's one row (2026-09-23, B3), from `remember/` itself.
 // The index re-exports the NAME and the readers, never the deleter.
 import { RETENTION_EVENT } from "../../core/remember/index.js";
@@ -173,6 +175,7 @@ export type DurableEventName =
   | typeof HANDOFF_SHOWN_EVENT
   | typeof HANDOFF_REFUSED_EVENT
   | typeof HANDOFF_CLEARED_EVENT
+  | typeof LAST_HERE_NOROOM_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -293,6 +296,9 @@ export const DURABLE_EVENTS = {
   "handoff.shown": "a session opening in that directory was handed the pointer to a handoff there (how old it was, what it cost the wake, and how many were live beside it)",
   "handoff.cleared": "a session finished the work in a directory and retired a handoff there — its own, or another's by id — while any others stand (how big the retired one was, and which version)",
   "handoff.refused": "a handoff was turned away (past the hard limit, stopped by the gate battery, carrying the wake's own markers, written where no directory was named, sent as something other than text, sent from a Claude Desktop call that named no session, retiring an id that is not a handoff here, or — with `no-room` — composed before the wake had room reserved for its pointer)",
+  // Durable since 2026-10-01: it was a ring event, gone with the hook, and
+  // the wake bar could not say a session start went without it.
+  "handoff.lasthere.noroom": "a session start had no room for the \"Last here\" line naming the chapter last written in that directory (the bundle's bytes, the ceiling, and whether a handoff was carried in its place)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with

@@ -416,7 +416,7 @@ describe("where archived memories went", () => {
   });
 
   test("a full wake is green and says it is normal; amber only names what being full cost (Mike, 2026-10-01)", () => {
-    const none: WakeCosts = { page: null, handoffs: 0, writerHeld: false };
+    const none: WakeCosts = { page: null, handoffs: 0, lastHere: 0, writerHeld: false };
     const at = (bytes: number, budget: number, costs = none, trimmed = 0) =>
       wakeLine({ ok: true, bytes, budget, parts: [], trimmed, trimmedFrom: trimmed > 0 ? ["nearby memories"] : [], costs });
     expect(at(8840, 8840)).toEqual({ tone: "green", line: "The wake is full — normal: 8.8 KB of 8.8 KB" });
@@ -424,7 +424,7 @@ describe("where archived memories went", () => {
     expect(at(8000, 8840).line).toBe("The wake fits: 8.0 KB of 8.8 KB, 0.8 KB room left");
     expect(at(8840 - Math.ceil(8840 * FULL_SHARE), 8840).line).toContain("The wake fits");
     // What it cost, named, and amber.
-    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, writerHeld: true })).toEqual({
+    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, lastHere: 0, writerHeld: true })).toEqual({
       tone: "amber",
       line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; the page writer held back for lack of room",
     });
@@ -434,6 +434,11 @@ describe("where archived memories went", () => {
     expect(at(4000, 9000, { ...none, handoffs: 1 })).toEqual({
       tone: "amber",
       line: "The wake has room (4.0 KB of 9.0 KB), but 1 handoff had no room at a session start",
+    });
+    // A "Last here" line dropped for room (durable since 2026-10-01).
+    expect(at(8840, 8840, { ...none, lastHere: 1 })).toEqual({
+      tone: "amber",
+      line: 'The wake is full (8.8 KB of 8.8 KB), and it cost something: 1 "Last here" line had no room at a session start',
     });
     // Over its ceiling is still a fault.
     expect(at(9100, 9000).tone).toBe("amber");
@@ -456,6 +461,9 @@ describe("where archived memories went", () => {
       w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_a", payload: { reason: "no-room", bytes: 900, budget: 9000 } });
       w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_b", payload: { reason: "no-room", bytes: 700, budget: 9000 } });
       w.appendEvent({ name: "handoff.refused", day: renderDay, ref: "hnd_c", payload: { reason: "too-large", bytes: 99_000 } });
+      // "Last here" lines dropped for room: distinct chapters since the render.
+      w.appendEvent({ name: "handoff.lasthere.noroom", day: renderDay - 1, ref: "epi_old", payload: { bytes: 900, budget: 9000, besideHandoff: false } });
+      w.appendEvent({ name: "handoff.lasthere.noroom", day: renderDay, ref: "epi_a", payload: { bytes: 900, budget: 9000, besideHandoff: true } });
     } finally {
       w.close();
     }
@@ -463,6 +471,7 @@ describe("where archived memories went", () => {
     try {
       const c = wakeCosts(dash.source, "", renderDay);
       expect(c.handoffs).toBe(2);
+      expect(c.lastHere).toBe(1);
       expect(c.page).toBeNull();
       expect(c.writerHeld).toBe(false);
     } finally {

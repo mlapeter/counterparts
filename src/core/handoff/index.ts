@@ -108,12 +108,13 @@ export const HANDOFF_EXCERPT_BYTES = 160;
  * widest model id `isModelId` admits, five more named by id — measured at 1,389
  * (1,319 before the door line named `retireHandoff`, review of #295), and
  * 1,431 since the newest says how far its work since is written up
- * (2026-09-30).
+ * (2026-09-30), and 1,646 since each says why it may be out of date — an
+ * older release wrote it, or a newer chapter was written here (2026-10-01).
  * In practice the share rule binds first: at the 9,000 bytes the owner's hosts
  * report, no reserve can pass 1,125, so a block that wide is carried with two
  * shown rather than three.
  */
-export const HANDOFF_RESERVE_MAX_BYTES = 1448;
+export const HANDOFF_RESERVE_MAX_BYTES = 1646;
 
 /**
  * Slack on top of the block that actually exists, so a reserve taken at one
@@ -211,6 +212,15 @@ export const HANDOFF_META_MODEL = "model";
  *  which then ranks by its lived day and falls back to its `handoff.written`
  *  row for the time it prints. */
 export const HANDOFF_META_WRITTEN_AT = "writtenAt";
+/**
+ * The Counterparts version the writing process was running (2026-10-01), so
+ * the wake can say a handoff was "written before 0.3.10 was installed".
+ * Absent on a row written before then, which falls back to the version the
+ * writing session OPENED with, from the host's registry (`WakeHere`).
+ */
+export const HANDOFF_META_BUILD = "build";
+/** The longest version string the wake prints; a longer one is not printed. */
+export const HANDOFF_VERSION_MAX_CHARS = 16;
 
 /**
  * HOW MANY HANDOFFS ONE WAKE SHOWS IN FULL for a directory, newest first. The
@@ -301,6 +311,8 @@ export interface Handoff {
   readonly model?: string | null;
   /** Epoch ms of the write, from the row's meta; null on an older row. */
   readonly writtenAt?: number | null;
+  /** The Counterparts version that wrote it (`0.3.10`); null on an older row. */
+  readonly build?: string | null;
   /** `revision` on the row: 0 for one written once and never replaced. */
   readonly version: number;
 }
@@ -363,6 +375,46 @@ export function isHandoffRow(store: Store, id: string): boolean {
     return isHandoffDoc(store.readProse(id));
   } catch {
     return false;
+  }
+}
+
+/**
+ * WHO WROTE A HANDOFF AND WHEN (2026-10-01, random-f2's item 2) — for a reader
+ * that holds an id and asks where the row came from (`recall`'s `from`). A
+ * handoff names its writer on the row's meta, never on `origin_session`, and a
+ * row born before 2026-09-30 was revised in place by later sessions, so its
+ * birth date is the FIRST writer's: read as a memory it said "an earlier
+ * session, 2026-09-23" for words written 09-30 18:45. The session is the
+ * meta's; the time is the newest `handoff.written` row, else the meta's write
+ * time, else the row's last update. Null for a row that is not a handoff.
+ */
+export function handoffAuthorship(
+  store: Store,
+  id: string,
+): { session: string | null; at: number | null; on: string | null; scope: string | null } | null {
+  try {
+    if (!isHandoffRow(store, id)) return null;
+    const row = store.row(id);
+    const meta = store.readProse(id).meta;
+    const session = meta[HANDOFF_META_SESSION];
+    const metaAt = meta[HANDOFF_META_WRITTEN_AT];
+    const on = meta[HANDOFF_META_WRITTEN_ON];
+    let at: number | null = typeof metaAt === "number" && Number.isFinite(metaAt) ? metaAt : null;
+    try {
+      const logged = store.eventLog({ name: HANDOFF_WRITTEN_EVENT, ref: id, order: "desc", limit: 1 })[0];
+      if (logged !== undefined) at = logged.at;
+    } catch {
+      /* the meta's time, or the row's */
+    }
+    if (at === null) at = row?.updated_at ?? row?.created_at ?? null;
+    return {
+      session: typeof session === "string" && session.length > 0 ? session : null,
+      at,
+      on: typeof on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(on) ? on : null,
+      scope: typeof meta[HANDOFF_META_SCOPE] === "string" && (meta[HANDOFF_META_SCOPE] as string).length > 0 ? (meta[HANDOFF_META_SCOPE] as string) : null,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -546,6 +598,7 @@ function handoffOf(store: Store, live: LiveRow): Handoff | null {
   const session = doc.meta[HANDOFF_META_SESSION];
   const model = doc.meta[HANDOFF_META_MODEL];
   const writtenAt = doc.meta[HANDOFF_META_WRITTEN_AT];
+  const build = doc.meta[HANDOFF_META_BUILD];
   return {
     id,
     scope,
@@ -556,8 +609,55 @@ function handoffOf(store: Store, live: LiveRow): Handoff | null {
     session: typeof session === "string" && session.length > 0 ? session : null,
     model: isModelId(model) ? model : null,
     writtenAt: typeof writtenAt === "number" && Number.isFinite(writtenAt) ? writtenAt : null,
+    build: isVersion(build) ? build : null,
     version: row?.revision ?? 0,
   };
+}
+
+/** A version as the wake may print it: dotted numbers, an optional tag. */
+export function isVersion(v: unknown): v is string {
+  return typeof v === "string" && v.length <= HANDOFF_VERSION_MAX_CHARS && /^\d+(\.\d+){0,3}(-[0-9A-Za-z.]+)?$/.test(v);
+}
+
+/**
+ * IS `a` AN OLDER RELEASE THAN `b`? Dotted numbers compared part by part; a
+ * pre-release tag (`0.3.10-rc.1`) is older than the release it names. False
+ * when either is not a version: a comparison it cannot make says nothing.
+ */
+export function versionOlder(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!isVersion(a) || !isVersion(b)) return false;
+  const parse = (v: string): { nums: number[]; tag: boolean } => {
+    const cut = v.indexOf("-");
+    const core = cut < 0 ? v : v.slice(0, cut);
+    return { nums: core.split(".").map(Number), tag: cut >= 0 };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < Math.max(pa.nums.length, pb.nums.length); i++) {
+    const x = pa.nums[i] ?? 0;
+    const y = pb.nums[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return pa.tag && !pb.tag;
+}
+
+/**
+ * WHY A HANDOFF MAY BE OUT OF DATE, in words (2026-10-01, random-f2's item 1):
+ * "before 0.3.10 was installed" when the process that wrote it ran an older
+ * release than the one installed now, and "a newer chapter here since" when a
+ * session wrote a chapter in this directory after it. Computed at delivery
+ * from records that already exist; nothing judges whether what it waited on
+ * happened. Null when neither holds.
+ */
+export function staleWords(opts: {
+  readonly writtenWith?: string | null;
+  readonly installed?: string | null;
+  readonly newerChapter?: boolean;
+}): string | null {
+  const parts: string[] = [];
+  if (versionOlder(opts.writtenWith, opts.installed)) parts.push(`before ${opts.installed as string} was installed`);
+  if (opts.newerChapter === true) parts.push("a newer chapter here since");
+  return parts.length === 0 ? null : parts.join(", and ");
 }
 
 /**
@@ -670,6 +770,8 @@ export interface PointerSince {
     readonly unwritten?: number;
     readonly unwrittenAfter?: number;
   } | null;
+  /** Why it may be out of date (`staleWords`), or null/absent. */
+  readonly stale?: string | null;
 }
 
 /** The widest `PointerSince` the words can take — what the reserve is sized to. */
@@ -685,11 +787,12 @@ export const WIDEST_POINTER_SINCE: PointerSince = {
     unwritten: 9999,
     unwrittenAfter: 0,
   },
+  stale: staleWords({ writtenWith: "0", installed: "9".repeat(HANDOFF_VERSION_MAX_CHARS), newerChapter: true }),
 };
 
 /** The widest stamp an OLDER entry of a several-handoff block can carry —
  *  what the reserve sizes the entries after the newest to. */
-const WIDEST_OLDER_SINCE: PointerSince = { written: "12-31 23:59", after: null };
+const WIDEST_OLDER_SINCE: PointerSince = { written: "12-31 23:59", after: null, stale: WIDEST_POINTER_SINCE.stale ?? null };
 
 /**
  * A model id as a person says it: `claude-opus-5-5` → `Opus 5.5`, with a
@@ -767,7 +870,10 @@ function whenWords(h: Handoff, since: PointerSince | null, author: string | null
     const on = /^\d{4}-\d{2}-\d{2}$/.test(h.writtenOn.trim()) ? h.writtenOn.trim() : "an unrecorded date";
     return `${on}${by}`;
   }
-  const written = `written ${since.written}${by}`;
+  // WHY IT MAY BE OUT OF DATE (2026-10-01), right after who and when, so it
+  // is read before the handoff's own first sentence.
+  const stale = since.stale === undefined || since.stale === null ? "" : `, ${since.stale}`;
+  const written = `written ${since.written}${by}${stale}`;
   if (since.after === null) return written;
   return `${written}; work here ${since.after.from}\u2013${since.after.to} since, ${writtenUpWords(since.after)}`;
 }
@@ -851,7 +957,7 @@ export function pointerBlockMany(
   ];
   live.slice(0, shown).forEach((h, i) => {
     const raw = opts.since?.[i] ?? null;
-    const since = raw === null || i === 0 ? raw : { written: raw.written, after: null };
+    const since = raw === null || i === 0 ? raw : { written: raw.written, after: null, stale: raw.stale ?? null };
     const when = whenWords(h, since);
     lines.push(`${i + 1}) From ${authorWords(h, reader)}, ${since === null ? `on ${when}` : when}: ${excerpt(h.body)} (${h.id})`);
   });
@@ -928,6 +1034,8 @@ export interface WriteInput {
   readonly session?: string | null;
   /** The writing session's model id, when the host said which (2026-09-30). */
   readonly model?: string | null;
+  /** The Counterparts version the writing process runs (2026-10-01). */
+  readonly build?: string | null;
   readonly day?: number;
 }
 
@@ -1110,6 +1218,9 @@ export class Handoffs {
       // into the wake. Left out rather than stored as null, so a row says
       // nothing it does not know.
       ...(isModelId(input.model) ? { [HANDOFF_META_MODEL]: input.model } : {}),
+      // The release that wrote it (2026-10-01): what "written before 0.3.10
+      // was installed" compares. Left out when the caller knew none.
+      ...(isVersion(input.build) ? { [HANDOFF_META_BUILD]: input.build } : {}),
     };
     // THIS SESSION'S row here, and only its own (2026-09-30): a different
     // session in the same directory mints its own rather than overwriting the

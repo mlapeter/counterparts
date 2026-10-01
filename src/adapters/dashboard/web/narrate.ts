@@ -706,6 +706,14 @@ export const NARRATORS = {
     return calm(`A handoff was turned away (${why}). Nothing was left for the next session here.`);
   },
 
+  "handoff.lasthere.noroom": (t) => {
+    const budget = n(t, "budget") ?? 0;
+    const beside = t.p["besideHandoff"] === true ? " A handoff here was carried instead." : "";
+    return calm(
+      `There was no room in this wake for the "Last here" line (the bundle was ${num(n(t, "bytes") ?? 0, 0)} bytes against a ceiling of ${num(budget, 0)}), so it was left off.${beside}`,
+    );
+  },
+
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
     const surfaced = idsIn(t, "surfaced");
@@ -1156,6 +1164,8 @@ export const REF_KIND = {
   "handoff.shown": "handoff",
   "handoff.cleared": "handoff",
   "handoff.refused": "none",
+  // The ref is the chapter (an episode row) the line would have named.
+  "handoff.lasthere.noroom": "memory",
   "recall.credit": "none",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.

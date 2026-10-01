@@ -77,6 +77,9 @@ import {
   SCOPE_JOINED_LATE_EVENT,
   SCOPE_REFUSED_EVENT,
   SCOPE_UNREADABLE_EVENT,
+  lookupScope,
+  readScopes,
+  scopesPath,
   stanceOfMode,
 } from "./scopes.js";
 import type { ScopeVerdict } from "./scopes.js";
@@ -87,6 +90,7 @@ import {
   progressKey,
   pruneSessions,
   pruneWriteUpProgress,
+  manifestVersionOnDisk,
   readSession,
   readWriteUpProgress,
   recordSession,
@@ -534,13 +538,49 @@ export class Lifecycle implements HostLifecycle {
    * running (mechanism inventory 2026-09-17, S2).
    */
   composeWake(input: SessionInput, budget: number | undefined): ReturnType<Counterpart["wake"]> {
+    const dir = this.counterpart.store.dir;
     const woke = this.counterpart.wake(
       budget,
       { ...(input.at === undefined ? {} : { date: input.at }) },
-      { scope: input.scope, session: input.sessionId.length === 0 ? null : input.sessionId },
+      {
+        scope: input.scope,
+        session: input.sessionId.length === 0 ? null : input.sessionId,
+        // What a handoff's release is compared with (2026-10-01): the version
+        // on disk NOW, which a long-running server's own may not be.
+        installed: manifestVersionOnDisk(),
+        openedWith: (session) => readSession(dir, session)?.opened?.build.version ?? null,
+        exportsFrom: this.chapterExports(),
+      },
     );
     this.noteWakeExpectation(input, woke.sentinel);
     return woke;
+  }
+
+  /**
+   * WHICH DIRECTORIES' CHAPTERS MAY BE NAMED IN ANOTHER DIRECTORY'S WAKE
+   * (review of #311): those the scope setting has `on` (or unset, which is on).
+   * The setting is read once per wake, from beside this lifecycle's
+   * configuration; with no configuration named, or a setting that will not
+   * read, nothing crosses. A pseudo-scope (`claude-desktop:`) is a place, not
+   * a path, and is looked up as written. Never throws.
+   */
+  protected chapterExports(): ((scope: string) => boolean) | undefined {
+    const config = this.configPath;
+    if (config === undefined || config.length === 0) return undefined;
+    let read: ReturnType<typeof readScopes>;
+    try {
+      read = readScopes(scopesPath(config));
+    } catch {
+      return undefined;
+    }
+    if (read.error !== null) return undefined;
+    return (scope) => {
+      try {
+        return stanceOfMode(lookupScope(read.registry, scope).mode) === "on";
+      } catch {
+        return false;
+      }
+    };
   }
 
   /**

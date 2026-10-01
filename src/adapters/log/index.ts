@@ -87,6 +87,7 @@ export const LOGGED: { readonly names: ReadonlySet<string>; readonly suffixes: r
     "handoff.written",
     "handoff.cleared",
     "handoff.refused",
+    "handoff.lasthere.noroom",
     // The nightly run: its states, and its parts.
     "adapter.night.started",
     "adapter.night.handed",

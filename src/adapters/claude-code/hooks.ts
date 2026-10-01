@@ -401,6 +401,9 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  *     the tool that takes it, plus the two clauses that are about WHETHER to
  *     write — `handoff` only if work here is unfinished (it is a field on the
  *     same `session_end` call, not a third tool and not a second ask: §13 G3),
+ *     and, since 2026-10-01, `retireHandoff` for a handoff here whose work is
+ *     done, whoever left it (a handoff that waited on a release never learned
+ *     the release landed: random-f2's item 1),
  *     and "nothing worth keeping is a real answer", which the server now
  *     accepts as `memories: []`.
  *
@@ -418,7 +421,7 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    `${STOP_ASK_OPENER} 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: ${sessionId} — set \`handoff\` on it only if work here is unfinished.`,
+    `${STOP_ASK_OPENER} 1) hand back what you learned here that is worth keeping with the counterparts session_end tool, session: ${sessionId} — set \`handoff\` on it only if work here is unfinished, and \`retireHandoff\` any here, anyone's, now done.`,
     `2) Write chapter ${String(chapter)} of this session's episode with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
   ].join("\n");
 }
@@ -1072,6 +1075,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
     return stampSessionOpened(this.counterpart.store.dir, input.sessionId, {
       build: installedBuild(),
       hookPpid: process.ppid,
+      at: Date.now(),
     });
   }
 

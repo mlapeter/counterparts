@@ -492,7 +492,7 @@ describe("asked plainly, recall finds the last session here first (the recall ha
     expect(named[0]?.from).toMatch(/^a dream launched from session a1b2c3d4, /);
   });
 
-  test("the lead chapter shows its LATEST chapter, not its first (review of #302 MINOR-4)", async () => {
+  test("the lead chapter shows its FIRST chapter, what its title names, and says there are more (2026-10-01; was its latest, review of #302 MINOR-4)", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
     const E = "e5e5e5e5-0000-4000-8000-00000000000e";
@@ -510,7 +510,7 @@ describe("asked plainly, recall finds the last session here first (the recall ha
     const got = (await k.server(B).call("recall", { question: "where did we leave off?" })).structuredContent as Record<string, unknown>;
     const first = (got["memories"] as { id: string; excerpt: string }[])[0];
     expect(first?.id).toBe(epi);
-    expect(first?.excerpt).toBe("The second chapter, which is where we are now.");
+    expect(first?.excerpt).toBe(`(Chapter 1 of 2; recall ${epi} for every chapter.) The first chapter, long done.`);
   });
 });
 
@@ -590,6 +590,7 @@ describe("the pieces", () => {
         createdAt: n,
         writtenDay: 1,
         scope: null,
+        chapters: 1,
       },
       when: "09-30 10:00–11:00",
       date: "09-30",
