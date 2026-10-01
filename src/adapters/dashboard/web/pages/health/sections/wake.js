@@ -13,6 +13,14 @@ export const kb = (b) => (b / 1000).toFixed(1) + " KB";
 /** The parts, in reading order, with a colour each. */
 const TONE = { furniture: "p-furn", page: "p-page", identity: "p-page", craft: "p-craft", threads: "p-threads", hints: "p-hints", horizon: "p-horizon" };
 
+/**
+ * FULL, short of trimming: less room left than this share of the ceiling.
+ * A wake at 0.0 KB room read green (Fable's review of Health, 2026-09-28);
+ * it fits, but the next line in pushes one out (the trim order takes nearby
+ * memories first), so it is amber and says so.
+ */
+export const FULL_SHARE = 0.03;
+
 /** The row's words and its light. Pure. */
 export function wakeLine(w) {
   if (!w.ok) return { tone: "grey", line: "No wake composed yet — one is written at the end of each day" };
@@ -25,6 +33,14 @@ export function wakeLine(w) {
     };
   }
   if (w.budget && w.bytes > w.budget) return { tone: "amber", line: "The wake runs over its ceiling: " + size };
+  if (w.budget && w.budget - w.bytes < w.budget * FULL_SHARE) {
+    const room = w.budget - w.bytes;
+    return {
+      tone: "amber",
+      line: "The wake is full: " + size + (room < 50 ? ", no room left" : ", only " + kb(room) + " room left") +
+        " — the next thing added pushes something out, nearby memories first",
+    };
+  }
   return { tone: "green", line: "The wake fits: " + size + (w.budget ? ", " + kb(w.budget - w.bytes) + " room left" : "") };
 }
 

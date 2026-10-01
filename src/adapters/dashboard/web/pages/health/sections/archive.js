@@ -28,21 +28,33 @@ const colourOf = (r) => COLOUR[r.reason] || "#6b7480";
 let current = null;
 let data = null;
 
+/** A memory archived more than once under one reason (a chapter rebuilt from
+ *  the journal leaves a copy each time) is one line: how many times, after it. */
+export function timesNote(m) {
+  return m.times > 1 ? m.times + " times" : "";
+}
+
+/** The list's heading note: which slice it shows, in rows (as the count is). */
+export function sliceNote(r) {
+  const listed = typeof r.listed === "number" ? r.listed : r.items.length;
+  const order = listed < r.count ? "the newest " + listed + " of " + r.count + ", newest first" : "newest first";
+  return r.items.length < listed ? order + " · " + r.items.length + " different memories" : order;
+}
+
 function list(r) {
   if (!r) return "";
   const openable = r.reason !== "removed-by-owner";
-  const items = r.items.map((m) =>
-    openable
-      ? '<button type="button" class="ha-item" onclick="openMemory(\'' + esc(m.id) + '\')">' + esc(m.label) +
-        (m.note ? '<span class="ha-note">' + esc(m.note) + "</span>" : "") + "</button>"
-      : '<div class="ha-item ha-still">' + esc(m.label) +
-        (m.note ? '<span class="ha-note">' + esc(m.note) + "</span>" : "") + "</div>"
-  ).join("");
-  const capped = r.count > r.items.length;
-  const more = capped ? '<div class="ha-more">and ' + (r.count - r.items.length) + " older, not listed</div>" : "";
+  const items = r.items.map((m) => {
+    const notes = [timesNote(m), m.note || ""].filter((x) => x !== "").map((x) => '<span class="ha-note">' + esc(x) + "</span>").join("");
+    return openable
+      ? '<button type="button" class="ha-item" onclick="openMemory(\'' + esc(m.id) + '\')">' + esc(m.label) + notes + "</button>"
+      : '<div class="ha-item ha-still">' + esc(m.label) + notes + "</div>";
+  }).join("");
+  const listed = typeof r.listed === "number" ? r.listed : r.items.length;
+  const more = listed < r.count ? '<div class="ha-more">and ' + (r.count - listed) + " older, not listed</div>" : "";
   return '<div class="ha-listhead"><span class="ha-sw" style="background:' + colourOf(r) + '"></span>' +
     esc(r.phrase) + " · " + r.count +
-    '<span class="ha-note">' + (capped ? "the newest " + r.items.length + " of " + r.count + ", newest first" : "newest first") + "</span>" +
+    '<span class="ha-note">' + esc(sliceNote(r)) + "</span>" +
     "</div>" + items + more;
 }
 

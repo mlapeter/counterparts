@@ -43,6 +43,8 @@ const NAMES = {
   fired: "Mechanisms",
   stance: "Mode",
   budget: "Time budget",
+  retired: "Old settings",
+  lookups: "Looking things up while dreaming",
 };
 
 /**
@@ -95,7 +97,34 @@ export const PLAIN = {
     return "rewritten " + (n <= 0 ? "today" : n === 1 ? "yesterday" : n + " days ago") +
       (typeof d.version === "number" ? " · version " + d.version : "");
   },
+  // Settings this version no longer reads. GREEN, so it folds under "all
+  // fine": doctor's "you may remove them" is advice, and advice under a row
+  // that says nothing needs doing read as a contradiction (Fable's review of
+  // Health, 2026-09-28). Here it says what they are and that they are harmless;
+  // the terminal's `doctor --all` still says where to remove them.
+  retired: (d, detail) => {
+    const s = String(detail || "");
+    const cut = s.search(/ — ignored; you may remove /);
+    if (cut <= 0) return null;
+    return s.slice(0, cut) + " — harmless; nothing to do";
+  },
+  // Doctor's Lookups line, in words: of the memories a dream (or a
+  // reflection) was shown only in part, how many it read whole.
+  lookups: (d) => {
+    if (!d || typeof d.dreamNights !== "number") return null;
+    const part = (looked, offered, runs, one, many) =>
+      runs === 0 ? "no " + one + " measured yet"
+        : looked + " of " + offered + " shown only in part were read whole, over " + runs + " " + (runs === 1 ? one : many);
+    return "dreams: " + part(d.dreamLooked, d.dreamOffered, d.dreamNights, "night", "nights") +
+      "; reflections: " + part(d.reflectionLooked, d.reflectionOffered, d.reflections, "reflection", "reflections") +
+      (d.floor ? " (at least: more rows than were read)" : "");
+  },
 };
+
+/** A finding's line: its plain words when `PLAIN` has them, else doctor's detail. */
+export function lineOf(f) {
+  return (PLAIN[f.key] && PLAIN[f.key](f.data, f.detail)) || plain(f.detail);
+}
 
 function row(i, f, grade, name, line) {
   return '<button type="button" class="hc-row" aria-expanded="false" data-i="' + i + '">' + dot(grade) +
@@ -122,7 +151,7 @@ function paintFindings(report, when) {
     const name = NAMES[f.key] || f.title;
     const line = grade === "grey"
       ? "not checked — this dashboard was opened on a store, not through its settings file"
-      : (PLAIN[f.key] && PLAIN[f.key](f.data, f.detail)) || plain(f.detail);
+      : lineOf(f);
     details.push(f);
     rows.push({ grade, name, line, f, order: HEADLINE.indexOf(f.key) });
   }
@@ -137,7 +166,7 @@ function paintFindings(report, when) {
       folded.length + " background checks, all fine"));
     moreHtml.push('<ul class="hc-fold">' + folded.map((f) =>
       "<li>" + dot("green") + '<span class="hc-name">' + esc(NAMES[f.key] || f.title) + "</span>" +
-      '<span class="hc-detail">' + esc(plain(f.detail)) + "</span></li>").join("") + "</ul>");
+      '<span class="hc-detail">' + esc(lineOf(f)) + "</span></li>").join("") + "</ul>");
   }
   const v = verdictOf(report);
   const head = dot(v.grade) + '<span class="hc-verdict">' + esc(v.words) + "</span>";

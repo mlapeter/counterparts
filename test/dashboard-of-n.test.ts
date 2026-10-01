@@ -206,7 +206,8 @@ describe("5. health's archive lists are newest first", () => {
       expect(pruned?.items.map((i) => i.id)).toEqual([...order].reverse());
     });
     const page = read("pages/health/sections/archive.js");
-    expect(page).toContain('"the newest " + r.items.length + " of " + r.count');
+    // In ROWS, as the count is (2026-10-01: rows with the same words are one item).
+    expect(page).toContain('"the newest " + listed + " of " + r.count');
     expect(page).toContain("older, not listed");
   });
 });

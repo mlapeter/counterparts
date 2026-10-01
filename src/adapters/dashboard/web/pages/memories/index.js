@@ -76,7 +76,7 @@ export default {
   resize: hold.redraw,
   redraw: hold.redraw,
   /** `#memories?state=archived` (or live/all): open the list at that filter.
-   *  `#memories?feeling=joy` (the home tab's chart): the live memories carrying
+   *  `#memories?feeling=warm` (the home tab's chart): the live memories carrying
    *  a feeling under that core, as a click on this tab's chart would show them. */
   route({ params }) {
     const state = params.get("state");

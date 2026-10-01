@@ -10,6 +10,7 @@ import { openModal } from "../../../shared/modal.js";
 import { ui } from "../state.js";
 import { q, wireTips } from "../../../shared/widgets/tips.js";
 import * as map from "./map.js";
+import { RING_WORDS } from "./map.js";
 import { storyCard } from "./stories.js";
 
 export const markup = `
@@ -140,7 +141,11 @@ export function ruleWords(s) {
   const foot = ["Only a memory about me or about us joins the core, by one of two lanes: strongly felt (" + n2(r.needFeeling) +
     " or more) and come back at least once, " + r.needGap + " or more days after it was made; or come back on " + r.days +
     " different days over " + r.span + ". That is checked every " + r.everyDays + " lived days, at most " + r.cap + " a night. " +
-    "On the map, the nearer the middle a dot sits the closer it is to the core; a faint ring marks one that only has to come back once."];
+    // The map's own words (round 4 of the map, 2026-09-28: three named rings,
+    // no legend) — this sentence described the legend before it.
+    "On the map, “" + RING_WORDS.core + "” in the middle is the core; “" + RING_WORDS.near +
+    "” holds the ones ready to join at the next check or one return away; the rest of the memories “" + RING_WORDS.about +
+    "” sit outside, nearer the middle the closer they are. A dot is brighter the more firmly it is held; point at one to see its links."];
   if (s.onTheWay > 0) foot.push(plural(s.onTheWay, "memory about us has", "memories about us have") + " come back at least once.");
   if (s.unused > 0) foot.push(s.unused + " more about us haven't come back yet.");
   if (s.sentBack > 0) {

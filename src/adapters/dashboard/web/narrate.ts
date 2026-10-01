@@ -204,8 +204,21 @@ export const NARRATORS = {
     return down + sooner === 0 ? calm(line) : amber(line);
   },
   // ── dreaming (2026-09-26) ──────────────────────────────────────────────────
-  "dream.begun": (t) =>
-    calm(`I began to dream, over ${n(t, "fresh") ?? 0} new memories and ${n(t, "shown") ?? 0} in all.`),
+  // The queue (2026-09-28, on the row since #277): what tonight's room could
+  // not take waits for the next night; what grew too old for any dream's
+  // window left the queue undreamed (it fades as an ordinary memory). Said
+  // only when nonzero, so an ordinary night reads as it always did.
+  "dream.begun": (t) => {
+    const waiting = n(t, "waiting") ?? 0;
+    const agedOut = n(t, "agedOut") ?? 0;
+    const tail = [
+      waiting > 0 ? `${waiting} more ${waiting === 1 ? "waits" : "wait"} for the next night` : "",
+      agedOut > 0 ? `${agedOut} grew too old to be dreamed and will fade as usual` : "",
+    ].filter((x) => x !== "");
+    return calm(
+      `I began to dream, over ${n(t, "fresh") ?? 0} new memories and ${n(t, "shown") ?? 0} in all.${tail.length > 0 ? ` ${tail.join("; ")}.` : ""}`,
+    );
+  },
   "dream.changed": (t) => {
     // A NOMINATION IS NOT A CHANGE ANYTHING ACTS ON (2026-09-27, home round 3):
     // nothing reads it but `counterparts core`, so it is said apart, as a

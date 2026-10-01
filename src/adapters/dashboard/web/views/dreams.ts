@@ -30,7 +30,22 @@ export interface DreamMemoryRef {
   readonly id: string;
   readonly text: string;
   readonly confidential: boolean;
+  /**
+   * What a merge or a gist was made FROM (`dream_changes.detail.fidelity`,
+   * #277): how the dream had this original in front of it, in words, when it
+   * was less than whole ("seen only as a line"). Absent when whole, or when
+   * the change recorded nothing.
+   */
+  readonly seen?: string;
 }
+
+/** `fit/fidelityOf`'s words, for an original seen less than whole. */
+const SEEN_WORDS: Readonly<Record<string, string>> = {
+  excerpt: "seen as an excerpt",
+  line: "seen only as a line",
+  id: "seen only by its id",
+  unseen: "not in that night's bundle",
+};
 
 export interface DreamChangeView {
   readonly seq: number;
@@ -104,8 +119,12 @@ const idList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is 
 function changeView(src: DashboardSource, c: DreamChangeRow): DreamChangeView {
   const d = detailOf(c);
   const memories: DreamMemoryRef[] = [];
+  const fidelity = d["fidelity"] !== null && typeof d["fidelity"] === "object" ? (d["fidelity"] as Record<string, unknown>) : {};
   const push = (m: DreamMemoryRef | null): void => {
-    if (m !== null && !memories.some((x) => x.id === m.id)) memories.push(m);
+    if (m === null || memories.some((x) => x.id === m.id)) return;
+    const f = fidelity[m.id];
+    const seen = typeof f === "string" ? SEEN_WORDS[f] : undefined;
+    memories.push(seen === undefined ? m : { ...m, seen });
   };
   let said: string;
   switch (c.action) {

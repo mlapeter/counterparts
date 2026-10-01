@@ -511,3 +511,32 @@ reach by use". And the adapter's import scan reads a quote right after the word
 The Consolidation and Dreaming LIGHTS are deliberately not here: master moved the
 mechanism lights into `src/adapters/mechanism-evidence.ts` (#250), and the
 builder wires those two there after the rebase.
+
+## 2026-10-01 — Health's known bugs, fixed (no redesign)
+
+From Fable's review of Health (2026-09-28) and the open follow-ups of #277:
+
+- **A full wake is amber.** `wakeLine` read green at 0.0 KB room left, because
+  only a trim or an overrun turned it amber. Under 3% of the ceiling left
+  (`FULL_SHARE`) it now says the wake is full and what that means: the next
+  thing added pushes something out, nearby memories first (the trim order).
+- **The archive list is one line per memory.** A chapter rebuilt from the
+  journal archives its previous copy each time, so the list read 61 rows for
+  23 memories. Rows with the same words are one item with `times`; `listed`
+  counts the rows the items cover, so "older, not listed" still counts rows.
+  A withheld or gone row is never grouped.
+- **"When" the last sleep ran skips checks.** `cycle.at` took the newest
+  `sleep.cycle` row, which a session end on an already-slept day writes as a
+  check ("nothing was due"); it reads past those now (`lanes.ts#isSleepCheck`).
+- **The folded doctor lines use the same plain words as the rows.** "Old
+  settings" no longer says "you may remove them" under "all fine" (the
+  terminal's `doctor --all` still does), and Lookups is named and said in words.
+- **The map's `?`** describes the three named rings, not the legend before them.
+- **#277's follow-ups:** `dream.begun` narrates what waits for the next night
+  and what aged out; a dream's merge or gist says how it saw an original that
+  was less than whole (`detail.fidelity`). Already moot: Tonight's "N new"
+  (Tonight left home in round 4) and `onMindMore` (it lives only in the
+  bundle a dream is handed; no durable row carries it).
+- **Counts** (329 vs 322 vs 296) were already labelled by 09-28/09-30 work:
+  Health's line says it leaves out the people and project cards, and the
+  memories grid says its journal chapters aren't scored.

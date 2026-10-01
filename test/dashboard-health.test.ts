@@ -29,6 +29,10 @@ import { join, relative } from "node:path";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { NO_CONFIG_HOME, buildArgv, runAction } from "../src/adapters/dashboard/web/actions.js";
 import { ARCHIVE_PHRASES } from "../src/adapters/dashboard/web/views/archive-words.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { PLAIN, lineOf } from "../src/adapters/dashboard/web/pages/health/sections/checks.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { FULL_SHARE, wakeLine } from "../src/adapters/dashboard/web/pages/health/sections/wake.js";
 import { healthView } from "../src/adapters/dashboard/web/views/health.js";
 import { CORRECTED_REASON } from "../src/core/contradictions.js";
 import { DREAM_MERGE_REASON, DREAM_UNDONE_REASON } from "../src/core/dream/index.js";
@@ -314,6 +318,101 @@ describe("where archived memories went", () => {
     } finally {
       dash.close();
     }
+  });
+
+  test("the cycle line's 'when' is the newest sleep that did something, not a check that found nothing due (2026-10-01)", () => {
+    const dir = join(tempDir("counterparts-health-cycle-at-"), "store");
+    seedEmpty({ dir });
+    let t = 1_000_000;
+    const w = Store.open({ dir, now: () => t });
+    const ran = { phase: "decay", status: "ran", reason: "ran" };
+    const quiet = (phase: string) => ({ phase, status: "did-not-run", reason: "not-due" });
+    const check = { reason: "ran", failed: 0, phases: [{ phase: "clock", status: "ran-nothing-found", reason: "same-day" }, quiet("decay"), quiet("prune")] };
+    let sleptAt = 0;
+    try {
+      w.advanceClock("2026-09-01");
+      const today = w.livedDay();
+      for (const phase of PHASES) w.setMeta(markerKey(phase), String(today));
+      t += 1_000;
+      sleptAt = t;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: { reason: "ran", failed: 0, phases: [{ phase: "clock", status: "ran", reason: "ran" }, ran] } });
+      // Two checks after it, the newest rows of all.
+      t += 3_600_000;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: check });
+      t += 3_600_000;
+      w.appendEvent({ name: "sleep.cycle", day: today, payload: check });
+    } finally {
+      w.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      expect(healthView(dash.source).cycle.at).toBe(sleptAt);
+    } finally {
+      dash.close();
+    }
+  });
+
+  test("an archived memory rebuilt many times is one line, with how many times (2026-10-01)", () => {
+    const dir = join(tempDir("counterparts-health-archive-dupes-"), "store");
+    seedEmpty({ dir });
+    let t = 1_000;
+    const w = Store.open({ dir, now: () => (t += 1_000) });
+    const chapter = "Launch week: the first install from npm, and what it was like.";
+    const made: string[] = [];
+    try {
+      // Five copies of one chapter and two of another, rebuilt and archived in
+      // turn, and one memory archived for the same reason with its own words.
+      for (let i = 0; i < 5; i += 1) made.push(w.put({ type: "memory", kind: "self", body: chapter }));
+      for (let i = 0; i < 2; i += 1) made.push(w.put({ type: "memory", kind: "self", body: "The quiet week after launch." }));
+      made.push(w.put({ type: "memory", kind: "self", body: "A chapter of its own, archived once." }));
+      for (const id of made) w.archive(id, "episode-regrown");
+    } finally {
+      w.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      const r = healthView(dash.source).archive.reasons.find((x) => x.reason === "episode-regrown");
+      expect(r?.count).toBe(8);
+      expect(r?.listed).toBe(8);
+      expect(r?.items.map((i) => [i.label, i.times])).toEqual([
+        ["A chapter of its own, archived once.", 1],
+        ["The quiet week after launch.", 2],
+        [chapter, 5],
+      ]);
+      // Each line opens its newest copy.
+      expect(r?.items[2]?.id).toBe(made[4]);
+    } finally {
+      dash.close();
+    }
+    const page = readFileSync(join(import.meta.dir, "../src/adapters/dashboard/web/pages/health/sections/archive.js"), "utf8");
+    expect(page).toContain("timesNote(m)");
+  });
+
+  test("the folded doctor lines read through the same plain words as the rows: Lookups in words", () => {
+    const say = PLAIN["lookups"] as (d: unknown) => string | null;
+    expect(say({ dreamOffered: 40, dreamLooked: 3, dreamNights: 2, reflectionOffered: 0, reflectionLooked: 0, reflections: 0, floor: false })).toBe(
+      "dreams: 3 of 40 shown only in part were read whole, over 2 nights; reflections: no reflection measured yet",
+    );
+    expect(say({ dreamOffered: 9, dreamLooked: 0, dreamNights: 1, reflectionOffered: 5, reflectionLooked: 1, reflections: 1, floor: true })).toBe(
+      "dreams: 0 of 9 shown only in part were read whole, over 1 night; reflections: 1 of 5 shown only in part were read whole, over 1 reflection (at least: more rows than were read)",
+    );
+    expect(say(undefined)).toBeNull();
+    // A finding with no plain words keeps doctor's own detail.
+    expect(lineOf({ key: "clock", data: {}, detail: "lived day 4 · 2026-09-04" })).toBe("lived day 4 · 2026-09-04");
+  });
+
+  test("the wake row is amber when it is full, even before anything was trimmed (2026-10-01)", () => {
+    const at = (bytes: number, budget: number) => wakeLine({ ok: true, bytes, budget, parts: [], trimmed: 0, trimmedFrom: [] });
+    // 0.0 KB room read green (Fable's review of Health, 2026-09-28).
+    expect(at(8840, 8840)).toEqual({
+      tone: "amber",
+      line: "The wake is full: 8.8 KB of 8.8 KB, no room left — the next thing added pushes something out, nearby memories first",
+    });
+    expect(at(8700, 8840).tone).toBe("amber");
+    expect(at(8700, 8840).line).toContain("only 0.1 KB room left");
+    // Room to spare is green, as before.
+    expect(at(8000, 8840).tone).toBe("green");
+    expect(at(8840 - Math.ceil(8840 * FULL_SHARE), 8840).tone).toBe("green");
   });
 
   test("a sparse store reads calmly: nothing archived, sleep has not run", () => {

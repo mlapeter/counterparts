@@ -19,7 +19,9 @@ import { dayWords, stripSummary } from "../src/adapters/dashboard/web/pages/self
 // @ts-expect-error — a plain browser module, no declarations
 import { memoryItem, pageAge } from "../src/adapters/dashboard/web/pages/self/sections/wake.js";
 // @ts-expect-error — a plain browser module, no declarations
-import { MIN_APART, layout, nodeWords } from "../src/adapters/dashboard/web/pages/self/sections/map.js";
+import { MIN_APART, RING_WORDS, layout, nodeWords } from "../src/adapters/dashboard/web/pages/self/sections/map.js";
+// @ts-expect-error — a plain browser module, no declarations
+import { ruleWords } from "../src/adapters/dashboard/web/pages/self/sections/settling.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { wakeLine } from "../src/adapters/dashboard/web/pages/health/sections/wake.js";
 
@@ -231,6 +233,14 @@ describe("the self tab, round 3b", () => {
       const [a, b] = [ids["felt"] as string, ids["mild"] as string].sort();
       expect(m.links).toEqual([{ a: a as string, b: b as string, weight: 0.6 }]);
     });
+  });
+
+  test("4: the map's `?` describes the map as drawn — its three named rings — not the old legend (2026-10-01)", () => {
+    const s = withSource((src) => mindView(src).settling);
+    const words = ruleWords(s) as string;
+    for (const ring of Object.values(RING_WORDS as Record<string, string>)) expect(words).toContain(`“${ring}”`);
+    expect(words).not.toContain("faint ring");
+    expect(words).toContain("brighter the more firmly it is held");
   });
 
   test("4: the layout is fixed by the data — the core in the middle, closeness as distance", () => {
