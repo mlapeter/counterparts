@@ -785,19 +785,32 @@ describe("writeUpFor's shape — `mayWriteUp` on the runner's own record — and
     expect(spans.writeUps(proj).some((w) => w.session === "old-1")).toBe(true);
   });
 
-  test("the door rule, each arm: not listed → other-project; listed but not ended → live-session; a model cannot grant", async () => {
+  test("the door rule, each arm: not listed → other-project; listed and still at work today → live-session; a crash with no end, quiet since → served (2026-10-01); a model cannot grant", async () => {
     const proj = join(root, "proj");
     const runnerDir = join(root, "runner");
     mkdirSync(proj, { recursive: true });
     mkdirSync(runnerDir, { recursive: true });
     endedOwing("old-1", proj);
     endedOwing("quiet-1", proj, { end: false });
+    // At work today: it said something a moment ago and has not ended.
+    {
+      const c = Counterpart.open({ dir, owner: true });
+      recordSession(dir, { sessionId: "busy-1", scope: proj, phase: "start" });
+      c.captureSpans({ session: "busy-1", scope: proj, turns: [{ role: "user", text: "The busy session's turn about the pump, today." }] });
+      c.close();
+    }
     recordSession(dir, { sessionId: "night-1", scope: runnerDir, phase: "start" });
     const s = server({ scope: runnerDir });
     // Not listed: the ordinary path, which is this server's project only.
     expect(payload(await s.call("session_end", { session: "night-1", writeUp: "old-1" }))["reason"]).toBe("other-project");
+    grantWriteUps(dir, { runner: "night-1", scope: runnerDir, subjects: ["busy-1"] });
+    const busy = payload(await s.call("session_end", { session: "night-1", writeUp: "busy-1" }));
+    expect(busy).toMatchObject({ reason: "live-session" });
+    expect(String(busy["detail"])).toContain("still at work today");
+    // A CRASH: no end on any record, quiet since the date changed — the
+    // ledger's "not at work" is enough (#289's evidence), and it is served.
     grantWriteUps(dir, { runner: "night-1", scope: runnerDir, subjects: ["quiet-1"] });
-    expect(payload(await s.call("session_end", { session: "night-1", writeUp: "quiet-1" }))["reason"]).toBe("live-session");
+    expect(payload(await s.call("session_end", { session: "night-1", writeUp: "quiet-1" }))).toMatchObject({ reason: "part", ended: "quiet-1" });
     // No tool writes the field: a `mayWriteUp` argument is not a grant.
     expect(payload(await s.call("session_end", { session: "night-1", writeUp: "old-1", mayWriteUp: ["old-1"] }))["reason"]).toBe("other-project");
     expect(readSession(dir, "night-1")?.mayWriteUp).toEqual(["quiet-1"]);

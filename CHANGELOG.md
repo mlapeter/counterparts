@@ -38,6 +38,43 @@
   it is. Memories that only talk about feelings (notes on the wheel itself, say) no longer
   crowd out the moments that were actually felt.
 
+The morning catch-up and the "Yesterday" line (#308).
+
+- **The nightly run writes up what was left unwritten, in any directory, before it
+  writes the page.** Until now a conversation that ended before it was written up waited
+  for the next session opened in the same directory, and a project nobody reopened within
+  two days of use simply let it lapse. Now, when the day's first prompt starts the
+  nightly run (dreaming `auto`), a short `claude -p` of its own goes first: it is allowed
+  one tool (`session_end`), and it writes up at most 4 sessions or about 96 KB of their
+  words a night, oldest first. What it leaves stays owed, for another night or a session
+  in its directory. It costs one more `claude -p` start on a night with something owed,
+  and nothing on a night without. That run can only write up: it can't write memories
+  of its own, notes, chapters or handoffs. A run that stops early (a usage limit, say)
+  is recorded as partial, and one whose process was killed has its permission ended at
+  the next run.
+- **A written-up memory belongs to the conversation it came from.** It carries that
+  session and its directory, is marked as written up second-hand (and by whom), and its
+  "happened" date is the day the conversation was lived. Its "learned" date stays the day
+  it was written. The page writer reads it on the day it happened, not the day it was
+  written. This is true of the in-session catch-up too.
+- **The writer now sees both sides.** The part handed over carries the session's own
+  replies, labelled `[its reply]` and each cut at about 1.5 KB, beside what was said to
+  it. A part may hold a little less of what was said than before.
+- **Two writers never write the same stretch.** Whoever fetches a stretch holds it until
+  it comes back (at most two hours). The session-start pointer passes over one the
+  nightly run holds, and a session that tries to fetch one gets "the nightly run is
+  writing that session up now".
+- **A conversation that crashed without an end can be written up from another
+  directory.** "Ended" is now read the same way the rest of the write-up rule reads it:
+  nothing captured since the date changed. A refusal always says why.
+- **The wake has a "Yesterday" line**: yesterday's chapter titles with their ids, with
+  the date in the line ("Yesterday, 09-30: …"), so a wake composed late at night still
+  reads right in the morning. It takes its room from the wake's existing budget.
+- **`counterparts doctor`** says what the nightly run's catch-up did (written up, left
+  owed) on the Nightly run and Write-ups lines, and counts yesterday's Claude Desktop
+  chats as unmeasured rather than lost. `counterparts log` shows an
+  `adapter.night.writeup` line for it.
+
 ## 0.3.10 — 2026-09-30
 
 Feelings now sit on a new wheel of seven cores — happy, warm, calm, curious, sad,

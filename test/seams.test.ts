@@ -414,6 +414,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       advanceClock: ["2026-08-26"],
       setMeta: ["k", "v"],
       setMetaMany: [[["k", "v"]]],
+      updateMeta: ["k", () => "v"],
       setGateRecords: [[{ sessionId: "s1", kind: "surfaced", ref: seedId, turn: 1, lastDay: 0 }]],
       pruneGateSessions: [],
       appendEvent: [{ name: "probe", day: 0 }],

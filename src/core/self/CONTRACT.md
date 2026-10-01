@@ -179,7 +179,14 @@ proposals and their archive; render and delivery telemetry.
    to `MORE_LINE_IDS` ids the recall tool reads whole (`briefing.ts#moreLine`). It goes in
    only while the whole still fits the budget, lanes that trim last first; one that does
    not fit is left out and the trim's count stays in telemetry. Identity says nothing
-   while the page replaces the list. **An identity lane with no elements renders ONE line
+   while the page replaces the list. **The "Yesterday" line** (2026-10-01, wake build 3, a
+   working default): when the caller hands one (`BriefingRequest.yesterday` — the root
+   composes it from yesterday's chapters, titles and ids, no model run,
+   `handoff/last-here.ts#yesterdayLine`), it is printed under the framing line, one line,
+   FLATTENED, carrying its date ("Yesterday, 09-30: …") so a wake composed at night reads
+   right in the morning. It is furniture the trim loop cannot pop — the lanes trim to make
+   its room inside the same budget — and it rides only while the floor fits with it; a
+   composition that passes `omit` never carries it. **An identity lane with no elements renders ONE line
    of furniture naming the identity core** (`briefing.ts#identityCoreLine`) when a core
    exists, and nothing when none does — the core is `type: "schema"` and no lane can reach
    it, so a store seeded by `install --name` composed a wake that named nobody (measured
@@ -394,6 +401,10 @@ proposals and their archive; render and delivery telemetry.
     archives its originals and is stamped the day it was made, so a live row whose
     `meta.mergedFrom` reaches a memory learned on the night is part of the night; and
     `hasDayBefore` counts archived rows, so a night a dream merged whole is still a night.
+    **And it is the day LIVED** (2026-10-01): a memory written up second-hand
+    (`meta.secondHand`, the morning's catch-up writing up yesterday) is that day's by its
+    `happened_on`, and not the day it was learned (`types.ts#livedOn`), so it is read once,
+    on the night of the day it happened.
     **It never says a day was empty that was not.** "The day was empty" and "I could not
     see the day" are different things, and `dropped` is what tells them apart; a room too
     small for the largest memory still carries the smaller ones. **Quoted material carries

@@ -1741,10 +1741,17 @@ export function owedWriteUps(
   // STORE-WIDE, not this project's: is a full debt anywhere still owed its
   // pointer today? (`opts.exclude` is the asking session, never a debt.)
   const fullFirst = plan.some(
-    (h) => h.session !== opts.exclude && waitingForWriteUp(h) && !pointedToday(h.session),
+    (h) =>
+      h.session !== opts.exclude &&
+      waitingForWriteUp(h) &&
+      !pointedToday(h.session) &&
+      claimedByOther(opts.progress ?? {}, h.session, opts.exclude, now) === null,
   );
   for (const h of plan) {
     if (h.session === opts.exclude) continue;
+    // CLAIM-FIRST (2026-10-01): a debt another writer holds right now — the
+    // nightly run, or a session that fetched it — is not offered.
+    if (claimedByOther(opts.progress ?? {}, h.session, opts.exclude, now) !== null) continue;
     const eligible = waitingForWriteUp(h) || (!fullFirst && smallWriteUpDue(h, dataDir));
     if (!eligible) continue;
     const standing = writeUpStanding(plan, dataDir, h.session, scope, now, {
@@ -1785,6 +1792,18 @@ export const WRITE_UP_PART_BYTES = 24 * 1024;
 export const WRITE_UP_KEPT_MARK = "[already written up]";
 /** What marks a note the ended session jotted, rather than something said. */
 export const WRITE_UP_JOT_MARK = "[a note it jotted]";
+/** What marks the ended session's OWN reply (2026-10-01, build 3): handed over
+ *  labelled, so the writer can tell what was said to it from what it said. */
+export const WRITE_UP_REPLY_MARK = "[its reply]";
+/** What ends a reply cut at `WRITE_UP_REPLY_BYTES`. */
+export const WRITE_UP_REPLY_CUT = " [… the rest of this reply is not shown]";
+/**
+ * **CAL.** The most of ONE reply a part carries (2026-10-01). A reply is
+ * context for what was said, not the thing written up, and replies run long:
+ * uncut, they would double or triple the parts a session takes. Cut at a
+ * character, never inside one, and the cut says so.
+ */
+export const WRITE_UP_REPLY_BYTES = 1536;
 const WRITE_UP_SEPARATOR = "\n\n---\n\n";
 
 /** One piece of an ended session's captured words, in the order they came. */
@@ -1793,6 +1812,26 @@ export interface WriteUpEntry {
   /** The ended session handed this back itself (a coverage mark). */
   readonly kept: boolean;
   readonly jot: boolean;
+  /** The ended session's own reply (2026-10-01), already cut to
+   *  `WRITE_UP_REPLY_BYTES`. Absent: something said to it, or a jot. */
+  readonly reply?: boolean;
+  /** When it was captured, epoch ms — what dates a part (`writeUpPartsDated`). */
+  readonly at: number;
+}
+
+/** A reply cut to `WRITE_UP_REPLY_BYTES`, by code point, marked when cut. */
+function cutReply(text: string): string {
+  if (Buffer.byteLength(text, "utf8") <= WRITE_UP_REPLY_BYTES) return text;
+  const room = WRITE_UP_REPLY_BYTES - Buffer.byteLength(WRITE_UP_REPLY_CUT, "utf8");
+  let out = "";
+  let bytes = 0;
+  for (const ch of text) {
+    const b = Buffer.byteLength(ch, "utf8");
+    if (bytes + b > room) break;
+    out += ch;
+    bytes += b;
+  }
+  return out + WRITE_UP_REPLY_CUT;
 }
 
 /**
@@ -1800,9 +1839,14 @@ export interface WriteUpEntry {
  * what was said to it and what it jotted, wherever the buffer holds them — the
  * live streams, quarantine, a claim in flight — in the scopes the caller names
  * (the pointing project's alone, MAJOR 6), deduplicated and in the order they
- * came. NEVER the
- * assistant's own turns: nothing writes a session up from those (B3), and the
- * API sweep never read them either. Read-only.
+ * came.
+ *
+ * **AND ITS OWN REPLIES, labelled** (2026-10-01, build 3 — the owner's call,
+ * reversing B3's "never the assistant's turns"): a write-up read from one side
+ * of a conversation guessed at the other. Each reply is cut to
+ * `WRITE_UP_REPLY_BYTES`, and a reply to something already written up is left
+ * out with it. One function, so the hook's part count and the door's parts
+ * agree. Read-only.
  */
 export function writeUpEntries(spans: SpanBuffer, held: { session: string; scopes: readonly string[] }): WriteUpEntry[] {
   const seen = new Set<string>();
@@ -1812,17 +1856,31 @@ export function writeUpEntries(spans: SpanBuffer, held: { session: string; scope
     const said = [
       ...spans.spans(scope),
       ...spans.quarantined(scope).filter((x) => x.kind !== "assistant"),
-      ...spans.claimedSpans(scope).filter((x) => x.kind !== "assistant"),
+      ...spans.claimedSpans(scope),
+      ...spans.assistantSpans(scope),
     ];
     for (const span of said) {
       if (span.session !== held.session || typeof span.text !== "string" || span.text.trim().length === 0) continue;
       if (seen.has(span.hash)) continue;
       seen.add(span.hash);
-      found.push({ span, kept: covered.has(span.hash) });
+      found.push({ span, kept: span.kind !== "assistant" && covered.has(span.hash) });
     }
   }
   found.sort((a, b) => (a.span.at !== b.span.at ? a.span.at - b.span.at : a.span.from - b.span.from));
-  return found.map(({ span, kept }) => ({ text: span.text, kept, jot: span.kind === "jot" }));
+  const out: WriteUpEntry[] = [];
+  // Whether the latest thing said before a reply is already written up.
+  let lastKept = false;
+  for (const { span, kept } of found) {
+    const at = typeof span.at === "number" && Number.isFinite(span.at) ? span.at : 0;
+    if (span.kind === "assistant") {
+      if (lastKept) continue;
+      out.push({ text: cutReply(span.text), kept: false, jot: false, reply: true, at });
+      continue;
+    }
+    lastKept = kept;
+    out.push({ text: span.text, kept, jot: span.kind === "jot", at });
+  }
+  return out;
 }
 
 /**
@@ -1832,29 +1890,44 @@ export function writeUpEntries(spans: SpanBuffer, held: { session: string; scope
  * every call — the hook counts them for the pointer, the door serves them.
  */
 export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: number): string[] {
+  return writeUpPartsDated(entries, chunkBytes).map((p) => p.text);
+}
+
+/**
+ * The same parts, each with the capture time of its latest entry — what dates
+ * the day a write-up of that part records as LIVED (`happened_on`, 2026-10-01).
+ */
+export function writeUpPartsDated(entries: readonly WriteUpEntry[], chunkBytes: number): { text: string; lastAt: number }[] {
   const size = Math.max(1, Math.floor(chunkBytes));
   const sep = Buffer.byteLength(WRITE_UP_SEPARATOR, "utf8");
-  const parts: string[] = [];
+  const parts: { text: string; lastAt: number }[] = [];
   let cur = "";
   let curBytes = 0;
+  let curAt = 0;
   const flush = (): void => {
-    if (cur.length > 0) parts.push(cur);
+    if (cur.length > 0) parts.push({ text: cur, lastAt: curAt });
     cur = "";
     curBytes = 0;
+    curAt = 0;
   };
   for (const entry of entries) {
     const rendered =
-      (entry.kept ? `${WRITE_UP_KEPT_MARK}\n` : "") + (entry.jot ? `${WRITE_UP_JOT_MARK} ` : "") + entry.text;
+      (entry.kept ? `${WRITE_UP_KEPT_MARK}\n` : "") +
+      (entry.jot ? `${WRITE_UP_JOT_MARK} ` : "") +
+      (entry.reply === true ? `${WRITE_UP_REPLY_MARK} ` : "") +
+      entry.text;
     const bytes = Buffer.byteLength(rendered, "utf8");
     if (cur.length > 0 && curBytes + sep + bytes <= size) {
       cur += WRITE_UP_SEPARATOR + rendered;
       curBytes += sep + bytes;
+      curAt = Math.max(curAt, entry.at);
       continue;
     }
     flush();
     if (bytes <= size) {
       cur = rendered;
       curBytes = bytes;
+      curAt = entry.at;
       continue;
     }
     // Longer than a part on its own: cut it, by code point.
@@ -1863,7 +1936,7 @@ export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: numbe
     for (const ch of rendered) {
       const b = Buffer.byteLength(ch, "utf8");
       if (sliceBytes + b > size && slice.length > 0) {
-        parts.push(slice);
+        parts.push({ text: slice, lastAt: entry.at });
         slice = "";
         sliceBytes = 0;
       }
@@ -1872,6 +1945,7 @@ export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: numbe
     }
     cur = slice;
     curBytes = sliceBytes;
+    curAt = entry.at;
   }
   flush();
   return parts;
@@ -1912,6 +1986,64 @@ export interface WriteUpProgress {
   /** Every part HERE came back, and the session still holds unwritten words in
    *  another project: it is marked when that project's share comes back too. */
   readonly waiting?: boolean;
+  /** Who is writing it up NOW (2026-10-01, claim-first): see `WriteUpClaim`. */
+  readonly claim?: WriteUpClaim;
+}
+
+/**
+ * WHO HOLDS A WRITE-UP WHILE IT IS BEING WRITTEN (2026-10-01, build 3) — so two
+ * writers (a session's in-session catch-up and the nightly run) never write the
+ * same stretch. Taken by the door at a FETCH, and by the nightly run's launcher
+ * when it grants a subject to its runner; while it is young
+ * (`WRITE_UP_CLAIM_MS`), any other session's fetch or answer is refused
+ * `claimed`, and the SessionStart pointer passes the subject over. The runner's
+ * claims are released when its run ends; a claim nobody releases runs out.
+ */
+export interface WriteUpClaim {
+  /** The writing session (the runner's id, for the nightly run). */
+  readonly by: string;
+  /** When it was taken or last renewed, epoch ms. */
+  readonly at: number;
+  /** The last part this claim may be served — the nightly run's allowance for
+   *  this subject (`NIGHT_WRITE_UP_BYTES`). Absent: no bound. */
+  readonly upTo?: number;
+}
+
+/**
+ * **CAL.** How long a claim holds (2026-10-01). Past the nightly catch-up's
+ * watchdog (`TUNABLES.NIGHT_WRITE_UP_MS`) and any plausible gap between a
+ * fetch and its answer; short enough that a writer that died holds nothing
+ * past the morning.
+ */
+export const WRITE_UP_CLAIM_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * The nightly run's write-up RUNNER is a session id of its own,
+ * `writeup-<run id>` (2026-10-01): its record carries the grant (`mayWriteUp`)
+ * and nothing else writes there, so no live session's slot is shared with it.
+ */
+export const NIGHT_RUNNER_PREFIX = "writeup-";
+
+/** The claim on this progress entry, when it is still young. */
+export function liveClaim(p: WriteUpProgress | undefined, now: number): WriteUpClaim | null {
+  const c = p?.claim;
+  if (c === undefined) return null;
+  return now - c.at < WRITE_UP_CLAIM_MS ? c : null;
+}
+
+/** Does a session OTHER than `by` hold a young claim on any share of `session`? */
+export function claimedByOther(
+  progress: Readonly<Record<string, WriteUpProgress>>,
+  session: string,
+  by: string | undefined,
+  now: number,
+): WriteUpClaim | null {
+  for (const [key, p] of Object.entries(progress)) {
+    if (!key.startsWith(`${session}|`)) continue;
+    const c = liveClaim(p, now);
+    if (c !== null && c.by !== by) return c;
+  }
+  return null;
 }
 
 /** The progress map's key: one ended session in one project. */
@@ -1921,9 +2053,18 @@ export function progressKey(session: string, scope: string): string {
 
 /** Every write-up in flight. Never throws: an unreadable key is an empty map. */
 export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<string, WriteUpProgress> {
+  try {
+    return parseWriteUpProgress(store.getMeta(WRITE_UP_PROGRESS_KEY));
+  } catch {
+    return {};
+  }
+}
+
+/** The progress map from the meta row's text. Never throws: unreadable is empty. */
+function parseWriteUpProgress(text: string | undefined): Record<string, WriteUpProgress> {
   let raw: unknown;
   try {
-    raw = JSON.parse(store.getMeta(WRITE_UP_PROGRESS_KEY) ?? "{}");
+    raw = JSON.parse(text ?? "{}");
   } catch {
     return {};
   }
@@ -1950,6 +2091,20 @@ export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<strin
         handedAt: typeof handedAt === "number" && Number.isFinite(handedAt) ? handedAt : 0,
         ...((WRITE_UP_ANSWERS as readonly unknown[]).includes(answer) ? { answer: answer as WriteUpAnswer } : {}),
         ...(v["waiting"] === true ? { waiting: true } : {}),
+        ...((): { claim?: WriteUpClaim } => {
+          const c = v["claim"];
+          if (c === null || typeof c !== "object" || Array.isArray(c)) return {};
+          const r = c as Record<string, unknown>;
+          if (!isSessionId(r["by"]) || typeof r["at"] !== "number" || !Number.isFinite(r["at"])) return {};
+          const upTo = r["upTo"];
+          return {
+            claim: {
+              by: r["by"],
+              at: r["at"],
+              ...(typeof upTo === "number" && Number.isSafeInteger(upTo) && upTo > 0 ? { upTo } : {}),
+            },
+          };
+        })(),
       };
     }
   }
@@ -1965,23 +2120,67 @@ export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<strin
  * plan no longer holds as owing is dropped. Never throws; returns how many.
  */
 export function pruneWriteUpProgress(
-  store: Pick<Store, "getMeta" | "setMeta">,
+  store: Pick<Store, "updateMeta">,
   plan: readonly HeldSession[],
 ): number {
-  try {
-    const all = readWriteUpProgress(store);
-    const owing = new Set(plan.filter((h) => h.owes).map((h) => h.session));
-    let dropped = 0;
+  const owing = new Set(plan.filter((h) => h.owes).map((h) => h.session));
+  let dropped = 0;
+  updateWriteUpProgress(store, (all) => {
+    dropped = 0;
     for (const key of Object.keys(all)) {
       if (owing.has(key.slice(0, key.indexOf("|")))) continue;
       delete all[key];
       dropped += 1;
     }
-    if (dropped > 0) store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
-    return dropped;
+    return dropped > 0;
+  });
+  return dropped;
+}
+
+/**
+ * CHANGE THE PROGRESS MAP IN ONE TRANSACTION (2026-10-01, review of #308): the
+ * map is read INSIDE the write (`Store#updateMeta`, `BEGIN IMMEDIATE`), so the
+ * nightly runner's MCP process and a live session's door, writing at the same
+ * moment, each change the map the other left — neither loses a claim or a
+ * `done`. `fn` edits `all` in place and says whether it changed anything.
+ * Returns whether the write landed (or nothing needed writing); never throws.
+ */
+export function updateWriteUpProgress(
+  store: Pick<Store, "updateMeta">,
+  fn: (all: Record<string, WriteUpProgress>) => boolean,
+): boolean {
+  try {
+    store.updateMeta(WRITE_UP_PROGRESS_KEY, (current) => {
+      const all = parseWriteUpProgress(current);
+      return fn(all) ? JSON.stringify(all) : undefined;
+    });
+    return true;
   } catch {
-    return 0;
+    return false;
   }
+}
+
+/**
+ * TAKE (or renew) A CLAIM AND SAVE ONE KEY'S PROGRESS, unless another session
+ * holds a young claim on that subject — decided inside the same transaction as
+ * the write, so two writers fetching at once cannot both take it (review of
+ * #308). `claimed` names the holder that won.
+ */
+export function claimWriteUpProgress(
+  store: Pick<Store, "updateMeta">,
+  key: string,
+  progress: WriteUpProgress & { readonly claim: WriteUpClaim },
+  now: number,
+): "saved" | "claimed" | "failed" {
+  const session = key.slice(0, key.indexOf("|"));
+  let held = false;
+  const ok = updateWriteUpProgress(store, (all) => {
+    held = claimedByOther(all, session, progress.claim.by, now) !== null;
+    if (held) return false;
+    all[key] = { ...progress };
+    return true;
+  });
+  return !ok ? "failed" : held ? "claimed" : "saved";
 }
 
 /**
@@ -1990,23 +2189,19 @@ export function pruneWriteUpProgress(
  * Returns whether it landed; never throws.
  */
 export function saveWriteUpProgress(
-  store: Pick<Store, "getMeta" | "setMeta">,
+  store: Pick<Store, "updateMeta">,
   key: string,
   progress: WriteUpProgress | null,
   opts: { allOf?: string } = {},
 ): boolean {
-  try {
-    const all = readWriteUpProgress(store);
+  return updateWriteUpProgress(store, (all) => {
     if (opts.allOf !== undefined) {
       for (const k of Object.keys(all)) if (k.startsWith(`${opts.allOf}|`)) delete all[k];
     }
     if (progress === null) delete all[key];
     else all[key] = { ...progress };
-    store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
     return true;
-  } catch {
-    return false;
-  }
+  });
 }
 
 /**

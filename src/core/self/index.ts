@@ -603,6 +603,9 @@ export class Self {
         day: req.day,
         ...(coreName === null ? {} : { coreName }),
         ...(page === null ? {} : { page }),
+        // The "Yesterday" line (2026-10-01): the owner's wake only — a
+        // composition that filters (`omit`) is bound elsewhere.
+        ...(req.yesterday === undefined || req.omit !== undefined ? {} : { yesterday: req.yesterday }),
       },
       resolve,
       this.tunables,

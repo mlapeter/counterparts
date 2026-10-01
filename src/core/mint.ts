@@ -53,6 +53,7 @@ import { CUE_MODE_META, DATE_FROM_META } from "./prospective/index.js";
 import type { Proposal } from "./remember/index.js";
 import { localDate } from "./time.js";
 import type { Store } from "./store/index.js";
+import { SECOND_HAND_META_KEY, WRITTEN_UP_BY_META_KEY } from "./types.js";
 import type { Band, Salience } from "./types.js";
 
 /** The canonical prose meta key. One spelling, read by `sleep/dedup.ts`. */
@@ -104,6 +105,15 @@ export interface MintOptions {
    * interpreter's retelling, not a named model's — and the column is NULL.
    */
   model?: string;
+  /**
+   * A WRITE-UP of another session's stretch (2026-10-01, build 3): the memory
+   * is THAT session's — its origin names it, not the writer — the day it was
+   * lived is its `happened_on` (the learned date stays the day it was written),
+   * and it is marked second-hand in its meta (`SECOND_HAND_META_KEY`, with the
+   * writer's id under `WRITTEN_UP_BY_META_KEY`). Engine-set by the door, never
+   * an author field.
+   */
+  writeUp?: { readonly session: string; readonly happenedOn: string | null };
 }
 
 export interface MintResult {
@@ -189,6 +199,12 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // The memory a revision took its reminder from (`Counterpart#carryReminder`):
   // an id, so what was already said for the same window still counts.
   if (proposal.reminderFrom !== undefined) meta[DATE_FROM_META] = proposal.reminderFrom;
+  // SECOND-HAND (2026-10-01): written up by a session that did not live it.
+  const writeUp = opts.writeUp;
+  if (writeUp !== undefined) {
+    meta[SECOND_HAND_META_KEY] = true;
+    meta[WRITTEN_UP_BY_META_KEY] = proposal.session;
+  }
 
   // THE PROPOSAL'S OWN INSTANT, not the write's (§I7). `proposal.at` is the
   // span buffer's injected clock read at the moment the author deposited; the
@@ -209,6 +225,8 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     kind: proposal.kind,
     body: proposal.content,
     learnedOn,
+    // The day a write-up's stretch was LIVED (2026-10-01).
+    ...(writeUp?.happenedOn === undefined || writeUp.happenedOn === null ? {} : { happenedOn: writeUp.happenedOn }),
     ...(proposal.title === null ? {} : { title: proposal.title }),
     // The reminder date, as the author wrote it (schema v7's `event_date`).
     ...(proposal.eventDate === null ? {} : { eventDate: proposal.eventDate }),
@@ -224,7 +242,8 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     // memory rode no single span, so the key is absent rather than null — and
     // removal's span surface reads that absence as "nothing of it rode one".
     origin: {
-      session: proposal.session,
+      // A write-up's memory is the session it writes up (2026-10-01).
+      session: writeUp?.session ?? proposal.session,
       scope: proposal.scope,
       ref: proposal.id,
       ...(proposal.ownSpanHash === null ? {} : { spanHash: proposal.ownSpanHash }),

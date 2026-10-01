@@ -711,6 +711,7 @@ export const WRITE_METHODS = [
   "advanceClock",
   "setMeta",
   "setMetaMany",
+  "updateMeta",
   "setGateRecords",
   "pruneGateSessions",
   "appendEvent",
@@ -3189,6 +3190,27 @@ export class Store {
       }
     });
     this.emit("store.meta", undefined, { count: entries.length });
+  }
+
+  /**
+   * READ, CHANGE AND WRITE ONE META ROW IN ONE TRANSACTION (2026-10-01, review
+   * of #308). `fn` gets the row as it stands INSIDE the write transaction —
+   * `BEGIN IMMEDIATE`, so a second process doing the same waits on the busy
+   * timeout and then reads what the first wrote — and returns the new value,
+   * `null` to delete the row, or `undefined` to leave it. What `fn` returned is
+   * returned. For a row two processes change at once (the write-up progress
+   * map), where `getMeta` then `setMeta` would lose one of them.
+   */
+  updateMeta(key: string, fn: (current: string | undefined) => string | null | undefined): string | null | undefined {
+    const out = this.mutate("updateMeta", () => {
+      const row = this.ops.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key);
+      const next = fn(row?.value);
+      if (next === null) this.ops.run("DELETE FROM meta WHERE key = ?", key);
+      else if (next !== undefined) this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, next);
+      return next;
+    });
+    this.emit("store.meta", undefined, { key });
+    return out;
   }
 
   // ── box 2: per-session gate state (SEAMS item B) ───────────────────────────

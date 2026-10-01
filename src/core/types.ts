@@ -70,6 +70,27 @@ export type SettleHow = (typeof SETTLE_HOWS)[number];
  */
 export const UNBOUND_SESSION = "mcp";
 
+/** The meta mark on a memory written up by a session that did not live it
+ *  (2026-10-01, `mint.ts#MintOptions.writeUp`). */
+export const SECOND_HAND_META_KEY = "secondHand";
+/** Beside it: the session that wrote it up (an id). */
+export const WRITTEN_UP_BY_META_KEY = "writtenUpBy";
+
+/**
+ * THE DAY A MEMORY WAS LIVED (2026-10-01): its `happened_on` when it was
+ * written up second-hand, else the day it was learned. What the page writer's
+ * day reads (`self/writer.ts#isOfDay`).
+ */
+export function livedOn(row: { learned_on: string; happened_on?: string | null; meta: string }): string {
+  if (typeof row.happened_on !== "string" || row.happened_on.length === 0) return row.learned_on;
+  try {
+    const meta = JSON.parse(row.meta) as Record<string, unknown>;
+    return meta[SECOND_HAND_META_KEY] === true ? row.happened_on : row.learned_on;
+  } catch {
+    return row.learned_on;
+  }
+}
+
 /** Is this a real session id — not absent, empty, or the unbound server's? */
 export function isKnownSession(session: string | null | undefined): session is string {
   return typeof session === "string" && session.length > 0 && session !== UNBOUND_SESSION;

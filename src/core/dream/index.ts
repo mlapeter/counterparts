@@ -48,6 +48,7 @@ import { CARRIED_BY_MAX_CHARS, checkFeelings, checkTraits, defaultStrength, isSt
 import type { DreamChangeRow, DreamRow, FeelingInput, MemoryRow, ProseDoc, Store } from "../store/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
+import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { mindRanked, noteMindShown } from "./mind.js";
@@ -124,6 +125,9 @@ export interface DreamItem {
   /** The lived day it was made, and the calendar date it was learned. */
   readonly day: number;
   readonly learned: string;
+  /** The day it was LIVED, when that is not the day it was learned: a memory
+   *  written up second-hand (2026-10-01, `types.ts#livedOn`). */
+  readonly lived?: string;
   readonly core: boolean;
 }
 
@@ -2398,6 +2402,7 @@ export class Dreams {
       strength: round(strength(p, day)),
       day: row.birth_day,
       learned: row.learned_on,
+      ...(livedOn(row) === row.learned_on ? {} : { lived: livedOn(row) }),
       core: row.promoted_identity === 1,
     };
   }

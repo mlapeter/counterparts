@@ -37,7 +37,7 @@ import {
 } from "../src/adapters/mcp/index.js";
 import type { McpServer, Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { TUNABLES } from "../src/adapters/config.js";
-import { SESSION_TTL_MS, hostOf, readSession, recordSession } from "../src/adapters/sessions.js";
+import { SESSION_TTL_MS, grantWriteUps, hostOf, readSession, recordSession } from "../src/adapters/sessions.js";
 import { lookupScope, readScopes, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
@@ -264,6 +264,21 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     expect(chatChapter["session"]).toBe(chat);
     expect(s.events("mcp.session.served")).toEqual([]);
     expectUnbound(s);
+  });
+
+  test("a write-up runner is never served through the Code-tab path — not by its prefix, not by a grant on a Code-tab record (review of #308)", async () => {
+    const t = clock();
+    const s = desktopServer({ now: t.now });
+    // A live Code-tab-shaped record with the nightly runner's id.
+    recordSession(dir, { sessionId: "writeup-nrn_x", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
+    // And a genuine Code-tab session that somehow carries a grant.
+    recordSession(dir, { sessionId: "tab-granted", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
+    expect(grantWriteUps(dir, { runner: "tab-granted", scope: project, subjects: ["old-1"], at: t.now() })).toBe(true);
+    for (const id of ["writeup-nrn_x", "tab-granted"]) {
+      const out = payload(await s.call("session_end", { session: id, memories: [{ content: "A first-hand memory nobody lived here.", kind: "fact" }] }));
+      expect(out["stored"]).toBe(false);
+      expect(s.events("mcp.session.served").filter((e) => e.ref === id)).toEqual([]);
+    }
   });
 
   test("the Code-tab session's own directory setting governs its calls, in Claude Code's words — Desktop's place is untouched", async () => {

@@ -11,19 +11,21 @@ session owes nothing (`remember/retention.ts`). A session whose registry record 
 reads its end from `boundaries.jsonl` alone, and a `claude -p` / SDK session whose record
 is gone can no longer be told from a person's for the small-stretch pointer.
 
-## 2. A write-up's memories carry the writer's session
+## 2. A write-up's memories carry the writer's session — CLOSED 2026-10-01
 
-The door deposits under the WRITING session and covers the ended one's pieces
-(`cover: { session }`), so the memory's `origin_session` is the writer's. The ledger
-classifies the claim as `next-session` from the proposal record; a memory's own row does
-not say whose words it came from.
+Since wake build 3 the memory's `origin_session` is the ENDED session's and its meta says
+`secondHand` / `writtenUpBy`; the proposal record still carries the writer, which is what
+the ledger classifies the claim from (`next-session`).
 
 ## 3. Throughput: debts in projects not reopened lapse
 
-The only writer of a debt is the next session in the same project, at most
-`WRITE_UP_ASKS_PER_DAY` pointers a day store-wide, one part (~24 KB) each. A project not
-reopened within two days of use after its stretch lapses it. The background run doing
-write-ups (and arbitration between two writers claiming first) is a later build.
+Two writers now (2026-10-01): the next session in the same project (at most
+`WRITE_UP_ASKS_PER_DAY` pointers a day store-wide, one part each), and the nightly run's
+catch-up, in any project, up to `NIGHT_WRITE_UP_SESSIONS` / `NIGHT_WRITE_UP_BYTES` a
+night, claim-first between them. The catch-up rides the nightly run, so it runs only on a
+day whose first prompt starts one (`auto`, with a dream due): on `ask`, or a day with no
+dream offered, owed stretches still wait for a session in their directory. What the night
+leaves is on its `adapter.night.writeup` row.
 
 ## 4. The crash sweep is unreachable
 

@@ -689,6 +689,27 @@ child's own host-minted session is QUIET (`HookInput.nightRun`, from
 lines, plain reminders, Stop ask, write-up pointer or first-launch question. It still wakes
 with the ordinary wake.
 
+**[M] The morning catch-up runs first (2026-10-01, wake build 3 — held lightly).** A `night`
+run (never a reflection-alone one) writes up owed stretches, in ANY directory, before it
+composes its launch prompt (`night-catch-up.ts#runCatchUp`): every session that owes a
+write-up a person's conversation left (`sessions.ts#pointable`), oldest stretch first,
+bounded by `NIGHT_WRITE_UP_SESSIONS` (4) and `NIGHT_WRITE_UP_BYTES` (96 KB, whole parts;
+the first part always). Its runner is a session id of its own, `writeup-<run>`: the
+launcher writes the grant on the runner's record (`grantWriteUps`) and claims every subject
+(`WriteUpProgress.claim`, with `upTo` the last part allowed tonight) before a SECOND
+`claude -p` starts, pinned to that runner, locked down like the first but with
+`--allowedTools` exactly `mcp__counterparts__session_end`, `NIGHT_WRITE_UP_MAX_TURNS` (40)
+and its own watchdog `NIGHT_WRITE_UP_MS` (10 minutes). When it ends, whatever became of it,
+the claims are let go, the grant withdrawn and the runner's record ended; one durable row
+(`adapter.night.writeup`: granted, written, parts, left owed, over the bound, busy elsewhere,
+state) and a process-log line record it, and doctor's Nightly run and Write-ups lines read
+it. Nothing owed: no child, no row. The run's row carries the catch-up's time on its
+watchdog, so a run still going is not read as lost. A clean exit that stopped short of
+its allowance — some granted session neither written up nor brought to its `upTo` part —
+is recorded `partial`, not `done` (a usage limit exits 0 too; its output is not read); a
+bounded night that did every part it was allowed is `done`. A runner record a killed process left open is ended at the
+next run's start (`endStaleRunners`).
+
 **[M] The person sees it, and a run that cannot do its job falls back to asking.** The prompt
 hook's `systemMessage` carries "dreaming in the background (a few minutes). Say "no dreams"
 to turn it off." when the envelope has room (the model's line never claims it was shown).

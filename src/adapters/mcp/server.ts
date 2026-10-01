@@ -88,6 +88,7 @@ import type { SessionInput } from "../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
+  NIGHT_RUNNER_PREFIX,
   SERVER_HEARTBEAT_MS,
   SESSION_TTL_MS,
   DESKTOP_WAKE_KEY,
@@ -620,6 +621,26 @@ export class McpServer {
   }
 
   /**
+   * IS THE BOUND SESSION A WRITE-UP RUNNER (2026-10-01)? Its id carries the
+   * nightly runner's prefix, or its own record carries a grant
+   * (`sessions.ts#SessionRecord.mayWriteUp`, written only by a launcher). A
+   * claim in the call's `session` argument is read the same way, so an unbound
+   * server is not a way round it. Never throws.
+   */
+  private isWriteUpRunner(claimed?: unknown): boolean {
+    const ids = [this.session, typeof claimed === "string" ? claimed : null].filter((x): x is string => x !== null && x.length > 0);
+    for (const id of ids) {
+      if (id.startsWith(NIGHT_RUNNER_PREFIX)) return true;
+      try {
+        if ((readSession(this.registryDir, id)?.mayWriteUp?.length ?? 0) > 0) return true;
+      } catch {
+        /* an unreadable record grants nothing */
+      }
+    }
+    return false;
+  }
+
+  /**
    * ONE PREDICATE (observer-mode G7): the store's bit, always. Beside it, for
    * Claude Desktop, what `scopes.json` says about `claude-desktop:` NOW — read
    * per call, as `off` and `paused` are, so the `scope` tool's `observer` takes
@@ -853,8 +874,13 @@ export class McpServer {
   private claudeCodeSessionNamed(args: Record<string, unknown>): { session: string; scope: string } | null {
     const claimed = args["session"];
     if (typeof claimed !== "string" || !isSessionId(claimed)) return null;
+    // NEVER A WRITE-UP RUNNER (review of #308): the nightly catch-up's runner
+    // is served only by its own pinned server, so no id with its prefix, and no
+    // record carrying a grant, is ever served through this path.
+    if (claimed.startsWith(NIGHT_RUNNER_PREFIX)) return null;
     const record = readSession(this.registryDir, claimed);
     if (record === null || hostOf(record) !== DEFAULT_HOST) return null;
+    if ((record.mayWriteUp?.length ?? 0) > 0) return null;
     // THE CODE TAB'S ONLY (coordinator's decision, review of #309): a terminal
     // session has its own server; Desktop's has no reason to act for it.
     if (record.entrypoint !== CODE_TAB_ENTRYPOINT) return null;
@@ -1030,6 +1056,18 @@ export class McpServer {
     if (name !== "scope") {
       const verdict = this.scopeVerdict();
       if (stanceOfMode(verdict.mode) === "off") return this.refuseScopeOff(name, verdict);
+    }
+    // A WRITE-UP RUNNER WRITES UP AND NOTHING ELSE (2026-10-01, review of #308,
+    // HIGH). The nightly catch-up's runner is bound to the launching session's
+    // directory, so an ordinary `session_end` — or a `note`, a `chapter`, a
+    // handoff — from it would mint first-hand memories there in nobody's name.
+    // Any session whose record carries a grant (`mayWriteUp`), and any id with
+    // the runner's prefix, may call `session_end` WITH `writeUp`, and read
+    // (`recall`, `status`); everything else is refused by name.
+    if (this.isWriteUpRunner(args["session"]) && !(name === "session_end" && typeof args["writeUp"] === "string" && args["writeUp"].length > 0) && name !== "recall" && name !== "status") {
+      return this.refuse(name, "write-up-runner", {
+        detail: "This session was started to write up other sessions, and does only that: call session_end with writeUp. It writes no memories, chapters or handoffs of its own.",
+      });
     }
     switch (name) {
       case "note":
@@ -2398,6 +2436,9 @@ export class McpServer {
      *  but a GRANTED write-up (`sessions.ts#SessionRecord.mayWriteUp`), whose
      *  memories go under the scope the subject was lived in. */
     scope?: string,
+    /** A WRITE-UP's memories (2026-10-01): whose stretch they write up and the
+     *  day it was lived — carried on each memory, marked second-hand. */
+    writeUp?: { readonly session: string; readonly happenedOn: string | null },
   ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
     const entries: Record<string, unknown>[] = [];
     const feelingsOf: FeelingsRead[] = [];
@@ -2474,6 +2515,7 @@ export class McpServer {
           scope: scope ?? this.scope,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
+          ...(writeUp === undefined ? {} : { writeUp }),
         });
       } catch (err) {
         // Isolation, not a lost dump: this entry failed, the rest still run.
@@ -2523,7 +2565,7 @@ export class McpServer {
       session,
       now: this.nowFn(),
       args,
-      deposit: (raw, cover, scope) => this.depositEntries(raw, session, cover, scope),
+      deposit: (raw, cover, scope, writeUp) => this.depositEntries(raw, session, cover, scope, writeUp),
     });
     const body = out.body;
     // The ref is the ENDED session's id only when it is one this registry

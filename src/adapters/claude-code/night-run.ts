@@ -73,6 +73,7 @@ import { OBSERVER_ENV } from "../stance-env.js";
 import { TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
+import { CATCH_UP_TOOLS, runCatchUp } from "./night-catch-up.js";
 import type { ChildPlan, ChildResult } from "./child.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import type { SpawnPlan } from "../spawn.js";
@@ -218,7 +219,8 @@ export type NightRunnerPlan = Omit<SpawnPlan, "reason"> & { readonly reason: Nig
 export function planNightRunner(input: NightRunnerInput): NightRunnerPlan {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(input.baseEnv ?? process.env)) if (v !== undefined) env[k] = v;
-  const timeoutMs = nightTimeoutMs(input.config) + KILL_GRACE_MS + REAP_GRACE_MS + 60_000;
+  // The catch-up child runs first, under its own watchdog (2026-10-01).
+  const timeoutMs = nightTimeoutMs(input.config) + TUNABLES.NIGHT_WRITE_UP_MS + 2 * (KILL_GRACE_MS + REAP_GRACE_MS) + 60_000;
   const args = [...(input.args ?? [])];
   const no = (reason: NightRunnerRefusal): NightRunnerPlan => ({
     ok: false,
@@ -268,6 +270,11 @@ export interface NightChildInput {
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
   /** TESTS ONLY: the program to start instead of `claude`. Code only — no configuration reaches it. */
   readonly command?: string;
+  /** The tools it may call; absent, `NIGHT_TOOLS` (the catch-up child: `CATCH_UP_TOOLS`). */
+  readonly tools?: readonly string[];
+  /** Its turn ceiling and watchdog; absent, the night's own (`nightMaxTurns`, `nightTimeoutMs`). */
+  readonly maxTurns?: number;
+  readonly timeoutMs?: number;
 }
 
 /**
@@ -275,7 +282,7 @@ export interface NightChildInput {
  * refusals first, then the environment, this package's values last.
  */
 export function planNightChild(input: NightChildInput): NightChildPlan {
-  const timeoutMs = nightTimeoutMs(input.config);
+  const timeoutMs = input.timeoutMs ?? nightTimeoutMs(input.config);
   const command = input.command ?? DEFAULT_HOST_COMMAND;
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(input.baseEnv ?? process.env)) if (v !== undefined) env[k] = v;
@@ -284,13 +291,13 @@ export function planNightChild(input: NightChildInput): NightChildPlan {
   const args = [
     "-p",
     "--allowedTools",
-    NIGHT_TOOLS.join(","),
+    (input.tools ?? NIGHT_TOOLS).join(","),
     "--disallowedTools",
     NIGHT_DENIED_TOOLS.join(","),
     "--permission-mode",
     PERMISSION_MODE,
     "--max-turns",
-    String(nightMaxTurns(input.config)),
+    String(input.maxTurns ?? nightMaxTurns(input.config)),
     "--mcp-config",
     nightMcpConfig({
       runtime: input.runtime ?? process.execPath,
@@ -354,7 +361,11 @@ export interface NightRunInput {
   /** TESTS ONLY — see `NightChildInput.command`. */
   readonly command?: string;
   readonly start?: NightStarter;
+  /** TESTS ONLY: the catch-up child's starter (`night-catch-up.ts`); absent, a real child. */
+  readonly startCatchUp?: NightStarter;
   readonly now?: () => number;
+  /** The process log's (`adapters/log/`), for what the store does not write. */
+  readonly onEvent?: (e: CounterpartEvent) => void;
 }
 
 /**
@@ -368,13 +379,19 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   const startedAt = now();
   let date = input.date ?? "";
   let prompt = "";
+  // THE MORNING CATCH-UP FIRST (2026-10-01, build 3): owed stretches in any
+  // directory are written up before the page writer reads the day, by a short
+  // child of their own (`night-catch-up.ts`). Its time is added to the run's
+  // watchdog on the row, so the gate does not read a run that is still going
+  // as lost.
+  let catchUpMs = 0;
   const base = (c: Counterpart | null): Omit<NightRun, "state" | "endedAt" | "reason" | "detail" | "code" | "dream" | "reflection"> => ({
     run: input.run,
     date: date.length > 0 ? date : (c?.store.today() ?? ""),
     kind: input.kind.kind,
     session: input.session,
     startedAt,
-    timeoutMs: nightTimeoutMs(input.config),
+    timeoutMs: nightTimeoutMs(input.config) + catchUpMs,
   });
   const record = (run: NightRun): NightRun => {
     try {
@@ -391,6 +408,33 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   };
   const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts">>): NightRun =>
     record({ ...base(null), endedAt: now(), dream: null, reflection: null, ...fields });
+
+  if (input.kind.kind === "night") {
+    const report = await runCatchUp({
+      open: input.open,
+      config: input.config,
+      run: input.run,
+      scope: input.scope,
+      plan: ({ prompt: text, runner }) =>
+        planNightChild({
+          config: input.config,
+          run: input.run,
+          prompt: text,
+          scope: input.scope,
+          session: runner,
+          tools: CATCH_UP_TOOLS,
+          maxTurns: TUNABLES.NIGHT_WRITE_UP_MAX_TURNS,
+          timeoutMs: TUNABLES.NIGHT_WRITE_UP_MS,
+          ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
+          ...(input.baseEnv === undefined ? {} : { baseEnv: input.baseEnv }),
+          ...(input.command === undefined ? {} : { command: input.command }),
+        }),
+      start: input.startCatchUp ?? ((p: ChildPlan) => startChild(p)),
+      now,
+      ...(input.onEvent === undefined ? {} : { onEvent: input.onEvent }),
+    });
+    if (report !== null) catchUpMs = report.ms;
+  }
 
   // A STORE THAT WILL NOT OPEN is not opened a second time just to say so:
   // the row stays `started`, and past its watchdog the gate reads it as LOST

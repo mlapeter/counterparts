@@ -127,6 +127,7 @@ import {
 } from "../sessions.js";
 import { DESKTOP_HOST } from "../hosts.js";
 import { localStamp } from "../../core/time.js";
+import { catchUpOf, catchUpWords } from "./night-catch-up.js";
 import type { AdapterConfig } from "../config.js";
 // The same vocabulary the hook's stand-down uses, so the terminal and the
 // console cannot end up with two answers to "why did it not open".
@@ -3090,13 +3091,26 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
     if (setting !== "auto") return [];
     return [finding("night-run", "green", "Nightly run", "auto; no headless run yet — the first session of a day with enough new memory starts one", "", { setting, state: null })];
   }
-  const data = { setting, run: run.run, state: run.state, date: run.date, reason: run.reason, code: run.code, dream: run.dream, reflection: run.reflection };
+  // ITS MORNING CATCH-UP (2026-10-01, build 3), when it had anything owed.
+  const cu = catchUpOf(store, run.run);
+  const caught = cu === null ? "" : `; catch-up: ${catchUpWords(cu)}`;
+  const data = {
+    setting,
+    run: run.run,
+    state: run.state,
+    date: run.date,
+    reason: run.reason,
+    code: run.code,
+    dream: run.dream,
+    reflection: run.reflection,
+    ...(cu === null ? {} : { catchUp: cu.state, writtenUp: cu.written, writeUpParts: cu.parts, leftOwed: cu.left }),
+  };
   const mins = (ms: number): string => `${String(Math.max(1, Math.round(ms / 60_000)))} min`;
   const took = run.endedAt === null ? "" : ` after ${mins(run.endedAt - run.startedAt)}`;
   const what = run.kind === "reflection" ? "the reflection alone" : "the whole night";
   if (run.state === "done") {
     const ids = [run.dream, run.reflection].filter((x): x is string => x !== null).join(", ");
-    return [finding("night-run", "green", "Nightly run", `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}`, "", data)];
+    return [finding("night-run", "green", "Nightly run", `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}${caught}`, "", data)];
   }
   if (run.state === "partial") {
     // PART OF THE RUN RAN (2026-09-29, owner): which parts, and — when the
@@ -3107,7 +3121,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         "night-run",
         setting === "auto" ? "amber" : "green",
         "Nightly run",
-        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}`,
+        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}${caught}`,
         "Nothing to do by hand: a later session picks up what did not run — a dream cut off is resumed, a reflection cut off runs alone.",
         { ...data, parts: (run.parts ?? []).join(",") },
       ),
@@ -3138,7 +3152,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         : run.reason === "nothing-ran"
           ? "The headless run needs the counterparts MCP server registered for claude at user scope (claude mcp list shows it); the server's own mcp.session rows say whether it refused the session."
           : "A later session starts it again, or asks when it cannot. counterparts dream --setting ask stops the headless runs.";
-  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}`, fix, data)];
+  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}${caught}`, fix, data)];
 }
 
 export function selfPageFindings(store: Store): Finding[] {
@@ -4146,6 +4160,14 @@ function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: Owe
         ? `yesterday (${yesterday}): nothing captured`
         : `yesterday (${yesterday}): ${String(day.length)} session${day.length === 1 ? "" : "s"}, ` +
           `${String(yesterdayData.written)} of ${String(yesterdayData.pieces)} pieces written up`;
+    // CLAUDE DESKTOP'S CHATS ARE UNMEASURED, NEVER LOST (2026-10-01, as
+    // `counterparts coverage` says them): nothing is captured there, so the
+    // ledger holds nothing for them to owe.
+    const zoneY = store.zone();
+    const desk = listSessions(store.dir).filter(
+      (r) => hostOf(r) === DESKTOP_HOST && (localDate(r.startedAt, zoneY) === yesterday || localDate(r.lastBoundaryAt, zoneY) === yesterday),
+    ).length;
+    if (desk > 0) yesterdayWords += `, and ${String(desk)} Claude Desktop chat${desk === 1 ? "" : "s"} (unmeasured: no transcript)`;
     const progress = readWriteUpProgress(store);
     for (const [key, p] of Object.entries(progress)) {
       if (p.waiting !== true) continue;
@@ -4177,9 +4199,20 @@ function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: Owe
         ? "nothing owed"
         : `${String(waiting)} session${waiting === 1 ? " owes" : "s owe"} a write-up` +
           (stale === 0 ? "" : `, ${String(stale)} from yesterday or earlier`);
+  // THE NIGHTLY RUN'S CATCH-UP (2026-10-01): its newest row, within two days.
+  let night: ReturnType<typeof catchUpOf> = null;
+  try {
+    const cu = catchUpOf(store);
+    night = cu !== null && store.now() - cu.at < 2 * 86_400_000 ? cu : null;
+  } catch {
+    night = null;
+  }
+  const nightWords =
+    night === null ? "" : `the nightly run (${localDate(night.at, store.zone())}): ${night.state === "none-granted" || night.state === "could-not-start" ? catchUpWords(night) : `wrote up ${String(night.written)} of ${String(night.granted)}`}`;
   const detail =
     [
       yesterdayWords,
+      nightWords,
       owedWords,
       unpointed === 0 ? "" : `${String(unpointed)} small, not a person's session: left to lapse`,
       lapses === 0 ? "" : `${String(lapses)} lapsed this week`,
@@ -4199,6 +4232,8 @@ function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: Owe
     yesterdayWritten: yesterdayData?.written ?? null,
     pointer: pointer?.outcome ?? null,
     pointerDate: pointer?.date ?? null,
+    nightWrittenUp: night?.written ?? null,
+    nightLeftOwed: night?.left ?? null,
   };
   // THE POINTER IS NOT GETTING OUT (PR #192 review, MAJOR 1 and m4): opening a
   // session there would only defer again, so the advice says why and by how much.

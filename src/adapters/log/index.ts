@@ -90,6 +90,8 @@ export const LOGGED: { readonly names: ReadonlySet<string>; readonly suffixes: r
     // The nightly run: its states, and its parts.
     "adapter.night.started",
     "adapter.night.handed",
+    // ...and its morning catch-up: granted, written up, left owed (2026-10-01).
+    "adapter.night.writeup",
     "dream.night",
     "self.page.writer.ran",
     "dream.begun",

@@ -619,7 +619,8 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
   a batch whose every entry is `duplicate-content` says what the store already holds, and
   `[]` says nothing in the part was worth keeping. Only a non-empty batch the gate refused
   entirely (`nothing-landed`) leaves the part open.
-- **A write-up's memories are the WRITING session's, and B3 reads them that way.** They
+- **A write-up's PROPOSALS are the WRITING session's, and B3 reads them that way** (the
+  MEMORY is the ended session's since 2026-10-01: origin, lived date, `secondHand`). They
   are accepted `session-end` proposals under the live session's id, so if that session
   had already been asked at a Stop, `owes.ts` counts them as its answer to that ask. The
   pointer arrives at SessionStart, before any Stop ask, so the ordinary order is the
@@ -974,3 +975,30 @@ So the Desktop server serves a Code-tab call AS the Claude Code session it names
   result (`sessionRefused`, `sessionNote`).
 - `DESKTOP_INSTRUCTIONS` and the unnamed-handoff refusal now carry the Code-tab clause.
 
+
+## 2026-10-01 — the morning catch-up (wake build 3)
+
+- **The granted path, smoothed.** "Ended" is the ledger's (#289): a crash with no
+  `endedAt` that captured nothing since the date changed is served; one still at work
+  today is `live-session` with a detail. No registry record is needed for the subject.
+  `owedWriteUps`' full-first rotation is not asked on a grant — the launcher chose — so a
+  small debt is not refused while a larger one waits elsewhere, and every refusal says
+  why. The runner goes on to the next part once one comes back, to the claim's `upTo`.
+- **Claim-first** is a field on the progress map (`claim: { by, at, upTo? }`), taken in
+  the same `BEGIN IMMEDIATE` transaction that re-reads the map (`Store#updateMeta`, review
+  of #308): the second of two fetchers at the same instant is told `claimed`, and the
+  launcher passes over a subject claimed between its plan and its grant (`busy`). The
+  SessionStart pointer saves the same way, keeping a claim it did not read and deferring
+  (`claimed`) when the subject is held. A claim
+  nobody lets go runs out after `WRITE_UP_CLAIM_MS` (2 h); a killed night's runner record
+  is ended by the next run (`endStaleRunners`), and the door refuses its grant
+  (`grant-expired`) either way.
+- **The memory is the ended session's.** `mint.ts` takes `writeUp: { session, happenedOn }`
+  from the door through `SessionEndDepositContext.writeUp`: `origin_session` is the ended
+  session, `happened_on` the date of the part's latest piece, `meta.secondHand` and
+  `meta.writtenUpBy` say who wrote it. The proposal record keeps the writer's id, which is
+  how the ledger still classifies the claim as `next-session`.
+- **Replies ride along** (`[its reply]`, each cut at `WRITE_UP_REPLY_BYTES`, 1.5 KB; a reply
+  to a turn already written up is left out with it). Both the pointer's part count and the
+  door's parts read the one `writeUpEntries`, so they agree; a part count recorded before
+  this build may grow by the replies' bytes, which the door already tolerates.
