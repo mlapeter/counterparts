@@ -99,9 +99,11 @@ import type { WriteUpReason } from "../../core/remember/write-up-seam.js";
 import { calendarDate } from "../../core/self/index.js";
 import {
   NIGHT_RUNNER_PREFIX,
+  WRITE_UP_CLAIM_MS,
   WRITE_UP_KEPT_MARK,
   WRITE_UP_PART_BYTES,
   WRITE_UP_REPLY_MARK,
+  claimWriteUpProgress,
   isSessionId,
   liveClaim,
   markWriteUpFetched,
@@ -116,7 +118,7 @@ import {
   writeUpPlan,
   writeUpStanding,
 } from "../sessions.js";
-import type { WriteUpAnswer, WriteUpProgress } from "../sessions.js";
+import type { WriteUpAnswer, WriteUpClaim, WriteUpProgress } from "../sessions.js";
 import type { HeldSession } from "../../core/remember/index.js";
 
 /** Every way the door refuses. */
@@ -135,6 +137,7 @@ export const WRITE_UP_REFUSALS = [
   "io-failed",
   "claimed",
   "allowance-spent",
+  "grant-expired",
 ] as const;
 export type WriteUpRefusal = (typeof WRITE_UP_REFUSALS)[number];
 
@@ -241,6 +244,16 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
   // `sameScope` test against THIS server's scope is skipped, and the memories
   // are filed where the subject was lived (`here`).
   let st: Standing;
+  // A NIGHTLY RUNNER'S GRANT LASTS AS LONG AS ITS CLAIMS (review of #308): a
+  // runner whose record ended, or that was never ended and is older than
+  // `WRITE_UP_CLAIM_MS` (its process was killed), holds no grant any more.
+  if (
+    record?.mayWriteUp?.includes(ended) === true &&
+    record.sessionId.startsWith(NIGHT_RUNNER_PREFIX) &&
+    (record.endedAt !== null || input.now - record.lastBoundaryAt >= WRITE_UP_CLAIM_MS)
+  ) {
+    return refused("grant-expired", { writeUp: ended, detail: "This runner's grant has run out. A later night writes that session up." });
+  }
   if (record?.mayWriteUp?.includes(ended) === true) {
     // "ENDED" IS THE LEDGER'S WORD (2026-10-01, #289's evidence), not the
     // registry's `endedAt`: a session that crashed with no end, and captured
@@ -359,7 +372,7 @@ async function handOver(
       detail: "Tonight's allowance for that session is spent. The rest stays owed, for a later night or a session in its directory.",
     });
   }
-  const next: WriteUpProgress = {
+  const next: WriteUpProgress & { readonly claim: WriteUpClaim } = {
     ...(p ?? {}),
     chunk,
     parts: parts.length,
@@ -368,7 +381,13 @@ async function handOver(
     // CLAIMED BY THIS SESSION, from the fetch until it is written (2026-10-01).
     claim: { by: input.session, at: input.now, ...(upTo === undefined ? {} : { upTo }) },
   };
-  if (!saveWriteUpProgress(counterpart.store, st.key, next)) return refused("io-failed", { writeUp: ended });
+  // THE CLAIM AND THE SAVE IN ONE TRANSACTION (review of #308): a writer that
+  // took the subject since this call read the map wins, and this one is told.
+  const took = claimWriteUpProgress(counterpart.store, st.key, next, input.now);
+  if (took === "claimed") {
+    return refused("claimed", { writeUp: ended, detail: "Another writer took that session a moment ago. Nothing to do here." });
+  }
+  if (took === "failed") return refused("io-failed", { writeUp: ended });
   if (!markWriteUpFetched(input.registryDir, input.session, { session: ended, part })) {
     return refused("io-failed", { writeUp: ended, detail: "The part could not be recorded as handed to this session." });
   }

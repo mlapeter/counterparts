@@ -984,11 +984,13 @@ So the Desktop server serves a Code-tab call AS the Claude Code session it names
   `owedWriteUps`' full-first rotation is not asked on a grant — the launcher chose — so a
   small debt is not refused while a larger one waits elsewhere, and every refusal says
   why. The runner goes on to the next part once one comes back, to the claim's `upTo`.
-- **Claim-first** is a field on the progress map (`claim: { by, at, upTo? }`), not a lock:
-  two processes writing within a millisecond can still both fetch, and the first answer
-  wins (`p.done >= part`). The night's launcher claims before its child starts, so the
-  race is between the night and a session that fetched at the same instant — named, not
-  guarded. A claim nobody lets go runs out after `WRITE_UP_CLAIM_MS` (2 h).
+- **Claim-first** is a field on the progress map (`claim: { by, at, upTo? }`), taken in
+  the same `BEGIN IMMEDIATE` transaction that re-reads the map (`Store#updateMeta`, review
+  of #308): the second of two fetchers at the same instant is told `claimed`, and the
+  launcher passes over a subject claimed between its plan and its grant (`busy`). A claim
+  nobody lets go runs out after `WRITE_UP_CLAIM_MS` (2 h); a killed night's runner record
+  is ended by the next run (`endStaleRunners`), and the door refuses its grant
+  (`grant-expired`) either way.
 - **The memory is the ended session's.** `mint.ts` takes `writeUp: { session, happenedOn }`
   from the door through `SessionEndDepositContext.writeUp`: `origin_session` is the ended
   session, `happened_on` the date of the part's latest piece, `meta.secondHand` and

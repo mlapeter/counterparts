@@ -43,14 +43,16 @@ import { TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import {
   NIGHT_RUNNER_PREFIX,
+  WRITE_UP_CLAIM_MS,
   WRITE_UP_PART_BYTES,
   claimedByOther,
   grantWriteUps,
+  listSessions,
   pointable,
   progressKey,
   readWriteUpProgress,
   recordSession,
-  saveWriteUpProgress,
+  updateWriteUpProgress,
   writeUpEntries,
   writeUpPartsDated,
   writeUpPlan,
@@ -180,32 +182,68 @@ export function planCatchUp(
 }
 
 /**
- * THE GRANT AND THE CLAIMS, written by the launcher before the child starts.
- * False when the grant would not land: then nothing is claimed, and nothing
- * runs. Never throws.
+ * THE CLAIMS, THEN THE GRANT, written by the launcher before the child starts.
+ * The claims are taken in ONE transaction that re-reads the map (review of
+ * #308): a subject another writer took since `planCatchUp` read it is passed
+ * over and counted `busy`, never claimed twice. Then the runner is granted
+ * exactly what it holds. Returns the plan as claimed; null when nothing could
+ * be written (and then nothing is left claimed or granted). Never throws.
  */
-export function grantCatchUp(c: Counterpart, plan: CatchUpPlan, opts: { scope: string; now: number }): boolean {
+export function grantCatchUp(c: Counterpart, plan: CatchUpPlan, opts: { scope: string; now: number }): CatchUpPlan | null {
   const dir = c.store.dir;
   const scope = opts.scope.length > 0 ? opts.scope : dir;
-  try {
-    if (!grantWriteUps(dir, { runner: plan.runner, scope, subjects: plan.subjects.map((s) => s.session), at: opts.now })) return false;
-    const all = readWriteUpProgress(c.store);
+  const kept: CatchUpSubject[] = [];
+  const ok = updateWriteUpProgress(c.store, (all) => {
+    kept.length = 0;
     for (const s of plan.subjects) {
+      if (claimedByOther(all, s.session, plan.runner, opts.now) !== null) continue;
       const key = progressKey(s.session, s.here);
       const p: WriteUpProgress | undefined = all[key];
-      saveWriteUpProgress(c.store, key, {
+      all[key] = {
         ...(p ?? {}),
         chunk: p?.chunk ?? WRITE_UP_PART_BYTES,
         parts: s.of,
         done: Math.min(p?.done ?? 0, s.of),
         handedAt: opts.now,
         claim: { by: plan.runner, at: opts.now, upTo: s.upTo },
-      });
+      };
+      kept.push(s);
     }
-    return true;
+    return kept.length > 0;
+  });
+  if (!ok) return null;
+  const claimed: CatchUpPlan = { ...plan, subjects: [...kept], busy: plan.busy + (plan.subjects.length - kept.length) };
+  if (kept.length === 0) return claimed;
+  try {
+    if (grantWriteUps(dir, { runner: plan.runner, scope, subjects: kept.map((s) => s.session), at: opts.now })) return claimed;
   } catch {
-    return false;
+    /* let go below */
   }
+  releaseCatchUp(c, claimed, { scope: opts.scope, now: opts.now });
+  return null;
+}
+
+/**
+ * END A RUNNER NOBODY ENDED (review of #308): a nightly process killed in its
+ * catch-up leaves its runner's record open with its grant. At the next run's
+ * start, every runner record still open past `WRITE_UP_CLAIM_MS` is ended and
+ * its grant withdrawn (its claims have already run out). The door refuses such
+ * a grant on its own too (`mcp/write-up.ts`). Returns how many. Never throws.
+ */
+export function endStaleRunners(dir: string, now: number): number {
+  let n = 0;
+  try {
+    for (const r of listSessions(dir)) {
+      if (!r.sessionId.startsWith(NIGHT_RUNNER_PREFIX) || r.endedAt !== null) continue;
+      if (now - r.lastBoundaryAt < WRITE_UP_CLAIM_MS) continue;
+      grantWriteUps(dir, { runner: r.sessionId, scope: r.scope, subjects: [], at: now });
+      recordSession(dir, { sessionId: r.sessionId, scope: r.scope, phase: "end", at: now });
+      n += 1;
+    }
+  } catch {
+    /* the door refuses a stale grant whatever happens here */
+  }
+  return n;
 }
 
 /**
@@ -217,12 +255,16 @@ export function releaseCatchUp(c: Counterpart, plan: CatchUpPlan, opts: { scope:
   const dir = c.store.dir;
   const scope = opts.scope.length > 0 ? opts.scope : dir;
   try {
-    const all = readWriteUpProgress(c.store);
-    for (const [key, p] of Object.entries(all)) {
-      if (p.claim?.by !== plan.runner) continue;
-      const { claim: _mine, ...rest } = p;
-      saveWriteUpProgress(c.store, key, rest);
-    }
+    updateWriteUpProgress(c.store, (map) => {
+      let changed = false;
+      for (const [key, p] of Object.entries(map)) {
+        if (p.claim?.by !== plan.runner) continue;
+        const { claim: _mine, ...rest } = p;
+        map[key] = rest;
+        changed = true;
+      }
+      return changed;
+    });
   } catch {
     /* a claim nobody lets go runs out (`WRITE_UP_CLAIM_MS`) */
   }
@@ -264,7 +306,7 @@ export interface CatchUpReport {
   readonly runner: string;
   /** `done`, `timed-out`, `failed`, `could-not-start`, or `none-granted`
    *  (everything owed was held by another writer). */
-  readonly state: "done" | "timed-out" | "failed" | "could-not-start" | "none-granted";
+  readonly state: "done" | "partial" | "timed-out" | "failed" | "could-not-start" | "none-granted";
   readonly granted: number;
   /** Granted sessions that no longer owe a write-up (or whose share here is done). */
   readonly written: number;
@@ -328,13 +370,14 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
   try {
     const c = input.open();
     try {
+      endStaleRunners(c.store.dir, startedAt);
       plan = planCatchUp(c, { run: input.run, now: startedAt });
       if (plan.owed === 0) return null;
       if (plan.subjects.length > 0) {
-        if (!grantCatchUp(c, plan, { scope: input.scope, now: startedAt })) {
-          return record(input, { ...blank(input, plan, startedAt), state: "could-not-start" });
-        }
-        prompt = catchUpPrompt(plan);
+        const claimed = grantCatchUp(c, plan, { scope: input.scope, now: startedAt });
+        if (claimed === null) return record(input, { ...blank(input, plan, startedAt), state: "could-not-start" });
+        plan = claimed;
+        if (plan.subjects.length > 0) prompt = catchUpPrompt(plan);
       }
     } finally {
       c.close();
@@ -369,7 +412,12 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
     try {
       releaseCatchUp(c, plan, { scope: input.scope, now: endedAt });
       const m = measure(c, plan, endedAt);
-      return record(input, { ...blank(input, plan, startedAt, endedAt), state, code, ...m }, c);
+      // A CLEAN EXIT THAT LEFT GRANTED SESSIONS UNWRITTEN is `partial`, not
+      // `done` (review of #308): a child that hit a usage limit, or stopped
+      // early, exits 0 all the same. Its output is not read (it is prose); the
+      // count is the evidence.
+      const settled = state === "done" && m.written < plan.subjects.length ? "partial" : state;
+      return record(input, { ...blank(input, plan, startedAt, endedAt), state: settled, code, ...m }, c);
     } finally {
       c.close();
     }
@@ -475,7 +523,14 @@ export function catchUpWords(r: Pick<CatchUpReport, "state" | "granted" | "writt
   const left = r.left === 0 ? "nothing left owed" : `${n(r.left, "session", "sessions")} left owed`;
   if (r.state === "none-granted") return `nothing to take (${n(r.busy, "session was", "sessions were")} being written up elsewhere); ${left}`;
   if (r.state === "could-not-start") return `could not start; ${left}`;
-  const how = r.state === "timed-out" ? " before its watchdog stopped it" : r.state === "failed" ? " before it failed" : "";
+  const how =
+    r.state === "timed-out"
+      ? " before its watchdog stopped it"
+      : r.state === "failed"
+        ? " before it failed"
+        : r.state === "partial"
+          ? " — it stopped before the rest (a usage limit, or it gave up)"
+          : "";
   const over = r.bounded > 0 ? ` (${n(r.bounded, "was", "were")} over tonight's bound)` : "";
   return `wrote up ${String(r.written)} of ${n(r.granted, "session", "sessions")} (${n(r.parts, "part", "parts")})${how}; ${left}${over}`;
 }

@@ -48,7 +48,10 @@ The morning catch-up and the "Yesterday" line (#308).
   one tool (`session_end`), and it writes up at most 4 sessions or about 96 KB of their
   words a night, oldest first. What it leaves stays owed, for another night or a session
   in its directory. It costs one more `claude -p` start on a night with something owed,
-  and nothing on a night without.
+  and nothing on a night without. That run can only write up: it can't write memories
+  of its own, notes, chapters or handoffs. A run that stops early (a usage limit, say)
+  is recorded as partial, and one whose process was killed has its permission ended at
+  the next run.
 - **A written-up memory belongs to the conversation it came from.** It carries that
   session and its directory, is marked as written up second-hand (and by whom), and its
   "happened" date is the day the conversation was lived. Its "learned" date stays the day

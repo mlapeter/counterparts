@@ -126,7 +126,7 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, chaptersBySession, chaptersHere, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, chaptersBySession, chaptersHere, lastHereLadder, chaptersOn, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
 import { leftAs } from "./leaving.js";
@@ -1962,7 +1962,9 @@ export class Counterpart {
   private yesterdayFor(at: string | undefined): string | undefined {
     if (at === undefined || !isDay(at)) return undefined;
     try {
-      return yesterdayLine(this.chaptersInWindow(this.store.livedDay()), addDays(at, -1), this.store.zone()) ?? undefined;
+      const date = addDays(at, -1);
+      const fromDay = Math.max(0, this.store.livedDay() - LAST_HERE_LIFE_DAYS + 1);
+      return yesterdayLine(chaptersOn(this.store, date, { fromDay }), date) ?? undefined;
     } catch {
       return undefined;
     }

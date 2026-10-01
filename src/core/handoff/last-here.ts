@@ -24,7 +24,7 @@
  * to the handoff — a fortnight's unfinished work outranks orientation.
  */
 import type { Store } from "../store/index.js";
-import { localDate } from "../time.js";
+import { localDate, readableDate } from "../time.js";
 import { isKnownSession, isModelId } from "../types.js";
 import { HANDOFF_EXCERPT_BYTES, HANDOFF_LIFE_DAYS, excerpt, flatten, sessionWords } from "./index.js";
 
@@ -219,24 +219,86 @@ export const YESTERDAY_SHOWN = 4;
 /** A title's cap in the "Yesterday" line; the id is the door to the rest. */
 export const YESTERDAY_TITLE_BYTES = 60;
 
+/** One episode's chapters written on a date (`chaptersOn`). */
+export interface ChaptersOnDate {
+  /** The episode row (`epi_…`). */
+  readonly id: string;
+  readonly title: string | null;
+  /** How many of its chapters were written that day. */
+  readonly chapters: number;
+  /** When the episode was born, for the order. */
+  readonly createdAt: number;
+}
+
+/** Every chapter heading in an episode body, with the date it names when it names one. */
+const DATED_HEADING = /^## chapter \d+ — (?:([A-Za-z]{3} \d{1,2} [A-Za-z]{3} \d{4}) · )?(?:[^\n]* · )?lived day \d+[ \t]*$/gm;
+
+/**
+ * THE CHAPTERS WRITTEN ON `date`, store-wide, per episode, oldest episode
+ * first (review of #308): read off each chapter's own heading, which prints
+ * the calendar day it was written beside the lived day (`self/episodes.ts#
+ * chapterHeading`, since 2026-09-24) — so a session that wrote a chapter that
+ * day and another the next is still that day's, and two chapters that day
+ * count as two. An episode whose headings carry no date falls back to its
+ * row's first and latest write. Bounded to the episodes born inside
+ * `fromDay`. A removed or superseded row is not read. Never throws.
+ */
+export function chaptersOn(store: Store, date: string, opts: { fromDay?: number } = {}): ChaptersOnDate[] {
+  const out: ChaptersOnDate[] = [];
+  const said = readableDate(date);
+  if (said.length === 0) return out;
+  let ids: string[];
+  let denied: Set<string>;
+  try {
+    ids = store.list({ type: "episode", archived: false, ...(opts.fromDay === undefined ? {} : { bornFromDay: opts.fromDay }) });
+    denied = ids.length === 0 ? new Set() : new Set(store.deniedIds());
+  } catch {
+    return out;
+  }
+  const zone = store.zone();
+  for (const id of ids) {
+    if (denied.has(id)) continue;
+    try {
+      const row = store.row(id);
+      if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
+      let dated = 0;
+      let that = 0;
+      for (const m of row.body.matchAll(DATED_HEADING)) {
+        if (m[1] === undefined) continue;
+        dated += 1;
+        if (m[1] === said) that += 1;
+      }
+      // A chapter CONTINUED that day carries no new heading: the row's own
+      // latest write says it was written on then. With no dated heading at
+      // all (an older episode), its first write says so too.
+      const createdAt = row.created_at ?? 0;
+      const writtenAt = row.updated_at ?? createdAt;
+      if (that === 0 && (localDate(writtenAt, zone) === date || (dated === 0 && localDate(createdAt, zone) === date))) that = 1;
+      if (that === 0) continue;
+      out.push({ id, title: row.title === null || row.title.trim().length === 0 ? null : row.title, chapters: that, createdAt: row.created_at ?? 0 });
+    } catch {
+      continue;
+    }
+  }
+  return out.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /**
  * THE "YESTERDAY" LINE (2026-10-01, build 3) — store-wide, from the chapters
- * written on `date` (a chapter's first or latest write fell on it, in the
- * store's zone), oldest first, each by its title and id; the rest by count.
- * One line, CARRYING ITS DATE — "Yesterday, 09-30: …" — because the wake is
- * composed at a boundary and served as it stands until the next: a bundle
- * built late at night is read in the morning, and a date stays true where
- * "yesterday" alone would not. No model run: titles and ids only. Null when
- * that day has no chapter.
+ * written on `date` (`chaptersOn`), oldest episode first, each by its title and
+ * id (and how many chapters, when more than one); the rest by count. One line,
+ * CARRYING ITS DATE — "Yesterday, 09-30: …" — because the wake is composed at a
+ * boundary and served as it stands until the next: a bundle built late at
+ * night is read in the morning, and a date stays true where "yesterday" alone
+ * would not. No model run: titles and ids only. Null when that day has no
+ * chapter.
  */
-export function yesterdayLine(chapters: ReadonlyMap<string, ChapterHere>, date: string, zone: string): string | null {
-  const day = [...chapters.values()]
-    .filter((c) => localDate(c.writtenAt, zone) === date || localDate(c.createdAt, zone) === date)
-    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+export function yesterdayLine(day: readonly ChaptersOnDate[], date: string): string | null {
   if (day.length === 0) return null;
-  const shown = day
-    .slice(0, YESTERDAY_SHOWN)
-    .map((c) => (c.title === null ? c.id : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id})`));
+  const shown = day.slice(0, YESTERDAY_SHOWN).map((c) => {
+    const n = c.chapters > 1 ? `, ${String(c.chapters)} chapters` : "";
+    return c.title === null ? `${c.id}${n === "" ? "" : ` (${n.slice(2)})`}` : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id}${n})`;
+  });
   const rest = day.length - shown.length;
   return flatten(`Yesterday, ${date.slice(5)}: ${shown.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`);
 }

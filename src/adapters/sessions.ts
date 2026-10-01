@@ -2053,9 +2053,18 @@ export function progressKey(session: string, scope: string): string {
 
 /** Every write-up in flight. Never throws: an unreadable key is an empty map. */
 export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<string, WriteUpProgress> {
+  try {
+    return parseWriteUpProgress(store.getMeta(WRITE_UP_PROGRESS_KEY));
+  } catch {
+    return {};
+  }
+}
+
+/** The progress map from the meta row's text. Never throws: unreadable is empty. */
+function parseWriteUpProgress(text: string | undefined): Record<string, WriteUpProgress> {
   let raw: unknown;
   try {
-    raw = JSON.parse(store.getMeta(WRITE_UP_PROGRESS_KEY) ?? "{}");
+    raw = JSON.parse(text ?? "{}");
   } catch {
     return {};
   }
@@ -2111,23 +2120,67 @@ export function readWriteUpProgress(store: Pick<Store, "getMeta">): Record<strin
  * plan no longer holds as owing is dropped. Never throws; returns how many.
  */
 export function pruneWriteUpProgress(
-  store: Pick<Store, "getMeta" | "setMeta">,
+  store: Pick<Store, "updateMeta">,
   plan: readonly HeldSession[],
 ): number {
-  try {
-    const all = readWriteUpProgress(store);
-    const owing = new Set(plan.filter((h) => h.owes).map((h) => h.session));
-    let dropped = 0;
+  const owing = new Set(plan.filter((h) => h.owes).map((h) => h.session));
+  let dropped = 0;
+  updateWriteUpProgress(store, (all) => {
+    dropped = 0;
     for (const key of Object.keys(all)) {
       if (owing.has(key.slice(0, key.indexOf("|")))) continue;
       delete all[key];
       dropped += 1;
     }
-    if (dropped > 0) store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
-    return dropped;
+    return dropped > 0;
+  });
+  return dropped;
+}
+
+/**
+ * CHANGE THE PROGRESS MAP IN ONE TRANSACTION (2026-10-01, review of #308): the
+ * map is read INSIDE the write (`Store#updateMeta`, `BEGIN IMMEDIATE`), so the
+ * nightly runner's MCP process and a live session's door, writing at the same
+ * moment, each change the map the other left — neither loses a claim or a
+ * `done`. `fn` edits `all` in place and says whether it changed anything.
+ * Returns whether the write landed (or nothing needed writing); never throws.
+ */
+export function updateWriteUpProgress(
+  store: Pick<Store, "updateMeta">,
+  fn: (all: Record<string, WriteUpProgress>) => boolean,
+): boolean {
+  try {
+    store.updateMeta(WRITE_UP_PROGRESS_KEY, (current) => {
+      const all = parseWriteUpProgress(current);
+      return fn(all) ? JSON.stringify(all) : undefined;
+    });
+    return true;
   } catch {
-    return 0;
+    return false;
   }
+}
+
+/**
+ * TAKE (or renew) A CLAIM AND SAVE ONE KEY'S PROGRESS, unless another session
+ * holds a young claim on that subject — decided inside the same transaction as
+ * the write, so two writers fetching at once cannot both take it (review of
+ * #308). `claimed` names the holder that won.
+ */
+export function claimWriteUpProgress(
+  store: Pick<Store, "updateMeta">,
+  key: string,
+  progress: WriteUpProgress & { readonly claim: WriteUpClaim },
+  now: number,
+): "saved" | "claimed" | "failed" {
+  const session = key.slice(0, key.indexOf("|"));
+  let held = false;
+  const ok = updateWriteUpProgress(store, (all) => {
+    held = claimedByOther(all, session, progress.claim.by, now) !== null;
+    if (held) return false;
+    all[key] = { ...progress };
+    return true;
+  });
+  return !ok ? "failed" : held ? "claimed" : "saved";
 }
 
 /**
@@ -2136,23 +2189,19 @@ export function pruneWriteUpProgress(
  * Returns whether it landed; never throws.
  */
 export function saveWriteUpProgress(
-  store: Pick<Store, "getMeta" | "setMeta">,
+  store: Pick<Store, "updateMeta">,
   key: string,
   progress: WriteUpProgress | null,
   opts: { allOf?: string } = {},
 ): boolean {
-  try {
-    const all = readWriteUpProgress(store);
+  return updateWriteUpProgress(store, (all) => {
     if (opts.allOf !== undefined) {
       for (const k of Object.keys(all)) if (k.startsWith(`${opts.allOf}|`)) delete all[k];
     }
     if (progress === null) delete all[key];
     else all[key] = { ...progress };
-    store.setMeta(WRITE_UP_PROGRESS_KEY, JSON.stringify(all));
     return true;
-  } catch {
-    return false;
-  }
+  });
 }
 
 /**

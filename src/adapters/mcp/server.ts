@@ -88,6 +88,7 @@ import type { SessionInput } from "../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
+  NIGHT_RUNNER_PREFIX,
   SERVER_HEARTBEAT_MS,
   SESSION_TTL_MS,
   DESKTOP_WAKE_KEY,
@@ -620,6 +621,26 @@ export class McpServer {
   }
 
   /**
+   * IS THE BOUND SESSION A WRITE-UP RUNNER (2026-10-01)? Its id carries the
+   * nightly runner's prefix, or its own record carries a grant
+   * (`sessions.ts#SessionRecord.mayWriteUp`, written only by a launcher). A
+   * claim in the call's `session` argument is read the same way, so an unbound
+   * server is not a way round it. Never throws.
+   */
+  private isWriteUpRunner(claimed?: unknown): boolean {
+    const ids = [this.session, typeof claimed === "string" ? claimed : null].filter((x): x is string => x !== null && x.length > 0);
+    for (const id of ids) {
+      if (id.startsWith(NIGHT_RUNNER_PREFIX)) return true;
+      try {
+        if ((readSession(this.registryDir, id)?.mayWriteUp?.length ?? 0) > 0) return true;
+      } catch {
+        /* an unreadable record grants nothing */
+      }
+    }
+    return false;
+  }
+
+  /**
    * ONE PREDICATE (observer-mode G7): the store's bit, always. Beside it, for
    * Claude Desktop, what `scopes.json` says about `claude-desktop:` NOW — read
    * per call, as `off` and `paused` are, so the `scope` tool's `observer` takes
@@ -1030,6 +1051,18 @@ export class McpServer {
     if (name !== "scope") {
       const verdict = this.scopeVerdict();
       if (stanceOfMode(verdict.mode) === "off") return this.refuseScopeOff(name, verdict);
+    }
+    // A WRITE-UP RUNNER WRITES UP AND NOTHING ELSE (2026-10-01, review of #308,
+    // HIGH). The nightly catch-up's runner is bound to the launching session's
+    // directory, so an ordinary `session_end` — or a `note`, a `chapter`, a
+    // handoff — from it would mint first-hand memories there in nobody's name.
+    // Any session whose record carries a grant (`mayWriteUp`), and any id with
+    // the runner's prefix, may call `session_end` WITH `writeUp`, and read
+    // (`recall`, `status`); everything else is refused by name.
+    if (this.isWriteUpRunner(args["session"]) && !(name === "session_end" && typeof args["writeUp"] === "string" && args["writeUp"].length > 0) && name !== "recall" && name !== "status") {
+      return this.refuse(name, "write-up-runner", {
+        detail: "This session was started to write up other sessions, and does only that: call session_end with writeUp. It writes no memories, chapters or handoffs of its own.",
+      });
     }
     switch (name) {
       case "note":

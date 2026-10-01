@@ -28,6 +28,7 @@ import {
   catchUpOf,
   catchUpRunner,
   catchUpWords,
+  endStaleRunners,
   grantCatchUp,
   planCatchUp,
 } from "../src/adapters/claude-code/night-catch-up.js";
@@ -50,11 +51,11 @@ import { SCOPE_ENV, SESSION_ENV } from "../src/adapters/spawn.js";
 import { readLog } from "../src/adapters/log/index.js";
 import { openLog } from "../src/adapters/log/index.js";
 import { Counterpart, NIGHT_WRITE_UP_EVENT } from "../src/core/counterpart.js";
-import { yesterdayLine } from "../src/core/handoff/last-here.js";
+import { chaptersOn, yesterdayLine } from "../src/core/handoff/last-here.js";
 import { BRIEFING_KEY, SELF_TUNABLES, render } from "../src/core/self/index.js";
 import { dayMemories, isOfDay } from "../src/core/self/writer.js";
 import { Store } from "../src/core/store/index.js";
-import { addDays, localDate } from "../src/core/time.js";
+import { addDays, localDate, readableDate } from "../src/core/time.js";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -354,7 +355,7 @@ describe("claim-first: the night run and an in-session catch-up never write the 
     recordSession(dir, { sessionId: "here-1", scope: proj, phase: "start", writeUpPointer: "old-1" });
     const plan = planCatchUp(c, { run: "nrn_claim", now });
     expect(plan.subjects.map((s) => s.session)).toEqual(["old-1"]);
-    expect(grantCatchUp(c, plan, { scope: launch, now })).toBe(true);
+    expect(grantCatchUp(c, plan, { scope: launch, now })?.subjects.length).toBe(plan.subjects.length);
 
     const progress = readWriteUpProgress(c.store);
     const wp = writeUpPlan({ store: c.store, spans: c.spans });
@@ -403,7 +404,7 @@ describe("the night's bound: whole parts while they fit, the rest left owed and 
     expect(plan.owed).toBe(3);
 
     // The door serves part 1 and refuses part 2 by name.
-    expect(grantCatchUp(c, plan, { scope: launch, now })).toBe(true);
+    expect(grantCatchUp(c, plan, { scope: launch, now })?.subjects.length).toBe(plan.subjects.length);
     const s = openServer({ dir, owner: true, session: plan.runner, scope: launch });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: plan.runner, writeUp: "big-1" }))).toMatchObject({ reason: "part", part: 1 });
@@ -496,22 +497,49 @@ describe("the day lived: the page writer reads a write-up on the day it happened
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the Yesterday line", () => {
-  test("titles and ids, oldest first, the date in the line; the rest by count; none without a chapter that day", () => {
-    const mk = (id: string, title: string | null, at: number) => [id, { id, session: id, model: null, title, excerpt: "", writtenAt: at, createdAt: at, writtenDay: 1, scope: null }] as const;
-    const zone = "UTC";
+  test("titles and ids, oldest first, the date in the line, chapters counted; the rest by count; none without a chapter that day", () => {
+    const mk = (id: string, title: string | null, n: number, at: number) => ({ id, title, chapters: n, createdAt: at });
     const d = Date.UTC(2026, 8, 30, 9);
-    const chapters = new Map([
-      mk("epi_b", "Second thing", d + HOUR),
-      mk("epi_a", "First thing", d),
-      mk("epi_c", null, d + 2 * HOUR),
-      mk("epi_d", "Fourth", d + 3 * HOUR),
-      mk("epi_e", "Fifth", d + 4 * HOUR),
-      mk("epi_z", "Another day", d - 30 * HOUR),
-    ]);
-    expect(yesterdayLine(chapters, "2026-09-30", zone)).toBe(
-      'Yesterday, 09-30: "First thing" (epi_a); "Second thing" (epi_b); epi_c; "Fourth" (epi_d); and 1 more.',
+    const day = [mk("epi_a", "First thing", 1, d), mk("epi_b", "Second thing", 2, d + HOUR), mk("epi_c", null, 1, d + 2 * HOUR), mk("epi_d", "Fourth", 1, d + 3 * HOUR), mk("epi_e", "Fifth", 1, d + 4 * HOUR)];
+    expect(yesterdayLine(day, "2026-09-30")).toBe(
+      'Yesterday, 09-30: "First thing" (epi_a); "Second thing" (epi_b, 2 chapters); epi_c; "Fourth" (epi_d); and 1 more.',
     );
-    expect(yesterdayLine(chapters, "2026-09-27", zone)).toBeNull();
+    expect(yesterdayLine([], "2026-09-27")).toBeNull();
+  });
+
+  test("chapters are read by the day each was WRITTEN: a session that chaptered yesterday and again today is still yesterday's, and two chapters yesterday count as two (review of #308)", () => {
+    const at = (t: number): Counterpart => {
+      const c = Counterpart.open({ dir, owner: true, now: () => t });
+      closers.push(c);
+      return c;
+    };
+    const y = YESTERDAY_10();
+    // Session one: a chapter yesterday morning, another yesterday afternoon, a third today.
+    let ep = "";
+    for (const [t, text] of [[y, "What we did this morning: seated the relief valve on loop one before the pump ran."], [y + 5 * HOUR, "What we did this afternoon: bled the air out of loop two and checked the pressure held."], [Date.now(), "What we did today: replaced the gauge on loop three and logged the readings."]] as const) {
+      const c = at(t);
+      // A new chapter each time: the ask opens the next one.
+      c.episodeAsk("two-days", { turns: 9, bytes: 6_000 });
+      const out = c.appendEpisode("two-days", text, { title: "Two days of valves" });
+      expect(out.appended).toBe(true);
+      ep = out.episodeId as string;
+      c.close();
+    }
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    // The session wrote again today: it is still yesterday's, and today's too.
+    expect(chaptersOn(c.store, YESTERDAY()).map((d) => d.id)).toEqual([ep]);
+    expect(chaptersOn(c.store, TODAY()).map((d) => [d.id, d.chapters])).toEqual([[ep, 1]]);
+    // Two chapters headed with the same day count as two.
+    const said = readableDate(YESTERDAY());
+    const two = c.store.put({
+      type: "episode",
+      kind: "self",
+      title: "Two chapters",
+      body: `## chapter 1 — ${said} · lived day 3\n\nOne.\n\n## chapter 2 — ${said} · lived day 3\n\nTwo.\n`,
+      learnedOn: YESTERDAY(),
+    });
+    expect(chaptersOn(c.store, YESTERDAY()).find((d) => d.id === two)?.chapters).toBe(2);
   });
 
   test("it rides the wake's budget: furniture under the framing, and on a ceiling too small for it the floor goes without it", () => {
@@ -539,5 +567,115 @@ describe("the Yesterday line", () => {
     } finally {
       s.close();
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("review of #308: the runner writes up and nothing else; claims and grants hold; a short night says so", () => {
+  test("HIGH: a runner may not take the ordinary path — no first-hand memory, no handoff, no note, no chapter — and still writes up", async () => {
+    lived("old-1", proj);
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const now = c.store.now();
+    const plan = grantCatchUp(c, planCatchUp(c, { run: "nrn_h", now }), { scope: launch, now });
+    expect(plan?.subjects.length).toBe(1);
+    const runner = catchUpRunner("nrn_h");
+    const s = openServer({ dir, owner: true, session: runner, scope: launch });
+    closers.push(s.counterpart);
+    const MEM = [{ content: "A first-hand memory the runner should never write: the pump was serviced.", kind: "fact" }];
+    for (const [tool, args] of [
+      ["session_end", { session: runner, memories: MEM }],
+      ["session_end", { session: runner, memories: [], handoff: "Pick up the valve work." }],
+      ["session_end", { memories: MEM }],
+      ["note", { session: runner, content: "A note from the runner." }],
+      ["chapter", { session: runner, text: "A chapter from the runner." }],
+    ] as const) {
+      const out = payload(await s.call(tool, args as Record<string, unknown>));
+      expect(out).toMatchObject({ stored: false, reason: "write-up-runner" });
+    }
+    // Nothing landed under the launcher's directory, and no handoff there.
+    expect(s.counterpart.spans.proposalRecords<{ session: string }>(launch).length).toBe(0);
+    expect(s.counterpart.readHandoffs(launch)).toEqual([]);
+    // A runner record with the prefix and no grant left is refused too.
+    const bare = openServer({ dir, owner: true, session: "writeup-nrn_old", scope: launch });
+    closers.push(bare.counterpart);
+    expect(payload(await bare.call("session_end", { session: "writeup-nrn_old", memories: MEM }))["reason"]).toBe("write-up-runner");
+    // Reading is allowed; the write-up itself goes through.
+    expect(payload(await s.call("status", {}))["reason"]).not.toBe("write-up-runner");
+    expect(payload(await s.call("session_end", { session: runner, writeUp: "old-1" }))).toMatchObject({ reason: "part" });
+  });
+
+  test("MEDIUM: a claim taken between the plan and the grant is never claimed twice — the subject is passed over as busy", async () => {
+    lived("old-1", proj);
+    lived("old-2", other);
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const now = c.store.now();
+    const plan = planCatchUp(c, { run: "nrn_race", now });
+    expect(plan.subjects.map((x) => x.session).sort()).toEqual(["old-1", "old-2"]);
+    // A session in proj fetches old-1 after the plan was read.
+    recordSession(dir, { sessionId: "here-1", scope: proj, phase: "start", writeUpPointer: "old-1" });
+    const s = openServer({ dir, owner: true, scope: proj });
+    closers.push(s.counterpart);
+    expect(payload(await s.call("session_end", { session: "here-1", writeUp: "old-1" }))).toMatchObject({ reason: "part" });
+    const granted = grantCatchUp(c, plan, { scope: launch, now });
+    expect(granted?.subjects.map((x) => x.session)).toEqual(["old-2"]);
+    expect(granted?.busy).toBe(1);
+    expect(readSession(dir, catchUpRunner("nrn_race"))?.mayWriteUp).toEqual(["old-2"]);
+    const progress = readWriteUpProgress(c.store);
+    const holders = Object.entries(progress).map(([k, p]) => [k.split("|")[0], p.claim?.by]);
+    expect(holders).toContainEqual(["old-1", "here-1"]);
+    expect(holders).toContainEqual(["old-2", catchUpRunner("nrn_race")]);
+  });
+
+  test("LOW: a runner nobody ended holds no grant past the claim window — the door refuses it, and the next run ends it", async () => {
+    lived("old-1", proj);
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const long = c.store.now() - 3 * HOUR;
+    const runner = catchUpRunner("nrn_killed");
+    const { grantWriteUps } = await import("../src/adapters/sessions.js");
+    expect(grantWriteUps(dir, { runner, scope: launch, subjects: ["old-1"], at: long })).toBe(true);
+    const s = openServer({ dir, owner: true, session: runner, scope: launch });
+    closers.push(s.counterpart);
+    expect(payload(await s.call("session_end", { session: runner, writeUp: "old-1" }))).toMatchObject({ reason: "grant-expired" });
+    expect(endStaleRunners(dir, c.store.now())).toBe(1);
+    expect(readSession(dir, runner)?.mayWriteUp).toEqual([]);
+    expect(readSession(dir, runner)?.endedAt).not.toBeNull();
+  });
+
+  test("LOW: a child that exits 0 having written up less than it was granted is `partial`, not `done`", async () => {
+    lived("old-1", proj);
+    lived("old-2", other);
+    const seen: ChildPlan[] = [];
+    await runNight({
+      open: () => openNightCounterpart(config()),
+      config: config(),
+      run: "nrn_short",
+      session: "s-launch",
+      scope: launch,
+      kind: { kind: "night" },
+      date: TODAY(),
+      // A usage limit after the first session: it writes one up and exits 0.
+      startCatchUp: async (plan) => {
+        seen.push(plan);
+        const runner = plan.env[SESSION_ENV] as string;
+        const s = openServer({ dir, owner: true, session: runner, scope: plan.env[SCOPE_ENV] as string });
+        try {
+          const id = [...plan.stdin.matchAll(/^- ([A-Za-z0-9._-]+):/gm)][0]?.[1] as string;
+          payload(await s.call("session_end", { session: runner, writeUp: id }));
+          payload(await s.call("session_end", { session: runner, writeUp: id, memories: [] }));
+        } finally {
+          s.counterpart.close();
+        }
+        return { code: 0, timedOut: false, error: null };
+      },
+      start: async () => ({ code: 0, timedOut: false, error: null }),
+    });
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const row = catchUpOf(c.store, "nrn_short");
+    expect(row).toMatchObject({ state: "partial", granted: 2, written: 1, left: 1 });
+    expect(catchUpWords(row as NonNullable<typeof row>)).toContain("it stopped before the rest");
   });
 });

@@ -271,8 +271,13 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `part-already-written`, `memories-required` (present and not a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
     landed), `io-failed` (the fetch could not record the hand-over, so hands nothing),
-    `claimed` (another writer holds it now) and `allowance-spent` (a granted runner past
-    the part its launcher allowed tonight).
+    `claimed` (another writer holds it now), `allowance-spent` (a granted runner past
+    the part its launcher allowed tonight) and `grant-expired` (a nightly runner whose
+    record ended, or is older than `WRITE_UP_CLAIM_MS` because its process was killed).
+    The claim and the save are one transaction (`sessions.ts#claimWriteUpProgress`, over
+    `Store#updateMeta`, `BEGIN IMMEDIATE`), and every write to the progress map re-reads it
+    inside its own write (`updateWriteUpProgress`), so two processes writing at once lose
+    neither's claim nor `done` (review of #308).
     A mark that did not land is `marked: false`: the session still owes, and the next
     fetch of it — by any session — finishes the mark without depositing (MAJOR 2). This
     file is one of the seam's two importers outside `remember/` (`test/cli.test.ts` pins
@@ -296,7 +301,13 @@ actually wrote (chapter), the written self page or the version a write to it pro
     claim's `upTo` (the launcher's allowance). Everything else is guarantee 16's. Named
     `mayWriteUp` because `writeUpFor` was already the door's per-part mark. The first
     launcher is the nightly run's catch-up (`claude-code/night-catch-up.ts`), whose runner
-    is a session id of its own (`writeup-<run>`).
+    is a session id of its own (`writeup-<run>`). **A runner writes up and nothing else**
+    (review of #308): a bound session whose record carries a grant, or whose id has the
+    runner's prefix (a `session` argument is read the same way), is refused
+    `write-up-runner` on every tool but `session_end` WITH `writeUp`, `recall` and
+    `status` — no ordinary `session_end`, no handoff, no `note`, no `chapter` — so it can
+    never mint first-hand memories in the launcher's directory. (A later Desktop session
+    given a grant would meet the same gate; that is for the Desktop build to decide.)
 18. **[M] Claude Desktop is decided by the CLIENT, and a Claude Code client sees nothing
     new** (2026-09-30). A client whose `clientInfo.name` at `initialize` is `claude-ai`
     or `local-agent-mode-*` (`hosts.ts#hostOfClient`) makes this Desktop's server: its

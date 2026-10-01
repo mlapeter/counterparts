@@ -181,9 +181,13 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     session that finished its work and wrote a chapter needs no handoff to be found.
 
 12. **[A] The "Yesterday" line is composed here, carried by the wake** (2026-10-01, wake
-    build 3). `last-here.ts#yesterdayLine` names the chapters whose first or latest write
-    fell on a date (store zone), store-wide, oldest first: up to `YESTERDAY_SHOWN` by
-    title (cut to `YESTERDAY_TITLE_BYTES`) and id, the rest by count, the date in the line.
+    build 3). `last-here.ts#chaptersOn` reads, per episode, the chapters WRITTEN on a date
+    — each chapter's own heading prints its calendar day; a chapter continued that day
+    counts by the row's latest write — so a session that wrote yesterday and again today is
+    still yesterday's, and two chapters count as two (review of #308).
+    `last-here.ts#yesterdayLine` names them store-wide, oldest episode first: up to
+    `YESTERDAY_SHOWN` by title (cut to `YESTERDAY_TITLE_BYTES`) and id, with the count when
+    more than one, the rest by count, the date in the line.
     The root hands it to `self/`'s render as furniture for the day before the render's
     date; unlike "Last here" it is in the published bundle, not spliced at delivery.
 
