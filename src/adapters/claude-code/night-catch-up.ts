@@ -323,24 +323,30 @@ export interface CatchUpReport {
 }
 
 /** How far each granted subject got: written, and parts back, read from the store. */
-function measure(c: Counterpart, plan: CatchUpPlan, now: number): { written: number; parts: number; left: number } {
+function measure(c: Counterpart, plan: CatchUpPlan, now: number): { written: number; parts: number; left: number; allowed: number } {
   const after = writeUpPlan({ store: c.store, spans: c.spans });
   const progress = readWriteUpProgress(c.store);
   let written = 0;
   let parts = 0;
+  // Subjects that came back as far as tonight's allowance let them: written
+  // up, or every part up to `upTo` done (review of #308) — a bounded night
+  // that did all it was allowed is not a short one.
+  let allowed = 0;
   for (const s of plan.subjects) {
     // Written up HERE: marked, its share done and waiting on another
     // directory, or owing nothing any more.
     if (writeUpStanding(after, c.store.dir, s.session, s.here, now, { progress }).status !== "owed") {
       written += 1;
+      allowed += 1;
       parts += s.of - (s.from - 1);
       continue;
     }
     const p = progress[progressKey(s.session, s.here)];
     if (p !== undefined) parts += Math.max(0, p.done - (s.from - 1));
+    if (p !== undefined && p.done >= s.upTo) allowed += 1;
   }
   const left = after.filter((h) => h.owes && pointable(h, c.store.dir)).length;
-  return { written, parts, left };
+  return { written, parts, left, allowed };
 }
 
 export interface CatchUpInput {
@@ -416,8 +422,9 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
       // `done` (review of #308): a child that hit a usage limit, or stopped
       // early, exits 0 all the same. Its output is not read (it is prose); the
       // count is the evidence.
-      const settled = state === "done" && m.written < plan.subjects.length ? "partial" : state;
-      return record(input, { ...blank(input, plan, startedAt, endedAt), state: settled, code, ...m }, c);
+      const settled = state === "done" && m.allowed < plan.subjects.length ? "partial" : state;
+      const { allowed: _allowed, ...counts } = m;
+      return record(input, { ...blank(input, plan, startedAt, endedAt), state: settled, code, ...counts }, c);
     } finally {
       c.close();
     }

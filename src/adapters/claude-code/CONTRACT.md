@@ -704,9 +704,10 @@ the claims are let go, the grant withdrawn and the runner's record ended; one du
 (`adapter.night.writeup`: granted, written, parts, left owed, over the bound, busy elsewhere,
 state) and a process-log line record it, and doctor's Nightly run and Write-ups lines read
 it. Nothing owed: no child, no row. The run's row carries the catch-up's time on its
-watchdog, so a run still going is not read as lost. A clean exit that wrote up fewer
-sessions than it was granted is recorded `partial`, not `done` (a usage limit exits 0
-too; its output is not read). A runner record a killed process left open is ended at the
+watchdog, so a run still going is not read as lost. A clean exit that stopped short of
+its allowance — some granted session neither written up nor brought to its `upTo` part —
+is recorded `partial`, not `done` (a usage limit exits 0 too; its output is not read); a
+bounded night that did every part it was allowed is `done`. A runner record a killed process left open is ended at the
 next run's start (`endStaleRunners`).
 
 **[M] The person sees it, and a run that cannot do its job falls back to asking.** The prompt

@@ -987,7 +987,9 @@ So the Desktop server serves a Code-tab call AS the Claude Code session it names
 - **Claim-first** is a field on the progress map (`claim: { by, at, upTo? }`), taken in
   the same `BEGIN IMMEDIATE` transaction that re-reads the map (`Store#updateMeta`, review
   of #308): the second of two fetchers at the same instant is told `claimed`, and the
-  launcher passes over a subject claimed between its plan and its grant (`busy`). A claim
+  launcher passes over a subject claimed between its plan and its grant (`busy`). The
+  SessionStart pointer saves the same way, keeping a claim it did not read and deferring
+  (`claimed`) when the subject is held. A claim
   nobody lets go runs out after `WRITE_UP_CLAIM_MS` (2 h); a killed night's runner record
   is ended by the next run (`endStaleRunners`), and the door refuses its grant
   (`grant-expired`) either way.

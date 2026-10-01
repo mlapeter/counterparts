@@ -34,6 +34,8 @@ import {
 } from "../src/adapters/claude-code/night-catch-up.js";
 import { openNightCounterpart, runNight } from "../src/adapters/claude-code/night-run.js";
 import { openServer } from "../src/adapters/mcp/index.js";
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import {
   NIGHT_RUNNER_PREFIX,
@@ -527,9 +529,8 @@ describe("the Yesterday line", () => {
     }
     const c = openNightCounterpart(config());
     closers.push(c);
-    // The session wrote again today: it is still yesterday's, and today's too.
+    // The session wrote again today: it is still yesterday's.
     expect(chaptersOn(c.store, YESTERDAY()).map((d) => d.id)).toEqual([ep]);
-    expect(chaptersOn(c.store, TODAY()).map((d) => [d.id, d.chapters])).toEqual([[ep, 1]]);
     // Two chapters headed with the same day count as two.
     const said = readableDate(YESTERDAY());
     const two = c.store.put({
@@ -539,6 +540,11 @@ describe("the Yesterday line", () => {
       body: `## chapter 1 — ${said} · lived day 3\n\nOne.\n\n## chapter 2 — ${said} · lived day 3\n\nTwo.\n`,
       learnedOn: YESTERDAY(),
     });
+    expect(chaptersOn(c.store, YESTERDAY()).find((d) => d.id === two)?.chapters).toBe(2);
+    // A RETITLE today is not a chapter today (second review of #308): only a
+    // heading's date says when a chapter was written.
+    c.store.revise(two, { title: "Two chapters, retitled" });
+    expect(chaptersOn(c.store, TODAY()).map((d) => d.id)).not.toContain(two);
     expect(chaptersOn(c.store, YESTERDAY()).find((d) => d.id === two)?.chapters).toBe(2);
   });
 
@@ -677,5 +683,86 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
     const row = catchUpOf(c.store, "nrn_short");
     expect(row).toMatchObject({ state: "partial", granted: 2, written: 1, left: 1 });
     expect(catchUpWords(row as NonNullable<typeof row>)).toContain("it stopped before the rest");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("second review of #308", () => {
+  test("the SessionStart pointer keeps a claim the night took after the pointer read the map, and does not point at that subject", async () => {
+    lived("old-1", proj);
+    const runner = catchUpRunner("nrn_between");
+    let calls = 0;
+    const a = openAdapter(config(), {
+      command: "/bin/true",
+      args: ["runner"],
+      spawner: () => ({ pid: 4242 }),
+      scope: { mode: "on", matched: proj, entry: null },
+    });
+    try {
+      const store = a.counterpart.store;
+      const original = store.updateMeta.bind(store);
+      // The night's grant lands between the pointer's read of the map and its
+      // save: on the pointer's SECOND progress write (the first is the prune).
+      store.updateMeta = ((key: string, fn: (current: string | undefined) => string | null | undefined) => {
+        if (key === "adapter.writeup.progress") {
+          calls += 1;
+          if (calls === 2) {
+            original(key, (current) => {
+              const all = JSON.parse(current ?? "{}") as Record<string, Record<string, unknown>>;
+              const k = Object.keys(all).find((x) => x.startsWith("old-1|")) ?? `old-1|${proj}`;
+              all[k] = { chunk: 24 * 1024, parts: 1, done: 0, handedAt: Date.now(), ...(all[k] ?? {}), claim: { by: runner, at: Date.now(), upTo: 1 } };
+              return JSON.stringify(all);
+            });
+          }
+        }
+        return original(key, fn);
+      }) as typeof store.updateMeta;
+      const out = a.sessionStart({ sessionId: "here-1", scope: proj, at: TODAY() } as HookInput);
+      expect(out.ask ?? "").not.toContain("writeUp: old-1");
+      expect(a.events().map((e) => e.name)).toContain("adapter.writeup.deferred");
+      const claim = Object.entries(readWriteUpProgress(store)).find(([k]) => k.startsWith("old-1|"))?.[1].claim;
+      expect(claim).toMatchObject({ by: runner, upTo: 1 });
+      expect(readSession(dir, "here-1")?.writeUpPointer).toBeUndefined();
+    } finally {
+      a.counterpart.close();
+    }
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  test("a bounded night that did every part it was allowed is `done`, not `partial`", async () => {
+    const words = "the reservoir loop keeps its pressure only when the relief valve is seated first. ".repeat(70);
+    lived("big-1", proj, { pieces: 12, say: (i) => `big-1 #${String(i)}: ${words}` });
+    const seen: ChildPlan[] = [];
+    const c0 = openNightCounterpart(config());
+    const plan = planCatchUp(c0, { run: "nrn_bound", now: c0.store.now(), bytes: 1 });
+    c0.close();
+    expect(plan.subjects[0]).toMatchObject({ from: 1, upTo: 1 });
+    // The same bound the run takes: TUNABLES are code, so the night here is
+    // given a one-part allowance through its claim, as the launcher writes it.
+    const { TUNABLES: T } = await import("../src/adapters/config.js");
+    const before = T.NIGHT_WRITE_UP_BYTES;
+    (T as { NIGHT_WRITE_UP_BYTES: number }).NIGHT_WRITE_UP_BYTES = 1;
+    try {
+      await runNight({
+        open: () => openNightCounterpart(config()),
+        config: config(),
+        run: "nrn_bound",
+        session: "s-launch",
+        scope: launch,
+        kind: { kind: "night" },
+        date: TODAY(),
+        startCatchUp: drivingChild(seen),
+        start: async () => ({ code: 0, timedOut: false, error: null }),
+      });
+    } finally {
+      (T as { NIGHT_WRITE_UP_BYTES: number }).NIGHT_WRITE_UP_BYTES = before;
+    }
+    expect(seen[0]?.stdin).toContain("part 1 of 3 tonight");
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const row = catchUpOf(c.store, "nrn_bound");
+    expect(row).toMatchObject({ state: "done", granted: 1, written: 0, parts: 1, left: 1, bounded: 1 });
+    expect(catchUpWords(row as NonNullable<typeof row>)).not.toContain("stopped before the rest");
+    expect(owes("big-1")).toBe(true);
   });
 });

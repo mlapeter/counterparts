@@ -268,12 +268,11 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
         dated += 1;
         if (m[1] === said) that += 1;
       }
-      // A chapter CONTINUED that day carries no new heading: the row's own
-      // latest write says it was written on then. With no dated heading at
-      // all (an older episode), its first write says so too.
-      const createdAt = row.created_at ?? 0;
-      const writtenAt = row.updated_at ?? createdAt;
-      if (that === 0 && (localDate(writtenAt, zone) === date || (dated === 0 && localDate(createdAt, zone) === date))) that = 1;
+      // THE HEADING'S DATE ONLY (second review of #308): a row's own write
+      // times move for a retitle or a revision too, so they would list a day
+      // no chapter was written on. An episode from before headings carried a
+      // date (2026-09-24) is read by the day it was born, and only then.
+      if (dated === 0 && localDate(row.created_at ?? 0, zone) === date) that = 1;
       if (that === 0) continue;
       out.push({ id, title: row.title === null || row.title.trim().length === 0 ? null : row.title, chapters: that, createdAt: row.created_at ?? 0 });
     } catch {

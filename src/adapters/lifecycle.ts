@@ -82,6 +82,7 @@ import {
 import type { ScopeVerdict } from "./scopes.js";
 import {
   ASK_ROW_COUNTING,
+  claimedByOther,
   owedWriteUps,
   progressKey,
   pruneSessions,
@@ -90,7 +91,7 @@ import {
   readWriteUpProgress,
   recordSession,
   saveWriteUpPointer,
-  saveWriteUpProgress,
+  updateWriteUpProgress,
   WRITE_UP_PART_BYTES,
   writeUpEntries,
   writeUpParts,
@@ -733,13 +734,28 @@ export class Lifecycle implements HostLifecycle {
         outcome("deferred", "host-cap");
         return "";
       }
-      const saved = saveWriteUpProgress(store, key, {
-        ...(progress ?? {}),
-        chunk,
-        parts: partsCount,
-        done,
-        handedAt: now,
+      // SAVED INSIDE ONE TRANSACTION THAT RE-READS THE MAP (review of #308): a
+      // claim the nightly run took since `inFlight` was read — its `claim` and
+      // `upTo` — is kept, never overwritten from the stale copy, and a subject
+      // another writer now holds is not pointed at: the pointer defers.
+      let heldElsewhere = false;
+      const saved = updateWriteUpProgress(store, (all) => {
+        heldElsewhere = claimedByOther(all, held.session, input.sessionId, now) !== null;
+        if (heldElsewhere) return false;
+        const cur = all[key];
+        all[key] = {
+          ...(cur ?? {}),
+          chunk: cur?.chunk ?? chunk,
+          parts: partsCount,
+          done: Math.min(cur?.done ?? done, partsCount),
+          handedAt: now,
+        };
+        return true;
       });
+      if (heldElsewhere) {
+        this.emit("adapter.writeup.deferred", { reason: "claimed", need: bytes, room });
+        return "";
+      }
       const marked =
         saved &&
         recordSession(dir, {
