@@ -33,7 +33,7 @@
  */
 
 import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility, promote, promotionEligibility, strength } from "../physics/index.js";
-import { CORE_ABOUT_MARKS, isSelfRelevantFeeling } from "../store/index.js";
+import { CORE_ABOUT_MARKS, LATER_FEELING_SOURCES, isSelfRelevantFeeling } from "../store/index.js";
 import type { CoreContext, MemoryPhysics, PromotionCrossing, PromotionReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import type { MemoryRow } from "../store/operational.js";
@@ -189,7 +189,7 @@ export function selfRelevantFeeling(
         (f) =>
           f.whose === "self" &&
           f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING &&
-          (f.source === null || f.source === "session" || ((f.source === "reflection" || f.source === "awake") && acceptsReflected)) &&
+          (f.source === null || f.source === "session" || ((LATER_FEELING_SOURCES as readonly (string | null)[]).includes(f.source) && acceptsReflected)) &&
           isSelfRelevantFeeling(f.emotion, f.other_word),
       );
   } catch {
