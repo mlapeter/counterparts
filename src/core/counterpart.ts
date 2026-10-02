@@ -142,10 +142,12 @@ import {
   Self,
   byteLength,
   markWakeBehind,
+  noteWakeBuild,
   noteWakeCaught,
   settledOver,
   spliceBeforeSentinel,
   wakeBehind,
+  wakeFromOtherBuild,
   workHere,
   workHereBlock,
   workHereBytes,
@@ -855,6 +857,14 @@ export interface CounterpartOptions extends Stance {
    * it does not write the page. Absent: `session`, the config's own default.
    */
   pageWriterMode?: PageWriterMode;
+  /**
+   * The package version this process runs (2026-10-02), from the adapter that
+   * knows it (`sessions.ts#installedVersion`). Each wake this process publishes
+   * is stamped with it, and `refreshWake` re-renders a wake another build
+   * published (`self/behind.ts`, the `version` trigger). Absent or null: no
+   * stamp and no comparison — today's behaviour.
+   */
+  build?: string | null;
   /**
    * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
    * defaults. Added 2026-10-01 so the craft lane's switch
@@ -1577,6 +1587,8 @@ export class Counterpart {
   private readonly owner: boolean;
   /** The host's `pageWriter.mode` (`session` when absent): who runs the nightly writer. */
   private readonly pageWriterModeOpt: PageWriterMode;
+  /** The package version this process runs, when the adapter said (`CounterpartOptions.build`). */
+  private readonly build: string | null;
   private reportedBudget: number | null;
   private readonly onEvent: ((e: CounterpartEvent) => void) | undefined;
   private readonly nowFn: () => number;
@@ -1609,6 +1621,7 @@ export class Counterpart {
     this.observer = isObserver(opts);
     this.owner = opts.owner === true && !this.observer;
     this.pageWriterModeOpt = opts.pageWriterMode ?? "session";
+    this.build = typeof opts.build === "string" && opts.build.length > 0 ? opts.build : null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
     this.reportedBudget = opts.budgetBytes ?? null;
@@ -3929,8 +3942,9 @@ export class Counterpart {
     const briefingEvents = this.takeBriefingEvents();
     this.recordSleepCycle(cycle, date, briefingEvents, null);
     this.recordSelfBriefing(briefingEvents, date);
-    if (behind !== null && briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
-      noteWakeCaught(this.store, behind.raw);
+    if (briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
+      if (behind !== null) noteWakeCaught(this.store, behind.raw);
+      noteWakeBuild(this.store, this.build);
     }
 
     this.emit("counterpart.sessionEnd", undefined, {
@@ -4232,9 +4246,15 @@ export class Counterpart {
    * the nightly process (`night-run.ts`, after the child returns). Not at
    * SessionStart, whose wake ranks nothing and writes nothing (self CONTRACT
    * §5 G1). Its `self.briefing` row says `refresh` and which triggers.
+   *
+   * AND WHEN ANOTHER BUILD PUBLISHED IT (2026-10-02, `version`): the first
+   * turn-end after an install re-renders the wake the old version composed,
+   * so a question the new code closes leaves "Still open" for every session
+   * after that one, not at the next lived day.
    */
   refreshWake(input: { budgetBytes?: number; at?: string; trigger?: WakeTrigger } = {}): WakeRefreshReport {
-    const pending = wakeBehind(this.store)?.triggers ?? [];
+    const pending = [...(wakeBehind(this.store)?.triggers ?? [])];
+    if (!pending.includes("version") && wakeFromOtherBuild(this.store, BRIEFING_KEY, this.build)) pending.push("version");
     const triggers = input.trigger === undefined || pending.includes(input.trigger) ? [...pending] : [...pending, input.trigger];
     if (triggers.length === 0) return { reason: "current", triggers, day: this.store.livedDay(), bytes: 0 };
     const report = this.republish(input, "refresh", triggers);
@@ -4305,8 +4325,9 @@ export class Counterpart {
     // The caller's date when it passed one: every row a run writes carries the
     // run's one date (review of #287).
     this.recordSelfBriefing(collected, input.at ?? this.store.today(), why, triggers);
-    if (behind !== null && collected.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
-      noteWakeCaught(this.store, behind.raw);
+    if (collected.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
+      if (behind !== null) noteWakeCaught(this.store, behind.raw);
+      noteWakeBuild(this.store, this.build);
     }
     // The lane counts as the RENDER recorded them — the one place they exist,
     // rather than a second count taken here that could disagree with the event.

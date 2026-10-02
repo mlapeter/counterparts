@@ -70,6 +70,7 @@ import type { NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
 import { scriptArgs } from "../runtime.js";
 import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
+import { installedVersion } from "../sessions.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
 import { TUNABLES } from "../config.js";
@@ -565,6 +566,7 @@ export function openNightCounterpart(config: AdapterConfig, onEvent?: (e: Counte
     ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
     ...(config.pageWriter?.mode === undefined ? {} : { pageWriterMode: config.pageWriter.mode }),
     ...(config.identity === undefined ? {} : { identity: { name: config.identity.name, aliases: [...(config.identity.aliases ?? [])] } }),
+    build: installedVersion(),
     ...(onEvent === undefined ? {} : { onEvent }),
   });
 }

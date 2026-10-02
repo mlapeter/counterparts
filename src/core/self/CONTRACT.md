@@ -294,7 +294,11 @@ proposals and their archive; render and delivery telemetry.
    written and a write-up accepted through `session_end` mark it behind (`behind.ts`), and
    `Counterpart.refreshWake` — the same render, with a budget or not at all — republishes
    it at the next turn-end worker; the nightly process calls it when its child returns,
-   with no mark, naming `run-end` as the trigger. Either way the row records
+   with no mark, naming `run-end` as the trigger. A wake another build published (its
+   `self.wake.build` stamp differs from the running package version, or is absent) is
+   behind too, under `version` (2026-10-02), so the first turn-end after an install
+   re-renders it; the first session start after the install still reads the old one.
+   Either way the row records
    `reason: "refresh"` and the triggers. So the bundle is no longer
    rendered once per lived day; it is rendered at the day's first boundary and again when
    one of those writes lands. A same-day re-render is stable: a hint an earlier render

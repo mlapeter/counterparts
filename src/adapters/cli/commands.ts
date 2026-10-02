@@ -236,7 +236,7 @@ import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } fro
 import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
 import { runtimeLabel } from "../runtime.js";
 import { DESKTOP_HOST, upgradeWords } from "../hosts.js";
-import { hostsSeen } from "../sessions.js";
+import { hostsSeen, installedVersion } from "../sessions.js";
 import type {
   Outcome as WireOutcome,
   ProcessLister,
@@ -8687,6 +8687,8 @@ export function openCounterpart(
   return Counterpart.open({
     dir,
     observer,
+    // A wake `rebrief` publishes is stamped with this build (2026-10-02).
+    build: installedVersion(),
     ...(timeZone === undefined ? {} : { timeZone }),
     ...(identity === undefined ? {} : { identity }),
     ...(embed === undefined ? {} : { embed }),

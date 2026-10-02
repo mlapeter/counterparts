@@ -1497,3 +1497,16 @@ Labels only; nothing about what the wake selects changed.
 live copy, found by `origin_ref`); `ingestEpisode` gives a new copy the mark of the copy it
 replaces, else the episode's own. Latest act wins: the writer's chapter-time mark, then a
 reflection's on the copy, are both on the copy's row by the time it regrows.
+
+## 2026-10-02 — a wake another build published is behind (`version`)
+
+The first wakes after an install were the ones the old version composed, until a mark or the
+next lived day: on 10-01 a question 0.3.11 closes stayed in "Still open" all afternoon. Now each
+publish stamps `self.wake.build` with the package version of the process that rendered it
+(`CounterpartOptions.build`; the turn-end worker, the nightly process and the console pass
+`installedVersion()`), and `refreshWake` adds the `version` trigger when the stamp differs from
+the running build, or is absent beside a bundle (one published before the stamp existed). No
+mark is written for it: the comparison is the mark. An unknown build compares nothing. What
+remains: the first SessionStart after the install still reads the old bundle — SessionStart
+renders nothing (CONTRACT §5 G1) — and that session's first Stop re-renders it for every
+session after.
