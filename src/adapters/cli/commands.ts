@@ -235,7 +235,7 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
 import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
 import { runtimeLabel } from "../runtime.js";
-import { DESKTOP_HOST, upgradeWords } from "../hosts.js";
+import { DESKTOP_ALWAYS_ALLOW, DESKTOP_HOST, upgradeWords } from "../hosts.js";
 import { hostsSeen, installedVersion } from "../sessions.js";
 import type {
   Outcome as WireOutcome,
@@ -3584,6 +3584,10 @@ function installDesktop(
       // under a running Desktop can be written over.
       io.out("If Claude Desktop was open while this ran, quit it and run this again — it rewrites its own config file while it runs.");
       io.out("Then open Claude Desktop. In a new chat, ask it to call the counterparts wake tool first (or pick the \"Start with Counterparts\" prompt where Desktop lists it).");
+      // MEASURED 2026-10-02: a chat whose tools still asked permission never
+      // called `wake`, answered from recall alone, and called that the full
+      // record. Doctor cannot see the setting, so this says it.
+      io.out(DESKTOP_ALWAYS_ALLOW);
       io.out(`Then run \`${BIN.cli} doctor\`: its Claude Desktop line shows the entry, and the last wake once there has been one.`);
       return EXIT.ok;
     case "refused":

@@ -31,6 +31,12 @@
   room, a part that waited for room, and a handoff or "Last here" line with no room are now
   recorded and read on the Wake line; the first two turn it amber. The Reflection line says
   how long a share has been waiting to be told.
+- **Claude Desktop: wake first, and Always allow.** A Desktop chat whose tools still asked
+  permission never called `wake`, answered "what do you remember about yesterday" from a
+  search alone, and called that the full record. The install, the quickstart, the help and
+  doctor's Claude Desktop line now say to set the counterparts tools to Always allow; the
+  server's instructions and the `wake` tool tell the model to wake first in every new chat
+  and never to present a search as the complete record.
 - **Doctor's Spawn line sees a step that failed two days running.** It read only today's
   failures, so "the same step failed today and yesterday" could never be said.
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result

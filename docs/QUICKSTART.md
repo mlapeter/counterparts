@@ -34,6 +34,11 @@ nothing leaves it except through Claude Code itself.
 
 Your memory lives in `~/.counterparts/`.
 
+**Claude Desktop** (macOS): `counterparts install --host claude-desktop` connects its chats to
+the same memory. Then, in Claude Desktop, set the counterparts tools to **Always allow**, or a
+chat cannot wake on its own: Desktop asks before each tool, and until it may, the model does
+not call one nobody asked for.
+
 To set it up from a script, with no questions:
 
 ```

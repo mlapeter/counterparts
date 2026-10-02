@@ -1436,8 +1436,9 @@ export const WAKE: ToolSpec = {
   summary:
     "Start here in Claude Desktop: wakes this chat's memory. Returns the same briefing a Claude Code session gets when it starts — who I am, what is nearby and arriving, any reminder due today — and a session id for this chat.",
   admission:
-    "Call it once, at the start of a chat, before answering the first message. Then pass the session id it returns as `session` on session_end, chapter, dream and reflect in this chat; a call that leaves it out is filed under the most recent Desktop session, and says so.",
+    "Call it first in every new chat, once, before answering anything — above all anything about the person, the past, or work in progress. Then pass the session id it returns as `session` on session_end, chapter, dream and reflect in this chat; a call that leaves it out is filed under the most recent Desktop session, and says so.",
   negativeExamples: [
+    "Do NOT answer what you remember — yesterday, a person, a project — from `recall` alone before this chat has woken, and never call what `recall` returned the full record: it is a slice. Wake first; the wake carries the whole store's Yesterday line.",
     "Do NOT call it again later in the same chat to refresh what you know — it starts a new session. Ask `recall` a question instead.",
     "Do NOT call it in a Claude Code session — Desktop's Code tab included, where these tools are Claude Desktop's: the hook already woke you, and a wake here would start a second session beside yours. Pass your session id — the one your wake or Stop ask names — as `session` instead.",
   ],

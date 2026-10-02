@@ -26,6 +26,7 @@ import { WAKE_BUILD_KEY } from "../src/core/self/index.js";
 import type { ProposalRecord } from "../src/core/remember/proposals.js";
 import {
   DEFAULT_HOST,
+  DESKTOP_ALWAYS_ALLOW,
   DESKTOP_HOST,
   DESKTOP_SCOPE,
   hostOfClient,
@@ -191,6 +192,10 @@ describe("end to end over stdio, as Claude Desktop's chat (client `claude-ai`)",
     ]);
     const hello = resultOf(init);
     expect(hello["instructions"]).toBe(DESKTOP_INSTRUCTIONS);
+    // Wake first, every new chat; recall alone is a slice (2026-10-02).
+    expect(DESKTOP_INSTRUCTIONS).toContain("In every new chat, call its wake tool first");
+    expect(DESKTOP_INSTRUCTIONS).toContain("never present it as complete");
+    expect(WAKE.negativeExamples.some((n) => n.includes("never call what `recall` returned the full record"))).toBe(true);
     expect((hello["capabilities"] as Record<string, unknown>)["prompts"]).toBeDefined();
     expect(s.host).toBe(DESKTOP_HOST);
     expect(s.scope).toBe(DESKTOP_SCOPE);
@@ -868,6 +873,8 @@ describe("install --host claude-desktop", () => {
     const code = await run(["install", "--host", "claude-desktop", "--budget", "9000", "--name", "Ada", "--config", configPath], { io: c.io, env: {}, home });
     expect({ code, err: c.err }).toEqual({ code: EXIT.ok, err: [] });
     expect(c.out.join("\n")).toContain("Claude Desktop: connected");
+    // Said, because doctor cannot measure it (2026-10-02).
+    expect(c.out).toContain(DESKTOP_ALWAYS_ALLOW);
     const after = readFileSync(path, "utf8");
     // The other server's bytes are unchanged, and so is the unrelated key.
     expect(after).toContain(otherBlock);
@@ -974,6 +981,7 @@ describe("doctor's Claude Desktop line", () => {
     expect(line?.detail).toContain("last wake");
     expect(line?.detail).toContain("last session active");
     expect(line?.detail).toContain("not measured for write-ups");
+    expect(line?.detail).toContain("set its counterparts tools to Always allow, or a chat cannot wake on its own");
     expect(line?.detail).not.toContain("lost");
     expect(desktopLine({ ...reading, dataDir: "/some/other/store" })?.severity).toBe("amber");
   });

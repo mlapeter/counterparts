@@ -346,7 +346,7 @@ export interface McpServerOptions {
  * a host that reads it learns the one thing it needs to.
  */
 export const DESKTOP_INSTRUCTIONS =
-  "Counterparts is your memory. At the start of each chat, before answering, call its wake tool once: it returns this chat's briefing and a session id to pass on session_end, chapter, dream and reflect. In a Claude Code session (Desktop's Code tab) the hook already woke you: do not call wake — pass your own session id, the one your wake or Stop ask names, as `session` on every call.";
+  "Counterparts is your memory. In every new chat, call its wake tool first — before answering anything about the person, the past, or work in progress — and once: it returns this chat's briefing, including what happened yesterday across every session, and a session id to pass on session_end, chapter, dream and reflect. Without a wake, what recall returns is a slice, not the whole record: never present it as complete. In a Claude Code session (Desktop's Code tab) the hook already woke you: do not call wake — pass your own session id, the one your wake or Stop ask names, as `session` on every call.";
 
 /** The MCP prompt a Desktop person can pick (brief item 6). */
 export const START_PROMPT = {

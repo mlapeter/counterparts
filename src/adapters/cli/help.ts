@@ -329,7 +329,8 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "first; every other server left as it was). Quit Claude Desktop BEFORE you",
     "run it — Desktop rewrites that file while it runs — then open Desktop and",
     "start a chat with the \"Start with Counterparts\" prompt, or ask it to",
-    "call the counterparts wake tool.",
+    "call the counterparts wake tool. In Claude Desktop, set the counterparts",
+    "tools to Always allow, or a chat cannot wake on its own.",
   ],
   init: [
     "No host config, nothing under ~/.counterparts/ — that",

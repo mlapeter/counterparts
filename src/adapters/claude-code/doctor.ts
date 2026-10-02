@@ -4213,6 +4213,10 @@ function desktopFindings(reading: DesktopReading, store: Store | null, dir: stri
     // server, which serves a Code-tab session when the call names its id.
     ...(reading.codeTab ? ["its Code tab's counterparts tools come from this entry's server, which shadows ~/.claude.json's — both name this store, and Code-tab sessions pass their session id"] : []),
   ];
+  // SAID, NOT MEASURED (2026-10-02): Desktop asks before each tool until its
+  // tools are set to Always allow, and a chat whose tools still ask never
+  // called `wake`. Nothing on disk says which, so the line says it every time.
+  parts.push("set its counterparts tools to Always allow, or a chat cannot wake on its own (not measurable from here)");
   return [finding("desktop", "green", "Claude Desktop", parts.join("; "), "", data)];
 }
 

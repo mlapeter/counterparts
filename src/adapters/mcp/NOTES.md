@@ -1110,3 +1110,15 @@ and the core list's confidential titles. The Desktop `wake`'s chapters and "Last
 guest's (Desktop chat). And whatever the stance, the close and the list agree now
 (`counterpart.ts`): a close this session may not make leaves the thread unsettled — the
 declaration stays a link — so it stays under "Still open", as the refusal says.
+
+## 2026-10-02 — Desktop: wake first, and Always allow
+
+Measured in a Desktop chat: the model never called `wake`, answered "what do you remember about
+yesterday" from `recall` alone, and called that slice the full record; called, the wake carried
+the store-wide Yesterday line. The likely cause is Desktop's per-tool permission prompt: until
+the owner picks Always allow, the model does not call a tool it was not asked for. Text only:
+`DESKTOP_INSTRUCTIONS` and `WAKE`'s admission say to wake first in every new chat, before
+anything about the person, the past or ongoing work, and a negative example says recall alone
+is a slice, never the record; `hosts.ts#DESKTOP_ALWAYS_ALLOW` is said by the install, the help,
+QUICKSTART and doctor's Claude Desktop line, which cannot measure it. "The first call carries
+the wake" is not built: it waits on the owner's test.
