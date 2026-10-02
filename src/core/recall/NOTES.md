@@ -994,3 +994,8 @@ session.
   of scared or frightened (they answer to their group's word), not only an `afraid` stamp
   — the 0.3.10 release check's follow-up. The same for thankful → grateful, touched →
   moved, anger → angry. No frame is needed, as for any wheel word.
+
+
+## Confidentiality, frozen (2026-10-02, owner)
+
+The confidential class (`store/index.ts#confidentialByMeta`, CONTRACT §9) has no way in. No tool or entrance marks a memory confidential. Only a dream or reflection inheriting it from a source that is already confidential sets it. The owner's live store held 0 of 823 on 2026-10-02. The owner's ruling: freeze it. Keep the gates as they are, add no new plumbing for it, and don't treat it as a reason to block a review. The plan is to review it and remove it later. Privacy that matters is handled elsewhere today: directories opted out of Counterparts entirely, and the gate battery's credential redaction.

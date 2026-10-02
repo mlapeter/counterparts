@@ -74,6 +74,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 - **Flat dashboard sketch**: the owner's exploratory branch `dashboard/flat`.
 - **Three-way identity study**: run it a second time before any write-up.
+- **Confidential memories (frozen 2026-10-02)**: the confidentiality gate came over from v1, but no tool can mark a memory confidential and the live store holds none. It still runs through about 48 files. Leave it as it is, build nothing new around it, and don't block a review on it. The plan is to review it and remove it later, unless a real need for it turns up first.
 - **A store outside the home directory**: `uninstall --dir` isn't supported.
 - **Small open gaps**: sleep §9, handoff §4, mcp §2, mcp §9, cli §10–11, I11/I12. Details are in [roadmap-history.md](roadmap-history.md) under "Parked" and in each module's INTERFACE-GAPS.
 
