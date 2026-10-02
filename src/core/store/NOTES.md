@@ -1903,3 +1903,16 @@ store does with it:
 - **Open: the store's own unit tests still run under Bun only.** They import `bun:test`;
   porting them was not cheap, so the Node smoke test covers the binding end to end
   instead.
+
+## 2026-10-02 — lane B: an `awake` feeling source, and a merge keeps a feeling's moment
+
+- **`awake`** joins `FEELING_SOURCES` (no schema change; the column is TEXT): a later
+  feeling recorded in an ordinary session (`dream/reflect.ts#feelAgain`). It is a later
+  feeling like a reflection's — `recorded_later` set — and `LATER_FEELING_SOURCES` names
+  both: `row()`'s `feeling_peak_lived` leaves both out, and `sleep/consolidate.ts`'s
+  recognition lane reads both only through the reflected-feeling door. Height and decay
+  read every feeling, as before.
+- **`addFeelings`' `provenance` carries `createdAt`** (the dream's merge passes each
+  original's): a feeling is a moment's, as a trait nudge's is, so a merge no longer dates
+  what it carries to the merge night. `updated_at` is the write's. Rows merged before keep
+  the date they were given.

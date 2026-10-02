@@ -1613,7 +1613,9 @@ export class Dreams {
               })),
               // Each feeling keeps who recorded it and when (v9): a reflection's
               // later feeling stays one on the merged memory.
-              { provenance: feelings.map((f) => ({ source: f.source, recordedLater: f.recorded_later })) },
+              // And WHEN (2026-10-02): a feeling is a moment's, so the merge
+              // does not date it to tonight (the reflection reads feelings by week).
+              { provenance: feelings.map((f) => ({ source: f.source, recordedLater: f.recorded_later, createdAt: f.created_at })) },
             );
           }
           // TRAIT NUDGES TRAVEL THE SAME WAY (v9): each keeps who recorded it,

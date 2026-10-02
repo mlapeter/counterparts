@@ -1046,3 +1046,19 @@ first version shrank its target each try and kept a fraction of the room for esc
 READ leaves (a part, `mcp.recall`, the lookup ledger) go through `telemetry`, which puts the write
 guard's verdict back as it was: a lock met by the row is the row's loss, never the read's refusal.
 Write-up parts are sized by the larger of bytes and escaped wire cost, so none meets the net.
+
+## 2026-10-02 — `note` takes `feelingsNow` (lane B, owner pick 2)
+
+- **Why `note` and not `session_end`.** The moment an old memory feels different is
+  mid-session, when it comes up; `session_end` is one call at the end, long after. And
+  `note` already acts on existing memories without writing one (`settle`, 2026-09-29), so
+  `text` may be left out the same way — `feelings-now-only` — or sent with it, and both
+  happen. Not a new tool.
+- **"Shown in this session"** is what this server process handed it (`seenHere`: the
+  memories `recall` returned, the neighbours a write showed) and what ambient recall
+  surfaced for the session (its gate record), when the session is known. There is no
+  per-session record of the wake's memories; one shown only there is refused with the way
+  in — read it with recall by id first. Loose by design: the bound is the shown set, not a
+  refusal of a feeling.
+- The core is `Reflections#feelAgain`, the reflection's own path (`dream/NOTES.md`,
+  2026-10-02).

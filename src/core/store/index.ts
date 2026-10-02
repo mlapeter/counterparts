@@ -3026,8 +3026,12 @@ export class Store {
        *  reflection's feeling-now). Absent: felt at the time. */
       recordedLater?: string;
       /** Per input, overriding the two above — a merge carries each
-       *  original's own (`dream/`). Indexed like `inputs`. */
-      provenance?: readonly ({ source?: string | null; recordedLater?: string | null } | undefined)[];
+       *  original's own (`dream/`). Indexed like `inputs`. `createdAt`
+       *  (2026-10-02): the moment it was first recorded — a feeling is a
+       *  moment's, so a merge does not make it new (as a trait nudge's,
+       *  below); before, every feeling a merge carried was dated the merge
+       *  night, and the reflection's weeks of feelings read it as felt then. */
+      provenance?: readonly ({ source?: string | null; recordedLater?: string | null; createdAt?: number | null } | undefined)[];
     } = {},
   ): AddFeelingsResult {
     const { rows, notices, repairs } = checkFeelings(inputs);
@@ -3046,6 +3050,7 @@ export class Store {
       const source = opts.source ?? "session";
       rows.forEach((r, i) => {
         const own = opts.provenance?.[i];
+        const first = typeof own?.createdAt === "number" && Number.isFinite(own.createdAt) ? own.createdAt : at;
         insert.run(
           ids[i] as string,
           memoryId,
@@ -3056,7 +3061,7 @@ export class Store {
           r.strength,
           r.carriedBy,
           model,
-          at,
+          first,
           at,
           own?.source ?? source,
           own === undefined ? later : (own.recordedLater ?? null),
@@ -3963,12 +3968,14 @@ export class Store {
   row(id: string): (MemoryRow & FeelingPeak) | undefined {
     // v9: `feeling_peak_lived` is the same peak WITHOUT the feelings a
     // reflection recorded later — the one the core's fast lane reads unless
-    // `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is set (physics §5.3).
+    // `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is set (physics §5.3). Since
+    // 2026-10-02 an awake feeling-now (`awake`) is left out the same way
+    // (`LATER_FEELING_SOURCES`).
     return this.ops.get<MemoryRow & FeelingPeak>(
       `SELECT m.*,
               (SELECT MAX(f.strength) FROM feelings f WHERE f.memory_id = m.id) AS feeling_peak,
               (SELECT MAX(f.strength) FROM feelings f
-                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source != 'reflection')) AS feeling_peak_lived
+                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN ('reflection', 'awake'))) AS feeling_peak_lived
          FROM memories m WHERE m.id = ?`,
       id,
     );

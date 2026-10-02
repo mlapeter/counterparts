@@ -209,7 +209,8 @@ dreamer is the model (a background agent the session launches), outside this pro
   `merge` (two or more near-copies, not core, into one memory in better words, under
   the strongest original's kind when the kinds differ; the
   merged memory stands where the strongest original stood, carries their returns,
-  feelings and trait nudges — each nudge keeping its source, model and moment — and
+  feelings and trait nudges — each nudge keeping its source, model and moment, each
+  feeling its source, its recorded-later date and (since 2026-10-02) its moment — and
   inherits their links), `link` (both ways, proposed at `LINK_WEIGHT` through
   `associate`, only where there is room, since 2026-09-28), `replayed` (a
   return at `DREAM_RETURN_WEIGHT`, never a use), `gist` (source `dreamed`, citing and
@@ -276,7 +277,18 @@ dream having run.
   the self page, the core, the core candidates, the most strongly felt memories that
   could be about me (marked or not), and memories that became core on reflection alone
   since a share last said so — as memories and feelings, **never the lane arithmetic**.
-  Three questions, rotated so consecutive nights share none (the dream question only
+  Since 2026-10-02 (lane B) also **feelings over weeks** (`feeling-weeks.ts`; a few
+  hundred characters): counts by core per seven-day window for four weeks, mine and the
+  owner's apart, what changed (the last two weeks against the two before), how many were
+  recorded looking back, and the ids it rests on — handed like the rest, so the entry and
+  the page can cite them. Counted from stored feelings (written at the time or recorded
+  later), never text; not a dream's feeling-now, nor one on what a dream or a reflection
+  wrote; null on a month with none. And **unmarked** — at most `UNMARKED` (5) memories
+  nobody has marked that the work lane counts as a project's work only for want of a
+  mark (`self/work.ts#isWorkMemory`: a fact, entity or place written in a directory; not
+  a skill, not a journal copy), those with a feeling, an entity or the owner's name
+  first, then the most used, then the oldest — offered to be marked by meaning. A
+  writer's mark is never offered. Three questions, rotated so consecutive nights share none (the dream question only
   after a dream). **In parts, not cut** (2026-09-28): a bundle longer than
   `RESULT_CHARS` (the tool result's ceiling is about 25k tokens) comes as part 1 of N —
   everything but the long lists, which go on in order as far as the room allows — and
@@ -320,6 +332,16 @@ dream having run.
   - **Feelings** are the self's, recorded later (`source: reflection`, `recorded_later`
     = today), and may be stronger than anything felt at the time (at most 5) — on a
     lived memory only: not on a dream's gist or a reflection's own entry (review of #256).
+    The same path (`Reflections#laterFeeling`) records an awake session's (below).
+  - **Awake, too** (2026-10-02, lane B): `feelAgain` — `note`'s `feelingsNow` — records
+    a later feeling from an ordinary session, through the reflection's path and its
+    guarantees, plus three: only a memory the session was shown (the door hands the set
+    in: what recall surfaced or returned, a write's neighbours; one not shown is refused
+    with the way in), at most one awake feeling-now a calendar day per memory
+    (`once-a-day`), and labeled — `source: awake`, `recorded_later` = today, carried_by
+    "looking back, awake, <date>: …". Mine by default, the owner's when they said so. At
+    most `AWAKE_FEELINGS` (5) a call. The core's fast lane reads it only through the
+    reflected-feeling door, as a reflection's (`store/feelings.ts#LATER_FEELING_SOURCES`).
   - **About marks** (at most 8): `me`, `us`, `owner`, `work`, `world`, each with a why
     (one not given is recorded as "no why given"); a core mark on a dream's gist or a
     reflection's own entry is refused (`work`/`world` stay open on those); one on a

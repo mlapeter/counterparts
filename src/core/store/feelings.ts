@@ -62,9 +62,22 @@ export type FeelingWhose = (typeof FEELING_WHOSE)[number];
  * the time and is marked `recorded_later` with its date. The core's fast lane
  * reads only the first two unless `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is set
  * (physics §5.3).
+ *
+ * `awake` (2026-10-02, lane B): the same feeling-now, recorded in an ordinary
+ * session when an old memory came up and felt different (`note`'s
+ * `feelingsNow`, `dream/reflect.ts#feelAgain`). No schema change — the column
+ * is TEXT. It is a LATER feeling exactly as a reflection's is: marked
+ * `recorded_later`, and read by the fast lane only through the same door
+ * (`LATER_FEELING_SOURCES`).
  */
-export const FEELING_SOURCES = ["session", "dream", "reflection"] as const;
+export const FEELING_SOURCES = ["session", "dream", "reflection", "awake"] as const;
 export type FeelingSource = (typeof FEELING_SOURCES)[number];
+/**
+ * The sources of a feeling recorded LATER, looking back — the ones the core's
+ * fast lane reads only when `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is open
+ * (`store.row()`'s `feeling_peak_lived`, `sleep/consolidate.ts#selfRelevantFeeling`).
+ */
+export const LATER_FEELING_SOURCES: readonly FeelingSource[] = ["reflection", "awake"];
 
 /**
  * `carried_by` is the nuance in the writer's own words — what in the moment

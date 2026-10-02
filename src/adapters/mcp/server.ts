@@ -60,6 +60,7 @@ import { CONTRADICTION_TUNABLES, NEIGHBOURS_HINT } from "../../core/contradictio
 import type { Neighbour } from "../../core/contradictions.js";
 import { localDate, parseCalendarDate, todayIn } from "../../core/time.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
+import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import { ABOUT_MARKS, CACHE_SCHEMA_VERSION, CORE_ABOUT_MARKS, SCHEMA_VERSION, StoreError, checkFeelings, checkTraits, isStoreError, schemaAhead } from "../../core/store/index.js";
@@ -517,6 +518,14 @@ export class McpServer {
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
   private readonly ring: McpEvent[] = [];
+  /**
+   * WHAT THIS SESSION WAS SHOWN through this server (2026-10-02, lane B): the
+   * memories `recall` returned and the neighbours a write showed. With the
+   * ambient recall's record for the session, it is what `note`'s
+   * `feelingsNow` may feel again. In memory only: this server process is one
+   * session's.
+   */
+  private readonly seenHere = new Set<string>();
   private initialized = false;
   /** The lazy bind's result: null until a claim is corroborated, then frozen. */
   private lazySession: string | null = null;
@@ -1508,7 +1517,19 @@ export class McpServer {
       });
     }
     const hasText = typeof text === "string" && text.trim().length > 0;
-    if (!hasText && settleArg !== undefined) return this.settleOnly(settleArg as Record<string, unknown>);
+    // FEELINGS NOW (2026-10-02, lane B): how a memory this session was shown
+    // feels now, recorded beside the first. With `text` too, both happen.
+    const nowArg = args["feelingsNow"];
+    if (nowArg !== undefined && !Array.isArray(nowArg)) {
+      return this.refuse("note", "feelings-now-malformed", {
+        detail: "feelingsNow is a list: one object each, {id, emotion, core?, strength?, carried_by?, whose?}.",
+      });
+    }
+    if (!hasText && settleArg === undefined && nowArg !== undefined) return this.feelingsNowOnly(nowArg as unknown[]);
+    if (!hasText && settleArg !== undefined) {
+      const settled = this.settleOnly(settleArg as Record<string, unknown>);
+      return nowArg === undefined ? settled : this.withFeelingsNow(settled, nowArg as unknown[]);
+    }
     if (typeof text !== "string" || text.trim().length === 0) {
       return this.refuse("note", "text-required", {});
     }
@@ -1571,6 +1592,8 @@ export class McpServer {
       ...(model === undefined ? {} : { model }),
     });
     const neighbours = this.neighboursOf(deposit);
+    for (const n of neighbours) this.seenHere.add(n.id);
+    const feltNow = nowArg === undefined ? null : this.feelingsNowOutcome(nowArg as unknown[]);
     // WITH A SETTLE TOO (review of #284, M2): the call is an error only when
     // NOTHING landed — a refused note beside a settle that landed is not one,
     // so a retry does not run into `already-settled`.
@@ -1586,7 +1609,62 @@ export class McpServer {
       // Claude Code hands the model (the #282 lesson, f387f55).
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...(settle === null ? {} : { settle }),
+      ...(feltNow === null ? {} : { feelingsNow: feltNow }),
     }, settle === null ? undefined : !deposit.deposited && settle["ok"] !== true);
+  }
+
+  /**
+   * `note` with `feelingsNow` and no `text` (2026-10-02, lane B): record how
+   * memories this session was shown feel now, and write nothing else. The
+   * path is the reflection's (`Reflections#feelAgain`); an error only when
+   * nothing was recorded.
+   */
+  private feelingsNowOnly(list: readonly unknown[]): ToolResult {
+    const out = this.feelingsNowOutcome(list);
+    return this.result({ stored: false, reason: "feelings-now-only", feelingsNow: out }, out["recorded"] === 0);
+  }
+
+  /** A settle-only result with the feelings now beside it. */
+  private withFeelingsNow(settled: ToolResult, list: readonly unknown[]): ToolResult {
+    const out = this.feelingsNowOutcome(list);
+    const body = (settled as { structuredContent?: Record<string, unknown> }).structuredContent;
+    if (body === undefined) return settled;
+    const ok = body["settle"] !== undefined && (body["settle"] as Record<string, unknown>)["ok"] === true;
+    return this.result({ ...body, feelingsNow: out }, !ok && out["recorded"] === 0);
+  }
+
+  /**
+   * One `feelingsNow` list through the core, as the result carries it. What
+   * this session was shown: what this server handed it (`seenHere`) and what
+   * ambient recall surfaced for its session, when the session is known.
+   * Never throws.
+   */
+  private feelingsNowOutcome(list: readonly unknown[]): Record<string, unknown> {
+    try {
+      const session = this.session ?? this.hostSession();
+      const shown = new Set(this.seenHere);
+      if (session !== null) {
+        try {
+          for (const id of Object.keys(loadGateState(this.counterpart.store, session).state.surfaced)) shown.add(id);
+        } catch {
+          // The ambient record unreadable: what this server showed still counts.
+        }
+      }
+      const model = this.sessionModel(session ?? UNBOUND_SESSION);
+      const items = list.map((x) => (x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}));
+      const done = this.counterpart.reflections.feelAgain({
+        session: session ?? UNBOUND_SESSION,
+        shown,
+        feelings: items,
+        ...(model === undefined ? {} : { model }),
+      });
+      if (!done.ok) return { recorded: 0, reason: done.reason };
+      const recorded = done.feelings.filter((f) => f.ok && f.reason === "recorded-later").length;
+      this.emit("mcp.note.feelingsNow", undefined, { sent: list.length, recorded });
+      return { recorded, results: done.feelings };
+    } catch (err) {
+      return { recorded: 0, reason: "threw", detail: String((err as Error).message ?? err) };
+    }
   }
 
   /**
@@ -1768,6 +1846,7 @@ export class McpServer {
       droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
     });
     this.noteRecall(result, askedIds.length, question, resolved, payload, fromIndex);
+    for (const m of result.memories) this.seenHere.add(m.id);
     const bad =
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||

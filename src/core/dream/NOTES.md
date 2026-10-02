@@ -439,3 +439,33 @@ writer, the dream and the reflection. What the build learned:
 - An undone dream's settle leaves its pair `withdrawn` when nobody had flagged it, and
   `unsettled` when it was a flag; the trail's actor is `dream-undo` with the dream id (M4).
 - A reopened flag starts fresh on "my mind" (its `mind.seen.<pair>` count is reset, M5).
+
+## 2026-10-02 — lane B: feelings over weeks, re-feeling awake, unmarked offered (held lightly)
+
+- **Feelings over weeks** (`feeling-weeks.ts`). Rolling seven-day windows ending today,
+  four of them, in the person's zone, each feeling dated by when it was recorded. "What
+  changed" compares the last two windows with the two before: a core moved when the
+  difference is at least `MIN_CHANGE` (2) and one side is at least twice the other — so
+  1 → 3 is a rise, 3 → 4 is not. The ids it rests on are the strongest feelings behind
+  each change (the recent ones for a rise, the earlier ones for a fall), or behind my
+  commonest core when nothing changed; at most 6, only what the reflection may see.
+  It does not say "around releases": that is the reflection's to read off the memories
+  it rests on. A sample from the test: `{"weeks":["2026-09-05",…,"2026-09-26"],
+  "mine":{"uneasy":[0,1,0,3],"warm":[0,0,0,1]},"owner":{"happy":[2,0,0,0]},
+  "lookingBack":0,"changed":["my uneasy up: 1 in the two weeks before, 3 in the last
+  two","the owner's happy down: 2 in the two weeks before, 0 in the last two"],
+  "restsOn":[five ids]}` — 403 characters.
+- **The merge kept feelings' source and date-recorded-later but not their moment**:
+  `addFeelings` stamped `created_at = now`, so every feeling a merge carried read as
+  felt on the merge night — a spike in the weeks, and a morning mood from a dream's
+  housekeeping. `provenance` carries `createdAt` now, as a trait nudge's does.
+- **Re-feeling awake reuses the reflection's path** rather than the session's
+  `feelings`: the guarantees that make a later feeling safe (shown only, lived only, the
+  credential scan on the whole emotion, no doubles, the strength default capped below
+  the fast lane, `recorded_later`) were all in `finish`'s loop; it is one method now
+  (`laterFeeling`), called by both. Source `awake`, not `reflection`: the dashboard and
+  doctor can tell a session's look back from the night's.
+- **Unmarked, offered**: the brief's "fact/entity ones that mention people or feelings"
+  is read from what the store holds — a recorded feeling, kind `entity`, the owner's name
+  in the words — not from guessing at names in text. They count toward the night's 8
+  about marks, and the instructions say so.
