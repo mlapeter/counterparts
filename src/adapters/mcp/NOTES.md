@@ -1074,3 +1074,13 @@ Write-up parts are sized by the larger of bytes and escaped wire cost, so none m
   else the bound one.
 - **An error only when nothing landed**: a note refused beside a feeling that was
   recorded is not an error — else the model resends and meets `once-a-day`.
+
+## 2026-10-02 — a stale server says so on every result
+
+A server left open across an install keeps the tool list it loaded, so an argument the new
+version added (`note`'s `about`, `unresolved`) was dropped without a word until the host
+reconnected, and Desktop heard of the update only in `wake`. `withUpdateNotice` now adds an
+`updated` field to every result but `wake` (which keeps its own line) while this process's
+build differs from the package on disk, or a newer build has stamped the store's wake
+(`self.wake.build`). One manifest read and one meta read per call. It is forward-looking: a
+server from before this change (0.3.10, 0.3.11) left open says nothing.

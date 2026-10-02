@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
+  next is written locally and ignored; its history stays.
+- **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were
+  the ones the old version composed, until the next write-up or nightly run, so a question
+  the new version closes stayed in "Still open". Now the first turn-end after an install
+  re-renders it: the session that was open during the install wakes once more with the old
+  wake, and every session after it with the new.
+- **A memory server left open across an install says so.** Every tool result, not only
+  Desktop's wake, now carries a line saying Counterparts was updated and how to reconnect,
+  because until then the server ignores anything newer, such as a field added to a tool. This
+  starts with the servers of this version; one from before it says nothing.
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
   over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
   headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part

@@ -22,8 +22,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { WAKE_BUILD_KEY } from "../src/core/self/index.js";
 import type { ProposalRecord } from "../src/core/remember/proposals.js";
 import {
+  DEFAULT_HOST,
   DESKTOP_HOST,
   DESKTOP_SCOPE,
   hostOfClient,
@@ -546,6 +548,26 @@ describe("the wake's parts", () => {
     // An older build on disk is "changed", not "updated".
     const older = desktopServer({ manifestVersion: () => "0.0.1" });
     expect(String(payload(await older.call("wake", {}))["wake"])).toContain("Counterparts was changed to an older version.");
+  });
+
+  test("a server left open across an install says so on every result, not only the wake (2026-10-02)", async () => {
+    // Desktop: the package on disk moved on.
+    const s = desktopServer({ manifestVersion: () => "99.0.0" });
+    const noted = payload(await s.call("note", { content: "A fact noted while the server was stale, about the build." }));
+    expect(String(noted["updated"])).toContain(`Counterparts was updated. ${wordingFor(DESKTOP_HOST).reconnect}`);
+    expect(String(noted["updated"])).toContain("a field added to a tool since");
+    expect(String(payload(await s.call("status", {}))["updated"])).toContain("Counterparts was updated.");
+    // The wake keeps its own line, once, and no field of its own.
+    expect(payload(await s.call("wake", {}))["updated"]).toBeUndefined();
+
+    // Claude Code: the disk says nothing, but a newer build stamped the store.
+    const cc = server({ manifestVersion: () => null });
+    expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
+    cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "99.0.0");
+    expect(String(payload(await cc.call("status", {}))["updated"])).toContain(`Counterparts was updated. ${wordingFor(DEFAULT_HOST).reconnect}`);
+    // An older stamp is not a newer build.
+    cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "0.0.1");
+    expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
   });
 
   test("the day's dream line: an ASK is said and claimed, with the one line that makes it true in Desktop; `auto` is left for Claude Code, unclaimed", async () => {

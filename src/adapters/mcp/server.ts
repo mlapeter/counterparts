@@ -110,6 +110,7 @@ import {
   sameScope,
   serverIsNewer,
   touchDesktopSession,
+  versionNewer,
 } from "../sessions.js";
 import type { ServerRecord } from "../sessions.js";
 import {
@@ -136,7 +137,7 @@ import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "..
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
 import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, pageSections } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -875,8 +876,10 @@ export class McpServer {
       this.writeTripped = null;
       if (tripped !== null) return this.refusalFor(name, tripped, "write");
       // THE NET LAST (2026-10-02): after the Desktop extras, which rebuild the
-      // result, so nothing leaves past it; a part's row after the net.
-      const out = this.withinCeiling(name, args, desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult));
+      // result, so nothing leaves past it; a part's row after the net. The
+      // update notice before the net, so the net measures what leaves.
+      const served = desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult);
+      const out = this.withinCeiling(name, args, this.withUpdateNotice(name, served));
       this.writePart(out);
       return out;
     } finally {
@@ -2273,18 +2276,49 @@ export class McpServer {
    * loaded against the package on disk now. Desktop's server is started with
    * the app and there is no per-turn hook running the installed build beside
    * it, so this process has to look for itself (`manifestVersionOnDisk`).
+   *
+   * AND A NEWER BUILD THAT WROTE THE STORE (2026-10-02): the build stamp on
+   * the published wake (`self/behind.ts#WAKE_BUILD_KEY`) newer than this
+   * process says the same, for a store shared with an install this process
+   * cannot see on its own disk.
    */
   private wakeUpdateLine(): string | null {
     try {
       const loaded = this.identity?.build.version ?? installedVersion();
+      if (loaded === null) return null;
       const onDisk = this.manifestVersion();
-      if (loaded === null || onDisk === null || loaded === onDisk) return null;
+      let wrote: string | null = null;
+      try {
+        wrote = this.counterpart.store.getMeta(WAKE_BUILD_KEY) ?? null;
+      } catch {
+        /* the disk's answer alone */
+      }
+      const newerWrote = versionNewer(wrote, loaded);
+      if (!newerWrote && (onDisk === null || loaded === onDisk)) return null;
       const stamp = (version: string): ReturnType<typeof installedBuild> => ({ ...installedBuild(), version });
-      const older = serverIsNewer(stamp(loaded), stamp(onDisk));
+      const older = !newerWrote && onDisk !== null && serverIsNewer(stamp(loaded), stamp(onDisk));
       return `Counterparts was ${older ? "changed to an older version" : "updated"}. ${wordingFor(this.host).reconnect}`;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * THE SAME LINE ON EVERY OTHER RESULT (2026-10-02). A server left open
+   * across an install keeps the tool list it loaded, so an argument the new
+   * version added — `note`'s `about`, `unresolved` — is dropped without a
+   * word until the host reconnects, and Desktop had no notice at all outside
+   * `wake`. Now every result says it, in `updated`, while the two builds
+   * differ: one manifest read and one meta read per call. The line names what
+   * may be lost. Never throws, never refuses: the call already ran.
+   */
+  private withUpdateNotice(name: string, result: ToolResult): ToolResult {
+    if (name === "wake") return result;
+    const line = this.wakeUpdateLine();
+    if (line === null) return result;
+    this.emit("mcp.update.noticed", undefined, { tool: name });
+    const said = `${line} Until then this server runs the version it started with, and it ignores anything newer, such as a field added to a tool since.`;
+    return this.result({ ...result.structuredContent, updated: said }, result.isError === true);
   }
 
   /** The doctor's red-only notice, from the entry point's closure. Never throws. */
