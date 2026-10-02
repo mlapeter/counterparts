@@ -9,3 +9,6 @@ credentials.env
 *.pem
 .npmrc
 .claude/settings.local.json
+
+# The session-to-session handoff note is written locally and stays out of the public repo (2026-10-02)
+docs/HANDOFF.md

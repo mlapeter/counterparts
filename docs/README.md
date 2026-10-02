@@ -16,8 +16,8 @@ has it; every other page is a working default or a record of what happened.
 ## Where the work is going
 
 - [`ROADMAP.md`](ROADMAP.md) — the plan for the current round.
-- [`HANDOFF.md`](HANDOFF.md) — the note one session leaves for the next. The newest section is
-  on top; everything below it is history.
+- `HANDOFF.md` — the note one session leaves for the next. It is written locally and is not in
+  the repository (ignored since 2026-10-02).
 - [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — things noticed while living on it, as opposed to
   building it.
 - [`new-user-findings.md`](new-user-findings.md) — what the first install from npm was like.

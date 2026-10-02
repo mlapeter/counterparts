@@ -19,8 +19,7 @@
  * check optional in practice — the operator who omits it gets a usage error and
  * the operator who is in a hurry gets a habit of passing a path that silences
  * it. Requiring it would also break the restart line documented in
- * `tools/parallel/README.md` and `docs/HANDOFF.md`, which passes no
- * `--v2-data-dir` at all.
+ * `tools/parallel/README.md`, which passes no `--v2-data-dir` at all.
  *
  * WHAT REPLACES THE SILENCE — the guard's own doctrine, at a third door.
  * `store/paths.ts` states it: the explicit-dir guard is OFF by default so an

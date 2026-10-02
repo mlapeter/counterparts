@@ -40,7 +40,7 @@
 #   After the pin, doctor's Checkout line is wrong on purpose and must not be
 #   "fixed" by deploying: at the tag it reads amber `behind`, and on a
 #   `hotfix/v5-floor` commit — not an ancestor of origin/master — it reads RED
-#   `detached`. `docs/HANDOFF.md` says which state is intended.
+#   `detached`. The operator's handoff note says which state is intended.
 #
 # What `--ref` accepts, and what it refuses. A DEPLOY IS OF WHAT IS ON THE
 # REMOTE, so a bare name is looked up as `origin/<name>` and never as a local
