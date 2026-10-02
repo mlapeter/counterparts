@@ -53,7 +53,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Under discussion
 
-- **claude.ai**: it reaches only remote servers, so it needs a tunnel or a hosted piece. Decide after Desktop chat works.
+- **claude.ai**: it reaches only remote servers, so it needs a tunnel or a hosted piece. Desktop chat shipped in 0.3.9, so this is the next host to decide on.
 - **The site as public roadmap**: counterparts.ai should mirror this page. Not set up yet.
 - **The nightly run's timing**: it runs at the day's first prompt now. A real night run would need a scheduler.
 - **Dates written into memories' words**: why it happens, and whether to fix it at write time.
@@ -81,8 +81,8 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Recently done
 
-- **10-02**: on master: one measured ceiling for tool results (#315); feelings round 3 (#317); follow-ups after 0.3.11 (#318); the Desktop Code tab verified live
-- **10-01**: 0.3.11 on npm: the morning catch-up and "Yesterday" line; "Work here" vs Nearby; Node 22.15+ and Linux; the Code tab files under its own session; recall by feeling, round 2
+- **10-02**: on master: one measured ceiling for tool results (#315); feelings round 3 (#317); follow-ups after 0.3.11 (#318); the Desktop app's Code tab verified live
+- **10-01**: 0.3.11 on npm: the morning catch-up and "Yesterday" line; "Work here" vs Nearby; Node 22.15+ and Linux; the Code tab files under its own session; recall by feeling, round 2; dashboard Health fixes (#306)
 - **10-01**: 0.3.10 on npm: the feelings wheel v2 (seven cores, store v11); handoffs per session; the "Last here" line; recall by time (a question about time leads with this directory's last session)
 - **09-30**: Claude Desktop chat; recall by feeling (0.3.9); handoffs per session; the feelings wheel redesigned with the owner; event log; coverage ("answered" isn't "written up"); the wake keeps up; dashboard feedback; Desktop's Code tab verified
 - **09-29**: contradictions (changed / corrected / open, with undo); headless nightly run (0.3.7)

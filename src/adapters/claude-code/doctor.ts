@@ -2806,8 +2806,10 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   let later = 0;
   // ...and one an ordinary session's feeling-now carried through the same
   // door (`feelingRecordedLaterBy` names `awake`, review of #317): said apart,
-  // never credited to a reflection. A memory both could have carried is in both.
+  // never credited to a reflection. A memory both could have carried is said
+  // once, as both (review of #319).
   let laterAwake = 0;
+  let laterBoth = 0;
   let promotionsUnread = false;
   let marksUnread = false;
   // Feelings recorded looking back while AWAKE (lane B, 2026-10-02): loose on purpose, so said.
@@ -2826,8 +2828,11 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
       try {
         const p = JSON.parse(row.payload ?? "{}") as { reflectionOnly?: unknown; feelingRecordedLater?: unknown; feelingRecordedLaterBy?: unknown };
         if (p.reflectionOnly === true) alone += 1;
-        if (laterFeelingWasReflections(p)) later += 1;
-        if (laterFeelingWasAwake(p)) laterAwake += 1;
+        const byReflection = laterFeelingWasReflections(p);
+        const byAwake = laterFeelingWasAwake(p);
+        if (byReflection && byAwake) laterBoth += 1;
+        else if (byReflection) later += 1;
+        else if (byAwake) laterAwake += 1;
       } catch {
         continue;
       }
@@ -2882,6 +2887,9 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     (!promotionsUnread && laterAwake > 0
       ? `; ${String(laterAwake)} ${laterAwake === 1 ? "memory" : "memories"} became core on a feeling recorded looking back in a session`
       : "") +
+    (!promotionsUnread && laterBoth > 0
+      ? `; ${String(laterBoth)} ${laterBoth === 1 ? "memory" : "memories"} became core on a feeling recorded later, both a reflection's and a session's`
+      : "") +
     (relabeled > 0
       ? `; ${marksUnread ? "at least " : ""}${String(relabeled)} ${relabeled === 1 ? "mark" : "marks"} changed by a reflection, ${String(movedIn)} of them into me, us or the owner${marksUnread ? ` (only the newest ${String(MARK_ROWS)} mark changes were read)` : ""}`
       : "") +
@@ -2908,6 +2916,7 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         promotedOnReflectionAlone: promotionsUnread ? null : alone,
         promotedOnFeelingRecordedLater: promotionsUnread ? null : later,
         promotedOnAwakeFeeling: promotionsUnread ? null : laterAwake,
+        promotedOnBothLaterFeelings: promotionsUnread ? null : laterBoth,
         relabeledByReflection: relabeled,
         relabeledIntoCore: movedIn,
         relabeledFloor: marksUnread,

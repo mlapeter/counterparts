@@ -203,8 +203,9 @@ export function selfRelevantFeeling(
  * fast lane's strength (`CORE_FAST_FEELING`, on the raw strength the peak
  * reads). Asked only when the lane would not have been met with the door
  * closed — every lived feeling fell short — so each source listed could have
- * met it alone; both may be. Undefined when the port cannot read feelings:
- * the record then says only `feelingRecordedLater`, read as a reflection's.
+ * met it alone; both may be. Undefined when the port cannot read feelings or
+ * none is found (never an empty list): the record then says only
+ * `feelingRecordedLater`, read as a reflection's.
  */
 export function laterFeelingCarriers(store: Pick<SleepStore, "feelingsFor">, id: string): readonly ("reflection" | "awake")[] | undefined {
   if (store.feelingsFor === undefined) return undefined;
@@ -215,7 +216,9 @@ export function laterFeelingCarriers(store: Pick<SleepStore, "feelingsFor">, id:
       if (src !== "reflection" && src !== "awake") continue;
       if (rows.some((f) => f.source === src && f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING)) out.push(src);
     }
-    return out;
+    // None found (review of #319): say nothing rather than an empty list a
+    // reader would credit to no one; absent reads as a reflection's.
+    return out.length === 0 ? undefined : out;
   } catch {
     return undefined;
   }

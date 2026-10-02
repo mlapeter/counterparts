@@ -552,7 +552,7 @@ describe("what each Desktop chat was shown is its own (review of #317)", () => {
     expect(await recorded(s, 6, a, x)).toBe(1);
   });
 
-  test("the newest SEEN_SESSIONS chats are kept: the oldest is let go and must recall again", async () => {
+  test("the SEEN_SESSIONS most recently shown chats are kept: the least recent is let go and must recall again", async () => {
     const s = plainServer();
     await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
     let n = 2;
@@ -560,14 +560,21 @@ describe("what each Desktop chat was shown is its own (review of #317)", () => {
     const x = plainMemory(s, "The orchard's first pears came in small and sweet.");
     const y = plainMemory(s, "The shed roof was patched on the north side.");
     await wireCall(s, n++, "recall", { session: first, ids: [x] });
-    // SEEN_SESSIONS more chats are each shown something: the first is now the oldest past the bound.
+    // SEEN_SESSIONS more chats are each shown something. Partway through, the
+    // first chat is shown x again: being shown makes it recent (review of
+    // #319), so the chat let go past the bound is the oldest of the fresh ones.
+    const chats: string[] = [];
     for (let i = 0; i < SEEN_SESSIONS; i += 1) {
+      if (i === 10) await wireCall(s, n++, "recall", { session: first, ids: [x] });
       const chat = (await wireCall(s, n++, "wake"))["session"] as string;
+      chats.push(chat);
       expect(JSON.stringify(await wireCall(s, n++, "recall", { session: chat, ids: [y] }))).toContain("shed roof");
     }
-    expect(await recorded(s, n++, first, x)).toBe(0);
-    // Shown again, it may be felt.
-    await wireCall(s, n++, "recall", { session: first, ids: [x] });
+    const oldest = chats[0] as string;
+    expect(await recorded(s, n++, oldest, y)).toBe(0);
     expect(await recorded(s, n++, first, x)).toBe(1);
+    // Shown again, the one let go may feel it.
+    await wireCall(s, n++, "recall", { session: oldest, ids: [y] });
+    expect(await recorded(s, n++, oldest, y)).toBe(1);
   });
 });

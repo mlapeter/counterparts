@@ -2,14 +2,6 @@
 
 ## Unreleased
 
-- **Doctor no longer credits a reflection with what a session felt.** Since a memory can be
-  felt again during an ordinary session, that feeling can carry it to the core the way a
-  reflection's does. Until now doctor's Reflection line and the next morning share counted
-  such a memory as "became core on a feeling a reflection recorded later". The promotion
-  record now says whose feeling carried it, doctor says a session's apart ("became core on a
-  feeling recorded looking back in a session"), and the share names only a reflection's. The
-  same line's count of feelings recorded looking back in a session now says "in all", since
-  it is not the week's.
 - **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
   next is written locally and ignored; its history stays.
 - **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were
@@ -74,7 +66,10 @@ every server. A Desktop chat is unchanged, the nightly run keeps its old stance,
   does. It works only on a memory this session was shown, at most once a day per memory. The
   feeling is marked as recorded later, while awake. The core counts it only when it would
   count a feeling a reflection recorded later. Doctor's Reflection line says how many there
-  are, how many are strong enough for the core's fast lane, and how many are the owner's.
+  are in all, how many are strong enough for the core's fast lane, and how many are the
+  owner's. A memory such a feeling carries to the core is said apart from one a reflection's
+  feeling carried ("became core on a feeling recorded looking back in a session"), and the
+  morning share names only a reflection's.
 - **The reflection is offered unmarked memories to mark.** A fact written in a project with
   no "about" mark counts as that project's work. So a personal one, like a note about a
   person, showed under "Work here". Each night the reflection is now offered up to five
