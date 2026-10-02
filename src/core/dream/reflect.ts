@@ -90,7 +90,7 @@ import type { FeelingWeeks } from "./feeling-weeks.js";
 import { isWorkMemory } from "../self/work.js";
 import { chapterEntries, entryKey, fitEpisodes, shownEntry } from "./slices.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
-import { DREAM_TUNABLES } from "./tunables.js";
+import { BUNDLE_OWNER, DREAM_TUNABLES } from "./tunables.js";
 import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { settle as settleContradiction } from "../contradictions.js";
@@ -331,6 +331,9 @@ export interface ReflectContext {
   readonly observer: boolean;
   /** The owner's own session: confidential memories may be shown. */
   readonly owner: boolean;
+  /** Read the BUNDLES as the owner too (`BUNDLE_OWNER`, review of #318). No host sets it; the
+   *  store-level tests of what an owner-read bundle must keep do. Absent: a guest. */
+  readonly bundleOwner?: boolean;
   /** The credential scan every word passes (the same one a dream's words do). */
   readonly gate: (text: string, sessionId: string) => { ok: true; text: string } | { ok: false; reason: string };
   readonly page: () => string | null;
@@ -488,6 +491,11 @@ export class Reflections {
 
   constructor(ctx: ReflectContext) {
     this.ctx = ctx;
+  }
+
+  /** Whose a bundle is read as: a guest (`BUNDLE_OWNER`), unless a test asked otherwise. */
+  private get bundleOwner(): boolean {
+    return this.ctx.bundleOwner ?? BUNDLE_OWNER;
   }
 
   private get store(): Store {
@@ -722,7 +730,7 @@ export class Reflections {
     }
     const chapters = ids.c.map((cid): ShownChapter => {
       const r = this.store.row(cid);
-      if (r === undefined || (r.confidential === 1 && !this.ctx.owner)) return { id: cid, title: null, entries: [{ chapter: null, day: null, fidelity: "line", text: gone, chars: 0 }], earlier: 0 };
+      if (r === undefined || (r.confidential === 1 && !this.bundleOwner)) return { id: cid, title: null, entries: [{ chapter: null, day: null, fidelity: "line", text: gone, chars: 0 }], earlier: 0 };
       const all = chapterEntries(r.body);
       const entries = [];
       for (const e of all) {
@@ -1537,7 +1545,7 @@ export class Reflections {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
-      owner: this.ctx.owner,
+      owner: this.bundleOwner,
     });
     const onMind = mindRead.items.filter((item) => item.ids.every(take(3)));
 
@@ -1588,7 +1596,7 @@ export class Reflections {
     const earlier = this.store
       .reflections({ limit: T.EARLIER + 4 })
       .filter((r) => r.state === "reflected" && r.entry !== null && r.id !== id)
-      .filter((r) => this.ctx.owner || !this.touchesConfidential(r))
+      .filter((r) => this.bundleOwner || !this.touchesConfidential(r))
       .slice(0, T.EARLIER)
       .map((r) => ({ date: r.date, entry: clipWire(r.entry ?? "", T.EARLIER_CHARS) }));
     const spent =
@@ -1769,7 +1777,7 @@ export class Reflections {
     for (const id of this.store.list({ type: "episode", archived: false })) {
       const row = this.store.row(id);
       if (row === undefined) continue;
-      if (row.confidential === 1 && !this.ctx.owner) continue;
+      if (row.confidential === 1 && !this.bundleOwner) continue;
       // Begun in the last few lived days, or written to in the last few
       // calendar days (a chapter grows while its session runs).
       const at = row.updated_at ?? row.created_at ?? 0;
@@ -1816,12 +1824,19 @@ export class Reflections {
     };
   }
 
-  /** Recall's gates, as a dream reads them: live, a memory, not protected, not confidential outside the owner's session. */
-  showable(row: MemoryRow): boolean {
+  /**
+   * Recall's gates, as a reflection reads them: live, a memory, not
+   * protected, not confidential outside the owner's session. `owner` is the
+   * READER's stance: a bundle is always read as a guest (`BUNDLE_OWNER`,
+   * review of #318); a feeling recorded awake passes the call's own (#317 ×
+   * #318: a Code-tab call on Desktop's server is the owner's, and may feel
+   * again what its recall showed it).
+   */
+  showable(row: MemoryRow, owner: boolean = this.bundleOwner): boolean {
     if (row.archived === 1 || row.superseded_by !== null) return false;
     if (row.type !== "memory") return false;
     if (row.protected === 1) return false;
-    if (row.confidential === 1 && !this.ctx.owner) return false;
+    if (row.confidential === 1 && !owner) return false;
     if (row.body === "") return false;
     return true;
   }
@@ -1864,11 +1879,13 @@ export class Reflections {
       readonly gate?: (r: MemoryRow) => { reason: string; detail: string } | null;
       /** The owner's feeling may be recorded later too (awake only); the reflection's are its own. */
       readonly whose?: "self" | "owner";
+      /** The caller's stance (awake): what its recall could show. Absent: a guest's, as the bundle's. */
+      readonly owner?: boolean;
     },
   ): PartResult {
     const id = typeof f.id === "string" ? f.id : null;
     const r = id !== null && o.shown.has(id) ? this.store.row(id) : undefined;
-    if (r === undefined || !this.showable(r)) {
+    if (r === undefined || !this.showable(r, o.owner ?? this.bundleOwner)) {
       const detail =
         o.source === "awake" && id !== null && !o.shown.has(id)
           ? `${id} was not shown in this session; read it first (the recall tool, ids: ["${id}"]), then record how it feels now.`
@@ -1952,6 +1969,8 @@ export class Reflections {
     readonly shown: ReadonlySet<string>;
     readonly feelings: readonly LaterFeelingInput[];
     readonly model?: string | null;
+    /** The call's own stance (#317 × #318). Absent: this process's. */
+    readonly owner?: boolean;
   }): { ok: true; feelings: PartResult[] } | { ok: false; reason: "observer" } {
     if (this.ctx.observer) return { ok: false, reason: "observer" };
     const date = this.ctx.today();
@@ -1970,6 +1989,7 @@ export class Reflections {
           model: input.model ?? null,
           mine,
           whose,
+          owner: input.owner ?? this.ctx.owner,
           gate: (r) =>
             this.store.feelingsFor(r.id).some((x) => x.source === "awake" && x.recorded_later === date)
               ? { reason: "once-a-day", detail: `${r.id} already has a feeling recorded looking back, awake, today; one a calendar day per memory.` }

@@ -385,6 +385,13 @@ export const EVENT_NODE = {
   "handoff.refused": "wake",
   "handoff.cleared": "wake",
   "handoff.lasthere.noroom": "wake",
+  // The wake's "Work here" lines, and what an envelope could not carry
+  // (2026-10-02): all of it is the wake's delivery.
+  "self.work.overflow": "wake",
+  "adapter.envelope.overcap": "wake",
+  "adapter.notice.dropped": "wake",
+  "adapter.envelope.gave-way": "wake",
+  "adapter.injection.overbudget": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got

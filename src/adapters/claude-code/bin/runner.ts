@@ -77,7 +77,7 @@ import type { HostSessionEvidence, RetentionReport } from "../../../core/remembe
 import { pruneRetention } from "../../../core/remember/retention.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
-import { hostSessionEvidence, writeUpSources } from "../../sessions.js";
+import { hostSessionEvidence, installedVersion, writeUpSources } from "../../sessions.js";
 import { openLog } from "../../log/index.js";
 
 import {
@@ -299,6 +299,9 @@ export async function runOnce(input: {
   scope?: string;
   /** Injected so the whole vector path is provable without the weights. */
   embedder?: LiveEmbedder | null;
+  /** The package version this run is, for the wake's build stamp. Absent: the
+   *  installed manifest's (`installedVersion`). Injected so a test can be an upgrade. */
+  build?: string | null;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }): Promise<RunReport> {
   const { config } = input;
@@ -328,6 +331,9 @@ export async function runOnce(input: {
       : { budgetBytes: config.injectionBudgetBytes }),
     ...(config.owner === undefined ? {} : { owner: config.owner }),
     ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
+    // The build stamps the wake it publishes, and a wake another build
+    // published is re-rendered at step 3a (`version`, 2026-10-02).
+    build: input.build === undefined ? installedVersion() : input.build,
     onEvent: (e) => emit(e.name, { ...(e.data ?? {}) }),
   });
   // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could

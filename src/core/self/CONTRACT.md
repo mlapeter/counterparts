@@ -294,7 +294,11 @@ proposals and their archive; render and delivery telemetry.
    written and a write-up accepted through `session_end` mark it behind (`behind.ts`), and
    `Counterpart.refreshWake` — the same render, with a budget or not at all — republishes
    it at the next turn-end worker; the nightly process calls it when its child returns,
-   with no mark, naming `run-end` as the trigger. Either way the row records
+   with no mark, naming `run-end` as the trigger. A wake another build published (its
+   `self.wake.build` stamp differs from the running package version, or is absent) is
+   behind too, under `version` (2026-10-02), so the first turn-end after an install
+   re-renders it; the first session start after the install still reads the old one.
+   Either way the row records
    `reason: "refresh"` and the triggers. So the bundle is no longer
    rendered once per lived day; it is rendered at the day's first boundary and again when
    one of those writes lands. A same-day re-render is stable: a hint an earlier render
@@ -476,6 +480,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `CRAFT_MAX` | 8 | Craft (skill-kind) elements considered — only while `CRAFT_AT_DELIVERY` is off. |
 | `CRAFT_AT_DELIVERY` | true | Craft is the session's directory's work, composed at delivery (`work.ts`); the stored bundle has no craft lane and Nearby leaves work out. Off: craft is skill-kind above the warm floor, store-wide. |
 | `WORK_HERE_MAX` | 4 | Work lines one delivery shows for its directory. |
+| `WORK_HERE_POOL` | 8 | Work lines ranked for the day's rotation to choose `WORK_HERE_MAX` from (2026-10-02): the newest stays first, the others take turns by lived day (`work.ts#rotateWork`). |
 | `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
 | `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |

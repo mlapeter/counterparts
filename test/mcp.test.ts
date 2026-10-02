@@ -52,7 +52,7 @@ import {
   toolSpec,
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
-import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
+import { launchOptions, ownerStance } from "../src/adapters/mcp/bin/serve.js";
 import { TUNABLES as RECALL_TUNABLES } from "../src/core/recall/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -268,6 +268,7 @@ describe("the wire", () => {
     expect(launchOptions(["--session", "abc", "--owner"], {})).toEqual({
       session: "abc",
       owner: true,
+      ownerSaid: "flag",
       observer: false,
       unreadable: [],
     });
@@ -344,6 +345,51 @@ describe("the wire", () => {
     expect(junk.unreadable).toHaveLength(1);
     expect(junk.unreadable[0]).toContain("COUNTERPARTS_OWNER");
     expect(junk.unreadable[0]).toContain("NOT owner-stanced");
+  });
+
+  test("the owner's own sessions are the owner (2026-10-02): with nothing said, the installed configuration decides; anything said wins", () => {
+    const unset = launchOptions([], {});
+    expect(unset.ownerSaid).toBe("unset");
+    const installed = { owner: true };
+    // A server Claude Code started, on an install: the owner's.
+    expect(ownerStance(unset, installed, true)).toEqual({ owner: true, ownerFrom: "config", codeTabOwner: true });
+    // Desktop's server: a guest for its chats; a Code-tab call it serves is the owner's.
+    expect(ownerStance(unset, installed, false)).toEqual({ owner: false, ownerFrom: "default", codeTabOwner: true });
+    // The opt-out, and junk: said, so no default upgrades them.
+    for (const value of ["0", "off", "sure"]) {
+      const said = launchOptions([], { COUNTERPARTS_OWNER: value });
+      expect(said.ownerSaid).toBe("env");
+      expect(ownerStance(said, installed, true)).toEqual({ owner: false, ownerFrom: "off", codeTabOwner: false });
+    }
+    expect(ownerStance(launchOptions([], { COUNTERPARTS_OWNER: "1" }), {}, false)).toEqual({ owner: true, ownerFrom: "env", codeTabOwner: false });
+    expect(ownerStance(launchOptions(["--owner"], {}), {}, false).ownerFrom).toBe("env");
+    // A configuration without the key, or an observer's, makes nobody the owner.
+    expect(ownerStance(unset, {}, true).owner).toBe(false);
+    expect(ownerStance(unset, { owner: true, observer: true }, true)).toEqual({ owner: false, ownerFrom: "default", codeTabOwner: false });
+  });
+
+  test("status says the stance and what decided it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-owner-status-"));
+    try {
+      const own = openServer({ dir, owner: true, ownerFrom: "config" });
+      const stance = (await own.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
+      expect(stance).toMatchObject({ observer: false, owner: true });
+      expect(String(stance["ownerFrom"])).toContain("the installed configuration (owner: true)");
+      expect(stance["ownerMeans"]).toBeUndefined();
+      own.counterpart.close();
+      const guest = openServer({ dir, owner: false });
+      const g = (await guest.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
+      expect(g).toMatchObject({ owner: false, ownerFrom: "nothing made this launch the owner's" });
+      expect(String(g["ownerMeans"])).toContain("COUNTERPARTS_OWNER=0");
+      guest.counterpart.close();
+      // An explicit opt-out is labelled as one (review of #318).
+      const off = openServer({ dir, owner: false, ownerFrom: "off" });
+      const o = (await off.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
+      expect(String(o["ownerFrom"])).toContain("the opt-out");
+      off.counterpart.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("a flag still beats the environment, and a junk variable beside it is still named", () => {

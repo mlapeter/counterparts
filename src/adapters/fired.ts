@@ -817,8 +817,9 @@ export const MECHANISMS: readonly Mechanism[] = [
     module: "handoff/index.ts",
     evidence: { kind: "event", names: ["handoff.shown"] },
     // A "Last here" line dropped for room (durable since 2026-10-01) rides with
-    // the delivery it was turned away from, as `no-room` rides with writing.
-    covers: ["handoff.lasthere.noroom"],
+    // the delivery it was turned away from, as `no-room` rides with writing;
+    // so does a "Work here" overflow (2026-10-02).
+    covers: ["handoff.lasthere.noroom", "self.work.overflow"],
     since: "2026-09-20",
   },
   {
@@ -826,6 +827,10 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "that briefing was handed to the host at the start of a session",
     module: "claude-code/hooks.ts",
     evidence: { kind: "event", names: ["adapter.wake.injected"] },
+    // What the envelope could not carry rides with the handing-over (durable
+    // since 2026-10-02): past the host's cap, a notice dropped, a part that
+    // waited for room, a start over the ceiling the host reported.
+    covers: ["adapter.envelope.overcap", "adapter.notice.dropped", "adapter.envelope.gave-way", "adapter.injection.overbudget"],
   },
   {
     id: "wake-delivered",

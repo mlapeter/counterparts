@@ -18,14 +18,17 @@ import {
   FRAMING,
   SELF_TUNABLES,
   WORK_HERE_HEADING,
+  WORK_OVERFLOW_EVENT,
   excerptOf,
   isWorkMemory,
   readSentinel,
+  rotateWork,
 } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
 import type { Kind } from "../src/core/types.js";
 import { stopAsk } from "../src/adapters/claude-code/hooks.js";
 import { McpServer, desktopWriteUpAsk } from "../src/adapters/mcp/server.js";
+import { wakeArrivalFindings } from "../src/adapters/claude-code/doctor.js";
 import { renderDescription, toolSpec } from "../src/adapters/mcp/tools.js";
 import { recordSession } from "../src/adapters/sessions.js";
 
@@ -213,6 +216,68 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     expect(lines.length).toBe(SELF_TUNABLES.WORK_HERE_MAX);
     const newestFirst = [...ids].reverse().slice(0, SELF_TUNABLES.WORK_HERE_MAX);
     lines.forEach((l, i) => expect(l).toContain(newestFirst[i] as string));
+  });
+
+  test("rotateWork: all of them when they fit; past WORK_HERE_MAX the newest stays and the rest take turns by lived day (2026-10-02)", () => {
+    const ranked = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    expect(rotateWork(ranked.slice(0, 3), 4, 9)).toEqual(["a", "b", "c"]);
+    expect(rotateWork(ranked, 4, 0)).toEqual(["a", "b", "c", "d"]);
+    expect(rotateWork(ranked, 4, 1)).toEqual(["a", "e", "f", "g"]);
+    // Shown in ranked order, whichever came round.
+    expect(rotateWork(ranked, 4, 2)).toEqual(["a", "b", "c", "h"]);
+    // Over a week every line has been shown.
+    const seen = new Set<string>();
+    for (let day = 0; day < 7; day++) for (const l of rotateWork(ranked, 4, day)) seen.add(l);
+    expect(seen.size).toBe(ranked.length);
+    expect(rotateWork(ranked, 1, 5)).toEqual(["a"]);
+    expect(rotateWork(ranked, 0, 5)).toEqual([]);
+  });
+
+  test("more work than the wake shows: the lines rotate from one lived day to the next, and one durable row per directory per day says so", () => {
+    const c = counterpart();
+    const ids: string[] = [];
+    for (let i = 0; i < SELF_TUNABLES.WORK_HERE_POOL; i++) {
+      ids.push(put(c, `Workshop finding number ${String(i)}: the jig needs a shim on the left.`, { about: "work", scope: WORKSHOP, born: i }));
+    }
+    const newest = ids[ids.length - 1] as string;
+    const first = under(wake(c, WORKSHOP), WORK_HERE_HEADING);
+    expect(first.length).toBe(SELF_TUNABLES.WORK_HERE_MAX);
+    expect(first[0]).toContain(newest);
+    // The same day, the same lines, and still one row.
+    expect(under(wake(c, WORKSHOP), WORK_HERE_HEADING)).toEqual(first);
+    const rows = (): Record<string, unknown>[] =>
+      c.store.eventLog({ name: WORK_OVERFLOW_EVENT, order: "asc" }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows()).toEqual([
+      expect.objectContaining({ scope: WORKSHOP, cause: "cap", found: SELF_TUNABLES.WORK_HERE_POOL, shown: SELF_TUNABLES.WORK_HERE_MAX, max: SELF_TUNABLES.WORK_HERE_MAX }),
+    ]);
+    // The next lived day: the newest stays first, the others move on.
+    c.store.advanceClock("2026-10-02");
+    const next = under(wake(c, WORKSHOP), WORK_HERE_HEADING);
+    expect(next[0]).toContain(newest);
+    expect(next).not.toEqual(first);
+    expect(rows().length).toBe(2);
+    // A directory with no more than fits writes nothing.
+    put(c, "The library's ladder has a loose rung.", { about: "work", scope: LIBRARY });
+    wake(c, LIBRARY);
+    expect(rows().length).toBe(2);
+  });
+
+  test("work lines with no room leave a `room` row, and doctor's Wake line counts it", () => {
+    const c = counterpart();
+    for (let i = 0; i < 4; i++) {
+      put(c, `Workshop finding ${String(i)}: ${"the jig needs a shim on the left side, and the fence drifts. ".repeat(2)}`, { about: "work", scope: WORKSHOP, born: i });
+    }
+    const full = c.wake(BUDGET, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
+    wake(c, WORKSHOP);
+    const workBytes = new TextEncoder().encode(`${[WORK_HERE_HEADING, ...under(full.text, WORK_HERE_HEADING)].join("\n")}\n\n`).length;
+    const squeezed = c.wake(full.bytes - workBytes + 10, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
+    const shown = under(squeezed.text, WORK_HERE_HEADING).length;
+    expect(shown).toBeLessThan(4);
+    const row = c.store.eventLog({ name: WORK_OVERFLOW_EVENT }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>)[0];
+    expect(row).toMatchObject({ cause: "room", found: 4, shown });
+    const line = wakeArrivalFindings(c.store)[0];
+    expect(line?.severity).toBe("green");
+    expect(line?.detail).toContain(`"Work here" lines that did not fit, in 1 directory-day`);
   });
 
   test("not a thread, not a reminder, not a journal copy, not confidential, not settled over — and never shown twice", () => {
@@ -433,6 +498,29 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     const mine = openThread(guest, "Whether the shop opens on Saturdays is still an open question.");
     expect(await close(guest, mine)).toEqual({ from: mine, closed: true });
     expect(flagged(guest, mine)).toBe(false);
+  });
+
+  test("the close and the list agree (2026-10-02): a refused close leaves the thread under Still open; the caller's own stance can open the door", async () => {
+    const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => NOW, timeZone: ZONE });
+    open.push(guest);
+    const there = guest.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Whether the reading room gets a second lamp is still open.",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      meta: { unresolved: true },
+      origin: { scope: LIBRARY },
+    });
+    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
+    const refused = await guest.submitJot({ content: "The reading room got its second lamp on Tuesday.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP });
+    expect(refused.thread).toEqual({ from: there, closed: false, refused: "other-directory" });
+    // Not settled over either: the declaration is a link, and the list still says open.
+    expect(refused.revision?.settle ?? null).toBe(null);
+    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
+    // The same close, from a caller whose session is the owner's (a Code-tab call on Desktop's server).
+    const owned = await guest.submitJot({ content: "The reading room's second lamp is in and working.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP, owner: true });
+    expect(owned.thread).toEqual({ from: there, closed: true });
+    expect(stillOpen(guest)).not.toContain("the reading room gets a second lamp");
   });
 
   test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {

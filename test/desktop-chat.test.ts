@@ -22,8 +22,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { WAKE_BUILD_KEY } from "../src/core/self/index.js";
 import type { ProposalRecord } from "../src/core/remember/proposals.js";
 import {
+  DEFAULT_HOST,
+  DESKTOP_ALWAYS_ALLOW,
   DESKTOP_HOST,
   DESKTOP_SCOPE,
   hostOfClient,
@@ -189,6 +192,10 @@ describe("end to end over stdio, as Claude Desktop's chat (client `claude-ai`)",
     ]);
     const hello = resultOf(init);
     expect(hello["instructions"]).toBe(DESKTOP_INSTRUCTIONS);
+    // Wake first, every new chat; recall alone is a slice (2026-10-02).
+    expect(DESKTOP_INSTRUCTIONS).toContain("In every new chat, call its wake tool first");
+    expect(DESKTOP_INSTRUCTIONS).toContain("never present it as complete");
+    expect(WAKE.negativeExamples.some((n) => n.includes("never call what `recall` returned the full record"))).toBe(true);
     expect((hello["capabilities"] as Record<string, unknown>)["prompts"]).toBeDefined();
     expect(s.host).toBe(DESKTOP_HOST);
     expect(s.scope).toBe(DESKTOP_SCOPE);
@@ -548,6 +555,33 @@ describe("the wake's parts", () => {
     expect(String(payload(await older.call("wake", {}))["wake"])).toContain("Counterparts was changed to an older version.");
   });
 
+  test("a server left open across an install says so on every result, not only the wake (2026-10-02)", async () => {
+    // Desktop: the package on disk moved on.
+    const s = desktopServer({ manifestVersion: () => "99.0.0" });
+    const noted = payload(await s.call("note", { content: "A fact noted while the server was stale, about the build." }));
+    expect(String(noted["updated"])).toContain(`Counterparts was updated. ${wordingFor(DESKTOP_HOST).reconnect}`);
+    expect(String(noted["updated"])).toContain("a field added to a tool since");
+    expect(String(payload(await s.call("status", {}))["updated"])).toContain("Counterparts was updated.");
+    // The wake keeps its own line, once, and no field of its own.
+    expect(payload(await s.call("wake", {}))["updated"]).toBeUndefined();
+
+    // Claude Code: the disk says nothing, but a newer build stamped the store —
+    // another install. Reconnecting would load this same version, so no
+    // remedy is offered (review of #318).
+    const cc = server({ manifestVersion: () => null });
+    expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
+    cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "99.0.0");
+    const other = String(payload(await cc.call("status", {}))["updated"]);
+    expect(other).toContain("A newer Counterparts (99.0.0), installed somewhere else, has written this memory store");
+    expect(other).not.toContain(wordingFor(DEFAULT_HOST).reconnect);
+    // This disk moved too: then reconnecting is the remedy.
+    const both = server({ manifestVersion: () => "99.0.0" });
+    expect(String(payload(await both.call("status", {}))["updated"])).toContain(`Counterparts was updated. ${wordingFor(DEFAULT_HOST).reconnect}`);
+    // An older stamp is not a newer build.
+    cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "0.0.1");
+    expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
+  });
+
   test("the day's dream line: an ASK is said and claimed, with the one line that makes it true in Desktop; `auto` is left for Claude Code, unclaimed", async () => {
     const at = new Date("2026-09-26T12:00:00").getTime();
     const s = desktopServer({ now: () => at });
@@ -846,6 +880,8 @@ describe("install --host claude-desktop", () => {
     const code = await run(["install", "--host", "claude-desktop", "--budget", "9000", "--name", "Ada", "--config", configPath], { io: c.io, env: {}, home });
     expect({ code, err: c.err }).toEqual({ code: EXIT.ok, err: [] });
     expect(c.out.join("\n")).toContain("Claude Desktop: connected");
+    // Said, because doctor cannot measure it (2026-10-02).
+    expect(c.out).toContain(DESKTOP_ALWAYS_ALLOW);
     const after = readFileSync(path, "utf8");
     // The other server's bytes are unchanged, and so is the unrelated key.
     expect(after).toContain(otherBlock);
@@ -952,6 +988,7 @@ describe("doctor's Claude Desktop line", () => {
     expect(line?.detail).toContain("last wake");
     expect(line?.detail).toContain("last session active");
     expect(line?.detail).toContain("not measured for write-ups");
+    expect(line?.detail).toContain("set its counterparts tools to Always allow, or a chat cannot wake on its own");
     expect(line?.detail).not.toContain("lost");
     expect(desktopLine({ ...reading, dataDir: "/some/other/store" })?.severity).toBe("amber");
   });

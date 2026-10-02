@@ -1915,3 +1915,26 @@ resumed after its record was pruned reads, so it is counted, not graded. Spawn's
 standing only when the same step failed today and yesterday, or the failure is newer than the
 newest `adapter.spawn.started` (both latched once a date, so one transient failure clears at the
 next day's first start). The nightly child pins `MAX_MCP_OUTPUT_TOKENS=25000`.
+
+## 2026-10-02 — what a delivery could not carry is durable, and doctor reads it
+
+#315 listed four warnings that reached only the in-process ring: `adapter.envelope.overcap`
+(even the plain form past the host's 10,000-character cap), `adapter.notice.dropped`,
+`adapter.envelope.gave-way` and `adapter.injection.overbudget`. They are durable now
+(`Lifecycle#noteDeliveryWarning`, names in `counterpart.ts`, registered beside the other
+durable names and covered by the `wake-injected` mechanism), one row per name, hook, part and
+session per lived day, so a long session that gives way at every prompt writes one row. The
+Wake line reads them as clauses, with `handoff.refused` no-room, `handoff.lasthere.noroom` and
+the "Work here" overflow: amber only for a start over its reported ceiling or a hook past the
+cap (the host cut or previewed it), counted otherwise, and a line even when no wake was
+checked on arrival. Also from the list: the Reflection line says how many days ago a share
+stuck at `carried` was carried, from `share_at`; and the v9 upgrade line's mark read says
+"at least" when it comes back full.
+
+Spawn's "same step failed today and yesterday" never fired on a real store: the failures were read
+with `newestRows`, which stops at the first window holding rows (today's), so yesterday's row was
+never read; the test passed only because every row sat on one lived day. The failures are now read
+as one window of the last three lived days, newest first under `RUNNER_FAILED_ROWS`, and the test
+puts yesterday's row on the previous lived day. One transient failure keeps Spawn amber from the
+failure until the next `adapter.spawn.started` row — latched once per calendar date, so the first
+worker start of the next date: at most the rest of that day and the next day's first turn-end.

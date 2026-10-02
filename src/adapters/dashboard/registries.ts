@@ -54,6 +54,10 @@ import {
   MCP_RECALL_EVENT,
   MCP_PART_EVENT,
   MCP_OVERSIZE_EVENT,
+  ENVELOPE_GAVE_WAY_EVENT,
+  ENVELOPE_OVERCAP_EVENT,
+  INJECTION_OVERBUDGET_EVENT,
+  NOTICE_DROPPED_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SPAWN_STARTED_EVENT,
@@ -82,6 +86,7 @@ import {
   SELF_PAGE_REFUSED_EVENT,
   SELF_PAGE_REVISED_EVENT,
   SELF_PAGE_WRITER_EVENT,
+  WORK_OVERFLOW_EVENT,
 } from "../../core/self/index.js";
 // The per-directory handoff's four, from `handoff/` itself (2026-09-20, E1):
 // working context for a place is not a memory, so its rows are its own.
@@ -201,6 +206,11 @@ export type DurableEventName =
   | typeof MCP_RECALL_EVENT
   | typeof MCP_PART_EVENT
   | typeof MCP_OVERSIZE_EVENT
+  | typeof ENVELOPE_OVERCAP_EVENT
+  | typeof NOTICE_DROPPED_EVENT
+  | typeof ENVELOPE_GAVE_WAY_EVENT
+  | typeof INJECTION_OVERBUDGET_EVENT
+  | typeof WORK_OVERFLOW_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -256,6 +266,12 @@ export const DURABLE_EVENTS = {
   "mcp.recall": "the session went looking for a memory on purpose (what kind of ask, how much came back, and every verdict that kept something out)",
   "mcp.part": "a later part of a dream's or a reflection's bundle was handed over (which part of how many, and its size)",
   "mcp.result.oversize": "a tool result came to more than the host shows in one answer, and was cut to fit with a note saying so",
+  // What a delivery could not carry (durable since 2026-10-02; ring-only
+  // before, so a dropped notice or a hook past the host's cap left nothing).
+  "adapter.envelope.overcap": "a hook's output was past the host's 10,000-character cap even in plain form, so the host showed only a preview of it",
+  "adapter.notice.dropped": "the owner's notice was dropped from a session start so the rest of the envelope stayed under the host's cap",
+  "adapter.envelope.gave-way": "a part of a delivery waited for want of room — the write-up pointer, the scope question, the turn's recall, a reminder, the dream offer or the update notice (which hook, which part)",
+  "adapter.injection.overbudget": "a session start sent more than the ceiling the host reported (what it sent, and the ceiling)",
   // Which CODE was live at a session start (2026-09-14): the hooks run whatever
   // the install tree has checked out, so a peer session's unmerged branch in
   // that tree is the memory layer the owner is using.
@@ -305,6 +321,8 @@ export const DURABLE_EVENTS = {
   // Durable since 2026-10-01: it was a ring event, gone with the hook, and
   // the wake bar could not say a session start went without it.
   "handoff.lasthere.noroom": "a session start had no room for the \"Last here\" line naming the chapter last written in that directory (the bundle's bytes, the ceiling, and whether a handoff was carried in its place)",
+  // Durable since 2026-10-02: "Work here" had more lines than the wake carried.
+  "self.work.overflow": "a session start had more \"Work here\" lines for its directory than it carried — more than the wake shows, so they rotate, or fewer fitted the room (how many, how many shown)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with

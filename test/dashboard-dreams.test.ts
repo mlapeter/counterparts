@@ -43,10 +43,10 @@ function mem(c: Counterpart, body: string, kind: "fact" | "self" | "person", day
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-dash-dreams-"));
   emptyDir = mkdtempSync(join(tmpdir(), "counterparts-dash-dreams-empty-"));
-  Counterpart.open({ dir: emptyDir, owner: true }).close();
+  Counterpart.open({ dir: emptyDir, owner: true, bundlesAsOwner: true }).close();
 
-  Counterpart.open({ dir, owner: true, identity: { name: "Mike" } }).close();
-  const c = Counterpart.open({ dir, owner: true });
+  Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" } }).close();
+  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true });
   try {
     c.store.advanceClock("2026-09-10");
     ids["old"] = mem(c, "The deploy script needs the migration step before the container starts.", "fact", c.store.livedDay());
@@ -199,8 +199,8 @@ describe("f8's follow-ups from #277 (2026-10-01)", () => {
   test("a merge's originals say how the dream saw them when it was less than whole", () => {
     const at = mkdtempSync(join(tmpdir(), "counterparts-dash-dreams-fidelity-"));
     try {
-      Counterpart.open({ dir: at, owner: true }).close();
-      const c = Counterpart.open({ dir: at, owner: true });
+      Counterpart.open({ dir: at, owner: true, bundlesAsOwner: true }).close();
+      const c = Counterpart.open({ dir: at, owner: true, bundlesAsOwner: true });
       const local: Record<string, string> = {};
       let dream = "";
       try {

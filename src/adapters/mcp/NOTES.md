@@ -1024,7 +1024,9 @@ the reminder's rule. Left out, a revision does not close anything. The result sa
 Review of #313: closing passes the revision step's checks first — a protected row refuses
 (`protected-refuses-revision`), an archived one (`target-archived`), and a session not the
 owner's closes nothing confidential (`confidential`) or written in another directory
-(`other-directory`). The result says `thread: { closed: null, reason }`.
+(`other-directory`). The result says `thread: { closed: null, reason }`. (2026-10-02: such a
+refusal no longer settles the thread over either, and a Claude Code session is the owner's —
+see that day's note.)
 
 ## 2026-10-02 — every result under one ceiling, and the net behind it
 
@@ -1074,3 +1076,61 @@ Write-up parts are sized by the larger of bytes and escaped wire cost, so none m
   else the bound one.
 - **An error only when nothing landed**: a note refused beside a feeling that was
   recorded is not an error — else the model resends and meets `once-a-day`.
+
+## 2026-10-02 — a stale server says so on every result
+
+A server left open across an install keeps the tool list it loaded, so an argument the new
+version added (`note`'s `about`, `unresolved`) was dropped without a word until the host
+reconnected, and Desktop heard of the update only in `wake`. `withUpdateNotice` now adds an
+`updated` field to every result but `wake` (which keeps its own line) while this process's
+build differs from the package on disk, or a newer build has stamped the store's wake
+(`self.wake.build`). One manifest read and one meta read per call. It is forward-looking: a
+server from before this change (0.3.10, 0.3.11) left open says nothing.
+
+## 2026-10-02 — the owner's own sessions are the owner (owner ruling)
+
+Claude Code's memory server started without `COUNTERPARTS_OWNER` — no install sets it — so it
+was a guest while its hooks and worker, reading the configuration's `owner: true`, were the
+owner. Closing an `unresolved` thread from another directory was refused `other-directory`,
+and the same deposit's settle took the thread off "Still open" anyway. The owner's decision:
+his own sessions count as owner. `bin/serve.ts#ownerStance`: with nothing said on the launch
+(`LaunchOptions.ownerSaid: "unset"`), the configuration's `owner: true` makes a server Claude
+Code started (`claudeCodeEnvMarker`) the owner's, and lets Desktop's server serve a Code-tab
+call (`callAs`) as the owner's (`codeTabOwner`, read by the `owner` getter and passed to the
+deposit as `DepositContext.owner`). A Desktop chat stays a guest. The order is flag, then
+environment, then configuration: `--owner` wins outright; else `COUNTERPARTS_OWNER` when set —
+`=0` is the opt-out (`ownerFrom: "off"`), junk is not owner and is not upgraded; else the
+configuration. An observer configuration is nobody's. The opt-out is the memory server's: the
+hooks and the worker read the configuration's `owner` alone. `status` says `ownerFrom` in words. The headless nightly run pins
+`COUNTERPARTS_OWNER=0` on its one server (`night-run.ts#nightMcpConfig`): it keeps the stance
+it had until that is decided on its own.
+
+What the owner bit opens on such a server, which a guest did not reach: confidential memories
+in `recall` (by question and by id) and in a write's neighbours; closing a confidential thread,
+and one opened in another directory; and, through core, a plain reminder's confidential line
+and the core list's confidential titles; and feeling again, awake (`note`'s `feelingsNow`), a
+confidential memory its recall showed it — the call's own bit reaches `Reflections#feelAgain`,
+so a Code-tab call on Desktop's server may too. The Desktop `wake`'s chapters and "Last here"
+stay a guest's (Desktop chat).
+
+What it does NOT open (review of #318): a dream's or a reflection's bundle. Those are read as a
+guest on every server (`dream/tunables.ts#BUNDLE_OWNER`) — kept as before, a coordinator default
+the owner may revisit — because a dream's journal and a nomination's `why` carry no
+confidentiality mark and are read later by other bundles and the dashboard. So the in-session
+dream (`ask`, the default) and `reflect launch`, whose background agent calls the session's
+owner server, build the same bundle the pinned nightly server does. The dream's gate (what
+counts as new for the ask) is still the session's own stance. And whatever the stance, the close and the list agree now
+(`counterpart.ts`): a close this session may not make leaves the thread unsettled — the
+declaration stays a link — so it stays under "Still open", as the refusal says.
+
+## 2026-10-02 — Desktop: wake first, and Always allow
+
+Measured in a Desktop chat: the model never called `wake`, answered "what do you remember about
+yesterday" from `recall` alone, and called that slice the full record; called, the wake carried
+the store-wide Yesterday line. The likely cause is Desktop's per-tool permission prompt: until
+the owner picks Always allow, the model does not call a tool it was not asked for. Text only:
+`DESKTOP_INSTRUCTIONS` and `WAKE`'s admission say to wake first in every new chat, before
+anything about the person, the past or ongoing work, and a negative example says recall alone
+is a slice, never the record; `hosts.ts#DESKTOP_ALWAYS_ALLOW` is said by the install, the help,
+QUICKSTART and doctor's Claude Desktop line, which cannot measure it. "The first call carries
+the wake" is not built: it waits on the owner's test.

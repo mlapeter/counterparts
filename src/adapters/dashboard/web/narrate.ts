@@ -714,6 +714,32 @@ export const NARRATORS = {
     );
   },
 
+  "self.work.overflow": (t) => {
+    const found = n(t, "found") ?? 0;
+    const shown = n(t, "shown") ?? 0;
+    if (t.p["cause"] === "room") {
+      return calm(
+        shown === 0
+          ? `There was no room in this wake for the "Work here" lines (${num(found, 0)} of them), so they were left off.`
+          : `This wake had room for ${num(shown, 0)} of ${num(found, 0)} "Work here" lines.`,
+      );
+    }
+    return calm(`This directory has more work than one wake shows: ${num(shown, 0)} of ${num(found, 0)} "Work here" lines shown, and the rest take turns.`);
+  },
+
+  // ── what a delivery could not carry (durable since 2026-10-02) ─────────────
+  "adapter.envelope.overcap": (t) =>
+    amber(`A hook's output came to ${num(n(t, "chars") ?? 0, 0)} characters, past the host's cap of ${num(n(t, "limitChars") ?? 0, 0)}, so the host showed only a preview of it.`),
+  "adapter.notice.dropped": (t) =>
+    calm(`A notice for you (${num(n(t, "noticeChars") ?? 0, 0)} characters) was left off a session start so the wake stayed under the host's cap.`),
+  "adapter.envelope.gave-way": (t) => {
+    const part = typeof t.p["part"] === "string" ? t.p["part"] : "a part";
+    const hook = typeof t.p["hook"] === "string" ? t.p["hook"] : "a delivery";
+    return calm(`At ${hook}, the ${part} waited for want of room.`);
+  },
+  "adapter.injection.overbudget": (t) =>
+    amber(`A session start sent ${num(n(t, "bytes") ?? 0, 0)} bytes, more than the ${num(n(t, "budget") ?? 0, 0)} the host reported it takes.`),
+
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
     const surfaced = idsIn(t, "surfaced");
@@ -1124,6 +1150,12 @@ export const REF_KIND = {
   // A part's run id (a dream's or a reflection's) is in its payload, not a memory.
   "mcp.part": "none",
   "mcp.result.oversize": "none",
+  "adapter.envelope.overcap": "none",
+  "adapter.notice.dropped": "none",
+  "adapter.envelope.gave-way": "none",
+  "adapter.injection.overbudget": "none",
+  // A directory's work lines are counted; the row names no memory.
+  "self.work.overflow": "none",
   // Both prospective rows point at the MEMORY whose window it is: the window
   // key is a derived address on that row, not an entity of its own.
   "prospective.fire": "memory",

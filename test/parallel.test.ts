@@ -4465,8 +4465,8 @@ describe("guarantee 1 — nothing but the run directory", () => {
  * THE DEFAULT STAYS, and the source scan above says why in its own words: "a
  * default that has to be typed is a guard that is sometimes skipped". Requiring
  * the flag would make the overlap check optional in practice, and would break
- * the restart line documented in `tools/parallel/README.md` and
- * `docs/HANDOFF.md`, which passes none.
+ * the restart line documented in `tools/parallel/README.md`, which passes
+ * none.
  *
  * What replaces the SILENCE is the explicit-dir guard's own doctrine at a third
  * door (after `store/paths.ts#dataDir` and

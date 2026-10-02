@@ -85,6 +85,15 @@ export function isWorkMemory(m: WorkFacts): boolean {
  */
 export const WORK_HERE_HEADING = "Work here, if it helps:";
 
+/**
+ * MORE WORK THAN THE WAKE SHOWED (2026-10-02): one durable row per directory
+ * per lived day when a delivery had more work lines than it carried — more
+ * than `WORK_HERE_MAX` (`cause: "cap"`, so the lines rotate), or fewer fitted
+ * the room the handoff and "Last here" left (`cause: "room"`, none at all
+ * when `shown` is 0). Counts and bytes, the directory as `scope`; never text.
+ */
+export const WORK_OVERFLOW_EVENT = "self.work.overflow";
+
 export interface WorkHereOptions {
   /** The lived day strength is read at. */
   readonly day: number;
@@ -94,6 +103,9 @@ export interface WorkHereOptions {
   readonly excerpt: number;
   /** Ids no lane here may show: what a later memory settled over. */
   readonly skip?: ReadonlySet<string>;
+  /** How many lines to rank, best first, for the caller to rotate through
+   *  (`SelfTunables.WORK_HERE_POOL`). Absent: `max`. */
+  readonly pool?: number;
 }
 
 interface Candidate {
@@ -149,11 +161,12 @@ export function workHere(
   scope: string,
   opts: WorkHereOptions,
 ): string[] {
+  const pool = Math.max(opts.max, opts.pool ?? opts.max);
   if (opts.max <= 0 || scope.trim().length === 0) return [];
   const seen = new Set<string>();
   const found: Candidate[] = [];
   for (const where of scopesFor(scope)) {
-    for (const id of store.workCandidates(where, opts.max * WORK_HERE_READ_PER_LINE)) {
+    for (const id of store.workCandidates(where, pool * WORK_HERE_READ_PER_LINE)) {
       if (seen.has(id) || opts.skip?.has(id) === true) continue;
       seen.add(id);
       const row = store.row(id);
@@ -180,7 +193,27 @@ export function workHere(
     }
   }
   found.sort((a, b) => b.touched - a.touched || b.strength - a.strength || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return found.slice(0, opts.max).map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded));
+  return found.slice(0, pool).map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded));
+}
+
+/**
+ * WHICH OF THE RANKED LINES SHOW TODAY (2026-10-02). With no more than `max`,
+ * all of them. With more, the newest stays first — the work just done is the
+ * likeliest to help — and the other `max - 1` places rotate through the rest
+ * by lived day, so every session that day sees the same lines and the next
+ * day shows the next ones (identity's once-a-day rule, NOTES §30). Shown in
+ * ranked order. Stateless: nothing is written to remember a rotation. Pure.
+ */
+export function rotateWork(lines: readonly string[], max: number, day: number): string[] {
+  if (max <= 0) return [];
+  if (lines.length <= max) return [...lines];
+  const [first, ...rest] = lines;
+  const k = max - 1;
+  if (first === undefined || k === 0) return first === undefined ? [] : [first];
+  const offset = (((Math.floor(day) * k) % rest.length) + rest.length) % rest.length;
+  const picked = new Set<number>();
+  for (let i = 0; i < k; i++) picked.add((offset + i) % rest.length);
+  return [first, ...rest.filter((_, i) => picked.has(i))];
 }
 
 /** One work line (see `workHere`). */

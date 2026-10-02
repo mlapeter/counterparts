@@ -114,6 +114,11 @@ export const LOGGED: { readonly names: ReadonlySet<string>; readonly suffixes: r
     "mcp.refused",
     // A tool result cut to the host's ceiling (2026-10-02; durable too).
     "mcp.result.oversize",
+    // A hook past the host's cap, a dropped notice, a start over its ceiling
+    // (2026-10-02; durable too).
+    "adapter.envelope.overcap",
+    "adapter.notice.dropped",
+    "adapter.injection.overbudget",
   ]),
   // Every failure, and every stand-down.
   suffixes: [".failed", ".threw", ".standdown"],

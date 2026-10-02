@@ -1011,7 +1011,7 @@ export const UPDATE_NOTICE = `Counterparts was updated. ${RECONNECT_REMEDY}`;
 export const CHANGED_NOTICE = `Counterparts was changed to an older version. ${RECONNECT_REMEDY}`;
 
 /** A plain `x.y.z` compare; anything else is "not newer". */
-function versionNewer(a: string | null, b: string | null): boolean {
+export function versionNewer(a: string | null, b: string | null): boolean {
   if (a === null || b === null) return false;
   const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(a);
   const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(b);

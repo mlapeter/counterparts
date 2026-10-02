@@ -142,10 +142,14 @@ import {
   Self,
   byteLength,
   markWakeBehind,
+  noteWakeBuild,
   noteWakeCaught,
   settledOver,
   spliceBeforeSentinel,
   wakeBehind,
+  wakeFromOtherBuild,
+  WORK_OVERFLOW_EVENT,
+  rotateWork,
   workHere,
   workHereBlock,
   workHereBytes,
@@ -639,6 +643,35 @@ export const MCP_RECALL_EVENT = "mcp.recall";
  */
 export const MCP_PART_EVENT = "mcp.part";
 export const MCP_OVERSIZE_EVENT = "mcp.result.oversize";
+
+/**
+ * WHAT A DELIVERY COULD NOT CARRY (durable since 2026-10-02; ring-only
+ * before, so doctor could not see a dropped session-start notice or hook
+ * output past the host's 10,000-character cap):
+ *
+ *   - `adapter.envelope.overcap` — even the plain form was past the host's
+ *     cap, so the host showed a preview (`bin/hook.ts#Delivery.overCap`);
+ *   - `adapter.notice.dropped` — the owner's notice was dropped so the JSON
+ *     envelope stayed under it, and the wake went plain;
+ *   - `adapter.envelope.gave-way` — a part waited for want of room (the
+ *     write-up pointer, the scope question, the turn's recall, a reminder,
+ *     the dream offer, the update notice): which hook, which part;
+ *   - `adapter.injection.overbudget` — a session start sent more than the
+ *     ceiling the host reported.
+ *
+ * Counts and bytes only. One row per hook, part and session per lived day
+ * (`Lifecycle#noteDeliveryWarning`'s `dedupKey`), so a long session that
+ * gives way at every prompt writes one row, not hundreds.
+ */
+export const ENVELOPE_OVERCAP_EVENT = "adapter.envelope.overcap";
+export const NOTICE_DROPPED_EVENT = "adapter.notice.dropped";
+export const ENVELOPE_GAVE_WAY_EVENT = "adapter.envelope.gave-way";
+export const INJECTION_OVERBUDGET_EVENT = "adapter.injection.overbudget";
+export type DeliveryWarningName =
+  | typeof ENVELOPE_OVERCAP_EVENT
+  | typeof NOTICE_DROPPED_EVENT
+  | typeof ENVELOPE_GAVE_WAY_EVENT
+  | typeof INJECTION_OVERBUDGET_EVENT;
 /**
  * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
  *
@@ -772,6 +805,7 @@ export type AdapterDurableEventName =
   | typeof MCP_RECALL_EVENT
   | typeof MCP_PART_EVENT
   | typeof MCP_OVERSIZE_EVENT
+  | DeliveryWarningName
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -856,6 +890,22 @@ export interface CounterpartOptions extends Stance {
    */
   pageWriterMode?: PageWriterMode;
   /**
+   * The package version this process runs (2026-10-02), from the adapter that
+   * knows it (`sessions.ts#installedVersion`). Each wake this process publishes
+   * is stamped with it, and `refreshWake` re-renders a wake another build
+   * published (`self/behind.ts`, the `version` trigger). Absent or null: no
+   * stamp and no comparison — today's behaviour.
+   */
+  build?: string | null;
+  /**
+   * READ A DREAM'S AND A REFLECTION'S BUNDLES AS THE OWNER (review of #318).
+   * No host sets it: a bundle is a guest's on every server
+   * (`dream/tunables.ts#BUNDLE_OWNER`). The store-level tests of what an
+   * owner-read bundle must keep — a merge of a confidential memory is
+   * confidential, a page rests on nothing confidential — set it. Absent: false.
+   */
+  bundlesAsOwner?: boolean;
+  /**
    * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
    * defaults. Added 2026-10-01 so the craft lane's switch
    * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
@@ -908,6 +958,14 @@ export interface DepositContext {
   ownSpanHash?: string | null;
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
   model?: string;
+  /**
+   * THE CALLER'S STANCE FOR THIS DEPOSIT, when it is not the process's
+   * (2026-10-02): a Claude Code session from Desktop's Code tab is served by
+   * Desktop's server, whose store opened as a guest, and it is still the
+   * owner's own session. Read only by the thread close (`closeThread`).
+   * Absent: the process's own `owner`.
+   */
+  owner?: boolean;
 }
 
 /**
@@ -1577,6 +1635,8 @@ export class Counterpart {
   private readonly owner: boolean;
   /** The host's `pageWriter.mode` (`session` when absent): who runs the nightly writer. */
   private readonly pageWriterModeOpt: PageWriterMode;
+  /** The package version this process runs, when the adapter said (`CounterpartOptions.build`). */
+  private readonly build: string | null;
   private reportedBudget: number | null;
   private readonly onEvent: ((e: CounterpartEvent) => void) | undefined;
   private readonly nowFn: () => number;
@@ -1609,6 +1669,7 @@ export class Counterpart {
     this.observer = isObserver(opts);
     this.owner = opts.owner === true && !this.observer;
     this.pageWriterModeOpt = opts.pageWriterMode ?? "session";
+    this.build = typeof opts.build === "string" && opts.build.length > 0 ? opts.build : null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
     this.reportedBudget = opts.budgetBytes ?? null;
@@ -1732,6 +1793,7 @@ export class Counterpart {
       store: this.store,
       observer: this.observer,
       owner: this.owner,
+      ...(opts.bundlesAsOwner === true ? { bundleOwner: this.owner } : {}),
       gate: (text) => {
         const redacted = redactSecrets(text);
         return redacted.replace(/\[REDACTED[^\]]*\]/g, "").trim().length === 0
@@ -1762,6 +1824,7 @@ export class Counterpart {
       store: this.store,
       observer: this.observer,
       owner: this.owner,
+      ...(opts.bundlesAsOwner === true ? { bundleOwner: this.owner } : {}),
       gate: (text) => {
         const redacted = redactSecrets(text);
         return redacted.replace(/\[REDACTED[^\]]*\]/g, "").trim().length === 0
@@ -1931,7 +1994,7 @@ export class Counterpart {
     // handoff block is chosen, in the room that block leaves — the handoff and
     // "Last here" are chosen first and never give way to it (`withWorkHere`).
     const work = this.workHereLines(scope);
-    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget);
+    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget, scope);
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
@@ -1980,31 +2043,60 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return this.withWorkHere(result, block, work, budget);
+      return this.withWorkHere(result, block, work, budget, scope);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    return this.withWorkHere(result, null, work, budget);
+    return this.withWorkHere(result, null, work, budget, scope);
   }
 
   /**
    * THIS DIRECTORY'S WORK LINES, best first (`self/work.ts#workHere`), or none
    * — with the switch off, with no directory, or with a store that will not
    * answer. What a later memory settled over is left out, as every lane but
-   * identity leaves it out. Never throws.
+   * identity leaves it out. Up to `WORK_HERE_POOL` are ranked and today's
+   * `WORK_HERE_MAX` chosen from them (`rotateWork`, 2026-10-02); `found` is
+   * how many were ranked, for the overflow row. Never throws.
    */
-  private workHereLines(scope: string): string[] {
+  private workHereLines(scope: string): { lines: string[]; found: number } {
     const t = this.self.tunables;
-    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return [];
+    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return { lines: [], found: 0 };
     try {
-      return workHere(this.store, scope, {
-        day: this.store.livedDay(),
+      const day = this.store.livedDay();
+      const ranked = workHere(this.store, scope, {
+        day,
         max: t.WORK_HERE_MAX,
+        pool: t.WORK_HERE_POOL,
         excerpt: t.WORK_HERE_EXCERPT,
         skip: settledOver(this.store),
       });
+      return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };
     } catch {
-      return [];
+      return { lines: [], found: 0 };
+    }
+  }
+
+  /**
+   * MORE WORK THAN THIS WAKE CARRIED (2026-10-02): the ring event, and one
+   * durable row per directory per lived day (`WORK_OVERFLOW_EVENT`), so doctor
+   * and the dashboard can say the lines rotate or had no room. Never under
+   * observer; never throws.
+   */
+  private noteWorkOverflow(scope: string, opts: { found: number; shown: number; budget: number | null; was: number }): void {
+    const max = this.self.tunables.WORK_HERE_MAX;
+    const cause = opts.shown < Math.min(opts.found, max) ? "room" : "cap";
+    this.emit("counterpart.work.overflow", undefined, { cause, found: opts.found, shown: opts.shown });
+    if (this.observer) return;
+    try {
+      const day = this.store.livedDay();
+      this.store.appendEvent({
+        name: WORK_OVERFLOW_EVENT,
+        day,
+        dedupKey: `${WORK_OVERFLOW_EVENT}:${cause}:${scope}:${String(day)}`,
+        payload: { scope, cause, found: opts.found, shown: opts.shown, max, budget: opts.budget ?? 0, bytes: opts.was },
+      });
+    } catch {
+      /* an overflow that cannot be recorded still rotated */
     }
   }
 
@@ -2017,20 +2109,31 @@ export class Counterpart {
    * says the lines had no room. With no lines and no block, the bundle is
    * returned untouched. Never throws.
    */
-  private withWorkHere(result: WakeResult, block: string | null, lines: readonly string[], budget: number | null): WakeResult {
+  private withWorkHere(
+    result: WakeResult,
+    block: string | null,
+    work: { lines: readonly string[]; found: number },
+    budget: number | null,
+    scope: string,
+  ): WakeResult {
+    const { lines, found } = work;
     const spliced = (text: string): WakeResult | null => {
       const s = spliceBeforeSentinel(result.text, text);
       if (!s.applied || (budget !== null && s.bytes > budget)) return null;
       return { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel };
     };
     for (let k = lines.length; k > 0; k--) {
-      const work = workHereBlock(lines.slice(0, k));
-      const out = spliced(block === null ? work : `${work}\n\n${block}`);
+      const shown = workHereBlock(lines.slice(0, k));
+      const out = spliced(block === null ? shown : `${shown}\n\n${block}`);
       if (out === null) continue;
       this.emit("counterpart.work.shown", undefined, { lines: k, of: lines.length, bytes: out.bytes - result.bytes });
+      if (found > k) this.noteWorkOverflow(scope, { found, shown: k, budget, was: result.bytes });
       return out;
     }
-    if (lines.length > 0) this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+    if (lines.length > 0) {
+      this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+      this.noteWorkOverflow(scope, { found, shown: 0, budget, was: result.bytes });
+    }
     if (block === null) return result;
     const s = spliceBeforeSentinel(result.text, block);
     return s.applied ? { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel } : result;
@@ -2412,7 +2515,7 @@ export class Counterpart {
     try {
       const blocks: number[] = [];
       for (const scope of this.spans.scopes()) {
-        const lines = this.workHereLines(scope);
+        const { lines } = this.workHereLines(scope);
         if (lines.length > 0) blocks.push(workHereBytes(lines));
       }
       return reserveBytes(blocks, budgetBytes);
@@ -3252,6 +3355,7 @@ export class Counterpart {
       scope: ctx.scope,
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      ...(ctx.owner === undefined ? {} : { owner: ctx.owner }),
     });
   }
 
@@ -3929,8 +4033,9 @@ export class Counterpart {
     const briefingEvents = this.takeBriefingEvents();
     this.recordSleepCycle(cycle, date, briefingEvents, null);
     this.recordSelfBriefing(briefingEvents, date);
-    if (behind !== null && briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
-      noteWakeCaught(this.store, behind.raw);
+    if (briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
+      if (behind !== null) noteWakeCaught(this.store, behind.raw);
+      noteWakeBuild(this.store, this.build);
     }
 
     this.emit("counterpart.sessionEnd", undefined, {
@@ -4232,9 +4337,15 @@ export class Counterpart {
    * the nightly process (`night-run.ts`, after the child returns). Not at
    * SessionStart, whose wake ranks nothing and writes nothing (self CONTRACT
    * §5 G1). Its `self.briefing` row says `refresh` and which triggers.
+   *
+   * AND WHEN ANOTHER BUILD PUBLISHED IT (2026-10-02, `version`): the first
+   * turn-end after an install re-renders the wake the old version composed,
+   * so a question the new code closes leaves "Still open" for every session
+   * after that one, not at the next lived day.
    */
   refreshWake(input: { budgetBytes?: number; at?: string; trigger?: WakeTrigger } = {}): WakeRefreshReport {
-    const pending = wakeBehind(this.store)?.triggers ?? [];
+    const pending = [...(wakeBehind(this.store)?.triggers ?? [])];
+    if (!pending.includes("version") && wakeFromOtherBuild(this.store, BRIEFING_KEY, this.build)) pending.push("version");
     const triggers = input.trigger === undefined || pending.includes(input.trigger) ? [...pending] : [...pending, input.trigger];
     if (triggers.length === 0) return { reason: "current", triggers, day: this.store.livedDay(), bytes: 0 };
     const report = this.republish(input, "refresh", triggers);
@@ -4305,8 +4416,9 @@ export class Counterpart {
     // The caller's date when it passed one: every row a run writes carries the
     // run's one date (review of #287).
     this.recordSelfBriefing(collected, input.at ?? this.store.today(), why, triggers);
-    if (behind !== null && collected.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
-      noteWakeCaught(this.store, behind.raw);
+    if (collected.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
+      if (behind !== null) noteWakeCaught(this.store, behind.raw);
+      noteWakeBuild(this.store, this.build);
     }
     // The lane counts as the RENDER recorded them — the one place they exist,
     // rather than a second count taken here that could disagree with the event.
@@ -5212,7 +5324,7 @@ export class Counterpart {
     // BEFORE the revision dispatch: a current-state target is superseded there,
     // and the date must leave the row while it is still the live one.
     const reminder = carry.from === null ? null : this.moveReminder(carry, mint.id);
-    const thread = this.closeThread(proposal, mint.id);
+    const thread = this.closeThread(proposal, mint.id, ctx.owner === undefined ? this.owner : ctx.owner && !this.observer);
     this.emit("counterpart.deposit", mint.id, {
       source,
       kind: proposal.kind,
@@ -5228,7 +5340,14 @@ export class Counterpart {
     this.recordDeposit(result, ctx, source, mint);
     const titled = this.mentionFromProposal(proposal, `deposit:${mint.id}`);
     this.creditNamedIn(proposal.title ?? null, proposal.content, proposal.day, mint.id, source, titled);
-    const revision = this.applyDeclaredRevision(proposal, mint, source, ctx.session);
+    // THE CLOSE AND THE LIST AGREE (2026-10-02). A thread this session may
+    // not close — confidential, or opened in another directory, for a session
+    // that is not the owner's — is not settled over either: the declaration
+    // stays a link (no `how`), so the old memory stays live and stays under
+    // "Still open", which is what the refusal says. It used to be refused and
+    // settled at once, and the wake dropped what the deposit said was open.
+    const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
+    const revision = this.applyDeclaredRevision(keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
     return {
       deposited: true,
       reason: "minted",
@@ -5259,7 +5378,7 @@ export class Counterpart {
    * the reminder. `Store#revise` keeps the old meta in the version it writes.
    * A failed clear does not fail the deposit; it is emitted and reported.
    */
-  private closeThread(p: Proposal, successor: string): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
+  private closeThread(p: Proposal, successor: string, owner: boolean): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
     if (p.threadSaid !== true) return null;
     const target = p.updates?.method === "declared" ? p.updates.resolved : null;
     if (target === null || target === successor) return null;
@@ -5275,8 +5394,8 @@ export class Counterpart {
       // nothing written in another directory.
       if (row.protected === 1) refused = "protected-refuses-revision";
       else if (row.archived === 1) refused = "target-archived";
-      else if (!this.owner && row.confidential === 1) refused = "confidential";
-      else if (!this.owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
+      else if (!owner && row.confidential === 1) refused = "confidential";
+      else if (!owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
     } catch {
       return null;
     }
@@ -5798,4 +5917,11 @@ export class Counterpart {
     if (this.ring.length > EVENT_RING) this.ring.shift();
     this.onEvent?.(event);
   }
+}
+
+/** A proposal without its `how`: its declaration links and settles nothing (`revision.ts`). */
+function withoutHow(p: Proposal): Proposal {
+  const { how: _how, ...rest } = p;
+  void _how;
+  return rest as Proposal;
 }

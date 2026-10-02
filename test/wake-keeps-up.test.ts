@@ -20,7 +20,9 @@
  *     and the display rows say what was published; identity rotates once a day;
  *   - a session that woke before a rebuild still passes its delivery check;
  *   - no budget, no render — `rebrief` and the refresh both refuse;
- *   - the page writer's "yesterday" does not move with the lived day.
+ *   - the page writer's "yesterday" does not move with the lived day;
+ *   - a wake another build published is re-rendered at the next worker
+ *     (`version`, 2026-10-02), once, and stamped with the new build.
  *
  * Hermetic: every test opens a fresh temp store and removes it.
  */
@@ -40,6 +42,7 @@ import {
   RENDERED_PREFIX,
   Self,
   WAKE_BEHIND_KEY,
+  WAKE_BUILD_KEY,
   markWakeBehind,
   noteWakeCaught,
   pageWriterNight,
@@ -539,5 +542,74 @@ describe("the page writer's night does not move with the lived day", () => {
     expect(c.store.livedDay()).toBe(lived + 1);
     expect(pageWriterNight(c.store)).toEqual({ today: "2026-09-29", about: "2026-09-28" });
     expect(c.self.pageWriterDue({ mode: "session" })).toMatchObject({ due: true, about: "2026-09-28" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// a new build (2026-10-02)
+// ---------------------------------------------------------------------------
+
+describe("a wake another build published is re-rendered at the next worker", () => {
+  function stamp(): string | undefined {
+    const s = Store.open({ dir, observer: true });
+    try {
+      return s.getMeta(WAKE_BUILD_KEY);
+    } finally {
+      s.close();
+    }
+  }
+
+  test("after an install, the first worker re-renders under `version`, stamps the new build, and the next renders nothing", async () => {
+    const c = counterpart();
+    warm(c.store, "Something warm enough to render.");
+    c.close();
+    // The old version renders the day's wake.
+    expect((await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.10" })).ran).toBe(true);
+    expect(stamp()).toBe("0.3.10");
+    expect(briefingRows().map((r) => r["reason"])).toEqual(["rendered"]);
+    // Same build, nothing marked: nothing rendered.
+    await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.10" });
+    expect(briefingRows().length).toBe(1);
+
+    // The install: same lived day, a new build.
+    const events: string[] = [];
+    await runOnce({
+      config: config(),
+      date: "2026-09-29",
+      embedder: null,
+      build: "0.3.11",
+      onEvent: (n, d) => events.push(`${n}:${String(d["triggers"] ?? "")}`),
+    });
+    expect(briefingRows().at(-1)).toMatchObject({ reason: "refresh", triggers: ["version"], date: "2026-09-29" });
+    expect(stamp()).toBe("0.3.11");
+    expect(events).toContain("runner.wake:version");
+    await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.11" });
+    expect(briefingRows().length).toBe(2);
+  });
+
+  test("a bundle published before the stamp existed is another build's; a pending mark and `version` render once together", async () => {
+    const c = counterpart();
+    warm(c.store, "Something warm enough to render.");
+    c.close();
+    // The day's first worker, from a build that stamped nothing.
+    await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: null });
+    expect(stamp()).toBeUndefined();
+    writePage("A page written before the install.", "owner");
+    await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.11" });
+    expect(briefingRows().at(-1)).toMatchObject({ reason: "refresh", triggers: ["page", "version"] });
+    expect(published()).toContain("A page written before the install.");
+    expect(stamp()).toBe("0.3.11");
+  });
+
+  test("an unknown build compares nothing and stamps nothing; no bundle yet is the cycle's to render", () => {
+    const blind = Counterpart.open({ dir, budgetBytes: BUDGET, build: null });
+    closers.push(blind);
+    warm(blind.store, "Something warm enough to render.");
+    expect(blind.rebrief({ at: "2026-09-29" }).published).toBe(true);
+    expect(blind.refreshWake({ at: "2026-09-29" }).reason).toBe("current");
+    expect(blind.store.getMeta(WAKE_BUILD_KEY)).toBeUndefined();
+    const fresh = Counterpart.open({ dir: mkdtempSync(join(dir, "empty-")), budgetBytes: BUDGET, build: "0.3.11" });
+    closers.push(fresh);
+    expect(fresh.refreshWake({ at: "2026-09-29" }).reason).toBe("current");
   });
 });

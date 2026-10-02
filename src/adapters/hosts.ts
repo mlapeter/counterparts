@@ -46,6 +46,17 @@ export function isHostName(value: unknown): value is string {
 export const DESKTOP_HOST = "claude-desktop";
 
 /**
+ * WHAT THE INSTALL AND QUICKSTART SAY ABOUT DESKTOP'S TOOL PERMISSION
+ * (2026-10-02). Measured in a Desktop chat: its tools still asked before each
+ * call, the model never called `wake`, answered "what do you remember about
+ * yesterday" from `recall` alone, and called that slice the full record.
+ * Nothing on disk says which setting Desktop holds, so it is said, not
+ * measured; doctor's Claude Desktop line says it too.
+ */
+export const DESKTOP_ALWAYS_ALLOW =
+  "In Claude Desktop, set the counterparts tools to Always allow, or a chat cannot wake on its own: Desktop asks before each tool, and until it may, the model does not call a tool nobody asked for.";
+
+/**
  * THE ONE PLACE EVERY DESKTOP CHAT SHARES (owner, 2026-09-30: one pseudo-scope
  * for now, per-Project only if real use calls for it). Not a directory: it
  * never goes through `resolve` or `realpath` (`isPseudoScope`), so every

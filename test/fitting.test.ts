@@ -511,3 +511,31 @@ describe("the lookup is measured: an expansion of what an index offered in part 
     expect(lookupFindings(c.store)[0]?.detail).toContain("reflection: 1 looked up of");
   });
 });
+
+// ---------------------------------------------------------------------------
+// bundles are read as a guest (review of #318)
+// ---------------------------------------------------------------------------
+
+describe("a dream's and a reflection's bundles are read as a guest, on an owner's server too (review of #318)", () => {
+  test("dream begin and reflect begin leave a confidential memory out; the owner's recall still shows it", async () => {
+    const c = brain();
+    days(c);
+    const secret = mem(c, "The surgery date is something only Mike and I keep, the fourteenth.", { kind: "person", about: "us", meta: { confidential: true }, salience: { relevance: 1, emotional: 0.9, predictive: 1 } });
+    mem(c, "The bench needs a new vise before the cabinet doors go on.");
+    mem(c, "The migration runs before the container starts.");
+    const s = server(c);
+    expect(s.owner).toBe(true);
+    const dream = await s.call("dream", { phase: "begin", session: SESSION });
+    expect(dream.isError ?? false).toBe(false);
+    const seen = JSON.stringify(dream.structuredContent);
+    expect(seen).toContain("a new vise");
+    expect(seen).not.toContain("surgery date");
+    expect(seen).not.toContain(secret);
+    const reflect = await s.call("reflect", { phase: "begin", session: SESSION });
+    expect(reflect.isError ?? false).toBe(false);
+    expect(JSON.stringify(reflect.structuredContent)).not.toContain("surgery date");
+    // The session itself is the owner's: its recall says it.
+    const recalled = await s.call("recall", { ids: [secret] });
+    expect(JSON.stringify(recalled.structuredContent)).toContain("surgery date");
+  });
+});

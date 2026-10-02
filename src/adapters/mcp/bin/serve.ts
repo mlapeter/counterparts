@@ -67,6 +67,7 @@ import {
   OWNER_ENV,
   observerFromEnv,
   ownerFromEnv,
+  readEnvSwitch,
   unreadableStanceLine,
 } from "../../stance-env.js";
 
@@ -102,6 +103,13 @@ export interface LaunchOptions {
   scope?: string;
   dir?: string;
   owner: boolean;
+  /**
+   * Did anything SAY the owner bit (2026-10-02)? `flag` or `env` — `--owner`,
+   * or `COUNTERPARTS_OWNER` set to any value, junk included (junk is not
+   * owner, and is not upgraded by a default) — or `unset`, which is when the
+   * installed configuration's `owner: true` decides (`main`).
+   */
+  ownerSaid: "flag" | "env" | "unset";
   observer: boolean;
   /**
    * One line per stance variable this launch could not read, ready for stderr.
@@ -157,6 +165,8 @@ export function launchOptions(
       unreadableStanceLine(ENV.owner, owner.malformed, "this launch is NOT owner-stanced"),
     );
   }
+  const ownerSaid: LaunchOptions["ownerSaid"] =
+    values["owner"] === true ? "flag" : readEnvSwitch(env, ENV.owner).state === "absent" ? "unset" : "env";
   const session = (values["session"] as string | undefined) ?? env[ENV.session];
   const scope = (values["scope"] as string | undefined) ?? env[ENV.scope];
   const dir = (values["dir"] as string | undefined) ?? env[ENV.dir];
@@ -165,9 +175,38 @@ export function launchOptions(
     ...(scope === undefined || scope.length === 0 ? {} : { scope }),
     ...(dir === undefined || dir.length === 0 ? {} : { dir }),
     owner: owner.on,
+    ownerSaid,
     observer: observer.on,
     unreadable,
   };
+}
+
+/**
+ * THE OWNER'S OWN SESSIONS ARE THE OWNER (owner ruling 2026-10-02). Until now
+ * the server read only `COUNTERPARTS_OWNER`, which no install sets, so every
+ * Claude Code session's server was a guest while its hooks — reading the
+ * configuration's `owner: true` — were the owner: a thread opened in another
+ * directory could not be closed from the tool, and confidential memories
+ * were left out of its answers.
+ *
+ * With nothing said on this launch, the configuration decides: `owner: true`
+ * there (every install writes it) makes a server Claude Code started the
+ * owner's, and a Code-tab call that Desktop's server serves as a Claude Code
+ * session (`codeTabOwner`). A Desktop chat stays a guest. The order is
+ * flag, then environment, then configuration (`stance-env.ts#ownerFromEnv`):
+ * `--owner` wins outright; else `COUNTERPARTS_OWNER` when set — `1`, or `0`,
+ * the opt-out (`off`), or junk, which is not owner and is not upgraded; else
+ * the configuration. An observer configuration is never the owner's. Pure.
+ */
+export function ownerStance(
+  launch: { owner: boolean; ownerSaid: LaunchOptions["ownerSaid"] },
+  config: { owner?: boolean; observer?: boolean },
+  startedByClaudeCode: boolean,
+): { owner: boolean; ownerFrom: "env" | "config" | "default" | "off"; codeTabOwner: boolean } {
+  if (launch.ownerSaid !== "unset") return { owner: launch.owner, ownerFrom: launch.owner ? "env" : "off", codeTabOwner: false };
+  const byConfig = config.owner === true && config.observer !== true;
+  const owner = byConfig && startedByClaudeCode;
+  return { owner, ownerFrom: owner ? "config" : "default", codeTabOwner: byConfig };
 }
 
 /**
@@ -352,8 +391,12 @@ async function main(): Promise<void> {
   // never touches any of it. Handed in so the server library imports no
   // other adapter: the configuration this process read, the worker's command,
   // and the doctor's notice, which lives in `claude-code/`.
+  // THE OWNER'S OWN SESSIONS ARE THE OWNER (owner ruling 2026-10-02): `ownerStance`.
+  const { ownerSaid, ...launch } = opts;
+  const ownerSays = ownerStance({ owner: launch.owner, ownerSaid }, config, startedByClaudeCode);
   const server = openServer({
-    ...opts,
+    ...launch,
+    ...ownerSays,
     onEvent: toLog,
     onCounterpartEvent: toLog,
     // THE COMBINATION, most restrictive wins: a registry that says `observer`

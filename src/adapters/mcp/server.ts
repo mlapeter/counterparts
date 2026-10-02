@@ -110,6 +110,7 @@ import {
   sameScope,
   serverIsNewer,
   touchDesktopSession,
+  versionNewer,
 } from "../sessions.js";
 import type { ServerRecord } from "../sessions.js";
 import {
@@ -136,7 +137,7 @@ import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "..
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
 import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, pageSections } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -231,6 +232,23 @@ export interface McpServerOptions {
   scope?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
+  /**
+   * WHAT DECIDED `owner` (2026-10-02), for `status` to say plainly: `env` —
+   * `COUNTERPARTS_OWNER` or `--owner`; `config` — nothing said, so the installed
+   * configuration's `owner: true` made a Claude Code launch the owner's;
+   * `off` — `COUNTERPARTS_OWNER` said no (`0`, or a value it could not
+   * read); `default` — nothing said and nothing made it so. Absent: `env`
+   * when `owner` is true, else `default`.
+   */
+  ownerFrom?: "env" | "config" | "default" | "off";
+  /**
+   * DESKTOP'S CODE TAB IS THE OWNER'S TOO (owner ruling 2026-10-02). Desktop's
+   * server opens as a guest for its chats; a call it serves as a Claude Code
+   * session (`callAs`) is that session, so with this set the call is the
+   * owner's — its reads and its thread close. Set by the entry point from the
+   * configuration's `owner: true` when `COUNTERPARTS_OWNER` said nothing.
+   */
+  codeTabOwner?: boolean;
   /**
    * The embedder, for ONE purpose: embedding a deliberate question in line.
    *
@@ -329,7 +347,7 @@ export interface McpServerOptions {
  * a host that reads it learns the one thing it needs to.
  */
 export const DESKTOP_INSTRUCTIONS =
-  "Counterparts is your memory. At the start of each chat, before answering, call its wake tool once: it returns this chat's briefing and a session id to pass on session_end, chapter, dream and reflect. In a Claude Code session (Desktop's Code tab) the hook already woke you: do not call wake — pass your own session id, the one your wake or Stop ask names, as `session` on every call.";
+  "Counterparts is your memory. In every new chat, call its wake tool first — before answering anything about the person, the past, or work in progress — and once: it returns this chat's briefing, including what happened yesterday across every session, and a session id to pass on session_end, chapter, dream and reflect. Without a wake, what recall returns is a slice, not the whole record: never present it as complete. In a Claude Code session (Desktop's Code tab) the hook already woke you: do not call wake — pass your own session id, the one your wake or Stop ask names, as `session` on every call.";
 
 /** The MCP prompt a Desktop person can pick (brief item 6). */
 export const START_PROMPT = {
@@ -368,7 +386,10 @@ export function desktopWriteUpAsk(session: string): string {
 
 /** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */
 export const OWNER_FALSE_NOTE =
-  "owner: false is the ordinary setting — confidential memories are left out of this server's answers; nothing is wrong.";
+  "owner: false — confidential memories are left out of this server's answers, and an open question written in another directory cannot be closed from here. It is the ordinary setting for a Claude Desktop chat; your Claude Code sessions run as the owner unless COUNTERPARTS_OWNER=0. Nothing is wrong.";
+
+/** The owner variable's name, for `status` (the entry point reads it, `stance-env.ts`). */
+const OWNER_ENV_NAME = "COUNTERPARTS_OWNER";
 
 /** The narrow face of `claude-code/embed-client.ts`'s `LiveEmbedder` this
  *  adapter needs — structural, so the server library imports no other adapter.
@@ -496,6 +517,8 @@ export class McpServer {
   scopeSource: ScopeSource;
   /** Did the host say this is the owner's session? Read through `owner`. */
   private readonly ownerClaimed: boolean;
+  private readonly ownerFrom: "env" | "config" | "default" | "off";
+  private readonly codeTabOwner: boolean;
   /** The store's own observer bit (observer-mode G7): set at open, never lifted. */
   private readonly storeObserver: boolean;
   /**
@@ -599,6 +622,8 @@ export class McpServer {
     this.storeObserver = opts.counterpart.observer;
     this.launchObserver = opts.launchObserver === true;
     this.ownerClaimed = opts.owner === true;
+    this.ownerFrom = opts.ownerFrom ?? (opts.owner === true ? "env" : "default");
+    this.codeTabOwner = opts.codeTabOwner === true;
     this.embedderGiven = opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
@@ -682,7 +707,22 @@ export class McpServer {
   /** An observer is a non-owner regardless of what the host claimed
    *  (observer-mode G7): an instrument reading somebody's store is not them. */
   get owner(): boolean {
-    return this.ownerClaimed && !this.observer;
+    return (this.ownerClaimed || (this.callAs !== null && this.codeTabOwner)) && !this.observer;
+  }
+
+  /** What `status` says decided the stance (2026-10-02), in words. */
+  private ownerStance(): Record<string, unknown> {
+    const from =
+      this.callAs !== null && this.codeTabOwner && !this.ownerClaimed
+        ? "a Claude Code session from Desktop's Code tab, which the installed configuration (owner: true) makes the owner's"
+        : this.ownerFrom === "config"
+          ? "the installed configuration (owner: true): this is your own Claude Code session"
+          : this.ownerFrom === "env"
+            ? `--owner or ${OWNER_ENV_NAME}, set on this launch`
+            : this.ownerFrom === "off"
+              ? `${OWNER_ENV_NAME} on this launch says not the owner's (0, off or false, or a value it could not read): the opt-out`
+              : "nothing made this launch the owner's";
+    return { owner: this.owner, ownerFrom: from, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) };
   }
 
   /** An instrument opens no sockets, whatever the host handed it (scar E7). */
@@ -875,8 +915,10 @@ export class McpServer {
       this.writeTripped = null;
       if (tripped !== null) return this.refusalFor(name, tripped, "write");
       // THE NET LAST (2026-10-02): after the Desktop extras, which rebuild the
-      // result, so nothing leaves past it; a part's row after the net.
-      const out = this.withinCeiling(name, args, desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult));
+      // result, so nothing leaves past it; a part's row after the net. The
+      // update notice before the net, so the net measures what leaves.
+      const served = desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult);
+      const out = this.withinCeiling(name, args, this.withUpdateNotice(name, served));
       this.writePart(out);
       return out;
     } finally {
@@ -1595,6 +1637,9 @@ export class McpServer {
       scope: this.scope,
       ownSpanHash,
       ...(model === undefined ? {} : { model }),
+      // This call's stance, which a Code-tab call on Desktop's server can hold
+      // when the store opened as a guest (2026-10-02).
+      owner: this.owner,
     });
     const neighbours = this.neighboursOf(deposit);
     this.markSeen(neighbours.map((n) => n.id));
@@ -1695,6 +1740,9 @@ export class McpServer {
         shown,
         feelings: items,
         ...(model === undefined ? {} : { model }),
+        // This call's stance (#317 × #318): a Code-tab call on Desktop's
+        // server may feel again what its recall showed it.
+        owner: this.owner,
       });
       if (!done.ok) return { recorded: 0, reason: done.reason };
       const recorded = done.feelings.filter((f) => f.ok && f.reason === "recorded-later").length;
@@ -2273,18 +2321,68 @@ export class McpServer {
    * loaded against the package on disk now. Desktop's server is started with
    * the app and there is no per-turn hook running the installed build beside
    * it, so this process has to look for itself (`manifestVersionOnDisk`).
+   *
+   * AND A NEWER BUILD THAT WROTE THE STORE (2026-10-02): the build stamp on
+   * the published wake (`self/behind.ts#WAKE_BUILD_KEY`) newer than this
+   * process says the same, for a store shared with an install this process
+   * cannot see on its own disk.
    */
   private wakeUpdateLine(): string | null {
+    return this.updateReading()?.line ?? null;
+  }
+
+  /**
+   * What the two checks say, or null when neither moved. `reconnect` is
+   * whether reconnecting would load something newer: only when the package
+   * on THIS process's disk moved. A newer stamp with this disk unchanged is
+   * another install (another path, `npx`) writing the same store (review of
+   * #318): reconnecting would load this same version again, so the line says
+   * what happened and offers no remedy that does not work.
+   */
+  private updateReading(): { line: string; reconnect: boolean } | null {
     try {
       const loaded = this.identity?.build.version ?? installedVersion();
+      if (loaded === null) return null;
       const onDisk = this.manifestVersion();
-      if (loaded === null || onDisk === null || loaded === onDisk) return null;
-      const stamp = (version: string): ReturnType<typeof installedBuild> => ({ ...installedBuild(), version });
-      const older = serverIsNewer(stamp(loaded), stamp(onDisk));
-      return `Counterparts was ${older ? "changed to an older version" : "updated"}. ${wordingFor(this.host).reconnect}`;
+      if (onDisk !== null && loaded !== onDisk) {
+        const stamp = (version: string): ReturnType<typeof installedBuild> => ({ ...installedBuild(), version });
+        const older = serverIsNewer(stamp(loaded), stamp(onDisk));
+        return { line: `Counterparts was ${older ? "changed to an older version" : "updated"}. ${wordingFor(this.host).reconnect}`, reconnect: true };
+      }
+      let wrote: string | null = null;
+      try {
+        wrote = this.counterpart.store.getMeta(WAKE_BUILD_KEY) ?? null;
+      } catch {
+        return null;
+      }
+      if (!versionNewer(wrote, loaded)) return null;
+      return {
+        line: `A newer Counterparts (${String(wrote)}), installed somewhere else, has written this memory store; this server is ${loaded}.`,
+        reconnect: false,
+      };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * THE SAME LINE ON EVERY OTHER RESULT (2026-10-02). A server left open
+   * across an install keeps the tool list it loaded, so an argument the new
+   * version added — `note`'s `about`, `unresolved` — is dropped without a
+   * word until the host reconnects, and Desktop had no notice at all outside
+   * `wake`. Now every result says it, in `updated`, while the two builds
+   * differ: one manifest read and one meta read per call. The line names what
+   * may be lost. Never throws, never refuses: the call already ran.
+   */
+  private withUpdateNotice(name: string, result: ToolResult): ToolResult {
+    if (name === "wake") return result;
+    const reading = this.updateReading();
+    if (reading === null) return result;
+    this.emit("mcp.update.noticed", undefined, { tool: name, reconnect: reading.reconnect });
+    const said = reading.reconnect
+      ? `${reading.line} Until then this server runs the version it started with, and it ignores anything newer, such as a field added to a tool since.`
+      : `${reading.line} It ignores anything newer, such as a field added to a tool since; updating this install is what brings it level.`;
+    return this.result({ ...result.structuredContent, updated: said }, result.isError === true);
   }
 
   /** The doctor's red-only notice, from the entry point's closure. Never throws. */
@@ -2400,7 +2498,7 @@ export class McpServer {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,
       },
-      stance: { observer: this.observer, owner: this.owner, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) },
+      stance: { observer: this.observer, ...this.ownerStance() },
     };
   }
 
@@ -2664,6 +2762,7 @@ export class McpServer {
         result = await this.counterpart.submitSessionEnd(draft, {
           session,
           scope: scope ?? this.scope,
+          owner: this.owner,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
           ...(writeUp === undefined ? {} : { writeUp }),

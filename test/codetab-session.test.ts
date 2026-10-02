@@ -146,6 +146,68 @@ function expectUnbound(s: McpServer): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe("the owner's own sessions are the owner (2026-10-02)", () => {
+  test("Desktop's server, a guest for its chats, serves a Code-tab call as the owner's: it closes a thread opened in another directory, and the list agrees", async () => {
+    codeTabSessionStart("tab-own");
+    // As the entry point opens it with nothing said and the install's `owner: true`.
+    const s = plainServer({ owner: false, codeTabOwner: true });
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    const elsewhere = join(root, "elsewhere");
+    const thread = s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Whether the pump housing needs a second gasket is still open.",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      meta: { unresolved: true },
+      origin: { scope: elsewhere },
+    });
+    // A Desktop chat is still a guest.
+    const chat = (await wireCall(s, 2, "wake"))["session"] as string;
+    expect((await wireCall(s, 3, "status", { session: chat }))["stance"]).toMatchObject({ owner: false });
+    // The Code tab's call is the owner's, and says why.
+    const stance = (await wireCall(s, 4, "status", { session: "tab-own" }))["stance"] as Record<string, unknown>;
+    expect(stance).toMatchObject({ owner: true });
+    expect(String(stance["ownerFrom"])).toContain("Desktop's Code tab");
+    const closed = await wireCall(s, 5, "note", {
+      session: "tab-own",
+      text: "The pump housing took the second gasket; the seep stopped.",
+      updates: thread,
+      unresolved: false,
+    });
+    expect(closed["thread"]).toEqual({ closed: thread });
+    expect(s.counterpart.store.readProse(thread).meta["unresolved"]).toBe(false);
+  });
+
+  test("#317 × #318: what a Code-tab call's recall showed it, confidential included, it may feel again; a Desktop chat may not", async () => {
+    codeTabSessionStart("tab-feel");
+    const s = plainServer({ owner: false, codeTabOwner: true });
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    const secret = s.counterpart.store.put({
+      type: "memory",
+      kind: "person",
+      body: "The diagnosis came back clear; only Mike and I know it yet.",
+      salience: { relevance: 0.9, emotional: 0.9, predictive: 0.5 },
+      meta: { confidential: true },
+      origin: { scope: project },
+    });
+    const recalled = await wireCall(s, 2, "recall", { session: "tab-feel", ids: [secret] });
+    expect(JSON.stringify(recalled)).toContain("The diagnosis came back clear");
+    const felt = await wireCall(s, 3, "note", {
+      session: "tab-feel",
+      feelingsNow: [{ id: secret, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "It came back clear." }],
+    });
+    expect((felt["feelingsNow"] as { recorded: number }).recorded).toBe(1);
+    // A Desktop chat, a guest: its recall does not show it, and it cannot feel it.
+    const chat = (await wireCall(s, 4, "wake"))["session"] as string;
+    expect(JSON.stringify(await wireCall(s, 5, "recall", { session: chat, ids: [secret] }))).not.toContain("The diagnosis came back clear");
+    const refused = await wireCall(s, 6, "note", {
+      session: chat,
+      feelingsNow: [{ id: secret, core: "calm", emotion: "relieved", strength: 0.9 }],
+    });
+    expect((refused["feelingsNow"] as { recorded: number }).recorded).toBe(0);
+  });
+});
+
 describe("Desktop's server serves a Code-tab session that names itself", () => {
   test("end to end: the hooks' record, named, is served as that Claude Code session — its directory, its doors, no Desktop ask — interleaved with a Desktop chat, nothing leaks", async () => {
     const t = clock();

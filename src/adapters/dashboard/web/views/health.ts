@@ -5,6 +5,7 @@
  * the four rules in that file's header apply to every line below.
  */
 import { LAST_HERE_NOROOM_EVENT } from "../../../../core/handoff/last-here.js";
+import { WORK_OVERFLOW_EVENT } from "../../../../core/self/work.js";
 import { symmetryCheck } from "../../../../core/physics/index.js";
 import { MARKER_UNSET, MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON, readMarker } from "../../../../core/sleep/index.js";
 import { cadenceFor, markerDue } from "../../../../core/sleep/markers.js";
@@ -136,11 +137,17 @@ export interface WakeBudget {
  *                one per chapter per lived day) since the published wake was
  *                rendered: how many "Last here" lines a session start could
  *                not carry. Until then a ring event only, gone with the hook.
+ *   work       — `self.work.overflow` rows with cause `room` (durable since
+ *                2026-10-02, one per directory per lived day) since the
+ *                published wake was rendered: how many directories' "Work
+ *                here" lines did not all fit. More work than a wake shows
+ *                (cause `cap`) is the rotation, not a cost.
  */
 export interface WakeCosts {
   readonly page: { readonly shown: number; readonly whole: number } | null;
   readonly handoffs: number;
   readonly lastHere: number;
+  readonly work: number;
   readonly writerHeld: boolean;
 }
 
@@ -179,6 +186,17 @@ export function wakeCosts(src: DashboardSource, text: string, renderDay: number 
     /* no rows read is no line known to be dropped */
   }
 
+  const work = new Set<string>();
+  try {
+    const since = renderDay ?? src.store.livedDay();
+    for (const row of src.store.eventLog({ name: WORK_OVERFLOW_EVENT, sinceDay: since, order: "desc", limit: LOG_CEILING })) {
+      const p = payloadOf(row.payload);
+      if (p["cause"] === "room") work.add(typeof p["scope"] === "string" ? p["scope"] : `seq:${row.seq}`);
+    }
+  } catch {
+    /* no rows read is no line known to be dropped */
+  }
+
   let writerHeld = false;
   try {
     const last = src.self.pageWriterRuns({ limit: 1 })[0];
@@ -189,10 +207,10 @@ export function wakeCosts(src: DashboardSource, text: string, renderDay: number 
   } catch {
     writerHeld = false;
   }
-  return { page, handoffs: dropped.size, lastHere: lastHere.size, writerHeld };
+  return { page, handoffs: dropped.size, lastHere: lastHere.size, work: work.size, writerHeld };
 }
 
-const NO_COSTS: WakeCosts = { page: null, handoffs: 0, lastHere: 0, writerHeld: false };
+const NO_COSTS: WakeCosts = { page: null, handoffs: 0, lastHere: 0, work: 0, writerHeld: false };
 
 /** The wake against its ceiling. A read: `wake()` on the observer source writes nothing. */
 export function wakeBudget(src: DashboardSource): WakeBudget {

@@ -44,7 +44,10 @@ import {
   CHECKOUT_EVENT,
   Counterpart,
   EMBED_BACKFILL_EVENT,
+  ENVELOPE_GAVE_WAY_EVENT,
+  ENVELOPE_OVERCAP_EVENT,
   GATE_DEPOSIT_EVENT,
+  INJECTION_OVERBUDGET_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -55,6 +58,7 @@ import {
   WAKE_DELIVERED_EVENT,
 } from "../src/core/counterpart.js";
 import { DATABASE_FILE, STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
+import { CODE_TAB_ENTRYPOINT } from "../src/adapters/claude-code/hooks.js";
 import { localDate } from "../src/core/time.js";
 import {
   JOURNAL_COPY_FAILED_EVENT,
@@ -2703,10 +2707,15 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     mintStore();
     writeConfig();
     const s = store();
+    s.advanceClock("2026-09-01");
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "Error", step: "wake", date: "2026-09-01" } });
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
-    // Yesterday's one transient failure, then today's start: passed, green.
+    // Yesterday's one transient failure, on yesterday's lived day (2026-10-02:
+    // the read used to stop at today's rows, so this was never seen), then
+    // today's start: passed, green.
+    s.advanceClock("2026-09-13");
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "SQLITE_BUSY", step: "sessionEnd", date: "2026-09-13" } });
+    s.advanceClock("2026-09-14");
     s.appendEvent({ name: SPAWN_STARTED_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
     // The same step fails again today: amber, whatever started since.
@@ -2735,5 +2744,87 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(f.severity).toBe("green");
     expect(f.detail).toContain("the wake shows its first 6144 bytes");
     expect(f.data["wakeShowsAll"]).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the gaps #315 listed (2026-10-02)
+// ---------------------------------------------------------------------------
+
+describe("the gaps #315 listed, closed (2026-10-02)", () => {
+  test("Wake: a hook past the host's cap is durable now and goes amber; what waited for room and a handoff with no room are counted", () => {
+    mintStore();
+    writeConfig();
+    const a = openAdapter(
+      { dataDir: dir, injectionBudgetBytes: 9000, embedder: { enabled: true } },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), configPath },
+    );
+    open.push(a.counterpart);
+    const s = store();
+    const at = { sessionId: "s1", scope: "/tmp/scope", turns: [], at: "2026-09-14" };
+    // Counted only: a notice dropped, a part that waited, a handoff pointer with no room.
+    a.noteNoticeDropped({ noticeChars: 400, envelopeChars: 10_200, limitChars: 10_000 });
+    a.noteGaveWay(at, "plain", 2);
+    // Once per session, part and lived day: the second is the same row.
+    a.noteGaveWay(at, "plain", 2);
+    s.appendEvent({ name: "handoff.refused", day: s.livedDay(), ref: "hof_x", payload: { reason: "no-room", bytes: 900, budget: 9000 } });
+    expect(s.eventLog({ name: ENVELOPE_GAVE_WAY_EVENT }).length).toBe(1);
+    const green = by(doctorFindings(input({ store: s })), "wake");
+    expect(green.severity).toBe("green");
+    expect(green.detail).toContain("no wake checked on arrival");
+    expect(green.detail).toContain("a notice for you was left off to keep the wake under the cap 1 time");
+    expect(green.detail).toContain("waited for room: plain 1");
+    expect(green.detail).toContain("no room for the handoff pointer 1 time");
+    // Past the cap: amber, durable, with the remedy.
+    a.noteOverCap({ chars: 12_000, limitChars: 10_000 });
+    expect(s.eventLog({ name: ENVELOPE_OVERCAP_EVENT }).length).toBe(1);
+    const amber = by(doctorFindings(input({ store: s })), "wake");
+    expect(amber.severity).toBe("amber");
+    expect(amber.detail).toContain("a hook's output passed the host's cap and was shown only as a preview 1 time");
+    expect(amber.fix).toContain("did not reach the session whole");
+  });
+
+  test("Wake: a full wake with the clock and Code-tab lines above it goes a little over the ceiling, and stays green (review of #318)", () => {
+    mintStore();
+    writeConfig();
+    const budget = 1500;
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: budget });
+    for (let i = 0; i < 40; i++) {
+      c.store.put({
+        type: "memory",
+        kind: "person",
+        body: `Something warm about the owner, number ${String(i)}: he likes the bench tidy at the end of a day.`,
+        salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      });
+    }
+    // A page longer than the room, so the wake is composed full.
+    expect(c.revisePage(`## Core\n\n${"A line the page keeps about the work and the bench. ".repeat(80)}`, { reason: "long", by: "owner" }).written).toBe(true);
+    expect(c.rebrief({ budgetBytes: budget, at: "2026-09-14" }).rendered).toBe(true);
+    c.close();
+    const a = openAdapter(
+      { dataDir: dir, injectionBudgetBytes: budget, embedder: { enabled: true } },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), configPath },
+    );
+    open.push(a.counterpart);
+    const r = a.sessionStart({ sessionId: "s-full", scope: "/tmp/scope", turns: [], at: "2026-09-14", entrypoint: CODE_TAB_ENTRYPOINT });
+    // The wake itself fits; the lines above it take it over.
+    expect(r.bytes).toBeLessThanOrEqual(budget);
+    expect(Buffer.byteLength(r.injection ?? "", "utf8")).toBeGreaterThan(budget);
+    const s = store();
+    expect(s.eventLog({ name: INJECTION_OVERBUDGET_EVENT }).length).toBe(1);
+    const f = by(doctorFindings(input({ store: s })), "wake");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("a session start sent a little more than the reported ceiling");
+  });
+
+  test("Reflection: a share stuck at `carried` says how long ago it was carried, and that it was never told", () => {
+    const c = Counterpart.open({ dir, owner: true, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
+    c.store.openReflection({ id: "rfl_aaaaaaaaaaaa", day: c.store.livedDay(), date: "2026-09-10", questions: [], shown: [] });
+    c.store.updateReflection("rfl_aaaaaaaaaaaa", { state: "reflected", share: "Something to say.", shareState: "carried", shareSession: "s-later" });
+    c.close();
+    writeConfig({ timeZone: "UTC" });
+    const f = by(doctorFindings(input({ store: store(), config: { dataDir: dir, embedder: { enabled: true }, timeZone: "UTC" } })), "reflection");
+    expect(f.detail).toContain("its morning share carried to a later session 4 days ago and never told");
+    expect(f.data["carriedDays"]).toBe(4);
   });
 });

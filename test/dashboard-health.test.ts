@@ -416,7 +416,7 @@ describe("where archived memories went", () => {
   });
 
   test("a full wake is green and says it is normal; amber only names what being full cost (Mike, 2026-10-01)", () => {
-    const none: WakeCosts = { page: null, handoffs: 0, lastHere: 0, writerHeld: false };
+    const none: WakeCosts = { page: null, handoffs: 0, lastHere: 0, work: 0, writerHeld: false };
     const at = (bytes: number, budget: number, costs = none, trimmed = 0) =>
       wakeLine({ ok: true, bytes, budget, parts: [], trimmed, trimmedFrom: trimmed > 0 ? ["nearby memories"] : [], costs });
     expect(at(8840, 8840)).toEqual({ tone: "green", line: "The wake is full — normal: 8.8 KB of 8.8 KB" });
@@ -424,7 +424,7 @@ describe("where archived memories went", () => {
     expect(at(8000, 8840).line).toBe("The wake fits: 8.0 KB of 8.8 KB, 0.8 KB room left");
     expect(at(8840 - Math.ceil(8840 * FULL_SHARE), 8840).line).toContain("The wake fits");
     // What it cost, named, and amber.
-    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, lastHere: 0, writerHeld: true })).toEqual({
+    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, lastHere: 0, work: 0, writerHeld: true })).toEqual({
       tone: "amber",
       line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; the page writer held back for lack of room",
     });

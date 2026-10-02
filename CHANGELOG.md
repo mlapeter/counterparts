@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
+  next is written locally and ignored; its history stays.
+- **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were
+  the ones the old version composed, until the next write-up or nightly run, so a question
+  the new version closes stayed in "Still open". Now the first turn-end after an install
+  re-renders it: the session that was open during the install wakes once more with the old
+  wake, and every session after it with the new.
+- **A memory server left open across an install says so.** Every tool result, not only
+  Desktop's wake, now carries a line saying Counterparts was updated and how to reconnect,
+  because until then the server ignores anything newer, such as a field added to a tool. This
+  starts with the servers of this version; one from before it says nothing.
+- **Your own Claude Code sessions are the owner's in the memory tools too.** The hooks already
+  were; the memory server was not, so closing an open question from another directory was
+  refused while the wake dropped it from "Still open" anyway. Now the server Claude Code starts
+  takes the install's `"owner": true`, and so does a Claude Code session from Desktop's Code
+  tab: it can close a question opened anywhere, and confidential memories are said in its
+  answers. A dream's and a reflection's bundles still leave confidential memories out, on
+every server. A Desktop chat is unchanged, the nightly run keeps its old stance, and
+  `COUNTERPARTS_OWNER=0` on the server's launch turns it off. A close that is still refused
+  now leaves the question in "Still open". Nothing to reinstall: it takes effect on upgrade,
+  once the memory server reconnects.
+- **"Work here" takes turns.** When a directory has more work than the wake shows, the newest
+  line stays first and the others rotate from one day to the next, so the older work comes
+  round too. A wake that had more work lines than it carried leaves a record, which doctor
+  and the dashboard's wake bar read.
+- **Doctor sees what a session start could not carry.** A hook's output past Claude Code's
+  10,000-character cap, a session start over its reported ceiling, a notice dropped to make
+  room, a part that waited for room, and a handoff or "Last here" line with no room are now
+  recorded and read on the Wake line; the first two turn it amber. The Reflection line says
+  how long a share has been waiting to be told.
+- **Claude Desktop: wake first, and Always allow.** A Desktop chat whose tools still asked
+  permission never called `wake`, answered "what do you remember about yesterday" from a
+  search alone, and called that the full record. The install, the quickstart, the help and
+  doctor's Claude Desktop line now say to set the counterparts tools to Always allow; the
+  server's instructions and the `wake` tool tell the model to wake first in every new chat
+  and never to present a search as the complete record.
+- **Doctor's Spawn line sees a step that failed two days running.** It read only today's
+  failures, so "the same step failed today and yesterday" could never be said.
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
   over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
   headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part

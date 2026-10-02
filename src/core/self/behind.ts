@@ -17,16 +17,28 @@
  * the mark (`{ n, at, triggers }`), `caught` is the raw mark value the last render
  * read BEFORE it composed. Behind iff the two differ. A mark set while a render
  * is composing has a new value, so it is not swallowed by that render's catch-up.
+ *
+ * A THIRD KEY, FOR THE BUILD (2026-10-02): `build` is the package version of
+ * the process that last published the bundle. After an install the stored wake
+ * was still the old version's until something marked it or the next lived day
+ * came, so a question the new version closes stayed in "Still open". A
+ * process that knows its build (`CounterpartOptions.build`) and finds the
+ * stored one different — or absent, a bundle published before this key — treats
+ * the wake as behind under the `version` trigger. Nothing writes a mark for it:
+ * the comparison is the mark.
  */
 import type { Store } from "../store/index.js";
 
 export const WAKE_BEHIND_KEY = "self.wake.behind";
 export const WAKE_CAUGHT_KEY = "self.wake.caught";
 
-/** What made the wake behind: the self page written, a write-up landed, the nightly run ended. */
-export type WakeTrigger = "page" | "write-up" | "run-end";
+export const WAKE_BUILD_KEY = "self.wake.build";
 
-export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end"];
+/** What made the wake behind: the self page written, a write-up landed, the
+ *  nightly run ended, or the bundle was published by another build. */
+export type WakeTrigger = "page" | "write-up" | "run-end" | "version";
+
+export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version"];
 
 /** The mark as it stands, with its raw value — the thing a render records as caught. */
 export interface WakeBehind {
@@ -85,5 +97,33 @@ export function noteWakeCaught(store: Store, raw: string): void {
     store.setMeta(WAKE_CAUGHT_KEY, raw);
   } catch {
     /* the mark stays, and the next process with a budget renders again */
+  }
+}
+
+/**
+ * Was the published bundle composed by another build than `build`? False when
+ * `build` is unknown (a null is never evidence of a change) or when there is no
+ * bundle yet (the first render is the cycle's anyway). An absent stamp beside a
+ * bundle is a bundle from before the stamp existed, so it is another build.
+ * Never throws.
+ */
+export function wakeFromOtherBuild(store: Store, briefingKey: string, build: string | null | undefined): boolean {
+  if (build === null || build === undefined || build.length === 0) return false;
+  try {
+    if (store.getMeta(briefingKey) === undefined) return false;
+    return store.getMeta(WAKE_BUILD_KEY) !== build;
+  } catch {
+    return false;
+  }
+}
+
+/** A render by `build` has published: stamp it. Never throws — an unwritten
+ *  stamp costs one more render, never the publish. */
+export function noteWakeBuild(store: Store, build: string | null | undefined): void {
+  if (build === null || build === undefined || build.length === 0) return;
+  try {
+    store.setMeta(WAKE_BUILD_KEY, build);
+  } catch {
+    /* the next process with this build renders once more */
   }
 }
