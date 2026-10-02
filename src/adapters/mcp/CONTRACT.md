@@ -430,6 +430,15 @@ writing one; `reflect` phase `settle` is the reflection's door; the dream's `pro
 takes a `settle` action. Every settle is `core/contradictions.ts#settle`'s, recorded with
 who, how, why and when; an observer writes nothing and says so.
 
+## 6c. Re-feeling while awake (2026-10-02, lane B)
+
+**[M]** `note` takes `feelingsNow`: how memories this session was shown feel now, recorded
+beside the first feeling (which is never rewritten), with or without `text`. One not shown
+here — not delivered by `recall`, not a write's neighbour, not surfaced (a footnote is not)
+by ambient recall for the session; kept per session — is refused with the way in (recall it by id). At most once a calendar day per
+memory, five a call; source `awake`, `recorded_later` today. The path and the rest of its
+guarantees are the reflection's (`dream/reflect.ts#Reflections.feelAgain`).
+
 ## 7. Open questions
 
 1. **Does `note` still need to exist** once the experiencer writes at every session end?

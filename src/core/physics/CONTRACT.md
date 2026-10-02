@@ -189,7 +189,9 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   later, while `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is open (the default, the owner's call
   of 2026-09-27); closed, it reads only feelings felt at the time or written in a
   session, AND its return must be an ordinary use, not a reflection's citation — closed
-  means nothing reaches the core on reflection alone (owner ruling D1 on #256).
+  means nothing reaches the core on reflection alone (owner ruling D1 on #256). A
+  feeling recorded later while AWAKE (`source: awake`, 2026-10-02, `note`'s
+  `feelingsNow`) is read the same way as a reflection's: only while the door is open.
 
   Emotion counts toward the core ON PURPOSE, through the fast lane (the `promotionBase`
   stopgap of #244 is retired); repetition counts through the slow lane, and only for

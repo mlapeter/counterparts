@@ -85,6 +85,9 @@ import type { Fidelity, FitCandidate, Placed } from "../fit/index.js";
 import { ownerNames } from "../sleep/index.js";
 import { PAGE_WRITING_RULE } from "../self/writer.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
+import { feelingWeeks } from "./feeling-weeks.js";
+import type { FeelingWeeks } from "./feeling-weeks.js";
+import { isWorkMemory } from "../self/work.js";
 import { chapterEntries, entryKey, fitEpisodes, shownEntry } from "./slices.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
 import { DREAM_TUNABLES } from "./tunables.js";
@@ -150,11 +153,29 @@ export const REFLECT_TUNABLES = {
   ENTRY_CHARS: 6_000,
   /** Bytes of a line. */
   LINE_BYTES: 200,
+  /**
+   * UNMARKED, OFFERED TO BE MARKED (2026-10-02, lane B, owner pick 4): at most
+   * this many memories nobody has marked that the work lane counts as a
+   * project's work only because they are unmarked (a fact, entity or place
+   * written in a directory) — the ones with a feeling, an entity, or the
+   * owner's name first, then the most used, then the oldest. They count
+   * toward `LIMITS.about`. CAL.
+   */
+  UNMARKED: 5,
+  /**
+   * ROTATED (review of #316): one offered by any of the last this-many
+   * reflections waits behind the ones not offered lately, so a pool the
+   * reflection leaves unmarked (a personal one on a closed-door night) is not
+   * the same five every night. It comes back when the rest run out. CAL.
+   */
+  UNMARKED_REST_NIGHTS: 3,
   /** Feelings shown per memory, and the characters of each one's carried_by. */
   FEELINGS_SHOWN: 3,
   FEELING_CARRIED_CHARS: 160,
   /** What one reflection may do, across every `finish` of it. CAL. */
   LIMITS: { returns: 12, feelings: 5, about: 8, traits: 5 },
+  /** Feelings recorded looking back in one awake call (`feelAgain`, 2026-10-02). CAL. */
+  AWAKE_FEELINGS: 5,
   /**
    * TEXT CAPS, raised 2026-09-28 (owner direction: loosen the limits; design
    * a real answer when a section really grows too long). Longer is kept to
@@ -264,6 +285,17 @@ export interface ReflectBundle {
   readonly recent: readonly string[];
   /** Became core on reflection alone since it was last said: the share says it. */
   readonly becameCore: readonly string[];
+  /**
+   * FEELINGS OVER WEEKS (2026-10-02): counts by core per week, mine and the
+   * owner's, what changed, and the ids it rests on — from stored feelings,
+   * never text (`feeling-weeks.ts`). Null on a month with none.
+   */
+  readonly feelingWeeks: FeelingWeeks | null;
+  /**
+   * UNMARKED (2026-10-02): a few memories nobody has marked, which count as a
+   * project's work only for want of a mark — offered to be marked by meaning.
+   */
+  readonly unmarked: readonly string[];
   readonly memories: Readonly<Record<string, ReflectItem>>;
   /**
    * How the room was spent (2026-09-28): memories and entries shown whole, as
@@ -371,6 +403,18 @@ export interface PartResult {
   readonly reason: string;
   readonly detail?: string;
   readonly note?: string;
+}
+
+/** One feeling recorded later, as the reflection's `finish` and an awake `note` send it — loose, checked on the way in. */
+export interface LaterFeelingInput {
+  readonly id?: unknown;
+  /** Awake only: `owner` for the owner's feeling now; anything else is mine. */
+  readonly whose?: unknown;
+  readonly core?: unknown;
+  readonly emotion?: unknown;
+  readonly strength?: unknown;
+  readonly valence?: unknown;
+  readonly carried_by?: unknown;
 }
 
 export interface ReflectOutcome {
@@ -543,7 +587,9 @@ export class Reflections {
     // what was offered only in part is the lookup's denominator.
     const s = composed.shownAs;
     const fitRecord = { whole: s.whole, excerpt: s.excerpt, lined: s.line, ids: s.ids, notShown: s.notShown, offered: offeredInPart(fitted), parts: packed.later.length + 1 };
-    this.store.updateReflection(id, { detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord } });
+    this.store.updateReflection(id, {
+      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}) },
+    });
     writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [] });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
     const instructions = this.instructions(id, input.session, bundle);
@@ -728,6 +774,16 @@ export class Reflections {
       `- share (optional): two or three sentences for ${who} this morning, the way a partner would say it ("While I slept I dreamed about x — I think because of y"), citing what it rests on. Say something about ${who} only when it could help them, tentatively ("I wonder if…") — never a list of flaws. No share on a quiet night.${bundle.becameCore.length > 0 ? ` Tell ${who} that ${bundle.becameCore.join(", ")} became part of who you are.` : ""}`,
       `- feelings (optional, at most ${String(L.feelings)}): how a memory feels to you now — id, core (happy, warm, calm, curious, sad, uneasy or angry), emotion, strength, carried_by. emotion is ONE word (from the wheel, or your own); carried_by is the nuance, in your own words. Recorded as felt today, looking back.`,
       aboutLine,
+      ...(bundle.unmarked.length > 0
+        ? [
+            `  unmarked: ${String(bundle.unmarked.length)} ${bundle.unmarked.length === 1 ? "memory nobody has" : "memories nobody has"} marked. Unmarked, a fact written in a project counts as that project's work and is shown only there — so a personal one (a person, a feeling, life outside the work) sits among the work lines. ${open ? "Mark each by meaning in about, with why: owner or us when it is personal, work when it really is the craft, world otherwise." : "Tonight a mark may only be work or world: mark the ones that are, and leave a personal one unmarked."} They count toward the ${String(L.about)}.`,
+          ]
+        : []),
+      ...(bundle.feelingWeeks !== null
+        ? [
+            `- feelingWeeks: how the recorded feelings ran over the last weeks — counts by core per week (oldest first), mine and ${who}'s, what changed, and restsOn, the memories it rests on. If it means something, you may say it in your entry, and on your self page in your own words, citing those memories (read them first) — never a dreamed gist. A count is not a feeling: say it only where the memories bear it out.`,
+          ]
+        : []),
       `- traits (optional, at most ${String(L.traits)}): only where a memory you were shown really shows how you acted — often where you acted unlike your page; most carry none, and a quiet night has none. Each: id, axis, toward (one of its two poles), strength 0-1, carried_by (briefly, what showed it). The axes, the first pole roughly where training puts you: ${TRAIT_AXES.map((a) => `${a.id} (${a.poles[0]} or ${a.poles[1]}${a.gloss.length > 0 ? `, ${a.gloss}` : ""})`).join(", ")}. Don't make up depth.`,
       `If a part comes back not written, its reason says what tripped it: fix that and call finish again with the same reflection and just that part — the entry and everything written stand. Never say a part was written when it was not.`,
       // 2026-09-29: an unsettled pair on my mind may be settled here, with a plain reason.
@@ -820,65 +876,21 @@ export class Reflections {
     const recordedTraits = new Set(idsOf(priorRecorded["traits"]));
     const feelings: PartResult[] = [];
     for (const f of (input.feelings ?? []).slice(0, 50)) {
-      const id = typeof f.id === "string" ? f.id : null;
-      const r = id !== null && shown.has(id) ? this.store.row(id) : undefined;
-      if (r === undefined || !this.showable(r)) {
-        feelings.push({ id, ok: false, reason: "not-shown-or-gone", detail: this.notCitable(id, shown) });
-        continue;
-      }
-      // WHAT A DREAM OR A REFLECTION WROTE IS NOT FELT LATER (review of #256,
-      // B1): a gist starts low on purpose (its salience is capped, a dream's
-      // own feeling-now is capped at its peak), and a later feeling is exactly
-      // what the fast lane reads — one organic use after it would carry dream
-      // words into the core. Feel the memories it was drawn from instead.
-      const notLived = notLivedReason(r, "feel");
-      if (notLived !== null) {
-        feelings.push({ id, ok: false, reason: notLived, detail: `${r.id} was written by a ${r.source === "dreamed" ? "dream" : "reflection"}; feel the memories it came from instead.` });
-        continue;
-      }
-      // ACCEPT AND REPAIR (2026-09-28): emotion is one word, carried_by the
-      // nuance. The WHOLE sent emotion crosses the credential scan and the
-      // mark check first (review of #268: a key in `emotion` went around the
-      // scan); then a phrase in it is split, and the tail crosses the scan
-      // again with the rest of carried_by.
-      const sent = this.words(String(f.emotion ?? ""), session, CARRIED_BY_MAX_CHARS);
-      if (!sent.ok) {
-        feelings.push({ id, ok: false, reason: sent.reason, detail: `emotion: ${sent.detail}` });
-        continue;
-      }
-      const split = repairEmotion(sent.text, typeof f.carried_by === "string" ? f.carried_by : "");
-      const carried = this.words(split?.carriedBy ?? f.carried_by ?? "", session, CARRIED_BY_MAX_CHARS, true);
-      const feeling: FeelingInput = {
-        whose: "self",
-        core: String(f.core ?? ""),
-        emotion: split?.emotion ?? sent.text,
-        // Left out, the store gives it the word's default, capped below the
-        // fast lane, as for a session's feeling (review of #301, m2) — not 0.
-        ...(f.strength === undefined || f.strength === null ? {} : { strength: Math.max(0, Math.min(1, Number(f.strength))) }),
-        carriedBy: `on reflection, ${date}${carried.ok && carried.text.length > 0 ? `: ${carried.text}` : ""}`,
-      };
-      const same = sameFeeling(this.store, r.id, recordedFeelings, feeling);
-      if (same !== null) {
-        feelings.push({ id, ok: true, reason: "already-recorded", note: `This reflection already recorded that feeling on ${r.id} (${same}); nothing new was written.` });
-        continue;
-      }
-      if (used("feelings") + feelings.filter((x) => x.ok && x.reason !== "already-recorded").length >= T.LIMITS.feelings) {
-        feelings.push({ id, ok: false, reason: "limit-reached", detail: this.limitDetail("feelings", again) });
-        continue;
-      }
-      const notes: string[] = [];
-      if (sent.cut) notes.push(`emotion was kept to its first ${String(CARRIED_BY_MAX_CHARS)} characters.`);
-      if (split !== null) notes.push(splitNote(split));
-      if (!carried.ok) notes.push(`carried_by was not kept — ${carried.detail}`);
-      else if (carried.cut) notes.push(`carried_by was kept to its first ${String(CARRIED_BY_MAX_CHARS)} characters.`);
-      try {
-        const added = this.store.addFeelings(r.id, [feeling], { source: "reflection", recordedLater: date, ...(input.model ? { model: input.model } : {}) });
-        for (const fid of added.ids) recordedFeelings.add(fid);
-        for (const rep of added.repairs) notes.push(rep.note);
-        feelings.push({ id, ok: true, reason: "recorded-later", ...(notes.length > 0 ? { note: notes.join(" ") } : {}) });
-      } catch (err) {
-        feelings.push({ id, ok: false, reason: refusalOf(err), detail: "Nothing was recorded for this one; fix it and send it again." });
-      }
+      feelings.push(
+        this.laterFeeling(f, {
+          shown,
+          session,
+          date,
+          source: "reflection",
+          prefix: `on reflection, ${date}`,
+          model: input.model ?? null,
+          mine: recordedFeelings,
+          full: () =>
+            used("feelings") + feelings.filter((x) => x.ok && x.reason !== "already-recorded").length >= T.LIMITS.feelings
+              ? this.limitDetail("feelings", again)
+              : null,
+        }),
+      );
     }
     const about: PartResult[] = [];
     // THE DOOR (owner ruling D1 on #256): closed, a reflection may only move a
@@ -1245,6 +1257,9 @@ export class Reflections {
     // And how its room was spent (2026-09-28): doctor reads it.
     const fitRecord = parseDetail(row.detail)["fit"];
     if (isRecord(fitRecord)) detail["fit"] = fitRecord;
+    // What it was offered to mark: the next nights' rotation reads it.
+    const offeredUnmarked = parseDetail(row.detail)["unmarked"];
+    if (Array.isArray(offeredUnmarked)) detail["unmarked"] = offeredUnmarked;
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1471,6 +1486,9 @@ export class Reflections {
     const candidates: { id: string; felt: number; at: number }[] = [];
     const felt: { id: string; felt: number }[] = [];
     const recent: { id: string; felt: number; at: number }[] = [];
+    const unmarked: { id: string; rank: number; uses: number; at: number }[] = [];
+    const withFeelings = new Set(this.store.feelingsLive().map((x) => x.memory_id));
+    const owners = ownerNames(this.store);
     // The candidates are consolidation's: about me by its mark, or — unmarked —
     // by a recognition feeling the fast lane would count (wheel v2).
     const reflectedOpen = acceptsReflectedFeeling(this.store);
@@ -1483,6 +1501,12 @@ export class Reflections {
       if (row === undefined || !this.showable(row) || row.source === "dreamed" || row.source === "reflection") continue;
       const f = emotionalIntensity(this.store.physicsOf(mid));
       if (row.birth_day >= day - T.CHAPTER_DAYS) recent.push({ id: mid, felt: f, at: row.created_at ?? 0 });
+      // UNMARKED WORK THAT MAY NOT BE WORK (owner pick 4): only a memory NOBODY
+      // marked — a writer's mark is never offered to be overridden here.
+      if ((row.about ?? null) === null && row.kind !== "skill" && isWorkMemory({ about: null, kind: row.kind, originScope: row.origin_scope, journal: isJournalCopy(row) })) {
+        const rank = (withFeelings.has(mid) ? 2 : 0) + (row.kind === "entity" ? 1 : 0) + (namesAny(`${row.title ?? ""} ${row.body}`, owners) ? 1 : 0);
+        unmarked.push({ id: mid, rank, uses: row.uses, at: row.created_at ?? 0 });
+      }
       if (row.promoted_identity === 1) {
         core.push({ id: mid, felt: f });
         continue;
@@ -1518,6 +1542,30 @@ export class Reflections {
     const onMind = mindRead.items.filter((item) => item.ids.every(take(3)));
 
     const becameCore = this.becameCoreUnsaid().filter(take(5));
+
+    // FEELINGS OVER WEEKS: the ids it rests on are handed like the rest, so
+    // they can be read, cited and put on the page.
+    const weeks = feelingWeeks(this.store, at, (r) => !denied.has(r.id) && this.showable(r));
+    const weeksRest = weeks === null ? [] : weeks.restsOn.filter(take(3));
+    // UNMARKED: the most likely personal first, then the most used, the oldest
+    // — and ROTATED: what the last few reflections were offered waits behind
+    // the rest (review of #316), and comes back when the rest run out.
+    const lately = new Set(
+      this.store
+        .reflections({ limit: T.UNMARKED_REST_NIGHTS + 1 })
+        .filter((r) => r.id !== id)
+        .slice(0, T.UNMARKED_REST_NIGHTS)
+        .flatMap((r) => {
+          const u = parseDetail(r.detail)["unmarked"];
+          return Array.isArray(u) ? u.filter((x): x is string => typeof x === "string") : [];
+        }),
+    );
+    const ranked = unmarked
+      .sort((a, b) => b.rank - a.rank || b.uses - a.uses || a.at - b.at || (a.id < b.id ? -1 : 1))
+      .map((u) => u.id);
+    const unmarkedIds = [...ranked.filter((x) => !lately.has(x)), ...ranked.filter((x) => lately.has(x))]
+      .slice(0, T.UNMARKED)
+      .filter(take(2));
 
     // WHAT THE DREAM SAW (2026-09-28): what it was shown and what it made, in
     // the order it was shown, a line each — so the reflection reads the night
@@ -1589,6 +1637,8 @@ export class Reflections {
       felt: feltIds.filter(kept),
       recent: recentIds.filter(kept),
       becameCore: becameCore.filter(kept),
+      feelingWeeks: weeks === null ? null : { ...weeks, restsOn: weeksRest.filter(kept) },
+      unmarked: unmarkedIds.filter(kept),
       memories,
       feltOf: feltAll.length,
       shownAs: {
@@ -1785,6 +1835,157 @@ export class Reflections {
   }
 
   /**
+   * ONE FEELING RECORDED LATER, looking back — the reflection's `feelings`
+   * part and, since 2026-10-02, an awake session's (`feelAgain`), through one
+   * path and one set of guarantees: only a memory it was shown that still
+   * stands; never one a dream or a reflection wrote (review of #256, B1); the
+   * WHOLE sent emotion through the credential scan and the mark check, then a
+   * phrase in it split, the tail scanned again with carried_by (review of
+   * #268); not written twice by the same writer (`sameFeeling`); a strength
+   * left out takes the word's default, capped below the fast lane (review of
+   * #301, m2); marked `recorded_later` with the date and its source. Never
+   * throws: the part's result says what happened.
+   */
+  private laterFeeling(
+    f: LaterFeelingInput,
+    o: {
+      readonly shown: ReadonlySet<string>;
+      readonly session: string;
+      readonly date: string;
+      readonly source: "reflection" | "awake";
+      /** What carried_by opens with: `on reflection, <date>`, `looking back, awake, <date>`. */
+      readonly prefix: string;
+      readonly model: string | null;
+      /** What this writer already recorded (a resend is answered, not written twice); added to. */
+      readonly mine: Set<string>;
+      /** The limit's detail when it is reached, else null — asked only for a feeling that would be written. */
+      readonly full: () => string | null;
+      /** Checked last, before the write: a reason and detail to refuse with, or null. */
+      readonly gate?: (r: MemoryRow) => { reason: string; detail: string } | null;
+      /** The owner's feeling may be recorded later too (awake only); the reflection's are its own. */
+      readonly whose?: "self" | "owner";
+    },
+  ): PartResult {
+    const id = typeof f.id === "string" ? f.id : null;
+    const r = id !== null && o.shown.has(id) ? this.store.row(id) : undefined;
+    if (r === undefined || !this.showable(r)) {
+      const detail =
+        o.source === "awake" && id !== null && !o.shown.has(id)
+          ? `${id} was not shown in this session; read it first (the recall tool, ids: ["${id}"]), then record how it feels now.`
+          : this.notCitable(id, o.shown);
+      return { id, ok: false, reason: "not-shown-or-gone", detail };
+    }
+    // WHAT A DREAM OR A REFLECTION WROTE IS NOT FELT LATER (review of #256,
+    // B1): a gist starts low on purpose (its salience is capped, a dream's
+    // own feeling-now is capped at its peak), and a later feeling is exactly
+    // what the fast lane reads — one organic use after it would carry dream
+    // words into the core. Feel the memories it was drawn from instead.
+    const notLived = notLivedReason(r, "feel");
+    if (notLived !== null) {
+      return { id, ok: false, reason: notLived, detail: `${r.id} was written by a ${r.source === "dreamed" ? "dream" : "reflection"}; feel the memories it came from instead.` };
+    }
+    // ACCEPT AND REPAIR (2026-09-28): emotion is one word, carried_by the
+    // nuance. The WHOLE sent emotion crosses the credential scan and the
+    // mark check first (review of #268: a key in `emotion` went around the
+    // scan); then a phrase in it is split, and the tail crosses the scan
+    // again with the rest of carried_by.
+    const sent = this.words(String(f.emotion ?? ""), o.session, CARRIED_BY_MAX_CHARS);
+    if (!sent.ok) return { id, ok: false, reason: sent.reason, detail: `emotion: ${sent.detail}` };
+    const sentCarried = typeof f.carried_by === "string" ? f.carried_by : "";
+    const split = repairEmotion(sent.text, sentCarried);
+    const carried = this.words(split?.carriedBy ?? sentCarried, o.session, CARRIED_BY_MAX_CHARS, true);
+    const strength = typeof f.strength === "number" && Number.isFinite(f.strength) ? Math.max(0, Math.min(1, f.strength)) : undefined;
+    const valence = typeof f.valence === "number" && Number.isFinite(f.valence) ? Math.max(-1, Math.min(1, f.valence)) : undefined;
+    const feeling: FeelingInput = {
+      whose: o.whose ?? "self",
+      core: typeof f.core === "string" ? f.core : "",
+      emotion: split?.emotion ?? sent.text,
+      // Left out, the store gives it the word's default, capped below the
+      // fast lane, as for a session's feeling (review of #301, m2) — not 0.
+      ...(strength === undefined ? {} : { strength }),
+      ...(valence === undefined ? {} : { valence }),
+      carriedBy: `${o.prefix}${carried.ok && carried.text.length > 0 ? `: ${carried.text}` : ""}`,
+    };
+    const same = sameFeeling(this.store, r.id, o.mine, feeling);
+    if (same !== null) {
+      return { id, ok: true, reason: "already-recorded", note: `${o.source === "reflection" ? "This reflection" : "This call"} already recorded that feeling on ${r.id} (${same}); nothing new was written.` };
+    }
+    const gated = o.gate?.(r) ?? null;
+    if (gated !== null) return { id, ok: false, ...gated };
+    const full = o.full();
+    if (full !== null) return { id, ok: false, reason: "limit-reached", detail: full };
+    const notes: string[] = [];
+    if (sent.cut) notes.push(`emotion was kept to its first ${String(CARRIED_BY_MAX_CHARS)} characters.`);
+    if (split !== null) notes.push(splitNote(split));
+    if (!carried.ok) notes.push(`carried_by was not kept — ${carried.detail}`);
+    else if (carried.cut) notes.push(`carried_by was kept to its first ${String(CARRIED_BY_MAX_CHARS)} characters.`);
+    try {
+      const added = this.store.addFeelings(r.id, [feeling], { source: o.source, recordedLater: o.date, ...(o.model ? { model: o.model } : {}) });
+      for (const fid of added.ids) o.mine.add(fid);
+      for (const rep of added.repairs) notes.push(rep.note);
+      return { id, ok: true, reason: "recorded-later", ...(notes.length > 0 ? { note: notes.join(" ") } : {}) };
+    } catch (err) {
+      return { id, ok: false, reason: refusalOf(err), detail: "Nothing was recorded for this one; fix it and send it again." };
+    }
+  }
+
+  /**
+   * RE-FEELING WHILE AWAKE (2026-10-02, lane B, owner pick 2). In an ordinary
+   * session, when an old memory comes up and feels different now, a later
+   * feeling is recorded beside the first — the reflection's path
+   * (`laterFeeling`), with its guarantees, and three of its own:
+   *
+   *   - only a memory THIS SESSION was shown — `shown`, which the door hands
+   *     in (what recall surfaced or returned, what a write showed); one it was
+   *     not shown is refused with the way in (recall it by id first);
+   *   - at most ONE awake feeling-now a calendar day per memory, whoever
+   *     writes it (the reflection's own feelings do not count against it);
+   *   - labeled as awake: source `awake`, `recorded_later` today's date,
+   *     carried_by opening "looking back, awake, <date>". The fast lane reads
+   *     it only through the reflected-feeling door, as a reflection's.
+   *
+   * At most `AWAKE_FEELINGS` a call. Refused under observer stance. Pure of
+   * any model: the session is the mind.
+   */
+  feelAgain(input: {
+    readonly session: string;
+    readonly shown: ReadonlySet<string>;
+    readonly feelings: readonly LaterFeelingInput[];
+    readonly model?: string | null;
+  }): { ok: true; feelings: PartResult[] } | { ok: false; reason: "observer" } {
+    if (this.ctx.observer) return { ok: false, reason: "observer" };
+    const date = this.ctx.today();
+    const mine = new Set<string>();
+    const out: PartResult[] = [];
+    const written = (): number => out.filter((x) => x.ok && x.reason === "recorded-later").length;
+    for (const f of input.feelings.slice(0, 50)) {
+      const whose = f.whose === "owner" ? "owner" : "self";
+      out.push(
+        this.laterFeeling(f, {
+          shown: input.shown,
+          session: input.session,
+          date,
+          source: "awake",
+          prefix: `looking back, awake, ${date}`,
+          model: input.model ?? null,
+          mine,
+          whose,
+          gate: (r) =>
+            this.store.feelingsFor(r.id).some((x) => x.source === "awake" && x.recorded_later === date)
+              ? { reason: "once-a-day", detail: `${r.id} already has a feeling recorded looking back, awake, today; one a calendar day per memory.` }
+              : null,
+          full: () =>
+            written() >= REFLECT_TUNABLES.AWAKE_FEELINGS
+              ? `At most ${String(REFLECT_TUNABLES.AWAKE_FEELINGS)} feelings looking back in one call.`
+              : null,
+        }),
+      );
+    }
+    this.record("feelings.awake", input.session, { sent: input.feelings.length, written: written() });
+    return { ok: true, feelings: out };
+  }
+
+  /**
    * THE REFLECTION MAY SETTLE (2026-09-29, held lightly): two memories it was
    * shown that disagree — a pair on "my mind", usually — when the reason is
    * plain. The waking write-up and sleep are the usual home; this is the
@@ -1962,6 +2163,23 @@ interface LaterPart {
 
 function firstLine(text: string): string {
   return (text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "").slice(0, 120);
+}
+
+/** A journal chapter's memory copy (`meta.episodeId`): never work, never offered to be marked. */
+function isJournalCopy(row: MemoryRow): boolean {
+  try {
+    const meta = JSON.parse(row.meta) as Record<string, unknown>;
+    return typeof meta["episodeId"] === "string";
+  } catch {
+    return false;
+  }
+}
+
+/** Does `text` name any of `names` (lowercase) as a whole word? */
+function namesAny(text: string, names: readonly string[]): boolean {
+  if (names.length === 0) return false;
+  const lower = text.toLowerCase();
+  return names.some((n) => new RegExp(`(^|[^\\p{L}\\p{N}])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`, "u").test(lower));
 }
 
 function round(x: number): number {

@@ -16,6 +16,30 @@
   The Spawn line goes amber when the background worker failed after it last started, or the
   same step failed two days running, and the Self page line says when the wake shows only the
   start of a long page.
+- **The nightly reflection sees how feelings ran over the last four weeks.** Its bundle now
+  carries a short pattern, a few hundred characters: how many feelings of each kind were
+  recorded each week, mine and the owner's apart, what changed over the last two weeks, and
+  the memories that pattern rests on, so it can cite them. It is counted from the recorded
+  feelings, not from the text. It may say the pattern on the self page in its own words,
+  citing those memories.
+- **A memory can be felt again during a session.** When an old memory comes up and feels
+  different now, `note` takes `feelingsNow`, with or without text. It records how the memory
+  feels now beside the original feeling, which stays, the same way the nightly reflection
+  does. It works only on a memory this session was shown, at most once a day per memory. The
+  feeling is marked as recorded later, while awake. The core counts it only when it would
+  count a feeling a reflection recorded later. Doctor's Reflection line says how many there
+  are, how many are strong enough for the core's fast lane, and how many are the owner's.
+- **The reflection is offered unmarked memories to mark.** A fact written in a project with
+  no "about" mark counts as that project's work. So a personal one, like a note about a
+  person, showed under "Work here". Each night the reflection is now offered up to five
+  memories nobody has marked. Those with a feeling, an entity, or the owner's name come
+  first, then the most used, then the oldest. It is asked to mark each as owner, us, work or
+  world. A mark the writer set is never offered to be changed.
+- **Fixed: a dream's merge no longer re-dates feelings.** Every feeling a merge carried used
+  to be dated to the merge night. Each now keeps the moment it was first recorded, as trait
+  nudges already did. A merge no longer sets the next morning's mood either.
+- **Fixed: "fear" in a question now reaches scared and frightened, not only afraid.** A word
+  the wheel reads as an alias (fear, thankful, touched) now counts as its wheel word.
 
 ## 0.3.11 — 2026-10-01
 

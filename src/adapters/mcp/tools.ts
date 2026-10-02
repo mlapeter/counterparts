@@ -187,9 +187,9 @@ const UNRESOLVED_PROPERTY = {
 /**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
  * door a model writes a feeling through (note, session_end, a dream's
- * feeling-now, a reflection's feelings), 2026-09-28: a dream put a phrase in
- * `emotion` because nothing it read said the word goes there and the nuance
- * in `carried_by`. A phrase that still arrives there is split, not refused.
+ * feeling-now, a reflection's feelings; note's feelingsNow since 2026-10-02),
+ * 2026-09-28: a dream put a phrase in `emotion` because nothing it read said
+ * the word goes there and the nuance in `carried_by`. A phrase that still arrives there is split, not refused.
  */
 export const EMOTION_TEXT =
   "ONE word: the feeling, from the wheel (happy: hopeful, eager, amused, proud; warm: grateful, fond, trusted, moved, tender; calm: steadied, relieved, settled, content; curious: interested, recognized, clarified, amazed, confused; sad: wistful, rueful, disappointed, lonely; uneasy: sheepish, caught out, guilty, unsettled, wary, worried, afraid; angry: frustrated, hurt, critical, disgusted) or your own word, kept as yours. Never a phrase — the nuance goes in carried_by. The core you name is kept even when the word sits under another: hurt can be sad or angry.";
@@ -235,6 +235,34 @@ const FEELINGS_PROPERTY = {
       },
     },
     required: ["whose", "emotion"],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
+ * `feelingsNow` on a `note` (2026-10-02, lane B, owner pick 2): RE-FEELING
+ * WHILE AWAKE. When an old memory comes up in a session and feels different
+ * now, a later feeling beside the first — the nightly reflection's
+ * feeling-now, from an ordinary session. On `note` and not `session_end`: the
+ * moment it comes up is mid-session, and `note` already acts on existing
+ * memories without writing one (`settle`).
+ */
+const FEELINGS_NOW_PROPERTY = {
+  type: "array",
+  description:
+    "Optional: when a memory you were shown in this session (by recall, or a write's neighbours) feels DIFFERENT now than when it was written, record how it feels now, beside the first — which stays. One object each, at most 5; `text` may be left out. Not for a new moment (that is `feelings`), not to restate the old feeling, and not on a memory you have not read here (recall it by id first). At most once a calendar day per memory; recorded as felt today, looking back, awake.",
+  items: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "The memory's id, as recall or a write showed it." },
+      whose: { type: "string", enum: ["self", "owner"], description: "Yours (the default), or the owner's when they said how it sits now." },
+      core: { type: "string", enum: CORES, description: `${CORE_TEXT} Leave it out to use the word's own core.` },
+      emotion: { type: "string", description: EMOTION_TEXT },
+      strength: { type: "number", minimum: 0, maximum: 1, description: "How strong now, 0-1. Leave it out for the word's default." },
+      valence: { type: "number", minimum: -1, maximum: 1, description: "Optional: how pleasant now, -1 to 1." },
+      carried_by: { type: "string", description: `${CARRIED_BY_TEXT} Say what changed.` },
+    },
+    required: ["id", "emotion"],
     additionalProperties: false,
   },
 } as const;
@@ -375,6 +403,7 @@ const NOTE: ToolSpec = {
     "Do NOT call it to record what you are about to do, or just did, in this session — that is a plan, not a memory.",
     "Do NOT call it to re-state something you were told earlier in this same conversation; it is already in your context and the ambient path already has it.",
     "Do NOT call it to store a credential, key or token 'for later' — the gate redacts it and the note is refused as empty.",
+    "Do NOT use `feelingsNow` for a feeling in this moment about something new — that is `feelings` on the note that remembers it — nor to restate how an old memory felt: only when it feels DIFFERENT now.",
   ],
   privileges: [
     {
@@ -432,6 +461,12 @@ const NOTE: ToolSpec = {
         "`settle` settles two memories that already exist, by the same rules, and rewrites neither: the pair and a short why are the record.",
       mechanizedBy: "src/core/counterpart.ts#settleContradiction -> src/core/contradictions.ts#settle",
     },
+    {
+      claim:
+        "`feelingsNow` records a later feeling beside the first, the way the nightly reflection does: only on a memory this session was shown, at most once a calendar day per memory, marked as recorded later and awake. The first feeling is never rewritten, and the core reads a later feeling only as it reads a reflection's.",
+      mechanizedBy:
+        "src/adapters/mcp/server.ts#feelingsNowOutcome -> src/core/dream/reflect.ts#Reflections.feelAgain (source awake, recorded_later) + src/core/store/index.ts#row (feeling_peak_lived)",
+    },
   ],
   inputSchema: {
     type: "object",
@@ -481,10 +516,11 @@ const NOTE: ToolSpec = {
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
       traits: TRAITS_PROPERTY,
+      feelingsNow: FEELINGS_NOW_PROPERTY,
     },
     // `text` is not required in the published schema (2026-09-29): a `settle`
-    // alone writes no memory. The server refuses `text-required` when neither
-    // is sent.
+    // or (2026-10-02) `feelingsNow` alone writes no memory. The server refuses
+    // `text-required` when none is sent.
     required: [],
     additionalProperties: false,
   },
