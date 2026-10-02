@@ -76,6 +76,8 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { wireChars } from "../core/fit/index.js";
+
 import {
   NO_HOST_EVIDENCE,
   planRetention,
@@ -1940,12 +1942,24 @@ export function writeUpParts(entries: readonly WriteUpEntry[], chunkBytes: numbe
 }
 
 /**
+ * WHAT A PIECE OF A PART COSTS (2026-10-02, review of #315): the larger of its
+ * UTF-8 bytes and its wire cost as it leaves — escaped inside the result's
+ * JSON, a non-ASCII character as three (`fit/wireChars`) — so a part sized at
+ * `chunkBytes` never meets the MCP server's net (`fit/TOOL_RESULT_CEILING`)
+ * however many quotes and newlines it carries. Escaping is per character, so
+ * the cost of a joined text is the sum of its pieces'.
+ */
+function partCost(text: string): number {
+  return Math.max(Buffer.byteLength(text, "utf8"), wireChars(JSON.stringify(text)) - 2);
+}
+
+/**
  * The same parts, each with the capture time of its latest entry — what dates
  * the day a write-up of that part records as LIVED (`happened_on`, 2026-10-01).
  */
 export function writeUpPartsDated(entries: readonly WriteUpEntry[], chunkBytes: number): { text: string; lastAt: number }[] {
   const size = Math.max(1, Math.floor(chunkBytes));
-  const sep = Buffer.byteLength(WRITE_UP_SEPARATOR, "utf8");
+  const sep = partCost(WRITE_UP_SEPARATOR);
   const parts: { text: string; lastAt: number }[] = [];
   let cur = "";
   let curBytes = 0;
@@ -1962,7 +1976,7 @@ export function writeUpPartsDated(entries: readonly WriteUpEntry[], chunkBytes: 
       (entry.jot ? `${WRITE_UP_JOT_MARK} ` : "") +
       (entry.reply === true ? `${WRITE_UP_REPLY_MARK} ` : "") +
       entry.text;
-    const bytes = Buffer.byteLength(rendered, "utf8");
+    const bytes = partCost(rendered);
     if (cur.length > 0 && curBytes + sep + bytes <= size) {
       cur += WRITE_UP_SEPARATOR + rendered;
       curBytes += sep + bytes;
@@ -1980,7 +1994,7 @@ export function writeUpPartsDated(entries: readonly WriteUpEntry[], chunkBytes: 
     let slice = "";
     let sliceBytes = 0;
     for (const ch of rendered) {
-      const b = Buffer.byteLength(ch, "utf8");
+      const b = partCost(ch);
       if (sliceBytes + b > size && slice.length > 0) {
         parts.push({ text: slice, lastAt: entry.at });
         slice = "";

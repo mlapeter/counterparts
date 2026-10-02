@@ -185,6 +185,43 @@ export function fit(candidates: readonly FitCandidate[], opts: FitOptions): FitO
   };
 }
 
+// ── the room one tool result has ────────────────────────────────────────────
+
+/**
+ * THE CEILING ON ONE TOOL RESULT (2026-10-02), the one number every tool
+ * result's cap derives from — the dream's and the reflection's parts, the
+ * nightly writer's day, and the MCP server's last-resort cut.
+ *
+ * MEASURED, not guessed: the night of 2026-10-02 (and of 10-01) Claude Code
+ * handed the model a 2 KB preview of every result over the line and saved the
+ * rest to a file the headless run cannot open, so the dream saw a third of
+ * its bundle. Read from Claude Code 2.1.287 itself, there are three lines:
+ *
+ *   - `HOST_CHARS`: a result whose text runs past 50,000 characters (the
+ *     host's global persist threshold, under the MCP tool's own 100,000) is
+ *     saved to a file — "Output too large (51.5KB)". The text it measures is
+ *     `structuredContent` serialized compact, when a result carries one.
+ *   - `HOST_TOKENS`: an MCP result past 25,000 tokens (`MAX_MCP_OUTPUT_TOKENS`)
+ *     is saved the same way — "result (51,306 characters) exceeds maximum
+ *     allowed tokens". It is counted for real only when the estimate
+ *     (length / 4) passes 12,500, that is past 50,000 characters, so under
+ *     the char line it never applies.
+ *   - `HOST_MESSAGE_CHARS`: 200,000 characters across one assistant turn's
+ *     results together (parts 2 and 3 fetched in parallel are one turn).
+ *
+ * `CHARS` is the room: 20% under the char line, so a result measured by
+ * `wireChars` (a non-ASCII character as three) under it reaches the model
+ * whole. RESIDUAL RISK: the host can lower either line by a remote flag
+ * (`tengu_velvet_ibis`); the nightly run pins the token line with the env var
+ * (`night-run.ts`), and nothing pins the char line. CAL.
+ */
+export const TOOL_RESULT_CEILING = {
+  HOST_CHARS: 50_000,
+  HOST_TOKENS: 25_000,
+  HOST_MESSAGE_CHARS: 200_000,
+  CHARS: 40_000,
+} as const;
+
 // ── what a text costs on the wire ───────────────────────────────────────────
 
 /**

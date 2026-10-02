@@ -150,6 +150,8 @@ export const TUNABLES = {
    * a tool result that this package has measured; this is the size the
    * write-up door already hands over in one part (`WRITE_UP_PART_BYTES`, ~24
    * KB), so a wake plus a pointer is never the first thing to find the real one.
+   * (2026-10-02: the real one is measured now — `fit/TOOL_RESULT_CEILING`,
+   * 40,000 under Claude Code's 50,000 — and this sits under it by choice.)
    */
   TOOL_RESULT_CHARS: 24_000,
   /**

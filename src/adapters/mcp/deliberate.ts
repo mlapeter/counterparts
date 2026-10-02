@@ -122,6 +122,9 @@ export const RECALL_RESULT_CHARS = 12_000;
  * `structuredContent` and a host may count both. About 19k tokens, under the
  * ~25k-token ceiling with room for the rest of the result. Ids past it WAIT,
  * named, for the next call.
+ *
+ * 2026-10-02: Claude Code counts only `structuredContent`, so one copy is
+ * about 28,000 — under `fit/TOOL_RESULT_CEILING` (40,000) with room, and kept.
  */
 export const RECALL_ID_RESULT_CHARS = 56_000;
 /**

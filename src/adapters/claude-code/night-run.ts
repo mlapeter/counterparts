@@ -69,6 +69,7 @@ import type { CounterpartEvent } from "../../core/counterpart.js";
 import type { NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
 import { scriptArgs } from "../runtime.js";
+import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
 import { TUNABLES } from "../config.js";
@@ -87,6 +88,8 @@ import type { SpawnPlan } from "../spawn.js";
 export const NIGHT_RUN_ENV = "COUNTERPARTS_NIGHT_RUN";
 /** What the run does: `night` (writer, dream, reflection) or `reflection:<dream id>`. */
 export const NIGHT_KIND_ENV = "COUNTERPARTS_NIGHT_KIND";
+/** Claude Code's own name for its MCP result token line (2026-10-02). */
+export const MCP_TOKENS_ENV = "MAX_MCP_OUTPUT_TOKENS";
 
 /**
  * THE FOUR TOOLS THE RUN MAY CALL, as the host names MCP tools — the dream
@@ -337,6 +340,11 @@ export function planNightChild(input: NightChildInput): NightChildPlan {
   for (const k of HOST_SESSION_ENV) delete env[k];
   env[DATA_DIR_ENV] = input.config.dataDir;
   env[NIGHT_RUN_ENV] = input.run;
+  // THE TOKEN LINE, PINNED (2026-10-02): the env var outranks the host's remote
+  // flag, so a flag that lowered it cannot spill a result the caps sized for
+  // 25,000 tokens (`fit/TOOL_RESULT_CEILING`). The 50,000-character line has
+  // no such pin.
+  env[MCP_TOKENS_ENV] = String(TOOL_RESULT_CEILING.HOST_TOKENS);
   if (input.session.length > 0) env[SESSION_ENV] = input.session;
   if (input.scope.length > 0) env[SCOPE_ENV] = input.scope;
   if (input.configPath !== undefined && input.configPath.length > 0) env[CONFIG_PATH_ENV] = input.configPath;

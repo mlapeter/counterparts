@@ -472,6 +472,16 @@ export const MECHANISMS: readonly Mechanism[] = [
     since: "2026-09-20",
   },
   {
+    // Built 2026-10-02: every MCP result is measured against the one ceiling
+    // (`fit/TOOL_RESULT_CEILING`); one over it is cut there with a note,
+    // rather than saved by the host where the model cannot read it.
+    id: "result-cut",
+    label: "a tool answer too long for the host to show was cut to fit, with a note saying so, instead of vanishing into a file",
+    module: "mcp/server.ts (withinCeiling)",
+    evidence: { kind: "event", names: ["mcp.result.oversize"] },
+    since: "2026-10-02",
+  },
+  {
     id: "association",
     label: "two memories that came to mind together got wired to each other",
     module: "associate/",
@@ -713,7 +723,9 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "the counterpart dreamed: replayed what was lived since the last dream, and wrote a journal",
     module: "dream/",
     evidence: { kind: "event", names: ["dream.journaled"] },
-    covers: ["dream.begun", "dream.undone"],
+    // A bundle's later parts handed (2026-10-02), the dream's and the
+    // reflection's both: the reading the journal was written from.
+    covers: ["dream.begun", "dream.undone", "mcp.part"],
     since: "2026-09-26",
   },
   {

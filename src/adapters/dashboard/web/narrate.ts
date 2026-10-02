@@ -835,6 +835,29 @@ export const NARRATORS = {
     );
   },
 
+  // ── what reached the model (2026-10-02) ─────────────────────────────────────
+  // HANDED, not read (review of #315): the row says the server gave the part
+  // out, not that anyone read it.
+  "mcp.part": (t) => {
+    const which = t.p["mechanism"] === "reflection" ? "reflection" : "dream";
+    const of = n(t, "of") ?? 1;
+    return calm(
+      of <= 1
+        ? `The ${which}'s bundle was handed over in one part.`
+        : `Part ${String(n(t, "part") ?? "?")} of ${String(of)} of the ${which}'s bundle was handed over.`,
+    );
+  },
+  "mcp.result.oversize": (t) => {
+    const tool = typeof t.p["tool"] === "string" ? t.p["tool"] : "a tool";
+    const phase = typeof t.p["phase"] === "string" ? ` (${t.p["phase"]})` : "";
+    const said = `An answer from ${tool}${phase} came to ${String(n(t, "chars") ?? "?")} characters, more than one answer can carry`;
+    return amber(
+      t.p["cut"] === true
+        ? `${said}; it was cut to ${String(n(t, "cutTo") ?? "?")}, with a note saying so.`
+        : `${said}; it went out whole, as nothing in it was one long text to cut.`,
+    );
+  },
+
   // ── going looking on purpose ───────────────────────────────────────────────
   "mcp.recall": (t) => {
     const { total, named } = topBlocked(t);
@@ -1098,6 +1121,9 @@ export const REF_KIND = {
   // The deliberate look carries counts and verdicts and deliberately no ids —
   // a durable pairing of memories with the moment somebody asked for them.
   "mcp.recall": "none",
+  // A part's run id (a dream's or a reflection's) is in its payload, not a memory.
+  "mcp.part": "none",
+  "mcp.result.oversize": "none",
   // Both prospective rows point at the MEMORY whose window it is: the window
   // key is a derived address on that row, not an entity of its own.
   "prospective.fire": "memory",

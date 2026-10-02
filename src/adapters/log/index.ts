@@ -112,6 +112,8 @@ export const LOGGED: { readonly names: ReadonlySet<string>; readonly suffixes: r
     // Refusals a process or a tool made by name.
     "runner.refused",
     "mcp.refused",
+    // A tool result cut to the host's ceiling (2026-10-02; durable too).
+    "mcp.result.oversize",
   ]),
   // Every failure, and every stand-down.
   suffixes: [".failed", ".threw", ".standdown"],

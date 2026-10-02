@@ -52,6 +52,8 @@ import {
   SNAPSHOT_ROTATED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
   MCP_RECALL_EVENT,
+  MCP_PART_EVENT,
+  MCP_OVERSIZE_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SPAWN_STARTED_EVENT,
@@ -197,6 +199,8 @@ export type DurableEventName =
   | typeof WRITE_UP_FAILED_EVENT
   | typeof CAPTURE_FAILED_EVENT
   | typeof MCP_RECALL_EVENT
+  | typeof MCP_PART_EVENT
+  | typeof MCP_OVERSIZE_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -250,6 +254,8 @@ export const DURABLE_EVENTS = {
   // surface wrote nothing, so a session that asked and got nothing and a session
   // that never asked were the same silence.
   "mcp.recall": "the session went looking for a memory on purpose (what kind of ask, how much came back, and every verdict that kept something out)",
+  "mcp.part": "a later part of a dream's or a reflection's bundle was handed over (which part of how many, and its size)",
+  "mcp.result.oversize": "a tool result came to more than the host shows in one answer, and was cut to fit with a note saying so",
   // Which CODE was live at a session start (2026-09-14): the hooks run whatever
   // the install tree has checked out, so a peer session's unmerged branch in
   // that tree is the memory layer the owner is using.

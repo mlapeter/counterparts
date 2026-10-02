@@ -44,6 +44,8 @@ import {
   EMBED_BACKFILL_EVENT,
   GATE_CHUNK_EVENT,
   GATE_DEPOSIT_EVENT,
+  MCP_OVERSIZE_EVENT,
+  MCP_PART_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -51,7 +53,9 @@ import {
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
+  WAKE_DELIVERED_EVENT,
 } from "../../core/counterpart.js";
 import { Counterpart } from "../../core/counterpart.js";
 import {
@@ -72,6 +76,7 @@ import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
+import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { dreamingSetting, nightPartsWords, nightRunLost, nightRunOf, nightRunWords } from "../../core/dream/index.js";
 import type { DreamingSetting } from "../../core/dream/index.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
@@ -2039,6 +2044,39 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
       finding("spawn", "amber", "Spawn", `spawn refusals standing: ${counts}${rowClause === "" ? "" : ` — ${rowClause}`}`, "A spawn that starts clears every counter.", data),
     ];
   }
+  // STARTED, THEN FAILED (2026-10-02, the "nobody saw it" review). The
+  // counters clear on a start, so a worker that starts every boundary and then
+  // throws — the wake not refreshed, the session-end pass not run — read green
+  // here with its failure only named in passing. STANDING (review of #315: one
+  // transient SQLITE_BUSY must not hold it amber for two days) means either
+  // the same step failed on both today and yesterday, or the newest failure is
+  // newer than the newest recorded start. Both rows are latched once a
+  // calendar date (a step's failure, and the first start; "newer" is the
+  // log's own order, `seq`), so the second reads
+  // "it failed after today's first start" and clears at the next day's first
+  // start unless the step fails again. Older is history, named in the clause.
+  const failures = newestRows(store, RUNNER_FAILED_EVENT, RUNNER_FAILED_ROWS, livedDay).rows;
+  const failed = failures[failures.length - 1];
+  const failedOn = rowDate(failed);
+  const started = newestRows(store, SPAWN_STARTED_EVENT, 1, livedDay).rows[0];
+  const yesterday = addDays(input.today, -1);
+  const stepOn = (step: string | null, date: string): boolean =>
+    failures.some((r) => str(payloadOf(r), "step") === step && rowDate(r) === date);
+  const repeated = failed !== undefined && stepOn(str(payloadOf(failed), "step"), input.today) && stepOn(str(payloadOf(failed), "step"), yesterday);
+  const sinceStart = failed !== undefined && (failedOn === input.today || failedOn === yesterday) && (started === undefined || failed.seq > started.seq);
+  if (failed !== undefined && failedOn !== null && (repeated || sinceStart)) {
+    const fp = payloadOf(failed);
+    return [
+      finding(
+        "spawn",
+        "amber",
+        "Spawn",
+        `the background worker started${startClause === "" ? "" : ` (${startClause.slice(2)})`} but failed at its ${str(fp, "step") ?? "?"} step on ${failedOn} (${str(fp, "code") ?? "?"})${rowClause === "" ? "" : ` — ${rowClause}`}`,
+        "Nothing to do by hand: the next boundary runs the worker again. If it repeats, the process log (the Log line) has the error.",
+        { ...data, startsToday: starts, failedStep: str(fp, "step"), failedOn },
+      ),
+    ];
+  }
   return [
     finding(
       "spawn",
@@ -2729,6 +2767,7 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   // of #256, S4). Counted apart from `alone`; one memory can be both.
   let later = 0;
   let promotionsUnread = false;
+  let marksUnread = false;
   try {
     last = store.reflections({ limit: 5 }).find((r) => r.state === "reflected");
     returns = store.returnCounts({ sinceAt: Date.parse(`${input.today}T00:00:00Z`) - 6 * 86_400_000 });
@@ -2747,7 +2786,10 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         continue;
       }
     }
-    for (const e of store.coreEvents({ action: "about", limit: 10_000 })) {
+    // A FULL READ IS A FLOOR (2026-10-02), said as one, as the promotions are.
+    const marks = store.coreEvents({ action: "about", limit: MARK_ROWS });
+    marksUnread = marks.length >= MARK_ROWS;
+    for (const e of marks) {
       if (e.actor !== "reflection") continue;
       const m = /^(\w+) \(was (\w+)\)/.exec(e.reason ?? "");
       if (m === null || m[1] === m[2]) continue;
@@ -2778,7 +2820,7 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     (!promotionsUnread && alone > 0 ? `; ${String(alone)} ${alone === 1 ? "memory" : "memories"} became core on reflection alone` : "") +
     (!promotionsUnread && later > 0 ? `; ${String(later)} ${later === 1 ? "memory" : "memories"} became core on a feeling a reflection recorded later` : "") +
     (relabeled > 0
-      ? `; ${String(relabeled)} ${relabeled === 1 ? "mark" : "marks"} changed by a reflection, ${String(movedIn)} of them into me, us or the owner`
+      ? `; ${marksUnread ? "at least " : ""}${String(relabeled)} ${relabeled === 1 ? "mark" : "marks"} changed by a reflection, ${String(movedIn)} of them into me, us or the owner${marksUnread ? ` (only the newest ${String(MARK_ROWS)} mark changes were read)` : ""}`
       : "");
   return [
     finding(
@@ -2799,10 +2841,20 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         promotedOnFeelingRecordedLater: promotionsUnread ? null : later,
         relabeledByReflection: relabeled,
         relabeledIntoCore: movedIn,
+        relabeledFloor: marksUnread,
       },
     ),
   ];
 }
+
+/** Mark changes the Reflection line reads, newest first; a read that comes back full is a floor. */
+const MARK_ROWS = 10_000;
+
+/** The newest `adapter.runner.failed` rows the Spawn line reads (one per step per date). */
+const RUNNER_FAILED_ROWS = 20;
+
+/** How many dreams the Dreaming line reads, newest first, to find the last one that stands. */
+const DREAM_ROWS = 200;
 
 /** How far back the lookup count reads, in lived days. */
 const LOOKUP_WINDOW_DAYS = 14;
@@ -2885,6 +2937,176 @@ export function lookupFindings(store: Store): Finding[] {
 
 /** Rows each lookup read takes, newest first; a read that comes back full is a floor. */
 const LOOKUP_ROWS = 2_000;
+
+/** How far back the Wake line reads, in lived days. */
+const WAKE_WINDOW_DAYS = 7;
+
+/**
+ * DID THE WAKE ARRIVE (2026-10-02, the "nobody saw it" review). At each
+ * session's first prompt the hook reads the transcript for the wake's tail
+ * mark and writes one `adapter.wake.delivered` row with the outcome
+ * (`hooks.ts#wakeOutcome`) — and until now no line read it: a wake the host
+ * cut short, or that arrived as something else, was green everywhere, along
+ * with the write-up and handoff pointers that ride at its end. AMBER on any
+ * `truncated` in the window. `mismatch` is counted, not graded (review of
+ * #315): a session resumed after its record was pruned finds the earlier
+ * wake's mark, which is not a cut. `printed-unverified` (a host build that
+ * does not record what it injected) and `not-found` are counted too. Silent
+ * with no rows.
+ */
+export function wakeArrivalFindings(store: Store): Finding[] {
+  const since = Math.max(0, store.livedDay() - WAKE_WINDOW_DAYS);
+  let wakes: EventRow[];
+  try {
+    wakes = store.eventLog({ name: WAKE_DELIVERED_EVENT, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
+  } catch {
+    return [];
+  }
+  const counts: Record<string, number> = {};
+  for (const row of wakes) {
+    const o = str(payloadOf(row), "outcome") ?? "unknown";
+    counts[o] = (counts[o] ?? 0) + 1;
+  }
+  const expected = wakes.length - (counts["no-wake-expected"] ?? 0);
+  if (expected <= 0) return [];
+  const whole = counts["delivered"] ?? 0;
+  const cut = counts["truncated"] ?? 0;
+  const mismatched = counts["mismatch"] ?? 0;
+  const unverified = counts["printed-unverified"] ?? 0;
+  const missing = counts["not-found"] ?? 0;
+  const window = `last ${String(WAKE_WINDOW_DAYS)} lived days`;
+  const rest =
+    (mismatched > 0 ? `; ${String(mismatched)} carried another wake's mark (a session resumed after its record was let go)` : "") +
+    (unverified > 0 ? `; ${String(unverified)} printed but not verifiable on this host build` : "") +
+    (missing > 0 ? `; ${String(missing)} not found in the transcript` : "") +
+    (wakes.length >= RESULTS_ROWS ? ". More rows than were read: the counts are a floor" : "");
+  const data = { wakes: expected, delivered: whole, cut, mismatch: mismatched, unverified, notFound: missing, floor: wakes.length >= RESULTS_ROWS };
+  if (cut > 0) {
+    const newest = wakes.find((r) => str(payloadOf(r), "outcome") === "truncated");
+    return [
+      finding(
+        "wake",
+        "amber",
+        "Wake",
+        `${window} — ${String(cut)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} reached the session cut short (newest ${rowDate(newest) ?? "?"}); ${String(whole)} arrived whole${rest}`,
+        "A wake cut short loses its end, and the write-up and handoff pointers ride there. Nothing to do by hand; if it repeats, the wake is over what the host takes in one — worth reporting with this line.",
+        data,
+      ),
+    ];
+  }
+  return [finding("wake", "green", "Wake", `${window} — ${String(whole)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} arrived whole${rest}`, "", data)];
+}
+
+/** How far back the Tool results line reads, in lived days. */
+const RESULTS_WINDOW_DAYS = 14;
+/** Rows each of its reads takes, newest first; a read that comes back full is a floor. */
+const RESULTS_ROWS = 2_000;
+
+/**
+ * WHAT REACHED THE MODEL (2026-10-02). The night of 10-02 every line here was
+ * green while the dream read a third of its bundle: Claude Code saved the
+ * begin and part 2 — each past its 50,000-character ceiling — to a file the
+ * headless run cannot open, and the Lookups line counts look-ups, the Nightly
+ * run line a run that finished. Two readings close that:
+ *
+ *   - an `mcp.result.oversize` row: a result came to more than the ceiling
+ *     (`fit/TOOL_RESULT_CEILING`) and the server cut it there. AMBER — a cap
+ *     upstream is too loose, and the model saw only the start of something.
+ *   - a dream or a reflection handed in parts (its `mcp.part` row for part 1
+ *     says how many) and finished without fetching every later part. AMBER —
+ *     it acted on a bundle it had not read. A run still open is not judged;
+ *     a run begun before parts were logged has no part-1 row and is not
+ *     judged either.
+ *
+ * Green says how many runs came in parts and the largest result handed.
+ * Silent on a store whose window holds no part rows at all.
+ */
+export function resultFindings(store: Store): Finding[] {
+  const since = Math.max(0, store.livedDay() - RESULTS_WINDOW_DAYS);
+  let oversize: EventRow[];
+  const runs = new Map<string, { mechanism: string; of: number; fetched: Set<number>; date: string | null }>();
+  let largest = 0;
+  let floor = false;
+  const open = new Set<string>();
+  try {
+    oversize = store.eventLog({ name: MCP_OVERSIZE_EVENT, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
+    const parts = store.eventLog({ name: MCP_PART_EVENT, sinceDay: since, order: "asc", limit: RESULTS_ROWS });
+    floor = oversize.length >= RESULTS_ROWS || parts.length >= RESULTS_ROWS;
+    for (const row of parts) {
+      const p = payloadOf(row);
+      const ref = str(p, "ref");
+      const part = num(p, "part");
+      const of = num(p, "of");
+      if (ref === null || part === null || of === null) continue;
+      largest = Math.max(largest, num(p, "chars") ?? 0);
+      // A part-1 row opens the run's count (a resumed dream's begin opens it again).
+      if (part === 1) runs.set(ref, { mechanism: str(p, "mechanism") ?? "dream", of, fetched: new Set([1]), date: rowDate(row) });
+      else runs.get(ref)?.fetched.add(part);
+    }
+    for (const d of store.dreams({ limit: RESULTS_ROWS })) if (d.state === "begun") open.add(d.id);
+    for (const r of store.reflections({ limit: RESULTS_ROWS })) if (r.state !== "reflected") open.add(r.id);
+  } catch {
+    return [];
+  }
+  if (oversize.length === 0 && runs.size === 0) return [];
+  const ceiling = TOOL_RESULT_CEILING.CHARS;
+  const inParts = [...runs.entries()].filter(([, r]) => r.of > 1);
+  const unread = inParts
+    .filter(([ref]) => !open.has(ref))
+    .map(([ref, r]) => {
+      const missing: number[] = [];
+      for (let k = 2; k <= r.of; k += 1) if (!r.fetched.has(k)) missing.push(k);
+      return { ref, ...r, missing };
+    })
+    .filter((r) => r.missing.length > 0);
+  const window = `last ${String(RESULTS_WINDOW_DAYS)} lived days`;
+  const newest = oversize[0];
+  const np = payloadOf(newest);
+  const overSaid =
+    newest === undefined
+      ? ""
+      : `${String(oversize.length)} ${oversize.length === 1 ? "result" : "results"} came to more than the ${String(ceiling)} characters one answer carries — the newest, ${str(np, "tool") ?? "a tool"}${str(np, "phase") === null ? "" : ` ${str(np, "phase") as string}`} on ${rowDate(newest) ?? "an unknown day"}, at ${String(num(np, "chars") ?? 0)}, ${np["cut"] === true ? `cut to ${String(num(np, "cutTo") ?? 0)} with a note saying so` : "shipped whole (nothing in it to cut)"}`;
+  const unreadSaid =
+    unread.length === 0
+      ? ""
+      : unread
+          .map((r) => `${r.mechanism === "reflection" ? "reflection" : "dream"} ${r.ref}${r.date === null ? "" : ` (${r.date})`} was handed in ${String(r.of)} parts and finished without part${r.missing.length === 1 ? "" : "s"} ${r.missing.join(", ")}`)
+          .join("; ");
+  const data = {
+    ceiling,
+    oversize: oversize.length,
+    newestOversizeTool: str(np, "tool"),
+    newestOversizeChars: num(np, "chars"),
+    runsInParts: inParts.length,
+    runsUnread: unread.length,
+    largestPart: largest,
+    floor,
+  };
+  if (overSaid.length > 0 || unreadSaid.length > 0) {
+    return [
+      finding(
+        "results",
+        "amber",
+        "Tool results",
+        `${window} — ${[overSaid, unreadSaid].filter((x) => x.length > 0).join("; ")}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
+        overSaid.length > 0
+          ? "Nothing to do by hand: the model was told the answer was cut. It means a cap upstream lets a result grow past the ceiling — worth reporting with this line."
+          : "Nothing to do by hand: the next night reads its own bundle. If it repeats, the run is skipping parts — worth reporting with this line.",
+        data,
+      ),
+    ];
+  }
+  return [
+    finding(
+      "results",
+      "green",
+      "Tool results",
+      `${window} — every result under ${String(ceiling)} characters; ${inParts.length === 0 ? "no bundle came in parts" : `${String(inParts.length)} ${inParts.length === 1 ? "bundle" : "bundles"} came in parts, every part read`}; the largest part handed was ${String(largest)} characters${floor ? ". More rows than were read: the counts are a floor" : ""}`,
+      "",
+      data,
+    ),
+  ];
+}
 
 /** How far back the Association line reads turns, in lived days. */
 const ASSOCIATION_WINDOW_DAYS = 7;
@@ -3038,7 +3260,9 @@ export function dreamingFindings(input: DoctorInput, store: Store): Finding[] {
   let ask: ReturnType<Store["dreamAsk"]>;
   let setting: DreamingSetting;
   try {
-    last = store.dreams({ limit: 5 }).find((d) => d.state !== "undone");
+    // Past any run of undone dreams (2026-10-02): five newest undone read as
+    // "has not dreamed yet" when the read stopped at five.
+    last = store.dreams({ limit: DREAM_ROWS }).find((d) => d.state !== "undone");
     ask = store.dreamAsk(input.today);
     setting = dreamingSetting(store);
   } catch {
@@ -3191,9 +3415,16 @@ export function selfPageFindings(store: Store): Finding[] {
     ];
   }
   const stale = pageStaleOn(page.revisedOn, store.today(), SELF_TUNABLES.PAGE_STALE_DAYS);
+  // WHAT THE WAKE SHOWS OF IT (2026-10-02, the "nobody saw it" review): a page
+  // past `PAGE_WAKE_BYTES` is kept whole but the wake carries only its start,
+  // so a session never reads the rest unless it asks. A chosen state, said.
+  const wakeShows =
+    page.bytes > SELF_TUNABLES.PAGE_WAKE_BYTES
+      ? `; the wake shows its first ${String(SELF_TUNABLES.PAGE_WAKE_BYTES)} bytes (the self_page tool reads it whole)`
+      : "";
   const detail =
     `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
-    `${page.by === null ? "" : ` by ${page.by}`}`;
+    `${page.by === null ? "" : ` by ${page.by}`}${wakeShows}`;
   // The day count and the limit ride along so a surface can say it in words
   // ("not rewritten in 16 days") without re-deriving either (dashboard health).
   const data = {
@@ -3202,6 +3433,7 @@ export function selfPageFindings(store: Store): Finding[] {
     version: page.version,
     revisedOn: page.revisedOn,
     stale,
+    wakeShowsAll: page.bytes <= SELF_TUNABLES.PAGE_WAKE_BYTES,
     daysSince: calendarDaysSince(page.revisedOn, store.today()),
     staleAfter: SELF_TUNABLES.PAGE_STALE_DAYS,
   };
@@ -4083,6 +4315,10 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["contradictions", () => contradictionFindings(store)],
     // Build B (2026-09-28): does anyone read what an index offers in part?
     ["lookups", () => lookupFindings(store)],
+    // 2026-10-02: what reached the model — results past the ceiling, parts never read.
+    ["results", () => resultFindings(store)],
+    // 2026-10-02: whether the wake reached the session whole (`adapter.wake.delivered`).
+    ["wake", () => wakeArrivalFindings(store)],
     // Association build 1 (2026-09-28): what spreading did, and the edges.
     ["association", () => associationFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
