@@ -356,6 +356,13 @@ export interface PromotionRecord extends PromotionCrossing {
    * with that door closed it would not have crossed tonight.
    */
   readonly feelingRecordedLater?: boolean;
+  /**
+   * 2026-10-02 (review of #317): with `feelingRecordedLater`, whose later
+   * feeling could have carried it — a reflection's, an ordinary session's
+   * feeling-now (`awake`), or both. Absent on a record written before, or when
+   * the feelings could not be read: then it was a reflection's.
+   */
+  readonly feelingRecordedLaterBy?: readonly ("reflection" | "awake")[];
 }
 
 /** A prune record as persisted: physics' record, plus the id it belongs to. */

@@ -2817,6 +2817,28 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
     expect(f.detail).toContain("a session start sent a little more than the reported ceiling");
   });
 
+  test("Wake: a prompt's recall that gave way is one row per session a day, each carrying its session (review of #318)", () => {
+    mintStore();
+    writeConfig();
+    // A configured budget past what one hook may print: every prompt's recall gives way.
+    const a = openAdapter(
+      { dataDir: dir, injectionBudgetBytes: 20_000, embedder: { enabled: true } },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), configPath },
+    );
+    open.push(a.counterpart);
+    for (const sessionId of ["s-one", "s-two"]) {
+      a.sessionStart({ sessionId, scope: "/tmp/scope", turns: [], at: "2026-09-14" });
+      a.userPromptSubmit({ sessionId, scope: "/tmp/scope", turns: [], at: "2026-09-14", prompt: "where were we on the bench?" });
+      // A second prompt the same day is the same row.
+      a.userPromptSubmit({ sessionId, scope: "/tmp/scope", turns: [], at: "2026-09-14", prompt: "and the vise?" });
+    }
+    const rows = store()
+      .eventLog({ name: ENVELOPE_GAVE_WAY_EVENT })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>)
+      .filter((p) => p["hook"] === "user-prompt-submit");
+    expect(rows.map((p) => p["session"]).sort()).toEqual(["s-one", "s-two"]);
+  });
+
   test("Reflection: a share stuck at `carried` says how long ago it was carried, and that it was never told", () => {
     const c = Counterpart.open({ dir, owner: true, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
     c.store.openReflection({ id: "rfl_aaaaaaaaaaaa", day: c.store.livedDay(), date: "2026-09-10", questions: [], shown: [] });

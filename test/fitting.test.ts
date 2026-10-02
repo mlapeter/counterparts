@@ -538,4 +538,34 @@ describe("a dream's and a reflection's bundles are read as a guest, on an owner'
     const recalled = await s.call("recall", { ids: [secret] });
     expect(JSON.stringify(recalled.structuredContent)).toContain("surgery date");
   });
+
+  test("a confidential chapter stays out of the dream's journal too; an ordinary one is there", async () => {
+    const c = brain();
+    days(c);
+    const day = c.store.livedDay();
+    mem(c, "The bench needs a new vise before the cabinet doors go on.");
+    const kept = c.store.put({ type: "episode", kind: "self", body: `${chapterHeading(1, day)}\n\nMike and I hung the cabinet doors and they swung true.\n`, source: "episode" });
+    const hidden = c.store.put({
+      type: "episode",
+      kind: "self",
+      body: `${chapterHeading(1, day)}\n\nMike told me about the biopsy, which nobody else knows yet.\n`,
+      source: "episode",
+      meta: { confidential: true },
+    });
+    expect(c.store.row(hidden)?.confidential).toBe(1);
+    const s = server(c);
+    const dream = await s.call("dream", { phase: "begin", session: SESSION });
+    expect(dream.isError ?? false).toBe(false);
+    const seen = JSON.stringify(dream.structuredContent);
+    expect(seen).toContain(kept);
+    expect(seen).toContain("cabinet doors and they swung true");
+    expect(seen).not.toContain(hidden);
+    expect(seen).not.toContain("biopsy");
+    // The reflection's last days of chapters, the same.
+    const reflect = await s.call("reflect", { phase: "begin", session: SESSION });
+    expect(reflect.isError ?? false).toBe(false);
+    const looked = JSON.stringify(reflect.structuredContent);
+    expect(looked).toContain("cabinet doors and they swung true");
+    expect(looked).not.toContain("biopsy");
+  });
 });

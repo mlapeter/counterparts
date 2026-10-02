@@ -74,7 +74,7 @@ import {
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
-import { acceptsReflectedFeeling, selfRelevantFeeling } from "../../core/sleep/index.js";
+import { acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
@@ -2804,6 +2804,12 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   // later — the half of "on reflection" the open door lets through (review
   // of #256, S4). Counted apart from `alone`; one memory can be both.
   let later = 0;
+  // ...and one an ordinary session's feeling-now carried through the same
+  // door (`feelingRecordedLaterBy` names `awake`, review of #317): said apart,
+  // never credited to a reflection. A memory both could have carried is said
+  // once, as both (review of #319).
+  let laterAwake = 0;
+  let laterBoth = 0;
   let promotionsUnread = false;
   let marksUnread = false;
   // Feelings recorded looking back while AWAKE (lane B, 2026-10-02): loose on purpose, so said.
@@ -2820,9 +2826,13 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     promotionsUnread = promotions.length >= PROMOTED_ROWS;
     for (const row of promotions) {
       try {
-        const p = JSON.parse(row.payload ?? "{}") as { reflectionOnly?: unknown; feelingRecordedLater?: unknown };
+        const p = JSON.parse(row.payload ?? "{}") as { reflectionOnly?: unknown; feelingRecordedLater?: unknown; feelingRecordedLaterBy?: unknown };
         if (p.reflectionOnly === true) alone += 1;
-        if (p.feelingRecordedLater === true) later += 1;
+        const byReflection = laterFeelingWasReflections(p);
+        const byAwake = laterFeelingWasAwake(p);
+        if (byReflection && byAwake) laterBoth += 1;
+        else if (byReflection) later += 1;
+        else if (byAwake) laterAwake += 1;
       } catch {
         continue;
       }
@@ -2874,11 +2884,18 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
       : "") +
     (!promotionsUnread && alone > 0 ? `; ${String(alone)} ${alone === 1 ? "memory" : "memories"} became core on reflection alone` : "") +
     (!promotionsUnread && later > 0 ? `; ${String(later)} ${later === 1 ? "memory" : "memories"} became core on a feeling a reflection recorded later` : "") +
+    (!promotionsUnread && laterAwake > 0
+      ? `; ${String(laterAwake)} ${laterAwake === 1 ? "memory" : "memories"} became core on a feeling recorded looking back in a session`
+      : "") +
+    (!promotionsUnread && laterBoth > 0
+      ? `; ${String(laterBoth)} ${laterBoth === 1 ? "memory" : "memories"} became core on a feeling recorded later, both a reflection's and a session's`
+      : "") +
     (relabeled > 0
       ? `; ${marksUnread ? "at least " : ""}${String(relabeled)} ${relabeled === 1 ? "mark" : "marks"} changed by a reflection, ${String(movedIn)} of them into me, us or the owner${marksUnread ? ` (only the newest ${String(MARK_ROWS)} mark changes were read)` : ""}`
       : "") +
+    // A lifetime count beside the week's returns, so it says "in all" (review of #317).
     (awake.total > 0
-      ? `; ${String(awake.total)} ${awake.total === 1 ? "feeling" : "feelings"} recorded looking back in a session, ${String(awake.fast)} at the core's fast-lane strength, ${String(awake.owner)} the owner's`
+      ? `; in all, ${String(awake.total)} ${awake.total === 1 ? "feeling" : "feelings"} recorded looking back in a session, ${String(awake.fast)} at the core's fast-lane strength, ${String(awake.owner)} the owner's`
       : "");
   return [
     finding(
@@ -2898,6 +2915,8 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         returnsDream: returns.dream,
         promotedOnReflectionAlone: promotionsUnread ? null : alone,
         promotedOnFeelingRecordedLater: promotionsUnread ? null : later,
+        promotedOnAwakeFeeling: promotionsUnread ? null : laterAwake,
+        promotedOnBothLaterFeelings: promotionsUnread ? null : laterBoth,
         relabeledByReflection: relabeled,
         relabeledIntoCore: movedIn,
         relabeledFloor: marksUnread,

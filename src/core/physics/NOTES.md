@@ -407,7 +407,9 @@ Working defaults from the owner's conversation of 2026-09-27, held lightly.
   weeks of weekly citing; that is left open on purpose — a memory the waking self keeps
   coming back to every week for a month is the slow lane's own description.
 - **The fast lane and a feeling recorded later.** `MemoryPhysics.feelingPeakLived` is the
-  peak without the feelings a reflection recorded later (`Store.row()` computes both).
+  peak without the feelings a reflection recorded later — and, since #317 (2026-10-02),
+  those an ordinary session recorded looking back (`source: awake`); both are
+  `store/feelings.ts#LATER_FEELING_SOURCES` (`Store.row()` computes both peaks).
   `promotionEligibility` reads it unless `ctx.acceptsReflectedFeeling` (else the tunable
   `CORE_FAST_ACCEPTS_REFLECTED_FEELING`) is true. The design review of 2026-09-27 wanted
   it closed; **the owner opened it** the same day: nearly all sessions are straight work

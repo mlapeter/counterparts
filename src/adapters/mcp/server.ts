@@ -503,7 +503,7 @@ const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, s
 const MEMORY_KINDS = Object.keys(KIND_SET) as readonly Kind[];
 
 /** Sessions whose "shown" a server keeps in memory for `feelingsNow` (Desktop serves many). */
-const SEEN_SESSIONS = 32;
+export const SEEN_SESSIONS = 32;
 
 export class McpServer {
   readonly counterpart: Counterpart;

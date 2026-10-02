@@ -342,7 +342,9 @@ dream having run.
     (`once-a-day`), and labeled — `source: awake`, `recorded_later` = today, carried_by
     "looking back, awake, <date>: …". Mine by default, the owner's when they said so. At
     most `AWAKE_FEELINGS` (5) a call. The core's fast lane reads it only through the
-    reflected-feeling door, as a reflection's (`store/feelings.ts#LATER_FEELING_SOURCES`).
+    reflected-feeling door, as a reflection's (`store/feelings.ts#LATER_FEELING_SOURCES`);
+    a memory it carries to the core is not named by a share as the reflection's
+    (`PromotionRecord.feelingRecordedLaterBy`, review of #317).
   - **About marks** (at most 8): `me`, `us`, `owner`, `work`, `world`, each with a why
     (one not given is recorded as "no why given"); a core mark on a dream's gist or a
     reflection's own entry is refused (`work`/`world` stay open on those); one on a

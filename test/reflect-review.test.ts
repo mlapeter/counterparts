@@ -16,7 +16,8 @@ import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import { run } from "../src/adapters/cli/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { REFLECTED_FEELING_KEY, TUNABLES as SLEEP, aboutMe, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
+import { REFLECTED_FEELING_KEY, TUNABLES as SLEEP, aboutMe, laterFeelingCarriers, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
+import { TUNABLES as PHYSICS_TUNABLES } from "../src/core/physics/index.js";
 import { V9_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { PAGE_WRITING_RULE } from "../src/core/self/index.js";
@@ -379,12 +380,80 @@ describe("S4: a promotion that needed a feeling recorded later is shown like one
     const record = JSON.parse(c.store.getMeta(promotionRecordKey(id)) ?? "{}") as Record<string, unknown>;
     expect(record["reflectionOnly"]).toBe(false);
     expect(record["feelingRecordedLater"]).toBe(true);
+    expect(record["feelingRecordedLaterBy"]).toEqual(["reflection"]);
     const line = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
     expect(line?.detail).toContain("on a feeling a reflection recorded later");
+    expect(line?.detail).not.toContain("became core on a feeling recorded looking back in a session");
+    expect(line?.data).toMatchObject({ promotedOnFeelingRecordedLater: 1, promotedOnAwakeFeeling: 0 });
     nextDay(c);
     const next = reflect(c, []);
     expect(next.bundle.becameCore).toEqual([id]);
     expect(next.outcome.share.offered).toBe(true);
+  });
+
+  test("review of #317: the same crossing on an ordinary session's feeling-now is said as that, not credited to a reflection", async () => {
+    const { reflectionFindings } = await import("../src/adapters/claude-code/doctor.js");
+    const c = brain();
+    nextDay(c);
+    const id = mem(c, "Mike lets an AI act for itself.", { kind: "person", about: "us", salience: { relevance: 0.7, emotional: 0, predictive: 0.5 } });
+    nextDay(c);
+    nextDay(c);
+    nextDay(c);
+    // The feeling comes from a session looking back, awake — no reflection.
+    c.store.addFeelings(id, [{ whose: "self", core: "happy", emotion: "hopeful", strength: 0.8 }], { source: "awake", recordedLater: c.store.today() });
+    nextDay(c);
+    expect(c.store.reinforce(id, c.store.livedDay(), "referenced", { cued: true }).ret?.counted).toBe(true);
+    const report = sleepNow(c);
+    expect(report.promoted.map((p) => p.id)).toEqual([id]);
+    const record = JSON.parse(c.store.getMeta(promotionRecordKey(id)) ?? "{}") as Record<string, unknown>;
+    expect(record["feelingRecordedLater"]).toBe(true);
+    expect(record["feelingRecordedLaterBy"]).toEqual(["awake"]);
+    const line = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
+    expect(line?.detail).not.toContain("a reflection recorded later");
+    expect(line?.detail).toContain("1 memory became core on a feeling recorded looking back in a session");
+    expect(line?.data).toMatchObject({ promotedOnFeelingRecordedLater: 0, promotedOnAwakeFeeling: 1 });
+    // The next reflection's share does not name it as its own.
+    nextDay(c);
+    const next = reflect(c, []);
+    expect(next.bundle.becameCore).toEqual([]);
+  });
+
+  test("a record from before #317 (no `feelingRecordedLaterBy`) is still read as a reflection's", async () => {
+    const { reflectionFindings } = await import("../src/adapters/claude-code/doctor.js");
+    const c = brain();
+    c.store.appendEvent({ name: "band.promoted", day: c.store.livedDay(), ref: "mem_old", payload: { reflectionOnly: false, feelingRecordedLater: true } });
+    const line = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
+    expect(line?.detail).toContain("1 memory became core on a feeling a reflection recorded later");
+    expect(line?.data).toMatchObject({ promotedOnFeelingRecordedLater: 1, promotedOnAwakeFeeling: 0 });
+  });
+
+  test("a memory both sources could have carried is said once, as both (review of #319)", async () => {
+    const { reflectionFindings } = await import("../src/adapters/claude-code/doctor.js");
+    const c = brain();
+    const day = c.store.livedDay();
+    const promoted = (ref: string, by: string[]): void => {
+      c.store.appendEvent({ name: "band.promoted", day, ref, payload: { reflectionOnly: false, feelingRecordedLater: true, feelingRecordedLaterBy: by } });
+    };
+    promoted("mem_r", ["reflection"]);
+    promoted("mem_a", ["awake"]);
+    promoted("mem_b", ["reflection", "awake"]);
+    const line = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
+    expect(line?.detail).toContain("1 memory became core on a feeling a reflection recorded later");
+    expect(line?.detail).toContain("1 memory became core on a feeling recorded looking back in a session");
+    expect(line?.detail).toContain("1 memory became core on a feeling recorded later, both a reflection's and a session's");
+    expect(line?.data).toMatchObject({ promotedOnFeelingRecordedLater: 1, promotedOnAwakeFeeling: 1, promotedOnBothLaterFeelings: 1 });
+  });
+
+  test("laterFeelingCarriers: the sources at the fast lane's strength, never an empty list", () => {
+    const strong = PHYSICS_TUNABLES.CORE_FAST_FEELING;
+    const port = (rows: { source: string | null; strength: number }[]) => ({
+      feelingsFor: () => rows.map((r) => ({ whose: "self", emotion: "hopeful", other_word: null, ...r })),
+    });
+    expect(laterFeelingCarriers({}, "m")).toBeUndefined();
+    expect(laterFeelingCarriers(port([]), "m")).toBeUndefined();
+    expect(laterFeelingCarriers(port([{ source: "awake", strength: strong - 0.01 }, { source: "session", strength: 1 }]), "m")).toBeUndefined();
+    expect(laterFeelingCarriers(port([{ source: "awake", strength: strong }]), "m")).toEqual(["awake"]);
+    expect(laterFeelingCarriers(port([{ source: "awake", strength: strong }, { source: "reflection", strength: 1 }]), "m")).toEqual(["reflection", "awake"]);
   });
 });
 

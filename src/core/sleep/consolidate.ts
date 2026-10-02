@@ -198,6 +198,53 @@ export function selfRelevantFeeling(
 }
 
 /**
+ * WHICH LATER FEELING CARRIED A PROMOTION (2026-10-02, review of #317): the
+ * sources among `LATER_FEELING_SOURCES` with a feeling on the memory at the
+ * fast lane's strength (`CORE_FAST_FEELING`, on the raw strength the peak
+ * reads). Asked only when the lane would not have been met with the door
+ * closed — every lived feeling fell short — so each source listed could have
+ * met it alone; both may be. Undefined when the port cannot read feelings or
+ * none is found (never an empty list): the record then says only
+ * `feelingRecordedLater`, read as a reflection's.
+ */
+export function laterFeelingCarriers(store: Pick<SleepStore, "feelingsFor">, id: string): readonly ("reflection" | "awake")[] | undefined {
+  if (store.feelingsFor === undefined) return undefined;
+  try {
+    const rows = store.feelingsFor(id);
+    const out: ("reflection" | "awake")[] = [];
+    for (const src of LATER_FEELING_SOURCES) {
+      if (src !== "reflection" && src !== "awake") continue;
+      if (rows.some((f) => f.source === src && f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING)) out.push(src);
+    }
+    // None found (review of #319): say nothing rather than an empty list a
+    // reader would credit to no one; absent reads as a reflection's.
+    return out.length === 0 ? undefined : out;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The fields of a promotion record the two readers below look at, as parsed JSON. */
+type LaterFeelingFields = { readonly feelingRecordedLater?: unknown; readonly feelingRecordedLaterBy?: unknown };
+
+/**
+ * Did a REFLECTION's feeling carry this promotion? `feelingRecordedLater`, with
+ * `feelingRecordedLaterBy` naming a reflection — or naming no one, as on a
+ * record written before #317, when no other source came through the door.
+ */
+export function laterFeelingWasReflections(rec: LaterFeelingFields): boolean {
+  if (rec.feelingRecordedLater !== true) return false;
+  const by = rec.feelingRecordedLaterBy;
+  return !Array.isArray(by) || by.includes("reflection");
+}
+
+/** Did an ordinary session's feeling-now (`awake`, #317) carry this promotion? */
+export function laterFeelingWasAwake(rec: LaterFeelingFields): boolean {
+  const by = rec.feelingRecordedLaterBy;
+  return rec.feelingRecordedLater === true && Array.isArray(by) && by.includes("awake");
+}
+
+/**
  * DOES THIS PERSON MEMORY NAME THE OWNER? — the old kind reading (title, body,
  * or its `name` / `entity` meta, whole word), kept for what it still answers
  * that is not the core's question: which memories a dream's bundle files under
@@ -378,17 +425,22 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // alone" is a number doctor can print rather than a guess.
     const sources = returnSourcesOf(store, e.id);
     // AND WHETHER THE OPEN DOOR CARRIED IT (review of #256, S4): with the
-    // fast lane open to feelings a reflection recorded later, would it still
-    // have crossed with that door closed? If not, a reflection's feeling is
-    // what carried it — shown like a promotion on reflection alone, whatever
-    // the source of its return.
+    // fast lane open to feelings recorded later, would it still have crossed
+    // with that door closed? If not, a later feeling is what carried it.
+    // WHOSE (review of #317, 2026-10-02): since #317 an ordinary session's
+    // feeling-now (`awake`) comes through the same door as a reflection's, so
+    // the record names which could have carried it — a reflection's is shown
+    // like a promotion on reflection alone, an awake one is said apart.
     const closed = reflected ? promotionEligibility(e.physics, { aboutMe: true, day, acceptsReflectedFeeling: false }) : null;
+    const later = closed !== null && !closed.fast.met && !closed.slow.met;
+    const by = later ? laterFeelingCarriers(store, e.id) : undefined;
     const record: PromotionRecord = {
       id: e.id,
       ...e.crossing,
       returnSources: sources,
       reflectionOnly: sources.reflection > 0 && sources.awake === 0,
-      feelingRecordedLater: closed !== null && !closed.fast.met && !closed.slow.met,
+      feelingRecordedLater: later,
+      ...(by === undefined ? {} : { feelingRecordedLaterBy: by }),
     };
     if (ctx.apply) {
       // Record BEFORE the flag: a crossing nobody could account for afterwards

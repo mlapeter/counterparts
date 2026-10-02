@@ -502,3 +502,16 @@ awake (`feelAgain`) takes the call's own stance (#317 × #318).
 No host reads a bundle as the owner; `CounterpartOptions.bundlesAsOwner` (`ctx.bundleOwner`)
 exists for the store-level tests of what an owner-read bundle must keep — a merge of a
 confidential memory is confidential, a page rests on nothing confidential — which opt in.
+
+**Two things the guest bundle does not cover, for now (2026-10-02, left open for the owner).**
+- *A recall during an `ask` dream.* The dream's background agent calls the session's own
+  server, which is the owner's since #318. The bundle and its parts stay guest, but a `recall`
+  BY QUESTION the agent makes mid-dream answers as that server does, so it can return a
+  confidential memory's text — and what the agent writes then lands in the dream's journal,
+  which carries no confidentiality mark. By id it would need a confidential id, which the
+  bundle never hands it (only such a recall could). Narrow; not closed here — whether the
+  dream's recall should read as a guest, or the journal take a mark, is the owner's call.
+- *The ask can promise more than the bundle holds.* The gate (`gate`, `previewAsk`, the
+  offer's count) keeps `ctx.owner`, so it counts confidential new memories that the guest
+  bundle then leaves out: on a store whose only new memories are confidential, "yes, dream"
+  can come back with nothing new. A known quirk, kept as is.

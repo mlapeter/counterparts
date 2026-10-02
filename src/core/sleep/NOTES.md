@@ -857,7 +857,15 @@ Working defaults, held lightly.
 - **The promotion record names its returns' sources** (`returnSources`, `reflectionOnly`),
   read off the memory's `returns` rows when the port has `returnsOf` — and
   `feelingRecordedLater` (review of #256): it would not have crossed tonight with the
-  door to feelings recorded later closed.
+  door to feelings recorded later closed. Since #317 an ordinary session's feeling-now
+  (`source: awake`) comes through that door too, so the record also says WHOSE
+  (`feelingRecordedLaterBy`, 2026-10-02, review of #317): the later sources with a feeling
+  at `CORE_FAST_FEELING` — `reflection`, `awake`, or both — read off `feelingsFor`.
+  Doctor and the reflection's share credit a reflection only when it names `reflection`
+  (`laterFeelingWasReflections`); an `awake` one is said apart, and one both could have
+  carried is said once, as both (review of #319). Absent (an older record, no
+  `feelingsFor`, or none found — never an empty list), it reads as a reflection's: before
+  #317 nothing else came through.
 - **The fast lane's door for feelings recorded later** is a meta row,
   `core.fast.acceptsReflectedFeeling` (`on` / `off`), read once per consolidation
   (`acceptsReflectedFeeling`); absent, the physics tunable decides (open).
