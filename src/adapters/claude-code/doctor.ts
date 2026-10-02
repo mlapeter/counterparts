@@ -76,7 +76,7 @@ import type { EventRow } from "../../core/store/index.js";
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
 import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
-import { dreamingSetting, nightPartsWords, nightRunLost, nightRunOf, nightRunWords } from "../../core/dream/index.js";
+import { awakeFeelingCounts, dreamingSetting, nightPartsWords, nightRunLost, nightRunOf, nightRunWords } from "../../core/dream/index.js";
 import type { DreamingSetting } from "../../core/dream/index.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
 import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
@@ -2754,7 +2754,10 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   let later = 0;
   let promotionsUnread = false;
   let marksUnread = false;
+  // Feelings recorded looking back while AWAKE (lane B, 2026-10-02): loose on purpose, so said.
+  let awake = { total: 0, fast: 0, owner: 0 };
   try {
+    awake = awakeFeelingCounts(store);
     last = store.reflections({ limit: 5 }).find((r) => r.state === "reflected");
     returns = store.returnCounts({ sinceAt: Date.parse(`${input.today}T00:00:00Z`) - 6 * 86_400_000 });
     // Newest first with a named ceiling. The default read was the OLDEST 500
@@ -2807,6 +2810,9 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     (!promotionsUnread && later > 0 ? `; ${String(later)} ${later === 1 ? "memory" : "memories"} became core on a feeling a reflection recorded later` : "") +
     (relabeled > 0
       ? `; ${marksUnread ? "at least " : ""}${String(relabeled)} ${relabeled === 1 ? "mark" : "marks"} changed by a reflection, ${String(movedIn)} of them into me, us or the owner${marksUnread ? ` (only the newest ${String(MARK_ROWS)} mark changes were read)` : ""}`
+      : "") +
+    (awake.total > 0
+      ? `; ${String(awake.total)} ${awake.total === 1 ? "feeling" : "feelings"} recorded looking back in a session, ${String(awake.fast)} at the core's fast-lane strength, ${String(awake.owner)} the owner's`
       : "");
   return [
     finding(
@@ -2828,6 +2834,9 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         relabeledByReflection: relabeled,
         relabeledIntoCore: movedIn,
         relabeledFloor: marksUnread,
+        awakeFeelings: awake.total,
+        awakeFeelingsFast: awake.fast,
+        awakeFeelingsOwner: awake.owner,
       },
     ),
   ];

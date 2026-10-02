@@ -64,6 +64,8 @@ export type { DreamAction } from "./tunables.js";
 export { MIND_TUNABLES, mindRanked, onMyMind } from "./mind.js";
 export type { MindItem } from "./mind.js";
 export { CORE_MENTIONED_PREFIX, REFLECT_QUESTIONS, REFLECT_TUNABLES, Reflections, reflectionOpener } from "./reflect.js";
+export { FEELING_WEEKS_TUNABLES, awakeFeelingCounts, feelingWeeks } from "./feeling-weeks.js";
+export type { FeelingWeeks } from "./feeling-weeks.js";
 export type { ReflectBundle, ReflectContext, ReflectFinish, ReflectItem, ReflectOutcome, ReflectRefusal } from "./reflect.js";
 
 /**

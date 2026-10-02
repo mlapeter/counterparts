@@ -1055,3 +1055,15 @@ over both copies) is ~28,000 per copy: under the ceiling, and left as it was.
   refusal of a feeling.
 - The core is `Reflections#feelAgain`, the reflection's own path (`dream/NOTES.md`,
   2026-10-02).
+
+### After the review of #316
+
+- **Only what recall DELIVERED is shown** — the payload's memories, not the ids left
+  `waiting` for room. A footnote or a link's pointer in ambient recall is a title, not
+  the memory: only `tier: surfaced` rows count.
+- **Kept per session** (`seenBySession`, the newest 32): Desktop's one server serves many
+  sessions, and a Claude Code process starts a new session on /clear. The key is the
+  session the call is served as on Desktop, else the session the host is running now,
+  else the bound one.
+- **An error only when nothing landed**: a note refused beside a feeling that was
+  recorded is not an error — else the model resends and meets `once-a-day`.

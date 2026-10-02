@@ -21,7 +21,9 @@
  * reflection's to read, not another place to show the same thing.
  */
 import { addDays, daysBetween, isDay, localDate } from "../time.js";
-import type { MemoryRow, Store } from "../store/index.js";
+import { TUNABLES as PHYSICS_TUNABLES } from "../physics/index.js";
+import { FEELING_SOURCES, LATER_FEELING_SOURCES } from "../store/index.js";
+import type { FeelingSource, MemoryRow, Store } from "../store/index.js";
 
 export const FEELING_WEEKS_TUNABLES = {
   /** Seven-day windows, the last ending today. */
@@ -44,17 +46,28 @@ export interface FeelingWeeks {
   readonly mine: Readonly<Record<string, readonly number[]>>;
   /** The owner's, the same way. */
   readonly owner: Readonly<Record<string, readonly number[]>>;
-  /** Of everything counted, how many were recorded later, looking back (by a reflection, or awake). */
-  readonly lookingBack: number;
-  /** What changed, the last two weeks against the two before, in words. Empty on a steady month. */
+  /**
+   * Of the counts above, how many were recorded LATER, looking back (by a
+   * reflection or awake), by core — mine and the owner's; a core with none is
+   * left out. Review of #316: one number for everything said nothing.
+   */
+  readonly lookingBack: { readonly mine: Readonly<Record<string, number>>; readonly owner: Readonly<Record<string, number>> };
+  /**
+   * What changed, the last two weeks against the two before, in words. Empty
+   * on a steady month. A reflection's OWN later feelings are left out of it
+   * (review of #316): three uneasy recorded tonight must not read tomorrow as
+   * "my uneasy up" — the reflection would be reading itself back.
+   */
   readonly changed: readonly string[];
   /** Memory ids the pattern rests on — the strongest feelings behind what changed (or behind the commonest core). Read them before you cite them. */
   readonly restsOn: readonly string[];
 }
 
-/** A dream's feeling-now is not counted (a dream is not lived). */
-const COUNTED_SOURCES = new Set<string | null>([null, "session", "reflection", "awake"]);
-const LATER = new Set<string | null>(["reflection", "awake"]);
+/** Every source but a dream's feeling-now (a dream is not lived); null is a bare row, felt at the time. */
+const COUNTED_SOURCES = new Set<string | null>([null, ...FEELING_SOURCES.filter((x) => x !== "dream")]);
+const LATER = new Set<string | null>(LATER_FEELING_SOURCES);
+/** The source left out of `changed`: the reader's own. */
+const OWN: FeelingSource = "reflection";
 
 /**
  * The pattern as of `today` (a calendar day), or null when no feeling was
@@ -80,27 +93,27 @@ export function feelingWeeks(
     }
     return rows.get(id) ?? null;
   };
-  type Hit = { memory: string; whose: "self" | "owner"; core: string; week: number; strength: number };
+  type Hit = { memory: string; whose: "self" | "owner"; core: string; week: number; strength: number; own: boolean };
   const hits: Hit[] = [];
-  let lookingBack = 0;
+  const back: { self: Record<string, number>; owner: Record<string, number> } = { self: {}, owner: {} };
   for (const f of store.feelingsLive()) {
     if (!COUNTED_SOURCES.has(f.source ?? null)) continue;
     if (f.whose !== "self" && f.whose !== "owner") continue;
     const day = localDate(f.created_at, zone);
     if (day < first || day > today) continue;
     if (lived(f.memory_id) === null) continue;
-    const back = daysBetween(day, today);
-    const week = T.WEEKS - 1 - Math.floor(back / 7);
+    const ago = daysBetween(day, today);
+    const week = T.WEEKS - 1 - Math.floor(ago / 7);
     if (week < 0 || week >= T.WEEKS) continue;
-    hits.push({ memory: f.memory_id, whose: f.whose, core: f.core, week, strength: f.strength });
-    if (LATER.has(f.source ?? null)) lookingBack += 1;
+    hits.push({ memory: f.memory_id, whose: f.whose, core: f.core, week, strength: f.strength, own: f.source === OWN });
+    if (LATER.has(f.source ?? null)) back[f.whose][f.core] = (back[f.whose][f.core] ?? 0) + 1;
   }
   if (hits.length === 0) return null;
 
-  const tally = (whose: "self" | "owner"): Map<string, number[]> => {
+  const tally = (whose: "self" | "owner", withOwn = true): Map<string, number[]> => {
     const out = new Map<string, number[]>();
     for (const h of hits) {
-      if (h.whose !== whose) continue;
+      if (h.whose !== whose || (!withOwn && h.own)) continue;
       const counts = out.get(h.core) ?? new Array<number>(T.WEEKS).fill(0);
       counts[h.week] = (counts[h.week] ?? 0) + 1;
       out.set(h.core, counts);
@@ -117,7 +130,7 @@ export function feelingWeeks(
   const half = Math.floor(T.WEEKS / 2);
   type Change = { whose: "self" | "owner"; core: string; before: number; recent: number; up: boolean };
   const changes: Change[] = [];
-  for (const [whose, m] of [["self", mineAll], ["owner", ownerAll]] as const) {
+  for (const [whose, m] of [["self", tally("self", false)], ["owner", tally("owner", false)]] as const) {
     for (const [core, counts] of m) {
       const before = sum(counts.slice(0, half));
       const recent = sum(counts.slice(half));
@@ -147,7 +160,7 @@ export function feelingWeeks(
       took += 1;
     }
   };
-  for (const c of shownChanges) add((h) => h.whose === c.whose && h.core === c.core && (c.up ? h.week >= half : h.week < half), T.PER_CHANGE);
+  for (const c of shownChanges) add((h) => !h.own && h.whose === c.whose && h.core === c.core && (c.up ? h.week >= half : h.week < half), T.PER_CHANGE);
   if (shownChanges.length === 0) {
     const commonest = [...mineAll].sort((a, b) => sum(b[1]) - sum(a[1]) || (a[0] < b[0] ? -1 : 1))[0]?.[0];
     if (commonest !== undefined) add((h) => h.whose === "self" && h.core === commonest, T.PER_CHANGE);
@@ -157,8 +170,29 @@ export function feelingWeeks(
     weeks: Array.from({ length: T.WEEKS }, (_, i) => addDays(first, i * 7)),
     mine: top(mineAll),
     owner: top(ownerAll),
-    lookingBack,
+    lookingBack: { mine: back.self, owner: back.owner },
     changed,
     restsOn,
   };
+}
+
+/**
+ * AWAKE LATER FEELINGS, COUNTED (2026-10-02, review of #316, item 8): the way
+ * from an ordinary session to the core's fast lane is kept loose (the owner's
+ * rule: few guards, tighten after a real issue) and made VISIBLE instead. The
+ * rows are the durable record (`source = awake`); this reads them on live
+ * memories — how many, how many at the fast lane's strength
+ * (`CORE_FAST_FEELING`), how many the owner's. Doctor's Reflection line says it.
+ */
+export function awakeFeelingCounts(store: Pick<Store, "feelingsLive">): { total: number; fast: number; owner: number } {
+  let total = 0;
+  let fast = 0;
+  let owner = 0;
+  for (const f of store.feelingsLive()) {
+    if (f.source !== "awake") continue;
+    total += 1;
+    if (f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING) fast += 1;
+    if (f.whose === "owner") owner += 1;
+  }
+  return { total, fast, owner };
 }

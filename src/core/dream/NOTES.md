@@ -469,3 +469,20 @@ writer, the dream and the reflection. What the build learned:
   is read from what the store holds — a recorded feeling, kind `entity`, the owner's name
   in the words — not from guessing at names in text. They count toward the night's 8
   about marks, and the instructions say so.
+
+### After the review of #316
+
+- **A reflection's own later feelings stay out of `changed`** (they are still counted):
+  three uneasy it records tonight would otherwise read tomorrow as "my uneasy up" — the
+  reflection reading itself back. An awake look back is the session's and does count.
+  `lookingBack` is per core now, mine and the owner's (one number said nothing).
+  The sources come from `store/feelings.ts` (`FEELING_SOURCES`, `LATER_FEELING_SOURCES`).
+- **Unmarked offers rotate.** The ids a reflection was offered are kept in its detail
+  (`detail.unmarked`, carried across `finish`); what the last `UNMARKED_REST_NIGHTS` (3)
+  reflections were offered waits behind the rest and comes back when the rest run out —
+  so a pool left unmarked (a personal one on a closed-door night) is not the same five
+  every night.
+- **The awake way to the fast lane stays loose and is made visible**:
+  `awakeFeelingCounts` reads the `awake` rows on live memories (how many, how many at
+  `CORE_FAST_FEELING`, how many the owner's), and doctor's Reflection line says them in
+  one clause.

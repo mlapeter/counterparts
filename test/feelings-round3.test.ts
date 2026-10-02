@@ -11,12 +11,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { reflectionFindings } from "../src/adapters/claude-code/doctor.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { FEELING_WEEKS_TUNABLES, feelingWeeks } from "../src/core/dream/feeling-weeks.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { feelingTokens, feelingWord, readFeelingAsk } from "../src/core/recall/feeling-ask.js";
-import { selfRelevantFeeling } from "../src/core/sleep/index.js";
+import { freshGateState, saveGateState } from "../src/core/recall/index.js";
+import { REFLECTED_FEELING_KEY, selfRelevantFeeling } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { addDays } from "../src/core/time.js";
 
@@ -103,7 +105,7 @@ describe("feelings over weeks: the reflection is shown how they ran", () => {
     expect(w.mine["uneasy"]).toEqual([0, 1, 0, 3]);
     expect(w.mine["warm"]).toEqual([0, 0, 0, 1]);
     expect(w.owner["happy"]).toEqual([2, 0, 0, 0]);
-    expect(w.lookingBack).toBe(0);
+    expect(w.lookingBack).toEqual({ mine: {}, owner: {} });
     expect(w.changed).toContain("my uneasy up: 1 in the two weeks before, 3 in the last two");
     expect(w.changed).toContain("the owner's happy down: 2 in the two weeks before, 0 in the last two");
     // The strongest behind the rise first, then behind the fall; never the gist.
@@ -142,7 +144,7 @@ describe("feelings over weeks: the reflection is shown how they ran", () => {
     c.store.addFeelings(old, [{ whose: "self", core: "calm", emotion: "settled", strength: 0.5 }], { source: "reflection", recordedLater: c.store.today() });
     const w = feelingWeeks(c.store, c.store.today(), () => true);
     expect(w?.mine["calm"]).toEqual([0, 0, 0, 1]);
-    expect(w?.lookingBack).toBe(1);
+    expect(w?.lookingBack).toEqual({ mine: { calm: 1 }, owner: {} });
     expect(w?.changed).toEqual([]);
     // No change: it rests on my commonest core's strongest.
     expect(w?.restsOn).toEqual([old]);
@@ -311,6 +313,145 @@ describe("re-feeling while awake: note's feelingsNow", () => {
     if (row === undefined) throw new Error("gone");
     expect(selfRelevantFeeling(c.store, row, false)).toBe(false);
     expect(selfRelevantFeeling(c.store, row, true)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// after the review of #316
+// ---------------------------------------------------------------------------
+
+describe("after the review of #316", () => {
+  test("a reflection's own later feelings are counted but do not make a change", () => {
+    const c = brain();
+    clock = BASE - 2 * DAY;
+    const ids = [0, 1, 2].map((i) => mem(c, `A quiet moment number ${String(i)} that a reflection felt later.`));
+    for (const id of ids) c.store.addFeelings(id, [{ whose: "self", core: "uneasy", emotion: "wary", strength: 0.6 }], { source: "reflection", recordedLater: c.store.today() });
+    clock = BASE;
+    const w = feelingWeeks(c.store, c.store.today(), () => true);
+    expect(w?.mine["uneasy"]).toEqual([0, 0, 0, 3]);
+    expect(w?.lookingBack.mine).toEqual({ uneasy: 3 });
+    expect(w?.changed).toEqual([]);
+    // An awake look back is the session's, and does count toward a change.
+    const more = [0, 1, 2].map((i) => mem(c, `A session moment number ${String(i)} felt again awake.`));
+    for (const id of more) c.store.addFeelings(id, [{ whose: "self", core: "uneasy", emotion: "wary", strength: 0.6 }], { source: "awake", recordedLater: c.store.today() });
+    expect(feelingWeeks(c.store, c.store.today(), () => true)?.changed).toEqual(["my uneasy up: 0 in the two weeks before, 3 in the last two"]);
+  });
+
+  test("unmarked offers rotate: the last nights' offers wait behind the rest; the closed door's wording", () => {
+    const c = brain();
+    const ids: string[] = [];
+    for (let i = 0; i < REFLECT_TUNABLES.UNMARKED * 2; i += 1) {
+      ids.push(mem(c, `A project fact number ${String(i)} about the build and its pipeline.`, { origin: { scope: SCOPE }, physics: { birthDay: c.store.livedDay(), lastUsedDay: c.store.livedDay(), uses: 100 - i } }));
+    }
+    const first = c.reflections.begin({ session: SESSION });
+    if (!first.ok) throw new Error(first.reason);
+    expect(first.bundle.unmarked).toEqual(ids.slice(0, REFLECT_TUNABLES.UNMARKED));
+    const done = c.reflections.finish({ reflection: first.bundle.reflection, session: SESSION, entry: "Nothing much." });
+    if (!done.ok) throw new Error(done.reason);
+    // The next calendar day, with the door closed.
+    clock = BASE + DAY;
+    c.store.setMeta(REFLECTED_FEELING_KEY, "off");
+    const second = c.reflections.begin({ session: SESSION });
+    if (!second.ok) throw new Error(second.reason);
+    expect(second.bundle.unmarked).toEqual(ids.slice(REFLECT_TUNABLES.UNMARKED));
+    expect(second.instructions).toContain("Tonight a mark may only be work or world: mark the ones that are, and leave a personal one unmarked.");
+    expect(second.instructions).not.toContain("owner or us when it is personal");
+  });
+
+  test("feelAgain: refused under observer; at most AWAKE_FEELINGS a call", () => {
+    const c = brain();
+    const ids = Array.from({ length: REFLECT_TUNABLES.AWAKE_FEELINGS + 2 }, (_, i) => mem(c, `An old moment number ${String(i)} that came up again today.`));
+    const out = c.reflections.feelAgain({ session: SESSION, shown: new Set(ids), feelings: ids.map((id) => ({ id, core: "calm", emotion: "settled", strength: 0.4 })) });
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.feelings.filter((f) => f.reason === "recorded-later").length).toBe(REFLECT_TUNABLES.AWAKE_FEELINGS);
+    expect(out.feelings.slice(REFLECT_TUNABLES.AWAKE_FEELINGS).map((f) => f.reason)).toEqual(["limit-reached", "limit-reached"]);
+    c.close();
+    open.splice(0);
+    const watcher = Counterpart.open({ dir, observer: true, now: () => clock });
+    open.push(watcher);
+    expect(watcher.reflections.feelAgain({ session: SESSION, shown: new Set(ids), feelings: [{ id: ids[0], emotion: "settled" }] })).toEqual({ ok: false, reason: "observer" });
+  });
+
+  test("doctor's Reflection line says how many feelings were recorded looking back in a session", () => {
+    const c = brain();
+    const a = mem(c, "A moment felt again strongly.");
+    const b = mem(c, "A moment the owner felt again.");
+    c.store.addFeelings(a, [{ whose: "self", core: "warm", emotion: "grateful", strength: 0.8 }], { source: "awake", recordedLater: c.store.today() });
+    c.store.addFeelings(b, [{ whose: "owner", core: "calm", emotion: "relieved", strength: 0.3 }], { source: "awake", recordedLater: c.store.today() });
+    const f = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
+    expect(f?.detail).toContain("2 feelings recorded looking back in a session, 1 at the core's fast-lane strength, 1 the owner's");
+    expect(f?.data).toMatchObject({ awakeFeelings: 2, awakeFeelingsFast: 1, awakeFeelingsOwner: 1 });
+  });
+});
+
+describe("feelingsNow: what counts as shown (review of #316)", () => {
+  test("only ids recall DELIVERED; a write's neighbours; ambient SURFACED, not footnoted; kept per session", async () => {
+    brain().close();
+    open.splice(0);
+    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    try {
+      const store = s.counterpart.store;
+      // Long bodies: recall by ids delivers some and leaves the rest waiting.
+      const big = Array.from({ length: 10 }, (_, i) => mem(s.counterpart, `Long memory ${String(i)}: ${`word${String(i)} `.repeat(1800)}`));
+      const got = await s.call("recall", { ids: big });
+      const delivered = (got.structuredContent["memories"] as { id: string }[]).map((m) => m.id);
+      const waiting = (got.structuredContent["waiting"] as string[] | undefined) ?? [];
+      expect(waiting.length).toBeGreaterThan(0);
+      const res = await s.call("note", {
+        feelingsNow: [
+          { id: delivered[0], core: "calm", emotion: "settled" },
+          { id: waiting[0], core: "calm", emotion: "settled" },
+        ],
+      });
+      const reasons = (res.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results.map((r) => r.reason);
+      expect(reasons).toEqual(["recorded-later", "not-shown-or-gone"]);
+
+      // Ambient: a surfaced row counts, a footnote does not.
+      const loud = mem(s.counterpart, "The garden beds came in early.");
+      const quiet = mem(s.counterpart, "The seed packets arrived all at once.");
+      const state = freshGateState(SESSION);
+      state.surfaced[loud] = { turn: 1, tier: "surfaced", trains: true };
+      state.surfaced[quiet] = { turn: 1, tier: "footnoted", trains: true };
+      saveGateState(store, state, 100);
+      const amb = await s.call("note", { feelingsNow: [{ id: loud, emotion: "content" }, { id: quiet, emotion: "content" }] });
+      expect((amb.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results.map((r) => r.reason)).toEqual(["recorded-later", "not-shown-or-gone"]);
+
+      // A write's neighbours were shown.
+      const near = mem(s.counterpart, "Mike planted the tomatoes along the south fence in the spring.");
+      const wrote = await s.call("note", { text: "Mike planted tomatoes along the south fence this spring." });
+      const neighbours = ((wrote.structuredContent["neighbours"] as { id: string }[] | undefined) ?? []).map((n) => n.id);
+      expect(neighbours).toContain(near);
+      const nb = await s.call("note", { feelingsNow: [{ id: near, core: "warm", emotion: "fond" }] });
+      expect((nb.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+
+    // Another server (another session): nothing the first was shown carries over.
+    const t = openServer({ dir, session: "s-other", scope: SCOPE, owner: true });
+    try {
+      const any = t.counterpart.store.list({ type: "memory", archived: false })[0] as string;
+      const res = await t.call("note", { feelingsNow: [{ id: any, emotion: "wistful", core: "sad" }] });
+      expect((res.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results[0]?.reason).toBe("not-shown-or-gone");
+    } finally {
+      t.counterpart.close();
+    }
+  });
+
+  test("a refused note beside a recorded feeling is not an error", async () => {
+    brain().close();
+    open.splice(0);
+    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    try {
+      const id = mem(s.counterpart, "The night the install re-filed the feelings.");
+      await s.call("recall", { ids: [id] });
+      const res = await s.call("note", { text: "ok", feelingsNow: [{ id, core: "calm", emotion: "relieved" }] });
+      expect(res.structuredContent["stored"]).not.toBe(true);
+      expect((res.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
+      expect(res.isError).not.toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
   });
 });
 

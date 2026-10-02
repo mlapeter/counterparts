@@ -280,15 +280,16 @@ dream having run.
   Since 2026-10-02 (lane B) also **feelings over weeks** (`feeling-weeks.ts`; a few
   hundred characters): counts by core per seven-day window for four weeks, mine and the
   owner's apart, what changed (the last two weeks against the two before), how many were
-  recorded looking back, and the ids it rests on — handed like the rest, so the entry and
+  recorded looking back (per core), and the ids it rests on — handed like the rest, so the entry and
   the page can cite them. Counted from stored feelings (written at the time or recorded
   later), never text; not a dream's feeling-now, nor one on what a dream or a reflection
   wrote; null on a month with none. And **unmarked** — at most `UNMARKED` (5) memories
   nobody has marked that the work lane counts as a project's work only for want of a
   mark (`self/work.ts#isWorkMemory`: a fact, entity or place written in a directory; not
   a skill, not a journal copy), those with a feeling, an entity or the owner's name
-  first, then the most used, then the oldest — offered to be marked by meaning. A
-  writer's mark is never offered. Three questions, rotated so consecutive nights share none (the dream question only
+  first, then the most used, then the oldest, rotated so the last three nights' offers
+  wait behind the rest — offered to be marked by meaning. A writer's mark is never
+  offered. A reflection's own later feelings are counted but never make a change. Three questions, rotated so consecutive nights share none (the dream question only
   after a dream). **In parts, not cut** (2026-09-28): a bundle longer than
   `RESULT_CHARS` (the tool result's ceiling is about 25k tokens) comes as part 1 of N —
   everything but the long lists, which go on in order as far as the room allows — and
