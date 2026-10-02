@@ -187,9 +187,9 @@ const UNRESOLVED_PROPERTY = {
 /**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
  * door a model writes a feeling through (note, session_end, a dream's
- * feeling-now, a reflection's feelings), 2026-09-28: a dream put a phrase in
- * `emotion` because nothing it read said the word goes there and the nuance
- * in `carried_by`. A phrase that still arrives there is split, not refused.
+ * feeling-now, a reflection's feelings; note's feelingsNow since 2026-10-02),
+ * 2026-09-28: a dream put a phrase in `emotion` because nothing it read said
+ * the word goes there and the nuance in `carried_by`. A phrase that still arrives there is split, not refused.
  */
 export const EMOTION_TEXT =
   "ONE word: the feeling, from the wheel (happy: hopeful, eager, amused, proud; warm: grateful, fond, trusted, moved, tender; calm: steadied, relieved, settled, content; curious: interested, recognized, clarified, amazed, confused; sad: wistful, rueful, disappointed, lonely; uneasy: sheepish, caught out, guilty, unsettled, wary, worried, afraid; angry: frustrated, hurt, critical, disgusted) or your own word, kept as yours. Never a phrase — the nuance goes in carried_by. The core you name is kept even when the word sits under another: hurt can be sad or angry.";

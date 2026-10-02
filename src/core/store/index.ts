@@ -52,7 +52,7 @@ import {
   resolveZone,
   utcDate,
 } from "../time.js";
-import { checkFeelings } from "./feelings.js";
+import { LATER_FEELING_SOURCES, checkFeelings } from "./feelings.js";
 import type { AddFeelingsResult, FeelingInput, FeelingRow, FeelingSource } from "./feelings.js";
 import { checkTraitsRepaired } from "./traits.js";
 import type { TraitRepair } from "./traits.js";
@@ -142,6 +142,9 @@ export * from "./paths.js";
 export * from "./prose.js";
 export * from "./render.js";
 export * from "./feelings.js";
+
+/** `LATER_FEELING_SOURCES` as a SQL list — the sources `feeling_peak_lived` leaves out. Constants only, never input. */
+const LATER_SQL = LATER_FEELING_SOURCES.map((x) => `'${x}'`).join(", ");
 export * from "./traits.js";
 export type { Db, Statement, WalFold } from "./db.js";
 export type {
@@ -3975,7 +3978,7 @@ export class Store {
       `SELECT m.*,
               (SELECT MAX(f.strength) FROM feelings f WHERE f.memory_id = m.id) AS feeling_peak,
               (SELECT MAX(f.strength) FROM feelings f
-                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN ('reflection', 'awake'))) AS feeling_peak_lived
+                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN (${LATER_SQL}))) AS feeling_peak_lived
          FROM memories m WHERE m.id = ?`,
       id,
     );
