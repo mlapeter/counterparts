@@ -146,6 +146,39 @@ function expectUnbound(s: McpServer): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe("the owner's own sessions are the owner (2026-10-02)", () => {
+  test("Desktop's server, a guest for its chats, serves a Code-tab call as the owner's: it closes a thread opened in another directory, and the list agrees", async () => {
+    codeTabSessionStart("tab-own");
+    // As the entry point opens it with nothing said and the install's `owner: true`.
+    const s = plainServer({ owner: false, codeTabOwner: true });
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    const elsewhere = join(root, "elsewhere");
+    const thread = s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Whether the pump housing needs a second gasket is still open.",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      meta: { unresolved: true },
+      origin: { scope: elsewhere },
+    });
+    // A Desktop chat is still a guest.
+    const chat = (await wireCall(s, 2, "wake"))["session"] as string;
+    expect((await wireCall(s, 3, "status", { session: chat }))["stance"]).toMatchObject({ owner: false });
+    // The Code tab's call is the owner's, and says why.
+    const stance = (await wireCall(s, 4, "status", { session: "tab-own" }))["stance"] as Record<string, unknown>;
+    expect(stance).toMatchObject({ owner: true });
+    expect(String(stance["ownerFrom"])).toContain("Desktop's Code tab");
+    const closed = await wireCall(s, 5, "note", {
+      session: "tab-own",
+      text: "The pump housing took the second gasket; the seep stopped.",
+      updates: thread,
+      unresolved: false,
+    });
+    expect(closed["thread"]).toEqual({ closed: thread });
+    expect(s.counterpart.store.readProse(thread).meta["unresolved"]).toBe(false);
+  });
+});
+
 describe("Desktop's server serves a Code-tab session that names itself", () => {
   test("end to end: the hooks' record, named, is served as that Claude Code session — its directory, its doors, no Desktop ask — interleaved with a Desktop chat, nothing leaks", async () => {
     const t = clock();

@@ -54,7 +54,7 @@ input — does `encode` shrink to gates-and-tagging inside `remember`'s pipeline
 | `spawn.ts` | The detached worker's plan and start (`planSpawn`, `spawnDetached`): watchdog checked against the staleness window, environment pinned last. Moved out of `claude-code/` on **2026-09-30** so any host's adapter can start the same worker. |
 | `fired.ts` | Which mechanisms have fired and which have gone quiet, read only from the store's rows — `counterparts mechanisms`, the dashboard's panel. Each entry names the module that does the work. |
 | `snapshots.ts` | The daily rotating snapshot and its rotation — the one place this package deletes a copy of the memory, and only what it can prove is a snapshot. |
-| `stance-env.ts` | `COUNTERPARTS_OBSERVER` / `COUNTERPARTS_OWNER`, read the way the explicit-dir guard is, each failing toward less power. |
+| `stance-env.ts` | `COUNTERPARTS_OBSERVER` / `COUNTERPARTS_OWNER`, read the way the explicit-dir guard is, each failing toward less power. Unset, the configuration's `owner: true` decides for a server Claude Code starts (`mcp/bin/serve.ts#ownerStance`, 2026-10-02). |
 | `log/` | A shared leaf with its own CONTRACT: the process log — one line per allowlisted event (failures, stand-downs, turn ends, write-ups, the night, the wake) from the hook, the worker, the nightly run and the MCP server, to `<dataDir>/sessions/log/<date>.log`, ids and codes only, kept 7 days. Read by `counterparts log` and one doctor line. **Added 2026-09-30**: none of the four processes wired its `onEvent`, so ~270 event names died with their process. |
 
 ## Tools (`tools/`)

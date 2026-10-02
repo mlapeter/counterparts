@@ -500,6 +500,29 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     expect(flagged(guest, mine)).toBe(false);
   });
 
+  test("the close and the list agree (2026-10-02): a refused close leaves the thread under Still open; the caller's own stance can open the door", async () => {
+    const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => NOW, timeZone: ZONE });
+    open.push(guest);
+    const there = guest.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Whether the reading room gets a second lamp is still open.",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      meta: { unresolved: true },
+      origin: { scope: LIBRARY },
+    });
+    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
+    const refused = await guest.submitJot({ content: "The reading room got its second lamp on Tuesday.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP });
+    expect(refused.thread).toEqual({ from: there, closed: false, refused: "other-directory" });
+    // Not settled over either: the declaration is a link, and the list still says open.
+    expect(refused.revision?.settle ?? null).toBe(null);
+    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
+    // The same close, from a caller whose session is the owner's (a Code-tab call on Desktop's server).
+    const owned = await guest.submitJot({ content: "The reading room's second lamp is in and working.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP, owner: true });
+    expect(owned.thread).toEqual({ from: there, closed: true });
+    expect(stillOpen(guest)).not.toContain("the reading room gets a second lamp");
+  });
+
   test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {
     expect(SELF_TUNABLES.THREADS_MAX).toBe(5);
   });

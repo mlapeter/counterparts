@@ -233,6 +233,22 @@ export interface McpServerOptions {
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
   /**
+   * WHAT DECIDED `owner` (2026-10-02), for `status` to say plainly: `env` —
+   * `COUNTERPARTS_OWNER` or `--owner`; `config` — nothing said, so the installed
+   * configuration's `owner: true` made a Claude Code launch the owner's;
+   * `default` — nothing said and nothing made it so. Absent: `env` when
+   * `owner` is true, else `default`.
+   */
+  ownerFrom?: "env" | "config" | "default";
+  /**
+   * DESKTOP'S CODE TAB IS THE OWNER'S TOO (owner ruling 2026-10-02). Desktop's
+   * server opens as a guest for its chats; a call it serves as a Claude Code
+   * session (`callAs`) is that session, so with this set the call is the
+   * owner's — its reads and its thread close. Set by the entry point from the
+   * configuration's `owner: true` when `COUNTERPARTS_OWNER` said nothing.
+   */
+  codeTabOwner?: boolean;
+  /**
    * The embedder, for ONE purpose: embedding a deliberate question in line.
    *
    * The ruling of 2026-09-04 splits the two paths — the ambient hot path may not
@@ -369,7 +385,10 @@ export function desktopWriteUpAsk(session: string): string {
 
 /** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */
 export const OWNER_FALSE_NOTE =
-  "owner: false is the ordinary setting — confidential memories are left out of this server's answers; nothing is wrong.";
+  "owner: false — confidential memories are left out of this server's answers, and an open question written in another directory cannot be closed from here. It is the ordinary setting for a Claude Desktop chat; your Claude Code sessions run as the owner unless COUNTERPARTS_OWNER=0. Nothing is wrong.";
+
+/** The owner variable's name, for `status` (the entry point reads it, `stance-env.ts`). */
+const OWNER_ENV_NAME = "COUNTERPARTS_OWNER";
 
 /** The narrow face of `claude-code/embed-client.ts`'s `LiveEmbedder` this
  *  adapter needs — structural, so the server library imports no other adapter.
@@ -497,6 +516,8 @@ export class McpServer {
   scopeSource: ScopeSource;
   /** Did the host say this is the owner's session? Read through `owner`. */
   private readonly ownerClaimed: boolean;
+  private readonly ownerFrom: "env" | "config" | "default";
+  private readonly codeTabOwner: boolean;
   /** The store's own observer bit (observer-mode G7): set at open, never lifted. */
   private readonly storeObserver: boolean;
   /**
@@ -600,6 +621,8 @@ export class McpServer {
     this.storeObserver = opts.counterpart.observer;
     this.launchObserver = opts.launchObserver === true;
     this.ownerClaimed = opts.owner === true;
+    this.ownerFrom = opts.ownerFrom ?? (opts.owner === true ? "env" : "default");
+    this.codeTabOwner = opts.codeTabOwner === true;
     this.embedderGiven = opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
@@ -683,7 +706,20 @@ export class McpServer {
   /** An observer is a non-owner regardless of what the host claimed
    *  (observer-mode G7): an instrument reading somebody's store is not them. */
   get owner(): boolean {
-    return this.ownerClaimed && !this.observer;
+    return (this.ownerClaimed || (this.callAs !== null && this.codeTabOwner)) && !this.observer;
+  }
+
+  /** What `status` says decided the stance (2026-10-02), in words. */
+  private ownerStance(): Record<string, unknown> {
+    const from =
+      this.callAs !== null && this.codeTabOwner && !this.ownerClaimed
+        ? "a Claude Code session from Desktop's Code tab, which the installed configuration (owner: true) makes the owner's"
+        : this.ownerFrom === "config"
+          ? "the installed configuration (owner: true): this is your own Claude Code session"
+          : this.ownerFrom === "env"
+            ? `${OWNER_ENV_NAME} or --owner, set on this launch`
+            : "nothing made this launch the owner's";
+    return { owner: this.owner, ownerFrom: from, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) };
   }
 
   /** An instrument opens no sockets, whatever the host handed it (scar E7). */
@@ -1598,6 +1634,9 @@ export class McpServer {
       scope: this.scope,
       ownSpanHash,
       ...(model === undefined ? {} : { model }),
+      // This call's stance, which a Code-tab call on Desktop's server can hold
+      // when the store opened as a guest (2026-10-02).
+      owner: this.owner,
     });
     const neighbours = this.neighboursOf(deposit);
     this.markSeen(neighbours.map((n) => n.id));
@@ -2434,7 +2473,7 @@ export class McpServer {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,
       },
-      stance: { observer: this.observer, owner: this.owner, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) },
+      stance: { observer: this.observer, ...this.ownerStance() },
     };
   }
 
@@ -2698,6 +2737,7 @@ export class McpServer {
         result = await this.counterpart.submitSessionEnd(draft, {
           session,
           scope: scope ?? this.scope,
+          owner: this.owner,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
           ...(writeUp === undefined ? {} : { writeUp }),

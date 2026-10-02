@@ -71,7 +71,7 @@ import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
 import { scriptArgs } from "../runtime.js";
 import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { installedVersion } from "../sessions.js";
-import { OBSERVER_ENV } from "../stance-env.js";
+import { OBSERVER_ENV, OWNER_ENV } from "../stance-env.js";
 
 import { TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -154,7 +154,12 @@ export const NIGHT_MCP_SCRIPT = fileURLToPath(new URL("../mcp/bin/serve.ts", imp
  * a session id.
  */
 export function nightMcpConfig(input: { runtime: string; dataDir: string; configPath?: string; session: string; scope: string }): string {
-  const env: Record<string, string> = { [DATA_DIR_ENV]: input.dataDir };
+  // NOT THE OWNER'S, SAID (2026-10-02): a server Claude Code starts is the
+  // owner's by default now, and `claude -p` is Claude Code. The headless run
+  // keeps the stance it always had — confidential memories stay out of its
+  // bundles and its write-ups close no thread opened elsewhere — until that
+  // is decided on its own.
+  const env: Record<string, string> = { [DATA_DIR_ENV]: input.dataDir, [OWNER_ENV]: "0" };
   if (input.configPath !== undefined && input.configPath.length > 0) env[CONFIG_PATH_ENV] = input.configPath;
   if (input.session.length > 0) env[SESSION_ENV] = input.session;
   if (input.scope.length > 0) env[SCOPE_ENV] = input.scope;

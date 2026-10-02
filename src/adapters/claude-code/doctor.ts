@@ -1016,7 +1016,22 @@ function configFindings(input: DoctorInput): Finding[] {
       }),
     );
   } else {
-    out.push(finding("stance", "green", "Mode", "remembering", "", { observer: false }));
+    // WHOSE SESSIONS ARE THE OWNER'S, said plainly (2026-10-02): with the
+    // install's `owner: true`, the hooks, the worker and — since that day —
+    // the memory server Claude Code starts (`mcp/bin/serve.ts#ownerStance`).
+    const owner = input.config.owner === true;
+    out.push(
+      finding(
+        "stance",
+        "green",
+        "Mode",
+        owner
+          ? "remembering; your Claude Code sessions are the owner's (confidential memories are said in them, and an open question can be closed from any directory); a Claude Desktop chat is not, and COUNTERPARTS_OWNER=0 on a launch turns it off"
+          : "remembering; no session is the owner's (the configuration has no \"owner\": true), so confidential memories stay out of the tools' answers",
+        "",
+        { observer: false, owner },
+      ),
+    );
   }
   return out;
 }

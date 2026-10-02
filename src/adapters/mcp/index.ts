@@ -157,6 +157,8 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.manifestVersion === undefined ? {} : { manifestVersion: opts.manifestVersion }),
     ...(opts.env === undefined ? {} : { env: opts.env }),
     ...(opts.launchObserver === undefined ? {} : { launchObserver: opts.launchObserver }),
+    ...(opts.ownerFrom === undefined ? {} : { ownerFrom: opts.ownerFrom }),
+    ...(opts.codeTabOwner === undefined ? {} : { codeTabOwner: opts.codeTabOwner }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.now === undefined ? {} : { now: opts.now }),
   });

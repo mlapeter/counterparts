@@ -337,7 +337,14 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     expect(mcp.mcpServers["counterparts"]?.command).toBe("/usr/local/bin/bun");
     expect(mcp.mcpServers["counterparts"]?.args[1]).toBe(NIGHT_MCP_SCRIPT);
     expect(mcp.mcpServers["counterparts"]?.args[1]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
-    expect(mcp.mcpServers["counterparts"]?.env).toEqual({ COUNTERPARTS_DATA_DIR: dir, COUNTERPARTS_CONFIG: "/cfg/claude-code.json", COUNTERPARTS_SESSION: "s-launch", COUNTERPARTS_SCOPE: "/proj/here" });
+    expect(mcp.mcpServers["counterparts"]?.env).toEqual({
+      COUNTERPARTS_DATA_DIR: dir,
+      // The headless run keeps the guest's stance, said (2026-10-02).
+      COUNTERPARTS_OWNER: "0",
+      COUNTERPARTS_CONFIG: "/cfg/claude-code.json",
+      COUNTERPARTS_SESSION: "s-launch",
+      COUNTERPARTS_SCOPE: "/proj/here",
+    });
     expect(plan.args.join(" ")).not.toContain("THE PROMPT");
     expect(plan.stdin).toBe("THE PROMPT");
     // A NEUTRAL directory, the store's own: no project's CLAUDE.md, hooks or MCP servers.

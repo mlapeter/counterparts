@@ -950,6 +950,14 @@ export interface DepositContext {
   ownSpanHash?: string | null;
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
   model?: string;
+  /**
+   * THE CALLER'S STANCE FOR THIS DEPOSIT, when it is not the process's
+   * (2026-10-02): a Claude Code session from Desktop's Code tab is served by
+   * Desktop's server, whose store opened as a guest, and it is still the
+   * owner's own session. Read only by the thread close (`closeThread`).
+   * Absent: the process's own `owner`.
+   */
+  owner?: boolean;
 }
 
 /**
@@ -3337,6 +3345,7 @@ export class Counterpart {
       scope: ctx.scope,
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
+      ...(ctx.owner === undefined ? {} : { owner: ctx.owner }),
     });
   }
 
@@ -5305,7 +5314,7 @@ export class Counterpart {
     // BEFORE the revision dispatch: a current-state target is superseded there,
     // and the date must leave the row while it is still the live one.
     const reminder = carry.from === null ? null : this.moveReminder(carry, mint.id);
-    const thread = this.closeThread(proposal, mint.id);
+    const thread = this.closeThread(proposal, mint.id, ctx.owner === undefined ? this.owner : ctx.owner && !this.observer);
     this.emit("counterpart.deposit", mint.id, {
       source,
       kind: proposal.kind,
@@ -5321,7 +5330,14 @@ export class Counterpart {
     this.recordDeposit(result, ctx, source, mint);
     const titled = this.mentionFromProposal(proposal, `deposit:${mint.id}`);
     this.creditNamedIn(proposal.title ?? null, proposal.content, proposal.day, mint.id, source, titled);
-    const revision = this.applyDeclaredRevision(proposal, mint, source, ctx.session);
+    // THE CLOSE AND THE LIST AGREE (2026-10-02). A thread this session may
+    // not close — confidential, or opened in another directory, for a session
+    // that is not the owner's — is not settled over either: the declaration
+    // stays a link (no `how`), so the old memory stays live and stays under
+    // "Still open", which is what the refusal says. It used to be refused and
+    // settled at once, and the wake dropped what the deposit said was open.
+    const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
+    const revision = this.applyDeclaredRevision(keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
     return {
       deposited: true,
       reason: "minted",
@@ -5352,7 +5368,7 @@ export class Counterpart {
    * the reminder. `Store#revise` keeps the old meta in the version it writes.
    * A failed clear does not fail the deposit; it is emitted and reported.
    */
-  private closeThread(p: Proposal, successor: string): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
+  private closeThread(p: Proposal, successor: string, owner: boolean): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
     if (p.threadSaid !== true) return null;
     const target = p.updates?.method === "declared" ? p.updates.resolved : null;
     if (target === null || target === successor) return null;
@@ -5368,8 +5384,8 @@ export class Counterpart {
       // nothing written in another directory.
       if (row.protected === 1) refused = "protected-refuses-revision";
       else if (row.archived === 1) refused = "target-archived";
-      else if (!this.owner && row.confidential === 1) refused = "confidential";
-      else if (!this.owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
+      else if (!owner && row.confidential === 1) refused = "confidential";
+      else if (!owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
     } catch {
       return null;
     }
@@ -5891,4 +5907,11 @@ export class Counterpart {
     if (this.ring.length > EVENT_RING) this.ring.shift();
     this.onEvent?.(event);
   }
+}
+
+/** A proposal without its `how`: its declaration links and settles nothing (`revision.ts`). */
+function withoutHow(p: Proposal): Proposal {
+  const { how: _how, ...rest } = p;
+  void _how;
+  return rest as Proposal;
 }

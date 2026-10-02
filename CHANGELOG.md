@@ -13,6 +13,15 @@
   Desktop's wake, now carries a line saying Counterparts was updated and how to reconnect,
   because until then the server ignores anything newer, such as a field added to a tool. This
   starts with the servers of this version; one from before it says nothing.
+- **Your own Claude Code sessions are the owner's in the memory tools too.** The hooks already
+  were; the memory server was not, so closing an open question from another directory was
+  refused while the wake dropped it from "Still open" anyway. Now the server Claude Code starts
+  takes the install's `"owner": true`, and so does a Claude Code session from Desktop's Code
+  tab: it can close a question opened anywhere, and confidential memories are said in its
+  answers. A Desktop chat is unchanged, the nightly run keeps its old stance, and
+  `COUNTERPARTS_OWNER=0` on the server's launch turns it off. A close that is still refused
+  now leaves the question in "Still open". Nothing to reinstall: it takes effect on upgrade,
+  once the memory server reconnects.
 - **"Work here" takes turns.** When a directory has more work than the wake shows, the newest
   line stays first and the others rotate from one day to the next, so the older work comes
   round too. A wake that had more work lines than it carried leaves a record, which doctor
