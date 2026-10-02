@@ -2705,10 +2705,15 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     mintStore();
     writeConfig();
     const s = store();
+    s.advanceClock("2026-09-01");
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "Error", step: "wake", date: "2026-09-01" } });
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
-    // Yesterday's one transient failure, then today's start: passed, green.
+    // Yesterday's one transient failure, on yesterday's lived day (2026-10-02:
+    // the read used to stop at today's rows, so this was never seen), then
+    // today's start: passed, green.
+    s.advanceClock("2026-09-13");
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "SQLITE_BUSY", step: "sessionEnd", date: "2026-09-13" } });
+    s.advanceClock("2026-09-14");
     s.appendEvent({ name: SPAWN_STARTED_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
     // The same step fails again today: amber, whatever started since.

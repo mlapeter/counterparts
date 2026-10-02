@@ -31,6 +31,8 @@
   room, a part that waited for room, and a handoff or "Last here" line with no room are now
   recorded and read on the Wake line; the first two turn it amber. The Reflection line says
   how long a share has been waiting to be told.
+- **Doctor's Spawn line sees a step that failed two days running.** It read only today's
+  failures, so "the same step failed today and yesterday" could never be said.
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
   over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
   headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part

@@ -2077,7 +2077,19 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
   // log's own order, `seq`), so the second reads
   // "it failed after today's first start" and clears at the next day's first
   // start unless the step fails again. Older is history, named in the clause.
-  const failures = newestRows(store, RUNNER_FAILED_EVENT, RUNNER_FAILED_ROWS, livedDay).rows;
+  // THE LAST THREE LIVED DAYS, read as one window (2026-10-02): `newestRows`
+  // stops at the first window with rows — today's — so yesterday's failure was
+  // never read and "the same step, today and yesterday" could not fire on a
+  // store whose days had moved. Newest first under the ceiling, then oldest
+  // first, so the last row is the newest.
+  let failures: EventRow[] = [];
+  try {
+    failures = store
+      .eventLog({ name: RUNNER_FAILED_EVENT, sinceDay: Math.max(0, livedDay - 2), order: "desc", limit: RUNNER_FAILED_ROWS })
+      .reverse();
+  } catch {
+    failures = [];
+  }
   const failed = failures[failures.length - 1];
   const failedOn = rowDate(failed);
   const started = newestRows(store, SPAWN_STARTED_EVENT, 1, livedDay).rows[0];

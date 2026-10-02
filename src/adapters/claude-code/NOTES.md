@@ -1930,3 +1930,11 @@ cap (the host cut or previewed it), counted otherwise, and a line even when no w
 checked on arrival. Also from the list: the Reflection line says how many days ago a share
 stuck at `carried` was carried, from `share_at`; and the v9 upgrade line's mark read says
 "at least" when it comes back full.
+
+Spawn's "same step failed today and yesterday" never fired on a real store: the failures were read
+with `newestRows`, which stops at the first window holding rows (today's), so yesterday's row was
+never read; the test passed only because every row sat on one lived day. The failures are now read
+as one window of the last three lived days, newest first under `RUNNER_FAILED_ROWS`, and the test
+puts yesterday's row on the previous lived day. One transient failure keeps Spawn amber from the
+failure until the next `adapter.spawn.started` row — latched once per calendar date, so the first
+worker start of the next date: at most the rest of that day and the next day's first turn-end.
