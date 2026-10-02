@@ -45,6 +45,9 @@ function brain(opts: { owner?: boolean; observer?: boolean } = {}): Counterpart 
   const c = Counterpart.open({
     dir,
     owner: opts.owner ?? true,
+    // What an owner-read reflection must keep (review of #318: no host reads
+    // one so; these are the store-level proofs).
+    bundlesAsOwner: true,
     ...(opts.observer === true ? { observer: true } : { identity: { name: "Mike" } }),
     // The calendar follows the test's days (the once-a-day gates are the
     // calendar date since 2026-09-28).
@@ -330,7 +333,7 @@ describe("S3: the v9 upgrade marks a person-kind schema row naming the owner, as
       db.run("UPDATE memories SET about = NULL, about_by = NULL");
       db.run("UPDATE meta SET value = '8' WHERE key = 'schemaVersion'");
       db.close();
-      const after = Counterpart.open({ dir, owner: true, snapshotsDir: join(root, "snaps") });
+      const after = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, snapshotsDir: join(root, "snaps") });
       open.push(after);
       expect(after.store.read(belief)).toMatchObject({ about: "owner", aboutBy: "upgrade" });
       expect(aboutMe(after.store, after.store.row(belief)!)).toBe(true);
@@ -424,7 +427,7 @@ describe("the open fast lane, end to end through the tool, sleep, doctor and the
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, bundlesAsOwner: true });
     try {
       const begin = await s.call("reflect", { phase: "begin", session: SESSION });
       const rid = begin.structuredContent["reflection"] as string;
@@ -517,7 +520,7 @@ describe("observer stance, every phase", () => {
     const count = (): string => JSON.stringify(before.query("SELECT (SELECT COUNT(*) FROM reflections), (SELECT COUNT(*) FROM feelings), (SELECT COUNT(*) FROM returns), (SELECT COUNT(*) FROM memories)").all());
     const was = count();
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, observer: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, bundlesAsOwner: true, observer: true });
     try {
       for (const args of [
         { phase: "launch" },
@@ -681,7 +684,7 @@ describe("owner rulings on the review's decisions", () => {
     // The next calendar day: one reflection a calendar day (2026-09-28), and
     // the adapter's reflection above ran on today's.
     const s = new McpServer({
-      counterpart: Counterpart.open({ dir, owner: true, pageWriterMode: "off", now: () => Date.now() + 86_400_000 }),
+      counterpart: Counterpart.open({ dir, owner: true, bundlesAsOwner: true, pageWriterMode: "off", now: () => Date.now() + 86_400_000 }),
       session: "s-mcp",
       scope: "/proj",
       owner: true,

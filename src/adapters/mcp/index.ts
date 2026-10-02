@@ -84,6 +84,8 @@ import { McpServer } from "./server.js";
 import type { McpServerOptions } from "./server.js";
 
 export interface OpenServerOptions extends Omit<McpServerOptions, "counterpart"> {
+  /** `CounterpartOptions.bundlesAsOwner`: tests only — no host sets it (review of #318). */
+  bundlesAsOwner?: boolean;
   /** Where the memory lives. Defaults to the store's own resolution. */
   dir?: string;
   observer?: boolean;
@@ -135,6 +137,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.pageWriterMode === undefined ? {} : { pageWriterMode: opts.pageWriterMode }),
     ...(opts.observer === undefined ? {} : { observer: opts.observer }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),
+    ...(opts.bundlesAsOwner === undefined ? {} : { bundlesAsOwner: opts.bundlesAsOwner }),
     ...(opts.onCounterpartEvent === undefined ? {} : { onEvent: opts.onCounterpartEvent }),
   });
   return new McpServer({

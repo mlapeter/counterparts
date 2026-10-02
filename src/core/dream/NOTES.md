@@ -486,3 +486,19 @@ writer, the dream and the reflection. What the build learned:
   `awakeFeelingCounts` reads the `awake` rows on live memories (how many, how many at
   `CORE_FAST_FEELING`, how many the owner's), and doctor's Reflection line says them in
   one clause.
+
+## 2026-10-02 — bundles are read as a guest (review of #318)
+
+Until #318 every server that built a dream's or a reflection's bundle was a guest. Since it,
+Claude Code's server is the owner's, and in `ask` mode (the default) and `reflect launch` the
+background agent calls that server. `BUNDLE_OWNER` (`tunables.ts`, false) keeps the bundles as
+they were — kept as before, a coordinator default the owner may revisit: `Dreams#showable`,
+its queue reads, the on-my-mind ranking, the aged-out read and the chapters, and the same in
+`Reflections` (`showable(row, owner = BUNDLE_OWNER)`, `recentChapters`, the chapter fit). A
+dream's journal and a nomination's `why` carry no confidentiality mark and are read later by
+other bundles and the dashboard. The dream's gate (`gate`, `previewAsk`, the offer's count)
+keeps `ctx.owner`, and so does a share's delivery (`pendingShare`, `carryLine`). Feeling again
+awake (`feelAgain`) takes the call's own stance (#317 × #318).
+No host reads a bundle as the owner; `CounterpartOptions.bundlesAsOwner` (`ctx.bundleOwner`)
+exists for the store-level tests of what an owner-read bundle must keep — a merge of a
+confidential memory is confidential, a page rests on nothing confidential — which opt in.

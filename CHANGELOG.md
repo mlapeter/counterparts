@@ -18,7 +18,8 @@
   refused while the wake dropped it from "Still open" anyway. Now the server Claude Code starts
   takes the install's `"owner": true`, and so does a Claude Code session from Desktop's Code
   tab: it can close a question opened anywhere, and confidential memories are said in its
-  answers. A Desktop chat is unchanged, the nightly run keeps its old stance, and
+  answers. A dream's and a reflection's bundles still leave confidential memories out, on
+every server. A Desktop chat is unchanged, the nightly run keeps its old stance, and
   `COUNTERPARTS_OWNER=0` on the server's launch turns it off. A close that is still refused
   now leaves the question in "Still open". Nothing to reinstall: it takes effect on upgrade,
   once the memory server reconnects.

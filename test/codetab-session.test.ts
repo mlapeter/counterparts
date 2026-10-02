@@ -177,6 +177,35 @@ describe("the owner's own sessions are the owner (2026-10-02)", () => {
     expect(closed["thread"]).toEqual({ closed: thread });
     expect(s.counterpart.store.readProse(thread).meta["unresolved"]).toBe(false);
   });
+
+  test("#317 × #318: what a Code-tab call's recall showed it, confidential included, it may feel again; a Desktop chat may not", async () => {
+    codeTabSessionStart("tab-feel");
+    const s = plainServer({ owner: false, codeTabOwner: true });
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    const secret = s.counterpart.store.put({
+      type: "memory",
+      kind: "person",
+      body: "The diagnosis came back clear; only Mike and I know it yet.",
+      salience: { relevance: 0.9, emotional: 0.9, predictive: 0.5 },
+      meta: { confidential: true },
+      origin: { scope: project },
+    });
+    const recalled = await wireCall(s, 2, "recall", { session: "tab-feel", ids: [secret] });
+    expect(JSON.stringify(recalled)).toContain("The diagnosis came back clear");
+    const felt = await wireCall(s, 3, "note", {
+      session: "tab-feel",
+      feelingsNow: [{ id: secret, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "It came back clear." }],
+    });
+    expect((felt["feelingsNow"] as { recorded: number }).recorded).toBe(1);
+    // A Desktop chat, a guest: its recall does not show it, and it cannot feel it.
+    const chat = (await wireCall(s, 4, "wake"))["session"] as string;
+    expect(JSON.stringify(await wireCall(s, 5, "recall", { session: chat, ids: [secret] }))).not.toContain("The diagnosis came back clear");
+    const refused = await wireCall(s, 6, "note", {
+      session: chat,
+      feelingsNow: [{ id: secret, core: "calm", emotion: "relieved", strength: 0.9 }],
+    });
+    expect((refused["feelingsNow"] as { recorded: number }).recorded).toBe(0);
+  });
 });
 
 describe("Desktop's server serves a Code-tab session that names itself", () => {

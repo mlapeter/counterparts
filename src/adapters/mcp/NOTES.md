@@ -1108,8 +1108,18 @@ it had until that is decided on its own.
 What the owner bit opens on such a server, which a guest did not reach: confidential memories
 in `recall` (by question and by id) and in a write's neighbours; closing a confidential thread,
 and one opened in another directory; and, through core, a plain reminder's confidential line
-and the core list's confidential titles. The Desktop `wake`'s chapters and "Last here" stay a
-guest's (Desktop chat). And whatever the stance, the close and the list agree now
+and the core list's confidential titles; and feeling again, awake (`note`'s `feelingsNow`), a
+confidential memory its recall showed it — the call's own bit reaches `Reflections#feelAgain`,
+so a Code-tab call on Desktop's server may too. The Desktop `wake`'s chapters and "Last here"
+stay a guest's (Desktop chat).
+
+What it does NOT open (review of #318): a dream's or a reflection's bundle. Those are read as a
+guest on every server (`dream/tunables.ts#BUNDLE_OWNER`) — kept as before, a coordinator default
+the owner may revisit — because a dream's journal and a nomination's `why` carry no
+confidentiality mark and are read later by other bundles and the dashboard. So the in-session
+dream (`ask`, the default) and `reflect launch`, whose background agent calls the session's
+owner server, build the same bundle the pinned nightly server does. The dream's gate (what
+counts as new for the ask) is still the session's own stance. And whatever the stance, the close and the list agree now
 (`counterpart.ts`): a close this session may not make leaves the thread unsettled — the
 declaration stays a link — so it stays under "Still open", as the refusal says.
 

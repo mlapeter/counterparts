@@ -898,6 +898,14 @@ export interface CounterpartOptions extends Stance {
    */
   build?: string | null;
   /**
+   * READ A DREAM'S AND A REFLECTION'S BUNDLES AS THE OWNER (review of #318).
+   * No host sets it: a bundle is a guest's on every server
+   * (`dream/tunables.ts#BUNDLE_OWNER`). The store-level tests of what an
+   * owner-read bundle must keep — a merge of a confidential memory is
+   * confidential, a page rests on nothing confidential — set it. Absent: false.
+   */
+  bundlesAsOwner?: boolean;
+  /**
    * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
    * defaults. Added 2026-10-01 so the craft lane's switch
    * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
@@ -1785,6 +1793,7 @@ export class Counterpart {
       store: this.store,
       observer: this.observer,
       owner: this.owner,
+      ...(opts.bundlesAsOwner === true ? { bundleOwner: this.owner } : {}),
       gate: (text) => {
         const redacted = redactSecrets(text);
         return redacted.replace(/\[REDACTED[^\]]*\]/g, "").trim().length === 0
@@ -1815,6 +1824,7 @@ export class Counterpart {
       store: this.store,
       observer: this.observer,
       owner: this.owner,
+      ...(opts.bundlesAsOwner === true ? { bundleOwner: this.owner } : {}),
       gate: (text) => {
         const redacted = redactSecrets(text);
         return redacted.replace(/\[REDACTED[^\]]*\]/g, "").trim().length === 0

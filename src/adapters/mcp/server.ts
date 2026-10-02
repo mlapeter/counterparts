@@ -1740,6 +1740,9 @@ export class McpServer {
         shown,
         feelings: items,
         ...(model === undefined ? {} : { model }),
+        // This call's stance (#317 × #318): a Code-tab call on Desktop's
+        // server may feel again what its recall showed it.
+        owner: this.owner,
       });
       if (!done.ok) return { recorded: 0, reason: done.reason };
       const recorded = done.feelings.filter((f) => f.ok && f.reason === "recorded-later").length;

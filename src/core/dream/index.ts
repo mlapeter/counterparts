@@ -55,7 +55,7 @@ import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { chapterEntries, entryKey, fitEpisodes, shownEntry } from "./slices.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter, ShownEntry } from "./slices.js";
-import { DREAM_ACTIONS, DREAM_TUNABLES } from "./tunables.js";
+import { BUNDLE_OWNER, DREAM_ACTIONS, DREAM_TUNABLES } from "./tunables.js";
 import type { DreamAction } from "./tunables.js";
 import { flag as flagContradiction, pairStanding, settle as settleContradiction, undo as undoContradiction } from "../contradictions.js";
 
@@ -234,6 +234,9 @@ export interface DreamContext {
   readonly observer: boolean;
   /** The owner's own session: confidential memories may be shown (recall's gate 1). */
   readonly owner: boolean;
+  /** Read the BUNDLES as the owner too (`BUNDLE_OWNER`, review of #318). No host sets it; the
+   *  store-level tests of what an owner-read bundle must keep do. Absent: a guest. */
+  readonly bundleOwner?: boolean;
   /** The credential battery (`bridge.episodeGate`), for every word a dream writes. */
   readonly gate: (text: string, sessionId: string) => { ok: true; text: string } | { ok: false; reason: string };
   readonly page: () => string | null;
@@ -640,6 +643,11 @@ export class Dreams {
 
   constructor(ctx: DreamContext) {
     this.ctx = ctx;
+  }
+
+  /** Whose a bundle is read as: a guest (`BUNDLE_OWNER`), unless a test asked otherwise. */
+  private get bundleOwner(): boolean {
+    return this.ctx.bundleOwner ?? BUNDLE_OWNER;
   }
 
   private get store(): Store {
@@ -1382,7 +1390,7 @@ export class Dreams {
     // The dream before this one (an undone dream does not count), and the
     // queue as every dream that stands leaves it.
     const prior = this.lastDream();
-    const q = this.queue({ owner: this.ctx.owner });
+    const q = this.queue({ owner: this.bundleOwner });
     if (q.ids.length === 0) return { ok: false, reason: "nothing-new" };
     const id = `drm_${randomBytes(6).toString("hex")}`;
     const composed = this.compose(id, q, prior, day, at);
@@ -1456,7 +1464,7 @@ export class Dreams {
     const prior = this.store.dreams({ limit: 20 }).find((d) => d.state !== "undone" && d.id !== dream.id) ?? null;
     // Its queue: what no OTHER standing dream was shown — so what this dream
     // was shown before it closed is shown to it again.
-    const q = this.queue({ owner: this.ctx.owner, skip: (d) => d.id === dream.id });
+    const q = this.queue({ owner: this.bundleOwner, skip: (d) => d.id === dream.id });
     const made = this.counts(dream.id);
     const composed = this.compose(dream.id, q, prior, day, at);
     const said = Object.entries(made)
@@ -1881,7 +1889,7 @@ export class Dreams {
     try {
       // What waited from before the dream began — not what was made during the night.
       const began = this.store.dream(id)?.started_at;
-      waiting = this.queue({ owner: this.ctx.owner, ...(began === undefined ? {} : { madeBy: began }) }).ids.length;
+      waiting = this.queue({ owner: this.bundleOwner, ...(began === undefined ? {} : { madeBy: began }) }).ids.length;
     } catch {
       waiting = 0;
     }
@@ -2065,7 +2073,7 @@ export class Dreams {
    * confidential unless this is the owner's own session.
    */
   showable(row: MemoryRow): boolean {
-    return this.showableAs(row, this.ctx.owner);
+    return this.showableAs(row, this.bundleOwner);
   }
 
   /** `showable`, for a session whose owner stance is `owner` (the preview's). */
@@ -2220,7 +2228,7 @@ export class Dreams {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
-      owner: this.ctx.owner,
+      owner: this.bundleOwner,
     });
     const mindAll = mindRead.items;
     const mindIds = new Set(mindAll.flatMap((m) => m.ids));
@@ -2319,7 +2327,7 @@ export class Dreams {
     const selfPage = page === null ? null : clipWire(page, T.PAGE_CHARS);
     const wakeText = wake === null ? null : clipWire(wake, T.WAKE_CHARS);
     const room = Math.max(0, T.NIGHT_CHARS - chaptersFit.used - wireChars(selfPage ?? "") - wireChars(wakeText ?? "") - FURNITURE);
-    const aged = this.agedOut(last, q.from, this.ctx.owner);
+    const aged = this.agedOut(last, q.from, this.bundleOwner);
     const base: Record<DreamRole, number> = { new: 4, "on-mind": 3, lookback: 2, neighbour: 1, mixing: 0.5 };
     const cands: FitCandidate[] = [];
     for (const [mid, r] of role) {
@@ -2422,7 +2430,7 @@ export class Dreams {
     for (const eid of this.store.list({ type: "episode", archived: false })) {
       const row = this.store.row(eid);
       if (row === undefined) continue;
-      if (row.confidential === 1 && !this.ctx.owner) continue;
+      if (row.confidential === 1 && !this.bundleOwner) continue;
       const at = row.updated_at ?? row.created_at ?? 0;
       // `>=`: an episode written in the same millisecond the last dream began is read again (its index says how far).
       const since = last === null ? row.birth_day >= day - T.FIRST_DREAM_DAYS : at >= last.started_at;
@@ -2623,7 +2631,7 @@ export class Dreams {
       const row = this.store.row(eid);
       const ch = chapters.get(eid) ?? { id: eid, title: row?.title ?? null, entries: [] };
       chapters.set(eid, ch);
-      const entry = row === undefined || (row.confidential === 1 && !this.ctx.owner) ? undefined : chapterEntries(row.body)[Number(at)];
+      const entry = row === undefined || (row.confidential === 1 && !this.bundleOwner) ? undefined : chapterEntries(row.body)[Number(at)];
       if (entry === undefined) {
         ch.entries.push({ chapter: null, day: null, fidelity: "line", text: gone, chars: 0 });
         continue;

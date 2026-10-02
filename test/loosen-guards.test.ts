@@ -44,7 +44,7 @@ afterEach(() => {
 
 function brain(): Counterpart {
   // The calendar follows the test's days (the once-a-day gates are the calendar date since 2026-09-28).
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
   open.push(c);
   return c;
 }
@@ -139,7 +139,7 @@ describe("feelings: an emotion that carries a phrase is split, never refused for
   });
 
   test("the note door stores a phrased emotion, split, and says so", async () => {
-    const s = openServer({ dir, scope: "/tmp/loosen-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/loosen-project", owner: true, bundlesAsOwner: true });
     open.push({ close: () => s.counterpart.close() });
     const r = await s.call("note", {
       text: "The release went out clean after the long night.",
@@ -501,7 +501,7 @@ describe("reflect: a second finish supplies what the first did not write", () =>
 
   test("through the MCP door: a second finish may leave out the entry, and the result says what was not written", async () => {
     recordSession(dir, { sessionId: "s-mcp", scope: "/proj", phase: "start" });
-    const srv = openServer({ dir, session: "s-mcp", scope: "/proj", owner: true });
+    const srv = openServer({ dir, session: "s-mcp", scope: "/proj", owner: true, bundlesAsOwner: true });
     open.push({ close: () => srv.counterpart.close() });
     const c = srv.counterpart;
     dateN = 0;
