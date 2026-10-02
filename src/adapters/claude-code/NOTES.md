@@ -1909,3 +1909,9 @@ amber on `truncated` or `mismatch`). The same review: Spawn goes amber on a work
 and failed today or yesterday (`adapter.runner.failed`, which the counters never graded); Self
 page says when the wake shows only the page's start; Dreaming reads past a run of undone dreams;
 Reflection says its mark count is a floor when its read comes back full.
+
+After the review of #315: Wake goes amber on `truncated` only — `mismatch` is what a session
+resumed after its record was pruned reads, so it is counted, not graded. Spawn's failure is
+standing only when the same step failed today and yesterday, or the failure is newer than the
+newest `adapter.spawn.started` (both latched once a date, so one transient failure clears at the
+next day's first start). The nightly child pins `MAX_MCP_OUTPUT_TOKENS=25000`.

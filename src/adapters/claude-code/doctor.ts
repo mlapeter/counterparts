@@ -53,6 +53,7 @@ import {
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
   WAKE_DELIVERED_EVENT,
 } from "../../core/counterpart.js";
@@ -2046,11 +2047,24 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
   // STARTED, THEN FAILED (2026-10-02, the "nobody saw it" review). The
   // counters clear on a start, so a worker that starts every boundary and then
   // throws — the wake not refreshed, the session-end pass not run — read green
-  // here with its failure only named in passing. A failure dated today or
-  // yesterday is standing; older is history, still named in the clause.
-  const failed = newestRows(store, RUNNER_FAILED_EVENT, 1, livedDay).rows[0];
+  // here with its failure only named in passing. STANDING (review of #315: one
+  // transient SQLITE_BUSY must not hold it amber for two days) means either
+  // the same step failed on both today and yesterday, or the newest failure is
+  // newer than the newest recorded start. Both rows are latched once a
+  // calendar date (a step's failure, and the first start; "newer" is the
+  // log's own order, `seq`), so the second reads
+  // "it failed after today's first start" and clears at the next day's first
+  // start unless the step fails again. Older is history, named in the clause.
+  const failures = newestRows(store, RUNNER_FAILED_EVENT, RUNNER_FAILED_ROWS, livedDay).rows;
+  const failed = failures[failures.length - 1];
   const failedOn = rowDate(failed);
-  if (failed !== undefined && failedOn !== null && (failedOn === input.today || failedOn === addDays(input.today, -1))) {
+  const started = newestRows(store, SPAWN_STARTED_EVENT, 1, livedDay).rows[0];
+  const yesterday = addDays(input.today, -1);
+  const stepOn = (step: string | null, date: string): boolean =>
+    failures.some((r) => str(payloadOf(r), "step") === step && rowDate(r) === date);
+  const repeated = failed !== undefined && stepOn(str(payloadOf(failed), "step"), input.today) && stepOn(str(payloadOf(failed), "step"), yesterday);
+  const sinceStart = failed !== undefined && (failedOn === input.today || failedOn === yesterday) && (started === undefined || failed.seq > started.seq);
+  if (failed !== undefined && failedOn !== null && (repeated || sinceStart)) {
     const fp = payloadOf(failed);
     return [
       finding(
@@ -2836,6 +2850,9 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
 /** Mark changes the Reflection line reads, newest first; a read that comes back full is a floor. */
 const MARK_ROWS = 10_000;
 
+/** The newest `adapter.runner.failed` rows the Spawn line reads (one per step per date). */
+const RUNNER_FAILED_ROWS = 20;
+
 /** How many dreams the Dreaming line reads, newest first, to find the last one that stands. */
 const DREAM_ROWS = 200;
 
@@ -2931,9 +2948,11 @@ const WAKE_WINDOW_DAYS = 7;
  * (`hooks.ts#wakeOutcome`) — and until now no line read it: a wake the host
  * cut short, or that arrived as something else, was green everywhere, along
  * with the write-up and handoff pointers that ride at its end. AMBER on any
- * `truncated` or `mismatch` in the window. `printed-unverified` (a host build
- * that does not record what it injected) and `not-found` are counted, not
- * graded. Silent with no rows.
+ * `truncated` in the window. `mismatch` is counted, not graded (review of
+ * #315): a session resumed after its record was pruned finds the earlier
+ * wake's mark, which is not a cut. `printed-unverified` (a host build that
+ * does not record what it injected) and `not-found` are counted too. Silent
+ * with no rows.
  */
 export function wakeArrivalFindings(store: Store): Finding[] {
   const since = Math.max(0, store.livedDay() - WAKE_WINDOW_DAYS);
@@ -2951,26 +2970,25 @@ export function wakeArrivalFindings(store: Store): Finding[] {
   const expected = wakes.length - (counts["no-wake-expected"] ?? 0);
   if (expected <= 0) return [];
   const whole = counts["delivered"] ?? 0;
-  const cut = (counts["truncated"] ?? 0) + (counts["mismatch"] ?? 0);
+  const cut = counts["truncated"] ?? 0;
+  const mismatched = counts["mismatch"] ?? 0;
   const unverified = counts["printed-unverified"] ?? 0;
   const missing = counts["not-found"] ?? 0;
   const window = `last ${String(WAKE_WINDOW_DAYS)} lived days`;
   const rest =
+    (mismatched > 0 ? `; ${String(mismatched)} carried another wake's mark (a session resumed after its record was let go)` : "") +
     (unverified > 0 ? `; ${String(unverified)} printed but not verifiable on this host build` : "") +
     (missing > 0 ? `; ${String(missing)} not found in the transcript` : "") +
     (wakes.length >= RESULTS_ROWS ? ". More rows than were read: the counts are a floor" : "");
-  const data = { wakes: expected, delivered: whole, cut, unverified, notFound: missing, floor: wakes.length >= RESULTS_ROWS };
+  const data = { wakes: expected, delivered: whole, cut, mismatch: mismatched, unverified, notFound: missing, floor: wakes.length >= RESULTS_ROWS };
   if (cut > 0) {
-    const newest = wakes.find((r) => {
-      const o = str(payloadOf(r), "outcome");
-      return o === "truncated" || o === "mismatch";
-    });
+    const newest = wakes.find((r) => str(payloadOf(r), "outcome") === "truncated");
     return [
       finding(
         "wake",
         "amber",
         "Wake",
-        `${window} — ${String(cut)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} reached the session cut short or not as composed (newest ${str(payloadOf(newest), "outcome") ?? "?"}, ${rowDate(newest) ?? "?"}); ${String(whole)} arrived whole${rest}`,
+        `${window} — ${String(cut)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} reached the session cut short (newest ${rowDate(newest) ?? "?"}); ${String(whole)} arrived whole${rest}`,
         "A wake cut short loses its end, and the write-up and handoff pointers ride there. Nothing to do by hand; if it repeats, the wake is over what the host takes in one — worth reporting with this line.",
         data,
       ),

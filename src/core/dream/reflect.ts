@@ -120,9 +120,9 @@ export const REFLECT_TUNABLES = {
    * rest.
    *
    * THE HOST'S CEILING, MEASURED (2026-10-02): was 54,000, on a guess of three
-   * characters a token; the night's begin came to 51.7 KB and Claude Code
-   * saved it to a file the run cannot open. Now the one ceiling
-   * (`fit/TOOL_RESULT_CEILING`).
+   * characters a token; the night's begin came to 51.7 KB, past Claude Code's
+   * 50,000-character line, and was saved to a file the run cannot open. Now
+   * the one ceiling (`fit/TOOL_RESULT_CEILING`).
    */
   RESULT_CHARS: TOOL_RESULT_CEILING.CHARS,
   /**

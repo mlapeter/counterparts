@@ -24,12 +24,15 @@ import { join } from "node:path";
 import { resultFindings } from "../src/adapters/claude-code/doctor.js";
 import { McpServer, RECALL_ID_RESULT_CHARS } from "../src/adapters/mcp/index.js";
 import { DESKTOP_HOST } from "../src/adapters/hosts.js";
+import { NARRATORS } from "../src/adapters/dashboard/web/narrate.js";
+import { WRITE_UP_PART_BYTES, writeUpParts } from "../src/adapters/sessions.js";
+import type { WriteUpEntry } from "../src/adapters/sessions.js";
 import type { ToolResult } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, MCP_OVERSIZE_EVENT, MCP_PART_EVENT } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES, REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
-import { pageWriterNight } from "../src/core/self/index.js";
+import { BRIEFING_KEY, pageWriterNight } from "../src/core/self/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 let dir: string;
@@ -80,10 +83,13 @@ function wire(res: ToolResult): number {
   return wireChars(JSON.stringify(res.structuredContent));
 }
 
-/** Within the ceiling, by the caps alone: no `cut`, so the net never had to act. */
+/** Within the ceiling, by the caps alone: no `cut`, so the net never had to act —
+ *  and under the HOST's own measure (its 50,000, on `.length`), which does not
+ *  move when the constant under test does (review of #315). */
 function underByTheCaps(res: ToolResult): void {
   expect(res.isError ?? false).toBe(false);
   expect(wire(res)).toBeLessThanOrEqual(CEILING);
+  expect(JSON.stringify(res.structuredContent).length).toBeLessThanOrEqual(TOOL_RESULT_CEILING.HOST_CHARS);
   expect(res.structuredContent["cut"]).toBeUndefined();
 }
 
@@ -105,6 +111,8 @@ function busyNight(c: Counterpart, script: "quoted" | "cjk"): void {
   }
   const page = script === "quoted" ? `## Core\n\n${"\"A\" \"quoted\" \"page\". ".repeat(700)}` : `## Core\n\n${"我是谁，我如何工作。".repeat(500)}`;
   expect(c.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);
+  // The wake the dream carries is the last one rendered: a long one.
+  c.store.setMeta(BRIEFING_KEY, `${page}\n\n## Open threads\n\n${said.repeat(10)}`);
 }
 
 describe("one ceiling: every cap derives from it", () => {
@@ -131,7 +139,21 @@ describe("a busy night reaches the model whole: under the ceiling by the caps, t
       const dreamId = begin.structuredContent["dream"] as string;
       const of = (begin.structuredContent["parts"] as { of: number } | undefined)?.of ?? 1;
       expect(of).toBeGreaterThan(1);
-      for (let k = 2; k <= of; k += 1) underByTheCaps(await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: k }));
+      // Part 1 keeps the wake and the page on a busy night (review of #315,
+      // item 10): they cannot be fetched in a later part; memories can.
+      const first = JSON.parse((begin.structuredContent["bundle"] as string).split("\n").slice(1).join("\n")) as { wake: unknown; selfPage: unknown };
+      expect(first.selfPage).not.toBeNull();
+      expect(first.wake).not.toBeNull();
+      // THE TURN'S BUDGET (review of #315, item 6): the night model may fetch
+      // every later part in one turn, and the host holds one turn's results to
+      // 200,000 together — the whole bundle, begin included, stays well under.
+      let total = JSON.stringify(begin.structuredContent).length;
+      for (let k = 2; k <= of; k += 1) {
+        const part = await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: k });
+        underByTheCaps(part);
+        total += JSON.stringify(part.structuredContent).length;
+      }
+      expect(total).toBeLessThanOrEqual(TOOL_RESULT_CEILING.HOST_MESSAGE_CHARS * 0.8);
       await s.call("dream", { phase: "journal", session: SESSION, dream: dreamId, text: "A dream, read whole." });
       const r = await s.call("reflect", { phase: "begin", session: SESSION, dream: dreamId });
       underByTheCaps(r);
@@ -196,6 +218,25 @@ describe("the net: a result over the ceiling is cut to it, said, and recorded �
     expect(f?.detail).toContain("cut to");
   });
 
+  test("a bundle shaped like the real one (JSON inside JSON) is cut to nearly the whole ceiling, not a fraction of it; its part row says it was cut", async () => {
+    const c = brain();
+    busyNight(c, "quoted");
+    const ceiling = 20_000;
+    const s = server(c, { resultCeilingChars: ceiling });
+    const begin = await s.call("dream", { phase: "begin", session: SESSION });
+    expect(typeof begin.structuredContent["cut"]).toBe("string");
+    expect(wire(begin)).toBeLessThanOrEqual(ceiling);
+    const over = rows(c, MCP_OVERSIZE_EVENT);
+    expect(over[0]).toMatchObject({ tool: "dream", phase: "begin", field: "bundle", cut: true });
+    // The first version shrank its target each try and kept ~(2−r)⁶ of the room.
+    expect(over[0]?.["cutTo"] as number).toBeGreaterThanOrEqual(ceiling * 0.9);
+    expect(over[0]?.["cutTo"] as number).toBeLessThanOrEqual(ceiling);
+    // The part row is written after the net: the size that left, and that it was cut.
+    const part = rows(c, MCP_PART_EVENT).find((p) => p["part"] === 1);
+    expect(part).toMatchObject({ mechanism: "dream", cut: true });
+    expect(part?.["chars"] as number).toBeLessThanOrEqual(ceiling);
+  }, 90_000);
+
   test("a result whose bulk is not one string (a list) is shipped as it is and recorded uncut — no instruction lost for nothing", async () => {
     const c = brain();
     const s = server(c, { resultCeilingChars: 60 });
@@ -227,12 +268,80 @@ describe("the net: a result over the ceiling is cut to it, said, and recorded �
     expect(rows(c, MCP_OVERSIZE_EVENT)[0]).toMatchObject({ tool: "wake", field: "wake", cut: true });
   });
 
+  test("a lock met by a READ's own telemetry row (a part handed, a recall counted) does not turn the read into a refusal", async () => {
+    const c = brain();
+    busyNight(c, "quoted");
+    const s = server(c);
+    const begin = await s.call("dream", { phase: "begin", session: SESSION });
+    const dreamId = begin.structuredContent["dream"] as string;
+    // The schema reading answers as a held lock would, but only while the
+    // telemetry rows themselves are being appended — where the guard runs.
+    const store = c.store as unknown as { schemaVersions: () => unknown; appendEvent: (e: { name: string }) => number };
+    const realVersions = store.schemaVersions.bind(c.store);
+    const realAppend = store.appendEvent.bind(c.store);
+    let locked = false;
+    store.schemaVersions = () => {
+      if (locked) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+      return realVersions();
+    };
+    store.appendEvent = (e) => {
+      locked = e.name === MCP_PART_EVENT || e.name === "mcp.recall";
+      try {
+        return realAppend(e as never);
+      } finally {
+        locked = false;
+      }
+    };
+    try {
+      const part = await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: 2 });
+      expect(part.isError ?? false).toBe(false);
+      expect(typeof part.structuredContent["bundle"]).toBe("string");
+      const ids = Object.keys(JSON.parse((begin.structuredContent["bundle"] as string).split("\n").slice(1).join("\n")).memories as object).slice(0, 2);
+      const recall = await s.call("recall", { ids, session: SESSION });
+      expect(recall.isError ?? false).toBe(false);
+      expect((recall.structuredContent["memories"] as unknown[]).length).toBe(2);
+    } finally {
+      store.schemaVersions = realVersions;
+      store.appendEvent = realAppend;
+    }
+  }, 90_000);
+
   test("a small result is untouched", async () => {
     const c = brain();
     const s = server(c);
     const res = await s.call("status", {});
     expect(res.structuredContent["cut"]).toBeUndefined();
     expect(rows(c, MCP_OVERSIZE_EVENT)).toEqual([]);
+  });
+});
+
+describe("the dashboard's words: handed, not read; a result shipped whole is not called cut", () => {
+  test("mcp.part and mcp.result.oversize narrations", () => {
+    const told = (p: Record<string, unknown>) => ({ store: null as never, row: null as never, p });
+    expect(NARRATORS["mcp.part"](told({ mechanism: "dream", part: 1, of: 1 })).text).toBe("The dream's bundle was handed over in one part.");
+    expect(NARRATORS["mcp.part"](told({ mechanism: "reflection", part: 2, of: 3 })).text).toContain("Part 2 of 3 of the reflection's bundle was handed over");
+    expect(NARRATORS["mcp.part"](told({ mechanism: "dream", part: 2, of: 3 })).text).not.toContain("read");
+    expect(NARRATORS["mcp.result.oversize"](told({ tool: "status", chars: 41_000, cut: false, cutTo: 41_000 })).text).toContain("went out whole");
+    expect(NARRATORS["mcp.result.oversize"](told({ tool: "dream", phase: "part", chars: 51_306, cut: true, cutTo: 39_990 })).text).toContain("cut to 39990");
+  });
+});
+
+describe("write-up parts are sized by what they cost on the wire, not bytes alone", () => {
+  test("quote- and newline-heavy words: every part's escaped cost is under the part size, so none meets the net", () => {
+    const entries: WriteUpEntry[] = Array.from({ length: 200 }, (_, i) => ({
+      text: `"${String(i)}" said "this", then "that",\n\t"and so on".\n`.repeat(30),
+      kept: false,
+      jot: false,
+      at: i,
+    }));
+    const parts = writeUpParts(entries, WRITE_UP_PART_BYTES);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(wireChars(JSON.stringify(part)) - 2).toBeLessThanOrEqual(WRITE_UP_PART_BYTES);
+      expect(Buffer.byteLength(part, "utf8")).toBeLessThanOrEqual(WRITE_UP_PART_BYTES);
+    }
+    // Nothing lost: the parts join back into every entry.
+    expect(parts.join("\n\n---\n\n")).toBe(entries.map((e) => e.text).join("\n\n---\n\n"));
   });
 });
 

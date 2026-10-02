@@ -49,12 +49,21 @@ What the build learned. Newest last.
   its bundle only (the begin, 51.5 KB, and part 2, 51,306 characters, were saved), and the
   reflection lost its begin (51.7 KB). The night of 10-01 lost the same three (51.4 KB, 52,066,
   51.9 KB).
-- **Two characters a token, not three.** Part 2 tripped the TOKEN line at 51,306 characters:
-  the bundle is JSON escaped inside JSON, every quote a backslash too. 54,000 was sized at three.
-- **One ceiling.** `TOOL_RESULT_CEILING.CHARS` = 40,000 — 20% under both lines at that density —
+- **The char line is the one that binds.** The token line is counted for real only when the
+  estimate (length / 4) passes 12,500 — past 50,000 characters — so under the char line it never
+  applies. Part 2 (51,306 characters, JSON escaped inside JSON) was past both, and counted over
+  25,000 tokens. 54,000 was sized on a guess of three characters a token, over the char line.
+- **One ceiling.** `TOOL_RESULT_CEILING.CHARS` = 40,000, 20% under the 50,000-character line,
   and the dream's and the reflection's rooms derive from it; so does the nightly writer's day
-  (`self/writer.ts#fitNightWriter`, which shrinks the day until its block fits beside the page).
-  The env var could raise the token line; nothing raises the 50,000, so the fix is the caps.
+  (`self/writer.ts#fitNightWriter`, which shrinks the day until its block fits beside the page)
+  and the write-up parts (`sessions.ts#partCost`, bytes or escaped wire cost, whichever is more).
+- **A turn's budget too.** `HOST_MESSAGE_CHARS` = 200,000 across one assistant turn's results:
+  a night model that fetches parts 2 and 3 in one turn shares it. A busy night's whole bundle is
+  tested under 80% of it.
+- **Residual risk.** The host can lower either line by a remote flag. The nightly run's child
+  pins the token line with `MAX_MCP_OUTPUT_TOKENS=25000` (the env var outranks the flag); nothing
+  pins the char line, and the server's net (`mcp/server.ts#withinCeiling`) and doctor's Tool
+  results line are what would show it.
 - **New durable event names after all** (§1 said none): `mcp.part` and `mcp.result.oversize`.
   The lookup count measures what a receiver fetched by id, which cannot see a part the host
   never showed; these two say what was handed and what was cut. Every dashboard registry

@@ -529,6 +529,8 @@ export class McpServer {
   private launchOff = false;
   /** Set by the write guard when it refused a write in the current call. */
   private writeTripped: SchemaVerdict | null = null;
+  /** The part this call handed, written after the net (`writePart`). */
+  private partHanded: { mechanism: FitMechanism; ref: string; part: number; of: number } | null = null;
   /**
    * CLAUDE DESKTOP'S BINDING IS PER CALL (2026-09-30). One server serves every
    * Desktop chat, so the lazy bind — once, for the life of the process — would
@@ -830,6 +832,7 @@ export class McpServer {
     // the gate's refusal, whatever the tool made of the error on its way out.
     // Calls arrive one at a time over stdio, so one slot is enough.
     this.writeTripped = null;
+    this.partHanded = null;
     // CLAUDE DESKTOP: WHICH SESSION IS THIS CALL (2026-09-30) — bound per call,
     // before anything reads `this.session`, and let go when the call ends.
     // `wake` binds nothing: it makes the session. Nothing here writes in a place
@@ -858,8 +861,10 @@ export class McpServer {
       this.writeTripped = null;
       if (tripped !== null) return this.refusalFor(name, tripped, "write");
       // THE NET LAST (2026-10-02): after the Desktop extras, which rebuild the
-      // result, so nothing leaves past it.
-      return this.withinCeiling(name, args, desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult));
+      // result, so nothing leaves past it; a part's row after the net.
+      const out = this.withinCeiling(name, args, desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult));
+      this.writePart(out);
+      return out;
     } finally {
       this.callSession = null;
       this.callBoundBy = null;
@@ -1821,7 +1826,7 @@ export class McpServer {
     } else if (result.path === "none") {
       blockedBy[result.reason] = (blockedBy[result.reason] ?? 0) + 1;
     }
-    try {
+    this.telemetry(() => {
       this.counterpart.noteAdapterEvent(MCP_RECALL_EVENT, {
         path: result.path,
         reason: result.reason,
@@ -1847,10 +1852,9 @@ export class McpServer {
         // in part (2026-09-28) — the lookup's use, per mechanism. Counts only.
         ...(Object.keys(fromIndex).length > 0 ? { fromIndex } : {}),
       });
-    } catch {
       // The ring emit above already carries this call; a telemetry write that
-      // failed must not become the answer the model receives.
-    }
+      // failed must not become the answer the model receives (`telemetry`).
+    });
   }
 
   /**
@@ -1925,11 +1929,11 @@ export class McpServer {
    * measurement did.
    */
   private lookupsFromIndex(delivered: readonly { id: string; whole: boolean }[]): Partial<Record<FitMechanism, number>> {
-    try {
-      return noteLookups(this.counterpart.store, delivered);
-    } catch {
-      return {};
-    }
+    let counted: Partial<Record<FitMechanism, number>> = {};
+    this.telemetry(() => {
+      counted = noteLookups(this.counterpart.store, delivered);
+    });
+    return counted;
   }
 
   /**
@@ -2913,7 +2917,7 @@ export class McpServer {
             false,
           );
           // Part 1 is the begin: its row says how many parts the run owes.
-          this.notePart("dream", out.bundle.dream, 1, out.bundle.parts?.of ?? 1, handed);
+          this.notePart("dream", out.bundle.dream, 1, out.bundle.parts?.of ?? 1);
           return handed;
         }
         case "part": {
@@ -2938,7 +2942,7 @@ export class McpServer {
             },
             false,
           );
-          this.notePart("dream", dream, out.part, out.of, handed);
+          this.notePart("dream", dream, out.part, out.of);
           return handed;
         }
         case "propose": {
@@ -3103,7 +3107,7 @@ export class McpServer {
             },
             false,
           );
-          this.notePart("reflection", out.bundle.reflection, 1, out.bundle.parts?.of ?? 1, handed);
+          this.notePart("reflection", out.bundle.reflection, 1, out.bundle.parts?.of ?? 1);
           return handed;
         }
         case "part": {
@@ -3126,7 +3130,7 @@ export class McpServer {
             },
             false,
           );
-          this.notePart("reflection", reflection, out.part, out.of, handed);
+          this.notePart("reflection", reflection, out.part, out.of);
           return handed;
         }
         case "finish": {
@@ -3855,15 +3859,24 @@ export class McpServer {
     if (field !== null) {
       const value = sc[field] as string;
       const note = noteFor(field);
-      // The field gets what is left, and is cut again while its escaping still overruns.
-      let room = Math.max(0, ceiling - rest);
-      let kept = clipWire(value, room);
-      for (let tries = 0; tries < 6; tries += 1) {
-        const over = wireChars(JSON.stringify(kept)) - 2 - room;
-        if (over <= 0 || kept.length === 0) break;
-        room = Math.max(0, room - over - 16);
-        kept = clipWire(value, room);
+      // The field gets what is left — a FIXED target (review of #315: the first
+      // version shrank its target each try and kept about (2−r)⁶ of what fits
+      // for escaped text). The longest cut whose ESCAPED cost fits is found by
+      // halving: `clipWire` keeps more as its limit grows, so the search is exact.
+      const target = Math.max(0, ceiling - rest);
+      const escaped = (s: string): number => wireChars(JSON.stringify(s)) - 2;
+      let lo = 0;
+      let hi = target;
+      let kept = clipWire(value, 0);
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const tried = clipWire(value, mid);
+        if (escaped(tried) <= target) {
+          kept = tried;
+          lo = mid + 1;
+        } else hi = mid - 1;
       }
+      if (escaped(kept) > target) kept = "";
       const payload: Record<string, unknown> = { ...sc, [field]: kept, cut: note };
       // The text copy follows the shape it had: the wake rides as its own text,
       // everything else as the payload's JSON.
@@ -3876,7 +3889,8 @@ export class McpServer {
       cutTo = wireChars(JSON.stringify(payload));
     }
     this.emit("mcp.result.oversize", undefined, { tool: name, phase, chars: measured, cutTo });
-    try {
+    // The cut already happened; a lost row costs doctor's amber, never the answer.
+    this.telemetry(() => {
       this.counterpart.noteAdapterEvent(MCP_OVERSIZE_EVENT, {
         tool: name,
         phase,
@@ -3886,30 +3900,49 @@ export class McpServer {
         cut: field !== null,
         cutTo,
       });
-    } catch {
-      /* the cut already happened; a lost row costs doctor's amber, never the answer */
-    }
+    });
     return out;
   }
 
   /**
-   * A LATER PART HANDED (2026-10-02): one durable `mcp.part` row per part, so
-   * doctor can hold the parts a begin promised (`dream.begun`'s `parts`, the
-   * reflection's `detail.fit.parts`) against the parts that were fetched.
-   * Counts and ids only. Fail-open: telemetry never becomes the answer.
+   * A TELEMETRY WRITE, never the answer (review of #315). The store's write
+   * guard records a `busy` or `ahead` verdict in `writeTripped`, and `call`
+   * turns any tripped verdict into the tool's refusal — right for a tool's own
+   * write, wrong for the row a READ leaves behind (a part handed, a recall
+   * counted): a lock held for a moment would turn the part into a refusal.
+   * So the verdict is put back as it was, and the row is simply lost.
    */
-  private notePart(mechanism: FitMechanism, ref: string, part: number, of: number, result: ToolResult): void {
+  private telemetry(write: () => void): void {
+    const before = this.writeTripped;
     try {
-      this.counterpart.noteAdapterEvent(MCP_PART_EVENT, {
-        mechanism,
-        ref,
-        part,
-        of,
-        chars: wireChars(JSON.stringify(result.structuredContent)),
-      });
+      write();
     } catch {
-      /* the part was handed; the row is evidence, never a reason to fail it */
+      /* evidence, never a reason to fail the call */
+    } finally {
+      this.writeTripped = before;
     }
+  }
+
+  /**
+   * A PART HANDED (2026-10-02): one durable `mcp.part` row per part — part 1
+   * being the begin — so doctor can hold the parts a begin promised against
+   * the parts that were fetched. The handler only marks it (`notePart`); the
+   * row is written by `call` AFTER the net (`writePart`), so `chars` is what
+   * left the server and `cut` says whether the net had to act (review of
+   * #315: it recorded the size from before the cut). Counts and ids only.
+   */
+  private notePart(mechanism: FitMechanism, ref: string, part: number, of: number): void {
+    this.partHanded = { mechanism, ref, part, of };
+  }
+
+  private writePart(result: ToolResult): void {
+    const p = this.partHanded;
+    this.partHanded = null;
+    if (p === null) return;
+    const cut = typeof result.structuredContent["cut"] === "string";
+    this.telemetry(() => {
+      this.counterpart.noteAdapterEvent(MCP_PART_EVENT, { ...p, chars: wireChars(JSON.stringify(result.structuredContent)), cut });
+    });
   }
 
   private result(payload: Record<string, unknown>, isError: boolean): ToolResult {

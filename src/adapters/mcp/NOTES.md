@@ -1039,3 +1039,10 @@ stated cut, never a refusal. Each part a dream's or a reflection's bundle is han
 part 1 being the begin — leaves an `mcp.part` row, so doctor's Tool results line can hold the
 parts a run was promised against the parts it fetched. `RECALL_ID_RESULT_CHARS` (56,000, counted
 over both copies) is ~28,000 per copy: under the ceiling, and left as it was.
+
+After the adversarial review of #315: the net's cut is a FIXED target, searched by halving (the
+first version shrank its target each try and kept a fraction of the room for escaped text). The
+`mcp.part` row is written after the net, with the size that left and `cut`. Telemetry rows a
+READ leaves (a part, `mcp.recall`, the lookup ledger) go through `telemetry`, which puts the write
+guard's verdict back as it was: a lock met by the row is the row's loss, never the read's refusal.
+Write-up parts are sized by the larger of bytes and escaped wire cost, so none meets the net.

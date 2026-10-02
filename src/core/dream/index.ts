@@ -2523,10 +2523,18 @@ export class Dreams {
     // first (it is the page plus lanes), then the page (the self_page tool
     // reads it whole), then what's on my mind (counted in onMindMore) — each
     // left out with its length said, never cut silently.
+    //
+    // THE LINE MOVED WITH THE CEILING (2026-10-02, review of #315). It was
+    // `RESULT_CHARS - PART_CHARS / 4`: 40,500 of furniture at 54,000, and 30,000
+    // at 40,000 — which would drop the wake and the page on a busy night that
+    // used to keep them. The wake and the page cannot be fetched in a later
+    // part, and memories can, so the furniture now keeps all but
+    // `FIRST_PART_MIN_ROOM` of part 1 (36,000), and the memories move on.
     let base: DreamBundle = whole;
-    if (measure(base) > T.RESULT_CHARS - T.PART_CHARS / 4) base = { ...base, wake: null };
-    if (measure(base) > T.RESULT_CHARS - T.PART_CHARS / 4) base = { ...base, selfPage: null };
-    if (measure(base) > T.RESULT_CHARS - T.PART_CHARS / 4) base = { ...base, onMind: [], onMindMore: (base.onMindMore ?? 0) + base.onMind.length };
+    const furnitureLine = T.RESULT_CHARS - FIRST_PART_MIN_ROOM;
+    if (measure(base) > furnitureLine) base = { ...base, wake: null };
+    if (measure(base) > furnitureLine) base = { ...base, selfPage: null };
+    if (measure(base) > furnitureLine) base = { ...base, onMind: [], onMindMore: (base.onMindMore ?? 0) + base.onMind.length };
     const fixed = measure(base);
     const groups = packParts(pieces, Math.max(0, T.RESULT_CHARS - fixed), Math.max(0, T.PART_CHARS - PART_FURNITURE));
     if (groups.length === 1) return { bundle: base, later: [] };
@@ -2870,6 +2878,8 @@ const FIT_OVERHEAD = FIT_TUNABLES.OVERHEAD;
 const FURNITURE = 4_000;
 /** Slack for the result's other fields (phase, session, the server's `how`) beside the bundle. */
 const PACK_MARGIN = 1_500;
+/** The least of part 1 kept for memories before its furniture (wake, page, on my mind) gives way. CAL. */
+const FIRST_PART_MIN_ROOM = 4_000;
 /** A later part's own furniture: its opener, ids and `next`. */
 const PART_FURNITURE = 1_500;
 

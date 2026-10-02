@@ -13,8 +13,9 @@
 - **Doctor checks what reached the model, not only what ran.** A new Tool results line goes
   amber when a result was cut to fit, or when a dream or reflection finished without reading
   a part it was handed. A new Wake line goes amber when a session's wake arrived cut short.
-  The Spawn line goes amber when the background worker started and then failed today or
-  yesterday, and the Self page line says when the wake shows only the start of a long page.
+  The Spawn line goes amber when the background worker failed after it last started, or the
+  same step failed two days running, and the Self page line says when the wake shows only the
+  start of a long page.
 
 ## 0.3.11 — 2026-10-01
 

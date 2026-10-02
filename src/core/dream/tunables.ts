@@ -107,11 +107,11 @@ export const DREAM_TUNABLES = {
    * under `PART_CHARS`.
    *
    * THE HOST'S CEILING, MEASURED (2026-10-02): were 54,000 each, on a guess of
-   * three characters a token. Escaped JSON inside JSON runs nearer two, and
-   * Claude Code saves a result past 50,000 characters to a file the nightly
-   * run cannot open — the begin (51.5 KB) and part 2 (51,306) of the night's
-   * bundle never reached the dream. Both now sit at the one ceiling
-   * (`fit/TOOL_RESULT_CEILING`): more parts, each one read.
+   * three characters a token. Claude Code saves a result past 50,000
+   * characters to a file the nightly run cannot open — the begin (51.5 KB)
+   * and part 2 (51,306) of the night's bundle never reached the dream. Both
+   * now sit at the one ceiling (`fit/TOOL_RESULT_CEILING`, 20% under that
+   * line): more parts, each one read.
    */
   RESULT_CHARS: TOOL_RESULT_CEILING.CHARS,
   PART_CHARS: TOOL_RESULT_CEILING.CHARS,

@@ -310,6 +310,8 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     });
     expect(plan.ok).toBe(true);
     expect(plan.command).toBe("claude");
+    // The host's MCP token line, pinned against a remote flag (2026-10-02).
+    expect(plan.env["MAX_MCP_OUTPUT_TOKENS"]).toBe("25000");
     expect(plan.args).toEqual([
       "-p",
       "--allowedTools",

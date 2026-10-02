@@ -50,6 +50,7 @@ import {
   SLEEP_CYCLE_EVENT,
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
   WAKE_DELIVERED_EVENT,
 } from "../src/core/counterpart.js";
@@ -2686,23 +2687,43 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     const green = by(doctorFindings(input({ store: s })), "wake");
     expect(green.severity).toBe("green");
     expect(green.detail).toContain("2 of 2 wakes arrived whole");
+    // A resumed session whose record was let go reads the earlier wake's mark:
+    // counted, never graded (review of #315).
+    wake("mismatch");
+    const still = by(doctorFindings(input({ store: s })), "wake");
+    expect(still.severity).toBe("green");
+    expect(still.detail).toContain("1 carried another wake's mark");
     wake("truncated");
     const amber = by(doctorFindings(input({ store: s })), "wake");
     expect(amber.severity).toBe("amber");
-    expect(amber.detail).toContain("1 of 3 wakes reached the session cut short");
-    expect(amber.detail).toContain("truncated");
+    expect(amber.detail).toContain("1 of 4 wakes reached the session cut short");
   });
 
-  test("Spawn: a worker that started and then failed today is amber, naming the step; an old failure stays green", () => {
+  test("Spawn: a failure after the newest start is amber, naming the step; one a later start passed is green unless the step failed today and yesterday", () => {
     mintStore();
     writeConfig();
     const s = store();
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "Error", step: "wake", date: "2026-09-01" } });
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
+    // Yesterday's one transient failure, then today's start: passed, green.
+    s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "SQLITE_BUSY", step: "sessionEnd", date: "2026-09-13" } });
+    s.appendEvent({ name: SPAWN_STARTED_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
+    expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
+    // The same step fails again today: amber, whatever started since.
     s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "SQLITE_BUSY", step: "sessionEnd", date: "2026-09-14" } });
+    s.appendEvent({ name: SPAWN_STARTED_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
     const f = by(doctorFindings(input({ store: s })), "spawn");
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("failed at its sessionEnd step on 2026-09-14 (SQLITE_BUSY)");
+  });
+
+  test("Spawn: a failure newer than the newest start is amber", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    s.appendEvent({ name: SPAWN_STARTED_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
+    s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "Error", step: "wake", date: "2026-09-14" } });
+    expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("amber");
   });
 
   test("Self page: a page past what the wake carries says the wake shows only its start", () => {
