@@ -163,6 +163,14 @@ export function feelingWord(
   w: string,
   stored: ReadonlySet<string> = new Set(),
 ): { word: string; superlative: boolean; via: "wheel" | "everyday" | "stem" } | null {
+  // AN ALIAS READS AS ITS WHEEL WORD (2026-10-02, lane B; 0.3.10's follow-up):
+  // "fear" is an alias of afraid, and read as itself it reached only a stamp
+  // of afraid — never scared or frightened, which answer to their group's
+  // word ("afraid"), not to its aliases. The question keeps the word asked too.
+  if (w.length >= 3 && Object.hasOwn(ALIASES, w)) {
+    const to = wheelEntry(ALIASES[w] as string)?.word;
+    if (to !== undefined) return { word: to, superlative: false, via: "wheel" };
+  }
   if (w.length >= 3 && (WHEEL_VOCABULARY.has(w) || stored.has(w))) return { word: w, superlative: false, via: "wheel" };
   if (Object.hasOwn(EVERYDAY_TO_WHEEL, w)) return { word: EVERYDAY_TO_WHEEL[w] as string, superlative: false, via: "everyday" };
   const known = (x: string): string | null => (STEMMABLE.has(x) ? x : null);

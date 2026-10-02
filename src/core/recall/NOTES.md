@@ -986,3 +986,11 @@ session.
   not a stretch (#307's reverted attempt: an idle tab opened early covered a sibling's
   note), so a first turn's note, before the session's first turn-end, stays unidentified
   on an old row; the write-time match is what fixes that going forward.
+
+## 27. An alias in a question reads as its wheel word (2026-10-02, lane B)
+
+- `feelingWord` reads a wheel ALIAS as the word it stands for, and the question keeps the
+  word asked too: "fear" names `afraid`, so "when did the owner feel fear?" reaches a stamp
+  of scared or frightened (they answer to their group's word), not only an `afraid` stamp
+  — the 0.3.10 release check's follow-up. The same for thankful → grateful, touched →
+  moved, anger → angry. No frame is needed, as for any wheel word.

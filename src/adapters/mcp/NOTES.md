@@ -1039,3 +1039,19 @@ stated cut, never a refusal. Each part a dream's or a reflection's bundle is han
 part 1 being the begin — leaves an `mcp.part` row, so doctor's Tool results line can hold the
 parts a run was promised against the parts it fetched. `RECALL_ID_RESULT_CHARS` (56,000, counted
 over both copies) is ~28,000 per copy: under the ceiling, and left as it was.
+
+## 2026-10-02 — `note` takes `feelingsNow` (lane B, owner pick 2)
+
+- **Why `note` and not `session_end`.** The moment an old memory feels different is
+  mid-session, when it comes up; `session_end` is one call at the end, long after. And
+  `note` already acts on existing memories without writing one (`settle`, 2026-09-29), so
+  `text` may be left out the same way — `feelings-now-only` — or sent with it, and both
+  happen. Not a new tool.
+- **"Shown in this session"** is what this server process handed it (`seenHere`: the
+  memories `recall` returned, the neighbours a write showed) and what ambient recall
+  surfaced for the session (its gate record), when the session is known. There is no
+  per-session record of the wake's memories; one shown only there is refused with the way
+  in — read it with recall by id first. Loose by design: the bound is the shown set, not a
+  refusal of a feeling.
+- The core is `Reflections#feelAgain`, the reflection's own path (`dream/NOTES.md`,
+  2026-10-02).

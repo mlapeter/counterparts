@@ -101,7 +101,8 @@ export const TUNABLES = {
   CORE_FAST_FEELING: 0.6,
   /**
    * Does the fast lane's feeling read feelings a REFLECTION recorded later
-   * (v9, `feelings.source = 'reflection'`)? Default OPEN — the owner's call of
+   * (v9, `feelings.source = 'reflection'`; since 2026-10-02 an awake one too,
+   * `'awake'`)? Default OPEN — the owner's call of
    * 2026-09-27, held lightly: nearly all sessions are straight work with
    * little typing, so what matters may never come up in the moment, and a
    * memory has to be able to reach the core on reflection alone. Such a

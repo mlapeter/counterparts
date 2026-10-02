@@ -189,7 +189,7 @@ export function selfRelevantFeeling(
         (f) =>
           f.whose === "self" &&
           f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING &&
-          (f.source === null || f.source === "session" || (f.source === "reflection" && acceptsReflected)) &&
+          (f.source === null || f.source === "session" || ((f.source === "reflection" || f.source === "awake") && acceptsReflected)) &&
           isSelfRelevantFeeling(f.emotion, f.other_word),
       );
   } catch {
