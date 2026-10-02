@@ -23,6 +23,7 @@ import { join } from "node:path";
 
 import { resultFindings } from "../src/adapters/claude-code/doctor.js";
 import { McpServer, RECALL_ID_RESULT_CHARS } from "../src/adapters/mcp/index.js";
+import { DESKTOP_HOST } from "../src/adapters/hosts.js";
 import type { ToolResult } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, MCP_OVERSIZE_EVENT, MCP_PART_EVENT } from "../src/core/counterpart.js";
@@ -193,6 +194,37 @@ describe("the net: a result over the ceiling is cut to it, said, and recorded â€
     expect(f?.severity).toBe("amber");
     expect(f?.detail).toContain("self_page");
     expect(f?.detail).toContain("cut to");
+  });
+
+  test("a result whose bulk is not one string (a list) is shipped as it is and recorded uncut â€” no instruction lost for nothing", async () => {
+    const c = brain();
+    const s = server(c, { resultCeilingChars: 60 });
+    const before = await server(c).call("status", {});
+    const res = await s.call("status", {});
+    expect(res.structuredContent["cut"]).toBeUndefined();
+    expect(res.structuredContent).toEqual(before.structuredContent);
+    const over = rows(c, MCP_OVERSIZE_EVENT);
+    expect(over.length).toBe(1);
+    expect(over[0]).toMatchObject({ tool: "status", cut: false, field: null });
+    // The invariant: a row that says it cut always cut to the ceiling.
+    for (const r of over) if (r["cut"] === true) expect(r["cutTo"] as number).toBeLessThanOrEqual(r["ceiling"] as number);
+  });
+
+  test("Claude Desktop's wake, which rides as its own text, is cut in both copies", async () => {
+    const c = brain();
+    c.store.advanceClock("2026-09-10");
+    for (let i = 0; i < 30; i += 1) mem(c, `Something worth waking to, number ${String(i)}, said at a little length so the wake has it.`, { kind: "person", about: "us" });
+    expect(c.revisePage(`## Core\n\n${"I keep this page. ".repeat(200)}`, { reason: "a long page", by: "owner" }).written).toBe(true);
+    c.rebrief();
+    const s = new McpServer({ counterpart: c, owner: true, registryDir: dir, host: DESKTOP_HOST, lifecycle: { spawner: () => ({ pid: 4242 }) }, manifestVersion: () => null, resultCeilingChars: 1_000 });
+    const res = await s.call("wake", {});
+    expect(wire(res)).toBeLessThanOrEqual(1_000);
+    const note = res.structuredContent["cut"] as string;
+    expect(note).toContain("cut `wake`");
+    const text = res.content[0]?.text ?? "";
+    expect(text.startsWith(res.structuredContent["wake"] as string)).toBe(true);
+    expect(text.endsWith(note)).toBe(true);
+    expect(rows(c, MCP_OVERSIZE_EVENT)[0]).toMatchObject({ tool: "wake", field: "wake", cut: true });
   });
 
   test("a small result is untouched", async () => {

@@ -3841,17 +3841,21 @@ export class McpServer {
       if (typeof v === "string" && (field === null || v.length > (sc[field] as string).length)) field = k;
     }
     const phase = typeof args["phase"] === "string" ? args["phase"] : null;
+    const noteFor = (f: string): string =>
+      `This answer came to ${String(measured)} characters, more than the ${String(ceiling)} one tool answer carries whole, ` +
+      `so the server cut \`${f}\` to fit: what is shown is its beginning, and the rest did not reach you. ` +
+      `Work with what is here and say so; nothing was refused.`;
+    // The rest of the result, measured with the note beside it. When the bulk
+    // is not that string (a list), cutting it cannot bring the result under:
+    // it ships as it is, recorded, rather than losing an instruction for nothing.
+    const rest = field === null ? measured : wireChars(JSON.stringify({ ...sc, [field]: "", cut: noteFor(field) }));
+    if (rest > ceiling) field = null;
     let out = result;
     let cutTo = measured;
     if (field !== null) {
       const value = sc[field] as string;
-      const note =
-        `This answer came to ${String(measured)} characters, more than the ${String(ceiling)} one tool answer carries whole, ` +
-        `so the server cut \`${field}\` to fit: what is shown is its beginning, and the rest did not reach you. ` +
-        `Work with what is here and say so; nothing was refused.`;
-      // The rest of the result, measured with the note beside it; the field
-      // gets what is left, and is cut again while its escaping still overruns.
-      const rest = wireChars(JSON.stringify({ ...sc, [field]: "", cut: note }));
+      const note = noteFor(field);
+      // The field gets what is left, and is cut again while its escaping still overruns.
       let room = Math.max(0, ceiling - rest);
       let kept = clipWire(value, room);
       for (let tries = 0; tries < 6; tries += 1) {
