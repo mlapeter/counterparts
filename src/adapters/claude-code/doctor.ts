@@ -42,6 +42,10 @@ import {
   ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   EMBED_BACKFILL_EVENT,
+  ENVELOPE_GAVE_WAY_EVENT,
+  ENVELOPE_OVERCAP_EVENT,
+  INJECTION_OVERBUDGET_EVENT,
+  NOTICE_DROPPED_EVENT,
   GATE_CHUNK_EVENT,
   GATE_DEPOSIT_EVENT,
   MCP_OVERSIZE_EVENT,
@@ -76,6 +80,9 @@ import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
+import { WORK_OVERFLOW_EVENT } from "../../core/self/work.js";
+import { HANDOFF_REFUSED_EVENT } from "../../core/handoff/index.js";
+import { LAST_HERE_NOROOM_EVENT } from "../../core/handoff/last-here.js";
 import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { awakeFeelingCounts, dreamingSetting, nightPartsWords, nightRunLost, nightRunOf, nightRunWords } from "../../core/dream/index.js";
 import type { DreamingSetting } from "../../core/dream/index.js";
@@ -2553,8 +2560,12 @@ export function upgradeV9Findings(store: Store): Finding[] {
   const candidates = metaNum(upgrade["candidates"]);
   let since = 0;
   let work = 0;
+  let floor = false;
   try {
-    for (const e of store.coreEvents({ action: "about", limit: 10_000 })) {
+    const marks = store.coreEvents({ action: "about", limit: MARK_ROWS });
+    // A FULL READ IS A FLOOR (2026-10-02), as the Reflection line's is.
+    floor = marks.length >= MARK_ROWS;
+    for (const e of marks) {
       since += 1;
       if ((e.reason ?? "").startsWith("work")) work += 1;
     }
@@ -2566,9 +2577,9 @@ export function upgradeV9Findings(store: Store): Finding[] {
       "upgrade-v9",
       "green",
       "Upgrade",
-      `Upgrade to v9: what a memory is about is now marked by meaning; the old rule was carried so nothing changed overnight — ${String(me)} self ${me === 1 ? "memory" : "memories"} marked about me, ${String(owner)} about the owner (${String(candidates)} core ${candidates === 1 ? "candidate" : "candidates"}); ${String(since)} ${since === 1 ? "mark" : "marks"} set by the writer or a reflection since${work > 0 ? `, ${String(work)} of them "work" (out of the candidates)` : ""}`,
+      `Upgrade to v9: what a memory is about is now marked by meaning; the old rule was carried so nothing changed overnight — ${String(me)} self ${me === 1 ? "memory" : "memories"} marked about me, ${String(owner)} about the owner (${String(candidates)} core ${candidates === 1 ? "candidate" : "candidates"}); ${floor ? "at least " : ""}${String(since)} ${since === 1 ? "mark" : "marks"} set by the writer or a reflection since${work > 0 ? `, ${floor ? "at least " : ""}${String(work)} of them "work" (out of the candidates)` : ""}${floor ? ` (only the newest ${String(MARK_ROWS)} were read)` : ""}`,
       "",
-      { markedMe: me, markedOwner: owner, candidates, marksSince: since, work },
+      { markedMe: me, markedOwner: owner, candidates, marksSince: since, work, marksFloor: floor },
     ),
   ];
 }
@@ -2809,6 +2820,20 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     carried: "its morning share carried to a later session",
     told: "its morning share told",
   };
+  // A SHARE STUCK AT `carried` (2026-10-02): `told` was never called, so the
+  // line said "carried to a later session" forever. Now it says since when:
+  // the day it was carried (`share_at`), else the reflection's own date.
+  const carriedOn =
+    last?.share_state !== "carried"
+      ? null
+      : typeof last.share_at === "number"
+        ? localDate(last.share_at, readingZone)
+        : (last.date ?? null);
+  const carriedDays =
+    carriedOn !== null && isDay(carriedOn) && isDay(input.today) ? Math.max(0, daysBetween(carriedOn, input.today)) : null;
+  if (carriedDays !== null && carriedDays > 0) {
+    share["carried"] = `its morning share carried to a later session ${String(carriedDays)} ${carriedDays === 1 ? "day" : "days"} ago and never told`;
+  }
   const what =
     last === undefined
       ? "has not reflected yet"
@@ -2840,6 +2865,7 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
         reflection: last?.id ?? null,
         page: last?.page_version !== null && last?.page_version !== undefined,
         share: last?.share_state ?? null,
+        carriedDays,
         returnsAwake: returns.awake,
         returnsReflection: returns.reflection,
         returnsDream: returns.dream,
@@ -2962,12 +2988,21 @@ const WAKE_WINDOW_DAYS = 7;
  * wake's mark, which is not a cut. `printed-unverified` (a host build that
  * does not record what it injected) and `not-found` are counted too. Silent
  * with no rows.
+ *
+ * AND WHAT THE WAKE COULD NOT CARRY (2026-10-02, the gaps #315 listed), as
+ * clauses on the same line: a session start over the host's reported ceiling
+ * or a hook past its 10,000-character cap (AMBER: the host cut or previewed
+ * it), and, counted only, a notice dropped to keep the envelope under the
+ * cap, parts that waited for room (`adapter.envelope.gave-way`), a handoff
+ * or "Last here" line with no room, and "Work here" lines that did not fit.
  */
 export function wakeArrivalFindings(store: Store): Finding[] {
   const since = Math.max(0, store.livedDay() - WAKE_WINDOW_DAYS);
   let wakes: EventRow[];
+  let room: WakeRoom;
   try {
     wakes = store.eventLog({ name: WAKE_DELIVERED_EVENT, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
+    room = wakeRoom(store, since);
   } catch {
     return [];
   }
@@ -2977,19 +3012,52 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     counts[o] = (counts[o] ?? 0) + 1;
   }
   const expected = wakes.length - (counts["no-wake-expected"] ?? 0);
-  if (expected <= 0) return [];
+  if (expected <= 0 && !room.any) return [];
   const whole = counts["delivered"] ?? 0;
   const cut = counts["truncated"] ?? 0;
   const mismatched = counts["mismatch"] ?? 0;
   const unverified = counts["printed-unverified"] ?? 0;
   const missing = counts["not-found"] ?? 0;
   const window = `last ${String(WAKE_WINDOW_DAYS)} lived days`;
+  const floor = wakes.length >= RESULTS_ROWS || room.floor;
   const rest =
     (mismatched > 0 ? `; ${String(mismatched)} carried another wake's mark (a session resumed after its record was let go)` : "") +
     (unverified > 0 ? `; ${String(unverified)} printed but not verifiable on this host build` : "") +
     (missing > 0 ? `; ${String(missing)} not found in the transcript` : "") +
-    (wakes.length >= RESULTS_ROWS ? ". More rows than were read: the counts are a floor" : "");
-  const data = { wakes: expected, delivered: whole, cut, mismatch: mismatched, unverified, notFound: missing, floor: wakes.length >= RESULTS_ROWS };
+    room.clauses +
+    (floor ? ". More rows than were read: the counts are a floor" : "");
+  const data = {
+    wakes: expected,
+    delivered: whole,
+    cut,
+    mismatch: mismatched,
+    unverified,
+    notFound: missing,
+    overBudget: room.overBudget,
+    overCap: room.overCap,
+    noticeDropped: room.noticeDropped,
+    gaveWay: Object.values(room.gaveWay).reduce((n, k) => n + k, 0),
+    handoffNoRoom: room.handoffNoRoom,
+    lastHereNoRoom: room.lastHereNoRoom,
+    workNoRoom: room.workNoRoom,
+    floor,
+  };
+  const head =
+    expected <= 0
+      ? `${window} — no wake checked on arrival`
+      : `${window} — ${String(whole)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} arrived whole`;
+  if (cut === 0 && room.amber !== null) {
+    return [
+      finding(
+        "wake",
+        "amber",
+        "Wake",
+        `${head}${rest}`,
+        room.amber,
+        data,
+      ),
+    ];
+  }
   if (cut > 0) {
     const newest = wakes.find((r) => str(payloadOf(r), "outcome") === "truncated");
     return [
@@ -3003,7 +3071,69 @@ export function wakeArrivalFindings(store: Store): Finding[] {
       ),
     ];
   }
-  return [finding("wake", "green", "Wake", `${window} — ${String(whole)} of ${String(expected)} ${expected === 1 ? "wake" : "wakes"} arrived whole${rest}`, "", data)];
+  return [finding("wake", "green", "Wake", `${head}${rest}`, "", data)];
+}
+
+/** What the Wake line reads beside the arrivals: what a delivery could not carry. */
+interface WakeRoom {
+  readonly overBudget: number;
+  readonly overCap: number;
+  readonly noticeDropped: number;
+  readonly gaveWay: Readonly<Record<string, number>>;
+  readonly handoffNoRoom: number;
+  readonly lastHereNoRoom: number;
+  readonly workNoRoom: number;
+  /** The clauses, each led by "; ", or "". */
+  readonly clauses: string;
+  /** The amber's remedy, or null when nothing here is amber. */
+  readonly amber: string | null;
+  readonly any: boolean;
+  readonly floor: boolean;
+}
+
+/** The rows since `since`, read newest first under the line's ceiling. Throws what the store throws. */
+function wakeRoom(store: Store, since: number): WakeRoom {
+  let floor = false;
+  const read = (name: string): EventRow[] => {
+    const rows = store.eventLog({ name, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
+    if (rows.length >= RESULTS_ROWS) floor = true;
+    return rows;
+  };
+  const overBudget = read(INJECTION_OVERBUDGET_EVENT).length;
+  const overCap = read(ENVELOPE_OVERCAP_EVENT).length;
+  const noticeDropped = read(NOTICE_DROPPED_EVENT).length;
+  const gaveWay: Record<string, number> = {};
+  for (const row of read(ENVELOPE_GAVE_WAY_EVENT)) {
+    const part = str(payloadOf(row), "part") ?? "?";
+    gaveWay[part] = (gaveWay[part] ?? 0) + 1;
+  }
+  const handoffNoRoom = read(HANDOFF_REFUSED_EVENT).filter((r) => str(payloadOf(r), "reason") === "no-room").length;
+  const lastHereNoRoom = read(LAST_HERE_NOROOM_EVENT).length;
+  const workNoRoom = read(WORK_OVERFLOW_EVENT).filter((r) => str(payloadOf(r), "cause") === "room").length;
+  const parts = Object.entries(gaveWay)
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([part, n]) => `${part} ${String(n)}`);
+  const times = (n: number): string => `${String(n)} ${n === 1 ? "time" : "times"}`;
+  const clauses =
+    (overBudget > 0 ? `; a session start went over the host's reported ceiling ${times(overBudget)}` : "") +
+    (overCap > 0 ? `; a hook's output passed the host's cap and was shown only as a preview ${times(overCap)}` : "") +
+    (noticeDropped > 0 ? `; a notice for you was left off to keep the wake under the cap ${times(noticeDropped)}` : "") +
+    (parts.length > 0 ? `; waited for room: ${parts.join(", ")}` : "") +
+    (handoffNoRoom + lastHereNoRoom > 0
+      ? `; no room for ${[
+          handoffNoRoom > 0 ? `the handoff pointer ${times(handoffNoRoom)}` : "",
+          lastHereNoRoom > 0 ? `the "Last here" line ${times(lastHereNoRoom)}` : "",
+        ]
+          .filter((s) => s.length > 0)
+          .join(" and ")}`
+      : "") +
+    (workNoRoom > 0 ? `; "Work here" lines that did not fit, on ${String(workNoRoom)} ${workNoRoom === 1 ? "day" : "days"}` : "");
+  const amber =
+    overBudget + overCap > 0
+      ? "The host cuts or previews what is over its limit, so the end of the wake, where the pointers ride, may not have arrived. Nothing to do by hand; if it repeats, worth reporting with this line."
+      : null;
+  const any = clauses.length > 0;
+  return { overBudget, overCap, noticeDropped, gaveWay, handoffNoRoom, lastHereNoRoom, workNoRoom, clauses, amber, any, floor };
 }
 
 /** How far back the Tool results line reads, in lived days. */

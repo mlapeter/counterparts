@@ -1479,7 +1479,8 @@ Labels only; nothing about what the wake selects changed.
   "Last here" and the handoff.
 - **Open**: no habituation on the work lines (a memory used every day stays first);
   unmarked facts written in a directory but really personal wait for the reflection to
-  mark them.
+  mark them. (2026-10-02: the lines past `WORK_HERE_MAX` now rotate by lived day — see
+  that day's note.)
 - **Review of #313.** A name scope (`claude-desktop:`) is not a directory
   (`work.ts#isDirectoryScope`: an absolute path), so Desktop chat's unmarked notes stay in
   Nearby. Unmarked `person` and `self` memories are personal wherever written (they always
@@ -1510,3 +1511,19 @@ mark is written for it: the comparison is the mark. An unknown build compares no
 remains: the first SessionStart after the install still reads the old bundle — SessionStart
 renders nothing (CONTRACT §5 G1) — and that session's first Stop re-renders it for every
 session after.
+
+## 2026-10-02 — the work lines rotate, and an overflow leaves a row
+
+With more work in a directory than `WORK_HERE_MAX`, the same newest four showed every day
+and the rest never did, and a "Work here" with no room left only a ring event. Now
+`workHere` ranks up to `WORK_HERE_POOL` (8) and `rotateWork` chooses the day's lines: the
+newest stays first, and the other places move through the rest by lived day, so every
+session that day sees the same lines (identity's once-a-day rule) and a week shows them all.
+Stateless: nothing is written to remember a rotation. Each line costs
+`WORK_HERE_READ_PER_LINE` prose reads at delivery, so the pool doubles the reads (40 at
+most). When a delivery carries fewer lines than it ranked, one durable `self.work.overflow`
+row per directory, cause and lived day says so: `cap` (more than a wake shows, so they
+rotate) or `room` (fewer fitted the room the handoff and "Last here" left; `shown: 0` is
+none). Doctor's Wake line counts the `room` days; the dashboard's wake bar counts the
+directories since the last render, as it does "Last here". `cap` is the rotation working,
+and is not a cost.

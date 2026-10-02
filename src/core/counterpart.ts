@@ -148,6 +148,8 @@ import {
   spliceBeforeSentinel,
   wakeBehind,
   wakeFromOtherBuild,
+  WORK_OVERFLOW_EVENT,
+  rotateWork,
   workHere,
   workHereBlock,
   workHereBytes,
@@ -641,6 +643,35 @@ export const MCP_RECALL_EVENT = "mcp.recall";
  */
 export const MCP_PART_EVENT = "mcp.part";
 export const MCP_OVERSIZE_EVENT = "mcp.result.oversize";
+
+/**
+ * WHAT A DELIVERY COULD NOT CARRY (durable since 2026-10-02; ring-only
+ * before, so doctor could not see a dropped session-start notice or hook
+ * output past the host's 10,000-character cap):
+ *
+ *   - `adapter.envelope.overcap` — even the plain form was past the host's
+ *     cap, so the host showed a preview (`bin/hook.ts#Delivery.overCap`);
+ *   - `adapter.notice.dropped` — the owner's notice was dropped so the JSON
+ *     envelope stayed under it, and the wake went plain;
+ *   - `adapter.envelope.gave-way` — a part waited for want of room (the
+ *     write-up pointer, the scope question, the turn's recall, a reminder,
+ *     the dream offer, the update notice): which hook, which part;
+ *   - `adapter.injection.overbudget` — a session start sent more than the
+ *     ceiling the host reported.
+ *
+ * Counts and bytes only. One row per hook, part and session per lived day
+ * (`Lifecycle#noteDeliveryWarning`'s `dedupKey`), so a long session that
+ * gives way at every prompt writes one row, not hundreds.
+ */
+export const ENVELOPE_OVERCAP_EVENT = "adapter.envelope.overcap";
+export const NOTICE_DROPPED_EVENT = "adapter.notice.dropped";
+export const ENVELOPE_GAVE_WAY_EVENT = "adapter.envelope.gave-way";
+export const INJECTION_OVERBUDGET_EVENT = "adapter.injection.overbudget";
+export type DeliveryWarningName =
+  | typeof ENVELOPE_OVERCAP_EVENT
+  | typeof NOTICE_DROPPED_EVENT
+  | typeof ENVELOPE_GAVE_WAY_EVENT
+  | typeof INJECTION_OVERBUDGET_EVENT;
 /**
  * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
  *
@@ -774,6 +805,7 @@ export type AdapterDurableEventName =
   | typeof MCP_RECALL_EVENT
   | typeof MCP_PART_EVENT
   | typeof MCP_OVERSIZE_EVENT
+  | DeliveryWarningName
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -1944,7 +1976,7 @@ export class Counterpart {
     // handoff block is chosen, in the room that block leaves — the handoff and
     // "Last here" are chosen first and never give way to it (`withWorkHere`).
     const work = this.workHereLines(scope);
-    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget);
+    if (newest === undefined && lastHere.length === 0) return this.withWorkHere(result, null, work, budget, scope);
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
@@ -1993,31 +2025,60 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return this.withWorkHere(result, block, work, budget);
+      return this.withWorkHere(result, block, work, budget, scope);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    return this.withWorkHere(result, null, work, budget);
+    return this.withWorkHere(result, null, work, budget, scope);
   }
 
   /**
    * THIS DIRECTORY'S WORK LINES, best first (`self/work.ts#workHere`), or none
    * — with the switch off, with no directory, or with a store that will not
    * answer. What a later memory settled over is left out, as every lane but
-   * identity leaves it out. Never throws.
+   * identity leaves it out. Up to `WORK_HERE_POOL` are ranked and today's
+   * `WORK_HERE_MAX` chosen from them (`rotateWork`, 2026-10-02); `found` is
+   * how many were ranked, for the overflow row. Never throws.
    */
-  private workHereLines(scope: string): string[] {
+  private workHereLines(scope: string): { lines: string[]; found: number } {
     const t = this.self.tunables;
-    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return [];
+    if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return { lines: [], found: 0 };
     try {
-      return workHere(this.store, scope, {
-        day: this.store.livedDay(),
+      const day = this.store.livedDay();
+      const ranked = workHere(this.store, scope, {
+        day,
         max: t.WORK_HERE_MAX,
+        pool: t.WORK_HERE_POOL,
         excerpt: t.WORK_HERE_EXCERPT,
         skip: settledOver(this.store),
       });
+      return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };
     } catch {
-      return [];
+      return { lines: [], found: 0 };
+    }
+  }
+
+  /**
+   * MORE WORK THAN THIS WAKE CARRIED (2026-10-02): the ring event, and one
+   * durable row per directory per lived day (`WORK_OVERFLOW_EVENT`), so doctor
+   * and the dashboard can say the lines rotate or had no room. Never under
+   * observer; never throws.
+   */
+  private noteWorkOverflow(scope: string, opts: { found: number; shown: number; budget: number | null; was: number }): void {
+    const max = this.self.tunables.WORK_HERE_MAX;
+    const cause = opts.shown < Math.min(opts.found, max) ? "room" : "cap";
+    this.emit("counterpart.work.overflow", undefined, { cause, found: opts.found, shown: opts.shown });
+    if (this.observer) return;
+    try {
+      const day = this.store.livedDay();
+      this.store.appendEvent({
+        name: WORK_OVERFLOW_EVENT,
+        day,
+        dedupKey: `${WORK_OVERFLOW_EVENT}:${cause}:${scope}:${String(day)}`,
+        payload: { scope, cause, found: opts.found, shown: opts.shown, max, budget: opts.budget ?? 0, bytes: opts.was },
+      });
+    } catch {
+      /* an overflow that cannot be recorded still rotated */
     }
   }
 
@@ -2030,20 +2091,31 @@ export class Counterpart {
    * says the lines had no room. With no lines and no block, the bundle is
    * returned untouched. Never throws.
    */
-  private withWorkHere(result: WakeResult, block: string | null, lines: readonly string[], budget: number | null): WakeResult {
+  private withWorkHere(
+    result: WakeResult,
+    block: string | null,
+    work: { lines: readonly string[]; found: number },
+    budget: number | null,
+    scope: string,
+  ): WakeResult {
+    const { lines, found } = work;
     const spliced = (text: string): WakeResult | null => {
       const s = spliceBeforeSentinel(result.text, text);
       if (!s.applied || (budget !== null && s.bytes > budget)) return null;
       return { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel };
     };
     for (let k = lines.length; k > 0; k--) {
-      const work = workHereBlock(lines.slice(0, k));
-      const out = spliced(block === null ? work : `${work}\n\n${block}`);
+      const shown = workHereBlock(lines.slice(0, k));
+      const out = spliced(block === null ? shown : `${shown}\n\n${block}`);
       if (out === null) continue;
       this.emit("counterpart.work.shown", undefined, { lines: k, of: lines.length, bytes: out.bytes - result.bytes });
+      if (found > k) this.noteWorkOverflow(scope, { found, shown: k, budget, was: result.bytes });
       return out;
     }
-    if (lines.length > 0) this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+    if (lines.length > 0) {
+      this.emit("counterpart.work.noroom", undefined, { lines: lines.length, budget, was: result.bytes });
+      this.noteWorkOverflow(scope, { found, shown: 0, budget, was: result.bytes });
+    }
     if (block === null) return result;
     const s = spliceBeforeSentinel(result.text, block);
     return s.applied ? { ...result, text: s.text, bytes: s.bytes, sentinel: s.sentinel } : result;
@@ -2425,7 +2497,7 @@ export class Counterpart {
     try {
       const blocks: number[] = [];
       for (const scope of this.spans.scopes()) {
-        const lines = this.workHereLines(scope);
+        const { lines } = this.workHereLines(scope);
         if (lines.length > 0) blocks.push(workHereBytes(lines));
       }
       return reserveBytes(blocks, budgetBytes);

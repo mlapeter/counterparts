@@ -49,6 +49,7 @@ import {
   ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   Counterpart,
+  ENVELOPE_GAVE_WAY_EVENT,
   RECALL_CREDIT_EVENT,
   RECALL_DELIVERED_EVENT,
   SPAWN_FAILED_EVENT,
@@ -56,7 +57,7 @@ import {
   SPAWN_STARTED_EVENT,
   WRITE_UP_FAILED_EVENT,
 } from "../core/counterpart.js";
-import type { AdapterDurableEventName, PlainReminder } from "../core/counterpart.js";
+import type { AdapterDurableEventName, DeliveryWarningName, PlainReminder } from "../core/counterpart.js";
 import type {
   BoundaryKind,
   CaptureResult,
@@ -770,7 +771,7 @@ export class Lifecycle implements HostLifecycle {
         this.emit("adapter.writeup.deferred", { reason: "host-cap", need: bytes, room });
         // WHICH MOMENT gave way is the host's word for it (2026-09-30): Claude
         // Code's SessionStart, or Desktop's `wake` tool result.
-        this.emit("adapter.envelope.gave-way", { hook: opts.label ?? "session-start", part: "pointer", need: bytes, room });
+        this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: opts.label ?? "session-start", part: "pointer", need: bytes, room }, input);
         outcome("deferred", "host-cap");
         return "";
       }
@@ -1585,6 +1586,31 @@ export class Lifecycle implements HostLifecycle {
     const row = { ...data, date: input.at ?? null, session: input.sessionId };
     this.emit(name, row);
     this.counterpart.noteAdapterEvent(name, row);
+  }
+
+  /**
+   * A DELIVERY WARNING, to the ring and, since 2026-10-02, to box 2 — what an
+   * envelope could not carry (`counterpart.ts#ENVELOPE_GAVE_WAY_EVENT` and its
+   * three siblings). One row per name, hook, part and session per lived day:
+   * the count doctor reads is of sessions and days, not of prompts. The
+   * session is null where the caller has none. Never throws.
+   */
+  protected noteDeliveryWarning(
+    name: DeliveryWarningName,
+    data: Record<string, string | number | boolean | null>,
+    input?: SessionInput,
+  ): void {
+    this.emit(name, data);
+    try {
+      const store = this.counterpart.store;
+      const day = store.livedDay();
+      const session = input?.sessionId ?? null;
+      const date = input?.at ?? localDate(this.nowFn(), store.zone());
+      const key = [name, String(data["hook"] ?? ""), String(data["part"] ?? ""), session ?? "", String(day)].join(":");
+      this.counterpart.noteAdapterEvent(name, { ...data, date, session }, { dedupKey: key });
+    } catch {
+      /* a warning that cannot be recorded is still said on the ring */
+    }
   }
 
   protected emit(name: string, data: Record<string, string | number | boolean | null>): void {

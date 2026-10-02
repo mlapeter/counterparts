@@ -44,6 +44,8 @@ import {
   CHECKOUT_EVENT,
   Counterpart,
   EMBED_BACKFILL_EVENT,
+  ENVELOPE_GAVE_WAY_EVENT,
+  ENVELOPE_OVERCAP_EVENT,
   GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
@@ -2735,5 +2737,54 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(f.severity).toBe("green");
     expect(f.detail).toContain("the wake shows its first 6144 bytes");
     expect(f.data["wakeShowsAll"]).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the gaps #315 listed (2026-10-02)
+// ---------------------------------------------------------------------------
+
+describe("the gaps #315 listed, closed (2026-10-02)", () => {
+  test("Wake: a hook past the host's cap is durable now and goes amber; what waited for room and a handoff with no room are counted", () => {
+    mintStore();
+    writeConfig();
+    const a = openAdapter(
+      { dataDir: dir, injectionBudgetBytes: 9000, embedder: { enabled: true } },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), configPath },
+    );
+    open.push(a.counterpart);
+    const s = store();
+    const at = { sessionId: "s1", scope: "/tmp/scope", turns: [], at: "2026-09-14" };
+    // Counted only: a notice dropped, a part that waited, a handoff pointer with no room.
+    a.noteNoticeDropped({ noticeChars: 400, envelopeChars: 10_200, limitChars: 10_000 });
+    a.noteGaveWay(at, "plain", 2);
+    // Once per session, part and lived day: the second is the same row.
+    a.noteGaveWay(at, "plain", 2);
+    s.appendEvent({ name: "handoff.refused", day: s.livedDay(), ref: "hof_x", payload: { reason: "no-room", bytes: 900, budget: 9000 } });
+    expect(s.eventLog({ name: ENVELOPE_GAVE_WAY_EVENT }).length).toBe(1);
+    const green = by(doctorFindings(input({ store: s })), "wake");
+    expect(green.severity).toBe("green");
+    expect(green.detail).toContain("no wake checked on arrival");
+    expect(green.detail).toContain("a notice for you was left off to keep the wake under the cap 1 time");
+    expect(green.detail).toContain("waited for room: plain 1");
+    expect(green.detail).toContain("no room for the handoff pointer 1 time");
+    // Past the cap: amber, durable, with the remedy.
+    a.noteOverCap({ chars: 12_000, limitChars: 10_000 });
+    expect(s.eventLog({ name: ENVELOPE_OVERCAP_EVENT }).length).toBe(1);
+    const amber = by(doctorFindings(input({ store: s })), "wake");
+    expect(amber.severity).toBe("amber");
+    expect(amber.detail).toContain("a hook's output passed the host's cap and was shown only as a preview 1 time");
+    expect(amber.fix).toContain("may not have arrived");
+  });
+
+  test("Reflection: a share stuck at `carried` says how long ago it was carried, and that it was never told", () => {
+    const c = Counterpart.open({ dir, owner: true, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
+    c.store.openReflection({ id: "rfl_aaaaaaaaaaaa", day: c.store.livedDay(), date: "2026-09-10", questions: [], shown: [] });
+    c.store.updateReflection("rfl_aaaaaaaaaaaa", { state: "reflected", share: "Something to say.", shareState: "carried", shareSession: "s-later" });
+    c.close();
+    writeConfig({ timeZone: "UTC" });
+    const f = by(doctorFindings(input({ store: store(), config: { dataDir: dir, embedder: { enabled: true }, timeZone: "UTC" } })), "reflection");
+    expect(f.detail).toContain("its morning share carried to a later session 4 days ago and never told");
+    expect(f.data["carriedDays"]).toBe(4);
   });
 });

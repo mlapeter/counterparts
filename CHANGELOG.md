@@ -13,6 +13,15 @@
   Desktop's wake, now carries a line saying Counterparts was updated and how to reconnect,
   because until then the server ignores anything newer, such as a field added to a tool. This
   starts with the servers of this version; one from before it says nothing.
+- **"Work here" takes turns.** When a directory has more work than the wake shows, the newest
+  line stays first and the others rotate from one day to the next, so the older work comes
+  round too. A wake that had more work lines than it carried leaves a record, which doctor
+  and the dashboard's wake bar read.
+- **Doctor sees what a session start could not carry.** A hook's output past Claude Code's
+  10,000-character cap, a session start over its reported ceiling, a notice dropped to make
+  room, a part that waited for room, and a handoff or "Last here" line with no room are now
+  recorded and read on the Wake line; the first two turn it amber. The Reflection line says
+  how long a share has been waiting to be told.
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
   over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
   headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part

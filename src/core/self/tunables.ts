@@ -50,6 +50,10 @@ export interface SelfTunables {
   CRAFT_AT_DELIVERY: boolean;
   /** How many work lines one delivery shows for its directory. CAL. */
   WORK_HERE_MAX: number;
+  /** How many work lines are ranked for the rotation to choose `WORK_HERE_MAX`
+   *  from (`work.ts#rotateWork`, 2026-10-02). Each costs
+   *  `WORK_HERE_READ_PER_LINE` prose reads per delivery. CAL. */
+  WORK_HERE_POOL: number;
   /** Characters of a work line's excerpt, after its title. CAL. */
   WORK_HERE_EXCERPT: number;
   /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12;
@@ -209,6 +213,7 @@ export const SELF_TUNABLES: SelfTunables = {
   CRAFT_MAX: 8,
   CRAFT_AT_DELIVERY: true,
   WORK_HERE_MAX: 4,
+  WORK_HERE_POOL: 8,
   WORK_HERE_EXCERPT: 60,
   THREADS_MAX: 5,
   HINTS_MAX: 8,

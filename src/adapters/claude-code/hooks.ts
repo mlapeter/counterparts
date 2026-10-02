@@ -46,6 +46,10 @@
  */
 import {
   CHECKOUT_EVENT,
+  ENVELOPE_GAVE_WAY_EVENT,
+  ENVELOPE_OVERCAP_EVENT,
+  INJECTION_OVERBUDGET_EVENT,
+  NOTICE_DROPPED_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   WAKE_DELIVERED_EVENT,
@@ -620,7 +624,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       if (budget !== undefined && sent > budget) {
         // Exceeding a reported limit is an EVENT, never silent degradation. The
         // bundle still goes: truncated-and-detectable beats absent.
-        this.emit("adapter.injection.overbudget", { bytes: sent, budget });
+        this.noteDeliveryWarning(INJECTION_OVERBUDGET_EVENT, { hook: "session-start", bytes: sent, budget }, input);
       }
       this.record(WAKE_INJECTED_EVENT, input, {
         ok: woke.ok,
@@ -731,7 +735,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
         need,
         form: room.form,
       });
-      this.emit("adapter.envelope.gave-way", { hook: "session-start", part: "question", form: room.form });
+      this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "session-start", part: "question", form: room.form }, input);
       return "";
     }
     // The mark is a SECOND write of the same phase rather than a field folded
@@ -867,7 +871,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       : Buffer.byteLength(lead, "utf8");
     const room = Math.max(0, limit - extras);
     if (room >= base) return configured;
-    this.emit("adapter.envelope.gave-way", { hook: "user-prompt-submit", part: "recall", budget: room, base });
+    this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "user-prompt-submit", part: "recall", budget: room, base });
     return room;
   }
 
@@ -1567,13 +1571,13 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * looking like a healthy morning. Ids and counts only, like every other row.
    */
   noteNoticeDropped(chars: { noticeChars: number; envelopeChars: number; limitChars: number }): void {
-    this.emit("adapter.notice.dropped", { ...chars });
+    this.noteDeliveryWarning(NOTICE_DROPPED_EVENT, { ...chars });
   }
 
   /** RECORD THAT EVEN THE PLAIN FORM WAS PAST THE HOST'S CAP
    *  (`bin/hook.ts#Delivery.overCap`, 2026-09-29). Counts only. */
   noteOverCap(chars: { chars: number; limitChars: number }): void {
-    this.emit("adapter.envelope.overcap", { ...chars });
+    this.noteDeliveryWarning(ENVELOPE_OVERCAP_EVENT, { ...chars });
   }
 
   /** RECORD WHAT THE DELIVERY LEFT FOR LATER for want of room — plain
@@ -1581,8 +1585,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
    *  Recorded where it happened, so the event says what was actually
    *  delivered (review of #285, S2). Counts only. */
   noteGaveWay(input: HookInput, part: string, count: number): void {
-    void input;
-    this.emit("adapter.envelope.gave-way", { hook: "delivery", part, count });
+    this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "delivery", part, count }, input);
   }
 
   /**
