@@ -791,16 +791,6 @@ async function runHook(
       adapter,
       input,
     );
-    // A notice the envelope could not carry leaves a row rather than nothing:
-    // "the terminal said nothing" and "there was nothing to say" are different
-    // facts about the same morning (scar §2.4).
-    if (delivery.dropped !== null) adapter.noteNoticeDropped(delivery.dropped);
-    // PAST THE HOST'S CAP EVEN IN PLAIN FORM: the host shows a preview. Said
-    // where a person can find it (the host's debug log), and on the ring.
-    if (delivery.overCap !== undefined) {
-      adapter.noteOverCap(delivery.overCap);
-      process.stderr.write(`[counterparts] adapter.envelope.overcap: ${JSON.stringify(delivery.overCap)}\n`);
-    }
     if (delivery.stdout.length > 0) {
       process.stdout.write(delivery.stdout);
       // Recorded, not inferred: a fault thrown after this point (the close in
@@ -815,6 +805,17 @@ async function runHook(
     // them. A SESSION THAT OPENS is stamped with the build that saw it open —
     // never a compaction, which is the same session and server carrying on.
     stampWhenOpened(payload, () => adapter.stampOpened(input));
+    // A notice the envelope could not carry leaves a row rather than nothing:
+    // "the terminal said nothing" and "there was nothing to say" are different
+    // facts about the same morning (scar §2.4). AFTER the write since the rows
+    // became durable (review of #318): a write lock may not delay the wake.
+    if (delivery.dropped !== null) adapter.noteNoticeDropped(delivery.dropped);
+    // PAST THE HOST'S CAP EVEN IN PLAIN FORM: the host shows a preview. Said
+    // where a person can find it (the host's debug log), and on the ring.
+    if (delivery.overCap !== undefined) {
+      adapter.noteOverCap(delivery.overCap);
+      process.stderr.write(`[counterparts] adapter.envelope.overcap: ${JSON.stringify(delivery.overCap)}\n`);
+    }
     // The update notice's decisions, where a person can find them (the host's
     // debug log): its ring rows die with this process otherwise. Written only
     // on a turn that had something to decide — due, shown, dropped, failed.

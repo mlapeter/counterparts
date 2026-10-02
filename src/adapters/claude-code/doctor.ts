@@ -1026,7 +1026,7 @@ function configFindings(input: DoctorInput): Finding[] {
         "green",
         "Mode",
         owner
-          ? "remembering; your Claude Code sessions are the owner's (confidential memories are said in them, and an open question can be closed from any directory); a Claude Desktop chat is not, and COUNTERPARTS_OWNER=0 on a launch turns it off"
+          ? "remembering; your Claude Code sessions are the owner's (confidential memories are said in them, and an open question can be closed from any directory); a Claude Desktop chat is not; COUNTERPARTS_OWNER=0 on the memory server's launch turns it off for the memory server, and the hooks follow this configuration"
           : "remembering; no session is the owner's (the configuration has no \"owner\": true), so confidential memories stay out of the tools' answers",
         "",
         { observer: false, owner },
@@ -3017,10 +3017,11 @@ const WAKE_WINDOW_DAYS = 7;
  * with no rows.
  *
  * AND WHAT THE WAKE COULD NOT CARRY (2026-10-02, the gaps #315 listed), as
- * clauses on the same line: a session start over the host's reported ceiling
- * or a hook past its 10,000-character cap (AMBER: the host cut or previewed
- * it), and, counted only, a notice dropped to keep the envelope under the
- * cap, parts that waited for room (`adapter.envelope.gave-way`), a handoff
+ * clauses on the same line: a hook past the host's 10,000-character cap
+ * (AMBER: the host previewed it), and, counted only, a session start over the
+ * reported ceiling (the clock, Code-tab and reminder lines ride above the
+ * composed wake unreserved, so a full wake does it daily — review of #318), a
+ * notice dropped to keep the envelope under the cap, parts that waited for room (`adapter.envelope.gave-way`), a handoff
  * or "Last here" line with no room, and "Work here" lines that did not fit.
  */
 export function wakeArrivalFindings(store: Store): Finding[] {
@@ -3142,7 +3143,10 @@ function wakeRoom(store: Store, since: number): WakeRoom {
     .map(([part, n]) => `${part} ${String(n)}`);
   const times = (n: number): string => `${String(n)} ${n === 1 ? "time" : "times"}`;
   const clauses =
-    (overBudget > 0 ? `; a session start went over the host's reported ceiling ${times(overBudget)}` : "") +
+    // Counted, never amber (review of #318): the ceiling bounds the composed
+    // wake, and the clock, Code-tab and reminder lines ride above it unreserved,
+    // so a full wake goes a little over every day by design.
+    (overBudget > 0 ? `; a session start sent a little more than the reported ceiling (the lines above the wake) ${times(overBudget)}` : "") +
     (overCap > 0 ? `; a hook's output passed the host's cap and was shown only as a preview ${times(overCap)}` : "") +
     (noticeDropped > 0 ? `; a notice for you was left off to keep the wake under the cap ${times(noticeDropped)}` : "") +
     (parts.length > 0 ? `; waited for room: ${parts.join(", ")}` : "") +
@@ -3154,10 +3158,10 @@ function wakeRoom(store: Store, since: number): WakeRoom {
           .filter((s) => s.length > 0)
           .join(" and ")}`
       : "") +
-    (workNoRoom > 0 ? `; "Work here" lines that did not fit, on ${String(workNoRoom)} ${workNoRoom === 1 ? "day" : "days"}` : "");
+    (workNoRoom > 0 ? `; "Work here" lines that did not fit, in ${String(workNoRoom)} ${workNoRoom === 1 ? "directory-day" : "directory-days"}` : "");
   const amber =
-    overBudget + overCap > 0
-      ? "The host cuts or previews what is over its limit, so the end of the wake, where the pointers ride, may not have arrived. Nothing to do by hand; if it repeats, worth reporting with this line."
+    overCap > 0
+      ? "Claude Code shows a hook's output past 10,000 characters only as a preview, so that output did not reach the session whole. Nothing to do by hand; if it repeats, worth reporting with this line."
       : null;
   const any = clauses.length > 0;
   return { overBudget, overCap, noticeDropped, gaveWay, handoffNoRoom, lastHereNoRoom, workNoRoom, clauses, amber, any, floor };

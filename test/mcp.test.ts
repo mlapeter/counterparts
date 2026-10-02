@@ -359,7 +359,7 @@ describe("the wire", () => {
     for (const value of ["0", "off", "sure"]) {
       const said = launchOptions([], { COUNTERPARTS_OWNER: value });
       expect(said.ownerSaid).toBe("env");
-      expect(ownerStance(said, installed, true)).toEqual({ owner: false, ownerFrom: "default", codeTabOwner: false });
+      expect(ownerStance(said, installed, true)).toEqual({ owner: false, ownerFrom: "off", codeTabOwner: false });
     }
     expect(ownerStance(launchOptions([], { COUNTERPARTS_OWNER: "1" }), {}, false)).toEqual({ owner: true, ownerFrom: "env", codeTabOwner: false });
     expect(ownerStance(launchOptions(["--owner"], {}), {}, false).ownerFrom).toBe("env");
@@ -382,6 +382,11 @@ describe("the wire", () => {
       expect(g).toMatchObject({ owner: false, ownerFrom: "nothing made this launch the owner's" });
       expect(String(g["ownerMeans"])).toContain("COUNTERPARTS_OWNER=0");
       guest.counterpart.close();
+      // An explicit opt-out is labelled as one (review of #318).
+      const off = openServer({ dir, owner: false, ownerFrom: "off" });
+      const o = (await off.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
+      expect(String(o["ownerFrom"])).toContain("the opt-out");
+      off.counterpart.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

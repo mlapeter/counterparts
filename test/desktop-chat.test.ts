@@ -565,11 +565,18 @@ describe("the wake's parts", () => {
     // The wake keeps its own line, once, and no field of its own.
     expect(payload(await s.call("wake", {}))["updated"]).toBeUndefined();
 
-    // Claude Code: the disk says nothing, but a newer build stamped the store.
+    // Claude Code: the disk says nothing, but a newer build stamped the store —
+    // another install. Reconnecting would load this same version, so no
+    // remedy is offered (review of #318).
     const cc = server({ manifestVersion: () => null });
     expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
     cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "99.0.0");
-    expect(String(payload(await cc.call("status", {}))["updated"])).toContain(`Counterparts was updated. ${wordingFor(DEFAULT_HOST).reconnect}`);
+    const other = String(payload(await cc.call("status", {}))["updated"]);
+    expect(other).toContain("A newer Counterparts (99.0.0), installed somewhere else, has written this memory store");
+    expect(other).not.toContain(wordingFor(DEFAULT_HOST).reconnect);
+    // This disk moved too: then reconnecting is the remedy.
+    const both = server({ manifestVersion: () => "99.0.0" });
+    expect(String(payload(await both.call("status", {}))["updated"])).toContain(`Counterparts was updated. ${wordingFor(DEFAULT_HOST).reconnect}`);
     // An older stamp is not a newer build.
     cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "0.0.1");
     expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();

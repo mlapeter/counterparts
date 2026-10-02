@@ -277,7 +277,7 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     expect(row).toMatchObject({ cause: "room", found: 4, shown });
     const line = wakeArrivalFindings(c.store)[0];
     expect(line?.severity).toBe("green");
-    expect(line?.detail).toContain(`"Work here" lines that did not fit, on 1 day`);
+    expect(line?.detail).toContain(`"Work here" lines that did not fit, in 1 directory-day`);
   });
 
   test("not a thread, not a reminder, not a journal copy, not confidential, not settled over — and never shown twice", () => {

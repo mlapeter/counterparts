@@ -47,6 +47,7 @@ import {
   ENVELOPE_GAVE_WAY_EVENT,
   ENVELOPE_OVERCAP_EVENT,
   GATE_DEPOSIT_EVENT,
+  INJECTION_OVERBUDGET_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -57,6 +58,7 @@ import {
   WAKE_DELIVERED_EVENT,
 } from "../src/core/counterpart.js";
 import { DATABASE_FILE, STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
+import { CODE_TAB_ENTRYPOINT } from "../src/adapters/claude-code/hooks.js";
 import { localDate } from "../src/core/time.js";
 import {
   JOURNAL_COPY_FAILED_EVENT,
@@ -2779,7 +2781,40 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
     const amber = by(doctorFindings(input({ store: s })), "wake");
     expect(amber.severity).toBe("amber");
     expect(amber.detail).toContain("a hook's output passed the host's cap and was shown only as a preview 1 time");
-    expect(amber.fix).toContain("may not have arrived");
+    expect(amber.fix).toContain("did not reach the session whole");
+  });
+
+  test("Wake: a full wake with the clock and Code-tab lines above it goes a little over the ceiling, and stays green (review of #318)", () => {
+    mintStore();
+    writeConfig();
+    const budget = 1500;
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: budget });
+    for (let i = 0; i < 40; i++) {
+      c.store.put({
+        type: "memory",
+        kind: "person",
+        body: `Something warm about the owner, number ${String(i)}: he likes the bench tidy at the end of a day.`,
+        salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      });
+    }
+    // A page longer than the room, so the wake is composed full.
+    expect(c.revisePage(`## Core\n\n${"A line the page keeps about the work and the bench. ".repeat(80)}`, { reason: "long", by: "owner" }).written).toBe(true);
+    expect(c.rebrief({ budgetBytes: budget, at: "2026-09-14" }).rendered).toBe(true);
+    c.close();
+    const a = openAdapter(
+      { dataDir: dir, injectionBudgetBytes: budget, embedder: { enabled: true } },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), configPath },
+    );
+    open.push(a.counterpart);
+    const r = a.sessionStart({ sessionId: "s-full", scope: "/tmp/scope", turns: [], at: "2026-09-14", entrypoint: CODE_TAB_ENTRYPOINT });
+    // The wake itself fits; the lines above it take it over.
+    expect(r.bytes).toBeLessThanOrEqual(budget);
+    expect(Buffer.byteLength(r.injection ?? "", "utf8")).toBeGreaterThan(budget);
+    const s = store();
+    expect(s.eventLog({ name: INJECTION_OVERBUDGET_EVENT }).length).toBe(1);
+    const f = by(doctorFindings(input({ store: s })), "wake");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("a session start sent a little more than the reported ceiling");
   });
 
   test("Reflection: a share stuck at `carried` says how long ago it was carried, and that it was never told", () => {

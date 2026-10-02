@@ -236,10 +236,11 @@ export interface McpServerOptions {
    * WHAT DECIDED `owner` (2026-10-02), for `status` to say plainly: `env` —
    * `COUNTERPARTS_OWNER` or `--owner`; `config` — nothing said, so the installed
    * configuration's `owner: true` made a Claude Code launch the owner's;
-   * `default` — nothing said and nothing made it so. Absent: `env` when
-   * `owner` is true, else `default`.
+   * `off` — `COUNTERPARTS_OWNER` said no (`0`, or a value it could not
+   * read); `default` — nothing said and nothing made it so. Absent: `env`
+   * when `owner` is true, else `default`.
    */
-  ownerFrom?: "env" | "config" | "default";
+  ownerFrom?: "env" | "config" | "default" | "off";
   /**
    * DESKTOP'S CODE TAB IS THE OWNER'S TOO (owner ruling 2026-10-02). Desktop's
    * server opens as a guest for its chats; a call it serves as a Claude Code
@@ -516,7 +517,7 @@ export class McpServer {
   scopeSource: ScopeSource;
   /** Did the host say this is the owner's session? Read through `owner`. */
   private readonly ownerClaimed: boolean;
-  private readonly ownerFrom: "env" | "config" | "default";
+  private readonly ownerFrom: "env" | "config" | "default" | "off";
   private readonly codeTabOwner: boolean;
   /** The store's own observer bit (observer-mode G7): set at open, never lifted. */
   private readonly storeObserver: boolean;
@@ -717,8 +718,10 @@ export class McpServer {
         : this.ownerFrom === "config"
           ? "the installed configuration (owner: true): this is your own Claude Code session"
           : this.ownerFrom === "env"
-            ? `${OWNER_ENV_NAME} or --owner, set on this launch`
-            : "nothing made this launch the owner's";
+            ? `--owner or ${OWNER_ENV_NAME}, set on this launch`
+            : this.ownerFrom === "off"
+              ? `${OWNER_ENV_NAME} on this launch says not the owner's (0, off or false, or a value it could not read): the opt-out`
+              : "nothing made this launch the owner's";
     return { owner: this.owner, ownerFrom: from, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) };
   }
 
@@ -2322,21 +2325,38 @@ export class McpServer {
    * cannot see on its own disk.
    */
   private wakeUpdateLine(): string | null {
+    return this.updateReading()?.line ?? null;
+  }
+
+  /**
+   * What the two checks say, or null when neither moved. `reconnect` is
+   * whether reconnecting would load something newer: only when the package
+   * on THIS process's disk moved. A newer stamp with this disk unchanged is
+   * another install (another path, `npx`) writing the same store (review of
+   * #318): reconnecting would load this same version again, so the line says
+   * what happened and offers no remedy that does not work.
+   */
+  private updateReading(): { line: string; reconnect: boolean } | null {
     try {
       const loaded = this.identity?.build.version ?? installedVersion();
       if (loaded === null) return null;
       const onDisk = this.manifestVersion();
+      if (onDisk !== null && loaded !== onDisk) {
+        const stamp = (version: string): ReturnType<typeof installedBuild> => ({ ...installedBuild(), version });
+        const older = serverIsNewer(stamp(loaded), stamp(onDisk));
+        return { line: `Counterparts was ${older ? "changed to an older version" : "updated"}. ${wordingFor(this.host).reconnect}`, reconnect: true };
+      }
       let wrote: string | null = null;
       try {
         wrote = this.counterpart.store.getMeta(WAKE_BUILD_KEY) ?? null;
       } catch {
-        /* the disk's answer alone */
+        return null;
       }
-      const newerWrote = versionNewer(wrote, loaded);
-      if (!newerWrote && (onDisk === null || loaded === onDisk)) return null;
-      const stamp = (version: string): ReturnType<typeof installedBuild> => ({ ...installedBuild(), version });
-      const older = !newerWrote && onDisk !== null && serverIsNewer(stamp(loaded), stamp(onDisk));
-      return `Counterparts was ${older ? "changed to an older version" : "updated"}. ${wordingFor(this.host).reconnect}`;
+      if (!versionNewer(wrote, loaded)) return null;
+      return {
+        line: `A newer Counterparts (${String(wrote)}), installed somewhere else, has written this memory store; this server is ${loaded}.`,
+        reconnect: false,
+      };
     } catch {
       return null;
     }
@@ -2353,10 +2373,12 @@ export class McpServer {
    */
   private withUpdateNotice(name: string, result: ToolResult): ToolResult {
     if (name === "wake") return result;
-    const line = this.wakeUpdateLine();
-    if (line === null) return result;
-    this.emit("mcp.update.noticed", undefined, { tool: name });
-    const said = `${line} Until then this server runs the version it started with, and it ignores anything newer, such as a field added to a tool since.`;
+    const reading = this.updateReading();
+    if (reading === null) return result;
+    this.emit("mcp.update.noticed", undefined, { tool: name, reconnect: reading.reconnect });
+    const said = reading.reconnect
+      ? `${reading.line} Until then this server runs the version it started with, and it ignores anything newer, such as a field added to a tool since.`
+      : `${reading.line} It ignores anything newer, such as a field added to a tool since; updating this install is what brings it level.`;
     return this.result({ ...result.structuredContent, updated: said }, result.isError === true);
   }
 

@@ -802,7 +802,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       if (text.trim().length === 0) {
         return { ...out, ok: true, reason: "empty-prompt", injection: `${this.nowLine()}${context.length === 0 ? "" : `\n${context.trimEnd()}`}`, ...told };
       }
-      const budgetBytes = this.recallRoom(context, [
+      const budgetBytes = this.recallRoom(input, context, [
         ...plain.notices,
         ...(dream.told === null ? [] : [dream.told.notice]),
         ...(dream.note === null ? [] : [dream.note.notice]),
@@ -856,7 +856,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * which gives way. Undefined means "recall's own default" (nothing to
    * shrink); a number is the configured budget or less.
    */
-  private recallRoom(context: string, personLines: readonly string[]): number | undefined {
+  private recallRoom(input: HookInput, context: string, personLines: readonly string[]): number | undefined {
     const configured = this.config.injectionBudgetBytes;
     const base = configured ?? RECALL_TUNABLES.BUDGET_BYTES;
     const json = personLines.length > 0;
@@ -871,7 +871,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       : Buffer.byteLength(lead, "utf8");
     const room = Math.max(0, limit - extras);
     if (room >= base) return configured;
-    this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "user-prompt-submit", part: "recall", budget: room, base });
+    this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "user-prompt-submit", part: "recall", budget: room, base }, input);
     return room;
   }
 

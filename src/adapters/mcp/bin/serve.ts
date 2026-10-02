@@ -192,17 +192,18 @@ export function launchOptions(
  * With nothing said on this launch, the configuration decides: `owner: true`
  * there (every install writes it) makes a server Claude Code started the
  * owner's, and a Code-tab call that Desktop's server serves as a Claude Code
- * session (`codeTabOwner`). A Desktop chat stays a guest. Anything said wins:
- * `--owner`, `COUNTERPARTS_OWNER=1`, and `=0` — the opt-out — or junk, which
- * is not owner and is not upgraded. An observer configuration is never the
- * owner's. Pure.
+ * session (`codeTabOwner`). A Desktop chat stays a guest. The order is
+ * flag, then environment, then configuration (`stance-env.ts#ownerFromEnv`):
+ * `--owner` wins outright; else `COUNTERPARTS_OWNER` when set — `1`, or `0`,
+ * the opt-out (`off`), or junk, which is not owner and is not upgraded; else
+ * the configuration. An observer configuration is never the owner's. Pure.
  */
 export function ownerStance(
   launch: { owner: boolean; ownerSaid: LaunchOptions["ownerSaid"] },
   config: { owner?: boolean; observer?: boolean },
   startedByClaudeCode: boolean,
-): { owner: boolean; ownerFrom: "env" | "config" | "default"; codeTabOwner: boolean } {
-  if (launch.ownerSaid !== "unset") return { owner: launch.owner, ownerFrom: launch.owner ? "env" : "default", codeTabOwner: false };
+): { owner: boolean; ownerFrom: "env" | "config" | "default" | "off"; codeTabOwner: boolean } {
+  if (launch.ownerSaid !== "unset") return { owner: launch.owner, ownerFrom: launch.owner ? "env" : "off", codeTabOwner: false };
   const byConfig = config.owner === true && config.observer !== true;
   const owner = byConfig && startedByClaudeCode;
   return { owner, ownerFrom: owner ? "config" : "default", codeTabOwner: byConfig };

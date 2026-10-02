@@ -1097,9 +1097,11 @@ his own sessions count as owner. `bin/serve.ts#ownerStance`: with nothing said o
 (`LaunchOptions.ownerSaid: "unset"`), the configuration's `owner: true` makes a server Claude
 Code started (`claudeCodeEnvMarker`) the owner's, and lets Desktop's server serve a Code-tab
 call (`callAs`) as the owner's (`codeTabOwner`, read by the `owner` getter and passed to the
-deposit as `DepositContext.owner`). A Desktop chat stays a guest. Anything said wins:
-`COUNTERPARTS_OWNER=0` is the opt-out, junk is not owner and is not upgraded, and an observer
-configuration is nobody's. `status` says `ownerFrom` in words. The headless nightly run pins
+deposit as `DepositContext.owner`). A Desktop chat stays a guest. The order is flag, then
+environment, then configuration: `--owner` wins outright; else `COUNTERPARTS_OWNER` when set —
+`=0` is the opt-out (`ownerFrom: "off"`), junk is not owner and is not upgraded; else the
+configuration. An observer configuration is nobody's. The opt-out is the memory server's: the
+hooks and the worker read the configuration's `owner` alone. `status` says `ownerFrom` in words. The headless nightly run pins
 `COUNTERPARTS_OWNER=0` on its one server (`night-run.ts#nightMcpConfig`): it keeps the stance
 it had until that is decided on its own.
 
