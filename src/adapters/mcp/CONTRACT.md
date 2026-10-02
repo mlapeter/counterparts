@@ -434,8 +434,8 @@ who, how, why and when; an observer writes nothing and says so.
 
 **[M]** `note` takes `feelingsNow`: how memories this session was shown feel now, recorded
 beside the first feeling (which is never rewritten), with or without `text`. One not shown
-here — not returned by `recall`, not a write's neighbour, not surfaced by ambient recall for
-the session — is refused with the way in (recall it by id). At most once a calendar day per
+here — not delivered by `recall`, not a write's neighbour, not surfaced (a footnote is not)
+by ambient recall for the session; kept per session — is refused with the way in (recall it by id). At most once a calendar day per
 memory, five a call; source `awake`, `recorded_later` today. The path and the rest of its
 guarantees are the reflection's (`dream/reflect.ts#Reflections.feelAgain`).
 

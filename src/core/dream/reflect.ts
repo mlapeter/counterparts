@@ -162,6 +162,13 @@ export const REFLECT_TUNABLES = {
    * toward `LIMITS.about`. CAL.
    */
   UNMARKED: 5,
+  /**
+   * ROTATED (review of #316): one offered by any of the last this-many
+   * reflections waits behind the ones not offered lately, so a pool the
+   * reflection leaves unmarked (a personal one on a closed-door night) is not
+   * the same five every night. It comes back when the rest run out. CAL.
+   */
+  UNMARKED_REST_NIGHTS: 3,
   /** Feelings shown per memory, and the characters of each one's carried_by. */
   FEELINGS_SHOWN: 3,
   FEELING_CARRIED_CHARS: 160,
@@ -580,7 +587,9 @@ export class Reflections {
     // what was offered only in part is the lookup's denominator.
     const s = composed.shownAs;
     const fitRecord = { whole: s.whole, excerpt: s.excerpt, lined: s.line, ids: s.ids, notShown: s.notShown, offered: offeredInPart(fitted), parts: packed.later.length + 1 };
-    this.store.updateReflection(id, { detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord } });
+    this.store.updateReflection(id, {
+      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}) },
+    });
     writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [] });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
     const instructions = this.instructions(id, input.session, bundle);
@@ -1248,6 +1257,9 @@ export class Reflections {
     // And how its room was spent (2026-09-28): doctor reads it.
     const fitRecord = parseDetail(row.detail)["fit"];
     if (isRecord(fitRecord)) detail["fit"] = fitRecord;
+    // What it was offered to mark: the next nights' rotation reads it.
+    const offeredUnmarked = parseDetail(row.detail)["unmarked"];
+    if (Array.isArray(offeredUnmarked)) detail["unmarked"] = offeredUnmarked;
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1535,10 +1547,23 @@ export class Reflections {
     // they can be read, cited and put on the page.
     const weeks = feelingWeeks(this.store, at, (r) => !denied.has(r.id) && this.showable(r));
     const weeksRest = weeks === null ? [] : weeks.restsOn.filter(take(3));
-    // UNMARKED: the most likely personal first, then the most used, the oldest.
-    const unmarkedIds = unmarked
+    // UNMARKED: the most likely personal first, then the most used, the oldest
+    // — and ROTATED: what the last few reflections were offered waits behind
+    // the rest (review of #316), and comes back when the rest run out.
+    const lately = new Set(
+      this.store
+        .reflections({ limit: T.UNMARKED_REST_NIGHTS + 1 })
+        .filter((r) => r.id !== id)
+        .slice(0, T.UNMARKED_REST_NIGHTS)
+        .flatMap((r) => {
+          const u = parseDetail(r.detail)["unmarked"];
+          return Array.isArray(u) ? u.filter((x): x is string => typeof x === "string") : [];
+        }),
+    );
+    const ranked = unmarked
       .sort((a, b) => b.rank - a.rank || b.uses - a.uses || a.at - b.at || (a.id < b.id ? -1 : 1))
-      .map((u) => u.id)
+      .map((u) => u.id);
+    const unmarkedIds = [...ranked.filter((x) => !lately.has(x)), ...ranked.filter((x) => lately.has(x))]
       .slice(0, T.UNMARKED)
       .filter(take(2));
 

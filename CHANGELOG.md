@@ -27,7 +27,8 @@
   feels now beside the original feeling, which stays, the same way the nightly reflection
   does. It works only on a memory this session was shown, at most once a day per memory. The
   feeling is marked as recorded later, while awake. The core counts it only when it would
-  count a feeling a reflection recorded later.
+  count a feeling a reflection recorded later. Doctor's Reflection line says how many there
+  are, how many are strong enough for the core's fast lane, and how many are the owner's.
 - **The reflection is offered unmarked memories to mark.** A fact written in a project with
   no "about" mark counts as that project's work. So a personal one, like a note about a
   person, showed under "Work here". Each night the reflection is now offered up to five

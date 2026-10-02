@@ -481,6 +481,9 @@ const PAGE_REFUSAL_DETAIL: Record<string, string> = {
 const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
 const MEMORY_KINDS = Object.keys(KIND_SET) as readonly Kind[];
 
+/** Sessions whose "shown" a server keeps in memory for `feelingsNow` (Desktop serves many). */
+const SEEN_SESSIONS = 32;
+
 export class McpServer {
   readonly counterpart: Counterpart;
   /** The session the HOST named at launch, if it could. Never changes. */
@@ -519,13 +522,15 @@ export class McpServer {
   private readonly nowFn: () => number;
   private readonly ring: McpEvent[] = [];
   /**
-   * WHAT THIS SESSION WAS SHOWN through this server (2026-10-02, lane B): the
-   * memories `recall` returned and the neighbours a write showed. With the
-   * ambient recall's record for the session, it is what `note`'s
-   * `feelingsNow` may feel again. In memory only: this server process is one
-   * session's.
+   * WHAT EACH SESSION WAS SHOWN through this server (2026-10-02, lane B): the
+   * memories `recall` DELIVERED (not the ids left waiting) and the neighbours
+   * a write showed. With the ambient recall's record for the session, it is
+   * what `note`'s `feelingsNow` may feel again. KEYED BY SESSION (review of
+   * #316): Desktop's one server serves many sessions, and a Claude Code
+   * process starts a new session on /clear. In memory only, the newest
+   * `SEEN_SESSIONS` sessions.
    */
-  private readonly seenHere = new Set<string>();
+  private readonly seenBySession = new Map<string, Set<string>>();
   private initialized = false;
   /** The lazy bind's result: null until a claim is corroborated, then frozen. */
   private lazySession: string | null = null;
@@ -1592,7 +1597,7 @@ export class McpServer {
       ...(model === undefined ? {} : { model }),
     });
     const neighbours = this.neighboursOf(deposit);
-    for (const n of neighbours) this.seenHere.add(n.id);
+    this.markSeen(neighbours.map((n) => n.id));
     const feltNow = nowArg === undefined ? null : this.feelingsNowOutcome(nowArg as unknown[]);
     // WITH A SETTLE TOO (review of #284, M2): the call is an error only when
     // NOTHING landed — a refused note beside a settle that landed is not one,
@@ -1610,7 +1615,10 @@ export class McpServer {
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
-    }, settle === null ? undefined : !deposit.deposited && settle["ok"] !== true);
+      // AN ERROR ONLY WHEN NOTHING LANDED (review of #316): a refused note
+      // beside a feeling that was recorded is not one, or the resend meets
+      // `once-a-day`.
+    }, settle === null && feltNow === null ? undefined : !deposit.deposited && settle?.["ok"] !== true && Number(feltNow?.["recorded"] ?? 0) === 0);
   }
 
   /**
@@ -1622,6 +1630,32 @@ export class McpServer {
   private feelingsNowOnly(list: readonly unknown[]): ToolResult {
     const out = this.feelingsNowOutcome(list);
     return this.result({ stored: false, reason: "feelings-now-only", feelingsNow: out }, out["recorded"] === 0);
+  }
+
+  /**
+   * WHOSE "shown" A CALL IS (review of #316): on Desktop, the session the call
+   * is served as; in Claude Code, the session its host is running now (a
+   * /clear starts a new one in the same process), else the bound one.
+   */
+  private seenKey(): string {
+    if (this.desktop) return this.session ?? UNBOUND_SESSION;
+    return this.hostSession() ?? this.session ?? UNBOUND_SESSION;
+  }
+
+  /** Remember that the calling session was shown these memories. */
+  private markSeen(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const key = this.seenKey();
+    const set = this.seenBySession.get(key) ?? new Set<string>();
+    for (const id of ids) set.add(id);
+    // Newest last; the oldest session is let go past the bound.
+    this.seenBySession.delete(key);
+    this.seenBySession.set(key, set);
+    while (this.seenBySession.size > SEEN_SESSIONS) {
+      const oldest = this.seenBySession.keys().next().value;
+      if (oldest === undefined) break;
+      this.seenBySession.delete(oldest);
+    }
   }
 
   /** A settle-only result with the feelings now beside it. */
@@ -1641,19 +1675,23 @@ export class McpServer {
    */
   private feelingsNowOutcome(list: readonly unknown[]): Record<string, unknown> {
     try {
-      const session = this.session ?? this.hostSession();
-      const shown = new Set(this.seenHere);
-      if (session !== null) {
+      const session = this.seenKey();
+      const shown = new Set(this.seenBySession.get(session) ?? []);
+      if (session !== UNBOUND_SESSION) {
         try {
-          for (const id of Object.keys(loadGateState(this.counterpart.store, session).state.surfaced)) shown.add(id);
+          // SURFACED, not footnoted (review of #316): a title in a footnote or
+          // a link's pointer is not being shown the memory.
+          for (const [id, rec] of Object.entries(loadGateState(this.counterpart.store, session).state.surfaced)) {
+            if (rec.tier === "surfaced") shown.add(id);
+          }
         } catch {
           // The ambient record unreadable: what this server showed still counts.
         }
       }
-      const model = this.sessionModel(session ?? UNBOUND_SESSION);
+      const model = this.sessionModel(session);
       const items = list.map((x) => (x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}));
       const done = this.counterpart.reflections.feelAgain({
-        session: session ?? UNBOUND_SESSION,
+        session,
         shown,
         feelings: items,
         ...(model === undefined ? {} : { model }),
@@ -1846,7 +1884,9 @@ export class McpServer {
       droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
     });
     this.noteRecall(result, askedIds.length, question, resolved, payload, fromIndex);
-    for (const m of result.memories) this.seenHere.add(m.id);
+    // Only what was DELIVERED (review of #316): an id left `waiting` was not shown.
+    const deliveredIds = ((payload["memories"] as { id?: unknown }[] | undefined) ?? []).map((m) => m.id).filter((x): x is string => typeof x === "string");
+    this.markSeen(deliveredIds);
     const bad =
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||
