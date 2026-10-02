@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-01. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-02. A plan for now, not a rule. Change it when it stops fitting.*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -12,25 +12,24 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.10 (Oct 1) |
-| **On master, not released** | nothing yet |
-| **Hosts** | Claude Code, including the Desktop app's Code tab; Claude Desktop chat (0.3.9) |
-| **Platforms** | Mac only |
+| **On npm** | 0.3.11 (Oct 1) |
+| **On master, not released** | every tool result under one measured ceiling (#315); feelings round 3: feelings over weeks, re-feeling awake, the reflection marks the unmarked (#317); follow-ups: the wake rebuilt after an install, a stale-server notice, "Work here" rotation, the owner's own sessions are the owner's in the tools, doctor gaps, Desktop wake-first (#318) |
+| **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
+| **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11). Not Windows. |
 
 **In flight:**
-- **Morning catch-up**: a "Yesterday" line in the wake, and catching up a night the nightly run missed (lane 1).
-- **Dashboard Health fixes** (lane 3).
-- **Emotion, the next talk**: what comes after the new wheel (below).
+- **Release 0.3.12**: what is on master above.
+- **The association walk**: links form but are starved; diagnose why before building anything.
 
 ---
 
 ## Next
 
-1. **More hosts.** Claude Desktop chat shipped in 0.3.9 (host seam, then a `wake` tool for Desktop). Next: the owner tries it in his own Desktop, then claude.ai if it's doable.
-2. **Emotion, what's left**: recall by feeling (any feeling word maps to its core when asked, the word falls back to its core, "most" / "ever" ranks by original strength, memories about the feeling system rank lower); coverage (only ~14% of memories carry a feeling, and how more get one is under discussion); the self page reading the pattern of feelings over weeks; re-feeling in awake sessions.
-3. **Mechanisms**, one at a time, each talked through before it's built.
+1. **More hosts**: claude.ai, if it's doable (see Under discussion).
+2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, unreleased). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
+3. **Mechanisms**, one at a time, each talked through before it's built: association first (above).
 4. **Dashboard**: finish the walk (Health, Flow, mobile).
-5. **Platforms**: Linux/WSL, then Windows, then Node.
+5. **Platforms**: Windows (WSL first).
 
 ---
 
@@ -43,11 +42,11 @@ each mechanism is working. It should run in whatever AI host people use.
 | ⬜ **Not built** | schemas |
 
 **What's left:**
-- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
+- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10); feelings over weeks in the reflection, and re-feeling an old memory awake (#317, unreleased). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
 - **Schemas**: beliefs and entities that grow from what's lived.
 - **Episodic → semantic**: gist, where many episodes become one understanding.
 - **Interference**: similar memories competing, not just contradictions.
-- **Association**: links form but are starved. Watch the pointer lane first.
+- **Association**: links form but are starved. The walk is in flight: diagnose first.
 - **Contradictions, later**: find disagreements nobody wrote near each other (a sleep pass), if real use shows the need.
 
 ---
@@ -82,6 +81,8 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Recently done
 
+- **10-02**: on master: one measured ceiling for tool results (#315); feelings round 3 (#317); follow-ups after 0.3.11 (#318); the Desktop Code tab verified live
+- **10-01**: 0.3.11 on npm: the morning catch-up and "Yesterday" line; "Work here" vs Nearby; Node 22.15+ and Linux; the Code tab files under its own session; recall by feeling, round 2
 - **10-01**: 0.3.10 on npm: the feelings wheel v2 (seven cores, store v11); handoffs per session; the "Last here" line; recall by time (a question about time leads with this directory's last session)
 - **09-30**: Claude Desktop chat; recall by feeling (0.3.9); handoffs per session; the feelings wheel redesigned with the owner; event log; coverage ("answered" isn't "written up"); the wake keeps up; dashboard feedback; Desktop's Code tab verified
 - **09-29**: contradictions (changed / corrected / open, with undo); headless nightly run (0.3.7)

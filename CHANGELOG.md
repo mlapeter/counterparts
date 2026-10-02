@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Doctor no longer credits a reflection with what a session felt.** Since a memory can be
+  felt again during an ordinary session, that feeling can carry it to the core the way a
+  reflection's does. Until now doctor's Reflection line and the next morning share counted
+  such a memory as "became core on a feeling a reflection recorded later". The promotion
+  record now says whose feeling carried it, doctor says a session's apart ("became core on a
+  feeling recorded looking back in a session"), and the share names only a reflection's. The
+  same line's count of feelings recorded looking back in a session now says "in all", since
+  it is not the week's.
 - **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
   next is written locally and ignored; its history stays.
 - **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were

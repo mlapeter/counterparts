@@ -379,7 +379,7 @@ describe("after the review of #316", () => {
     c.store.addFeelings(a, [{ whose: "self", core: "warm", emotion: "grateful", strength: 0.8 }], { source: "awake", recordedLater: c.store.today() });
     c.store.addFeelings(b, [{ whose: "owner", core: "calm", emotion: "relieved", strength: 0.3 }], { source: "awake", recordedLater: c.store.today() });
     const f = reflectionFindings({ today: c.store.today() } as never, c.store)[0];
-    expect(f?.detail).toContain("2 feelings recorded looking back in a session, 1 at the core's fast-lane strength, 1 the owner's");
+    expect(f?.detail).toContain("in all, 2 feelings recorded looking back in a session, 1 at the core's fast-lane strength, 1 the owner's");
     expect(f?.data).toMatchObject({ awakeFeelings: 2, awakeFeelingsFast: 1, awakeFeelingsOwner: 1 });
   });
 });

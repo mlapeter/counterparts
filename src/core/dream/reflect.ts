@@ -66,7 +66,7 @@ import { randomBytes } from "node:crypto";
 
 import { emotionalIntensity } from "../physics/index.js";
 import { isHandoff, isSelfPage } from "../recall/index.js";
-import { aboutMe, acceptsReflectedFeeling, promotionRecordKey, selfRelevantFeeling } from "../sleep/index.js";
+import { aboutMe, acceptsReflectedFeeling, laterFeelingWasReflections, promotionRecordKey, selfRelevantFeeling } from "../sleep/index.js";
 import {
   ABOUT_MARKS,
   CARRIED_BY_MAX_CHARS,
@@ -1752,14 +1752,16 @@ export class Reflections {
    * Did its promotion's record say a reflection carried it — every awake-class
    * return from a reflection (`reflectionOnly`), or the fast lane met only by a
    * feeling a reflection recorded later (`feelingRecordedLater`, review of
-   * #256, S4: the half the open door lets through)?
+   * #256, S4: the half the open door lets through)? Not one an ordinary
+   * session's feeling-now carried (`feelingRecordedLaterBy` naming only
+   * `awake`, review of #317): the share does not claim it for a reflection.
    */
   private promotedThroughReflection(id: string): boolean {
     try {
       const raw = this.store.getMeta(promotionRecordKey(id));
       if (raw === undefined) return false;
-      const rec = JSON.parse(raw) as { reflectionOnly?: unknown; feelingRecordedLater?: unknown };
-      return rec.reflectionOnly === true || rec.feelingRecordedLater === true;
+      const rec = JSON.parse(raw) as { reflectionOnly?: unknown; feelingRecordedLater?: unknown; feelingRecordedLaterBy?: unknown };
+      return rec.reflectionOnly === true || laterFeelingWasReflections(rec);
     } catch {
       return false;
     }

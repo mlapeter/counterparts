@@ -28,6 +28,7 @@ import { DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, wordingFor } from "../src/ad
 import {
   DESKTOP_INSTRUCTIONS,
   NO_DESKTOP_SESSION,
+  SEEN_SESSIONS,
   WAKE,
   encodeMessage,
   openServer,
@@ -518,5 +519,55 @@ describe("review of #309", () => {
     payload(await s.call("wake", {}));
     const out = payload(await s.call("session_end", { memories: [], handoff: "unnamed" }));
     expect(String((out["handoff"] as Record<string, unknown>)["detail"])).toContain("Claude Code session (Desktop's Code tab)");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("what each Desktop chat was shown is its own (review of #317)", () => {
+  /** A plain memory to be shown and felt again. */
+  function plainMemory(s: McpServer, body: string): string {
+    return s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body,
+      salience: { relevance: 0.7, emotional: 0.4, predictive: 0.5 },
+      origin: { scope: project },
+    });
+  }
+  async function recorded(s: McpServer, id: number, session: string, memory: string): Promise<number> {
+    const out = await wireCall(s, id, "note", { session, feelingsNow: [{ id: memory, core: "calm", emotion: "relieved", strength: 0.5 }] });
+    return (out["feelingsNow"] as { recorded: number }).recorded;
+  }
+
+  test("two chats on one server: chat B cannot feel again what only chat A recalled", async () => {
+    const s = plainServer();
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    // Both chats wake BEFORE the memory exists, so no wake could have shown it.
+    const a = (await wireCall(s, 2, "wake"))["session"] as string;
+    const b = (await wireCall(s, 3, "wake"))["session"] as string;
+    expect(a).not.toBe(b);
+    const x = plainMemory(s, "The gate's new latch held through the storm.");
+    expect(JSON.stringify(await wireCall(s, 4, "recall", { session: a, ids: [x] }))).toContain("new latch held");
+    expect(await recorded(s, 5, b, x)).toBe(0);
+    expect(await recorded(s, 6, a, x)).toBe(1);
+  });
+
+  test("the newest SEEN_SESSIONS chats are kept: the oldest is let go and must recall again", async () => {
+    const s = plainServer();
+    await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
+    let n = 2;
+    const first = (await wireCall(s, n++, "wake"))["session"] as string;
+    const x = plainMemory(s, "The orchard's first pears came in small and sweet.");
+    const y = plainMemory(s, "The shed roof was patched on the north side.");
+    await wireCall(s, n++, "recall", { session: first, ids: [x] });
+    // SEEN_SESSIONS more chats are each shown something: the first is now the oldest past the bound.
+    for (let i = 0; i < SEEN_SESSIONS; i += 1) {
+      const chat = (await wireCall(s, n++, "wake"))["session"] as string;
+      expect(JSON.stringify(await wireCall(s, n++, "recall", { session: chat, ids: [y] }))).toContain("shed roof");
+    }
+    expect(await recorded(s, n++, first, x)).toBe(0);
+    // Shown again, it may be felt.
+    await wireCall(s, n++, "recall", { session: first, ids: [x] });
+    expect(await recorded(s, n++, first, x)).toBe(1);
   });
 });
