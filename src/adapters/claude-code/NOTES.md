@@ -1897,3 +1897,15 @@ Review of #313: Claude Code exports `CLAUDE_CODE_SESSION_ATTENDED` to the proces
 starts. Measured in a terminal session's child: `1`, beside `CLAUDE_CODE_ENTRYPOINT=cli`. Not
 measured under `claude -p`. When the variable says `1` or `0` it decides `isInteractive`; the
 entrypoint list is the fallback when it is absent or unreadable (`bin/hook.ts#attendedOf`).
+
+## 2026-10-02 — what reached the model, not what ran
+
+The night of 10-02 the dream read a third of its bundle (Claude Code saved the rest to a file the
+run cannot open) and every doctor line stayed green: Lookups counts look-ups, Nightly run a run
+that finished. New lines: **Tool results** (`resultFindings`: amber on any `mcp.result.oversize`
+row in 14 lived days, or a run that finished without a part its begin promised, from `mcp.part`
+rows) and **Wake** (`wakeArrivalFindings`: the `adapter.wake.delivered` outcomes nobody read —
+amber on `truncated` or `mismatch`). The same review: Spawn goes amber on a worker that started
+and failed today or yesterday (`adapter.runner.failed`, which the counters never graded); Self
+page says when the wake shows only the page's start; Dreaming reads past a run of undone dreams;
+Reflection says its mark count is a floor when its read comes back full.

@@ -45,6 +45,8 @@ const NAMES = {
   budget: "Time budget",
   retired: "Old settings",
   lookups: "Looked up in dreams and reflections",
+  results: "What reached the model",
+  wake: "Wake arrived whole",
 };
 
 /**

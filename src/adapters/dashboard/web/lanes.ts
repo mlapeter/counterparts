@@ -116,6 +116,8 @@ export const LANES = {
   "handoff.lasthere.noroom": "flow",
   "handoff.shown": "flow",
   "mcp.recall": "flow",
+  "mcp.part": "flow",
+  "mcp.result.oversize": "flow",
   "prospective.fire.refused": "flow",
   "recall.decision": "flow",
   "remember.prune": "flow",

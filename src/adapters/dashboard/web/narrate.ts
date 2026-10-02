@@ -835,6 +835,19 @@ export const NARRATORS = {
     );
   },
 
+  // ── what reached the model (2026-10-02) ─────────────────────────────────────
+  "mcp.part": (t) => {
+    const which = t.p["mechanism"] === "reflection" ? "reflection" : "dream";
+    return calm(`I read part ${String(n(t, "part") ?? "?")} of ${String(n(t, "of") ?? "?")} of the ${which}'s bundle.`);
+  },
+  "mcp.result.oversize": (t) => {
+    const tool = typeof t.p["tool"] === "string" ? t.p["tool"] : "a tool";
+    const phase = typeof t.p["phase"] === "string" ? ` (${t.p["phase"]})` : "";
+    return amber(
+      `An answer from ${tool}${phase} came to ${String(n(t, "chars") ?? "?")} characters, more than one answer can carry; it was cut to ${String(n(t, "cutTo") ?? "?")}, with a note saying so.`,
+    );
+  },
+
   // ── going looking on purpose ───────────────────────────────────────────────
   "mcp.recall": (t) => {
     const { total, named } = topBlocked(t);
@@ -1098,6 +1111,9 @@ export const REF_KIND = {
   // The deliberate look carries counts and verdicts and deliberately no ids —
   // a durable pairing of memories with the moment somebody asked for them.
   "mcp.recall": "none",
+  // A part's run id (a dream's or a reflection's) is in its payload, not a memory.
+  "mcp.part": "none",
+  "mcp.result.oversize": "none",
   // Both prospective rows point at the MEMORY whose window it is: the window
   // key is a derived address on that row, not an entity of its own.
   "prospective.fire": "memory",

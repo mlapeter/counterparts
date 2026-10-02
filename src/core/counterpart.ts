@@ -136,8 +136,8 @@ import {
   BRIEFING_KEY,
   BRIEFING_TRIM_LOG_CAP,
   LANE_ORDER,
-  NIGHT_WRITER_MEMORY_BYTES,
   NIGHT_WRITER_MEMORY_MAX,
+  NIGHT_WRITER_TOOL,
   PREFACE_RESERVE_BYTES,
   Self,
   byteLength,
@@ -150,6 +150,7 @@ import {
   workHereBlock,
   workHereBytes,
   writerInstruction,
+  fitNightWriter,
 } from "./self/index.js";
 import type {
   ChapterAppend,
@@ -620,6 +621,25 @@ export const SPAWN_STARTED_EVENT = "adapter.spawn.started";
  */
 export const MCP_RECALL_EVENT = "mcp.recall";
 /**
+ * WHAT REACHED THE MODEL, NOT WHAT RAN (2026-10-02). Two rows the MCP server
+ * writes because a tool result the host would not show looked, from the
+ * store, exactly like one it did: the night of 10-02 the dream's begin and
+ * its part 2 went past Claude Code's ceiling (`fit/TOOL_RESULT_CEILING`), were
+ * saved to a file the run could not open, and every count stayed green.
+ *
+ *   - `mcp.part` — one later part of a dream's or a reflection's bundle was
+ *     handed through phase `part`: the mechanism, its run's id, which part of
+ *     how many, and the characters it left as. With `parts` on `dream.begun`
+ *     and on the reflection's row, doctor can say a part was never fetched.
+ *   - `mcp.result.oversize` — a result came to more than the ceiling and the
+ *     server cut it there, saying so in the result: the tool, the phase, what
+ *     it measured and what it was cut to. Never the text.
+ *
+ * Ids and counts only; no `dedupKey` (each is a deliberate call).
+ */
+export const MCP_PART_EVENT = "mcp.part";
+export const MCP_OVERSIZE_EVENT = "mcp.result.oversize";
+/**
  * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
  *
  * The host invokes the hooks by absolute path, so whatever the install tree has
@@ -750,6 +770,8 @@ export type AdapterDurableEventName =
   | typeof RUNNER_FAILED_EVENT
   | typeof WRITE_UP_FAILED_EVENT
   | typeof MCP_RECALL_EVENT
+  | typeof MCP_PART_EVENT
+  | typeof MCP_OVERSIZE_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -3612,7 +3634,7 @@ export class Counterpart {
         }
         return { claimed: false, about: due.about, reason: due.reason };
       }
-      const built = this.pageWriterInput({ about: due.about, budgetBytes: NIGHT_WRITER_MEMORY_BYTES, max: NIGHT_WRITER_MEMORY_MAX });
+      const built = this.nightWriterFitted({ about: due.about, session: input.session, tool: NIGHT_WRITER_TOOL }).built;
       const ok = this.self.recordPageWriterRun({
         about: due.about,
         mode: "session",
@@ -3673,16 +3695,31 @@ export class Counterpart {
     | { ok: false; reason: string } {
     const claim = this.self.nightClaimFor(input.session);
     if (claim === null) return { ok: false, reason: "no-claim" };
-    const built = this.pageWriterInput({ about: claim.about, budgetBytes: NIGHT_WRITER_MEMORY_BYTES, max: NIGHT_WRITER_MEMORY_MAX });
+    const { built, text } = this.nightWriterFitted({ about: claim.about, session: input.session, tool: input.tool });
     return {
       ok: true,
       about: claim.about,
-      text: writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true }),
+      text,
       considered: built.memories.length,
       dropped: built.dropped,
       omitted: built.omitted,
       version: built.page?.version ?? null,
     };
+  }
+
+  /**
+   * The night's day for the writer, fitted to one tool result
+   * (`self/writer.ts#fitNightWriter`, 2026-10-02) — the claim and the block
+   * count the same memories. Pure: it reads and composes.
+   */
+  private nightWriterFitted(input: { about: string; session: string; tool: string }): {
+    built: ReturnType<Counterpart["pageWriterInput"]>;
+    text: string;
+  } {
+    return fitNightWriter(
+      (budgetBytes) => this.pageWriterInput({ about: input.about, budgetBytes, max: NIGHT_WRITER_MEMORY_MAX }),
+      (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true }),
+    );
   }
 
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */

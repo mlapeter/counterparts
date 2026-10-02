@@ -2507,7 +2507,9 @@ export class Dreams {
   private pack(id: string, session: string, c: Composed, lead: string): { bundle: DreamBundle; later: string[][] } {
     const T = DREAM_TUNABLES;
     const whole = c.bundle;
-    if (dreamResultChars(renderDream(id, whole, lead), session, id) <= T.RESULT_CHARS) return { bundle: whole, later: [] };
+    // WHOLE WITH ITS MARGIN TOO (2026-10-02): `how` and the other fields ride
+    // beside the bundle whether it comes in parts or not.
+    if (dreamResultChars(renderDream(id, whole, lead), session, id) + PACK_MARGIN <= T.RESULT_CHARS) return { bundle: whole, later: [] };
     const cost = (v: unknown): number => wireChars(JSON.stringify(JSON.stringify(v)));
     const pieces: { key: string; size: number }[] = [
       ...Object.entries(whole.memories).map(([k, v]) => ({ key: `m:${k}`, size: cost({ [k]: v }) })),

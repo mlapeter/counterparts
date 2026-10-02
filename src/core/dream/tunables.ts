@@ -3,6 +3,8 @@
  * conversation of 2026-09-26 ("try it, see how it goes, adjust"); CAL = not
  * yet measured against real dreams.
  */
+import { TOOL_RESULT_CEILING } from "../fit/index.js";
+
 export const DREAM_TUNABLES = {
   // ── when to ask ───────────────────────────────────────────────────────────
   /** The ask is due only when at least this many memories wait in the queue
@@ -102,11 +104,17 @@ export const DREAM_TUNABLES = {
   /**
    * THE BUNDLE IN PARTS (2026-09-28), measured the way the MCP server sends
    * it (`dreamResultChars`): the begin result under this, each later part
-   * under `PART_CHARS`. The tool result's ceiling is about 25k tokens, and
-   * escaped JSON runs near three characters a token. CAL.
+   * under `PART_CHARS`.
+   *
+   * THE HOST'S CEILING, MEASURED (2026-10-02): were 54,000 each, on a guess of
+   * three characters a token. Escaped JSON inside JSON runs nearer two, and
+   * Claude Code saves a result past 50,000 characters to a file the nightly
+   * run cannot open — the begin (51.5 KB) and part 2 (51,306) of the night's
+   * bundle never reached the dream. Both now sit at the one ceiling
+   * (`fit/TOOL_RESULT_CEILING`): more parts, each one read.
    */
-  RESULT_CHARS: 54_000,
-  PART_CHARS: 54_000,
+  RESULT_CHARS: TOOL_RESULT_CEILING.CHARS,
+  PART_CHARS: TOOL_RESULT_CEILING.CHARS,
 
   // ── what one dream may change (owner: "start ~10 merges, 20 links, 3 gists") ─
   LIMITS: {

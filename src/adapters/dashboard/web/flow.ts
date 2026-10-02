@@ -423,6 +423,10 @@ export const EVENT_NODE = {
   "adapter.spawn.started": "sweep",
   // The deliberate look is a retrieval, so it lands where the ambient one does.
   "mcp.recall": "recall",
+  // A bundle part is the night's reading; an oversize cut is the server's
+  // answer to it (2026-10-02) — both land where the dream does.
+  "mcp.part": "sleep",
+  "mcp.result.oversize": "sleep",
   // A reminder arriving is a CUE offered into the turn (§12: arrival is a cue,
   // not a command), so both rows land on the prospective node.
   "prospective.fire": "prospective",

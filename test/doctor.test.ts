@@ -46,10 +46,12 @@ import {
   EMBED_BACKFILL_EVENT,
   GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
+  RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
+  WAKE_DELIVERED_EVENT,
 } from "../src/core/counterpart.js";
 import { DATABASE_FILE, STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
@@ -2662,5 +2664,55 @@ describe("Association (2026-09-28): what spreading did, and the edges", () => {
     const g = by(doctorFindings(input({ store: s })), "association");
     expect(g.data["contiguityFailed"]).toBe(1);
     expect(g.detail).toContain("the pass failed at 1 boundary; 4 planned pairs were lost before a flush recorded them");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the "plumbing ran, nobody saw it" review (2026-10-02)
+// ---------------------------------------------------------------------------
+
+describe("what reached the session, not what ran (2026-10-02)", () => {
+  test("Wake: silent with no rows; amber when a wake arrived cut short; green when every one arrived whole", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    expect(doctorFindings(input({ store: s })).some((f) => f.key === "wake")).toBe(false);
+    const wake = (outcome: string): void => {
+      s.appendEvent({ name: WAKE_DELIVERED_EVENT, day: s.livedDay(), payload: { outcome, date: "2026-09-14" } });
+    };
+    wake("delivered");
+    wake("delivered");
+    wake("no-wake-expected");
+    const green = by(doctorFindings(input({ store: s })), "wake");
+    expect(green.severity).toBe("green");
+    expect(green.detail).toContain("2 of 2 wakes arrived whole");
+    wake("truncated");
+    const amber = by(doctorFindings(input({ store: s })), "wake");
+    expect(amber.severity).toBe("amber");
+    expect(amber.detail).toContain("1 of 3 wakes reached the session cut short");
+    expect(amber.detail).toContain("truncated");
+  });
+
+  test("Spawn: a worker that started and then failed today is amber, naming the step; an old failure stays green", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "Error", step: "wake", date: "2026-09-01" } });
+    expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("green");
+    s.appendEvent({ name: RUNNER_FAILED_EVENT, day: s.livedDay(), payload: { code: "SQLITE_BUSY", step: "sessionEnd", date: "2026-09-14" } });
+    const f = by(doctorFindings(input({ store: s })), "spawn");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("failed at its sessionEnd step on 2026-09-14 (SQLITE_BUSY)");
+  });
+
+  test("Self page: a page past what the wake carries says the wake shows only its start", () => {
+    const c = Counterpart.open({ dir, owner: true });
+    expect(c.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(400)}`, { reason: "long", by: "owner" }).written).toBe(true);
+    c.close();
+    writeConfig();
+    const f = by(doctorFindings(input({ store: store() })), "self-page");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("the wake shows its first 6144 bytes");
+    expect(f.data["wakeShowsAll"]).toBe(false);
   });
 });

@@ -80,7 +80,7 @@ import {
 } from "../store/index.js";
 import type { AboutMark, FeelingInput, MemoryRow, ProseDoc, ReflectionRow, Store } from "../store/index.js";
 import type { Kind } from "../types.js";
-import { clipWire, fit, lineOf, offeredInPart, offeredOf, readIndex, wireChars, writeIndex } from "../fit/index.js";
+import { TOOL_RESULT_CEILING, clipWire, fit, lineOf, offeredInPart, offeredOf, readIndex, wireChars, writeIndex } from "../fit/index.js";
 import type { Fidelity, FitCandidate, Placed } from "../fit/index.js";
 import { ownerNames } from "../sleep/index.js";
 import { PAGE_WRITING_RULE } from "../self/writer.js";
@@ -115,18 +115,21 @@ export const REFLECT_TUNABLES = {
    * THE BUNDLE IN PARTS (2026-09-28). The begin result's size — measured as
    * the MCP text leaves, the bundle re-escaped inside the result's JSON beside
    * `how` and the questions (`resultChars`; review of #271) — before its long
-   * lists (memories, chapters, what the dream saw) go on in later parts. The
-   * tool result's ceiling is about 25k tokens, and escaped JSON runs near three
-   * characters a token, so 54,000 characters sits under it. Not a silent cut:
-   * the result says how many parts, and phase `part` hands the rest. PR B
-   * brings the shared fitter; this is the simple version. CAL.
+   * lists (memories, chapters, what the dream saw) go on in later parts. Not
+   * a silent cut: the result says how many parts, and phase `part` hands the
+   * rest.
+   *
+   * THE HOST'S CEILING, MEASURED (2026-10-02): was 54,000, on a guess of three
+   * characters a token; the night's begin came to 51.7 KB and Claude Code
+   * saved it to a file the run cannot open. Now the one ceiling
+   * (`fit/TOOL_RESULT_CEILING`).
    */
-  RESULT_CHARS: 54_000,
+  RESULT_CHARS: TOOL_RESULT_CEILING.CHARS,
   /**
    * One later part, measured the same way (the write-up's ~24 KB parts are
-   * the precedent).
+   * the precedent) — under the ceiling by choice, not by the ceiling.
    */
-  PART_CHARS: 24_000,
+  PART_CHARS: Math.min(24_000, TOOL_RESULT_CEILING.CHARS),
   /**
    * THE LISTS, FITTED (2026-09-28, build B; the research note's P6). The
    * whole core is handed — every core memory is the page's evidence, so the
@@ -558,7 +561,8 @@ export class Reflections {
     // the bundle's text re-escaped as a JSON string, beside the instructions
     // and the questions — not the bundle alone. `resultChars` is that size.
     const how = this.instructions(id, session, composed);
-    if (resultChars(render(id, composed), how, questions) <= T.RESULT_CHARS) return { bundle: composed, later: [] };
+    // With its margin (2026-10-02): the result's id, phase and session ride beside it.
+    if (resultChars(render(id, composed), how, questions) + PACK_MARGIN <= T.RESULT_CHARS) return { bundle: composed, later: [] };
     // A piece's cost as it leaves: its JSON, escaped once more inside the string.
     const cost = (v: unknown): number => wireChars(JSON.stringify(JSON.stringify(v)));
     const pieces: { kind: "m" | "c" | "s"; id: string; size: number }[] = [

@@ -55,7 +55,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { CLAIM_NOTHING_NEW, claimUnwritten } from "../../core/coverage/index.js";
-import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
+import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT } from "../../core/counterpart.js";
 import { CONTRADICTION_TUNABLES, NEIGHBOURS_HINT } from "../../core/contradictions.js";
 import type { Neighbour } from "../../core/contradictions.js";
 import { localDate, parseCalendarDate, todayIn } from "../../core/time.js";
@@ -133,9 +133,9 @@ import {
 import type { Id, Request, Response } from "./protocol.js";
 import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "../../core/dream/index.js";
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
-import { noteLookups } from "../../core/fit/index.js";
+import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NO_PAGE_VERSION, pageSections } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, pageSections } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -249,6 +249,12 @@ export interface McpServerOptions {
   registryDir?: string;
   /** **CAL.** Liveness window for a lazily-bound claim (`adapters/sessions.ts`). */
   sessionTtlMs?: number;
+  /**
+   * The most one tool result may measure, by `wireChars` of its serialized
+   * `structuredContent` (`withinCeiling`). Default `TOOL_RESULT_CEILING.CHARS`;
+   * a test passes a small one to reach the cut without a 40,000-character page.
+   */
+  resultCeilingChars?: number;
   /**
    * THE SCOPE REGISTRY this server consults — `<config dir>/scopes.json`,
    * resolved by the entry point from the same `--config` rule everything else
@@ -507,6 +513,7 @@ export class McpServer {
   private readonly registryDir: string;
   private readonly scopesFile: string | null;
   private readonly sessionTtlMs: number;
+  private readonly resultCeilingChars: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
   private readonly ring: McpEvent[] = [];
@@ -561,6 +568,7 @@ export class McpServer {
     this.scopesFile =
       opts.scopesFile !== undefined && opts.scopesFile.length > 0 ? opts.scopesFile : null;
     this.sessionTtlMs = opts.sessionTtlMs ?? SESSION_TTL_MS;
+    this.resultCeilingChars = opts.resultCeilingChars ?? TOOL_RESULT_CEILING.CHARS;
     this.host = opts.host ?? DEFAULT_HOST;
     this.lifecycleOpts = opts.lifecycle ?? {};
     this.wakeNotice = opts.wakeNotice;
@@ -849,7 +857,9 @@ export class McpServer {
       const tripped = this.writeTripped;
       this.writeTripped = null;
       if (tripped !== null) return this.refusalFor(name, tripped, "write");
-      return desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult);
+      // THE NET LAST (2026-10-02): after the Desktop extras, which rebuild the
+      // result, so nothing leaves past it.
+      return this.withinCeiling(name, args, desktopCall ? this.afterDesktopCall(name, result as ToolResult) : (result as ToolResult));
     } finally {
       this.callSession = null;
       this.callBoundBy = null;
@@ -2889,7 +2899,7 @@ export class McpServer {
             shown: Object.keys(out.bundle.memories).length,
             resumed: out.resumed,
           });
-          return this.result(
+          const handed = this.result(
             {
               phase,
               session,
@@ -2902,6 +2912,9 @@ export class McpServer {
             },
             false,
           );
+          // Part 1 is the begin: its row says how many parts the run owes.
+          this.notePart("dream", out.bundle.dream, 1, out.bundle.parts?.of ?? 1, handed);
+          return handed;
         }
         case "part": {
           const dream = args["dream"];
@@ -2912,7 +2925,7 @@ export class McpServer {
           const out = dreams.part({ dream, session, part: n });
           if (!out.ok) return refused(out.reason, out.detail ?? "That dream is not open for this session.");
           this.emit("mcp.dream", dream, { phase: "part", part: out.part, of: out.of });
-          return this.result(
+          const handed = this.result(
             {
               phase,
               dream,
@@ -2925,6 +2938,8 @@ export class McpServer {
             },
             false,
           );
+          this.notePart("dream", dream, out.part, out.of, handed);
+          return handed;
         }
         case "propose": {
           const dream = args["dream"];
@@ -2980,7 +2995,7 @@ export class McpServer {
           // reused (a run started again the same day claims nothing twice).
           const dreamArg = typeof args["dream"] === "string" ? args["dream"] : null;
           const claim = this.counterpart.claimNightWriter({ session, run: dreamArg ?? `night of ${at}` });
-          const out = this.counterpart.nightWriter({ session, tool: "counterparts self_page" });
+          const out = this.counterpart.nightWriter({ session, tool: NIGHT_WRITER_TOOL });
           const next = nextAfter("writer", dreamArg);
           if (!out.ok) {
             this.emit("mcp.dream", dreamArg ?? undefined, { phase: "writer", writer: claim.reason });
@@ -3074,7 +3089,7 @@ export class McpServer {
             );
           }
           this.emit("mcp.reflect", out.bundle.reflection, { phase: "begin", session, shown: Object.keys(out.bundle.memories).length });
-          return this.result(
+          const handed = this.result(
             {
               phase,
               session,
@@ -3088,6 +3103,8 @@ export class McpServer {
             },
             false,
           );
+          this.notePart("reflection", out.bundle.reflection, 1, out.bundle.parts?.of ?? 1, handed);
+          return handed;
         }
         case "part": {
           const reflection = args["reflection"];
@@ -3098,7 +3115,7 @@ export class McpServer {
           const out = reflections.part({ reflection, session, part: n });
           if (!out.ok) return refused(out.reason, out.detail ?? "That reflection is not open for this session.");
           this.emit("mcp.reflect", reflection, { phase: "part", part: out.part, of: out.of });
-          return this.result(
+          const handed = this.result(
             {
               phase,
               reflection,
@@ -3109,6 +3126,8 @@ export class McpServer {
             },
             false,
           );
+          this.notePart("reflection", reflection, out.part, out.of, handed);
+          return handed;
         }
         case "finish": {
           const reflection = args["reflection"];
@@ -3793,6 +3812,100 @@ export class McpServer {
   ): ToolResult {
     this.emit("mcp.refused", undefined, { tool, reason });
     return this.result({ stored: false, tool, reason, ...extra }, true);
+  }
+
+  /**
+   * THE LAST WORD ON SIZE (2026-10-02). Every result leaves through here, the
+   * last step of `call`. The caps upstream (the dream's and the reflection's
+   * parts, the writer's day, recall's rooms) all derive from one ceiling
+   * (`fit/TOOL_RESULT_CEILING`) and should keep every result under it; this is
+   * the net for the one that does not. Measured the way Claude Code measures —
+   * `structuredContent` serialized, which is what it hands the model — by
+   * `wireChars`, so a non-ASCII character counts toward the token line too.
+   *
+   * Over it, the result is NOT shipped to be spilled: its longest top-level
+   * string (a bundle, the writer's block, the wake) is cut to fit, a `cut`
+   * field says so in words, and one durable `mcp.result.oversize` row records
+   * the tool, the phase and the sizes — never the text — so doctor goes amber.
+   * A result with no long string to cut (a list) is shipped as it is, and
+   * recorded the same way. A guard by a margin and a stated cut, never a
+   * refusal: the part that fits still reaches the model.
+   */
+  private withinCeiling(name: string, args: Record<string, unknown>, result: ToolResult): ToolResult {
+    const ceiling = this.resultCeilingChars;
+    const sc = result.structuredContent;
+    const measured = wireChars(JSON.stringify(sc));
+    if (measured <= ceiling) return result;
+    let field: string | null = null;
+    for (const [k, v] of Object.entries(sc)) {
+      if (typeof v === "string" && (field === null || v.length > (sc[field] as string).length)) field = k;
+    }
+    const phase = typeof args["phase"] === "string" ? args["phase"] : null;
+    let out = result;
+    let cutTo = measured;
+    if (field !== null) {
+      const value = sc[field] as string;
+      const note =
+        `This answer came to ${String(measured)} characters, more than the ${String(ceiling)} one tool answer carries whole, ` +
+        `so the server cut \`${field}\` to fit: what is shown is its beginning, and the rest did not reach you. ` +
+        `Work with what is here and say so; nothing was refused.`;
+      // The rest of the result, measured with the note beside it; the field
+      // gets what is left, and is cut again while its escaping still overruns.
+      const rest = wireChars(JSON.stringify({ ...sc, [field]: "", cut: note }));
+      let room = Math.max(0, ceiling - rest);
+      let kept = clipWire(value, room);
+      for (let tries = 0; tries < 6; tries += 1) {
+        const over = wireChars(JSON.stringify(kept)) - 2 - room;
+        if (over <= 0 || kept.length === 0) break;
+        room = Math.max(0, room - over - 16);
+        kept = clipWire(value, room);
+      }
+      const payload: Record<string, unknown> = { ...sc, [field]: kept, cut: note };
+      // The text copy follows the shape it had: the wake rides as its own text,
+      // everything else as the payload's JSON.
+      const asText = result.content.length === 1 && result.content[0]?.text === value;
+      out = {
+        content: [{ type: "text", text: asText ? `${kept}\n\n${note}` : JSON.stringify(payload, null, 2) }],
+        structuredContent: payload,
+        ...(result.isError === true ? { isError: true } : {}),
+      };
+      cutTo = wireChars(JSON.stringify(payload));
+    }
+    this.emit("mcp.result.oversize", undefined, { tool: name, phase, chars: measured, cutTo });
+    try {
+      this.counterpart.noteAdapterEvent(MCP_OVERSIZE_EVENT, {
+        tool: name,
+        phase,
+        chars: measured,
+        ceiling,
+        field,
+        cut: field !== null,
+        cutTo,
+      });
+    } catch {
+      /* the cut already happened; a lost row costs doctor's amber, never the answer */
+    }
+    return out;
+  }
+
+  /**
+   * A LATER PART HANDED (2026-10-02): one durable `mcp.part` row per part, so
+   * doctor can hold the parts a begin promised (`dream.begun`'s `parts`, the
+   * reflection's `detail.fit.parts`) against the parts that were fetched.
+   * Counts and ids only. Fail-open: telemetry never becomes the answer.
+   */
+  private notePart(mechanism: FitMechanism, ref: string, part: number, of: number, result: ToolResult): void {
+    try {
+      this.counterpart.noteAdapterEvent(MCP_PART_EVENT, {
+        mechanism,
+        ref,
+        part,
+        of,
+        chars: wireChars(JSON.stringify(result.structuredContent)),
+      });
+    } catch {
+      /* the part was handed; the row is evidence, never a reason to fail it */
+    }
   }
 
   private result(payload: Record<string, unknown>, isError: boolean): ToolResult {

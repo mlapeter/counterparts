@@ -185,6 +185,37 @@ export function fit(candidates: readonly FitCandidate[], opts: FitOptions): FitO
   };
 }
 
+// ── the room one tool result has ────────────────────────────────────────────
+
+/**
+ * THE CEILING ON ONE TOOL RESULT (2026-10-02), the one number every tool
+ * result's cap derives from — the dream's and the reflection's parts, the
+ * nightly writer's day, and the MCP server's last-resort cut.
+ *
+ * MEASURED, not guessed: the night of 2026-10-02 (and of 10-01) Claude Code
+ * handed the model a 2 KB preview of every result over the line and saved the
+ * rest to a file the headless run cannot open, so the dream saw a third of
+ * its bundle. Read from Claude Code 2.1.287 itself, there are two lines:
+ *
+ *   - `HOST_CHARS`: a result whose text runs past 50,000 characters (the
+ *     host's global persist threshold, under the MCP tool's own 100,000) is
+ *     saved to a file — "Output too large (51.5KB)". The text it measures is
+ *     `structuredContent` serialized compact, when a result carries one.
+ *   - `HOST_TOKENS`: an MCP result past 25,000 tokens (`MAX_MCP_OUTPUT_TOKENS`,
+ *     counted for real past ~12,500 estimated) is saved the same way — "result
+ *     (51,306 characters) exceeds maximum allowed tokens". That part ran about
+ *     two characters a token: the bundle is JSON escaped inside JSON.
+ *
+ * `CHARS` is the room: 20% under both at that density, so a result measured
+ * by `wireChars` (a non-ASCII character as three) under it reaches the model
+ * whole. The env var could raise the token line; nothing raises the 50,000. CAL.
+ */
+export const TOOL_RESULT_CEILING = {
+  HOST_CHARS: 50_000,
+  HOST_TOKENS: 25_000,
+  CHARS: 40_000,
+} as const;
+
 // ── what a text costs on the wire ───────────────────────────────────────────
 
 /**

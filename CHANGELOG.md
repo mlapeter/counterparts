@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
+  over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
+  headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part
+  and its second, and the reflection's first, went that way, so the dream read about a third
+  of what it was given. Every tool result is now kept under 40,000 characters: the dream and
+  the reflection come in more, smaller parts, and the page writer's day shrinks to fit beside
+  the page. A result that would still be too long is cut there, with a note saying so to the
+  model, instead of vanishing.
+- **Doctor checks what reached the model, not only what ran.** A new Tool results line goes
+  amber when a result was cut to fit, or when a dream or reflection finished without reading
+  a part it was handed. A new Wake line goes amber when a session's wake arrived cut short.
+  The Spawn line goes amber when the background worker started and then failed today or
+  yesterday, and the Self page line says when the wake shows only the start of a long page.
+
 ## 0.3.11 — 2026-10-01
 
 The nightly run now writes up the sessions that ended before they were written up, in

@@ -73,6 +73,7 @@
  * passed as `nothing-to-say`, derived and labelled as derived. A stored outcome
  * that pretends to knowledge nobody has is the thing §2.4 is about.
  */
+import { TOOL_RESULT_CEILING, wireChars } from "../fit/index.js";
 import { strength } from "../physics/index.js";
 import type { Store } from "../store/index.js";
 import { calendarDate } from "./calendar.js";
@@ -708,6 +709,35 @@ export function dayMemories(
  */
 export const NIGHT_WRITER_MEMORY_BYTES = 40_000;
 export const NIGHT_WRITER_MEMORY_MAX = 150;
+
+/** The tool the nightly writer is told to write the page with — the MCP server's `self_page`. */
+export const NIGHT_WRITER_TOOL = "counterparts self_page";
+/** Room beside the writer's block in its result: the phase, `about`, `ifVersion`, `how`, `next`. */
+const NIGHT_WRITER_RESULT_MARGIN = 2_000;
+/** How many times the day's room is shrunk before the block goes as it is (the server's net is behind it). */
+const NIGHT_WRITER_FIT_TRIES = 4;
+
+/**
+ * THE NIGHT'S DAY, FITTED TO ONE TOOL RESULT (2026-10-02). The writer's
+ * block rides in one result beside the page carried whole (up to 16 KB), so
+ * `NIGHT_WRITER_MEMORY_BYTES` alone did not bound it: it came to 46,735 and
+ * 45,786 characters on the first two measured nights, near Claude Code's
+ * 50,000 (`fit/TOOL_RESULT_CEILING`). Measured as it leaves — the text
+ * escaped in the result's JSON, by `wireChars`, with room for the phase's
+ * other fields — and when it is over, the day's room shrinks by what was
+ * over (and a tenth more, for the escaping) and the block is built again.
+ * What no longer fits is `dropped`, counted and said, as always. Pure.
+ */
+export function fitNightWriter<B>(build: (budgetBytes: number) => B, render: (built: B) => string): { built: B; text: string } {
+  let budget = NIGHT_WRITER_MEMORY_BYTES;
+  for (let tries = 0; ; tries += 1) {
+    const built = build(budget);
+    const text = render(built);
+    const over = wireChars(JSON.stringify(text)) + NIGHT_WRITER_RESULT_MARGIN - TOOL_RESULT_CEILING.CHARS;
+    if (over <= 0 || budget === 0 || tries >= NIGHT_WRITER_FIT_TRIES) return { built, text };
+    budget = Math.max(0, budget - Math.ceil(over * 1.1) - MEMORY_LINE_OVERHEAD * 10);
+  }
+}
 
 /** What one bullet costs beside its statement: `- `, a newline, and slack. */
 const MEMORY_LINE_OVERHEAD = 16;

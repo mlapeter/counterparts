@@ -1025,3 +1025,17 @@ Review of #313: closing passes the revision step's checks first — a protected 
 (`protected-refuses-revision`), an archived one (`target-archived`), and a session not the
 owner's closes nothing confidential (`confidential`) or written in another directory
 (`other-directory`). The result says `thread: { closed: null, reason }`.
+
+## 2026-10-02 — every result under one ceiling, and the net behind it
+
+Claude Code saves a tool result past 50,000 characters (or 25,000 tokens) to a file and hands
+the model a 2 KB preview; the headless nightly run cannot open the file. On 10-01 and 10-02 the
+dream's begin and part 2 and the reflection's begin went that way, and the run went on thin.
+The caps now derive from `fit/TOOL_RESULT_CEILING` (40,000), and `withinCeiling`, the last step
+of `call`, measures every result as the host does (`structuredContent` serialized, by
+`wireChars`). Over it, the longest top-level string is cut to fit, a `cut` field says so, and
+one durable `mcp.result.oversize` row records the tool, the phase and the sizes. A margin and a
+stated cut, never a refusal. Each part a dream's or a reflection's bundle is handed in —
+part 1 being the begin — leaves an `mcp.part` row, so doctor's Tool results line can hold the
+parts a run was promised against the parts it fetched. `RECALL_ID_RESULT_CHARS` (56,000, counted
+over both copies) is ~28,000 per copy: under the ceiling, and left as it was.
