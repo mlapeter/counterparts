@@ -765,13 +765,15 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     expect(topical.feeling?.ranked).toBe(true);
     expect(topical.feeling?.noTopic.has(f.topical)).toBe(false);
     // Meaning (#322): the feeling question's moments are the stamped rows, and
-    // the wheel note the feeling words reached is not one of them. RETIRED here:
-    // "the garden plan is answered" — with no card for the garden plan, meaning
-    // reads a feeling question with a topic as the feeling alone (see #323's report).
+    // the wheel note the feeling words reached is not one of them. The garden
+    // plan has no card and no stamped memory says it: every felt moment
+    // follows, and the answer says so plainly (review of #323; the case where a
+    // stamped memory does say it is in recall-meaning.test.ts).
     const r = meaning(c, question);
     expect(r.lens?.kind).toBe("feeling");
     expect(moments(r)).not.toContain(f.wheelDoc);
     expect(new Set(moments(r))).toEqual(new Set(f.sheepish));
+    expect(r.notes.join(" ")).toContain('no card names "garden plan", and no moment that carries feelings (mine) says it');
   });
 
   test("second review of #310: a capitalised wheel word is still a feeling; a lower-case 'can' is frame", () => {

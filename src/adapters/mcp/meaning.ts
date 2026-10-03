@@ -36,7 +36,9 @@
  * v12); the card holding the most is the arc, the rest are one-liners. "us"
  * is the memories marked `about: us`. A question about feeling
  * (`recall/feeling-ask.ts#readFeelingAsk`, ranked) with no card is answered
- * by the stamps that match it — word, core, whose; with a card, it keeps the
+ * by the stamps that match it — word, core, whose — and, when it names a
+ * topic no card holds, by those of them the topic's words reach (none: all of
+ * them, said so); with a card, it keeps the
  * chapters where the card's moments carry the feeling. Nothing named and no
  * feeling: the question's rarer words (BM25) and its meaning (the in-line
  * vector) find the moments, and the answer says no card named it.
@@ -61,7 +63,7 @@ import { chaptersOf } from "../../core/handoff/last-here.js";
 import { UNRESOLVED_META_KEY } from "../../core/mint.js";
 import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
-import { askedNames, feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
+import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
@@ -265,6 +267,15 @@ const FRAME = new Set([
   "know", "knew", "known", "remember", "remembered", "recall",
 ]);
 
+/**
+ * A feeling question's frame beyond `feeling-ask.ts#isFeelingFrameWord`: the
+ * owner named as a role, and the recent past ("what have I felt lately") —
+ * never a topic to read moments by.
+ */
+const FEELING_FRAME_MORE = new Set([
+  "owner", "user", "recent", "recently", "lately", "latest", "last", "today", "yesterday", "tonight", "now",
+]);
+
 /** Words that make "us" the subject: the two of them together. Not "we" or "our", which a question uses for joint work. */
 const US_WORDS = new Set(["us", "ourselves", "together"]);
 
@@ -426,8 +437,44 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     for (const id of usIds) hold(id, 1);
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   } else if (feelingAsked && ask !== null) {
-    lens = { kind: "feeling", name: feelingName(ask.named, ask.whose, whose) };
-    for (const [id, v] of felt) hold(id, v);
+    // A FEELING ABOUT A TOPIC NO CARD NAMES ("how did I feel about the garden
+    // plan", review of #323): the felt moments the topic's words reach are the
+    // answer. None reached: every felt moment, and the answer says plainly that
+    // no card names the topic and none of them say it. Only the words — the
+    // question's embedding carries the feeling, not the topic — and not a
+    // "since …" clause, which is a time ("since I started living here"), not
+    // a topic. Unstamped memories the words reach are never moments here: a
+    // note ABOUT feelings is not a feeling (lane 6, item 3).
+    const feelingAs = feelingName(ask.named, ask.whose, whose);
+    const asked = question.replace(/\bsince\b[^?.!;]*/gi, " ");
+    const proper = safe(() => askedNames(asked), new Set<string>());
+    const owners = new Set(ownerNamesLower(c).flatMap((n) => tokenize(n)));
+    const topic = contentWords(
+      c,
+      asked,
+      minLen,
+      ask.named,
+      (w) => isFeelingFrameWord(w, stored, proper) || owners.has(w) || FEELING_FRAME_MORE.has(w),
+    );
+    const reached = new Map<string, number>();
+    if (topic.words.length > 0) {
+      holdByWords(store, topic, usable, (id) => {
+        const v = felt.get(id);
+        if (v !== undefined) reached.set(id, v);
+      });
+    }
+    const topicName = `"${topic.shown.join(" ")}"`;
+    if (reached.size > 0) {
+      lens = { kind: "feeling", name: `${feelingAs} about ${topicName}` };
+      for (const [id, v] of reached) hold(id, v);
+      notes.push(`no card names ${topicName}: the moments that carry ${feelingAs} and say it`);
+    } else {
+      lens = { kind: "feeling", name: feelingAs };
+      for (const [id, v] of felt) hold(id, v);
+      if (topic.words.length > 0) {
+        notes.push(`no card names ${topicName}, and no moment that carries ${feelingAs} says it: every one follows`);
+      }
+    }
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   } else {
     const topic = contentWords(c, question, minLen, ask?.named ?? new Set());

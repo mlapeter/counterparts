@@ -341,6 +341,26 @@ describe("other lenses", () => {
     expect(r.notes.join(" ")).toContain("meaning search off: embedder-off");
   });
 
+  // Review of #323: the topic was dropped and every felt moment came back.
+  test("a feeling about a topic no card names keeps the felt moments that say it: 'how did I feel about the garden plan'", () => {
+    const c = brain();
+    const s = seed(c);
+    const garden = moment(c, "sess_g", "The garden plan fell apart when the trellis order was cancelled.", {
+      feel: [{ whose: "self", emotion: "disappointed", strength: 0.6 }],
+    });
+    // Says the topic, carries no feeling: not a moment of a feeling question.
+    const plain = moment(c, "sess_g", "The garden plan lists tomatoes, beans and a trellis.");
+    const r = meaningRecall(ctx(c), "how did I feel about the garden plan");
+    expect(r.lens?.kind).toBe("feeling");
+    expect(r.lens?.name).toContain('"garden plan"');
+    const ids = entries(r).flatMap((e) => e.moments.map((m) => m.id));
+    expect(ids).toEqual([garden]);
+    expect(ids).not.toContain(plain);
+    // Han's felt moments are not about the garden plan.
+    expect(ids).not.toContain(s.m2);
+    expect(r.notes.join(" ")).toContain('no card names "garden plan"');
+  });
+
   // Review of #323: lower-case "will" is frame, the asker's Will is a name.
   test("a name the asker capitalised is a topic word, matched as typed: 'what do I know about Will'", () => {
     const c = brain();
