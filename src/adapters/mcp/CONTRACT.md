@@ -469,8 +469,11 @@ them.
   (`Schemas#subjectsIn` → `memory_subjects`), the best of them the arc and the rest
   one-liners; "us" (the words *us*, *ourselves*, *together*) is the memories marked
   `about: us`; a ranked question about feeling (`feeling-ask.ts`) with no card is the
-  stamps that match it by word, core and whose; with none of those, the question's rarer
-  words and its meaning, and the answer says no card named it.
+  stamps that match it by word, core and whose — narrowed, when it names a topic no card
+  holds, to the stamped moments the topic's words reach (none reached: all of them, and
+  the answer says no card names the topic); with none of those, the question's rarer
+  words and its meaning, and the answer says no card named it. A word the asker
+  capitalised mid-sentence is a topic word whatever it is ("Will"), matched as typed.
 - **[M]** The arc is the chapters (`epi_…#N`) that hold the subject — its memories
   written in a chapter's span, and the chapter's own words naming it — ranked by how much
   they hold and shown in time order, 8 to a page (`page`); moments a session wrote with no
@@ -508,7 +511,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   recency breaks ties only; the order is stable and pages by 10 (`page`).
 - **[M]** A time in the question (`recall/time-ask.ts`) filters, by `occurred_on` or, with
   none, the learned date (the line says which); weeks and months stretch two days each
-  side, "N days ago" one, dates stay exact; matches outside are counted. "Around the X"
+  side, "N days ago" one, dates stay exact; matches outside are counted as distinct facts,
+  after the same folds and without the weak tail. "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
 - **[M]** Rebuilt here, not inherited from ambient: a chapter and its copy are one result
@@ -518,7 +522,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
 - **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
   | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
   (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
-  current one in); corrected ones hidden and counted; `open` and unsettled pairs named.
+  current one in); corrected ones hidden and counted; `open` and unsettled pairs named —
+  never naming a confidential or removed memory to a non-owner.
   Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
