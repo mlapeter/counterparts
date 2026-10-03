@@ -616,6 +616,11 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
+        "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to.",
+      mechanizedBy: "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#renderMeaning",
+    },
+    {
+      claim:
         "A matched memory that has faded from long disuse is not dropped: it is listed after the main results as one line — title, date, id, labeled faded — and never takes a main slot. Opening it by id brings it back.",
       mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (FACTS_FADED_LINES) + src/adapters/mcp/deliberate.ts#hasFaded (FADED_RETAINED)",
     },

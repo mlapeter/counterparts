@@ -21,6 +21,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "../src/adapters/mcp/deliberate.js";
 import { FACTS_PAGE_SIZE, factsRecall, renderFacts } from "../src/adapters/mcp/facts.js";
+import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
 import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/contradictions.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -406,6 +407,49 @@ describe("through the tool", () => {
     const meaning = body(await s.call("recall", { question: "zqtool", mode: "meaning" }));
     expect(meaning["mode"]).toBe("meaning");
     expect(typeof meaning["answer"]).toBe("string");
+  });
+
+  test("a meaning question goes through the dispatch: meaning's own answer, and what it showed is seen and quotable", async () => {
+    const c = brain();
+    seed(c);
+    const card = c.schemas.mention({ name: "Zorabel", kind: "person", source: "Zorabel", chunkRef: "card-zb", aliases: [], day: c.store.livedDay() });
+    expect(card.ok).toBe(true);
+    const moment = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Zorabel showed me the old observatory and its brass telescope after the storm.",
+      origin: { session: "sess_zb", scope: "/scope/one" },
+    });
+    const s = server(c);
+    // Not shown yet: a feeling now about it is refused.
+    const before = body(await s.call("note", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
+    expect((before["feelingsNow"] as { recorded: number }).recorded).toBe(0);
+    const out = body(await s.call("recall", { question: "What has Zorabel been to me?", mode: "meaning" }));
+    expect(out["mode"]).toBe("meaning");
+    expect(out["reason"]).toBe("answered");
+    const direct = meaningRecall({ counterpart: c, sessionId: SESSION, owner: true }, "What has Zorabel been to me?");
+    expect(out["answer"]).toBe(renderMeaning(direct));
+    expect(out["ids"]).toEqual([...direct.shown]);
+    expect(direct.shown).toContain(moment);
+    // Seen: the feeling now is recorded. Quotable: the `asked` record names it.
+    const after = body(await s.call("note", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
+    expect((after["feelingsNow"] as { recorded: number }).recorded).toBe(1);
+    expect(c.store.gateRecords(SESSION, "asked").map((r) => r.ref)).toContain(moment);
+    // The durable row says which mode answered.
+    const row = c.store.eventLog({ name: "mcp.recall", limit: 5 }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>);
+    expect(row.some((p) => p["mode"] === "meaning")).toBe(true);
+  });
+
+  test("a possessive in a question reaches the card: \"Zorabel's\" is Zorabel", () => {
+    const c = brain();
+    seed(c);
+    const card = c.schemas.mention({ name: "Zorabel", kind: "person", source: "Zorabel", chunkRef: "card-zp", aliases: [], day: c.store.livedDay() });
+    expect(card.ok).toBe(true);
+    const named = c.store.put({ type: "memory", kind: "fact", body: "Zorabel moved to the coast in spring." });
+    const r = ask(c, "where is Zorabel's new place?");
+    expect(r.subjects.map((x) => x.name)).toEqual(["Zorabel"]);
+    const hit = r.memories.find((m) => m.id === named);
+    expect(hit?.ways).toContain("subject");
   });
 
   test("the quotable record is not the ambient gate's: a session with only `asked` rows reads absent, not unreadable", () => {
