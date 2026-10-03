@@ -61,7 +61,7 @@ import { chaptersOf } from "../../core/handoff/last-here.js";
 import { UNRESOLVED_META_KEY } from "../../core/mint.js";
 import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
-import { feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
+import { askedNames, feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
@@ -261,6 +261,8 @@ const FRAME = new Set([
   "been", "since", "ever", "over", "time", "times", "things", "thing", "between", "together", "keeps", "keep",
   "coming", "come", "comes", "up", "happened", "happen", "mean", "means", "meant", "think", "felt", "feel", "feeling",
   "feelings", "most", "all", "so", "far", "lately", "recently", "tell", "story", "arc", "been",
+  // The asking itself ("what do I know about Will", review of #323).
+  "know", "knew", "known", "remember", "remembered", "recall",
 ]);
 
 /** Words that make "us" the subject: the two of them together. Not "we" or "our", which a question uses for joint work. */
@@ -428,20 +430,14 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     for (const [id, v] of felt) hold(id, v);
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   } else {
-    const words = contentWords(c, question, minLen, ask?.named ?? new Set());
+    const topic = contentWords(c, question, minLen, ask?.named ?? new Set());
+    const words = topic.words;
     if (words.length > 0 || (vector !== null && vector.length > 0)) {
-      lens = { kind: "words", name: words.length > 0 ? `"${words.join(" ")}"` : "the question's meaning" };
+      lens = { kind: "words", name: words.length > 0 ? `"${topic.shown.join(" ")}"` : "the question's meaning" };
       if (words.length > 0) {
-        const hits = safe(() => store.search(words.join(" "), MEANING_WORDS_MAX), []);
-        const top = hits[0]?.score ?? 0;
-        for (const h of hits) if (top > 0) hold(h.id, h.score / top);
-        const need = Math.max(1, Math.ceil(words.length / 2));
-        textMatch = (text) => {
-          const have = new Set(tokenize(text));
-          const n = words.filter((w) => have.has(w)).length;
-          return n >= need ? n / words.length : 0;
-        };
-        lineMatch = words.map((w) => wholeWordRegex(w));
+        const byWords = holdByWords(store, topic, usable, hold);
+        textMatch = byWords.textMatch;
+        lineMatch = byWords.lineMatch;
       }
       if (vector !== null && vector.length > 0) {
         const floor = safe(() => semanticTuning(c.recall.tunables, store.rankingIdentity(), "inline").floor, 0.45);
@@ -1178,14 +1174,105 @@ function cardTerms(c: Counterpart, id: string): string[] {
   }
 }
 
-/** The question's rarer words: not its frame, not a feeling word, not held by a quarter of the store. */
-function contentWords(c: Counterpart, question: string, minLen: number, feelingNamed: ReadonlySet<string>): string[] {
-  const words = [...new Set(tokenize(question))].filter((w) => w.length >= minLen && !FRAME.has(w) && !feelingNamed.has(w));
-  if (words.length === 0) return [];
+/**
+ * The question's words a topic is read by. `words` are lower-case tokens;
+ * `names` maps the ones the asker CAPITALISED mid-sentence (a name or a
+ * proper noun, `feeling-ask.ts#askedNames`) to a regex for the word as typed,
+ * case kept; `shown` is the words as a header prints them.
+ */
+interface TopicWords {
+  readonly words: readonly string[];
+  readonly names: ReadonlyMap<string, RegExp>;
+  readonly shown: readonly string[];
+}
+
+/**
+ * The question's rarer words: not its frame, not a feeling word, not held by a
+ * quarter of the store. A word the asker capitalised mid-sentence is kept
+ * whatever it is ("what do I know about Will": lower-case "will" is frame, the
+ * asker's Will is a name, as `feeling-ask.ts#askedNames` reads it), and is
+ * matched as typed, case kept, so the modal "will" in a hundred memories does
+ * not stand in for him (review of #323). `skip` leaves out more (a feeling
+ * question's own frame).
+ */
+function contentWords(
+  c: Counterpart,
+  question: string,
+  minLen: number,
+  feelingNamed: ReadonlySet<string>,
+  skip: (w: string) => boolean = () => false,
+): TopicWords {
+  const proper = safe(() => askedNames(question), new Set<string>());
+  const asTyped = new Map<string, string>();
+  for (const m of question.matchAll(/[A-Za-z0-9][A-Za-z0-9'’]*/g)) {
+    const tok = m[0].replace(/['’]s?$/, "");
+    const low = tok.toLowerCase();
+    if (proper.has(low) && /^[A-Z]/.test(tok) && !asTyped.has(low)) asTyped.set(low, tok);
+  }
+  const names = new Map<string, RegExp>();
+  for (const [low, typed] of asTyped) names.set(low, nameRegex(typed, "gu"));
+  const candidates = [...new Set(tokenize(question))].filter(
+    (w) => !skip(w) && (names.has(w) || (w.length >= minLen && !FRAME.has(w) && !feelingNamed.has(w))),
+  );
+  const out = (words: string[]): TopicWords => ({ words, names, shown: words.map((w) => asTyped.get(w) ?? w) });
+  if (candidates.length === 0) return out([]);
   const total = safe(() => c.store.countMemories({ archived: false }), 0);
-  if (total < 20) return words;
-  const df = safe(() => c.store.docFrequency(words), new Map<string, number>());
-  return words.filter((w) => (df.get(w) ?? 0) <= total * COMMON_SHARE);
+  if (total < 20) return out(candidates);
+  const df = safe(() => c.store.docFrequency(candidates), new Map<string, number>());
+  return out(candidates.filter((w) => names.has(w) || (df.get(w) ?? 0) <= total * COMMON_SHARE));
+}
+
+/** How many times `text` names the asker's capitalised word, case kept. */
+function namedCount(text: string, re: RegExp): number {
+  re.lastIndex = 0;
+  return (text.match(re) ?? []).length;
+}
+
+/**
+ * HOLD WHAT THE QUESTION'S WORDS REACH (BM25, `MEANING_WORDS_MAX`), and the
+ * matchers a chapter's words and line are read by. A memory the search reached
+ * only through a capitalised word must name it as typed: "Will" is not "will".
+ * Returns how many memories it held.
+ */
+function holdByWords(
+  store: Counterpart["store"],
+  topic: TopicWords,
+  usable: (id: string) => MemoryRow | null,
+  hold: (id: string, weight: number) => void,
+): { textMatch: (text: string) => number; lineMatch: RegExp[]; held: number } {
+  const words = topic.words;
+  const plain = words.filter((w) => !topic.names.has(w));
+  const hits = safe(() => store.search(words.join(" "), MEANING_WORDS_MAX), []).filter((h) => {
+    if (topic.names.size === 0) return true;
+    const row = usable(h.id);
+    if (row === null) return false;
+    const text = `${row.title ?? ""}\n${row.body}`;
+    if ([...topic.names.values()].some((re) => namedCount(text, re) > 0)) return true;
+    const have = new Set(tokenize(text));
+    return plain.some((w) => have.has(w));
+  });
+  const top = hits[0]?.score ?? 0;
+  let held = 0;
+  for (const h of hits) {
+    if (top > 0 && usable(h.id) !== null) {
+      hold(h.id, h.score / top);
+      held += 1;
+    }
+  }
+  const need = Math.max(1, Math.ceil(words.length / 2));
+  const textMatch = (text: string): number => {
+    const have = new Set(tokenize(text));
+    const n = words.filter((w) => {
+      const re = topic.names.get(w);
+      return re === undefined ? have.has(w) : namedCount(text, re) > 0;
+    }).length;
+    return n >= need ? n / words.length : 0;
+  };
+  const lineMatch = words.map((w) => {
+    const re = topic.names.get(w);
+    return re === undefined ? wholeWordRegex(w) : new RegExp(re.source, "u");
+  });
+  return { textMatch, lineMatch, held };
 }
 
 function feelingName(named: ReadonlySet<string>, who: FeelingWhose | null, whose: { readonly self: string; readonly owner: string }): string {
