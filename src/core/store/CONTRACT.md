@@ -474,7 +474,7 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     the composition root installs the finder (`findSubjectsWith`), and every memory `put`
     and every revise of a memory's words relinks in the same transaction, fail-open. The
     owner's removal blanks the three on the row and its versions and deletes the links
-    both ways. The migration adds the columns and the table and records its moment
+    both ways, and a reflection entry's memory it redacts loses its links too. The migration adds the columns and the table and records its moment
     (`V12_UPGRADE_KEY`); `OBSERVER_READ_FLOOR` stays 11.
 
 ## 6. Scars honored
