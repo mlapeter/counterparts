@@ -37,6 +37,38 @@ export function wholeWordRegex(term: string, flags = "iu"): RegExp {
   return new RegExp(`(?<!${WORD_CHAR})${t}(?!${WORD_CHAR})`, flags);
 }
 
+/**
+ * THE NAME RULE (2026-10-03, review of #322): the whole-word rule above, with
+ * a trailing possessive read as the name — "Han's", "Han’s", "James'" name
+ * Han and James. The apostrophe stays a word character everywhere else, so
+ * "Hans", "Oskarsson" and "Han'll" still do not. For what a text NAMES (the
+ * alias index's `matchesIn` and `scanner`, and so subject links and the
+ * crediting of a card a memory names); birth's name-in-source test and the
+ * encoder's preselection keep the strict rule.
+ */
+export function nameRegex(term: string, flags = "iu"): RegExp {
+  const t = escapeRegExp(term.trim());
+  return new RegExp(`(?<!${WORD_CHAR})${t}(?:['’]s?)?(?!${WORD_CHAR})`, flags);
+}
+
+/** True when `term` occurs in `haystack` as a name (`nameRegex`). Empty terms never match. */
+export function occursAsName(haystack: string, term: string): boolean {
+  const t = term.trim();
+  if (t.length === 0) return false;
+  return nameRegex(t).test(haystack);
+}
+
+/**
+ * A whole-word token with a trailing possessive taken off (`han's` → `han`,
+ * `james'` → `james`), or the token itself — the prefilter's side of
+ * `nameRegex`, so a scanner keyed on a term's first word still tries "Han"
+ * on "Han's".
+ */
+export function unpossessed(token: string): string {
+  const m = /^(.+?)['’]s?$/u.exec(token);
+  return m === null ? token : (m[1] as string);
+}
+
 /** True when `term` occurs in `haystack` as a whole word. Empty terms never match. */
 export function occursAsWholeWord(haystack: string, term: string): boolean {
   const t = term.trim();

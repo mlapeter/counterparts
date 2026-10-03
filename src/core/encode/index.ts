@@ -67,7 +67,7 @@ export type {
 export { TUNABLES } from "./tunables.js";
 
 // ── the ONE whole-word definition (§8 G3 — shared with schema birth) ────────
-export { escapeRegExp, wholeWordRegex, occursAsWholeWord, countWholeWord } from "./words.js";
+export { escapeRegExp, wholeWordRegex, occursAsWholeWord, countWholeWord, nameRegex, occursAsName } from "./words.js";
 
 // ── the non-ablatable gate ─────────────────────────────────────────────────
 export { REDACTION_MARK, SECRET_FAMILIES, scanSecrets, redactSecrets, containsSecret } from "./secrets.js";
