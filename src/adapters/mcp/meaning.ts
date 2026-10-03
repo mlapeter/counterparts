@@ -150,9 +150,16 @@ export interface MeaningFeeling {
 
 /** One entry of the arc: a chapter, or the moments of a session that wrote no chapter. */
 export interface MeaningEntry {
-  /** `epi_…#N` for a chapter; `session <short id>` for a session with no chapter. */
+  /** `epi_…#N` for a chapter; `session <id>` for a session's moments outside any chapter. */
   readonly address: string;
   readonly kind: "chapter" | "session";
+  /**
+   * A session entry whose session DID write chapters, these moments under
+   * none of them: the chapters' moments are unknown (an episode from before
+   * v12 whose versions are gone) or they were written after the last one (a
+   * write-up). False for a session that wrote no chapter, and for a chapter.
+   */
+  readonly unplaced: boolean;
   /** The episode id, which opens the chapter's words; null for a session entry. */
   readonly episodeId: string | null;
   readonly chapter: number | null;
@@ -219,6 +226,8 @@ export interface MeaningResult {
     readonly chapters: number;
     /** Sessions with the subject's moments and no chapter for them. */
     readonly sessions: number;
+    /** Of those, the sessions that did write chapters, the moments under none of them. */
+    readonly unplaced: number;
     /** The subject's moments (not faded). */
     readonly moments: number;
     readonly faded: number;
@@ -284,7 +293,9 @@ interface Entry {
   readonly episode: EpisodeInfo | null;
   readonly chapter: number | null;
   readonly session: string | null;
-  /** When it sits in time, UTC ms — what the arc is ordered by. */
+  /** A session entry whose session did write chapters, these moments under none of them. */
+  readonly unplaced: boolean;
+  /** When it sits in time, UTC ms — what the arc is ordered by; +∞ when nothing dates it. */
   at: number;
   date: string | null;
   hold: number;
@@ -509,7 +520,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
       const t = timesOf(e.id);
       const date = e.chapters[k - 1]?.date ?? null;
       const at = t?.moments[k] ?? (date !== null ? Date.parse(`${date}T12:00:00Z`) : e.createdAt);
-      entry = { key, kind: "chapter", episode: e, chapter: k, session: e.session, at, date: date ?? localDay(at, zone), hold: 0, textHold: 0, moments: [] };
+      entry = { key, kind: "chapter", episode: e, chapter: k, session: e.session, unplaced: false, at, date: date ?? localDay(at, zone), hold: 0, textHold: 0, moments: [] };
       entries.set(key, entry);
     }
     return entry;
@@ -530,11 +541,27 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
       }
     }
     if (placed === null) {
-      const key = `session ${session === null || session.length === 0 ? "unrecorded" : session.slice(0, 8)}`;
+      // Keyed by the whole session id: two sessions never share an entry.
+      const key = `session ${session === null || session.length === 0 ? "unrecorded" : session}`;
       placed = entries.get(key) ?? null;
       if (placed === null) {
-        const when = at ?? 0;
-        placed = { key, kind: "session", episode: null, chapter: null, session, at: when, date: at === null ? emptyNull(h.row.learned_on) : localDay(at, zone), hold: 0, textHold: 0, moments: [] };
+        // A session that did write chapters, these moments under none of them
+        // (the chapters' moments unknown — an episode from before v12 — or a
+        // later write-up), is not a session that wrote none.
+        const unplaced = session !== null && bySession.has(session);
+        placed = {
+          key,
+          kind: "session",
+          episode: null,
+          chapter: null,
+          session,
+          unplaced,
+          at: at ?? Number.POSITIVE_INFINITY,
+          date: at === null ? emptyNull(h.row.learned_on) : localDay(at, zone),
+          hold: 0,
+          textHold: 0,
+          moments: [],
+        };
         entries.set(key, placed);
       }
       if (at !== null && at < placed.at) {
@@ -563,14 +590,16 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     // No words to read a chapter by ("us", a feeling): a chapter copy the lens
     // reached holds it in its episode's latest chapter (the copy's mark is the
     // latest chapter's, `self/episodes.ts#EPISODE_ABOUT_META`).
+    const byId = new Map(episodes.map((e) => [e.id, e]));
     for (const h of copies.values()) {
-      const e = episodes.find((x) => x.id === h.row.origin_ref);
+      const e = byId.get(h.row.origin_ref ?? "");
       if (e === undefined) continue;
       const entry = chapterEntry(e, e.chapters.length);
       entry.hold += h.weight;
     }
   }
-  const all = [...entries.values()].filter((e) => e.hold > 0).sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+  // Time order; an entry nothing dates (at = +∞) goes last.
+  const all = [...entries.values()].filter((e) => e.hold > 0).sort((a, b) => (a.at === b.at ? 0 : a.at < b.at ? -1 : 1) || a.key.localeCompare(b.key));
 
   // Feelings on the subject's moments, for the turns and the patterns.
   const momentIds = all.flatMap((e) => e.moments.map((m) => m.row.id));
@@ -606,7 +635,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
         const rb = rankOf(marks.get(b.key));
         if (ra !== rb) return ra - rb;
         if (b.hold !== a.hold) return b.hold - a.hold;
-        return b.at - a.at;
+        return a.at === b.at ? 0 : b.at < a.at ? -1 : 1;
       })
     : all;
   const pages = Math.max(1, Math.ceil(all.length / MEANING_CHAPTERS_SHOWN));
@@ -650,7 +679,13 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
   const sessions = all.filter((e) => e.kind === "session");
   const momentCount = all.reduce((n, e) => n + e.moments.length, 0);
   if (lens !== null && all.length > 0) {
-    if (chapters.length === 0) notes.push(`no chapter holds it: ${plural(momentCount, "moment")} from sessions that wrote none`);
+    if (chapters.length === 0) {
+      notes.push(
+        sessions.some((e) => e.unplaced)
+          ? `no chapter holds it: ${plural(momentCount, "moment")} outside any chapter`
+          : `no chapter holds it: ${plural(momentCount, "moment")} from sessions that wrote none`,
+      );
+    }
     else if (chapters.length <= 3) {
       const dates = chapters.map((e) => e.date).filter((d): d is string => d !== null).sort();
       const first = dates[0];
@@ -672,6 +707,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     counts: {
       chapters: chapters.length,
       sessions: sessions.length,
+      unplaced: sessions.filter((e) => e.unplaced).length,
       moments: momentCount,
       faded: faded.length,
       readings: readingsAll.length,
@@ -754,6 +790,7 @@ function showEntry(
   return {
     address: e.key,
     kind: e.kind,
+    unplaced: e.unplaced,
     episodeId: ep?.id ?? null,
     chapter: e.chapter,
     of: ep?.chapters.length ?? null,
@@ -1028,7 +1065,9 @@ export function renderMeaning(r: MeaningResult): string {
   }
   const head = [r.lens.name];
   if (r.counts.chapters > 0) head.push(plural(r.counts.chapters, "chapter"));
-  if (r.counts.sessions > 0) head.push(`${plural(r.counts.sessions, "session")} with no chapter`);
+  const chapterless = r.counts.sessions - r.counts.unplaced;
+  if (chapterless > 0) head.push(`${plural(chapterless, "session")} with no chapter`);
+  if (r.counts.unplaced > 0) head.push(`${plural(r.counts.unplaced, "session")} with moments outside its chapters`);
   head.push(`${plural(r.counts.moments, "moment")}${r.counts.faded > 0 ? ` (+${String(r.counts.faded)} faded)` : ""}`);
   out.push(head.join(" · "));
   if (r.feeling !== null) {
@@ -1063,7 +1102,7 @@ export function renderMeaning(r: MeaningResult): string {
       const where =
         e.kind === "chapter"
           ? `${e.address}${e.of !== null && e.of > 1 ? ` (chapter ${String(e.chapter)} of ${String(e.of)})` : ""}${e.title !== null ? ` "${clip(oneLine(e.title), 60)}"` : ""}`
-          : `${e.address} · no chapter written`;
+          : `${e.address} · ${e.unplaced ? "not under a chapter (its chapters' moments unknown, or written after the last)" : "no chapter written"}`;
       const flags = e.marks.length > 0 ? ` · ${e.marks.join(", ")}` : "";
       out.push(`${e.date === null ? "undated" : e.date}  ${where}${flags}`);
       if (e.line.length > 0) out.push(`  ${e.line}`);

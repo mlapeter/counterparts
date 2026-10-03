@@ -20,6 +20,7 @@
  * Hermetic: a fresh temp dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,7 +34,8 @@ import {
 import type { MeaningContext, MeaningEntry, MeaningResult } from "../src/adapters/mcp/meaning.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { wireChars } from "../src/core/fit/index.js";
-import { CHAPTER_MOMENT_GRACE_MS, chapterAt, chapterTimesOf, resolveChapter } from "../src/core/self/index.js";
+import { CHAPTER_AT_META, CHAPTER_MOMENT_GRACE_MS, chapterAt, chapterTimesOf, resolveChapter } from "../src/core/self/index.js";
+import { paths } from "../src/core/store/index.js";
 
 let root: string;
 let dir: string;
@@ -465,6 +467,55 @@ describe("thin evidence", () => {
     moment(d, "sess_x", "Rua called about the invoice.");
     const r = meaningRecall(ctx(d), "What has Rua been to me?");
     expect(r.notes.join(" ")).toContain("no chapter holds it: 1 moment from sessions that wrote none");
+  });
+});
+
+describe("sessions outside a chapter", () => {
+  test("two sessions sharing a long prefix are two entries", () => {
+    const c = brain();
+    card(c, "Rua");
+    const a = moment(c, "sess_long_prefix_01", "Rua called about the invoice.");
+    clock += DAY;
+    const b = moment(c, "sess_long_prefix_02", "Rua paid the invoice.");
+    const r = meaningRecall(ctx(c), "What has Rua been to me?");
+    expect(entries(r).map((e) => [e.address, e.moments.map((m) => m.id)])).toEqual([
+      ["session sess_long_prefix_01", [a]],
+      ["session sess_long_prefix_02", [b]],
+    ]);
+    expect(r.counts.sessions).toBe(2);
+  });
+
+  test("an episode from before v12 whose versions are gone: what cannot be placed is said to be outside its chapters, not chapterless", () => {
+    const c = brain();
+    card(c, "Rua");
+    const m1 = moment(c, "sess_legacy", "Rua sent the contract back unsigned.");
+    const one = chapter(c, "sess_legacy", "The contract came back unsigned today.");
+    later();
+    const m2 = moment(c, "sess_legacy", "Rua signed it after all.");
+    chapter(c, "sess_legacy", "The contract was signed in the end, and the project starts Monday.");
+    // As an episode from before v12, past its retention: no stored moments, no versions.
+    c.close();
+    open.splice(0);
+    const db = new Database(paths.operational(dir));
+    const meta = JSON.parse((db.query("SELECT meta FROM memories WHERE id = ?").get(one.episodeId) as { meta: string }).meta) as Record<string, unknown>;
+    delete meta[CHAPTER_AT_META];
+    db.run("UPDATE memories SET meta = ? WHERE id = ?", [JSON.stringify(meta), one.episodeId]);
+    db.run("DELETE FROM versions WHERE memory_id = ?", [one.episodeId]);
+    db.close();
+    const d = brain();
+    expect(chapterTimesOf(d.store, one.episodeId)?.from).toBe("versions");
+    const r = meaningRecall(ctx(d), "What has Rua been to me?");
+    const shown = entries(r);
+    // Chapter 1 is placed by the row's birth; chapter 2's moment is unknown, so m2 sits outside.
+    expect(shown.map((e) => [e.kind, e.moments.map((m) => m.id)])).toEqual([
+      ["chapter", [m1]],
+      ["session", [m2]],
+    ]);
+    expect(shown[1]?.unplaced).toBe(true);
+    const text = renderMeaning(r);
+    expect(text).not.toContain("no chapter written");
+    expect(text).toContain("not under a chapter");
+    expect(text.split("\n")[0]).toBe("Rua · 1 chapter · 1 session with moments outside its chapters · 2 moments");
   });
 });
 
