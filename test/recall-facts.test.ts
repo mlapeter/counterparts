@@ -273,6 +273,24 @@ describe("time filters", () => {
     expect(renderFacts(week)).toContain("(in the window by this date)");
   });
 
+  // Review of #323: the count was taken before the folds and the weak tail.
+  test("the outside count is distinct facts and not weak: a chapter and its copy are one, a passing mention none", () => {
+    const c = brain();
+    seed(c);
+    const inside = c.store.put({ type: "memory", kind: "fact", body: "Zqkiln zqglaze zqbisque zqcone firing went well.", occurredOn: "2026-09-24" });
+    // Outside the window: a chapter and the memory made from it (one fact) ...
+    c.episodeAsk("s-kiln", { turns: 12, bytes: 9_000 });
+    const chapter = c.appendEpisode("s-kiln", "Fired the zqkiln with the new zqglaze, zqbisque and zqcone for the first time.", { title: "The zqkiln day" });
+    expect(c.ingestEpisode({ sessionId: "s-kiln" }).ingested).toBe(true);
+    expect(chapter.episodeId).not.toBeNull();
+    // ... and six weak passing mentions, outside too.
+    for (let i = 0; i < 6; i++) c.store.put({ type: "memory", kind: "fact", body: `In passing, a zqcone note number ${String(i)} about nothing much at all, with many other words to thin it out.`, occurredOn: "2026-08-02" });
+    const r = ask(c, "zqkiln zqglaze zqbisque zqcone last week");
+    expect(r.memories.map((m) => m.id)).toEqual([inside]);
+    // The chapter (with its copy folded in) is the one fact outside worth saying.
+    expect(r.time?.outside).toBe(1);
+  });
+
   test("a question that is only a time answers with everything in the window", () => {
     const c = brain();
     seed(c);

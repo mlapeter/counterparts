@@ -536,7 +536,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const considered = pool.size;
 
   // ── visibility, the window, the session ────────────────────────────────
-  let outside = 0;
+  // Matches outside the window are held apart, not dropped: they are folded
+  // and weighed as the results are, so the count says "N more match outside
+  // it" in distinct facts, without the weak tail (review of #323).
+  const beyond = new Map<string, Candidate>();
   for (const [id, c] of [...pool]) {
     const r = rows.get(id);
     if (r === undefined || neverAResult(r)) {
@@ -551,7 +554,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     if (window !== null) {
       const by = inWindow(r, window, time?.clock ?? null, zone, chapterDates);
       if (by === null) {
-        outside += 1;
+        beyond.set(id, c);
         pool.delete(id);
         continue;
       }
@@ -565,17 +568,19 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   }
 
   // ── a chapter and its own copy are one result: the chapter ─────────────
-  for (const [id, c] of [...pool]) {
-    const r = rows.get(id) as RecallRow;
-    if (r.type !== "memory" || r.source !== "episode" || r.origin_ref === null || !r.origin_ref.startsWith("epi_")) continue;
-    const chapter = r.origin_ref;
-    if (visible(chapter) === undefined) continue;
-    const into = pool.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
-    into.score = Math.max(into.score, c.score);
-    for (const way of c.ways) into.ways.add(way);
-    pool.set(chapter, into);
-    pool.delete(id);
-  }
+  const foldCopies = (into: Map<string, Candidate>): void => {
+    for (const [id, c] of [...into]) {
+      const r = rows.get(id) as RecallRow;
+      if (r.type !== "memory" || r.source !== "episode" || r.origin_ref === null || !r.origin_ref.startsWith("epi_")) continue;
+      const chapter = r.origin_ref;
+      if (visible(chapter) === undefined) continue;
+      const to = into.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      to.score = Math.max(to.score, c.score);
+      for (const way of c.ways) to.ways.add(way);
+      into.set(chapter, to);
+      into.delete(id);
+    }
+  };
 
   // ── current first: an earlier version that matched brings its current one ──
   const pairs = safe(() => store.contradictions({ limit: 100_000 }), [] as ContradictionRow[]).filter(
@@ -585,25 +590,38 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   for (const p of pairs) {
     if (p.state === "settled" && p.how === "changed" && p.over !== null && p.holds !== null) nowOf.set(p.over, p.holds);
   }
-  for (const [id, c] of [...pool]) {
-    let head = id;
-    for (let i = 0; i < 8; i += 1) {
-      const next = nowOf.get(head);
-      if (next === undefined || visible(next) === undefined) break;
-      head = next;
+  const foldEarlier = (into: Map<string, Candidate>): void => {
+    for (const [id, c] of [...into]) {
+      let head = id;
+      for (let i = 0; i < 8; i += 1) {
+        const next = nowOf.get(head);
+        if (next === undefined || visible(next) === undefined) break;
+        head = next;
+      }
+      if (head === id) continue;
+      const to = into.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      to.score = Math.max(to.score, c.score);
+      for (const way of c.ways) to.ways.add(way);
+      to.foldedEarlier.add(id);
+      into.set(head, to);
+      into.delete(id);
     }
-    if (head === id) continue;
-    const into = pool.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
-    into.score = Math.max(into.score, c.score);
-    for (const way of c.ways) into.ways.add(way);
-    into.foldedEarlier.add(id);
-    pool.set(head, into);
-    pool.delete(id);
-  }
+  };
+  foldCopies(pool);
+  foldEarlier(pool);
+  foldCopies(beyond);
+  foldEarlier(beyond);
+  // A fact the window brought in (its chapter, its current version) is not also outside it.
+  for (const id of pool.keys()) beyond.delete(id);
 
   // ── the weak tail ───────────────────────────────────────────────────────
   let weak = 0;
-  const top = Math.max(0, ...[...pool.values()].map((c) => c.score));
+  const best = (m: ReadonlyMap<string, Candidate>): number => {
+    let b = 0;
+    for (const c of m.values()) if (c.score > b) b = c.score;
+    return b;
+  };
+  const top = best(pool);
   if (!onlyTime && top > 0) {
     for (const [id, c] of [...pool]) {
       if (c.score < FACTS_WEAK_FRACTION * top) {
@@ -612,6 +630,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       }
     }
   }
+  // Outside the window, by the same bar — the best match anywhere sets it.
+  const topAll = Math.max(top, best(beyond));
+  let outside = 0;
+  for (const c of beyond.values()) if (onlyTime || topAll <= 0 || c.score >= FACTS_WEAK_FRACTION * topAll) outside += 1;
 
   // ── faded, and the order ────────────────────────────────────────────────
   const main: Candidate[] = [];
