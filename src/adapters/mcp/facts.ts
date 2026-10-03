@@ -207,7 +207,7 @@ export interface FactItem {
   readonly who: string | null;
   /** True unless it is an earlier version shown on its own (its current one not shown). */
   readonly current: boolean;
-  /** For an earlier version shown on its own: the current one's id. */
+  /** For an earlier version shown on its own: the current one's id ("a later version" when this asker may not be told it). */
   readonly now?: string;
   readonly earlier: readonly EarlierVersion[];
   readonly earlierMore: number;
@@ -705,7 +705,18 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const shown = kept.slice((page - 1) * FACTS_PAGE_SIZE, page * FACTS_PAGE_SIZE);
   const pages = Math.max(1, Math.ceil(matched / FACTS_PAGE_SIZE), Math.ceil(faded.length / FACTS_FADED_LINES));
 
-  const memories = shown.map((c) => factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window));
+  /**
+   * May this asker be told this id exists? A pair line names its other side
+   * (`disagrees with mem_…`, `now mem_…`): a confidential or removed memory is
+   * not named to a non-owner, as a list never shows it (review of #323).
+   */
+  const canName = (id: string): boolean => {
+    if (denied.has(id)) return false;
+    if (ctx.owner) return true;
+    const r = rows.get(id) ?? safe(() => store.row(id), undefined);
+    return r !== undefined && r.confidential !== 1;
+  };
+  const memories = shown.map((c) => factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window, canName));
   const fadedLines: FadedLine[] = faded.slice((page - 1) * FACTS_FADED_LINES, page * FACTS_FADED_LINES).map((c) => {
     const r = rows.get(c.id) as RecallRow;
     const title = r.title ?? read(c.id)?.body ?? c.id;
@@ -755,6 +766,7 @@ function factItem(
   today: string,
   zone: string,
   window: DayWindow | null,
+  canName: (id: string) => boolean,
 ): FactItem {
   const store = ctx.counterpart.store;
   const journal = row.type === "episode";
@@ -807,7 +819,7 @@ function factItem(
     const other = p.a === c.id ? p.b : p.a;
     if (p.state === "settled" && p.how === "changed" && p.holds === c.id && p.over !== null) {
       const o = store.row(p.over);
-      if (o === undefined || (!ctx.owner && o.confidential === 1)) continue;
+      if (o === undefined || !canName(p.over)) continue;
       earlier.push({
         text: plainLine(o.title ?? o.body, 60),
         learned: o.learned_on.length > 0 ? o.learned_on : null,
@@ -815,14 +827,14 @@ function factItem(
         id: p.over,
       });
     } else if (p.state === "settled" && p.how === "changed" && p.over === c.id && p.holds !== null) {
-      now = p.holds;
+      now = canName(p.holds) ? p.holds : "a later version";
     } else if (p.state === "settled" && p.how === "corrected" && p.holds === c.id) {
       corrected += 1;
     } else if (p.state === "settled" && p.how === "open") {
-      standing.push(`disagrees with ${other}`);
+      if (canName(other)) standing.push(`disagrees with ${other}`);
     } else if (p.state === "unsettled" && p.a === c.id) {
       const b = store.row(p.b);
-      if (b !== undefined && b.archived === 0 && b.superseded_by === null) standing.push(`unsettled — may be out of date, see ${p.b}`);
+      if (b !== undefined && b.archived === 0 && b.superseded_by === null && canName(p.b)) standing.push(`unsettled — may be out of date, see ${p.b}`);
     }
   }
   // Matched earlier memories first, then by when they changed, newest first.

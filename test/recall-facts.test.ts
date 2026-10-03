@@ -252,6 +252,24 @@ describe("current first: earlier versions fold, corrected ones are hidden and co
     expect(text).toContain(`disagrees with ${b}`);
     expect(text).toContain(`disagrees with ${a}`);
   });
+
+  // Review of #323: a pair line named its other side whatever it was.
+  test("a pair line never names a confidential memory to a non-owner", () => {
+    const c = brain();
+    seed(c);
+    const a = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist is on Elm Street." });
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist moved to the clinic.", meta: { confidential: true } });
+    expect(settle(c.store, { holds: a, over: secret, how: "open", why: "unsure", actor: "session" }).ok).toBe(true);
+    const old = c.store.put({ type: "memory", kind: "fact", body: "The zqpharmacy closes at six." });
+    const secretNow = c.store.put({ type: "memory", kind: "fact", body: "The zqpharmacy hours changed.", meta: { confidential: true } });
+    expect(settle(c.store, { holds: secretNow, over: old, how: "changed", why: "moved", actor: "session" }).ok).toBe(true);
+    const guest = renderFacts(ask(c, "zqdentist zqpharmacy", { owner: false }));
+    expect(guest).not.toContain(secret);
+    expect(guest).not.toContain(secretNow);
+    expect(guest).toContain("earlier — now a later version");
+    const owner = renderFacts(ask(c, "zqdentist zqpharmacy"));
+    expect(owner).toContain(`disagrees with ${secret}`);
+  });
 });
 
 describe("time filters", () => {
