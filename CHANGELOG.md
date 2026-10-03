@@ -2,22 +2,43 @@
 
 ## Unreleased
 
+- **`recall` asks which kind of question it is.** A question now needs `mode`: `facts` (what
+  happened, who said it, when, and whether it still holds) or `meaning` (how something went
+  and what it adds up to). There is no default; a question without one is refused with the
+  two modes named. `ids` and `handle` are unchanged and take no mode, and `ids` / `handle`
+  now also read one chapter by its address, `epi_…#2`. The vivid / quiet / dim tiers are
+  gone.
+- **Facts mode answers with every match.** It considers every memory the question's words
+  reach, every memory about a person or project it names, and the 100 closest by meaning,
+  and ranks them by how strongly and how many ways they matched. The answer opens with a
+  count (`12 match · showing 10 · 2 more → page 2`) and pages with `page: 2`. Each fact says
+  who said it, what kind of thing it is, when it happened and when it was learned, and whether
+  it is current, with earlier versions folded under it. A time in the question ("last week",
+  "in September", "around the cut-over", "where did we leave off") keeps only what is inside
+  it and counts the rest. Memories that faded from long disuse are listed after the results.
+  Quoting the words of a fact it showed you now counts as using that memory, as opening it by
+  id does. `counterparts ask` answers in facts mode too; `--full` prints the whole answer.
+- **Meaning mode lays out an arc.** Asked about a person, a project or "us", or about a
+  feeling, it shows the chapters that hold the subject in time order, the feelings in each
+  with whose they are, earlier readings from dreams and reflections, and what is still open,
+  for you to read what it adds up to. Faded means the same in both modes.
 - **Memories record when it happened, who said it, and what kind of thing it is (schema
   v12).** `note`, each `session_end` entry (write-ups included) and a dream's gist take three
   optional fields: `occurredOn` (a day, month, range or year — resolve "last week" to a date
   while you know it), `saidBy` (owner, self, inferred) and `status` (done, planned, proposed,
   asked). One that cannot be read is dropped and said beside the memory, which is stored all
-  the same; revising a memory by its id carries them over unless new ones are sent. Recall does
-  not read them yet: they fill for a while first, and doctor's new `Write fields` line says how
+  the same; revising a memory by its id carries them over unless new ones are sent. Facts mode
+  reads them (above); old memories say "speaker unknown", and doctor's new `Write fields` line says how
   often each one is filled. The upgrade copies the store first, as every upgrade does; old
   memories keep empty fields.
 - **Memories are linked to the people and projects they name.** Each memory is linked at its
   write to the entity cards its words name, a new card links the memories already naming it,
-  and the memories from before the upgrade are linked once at the first open after it. Nothing
-  reads the links yet.
+  and the memories from before the upgrade are linked once at the first open after it. Both
+  recall modes read the links; a possessive ("Han's") names the card too.
 - **A chapter has an address.** `epi_…#2` names the second chapter of an episode and resolves
   to its heading, its text, the stretch it wrote up and the memories its session wrote in that
-  stretch. Chapters now record the moment they were written. Nothing calls it yet.
+  stretch. Chapters now record the moment they were written. Meaning mode names chapters this
+  way, and `recall` with `ids` or `handle` opens one.
 - **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
   next is written locally and ignored; its history stays.
 - **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were

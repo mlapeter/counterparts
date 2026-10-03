@@ -25,11 +25,22 @@ import { join } from "node:path";
 
 import type { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as RECALL, feelingTokens, feelingWord, readFeelingAsk, whoseAsked } from "../src/core/recall/index.js";
-import { deliberateRecall, openServer } from "../src/adapters/mcp/index.js";
-import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
+import { meaningRecall, openServer } from "../src/adapters/mcp/index.js";
+import type { McpServer, MeaningResult, ToolResult } from "../src/adapters/mcp/index.js";
 import { buildArgv } from "../src/adapters/dashboard/web/actions.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+
+/*
+ * 2026-10-03 (Release B): a deliberate question is answered by a MODE, and the
+ * feeling lane is MEANING mode's (`mcp/meaning.ts`, #322). The tests that
+ * asked through the retired question path ask `mode: "meaning"` now. Meaning
+ * ARRANGES rather than ranks: a feeling question's answer is the feeling lens,
+ * its moments the stamped memories, the strongest chosen first (three to an
+ * entry; every memory here comes from one unrecorded session, so one entry).
+ * There are no tiers; what the tiers asserted is asserted as which moments the
+ * answer holds and which it leaves out.
+ */
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 let dir: string;
@@ -65,9 +76,31 @@ function payload(result: ToolResult): Record<string, unknown> {
   return result.structuredContent;
 }
 
+/** Ask in meaning mode through the tool: the ids the rendered answer showed. */
 async function ask(s: McpServer, question: string): Promise<string[]> {
-  const out = payload(await s.call("recall", { question }));
-  return (out["memories"] as { id: string }[]).map((m) => m.id);
+  const out = payload(await s.call("recall", { question, mode: "meaning" }));
+  expect(out["mode"]).toBe("meaning");
+  return out["ids"] as string[];
+}
+
+/** Ask in meaning mode directly, for the arranged result. */
+function meaning(c: Counterpart, question: string, opts: { owner?: boolean; asker?: "self" | "owner" } = {}): MeaningResult {
+  return meaningRecall(
+    { counterpart: c, sessionId: "feel", owner: opts.owner ?? true, asker: opts.asker ?? "self", vector: null, semantic: "embedder-off" },
+    question,
+  );
+}
+
+/** The moments an answer's arc shows, entry by entry. */
+function moments(r: MeaningResult): string[] {
+  return r.arc.flatMap((l) => (l.fold ? [] : l.entry.moments.map((m) => m.id)));
+}
+
+/** A person card, born after the memories that name it (birth links them). */
+function cardFor(c: Counterpart, name: string): string {
+  const out = c.schemas.mention({ name, kind: "person", source: name, chunkRef: `card-${name}`, aliases: [], day: c.store.livedDay() });
+  if (!out.ok || out.id === null) throw new Error(`no card for ${name}: ${String(out.reason)}`);
+  return out.id;
 }
 
 const FILLER: readonly string[] = [
@@ -127,37 +160,37 @@ function seed(c: Counterpart): Fixture {
 }
 
 describe("U13's two failing questions return the stamped memories", () => {
-  test("'what have I felt most strongly since I started living in Counterparts' — the strongest of MY stamps, in order", async () => {
+  // Rewritten for meaning mode (#322): the strongest three of MY stamps are the
+  // moments shown; the order within an entry is the order written, so the
+  // strongest-first claim is "the weakest of four is the one left out".
+  test("'what have I felt most strongly since I started living in Counterparts' — the strongest of MY stamps", async () => {
     const s = server();
     const f = seed(s.counterpart);
     const ids = await ask(s, "what have I felt most strongly since I started living in Counterparts");
-    // Strongest first; the owner's feeling is not "I" in the counterpart's own recall.
-    expect(ids.slice(0, 4)).toEqual([f.week, f.han, f.unsettled, f.card]);
+    expect(new Set(ids)).toEqual(new Set([f.week, f.han, f.unsettled]));
+    // The owner's feeling is not "I" in the counterpart's own recall.
     expect(ids).not.toContain(f.ownerMove);
-    // The words still count: what they found follows.
-    expect(ids.some((id) => f.decoys.includes(id))).toBe(true);
+    // The decoys' WORDS do not make them feelings: meaning answers from the stamps.
+    for (const d of f.decoys) expect(ids).not.toContain(d);
+    const r = meaning(s.counterpart, "what have I felt most strongly since I started living in Counterparts");
+    expect(r.lens?.kind).toBe("feeling");
+    expect(r.counts.moments).toBe(4);
+    expect(r.feeling?.whose).toBe("mine");
   });
 
-  test("'times I felt moved or sad' — the stamps named, strongest first, leading their tier", async () => {
+  // Rewritten for meaning mode (#322): the stamps named, and no tier to lead.
+  test("'times I felt moved or sad' — the stamps named, and only those", async () => {
     const s = server();
     const f = seed(s.counterpart);
-    const out = payload(await s.call("recall", { question: "times I felt moved or sad" }));
-    const rows = out["memories"] as { id: string; tier: string }[];
-    const ids = rows.map((m) => m.id);
+    const ids = await ask(s, "times I felt moved or sad");
     // tender is a blend under sad; moved is its own word. Neither body says either.
-    // Felt rows lead the tier the gate gave them, strongest first (review of
-    // #293, S3 and R2: vivid; felt-quiet, quiet; felt-dim, dim). On this small
-    // fixture the gate leaves both stamped memories dim. The one decoy it made
-    // quiet ("the times the tiles moved and the sad empty state") was first
-    // until lane 6 (2026-10-01, item 3): nothing but the question's frame and
-    // feeling words reached it, so it follows every stamped row now.
-    const rank: Record<string, number> = { vivid: 0, quiet: 1, dim: 2 };
-    expect(ids.slice(0, 2)).toEqual([f.han, f.card]);
-    const quietDecoy = f.decoys[4] as string;
-    expect(ids.indexOf(quietDecoy)).toBeGreaterThan(1);
-    expect(rank[rows[ids.indexOf(quietDecoy)]?.tier ?? "dim"]).toBe(rank["quiet"]);
+    expect(new Set(ids)).toEqual(new Set([f.han, f.card]));
+    // The decoy whose words are the question's ("the times the tiles moved and
+    // the sad empty state") carries no stamp, so it is not a moment.
+    expect(ids).not.toContain(f.decoys[4]);
     // A stamp the question did not name is not nominated.
     expect(ids).not.toContain(f.week);
+    expect([...meaning(s.counterpart, "times I felt moved or sad").feeling?.words ?? []].sort()).toEqual(["moved", "sad"]);
   });
 });
 
@@ -165,16 +198,20 @@ describe("item 1: a stamp answers to the words it was written in", () => {
   test("the writer's own word off the wheel reaches its memory — 'when did I feel unsettled'", async () => {
     const s = server();
     const f = seed(s.counterpart);
-    const ids = await ask(s, "when did I feel unsettled");
-    expect(ids[0]).toBe(f.unsettled);
+    expect(await ask(s, "when did I feel unsettled")).toEqual([f.unsettled]);
   });
 
+  // Rewritten for meaning mode (#322): meaning answers a feeling asked about a
+  // PERSON ("when did I feel …"); a bare word has no one it is about.
   test("an alias and a core reach a stamp: 'touched' finds moved; 'uneasy' finds the unsettled one", async () => {
     const s = server();
     const f = seed(s.counterpart);
-    expect((await ask(s, "touched"))[0]).toBe(f.card);
+    // `moved` answers to its alias exactly; `tender` shares the warm core and comes by it.
+    const touched = await ask(s, "when did I feel touched");
+    expect(touched).toContain(f.card);
+    expect(touched).not.toContain(f.week);
     // Written under the first wheel's `fear`, it is filed under uneasy now.
-    expect((await ask(s, "uneasy"))[0]).toBe(f.unsettled);
+    expect(await ask(s, "when was I uneasy")).toEqual([f.unsettled]);
   });
 
   test("feelingTokens: the word, its group's word, its aliases, its cores (a blend's both), the writer's own word", () => {
@@ -215,19 +252,19 @@ describe("whose feeling", () => {
   test("the owner's feelings answer a question about the owner; nothing said is both", async () => {
     const s = server();
     const f = seed(s.counterpart);
-    const aboutOwner = await ask(s, "what has the owner felt most");
-    expect(aboutOwner[0]).toBe(f.ownerMove);
-    expect(aboutOwner).not.toContain(f.week);
+    expect(await ask(s, "what has the owner felt most")).toEqual([f.ownerMove]);
+    // Nothing said is both: the strongest three of everyone's stamps.
     const both = await ask(s, "which feelings have we had most strongly");
-    expect(both.slice(0, 2)).toEqual([f.ownerMove, f.week]);
+    expect(new Set(both)).toEqual(new Set([f.ownerMove, f.week, f.han]));
+    expect(meaning(s.counterpart, "which feelings have we had most strongly").feeling?.whose).toBeNull();
   });
 
-  test("at the console the owner is asking: 'I' is the owner", () => {
+  test("asked as the owner (asker: owner): 'I' is the owner", () => {
     const s = server();
     const f = seed(s.counterpart);
-    const out = deliberateRecall(s.counterpart, { question: "what have I felt" }, { sessionId: "console", owner: true, asker: "owner" });
-    expect(out.memories[0]?.id).toBe(f.ownerMove);
-    expect(out.memories.map((m) => m.id)).not.toContain(f.week);
+    const r = meaning(s.counterpart, "what have I felt", { asker: "owner" });
+    expect(moments(r)).toEqual([f.ownerMove]);
+    expect(r.feeling?.whose).toBe("mine");
   });
 });
 
@@ -243,8 +280,10 @@ describe("what does not change", () => {
     expect(withLane.feeling?.strengths.size).toBe(0);
     const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
     expect(strip(withLane.decision)).toEqual(strip(without.decision));
-    const out = deliberateRecall(s.counterpart, { question }, { sessionId: "cmp", owner: true });
-    expect(out.memories[0]?.id).toBe(f.han);
+    // Meaning answers it by its words, not as a feeling.
+    const r = meaning(s.counterpart, question);
+    expect(r.lens?.kind).not.toBe("feeling");
+    expect(moments(r)).toEqual([f.han]);
   });
 
   test("the ambient turn never opens the lane — 'I felt sad' nominates nothing", () => {
@@ -268,9 +307,11 @@ describe("what does not change", () => {
     s.counterpart.store.addFeelings(secret, [{ whose: "self", core: "fear", emotion: "worried", strength: 0.95 }]);
     const ids = await ask(s, "what have I felt most strongly");
     expect(ids).not.toContain(secret);
-    expect(ids[0]).toBe(f.week);
+    expect(new Set(ids)).toEqual(new Set([f.week, f.han, f.unsettled]));
+    // Not counted either: a list does not hint at what it withholds.
+    expect(meaning(s.counterpart, "what have I felt most strongly", { owner: false }).counts.moments).toBe(4);
     const asOwner = server(true);
-    expect((await ask(asOwner, "what have I felt most strongly"))[0]).toBe(secret);
+    expect(await ask(asOwner, "what have I felt most strongly")).toContain(secret);
   });
 
   test("no feeling word reaches the decision record", () => {
@@ -316,7 +357,19 @@ function importerStore(c: Counterpart): { target: string; stamped: string[]; phr
   return { target, stamped, phrase };
 }
 
-const TIER_OF: Record<string, string> = { surfaced: "vivid", footnoted: "quiet" };
+/**
+ * An everyday feeling word is not a feeling question: meaning answers it by
+ * its words (lens `words`), the real answer is a moment, and no stamp rides in
+ * on the word ("moved", "happy").
+ */
+function wordsNotFeeling(c: Counterpart, f: { target: string; stamped: string[]; phrase: string }, question: string): void {
+  const r = meaning(c, question);
+  expect(r.lens?.kind).toBe("words");
+  expect(r.feeling).toBeNull();
+  const ids = moments(r);
+  expect(ids).toContain(f.target);
+  for (const id of [...f.stamped, f.phrase]) expect(ids).not.toContain(id);
+}
 
 describe("B2: an everyday word is not a question about feeling", () => {
   for (const question of [
@@ -325,25 +378,21 @@ describe("B2: an everyday word is not a question about feeling", () => {
     "how does the importer feel to use",
     "is there something odd in the importer header",
   ]) {
-    test(`"${question}" — the real answer stays first, in the tier the words gave it`, () => {
+    // Rewritten for meaning mode (#322): no tiers; the answer is the words' lens.
+    test(`"${question}" — answered by its words, the real answer a moment, no stamp riding in`, () => {
       const s = server();
-      const f = importerStore(s.counterpart);
-      const out = deliberateRecall(s.counterpart, { question }, { sessionId: "b2", owner: true });
-      expect(out.memories[0]?.id).toBe(f.target);
-      // Its tier is the one it has with no stamps in play at all.
-      const without = s.counterpart.recall.build({ sessionId: "b2-plain", text: question, owner: true });
-      const verdict = without.decision.verdicts.find((v) => v.id === f.target)?.verdict ?? "";
-      expect(out.memories[0]?.tier).toBe((TIER_OF[verdict] ?? "dim") as "vivid");
-      // No stamped memory is ranked ahead of it; the phrase's words name nothing.
-      expect(out.memories.map((m) => m.id)).not.toContain(f.phrase);
+      wordsNotFeeling(s.counterpart, importerStore(s.counterpart), question);
     });
   }
 
   test("'what moved me this week' — a feeling word used about a person still ranks the stamps", () => {
     const s = server();
     const f = importerStore(s.counterpart);
-    const ids = deliberateRecall(s.counterpart, { question: "what moved me this week" }, { sessionId: "b2m", owner: true }).memories.map((m) => m.id);
-    expect(ids.slice(0, 3)).toEqual(f.stamped.slice(0, 3));
+    const r = meaning(s.counterpart, "what moved me this week");
+    expect(r.lens?.kind).toBe("feeling");
+    // The three strongest of the eight `moved` stamps are the ones shown.
+    expect(new Set(moments(r))).toEqual(new Set(f.stamped.slice(0, 3)));
+    expect(r.counts.moments).toBe(f.stamped.length);
   });
 
   test("readFeelingAsk: ranked only about a person; a verb on a thing names nothing", () => {
@@ -361,11 +410,10 @@ describe("B2: an everyday word is not a question about feeling", () => {
     expect(read("how does the importer feel to use")).toEqual({ ranked: false, named: [] });
   });
 
-  test("a feeling named about no one still finds its stamped memory, as an ordinary cue", async () => {
-    const s = server();
-    const f = seed(s.counterpart);
-    expect((await ask(s, "touched"))[0]).toBe(f.card);
-  });
+  // RETIRED 2026-10-03: "a feeling named about no one still finds its stamped
+  // memory, as an ordinary cue" was the old path's stamps-as-cue lane inside
+  // `build()`. Meaning answers a feeling asked about a person (above: "when did
+  // I feel touched"), and facts reads no stamps; a bare "touched" has neither.
 
   test("the nominations stay out of the gate's background: the words' answer keeps its tier", () => {
     const s = server();
@@ -392,32 +440,43 @@ describe("B1: whose 'I' — the dashboard asks in the counterpart's voice", () =
     expect(buildArgv("ask", { id: "mem_0123456789ab" }, ctx).argv).not.toContain("--voiced");
   });
 
-  test("`ask --voiced`: 'I' is the counterpart; a typed `ask`: 'I' is the owner", async () => {
+  // Rewritten 2026-10-03: `ask` answers in FACTS mode, which reads no feeling
+  // lane, so whose "I" no longer changes its answer. `--voiced` is still
+  // accepted (the dashboard sends it) and the answer is the same either way.
+  // Whose "I" for a feeling question is meaning's `asker` (tested above).
+  test("`ask --voiced` is accepted, and a facts answer is the same with or without it", async () => {
     const s = server();
-    const f = seed(s.counterpart);
+    seed(s.counterpart);
     s.counterpart.close();
     open.splice(open.indexOf(s.counterpart), 1);
-    const first = async (argv: string[]): Promise<string | undefined> => {
+    const answer = async (argv: string[]): Promise<{ mode: string; ids: string[] }> => {
       const out: string[] = [];
       const io: Io = { out: (l) => out.push(l), err: () => undefined };
       expect(await run(argv, { io })).toBe(0);
-      return (JSON.parse(out.join("\n")) as { memories: { id: string }[] }).memories[0]?.id;
+      const r = JSON.parse(out.join("\n")) as { mode: string; memories: { id: string }[] };
+      return { mode: r.mode, ids: r.memories.map((m) => m.id) };
     };
-    expect(await first(["ask", "--dir", dir, "--json", "--voiced", "--", "what have I felt most"])).toBe(f.week);
-    expect(await first(["ask", "--dir", dir, "--json", "--", "what have I felt most"])).toBe(f.ownerMove);
+    const voiced = await answer(["ask", "--dir", dir, "--json", "--voiced", "--", "the migration tables"]);
+    const typed = await answer(["ask", "--dir", dir, "--json", "--", "the migration tables"]);
+    expect(voiced.mode).toBe("facts");
+    expect(voiced).toEqual(typed);
   });
 });
 
 describe("the minors", () => {
   test("a confidential stamp takes no slot a non-owner could never see", async () => {
     const s = server(false);
-    seed(s.counterpart);
+    const f = seed(s.counterpart);
     // Six confidential stamps stronger than any open one.
+    const secret: string[] = [];
     for (let i = 0; i < 6; i++) {
       const id = s.counterpart.store.put({ type: "memory", kind: "self", body: `A private appointment, number ${String(i)}.`, meta: { confidential: true } });
       s.counterpart.store.addFeelings(id, [{ whose: "self", core: "fear", emotion: "worried", strength: 0.99 }]);
+      secret.push(id);
     }
-    expect((await ask(s, "what have I felt most strongly")).length).toBeGreaterThan(0);
+    const ids = await ask(s, "what have I felt most strongly");
+    expect(new Set(ids)).toEqual(new Set([f.week, f.han, f.unsettled]));
+    for (const id of secret) expect(ids).not.toContain(id);
   });
 });
 
@@ -451,20 +510,22 @@ describe("R1: the cut is the words' — stamps never take a text row's place", (
 });
 
 describe("R2: a quiet text answer is not buried under dim stamped rows", () => {
-  test("'how did I feel after Han asked whether I remember him' — the Han memory leads what the gate left quiet", () => {
+  // Rewritten for meaning mode (#322): a person with a card is the SUBJECT, and
+  // a feeling question about them keeps their arc — stamped rows about nobody
+  // in particular do not bury it. (Without a card the topic is not read: see
+  // the report on #323.)
+  test("'how did I feel after Han asked whether I remember him' — Han's arc, not the unrelated stamps", () => {
     const s = server();
     const c = s.counterpart;
     const f = importerStore(c);
     const han = c.store.put({ type: "memory", kind: "person", body: "Han asked whether I remember him from one conversation to the next." });
-    const out = deliberateRecall(c, { question: "how did I feel after Han asked whether I remember him" }, { sessionId: "r2", owner: true });
-    const rank: Record<string, number> = { vivid: 0, quiet: 1, dim: 2 };
-    const at = out.memories.findIndex((m) => m.id === han);
-    expect(at).toBeGreaterThanOrEqual(0);
-    const hanTier = rank[out.memories[at]?.tier ?? "dim"] as number;
-    // Nothing the gate thought less of stands above it.
-    for (const m of out.memories.slice(0, at)) expect(rank[m.tier] as number).toBeLessThanOrEqual(hanTier);
-    // Stamped rows in a lower tier come after it.
-    for (const m of out.memories.slice(at + 1)) if (f.stamped.includes(m.id)) expect(rank[m.tier] as number).toBeGreaterThanOrEqual(hanTier);
+    cardFor(c, "Han");
+    const r = meaning(c, "how did I feel after Han asked whether I remember him");
+    expect(r.lens).toMatchObject({ kind: "card", name: "Han" });
+    expect(moments(r)).toContain(han);
+    for (const id of f.stamped) expect(moments(r)).not.toContain(id);
+    // Han's moment carries no feeling, and the answer says so rather than guessing one.
+    expect(r.notes.some((n) => n.includes("carry"))).toBe(true);
   });
 });
 
@@ -499,24 +560,22 @@ describe("R3: everyday phrasings do not rank; real feeling questions still do", 
   }
 
   for (const q of ["I feel like the importer parser test is flaky", "moved my parser into its own file in the importer", "my happy path test fails in the importer"]) {
-    test(`end to end: "${q}" — the importer answer stays first, in its own tier`, () => {
+    // Rewritten for meaning mode (#322): no tiers; the answer is the words' lens.
+    test(`end to end: "${q}" — answered by its words, the importer answer a moment`, () => {
       const s = server();
-      const f = importerStore(s.counterpart);
-      const out = deliberateRecall(s.counterpart, { question: q }, { sessionId: "r3", owner: true });
-      expect(out.memories[0]?.id).toBe(f.target);
-      const without = s.counterpart.recall.build({ sessionId: "r3-plain", text: q, owner: true });
-      const verdict = without.decision.verdicts.find((v) => v.id === f.target)?.verdict ?? "";
-      expect(out.memories[0]?.tier).toBe((TIER_OF[verdict] ?? "dim") as "vivid");
+      wordsNotFeeling(s.counterpart, importerStore(s.counterpart), q);
     });
   }
 
   test("'afraid' is scared's group: 'when was I afraid' reaches a memory stamped scared", () => {
     const s = server();
-    seed(s.counterpart);
+    const f = seed(s.counterpart);
     const scary = s.counterpart.store.put({ type: "memory", kind: "self", body: "The night the disk filled up during the backup." });
     s.counterpart.store.addFeelings(scary, [{ whose: "self", core: "fear", emotion: "scared", strength: 0.8 }]);
-    const out = deliberateRecall(s.counterpart, { question: "when was I afraid" }, { sessionId: "afraid", owner: true });
-    expect(out.memories[0]?.id).toBe(scary);
+    const ids = moments(meaning(s.counterpart, "when was I afraid"));
+    expect(ids).toContain(scary);
+    // The happy and sad stamps are not afraid.
+    for (const id of [f.week, f.card, f.han]) expect(ids).not.toContain(id);
   });
 });
 
@@ -545,28 +604,30 @@ function uneasyStore(c: Counterpart): { sheepish: string[]; wheelDoc: string; to
 }
 
 describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
-  test("'when was I afraid' with no afraid stamp answers with the strongest uneasy ones, above the wheel's notes", () => {
+  test("'when was I afraid' with no afraid stamp answers with the uneasy ones, and not the wheel's notes", () => {
     const s = server();
     const f = uneasyStore(s.counterpart);
-    const out = deliberateRecall(s.counterpart, { question: "when was I afraid" }, { sessionId: "l6a", owner: true });
-    const ids = out.memories.map((m) => m.id);
-    // All three, strongest first.
-    expect(ids.slice(0, 3)).toEqual(f.sheepish);
-    // The unstamped note full of the question's words comes after every stamped row (item 3).
-    const at = ids.indexOf(f.wheelDoc);
-    if (at >= 0) expect(at).toBeGreaterThan(2);
+    const ids = moments(meaning(s.counterpart, "when was I afraid"));
+    // All three, by their core.
+    expect(new Set(ids)).toEqual(new Set(f.sheepish));
+    // The unstamped note full of the question's words is not a moment of a feeling (item 3).
+    expect(ids).not.toContain(f.wheelDoc);
   });
 
-  test("an exact stamp still leads: a weaker 'scared' stamp answers 'afraid' before stronger uneasy ones", () => {
+  // Rewritten for meaning mode (#322): an exact stamp counts whole and a core
+  // match half, so the weaker exact 'scared' stamp is chosen beside the
+  // strongest uneasy ones; there is no rank order inside an entry to assert.
+  test("an exact stamp counts whole: a weaker 'scared' stamp answers 'afraid' beside stronger uneasy ones", () => {
     const s = server();
     const c = s.counterpart;
     const f = uneasyStore(c);
     const scared = c.store.put({ type: "memory", kind: "self", body: "The disk filled up halfway through the backup." });
     c.store.addFeelings(scared, [{ whose: "self", core: "uneasy", emotion: "scared", strength: 0.3 }]);
-    const out = deliberateRecall(c, { question: "when was I afraid" }, { sessionId: "l6b", owner: true });
-    const ids = out.memories.map((m) => m.id);
-    expect(ids[0]).toBe(scared);
-    expect(ids.slice(1, 4)).toEqual(f.sheepish);
+    const r = meaning(c, "when was I afraid");
+    expect(moments(r)).toContain(scared);
+    // The weakest core match (0.4, halved) is the one of four left off the three slots.
+    expect(moments(r)).not.toContain(f.sheepish[2]);
+    expect(r.counts.moments).toBe(4);
     const built = c.recall.build({ sessionId: "l6b-lane", text: "when was I afraid", owner: true, feeling: { asker: "self" } });
     expect(built.feeling?.pool).toBe(4);
     expect(built.feeling?.core).toBe(3);
@@ -586,8 +647,7 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
     expect(read.named.has("caught")).toBe(false);
     expect([...read.cores]).toEqual(["uneasy"]);
     for (const question of ["when did I feel ashamed or caught out", "when did I feel ashamed", "when was I embarrassed"]) {
-      const out = deliberateRecall(s.counterpart, { question }, { sessionId: "l6c", owner: true });
-      expect(out.memories.map((m) => m.id).slice(0, 3)).toEqual(f.sheepish);
+      expect(new Set(moments(meaning(s.counterpart, question)))).toEqual(new Set(f.sheepish));
     }
   });
 
@@ -651,16 +711,19 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
 });
 
 describe("lane 6, item 2: 'most / ever / strongest / since' rank by recorded strength", () => {
-  test("an old strong feeling leads 'when was I happiest'; 'when was I happy' keeps the softened order", () => {
+  // Rewritten for meaning mode (#322): the two moments come from two sessions,
+  // so each is its own entry of the arc, and an entry's `hold` is the stamp's
+  // value — recorded for "happiest", softened for "happy".
+  test("an old strong feeling holds 'when was I happiest' most; 'when was I happy' keeps the softened order", () => {
     const s = server();
     const c = s.counterpart;
     for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
     c.store.advanceClock("2026-08-01");
-    const old = c.store.put({ type: "memory", kind: "self", body: "The afternoon the first full week replayed cleanly." });
+    const old = c.store.put({ type: "memory", kind: "self", body: "The afternoon the first full week replayed cleanly.", origin: { session: "sess-august" } });
     c.store.addFeelings(old, [{ whose: "self", core: "happy", emotion: "joyful", strength: 0.9 }]);
     for (let d = 2; d <= 31; d++) c.store.advanceClock(`2026-08-${String(d).padStart(2, "0")}`);
     for (let d = 1; d <= 15; d++) c.store.advanceClock(`2026-09-${String(d).padStart(2, "0")}`);
-    const fresh = c.store.put({ type: "memory", kind: "self", body: "The dashboard tile finally lined up on the phone." });
+    const fresh = c.store.put({ type: "memory", kind: "self", body: "The dashboard tile finally lined up on the phone.", origin: { session: "sess-september" } });
     c.store.addFeelings(fresh, [{ whose: "self", core: "happy", emotion: "glad", strength: 0.5 }]);
     const self = { asker: "self" as const };
     expect(readFeelingAsk("when was I happiest", self, new Set(), 3).strongest).toBe(true);
@@ -672,8 +735,11 @@ describe("lane 6, item 2: 'most / ever / strongest / since' rank by recorded str
     expect(readFeelingAsk("when was I happiest lately", self, new Set(), 3).strongest).toBe(false);
     expect(readFeelingAsk("how did I feel about the worst bug since the launch", self, new Set(), 3).strongest).toBe(false);
     expect(readFeelingAsk("what moved me most", self, new Set(), 3).strongest).toBe(true);
-    const first = (question: string): string | undefined =>
-      deliberateRecall(c, { question }, { sessionId: "l6s", owner: true }).memories[0]?.id;
+    /** The moment of the entry that holds the question most. */
+    const first = (question: string): string | undefined => {
+      const entries = meaning(c, question).arc.flatMap((l) => (l.fold ? [] : [l.entry]));
+      return [...entries].sort((a, b) => b.hold - a.hold)[0]?.moments[0]?.id;
+    };
     expect(first("when was I happiest")).toBe(old);
     expect(first("what have I felt most strongly")).toBe(old);
     expect(first("what have I ever felt happy about")).toBe(old);
@@ -698,9 +764,16 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     const topical = c.recall.build({ sessionId: "l6n2", text: question, owner: true, feeling: { asker: "self" } });
     expect(topical.feeling?.ranked).toBe(true);
     expect(topical.feeling?.noTopic.has(f.topical)).toBe(false);
-    // It is answered; whether a stamped row leads it is the gate's tier (R2), unchanged here.
-    const out = deliberateRecall(c, { question }, { sessionId: "l6n3", owner: true });
-    expect(out.memories.map((m) => m.id)).toContain(f.topical);
+    // Meaning (#322): the feeling question's moments are the stamped rows, and
+    // the wheel note the feeling words reached is not one of them. The garden
+    // plan has no card and no stamped memory says it: every felt moment
+    // follows, and the answer says so plainly (review of #323; the case where a
+    // stamped memory does say it is in recall-meaning.test.ts).
+    const r = meaning(c, question);
+    expect(r.lens?.kind).toBe("feeling");
+    expect(moments(r)).not.toContain(f.wheelDoc);
+    expect(new Set(moments(r))).toEqual(new Set(f.sheepish));
+    expect(r.notes.join(" ")).toContain('no card names "garden plan", and no moment that carries feelings (mine) says it');
   });
 
   test("second review of #310: a capitalised wheel word is still a feeling; a lower-case 'can' is frame", () => {
@@ -711,7 +784,7 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     c.store.addFeelings(sad, [{ whose: "self", core: "sad", emotion: "wistful", strength: 0.6 }]);
     for (const question of ["when was I Sad", "I felt Sad", "WHEN WAS I SAD"]) {
       expect(readFeelingAsk(question, { asker: "self" }, new Set(), 3).named.has("sad")).toBe(true);
-      expect(deliberateRecall(c, { question }, { sessionId: "cap", owner: true }).memories[0]?.id).toBe(sad);
+      expect(moments(meaning(c, question))).toEqual([sad]);
     }
     // A wheel note asked about only through frame words stays below the stamped rows.
     uneasyStore(c);
@@ -721,7 +794,12 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     expect(built.feeling?.noTopic.has(note)).toBe(true);
   });
 
-  test("review of #310: Will, May and Can, capitalised, are topics — the memory they name keeps its place", () => {
+  // Rewritten for meaning mode (#322): the core lane still reads the capitals
+  // as topics (kept below); in meaning, a topic is a CARD — "Will" with a card
+  // is the subject of the answer. RETIRED: the same claim for "May" and "the
+  // Can", which have no card and are not people; meaning reads a feeling
+  // question with an uncarded topic as the feeling alone (see #323's report).
+  test("review of #310: Will, May and Can, capitalised, are topics — and Will, with a card, is meaning's subject", () => {
     const s = server();
     const c = s.counterpart;
     uneasyStore(c);
@@ -737,13 +815,11 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
       const built = c.recall.build({ sessionId: `l6t-${id}`, text: question, owner: true, feeling: { asker: "self" } });
       expect(built.feeling?.ranked).toBe(true);
       expect(built.feeling?.noTopic.has(id)).toBe(false);
-      // It leads everything the stamps did not nominate (the felt rows of its tier come first, R2).
-      const out = deliberateRecall(c, { question }, { sessionId: `l6t2-${id}`, owner: true });
-      const ids = out.memories.map((m) => m.id);
-      const at = ids.indexOf(id);
-      expect(at).toBeGreaterThanOrEqual(0);
-      for (const before of ids.slice(0, at)) expect(built.feeling?.strengths.has(before)).toBe(true);
     }
+    cardFor(c, "Will");
+    const r = meaning(c, "how did I feel about Will");
+    expect(r.lens).toMatchObject({ kind: "card", name: "Will" });
+    expect(moments(r)).toContain(will);
   });
 
   test("a question not about feeling is unchanged: 'what do I know about Han'", () => {
@@ -756,6 +832,9 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     expect(withLane.feeling?.noTopic.size).toBe(0);
     const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
     expect(strip(withLane.decision)).toEqual(strip(without.decision));
-    expect(deliberateRecall(s.counterpart, { question }, { sessionId: "cmp6", owner: true }).memories[0]?.id).toBe(f.han);
+    // Meaning answers it by its words, not as a feeling.
+    const r = meaning(s.counterpart, question);
+    expect(r.lens?.kind).not.toBe("feeling");
+    expect(moments(r)).toContain(f.han);
   });
 });

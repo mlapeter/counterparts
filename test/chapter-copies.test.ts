@@ -140,14 +140,17 @@ describe("(b) recall shows a chapter and its own copy as ONE result", () => {
       kind: "fact",
       body: "The zqharbour ferry runs twice a day in winter.",
     });
-    const result = payload(await s.call("recall", { question: "zqharbour" }));
-    const ids = (result["memories"] as { id: string; journal: boolean; title: string | null }[]).map((m) => m.id);
+    // Facts mode (2026-10-03) rebuilds the fold: a chapter and its own copy
+    // are one result, the chapter.
+    const result = payload(await s.call("recall", { question: "zqharbour", mode: "facts" }));
+    const ids = result["ids"] as string[];
     expect(ids).toContain(episodeId);
     expect(ids).not.toContain(copyId);
     expect(ids).toContain(other);
-    const shown = (result["memories"] as { id: string; journal: boolean; title: string | null }[]).find((m) => m.id === episodeId);
-    expect(shown?.journal).toBe(true);
-    expect(shown?.title).toBe("The zqharbour evening");
+    // The chapter is labeled journal, under its own title.
+    const answer = result["answer"] as string;
+    expect(answer).toContain(`[journal] The zqharbour evening · ${episodeId}`);
+    expect(answer).not.toContain(copyId);
   });
 
   test("the ambient path shares the step: one of the pair is a candidate, never both", () => {

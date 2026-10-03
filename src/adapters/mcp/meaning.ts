@@ -36,7 +36,9 @@
  * v12); the card holding the most is the arc, the rest are one-liners. "us"
  * is the memories marked `about: us`. A question about feeling
  * (`recall/feeling-ask.ts#readFeelingAsk`, ranked) with no card is answered
- * by the stamps that match it — word, core, whose; with a card, it keeps the
+ * by the stamps that match it — word, core, whose — and, when it names a
+ * topic no card holds, by those of them the topic's words reach (none: all of
+ * them, said so); with a card, it keeps the
  * chapters where the card's moments carry the feeling. Nothing named and no
  * feeling: the question's rarer words (BM25) and its meaning (the in-line
  * vector) find the moments, and the answer says no card named it.
@@ -59,16 +61,16 @@ import { OTHER_EMOTION, wheelEntry } from "../../core/feelings-wheel.js";
 import { wireChars } from "../../core/fit/index.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
 import { UNRESOLVED_META_KEY } from "../../core/mint.js";
-import { decay, fadeOf, softenedFeeling, strength } from "../../core/physics/index.js";
+import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
-import { feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
+import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
 import { feelingValence, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
 import { calendarOverlaps, daysBetween, localDate } from "../../core/time.js";
-import { RECALL_RESULT_CHARS } from "./deliberate.js";
+import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
 
@@ -88,15 +90,6 @@ export const MEANING_PATTERNS_SHOWN = 4;
 export const MEANING_SEMANTIC_MAX = 100;
 /** The words channel's reach on a question with no card. */
 export const MEANING_WORDS_MAX = 200;
-/**
- * A moment is FADED when it has kept this share of its strength or less —
- * decay since its last use, times a `changed` settle's fade (physics §5.12)
- * — whatever its height. CAL: a working default with no measurement behind
- * it. Not an absolute strength: a quiet memory written today is low, not
- * faded (a bare write measures 0.09), and physics' prune floor (`PHI_PRUNE`,
- * 0.02) is too near the prune to name anything before it goes.
- */
-export const MEANING_FADED_RETAINED = 0.2;
 /** The rendered answer's room, in `wireChars`: the list budget every deliberate answer keeps. */
 export const MEANING_RESULT_CHARS = RECALL_RESULT_CHARS;
 /** A word held by more than this share of the indexed memories says nothing about a subject. */
@@ -270,6 +263,17 @@ const FRAME = new Set([
   "been", "since", "ever", "over", "time", "times", "things", "thing", "between", "together", "keeps", "keep",
   "coming", "come", "comes", "up", "happened", "happen", "mean", "means", "meant", "think", "felt", "feel", "feeling",
   "feelings", "most", "all", "so", "far", "lately", "recently", "tell", "story", "arc", "been",
+  // The asking itself ("what do I know about Will", review of #323).
+  "know", "knew", "known", "remember", "remembered",
+]);
+
+/**
+ * A feeling question's frame beyond `feeling-ask.ts#isFeelingFrameWord`: the
+ * owner named as a role, and the recent past ("what have I felt lately") —
+ * never a topic to read moments by.
+ */
+const FEELING_FRAME_MORE = new Set([
+  "owner", "user", "recent", "recently", "lately", "latest", "last", "today", "yesterday", "tonight", "now",
 ]);
 
 /** Words that make "us" the subject: the two of them together. Not "we" or "our", which a question uses for joint work. */
@@ -433,24 +437,54 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     for (const id of usIds) hold(id, 1);
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   } else if (feelingAsked && ask !== null) {
-    lens = { kind: "feeling", name: feelingName(ask.named, ask.whose, whose) };
-    for (const [id, v] of felt) hold(id, v);
+    // A FEELING ABOUT A TOPIC NO CARD NAMES ("how did I feel about the garden
+    // plan", review of #323): the felt moments the topic's words reach are the
+    // answer. None reached: every felt moment, and the answer says plainly that
+    // no card names the topic and none of them say it. Only the words — the
+    // question's embedding carries the feeling, not the topic — and not a
+    // "since …" clause, which is a time ("since I started living here"), not
+    // a topic. Unstamped memories the words reach are never moments here: a
+    // note ABOUT feelings is not a feeling (lane 6, item 3).
+    const feelingAs = feelingName(ask.named, ask.whose, whose);
+    const asked = question.replace(/\bsince\b[^?.!;]*/gi, " ");
+    const proper = safe(() => askedNames(asked), new Set<string>());
+    const owners = new Set(ownerNamesLower(c).flatMap((n) => tokenize(n)));
+    const topic = contentWords(
+      c,
+      asked,
+      minLen,
+      ask.named,
+      (w) => isFeelingFrameWord(w, stored, proper) || owners.has(w) || FEELING_FRAME_MORE.has(w),
+    );
+    const reached = new Map<string, number>();
+    if (topic.words.length > 0) {
+      holdByWords(store, topic, usable, (id) => {
+        const v = felt.get(id);
+        if (v !== undefined) reached.set(id, v);
+      });
+    }
+    const topicName = `"${topic.shown.join(" ")}"`;
+    if (reached.size > 0) {
+      lens = { kind: "feeling", name: `${feelingAs} about ${topicName}` };
+      for (const [id, v] of reached) hold(id, v);
+      notes.push(`no card names ${topicName}: the moments that carry ${feelingAs} and say it`);
+    } else {
+      lens = { kind: "feeling", name: feelingAs };
+      for (const [id, v] of felt) hold(id, v);
+      if (topic.words.length > 0) {
+        notes.push(`no card names ${topicName}, and no moment that carries ${feelingAs} says it: every one follows`);
+      }
+    }
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   } else {
-    const words = contentWords(c, question, minLen, ask?.named ?? new Set());
+    const topic = contentWords(c, question, minLen, ask?.named ?? new Set());
+    const words = topic.words;
     if (words.length > 0 || (vector !== null && vector.length > 0)) {
-      lens = { kind: "words", name: words.length > 0 ? `"${words.join(" ")}"` : "the question's meaning" };
+      lens = { kind: "words", name: words.length > 0 ? `"${topic.shown.join(" ")}"` : "the question's meaning" };
       if (words.length > 0) {
-        const hits = safe(() => store.search(words.join(" "), MEANING_WORDS_MAX), []);
-        const top = hits[0]?.score ?? 0;
-        for (const h of hits) if (top > 0) hold(h.id, h.score / top);
-        const need = Math.max(1, Math.ceil(words.length / 2));
-        textMatch = (text) => {
-          const have = new Set(tokenize(text));
-          const n = words.filter((w) => have.has(w)).length;
-          return n >= need ? n / words.length : 0;
-        };
-        lineMatch = words.map((w) => wholeWordRegex(w));
+        const byWords = holdByWords(store, topic, usable, hold);
+        textMatch = byWords.textMatch;
+        lineMatch = byWords.lineMatch;
       }
       if (vector !== null && vector.length > 0) {
         const floor = safe(() => semanticTuning(c.recall.tunables, store.rankingIdentity(), "inline").floor, 0.45);
@@ -807,9 +841,9 @@ function showEntry(
   };
 }
 
-/** Has the memory kept `MEANING_FADED_RETAINED` of its strength or less (`decay` × `fadeOf`)? */
+/** Faded: one rule for both question modes (`deliberate.ts#hasFaded`, decay × fade ≤ `FADED_RETAINED`). */
 function isFaded(p: MemoryPhysics, day: number): boolean {
-  return decay(p, day) * fadeOf(p) <= MEANING_FADED_RETAINED;
+  return hasFaded(p, day);
 }
 
 /** The strongest three distinct feeling words of one person. */
@@ -1187,14 +1221,105 @@ function cardTerms(c: Counterpart, id: string): string[] {
   }
 }
 
-/** The question's rarer words: not its frame, not a feeling word, not held by a quarter of the store. */
-function contentWords(c: Counterpart, question: string, minLen: number, feelingNamed: ReadonlySet<string>): string[] {
-  const words = [...new Set(tokenize(question))].filter((w) => w.length >= minLen && !FRAME.has(w) && !feelingNamed.has(w));
-  if (words.length === 0) return [];
+/**
+ * The question's words a topic is read by. `words` are lower-case tokens;
+ * `names` maps the ones the asker CAPITALISED mid-sentence (a name or a
+ * proper noun, `feeling-ask.ts#askedNames`) to a regex for the word as typed,
+ * case kept; `shown` is the words as a header prints them.
+ */
+interface TopicWords {
+  readonly words: readonly string[];
+  readonly names: ReadonlyMap<string, RegExp>;
+  readonly shown: readonly string[];
+}
+
+/**
+ * The question's rarer words: not its frame, not a feeling word, not held by a
+ * quarter of the store. A word the asker capitalised mid-sentence is kept
+ * whatever it is ("what do I know about Will": lower-case "will" is frame, the
+ * asker's Will is a name, as `feeling-ask.ts#askedNames` reads it), and is
+ * matched as typed, case kept, so the modal "will" in a hundred memories does
+ * not stand in for him (review of #323). `skip` leaves out more (a feeling
+ * question's own frame).
+ */
+function contentWords(
+  c: Counterpart,
+  question: string,
+  minLen: number,
+  feelingNamed: ReadonlySet<string>,
+  skip: (w: string) => boolean = () => false,
+): TopicWords {
+  const proper = safe(() => askedNames(question), new Set<string>());
+  const asTyped = new Map<string, string>();
+  for (const m of question.matchAll(/[A-Za-z0-9][A-Za-z0-9'’]*/g)) {
+    const tok = m[0].replace(/['’]s?$/, "");
+    const low = tok.toLowerCase();
+    if (proper.has(low) && /^[A-Z]/.test(tok) && !asTyped.has(low)) asTyped.set(low, tok);
+  }
+  const names = new Map<string, RegExp>();
+  for (const [low, typed] of asTyped) names.set(low, nameRegex(typed, "gu"));
+  const candidates = [...new Set(tokenize(question))].filter(
+    (w) => !skip(w) && (names.has(w) || (w.length >= minLen && !FRAME.has(w) && !feelingNamed.has(w))),
+  );
+  const out = (words: string[]): TopicWords => ({ words, names, shown: words.map((w) => asTyped.get(w) ?? w) });
+  if (candidates.length === 0) return out([]);
   const total = safe(() => c.store.countMemories({ archived: false }), 0);
-  if (total < 20) return words;
-  const df = safe(() => c.store.docFrequency(words), new Map<string, number>());
-  return words.filter((w) => (df.get(w) ?? 0) <= total * COMMON_SHARE);
+  if (total < 20) return out(candidates);
+  const df = safe(() => c.store.docFrequency(candidates), new Map<string, number>());
+  return out(candidates.filter((w) => names.has(w) || (df.get(w) ?? 0) <= total * COMMON_SHARE));
+}
+
+/** How many times `text` names the asker's capitalised word, case kept. */
+function namedCount(text: string, re: RegExp): number {
+  re.lastIndex = 0;
+  return (text.match(re) ?? []).length;
+}
+
+/**
+ * HOLD WHAT THE QUESTION'S WORDS REACH (BM25, `MEANING_WORDS_MAX`), and the
+ * matchers a chapter's words and line are read by. A memory the search reached
+ * only through a capitalised word must name it as typed: "Will" is not "will".
+ * Returns how many memories it held.
+ */
+function holdByWords(
+  store: Counterpart["store"],
+  topic: TopicWords,
+  usable: (id: string) => MemoryRow | null,
+  hold: (id: string, weight: number) => void,
+): { textMatch: (text: string) => number; lineMatch: RegExp[]; held: number } {
+  const words = topic.words;
+  const plain = words.filter((w) => !topic.names.has(w));
+  const hits = safe(() => store.search(words.join(" "), MEANING_WORDS_MAX), []).filter((h) => {
+    if (topic.names.size === 0) return true;
+    const row = usable(h.id);
+    if (row === null) return false;
+    const text = `${row.title ?? ""}\n${row.body}`;
+    if ([...topic.names.values()].some((re) => namedCount(text, re) > 0)) return true;
+    const have = new Set(tokenize(text));
+    return plain.some((w) => have.has(w));
+  });
+  const top = hits[0]?.score ?? 0;
+  let held = 0;
+  for (const h of hits) {
+    if (top > 0 && usable(h.id) !== null) {
+      hold(h.id, h.score / top);
+      held += 1;
+    }
+  }
+  const need = Math.max(1, Math.ceil(words.length / 2));
+  const textMatch = (text: string): number => {
+    const have = new Set(tokenize(text));
+    const n = words.filter((w) => {
+      const re = topic.names.get(w);
+      return re === undefined ? have.has(w) : namedCount(text, re) > 0;
+    }).length;
+    return n >= need ? n / words.length : 0;
+  };
+  const lineMatch = words.map((w) => {
+    const re = topic.names.get(w);
+    return re === undefined ? wholeWordRegex(w) : new RegExp(re.source, "u");
+  });
+  return { textMatch, lineMatch, held };
 }
 
 function feelingName(named: ReadonlySet<string>, who: FeelingWhose | null, whose: { readonly self: string; readonly owner: string }): string {

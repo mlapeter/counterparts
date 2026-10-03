@@ -47,7 +47,24 @@ export const GATE_STATE_VERSION = 1;
 
 /** The `gate_session.kind` vocabulary this module owns. `window` is
  *  `prospective/`'s (INTERFACE-GAPS.md §3) and is deliberately not read here. */
-export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic"] as const;
+export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic", "asked"] as const;
+/**
+ * `asked` (Release B, 2026-10-03): a memory a deliberate QUESTION's answer
+ * showed with its words, for this session — quotable at the boundary
+ * (`Counterpart#creditReferences`), as a loud surfacing is. Its own kind, so
+ * the ambient gate never reads it: `loadGateState` takes `surfaced` and
+ * `credited` only, and a deliberate answer must not dedup or train the
+ * ambient turn. `turn` holds the moment it was shown, in seconds, so the
+ * newest come first; `ASKED_MAX` of them are read.
+ */
+export const ASKED_KIND = "asked";
+/** How many `asked` records the boundary reads, newest first. */
+export const ASKED_MAX = 200;
+
+/** An `asked` record's `turn`: the moment, in whole seconds (ms do not fit the column's meaning). */
+export function askedTurn(nowMs: number): number {
+  return Math.floor(nowMs / 1000);
+}
 /** The one `scalar` row: the fields that are not per-memory. */
 export const SCALAR_REF = "state";
 /** The one `semantic` row: last turn's embedding cue, resolved to neighbours. */
@@ -125,7 +142,10 @@ interface ScalarPayload {
 }
 
 export function loadGateState(store: Store, sessionId: string, max = Infinity): LoadResult {
-  const rows = store.gateRecords(sessionId);
+  // `asked` rows (a deliberate answer's, 2026-10-03) are not the ambient
+  // gate's: a session whose only rows are those has no gate state yet, and
+  // must read `absent`, not `unreadable`.
+  const rows = store.gateRecords(sessionId).filter((r) => r.kind !== ASKED_KIND);
   if (rows.length === 0) return { state: freshGateState(sessionId), status: "absent" };
 
   const scalarRow = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF);

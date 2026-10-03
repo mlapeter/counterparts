@@ -1166,5 +1166,38 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
 - **Moments are placed, not resolved.** `chapter-address.ts#chapterTimesOf` reads an
   episode's chapter moments once and `chapterAt` places a memory by `resolveChapter`'s span
   rule; only the chapters shown read their whole span (for feelings).
-- **The chapter address does not open yet.** The `ids` path resolves `mem_`/`epi_` ids, not
-  `epi_…#N`; the answer says to open the episode by its id.
+- **The chapter address opens since Release B's facts half** (#323): `ids` / `handle`
+  read `epi_…#N` as that chapter (`deliberate.ts#expandChapter`).
+
+## 2026-10-03 — facts mode, and the recall tool's two modes (Release B of deliberate recall)
+
+- **Its own path, not `build()` re-tiered.** Facts mode (`facts.ts`) reads every live row's
+  columns once (`Store#recallRows`), searches each content word with a limit of its own
+  document count (so every hit, not a top-K), weights words by rarity
+  (`cues.ts#informativeness`), reads subjects off the v12 links, and caps only meaning (100).
+  Measured on a synthetic 15,000-row store where every memory shares the common words: about
+  1.3 s for a question of common words, 14 ms for a rare one; the in-line embedding comes on
+  top. The live store's words are far less uniform.
+- **Score = the sum of the ways.** Words are the share of the question's rarity a memory
+  holds, shaded by BM25 within each word; meaning is the cosine above the embedder's inline
+  floor, scaled to 0..1; a subject is its card's rarity against the question's. So a memory
+  matched two ways ranks above one matched one way about as strongly, and recency only breaks
+  ties. Weak (below a fifth of the best) is left out and counted.
+- **Near-duplicates fold** at the gate's token overlap (0.85), walked in rank order only as
+  far as the page needs, so pages stay stable. Templated memories that differ by one word
+  ("note 1", "note 2") fold — the header says how many.
+- **Faded is shared with meaning mode** (`deliberate.ts#hasFaded`: decay × fade ≤ 0.2,
+  agreed with the B-meaning builder). An absolute floor failed: a fresh bare write measures
+  about 0.09.
+- **Quote credit for deliberate answers** rides a new gate-record kind, `asked`, written by
+  the server for the session that asked (`seenKey`), read only by
+  `Counterpart#creditReferences` — never by the ambient gate, whose dedup reads `surfaced`.
+  The candidates are not `cued`, so the display decides, as for an expansion.
+- **Time** (`recall/time-ask.ts`) reuses `recency-ask.ts` for days and clock times and adds
+  weeks, months, parts of months, dates, "since", and two anchors the store resolves: an
+  event ("around the cut-over", an article required — "questions around pricing" is not
+  time) and the last session. An anchor nothing names filters nothing, and says so.
+- **The console's `ask`** keeps its short list (top five, two lines each), counted by facts'
+  `matched`; `--full` is the facts answer; `--json` the `FactsResult`, whose `memories`,
+  `considered` and `id`/`title`/`body`/`kind` the dashboard's search already reads. `--voiced`
+  is accepted and unused (feelings are meaning's).

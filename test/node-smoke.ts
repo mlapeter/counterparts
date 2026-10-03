@@ -153,7 +153,7 @@ describe("under Node", () => {
           jsonrpc: "2.0",
           id: 4,
           method: "tools/call",
-          params: { name: "recall", arguments: { question: "what bicycle is in the hallway?" } },
+          params: { name: "recall", arguments: { question: "what bicycle is in the hallway?", mode: "facts" } },
         },
       ]),
       childEnv({ COUNTERPARTS_DATA_DIR: store, COUNTERPARTS_CONFIG: config }),
@@ -166,7 +166,10 @@ describe("under Node", () => {
     const noted = JSON.stringify(got.get(3) ?? {});
     assert.ok(!noted.includes('"isError":true'), noted);
     const recalled = JSON.stringify(got.get(4) ?? {});
+    assert.ok(!recalled.includes('"isError":true'), recalled);
+    // Facts mode's answer is labeled lines in `answer`, the matched count beside it.
     assert.ok(recalled.includes("Brompton"), `recall did not return the note: ${recalled}\n${res.stderr}`);
+    assert.ok(recalled.includes('\\"matched\\": 1'), `facts mode did not count one match: ${recalled}`);
   });
 
   test("a SessionStart hook runs end to end and injects a wake", () => {

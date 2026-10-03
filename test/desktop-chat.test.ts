@@ -259,7 +259,7 @@ describe("end to end over stdio, as Claude Desktop's chat (client `claude-ai`)",
 
     // ── the ask: DESKTOP_ASK_CALLS calls AND DESKTOP_ASK_AFTER_MS since the last write-up
     t.advance(TUNABLES.DESKTOP_ASK_AFTER_MS + MIN);
-    const r1 = await wireCall(s, 11, "recall", { session, question: "how long is the reservoir loop" });
+    const r1 = await wireCall(s, 11, "recall", { session, question: "how long is the reservoir loop", mode: "facts" });
     const r2 = await wireCall(s, 12, "status", { session });
     expect(r1["writeUpAsk"]).toBeUndefined();
     expect(r2["writeUpAsk"]).toBeUndefined();
@@ -392,7 +392,7 @@ describe("binding, per call", () => {
     // Chat A forgets its id: every call lands on B, the most recent — and says so.
     t.advance(TUNABLES.DESKTOP_ASK_AFTER_MS + MIN);
     for (let i = 0; i < 6; i++) {
-      const out = payload(await s.call(i % 2 === 0 ? "status" : "recall", i % 2 === 0 ? {} : { question: `the reservoir loop ${String(i)}` }));
+      const out = payload(await s.call(i % 2 === 0 ? "status" : "recall", i % 2 === 0 ? {} : { question: `the reservoir loop ${String(i)}`, mode: "facts" }));
       expect(out["boundTo"]).toBe(b);
       expect(out["writeUpAsk"]).toBeUndefined();
       t.advance(MIN);

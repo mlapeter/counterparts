@@ -5120,15 +5120,18 @@ describe("note and recall", () => {
     // line, and it is only reproducible while the label names the population.
     const named = join(outside, "live-rows");
     await run(["init", "--dir", named, "--name", "Ada"], { io: consoleWith().io });
+    const noted = consoleWith();
     await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", named], {
-      io: consoleWith().io,
+      io: noted.io,
     });
+    const id = /Remembered (mem_\S+) /.exec(text(noted.out))?.[1] as string;
+    expect(id).toBeDefined();
+    // The line that carries the denominator is the address path's (2026-10-03:
+    // a question's answer is facts mode's count header, which counts matches).
     const c = consoleWith();
-    expect(await run(["recall", "what espresso machine?", "--dir", named, "--full"], { io: c.io })).toBe(
-      EXIT.ok,
-    );
-    // One memory, one core: two live rows, one of them considered.
-    expect(text(c.out)).toContain("considered 1 of 2 live rows");
+    expect(await run(["recall", "--id", id, "--dir", named], { io: c.io })).toBe(EXIT.ok);
+    // One memory, one core: two live rows, one of them returned.
+    expect(text(c.out)).toContain("handle · expanded · 2 live rows · returned 1");
     const brain = openCounterpart(named);
     open.push(brain);
     expect(brain.store.list({ archived: false }).length).toBe(2);
@@ -5253,8 +5256,8 @@ describe("note and recall", () => {
     // And the memory beside it is not: a mark on everything marks nothing.
     expect(lineFor(memory)).not.toBe("");
     expect(lineFor(memory)).not.toContain("[journal]");
-    // The word is glossed where the tier legend is, not left bare.
-    expect(text(c.out)).toContain("journal = a chapter");
+    // The word is glossed once under the answer, not left bare.
+    expect(text(c.out)).toContain("[journal] = a chapter");
   });
 
   test("an empty recall is an ANSWER, and says what to try next", async () => {
@@ -5266,20 +5269,21 @@ describe("note and recall", () => {
     const printed = text(c.out);
     expect(printed).toContain("Nothing found (by ");
     expect(printed).toContain("counterparts recall --id");
-    // And the full page says it the way it always has.
+    // And the full answer (facts mode, 2026-10-03) says so as a sentence too,
+    // with what to try next.
     const full = consoleWith();
     await run(["recall", "xylophone quokka nothing", "--dir", dir, "--full"], { io: full.io });
-    expect(text(full.out)).toContain("NOTHING CAME BACK");
-    expect(text(full.out)).toContain("counterparts recall --id");
+    expect(text(full.out)).toContain("0 match");
+    expect(text(full.out)).toContain("Nothing matched. Try the words the memory itself would use");
   });
 
-  test("an answer says which TIER it came back at, so a footnote is not read as an answer", async () => {
-    // `answered` means the question reached something, never that the something
-    // is right. The cold-stranger review asked a one-row store what colour the
-    // sky is on Mars, got the espresso machine, and had nothing on screen to
-    // tell that apart from the right answer to a real question — the `[quiet]`
-    // marker sat on both. The tier is the only confidence signal there is, so
-    // the output now says what each tier it printed actually means.
+  // RETIRED 2026-10-03: "an answer says which TIER it came back at". The
+  // vivid/quiet/dim tiers are gone from deliberate recall (facts mode ranks by
+  // how strongly and how many ways a memory matched, and says which ways).
+  test("a facts answer says how each result matched, so a weak lead reads as one", async () => {
+    // The cold-stranger review asked a one-row store what colour the sky is on
+    // Mars and got the espresso machine with nothing on screen to tell it apart
+    // from a real answer. A facts answer names the ways each result matched.
     store().close();
     await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
       io: consoleWith().io,
@@ -5288,13 +5292,7 @@ describe("note and recall", () => {
     expect(await run(["recall", "what espresso machine is in the kitchen?", "--dir", dir, "--full"], { io: c.io })).toBe(
       EXIT.ok,
     );
-    const printed = text(c.out);
-    // Whatever tier came back, its gloss is on screen beside it.
-    const tier = /\[(vivid|quiet|dim)\]/.exec(printed)?.[1];
-    expect(tier).toBeDefined();
-    expect(printed).toContain(`${tier as string} = `);
-    // Nothing vivid means the caller is told these are leads, not answers.
-    if (tier !== "vivid") expect(printed).toContain("leads rather than answers");
+    expect(text(c.out)).toMatch(/^1\. .* · mem_\S+ · words/m);
   });
 
   test("note refuses empty text, refuses an out-of-range salience, and refuses under observer", async () => {
@@ -5325,7 +5323,7 @@ describe("note and recall", () => {
     expect(await run(["recall", "--dir", dir], { io: neither.io })).toBe(EXIT.usage);
   });
 
-  test("--json prints the tool's own payload, whose storeSize is the real one", async () => {
+  test("--json prints the facts result, whose storeSize is the real one", async () => {
     store().close();
     await run(["note", "A canary for the payload shape.", "--dir", dir], { io: consoleWith().io });
     const c = consoleWith();
@@ -5333,7 +5331,8 @@ describe("note and recall", () => {
       EXIT.ok,
     );
     const payload = JSON.parse(text(c.out)) as Record<string, unknown>;
-    expect(payload["path"]).toBe("question");
+    expect(payload["mode"]).toBe("facts");
+    expect(payload["matched"]).toBe(1);
     expect(payload["storeSize"]).toBe(1);
   });
 });

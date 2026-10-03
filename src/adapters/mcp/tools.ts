@@ -57,6 +57,7 @@
  */
 import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
+import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE } from "./facts.js";
 
 /**
  * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
@@ -567,20 +568,21 @@ const NOTE: ToolSpec = {
 const RECALL: ToolSpec = {
   name: "recall",
   summary:
-    "Deliberate retrieval: a deeper, more effortful look than the ambient reminding you already get. One argument, three paths — a handle expands that memory exactly, a question runs a search and answers with excerpts, and ids returns a few of those in full.",
+    "Deliberate retrieval: a look you take on purpose, beyond the ambient reminding you already get. Three kinds of ask, one per call — a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
   admission:
-    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the full body of a memory you were only shown a footnote or an excerpt of.",
+    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the whole of a memory you were shown only a line or an excerpt of. A question takes mode \"facts\" when you need what happened, who said it, when, and whether it still holds; mode \"meaning\" when you want how something went, how it felt, or what it adds up to — a person, a project, us.",
   negativeExamples: [
     "Do NOT call it to check whether a memory exists before writing one — a duplicate is refused at the write, so the check costs a round trip and buys nothing.",
     "Do NOT call it with a handle you are guessing at: an unresolvable handle is answered as not-found, never as a fuzzy search over the store.",
     "Do NOT pass a question and ids together, or ids you have not seen in a result: ids is the follow-up to a list, not a second way to search.",
+    "Do NOT send a question without a mode: there is no default, and the call is refused with the two modes named.",
   ],
   privileges: [
     {
       claim:
-        "A search strengthens nothing — exposure is not recording, and a memory you were only shown in a list is no stronger for having been listed. EXPANDING one in full, by id or by title handle, is USING it: that is credited at the session boundary, once per lived day. The tool itself never writes a memory; what it writes is host bookkeeping — one line saying which memory a title reached.",
+        "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one, by id or by title handle, is using it, and so is QUOTING the words a question's answer showed you in your reply: either is credited at the session boundary, once per lived day. The tool never writes a memory; what it writes is bookkeeping — which memory a title reached, which memories an answer showed this session, and one count row per call.",
       mechanizedBy:
-        "src/core/recall/index.ts#build (the search half: pure; no resolveUse, no coactivate) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/lifecycle.ts#creditAtBoundary -> src/core/recall/reference.ts (the expansion door) -> src/core/recall/index.ts#resolveUse (once per lived day)",
+        "src/adapters/mcp/facts.ts#factsRecall (reads only) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/lifecycle.ts#creditAtBoundary -> src/core/recall/reference.ts (expansion and quote) + src/adapters/mcp/server.ts#noteAsked -> src/core/counterpart.ts#noteAsked / creditReferences (asked records) -> src/core/recall/index.ts#resolveUse (once per lived day)",
     },
     {
       claim:
@@ -589,53 +591,64 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "Effort lowers the bar but never removes the hard gates: a memory the conversation did not reach stays dark however hard you look.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#DELIBERATE_TIERS (dark-uncued/below-floor excluded)",
+        "A question needs mode: \"facts\" or \"meaning\". Each is its own path, with its own ranking and its own answer, returned as labeled lines in `answer`; tuning one does not change the other.",
+      mechanizedBy:
+        "src/adapters/mcp/server.ts#recallTool (mode-required, mode-unknown) + src/adapters/mcp/facts.ts#factsRecall + src/adapters/mcp/meaning.ts#meaningRecall",
+    },
+    {
+      claim: `Facts mode considers every memory the question's words reach, every memory linked to a person or project it names, and the ${String(FACTS_MEANING_CAP)} closest by meaning — and, for a question that is only a time, everything in that window. A memory matched more ways ranks higher; it ranks by how strongly it matched, and newer comes first only on a tie.`,
+      mechanizedBy:
+        "src/adapters/mcp/facts.ts#factsRecall (store.search per word with a limit of its document count; schemas#subjectsIn -> store.memoriesNaming; FACTS_MEANING_CAP)",
     },
     {
       claim:
-        "The lower-confidence tier is LABELED as such, and quiet items come back with their bodies rather than as a count.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#tierOf",
+        "A time in the question filters: \"last week\", \"in September\", \"early October\", \"3 days ago\", a date, \"since 09-20\", \"this morning\" — only memories inside the window come back, by when the thing happened or, with no event date, when it was learned, and the header counts the matches outside it. A week or a month stretches two days each side; a date stays exact. \"Around the cut-over\" resolves the event to the date of the memory that best names it, shown in the header as \"cut-over → 09-21\"; \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, and its own rows come first.",
+      mechanizedBy: "src/core/recall/time-ask.ts#readTimeAsk + src/adapters/mcp/facts.ts#factsRecall (inWindow, lastSession)",
+    },
+    {
+      claim: `A facts answer opens with a count of distinct facts — \"12 match · showing ${String(FACTS_PAGE_SIZE)} · 2 more → page 2\" — and pages with page: 2, 3, … in a stable order. It says \"may not be everything\" only when a cap cut something or weak matches were left out, and says which.`,
+      mechanizedBy: "src/adapters/mcp/facts.ts#renderFacts (FACTS_PAGE_SIZE, FACTS_WEAK_FRACTION, meaningCapped)",
     },
     {
       claim:
-        "The number of candidates considered is reported separately from the number returned, so a count here is never an undercount of the store — and the cap that produced it is reported next to it.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#deliberateRecall (considered/storeSize) + src/adapters/mcp/server.ts#recallPayload (consideredCap)",
+        "Each fact says who said it (\"you said\" is the owner, \"I said\" is you, or \"inferred\"), what kind of thing it is (done, planned, proposed, asked), when it happened (or \"no event date\"), when and where it was learned, and whether it is CURRENT. A field the writer did not record says so (\"speaker unknown\"). Earlier versions are folded under the current one with their dates; a corrected one is hidden and counted.",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factItem (occurred_on, said_by, status; versions rows + contradictions pairs) + src/adapters/mcp/deliberate.ts#provenanceParts",
     },
     {
       claim:
-        "A search answers with excerpts and a bounded total, never with every body at full length: an answer the host truncates is not a smaller answer, it is no answer. When something was cut or dropped, the result says so.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#boundMemories (RECALL_EXCERPT_CHARS/RECALL_RESULT_CHARS)",
+        "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. In a question about feeling, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
+      mechanizedBy:
+        "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#renderMeaning + src/core/recall/feeling-ask.ts#whoseAsked (asker: self, src/adapters/mcp/server.ts#askQuestion)",
     },
     {
       claim:
-        `Pass ids to read those memories whole. It takes up to ${RECALL_MAX_IDS}, each resolved as an exact address with the same confidentiality boundary; a long body comes in parts, and ids past the result's room wait, named.`,
+        "A matched memory that has faded from long disuse is not dropped: it is listed after the main results as one line — title, date, id, labeled faded — and never takes a main slot. Opening it by id brings it back.",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (FACTS_FADED_LINES) + src/adapters/mcp/deliberate.ts#hasFaded (FADED_RETAINED)",
+    },
+    {
+      claim:
+        "An answer is bounded and never ships every body at full length: a short fact comes whole, a long one as an excerpt, and the whole answer stays under the result's room. An answer the host truncates is not a smaller answer, it is no answer.",
+      mechanizedBy: "src/adapters/mcp/facts.ts#renderFacts (RECALL_EXCERPT_CHARS, RECALL_RESULT_CHARS)",
+    },
+    {
+      claim:
+        `Pass ids to read those memories whole. It takes up to ${RECALL_MAX_IDS}, each resolved as an exact address with the same confidentiality boundary; a long body comes in parts, and ids past the result's room wait, named. Ids and a handle take no mode.`,
       mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id) + src/adapters/mcp/deliberate.ts#boundById (RECALL_BODY_CHARS parts, RECALL_ID_RESULT_CHARS)",
     },
     {
       claim:
         "Confidential material is returned only in the owner's own session: a direct lookup says it is withholding, a list simply does not contain it.",
-      mechanizedBy: "src/core/recall/activate.ts#isConfidential + gate verdict confidential-withheld",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (confidential column) + src/adapters/mcp/deliberate.ts#expandHandle (isConfidential)",
     },
     {
       claim:
-        "A chapter of the journal can come back here — it is a first-person account and may rightly come to mind — and every one that does is marked `journal: true`. That row is the account a memory was made from, not a memory: it is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#JOURNAL_GLOSS (ProseDoc.type === episode)",
+        "A chapter of the journal can come back — it is a first-person account and may rightly come to mind — and every one that does is marked journal. It is the account a memory was made from, not a memory: it is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is. A chapter and the memory made from it come back as one result.",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (the chapter-copy fold, FACTS_JOURNAL_GLOSS) + src/adapters/mcp/deliberate.ts#JOURNAL_GLOSS (ProseDoc.type === episode)",
     },
     {
       claim:
-        "A question about feeling is answered from the feelings recorded on memories, strongest first. In it, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
-      mechanizedBy: "src/core/recall/feeling-ask.ts#whoseAsked (asker: self) + src/adapters/mcp/deliberate.ts#answerQuestion",
-    },
-    {
-      claim:
-        "A question about time is answered with the session it means first, marked `recent: true`: \"our most recent session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named (else the newest one here that ended); \"this morning\", \"yesterday\", \"16:01–17:48\" mean the sessions here at work then. Its latest chapter comes first, then the memories it wrote here, newest first. Asked plainly, those lead; a question that is also about something else (\"what did we decide about the deploy today\") only moves up the ones the search found too. Not with a question about feeling, which keeps its own order. Nothing else needs to be passed.",
-      mechanizedBy: "src/core/recall/recency-ask.ts#readRecencyAsk + src/adapters/mcp/deliberate.ts#answerQuestion (recentRows, leadWith)",
-    },
-    {
-      claim:
-        "Every memory returned says where it came from in `from`: the session that wrote it (\"this session\" for yours), the directory, and when it was written, as far as the row recorded them. A row the nightly run made says so (\"a dream launched from session …\", \"a reflection\"). An older row says less, and \"an earlier session\" when it names none.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#provenanceOf",
+        "Every memory says where it came from: the session that wrote it (\"this session\" for yours), the directory, and when, as far as the row recorded them. A row the nightly run made says so (\"a dream launched from session …\", \"a reflection\"). An older row says less, and \"an earlier session\" when it names none.",
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#provenanceParts",
     },
     {
       claim: "Under observer stance it stands down over the wire and says so.",
@@ -645,14 +658,25 @@ const RECALL: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      handle: {
-        type: "string",
-        description: "A memory id or exact handle to expand. Exact: never treated as a search term.",
-      },
       question: {
         type: "string",
         description:
-          "What you are trying to remember, in words. Runs the deeper retrieval and answers with excerpts. A question about time (\"what did we do in our most recent session\", \"this evening\") puts the session it means in this directory first.",
+          "What you are trying to remember, in words. Needs mode. A time in it (\"last week\", \"in September\", \"around the cut-over\", \"where did we leave off\") filters a facts answer to that window.",
+      },
+      mode: {
+        type: "string",
+        enum: ["facts", "meaning"],
+        description:
+          "Required with a question, and only with one. facts: what happened, who said it, when, whether it still holds — every match, ranked, with dates and speaker. meaning: how something went, felt, and what it adds up to — a person, a project, us.",
+      },
+      page: {
+        type: "integer",
+        minimum: 1,
+        description: "With a question: which page of the answer (1 is the first). The header says how many more there are.",
+      },
+      handle: {
+        type: "string",
+        description: "A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode.",
       },
       ids: {
         type: "array",
@@ -660,7 +684,7 @@ const RECALL: ToolSpec = {
         // The cap is one number, imported. A literal here and a constant in
         // `deliberate.ts` is the drift the registry audit exists to prevent.
         maxItems: RECALL_MAX_IDS,
-        description: `Memory ids from an earlier result or an index (a dream's, a reflection's), to read whole — up to ${RECALL_MAX_IDS} at once. A long body comes in parts: see part. Not combinable with handle or question.`,
+        description: `Memory ids from an earlier answer or an index (a dream's, a reflection's), to read whole — up to ${RECALL_MAX_IDS} at once. A long body comes in parts: see part. Not combinable with handle or question; takes no mode.`,
       },
       part: {
         type: "integer",
@@ -1484,7 +1508,7 @@ export const WAKE: ToolSpec = {
     "Call it first in every new chat, once, before answering anything — above all anything about the person, the past, or work in progress. Then pass the session id it returns as `session` on session_end, chapter, dream and reflect in this chat; a call that leaves it out is filed under the most recent Desktop session, and says so.",
   negativeExamples: [
     "Do NOT answer what you remember — yesterday, a person, a project — from `recall` alone before this chat has woken, and never call what `recall` returned the full record: it is a slice. Wake first; the wake carries the whole store's Yesterday line.",
-    "Do NOT call it again later in the same chat to refresh what you know — it starts a new session. Ask `recall` a question instead.",
+    "Do NOT call it again later in the same chat to refresh what you know — it starts a new session. Ask `recall` a question (with a mode) instead.",
     "Do NOT call it in a Claude Code session — Desktop's Code tab included, where these tools are Claude Desktop's: the hook already woke you, and a wake here would start a second session beside yours. Pass your session id — the one your wake or Stop ask names — as `session` instead.",
   ],
   privileges: [

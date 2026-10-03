@@ -626,11 +626,15 @@ describe("recall shows a memory's standing", () => {
     const a = put(store, "Tabs are the right indentation for the quokka codebase.");
     const b = put(store, "Spaces are the right indentation for the quokka codebase.");
     settle(store, { holds: b, over: a, how: "open", actor: "owner" });
-    const got = payload(await s.call("recall", { question: "quokka codebase indentation" }));
-    const memories = got["memories"] as Record<string, unknown>[];
-    const byId = new Map(memories.map((m) => [m["id"], m]));
-    expect(String(byId.get(a)?.["standing"])).toContain(`disagrees with ${b}`);
-    expect(String(byId.get(b)?.["standing"])).toContain(`disagrees with ${a}`);
+    // Facts mode (2026-10-03): the standing rides on the result's learned line.
+    const got = payload(await s.call("recall", { question: "quokka codebase indentation", mode: "facts" }));
+    const blocks = String(got["answer"]).split("\n\n");
+    const blockOf = (id: string): string => blocks.find((x) => x.includes(` · ${id} · `)) ?? "";
+    expect(blockOf(a)).toContain(`disagrees with ${b}`);
+    expect(blockOf(b)).toContain(`disagrees with ${a}`);
+    // Both still stand: each is CURRENT, neither folded under the other.
+    expect(blockOf(a)).toContain("CURRENT");
+    expect(blockOf(b)).toContain("CURRENT");
   });
 
   test("by id, a superseded row shows ITSELF, with replaced by — store.resolve still forwards", async () => {

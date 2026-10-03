@@ -6,8 +6,8 @@
  *      the question can still come back. Without the table — or with recall by
  *      meaning switched off — it answers by words and says which.
  *   2. The default page is a header in plain words and the top five, one line
- *      each. `--full` is the page `ask` printed before; `--id` is one memory in
- *      full; `--json` is the payload.
+ *      each. `--full` is the facts answer as the model reads it (facts mode,
+ *      2026-10-03); `--id` is one memory in full; `--json` is the facts result.
  *
  * Hermetic: every test makes its own temp store and removes it. The meaning
  * tests need the weights package; they skip, saying so, where it is absent.
@@ -287,23 +287,28 @@ describe("ask is short by default", () => {
     expect(r.out.join("\n")).toContain("counterparts ask --id <mem_...>");
   });
 
-  test("--full is the page ask printed before: the path line, every body in full, the tier legend", async () => {
+  test("--full is the facts answer as the model reads it: the count header, every result's labeled lines", async () => {
     seedLighthouse();
     const r = await ask(["the lighthouse at Fernbrook Point", "--full"]);
     expect(r.out[0]).toBe(`Store: ${dir}`);
-    expect(r.out[1]).toMatch(
-      /^question · answered · semantic \S+ · considered \d+ of \d+ live rows · returned \d+$/,
-    );
-    const printed = r.out.join("\n");
-    // Every answer the payload holds, each with its body indented beneath it.
+    const lines = r.out.slice(1).join("\n").split("\n");
+    // The count header (facts mode, 2026-10-03): distinct facts, and how many this page shows.
+    expect(lines[0]).toMatch(/^\d+ match · showing \d+/);
+    const printed = lines.join("\n");
+    // Every answer the payload holds: its numbered title line with its id, its
+    // labeled lines, and its words.
     const json = await ask(["the lighthouse at Fernbrook Point", "--json"]);
     const answers = (JSON.parse(json.out.join("\n")) as { memories: { id: string; body: string }[] }).memories;
     expect(answers.length).toBeGreaterThan(0);
     for (const m of answers) {
-      expect(printed).toContain(`  ${m.id}  [`);
-      expect(printed).toContain(`    ${m.body.split("\n")[0] ?? ""}`);
+      expect(printed).toMatch(new RegExp(`^\\d+\\. .* · ${m.id} · `, "m"));
+      expect(printed).toContain(`   ${m.body}`);
     }
-    expect(printed).toMatch(/ {2}(vivid|quiet|dim) = /);
+    // These rows predate the writer's three fields: the line says so rather than leaving them out.
+    expect(printed).toContain("speaker unknown · status unknown · no event date");
+    expect(printed).toContain("· CURRENT");
+    // The tiers are retired (2026-10-03).
+    expect(printed).not.toMatch(/ {2}(vivid|quiet|dim) = /);
   });
 
   test("--id is one memory in full, however short the default has become", async () => {
@@ -316,11 +321,13 @@ describe("ask is short by default", () => {
     expect(printed).toContain("    and its lamp was turned by clockwork until the keeper left in 1974, after which nobody climbed it.");
   });
 
-  test("--json is unchanged: the payload, and nothing else", async () => {
+  test("--json is the facts result, and nothing else", async () => {
     seedLighthouse();
     const r = await ask(["the lighthouse at Fernbrook Point", "--json"]);
     const payload = JSON.parse(r.out.join("\n")) as Record<string, unknown>;
-    expect(payload["path"]).toBe("question");
+    expect(payload["mode"]).toBe("facts");
+    expect(payload["matched"]).toBeGreaterThan(0);
+    expect(typeof payload["considered"]).toBe("number");
     expect(Array.isArray(payload["memories"])).toBe(true);
     expect((payload["memories"] as unknown[]).length).toBeGreaterThan(0);
     expect(r.out.some((l) => l.startsWith("Store:"))).toBe(false);
@@ -335,7 +342,7 @@ describe("ask searches by meaning", () => {
     const r = await ask(["the lighthouse at Fernbrook Point"], env({ COUNTERPARTS_CONFIG: config }));
     expect(r.out[1]).toContain("found, by words only — recall by meaning is off.");
     const full = await ask(["the lighthouse at Fernbrook Point", "--full"], env({ COUNTERPARTS_CONFIG: config }));
-    expect(full.out[1]).toContain("semantic embedder-off");
+    expect(full.out.slice(1).join("\n")).toContain("by words only — recall by meaning is off");
     // The flag names the same file the variable does.
     const flagged = await ask(["the lighthouse at Fernbrook Point", "--config", config]);
     expect(flagged.code).toBe(EXIT.ok);
