@@ -52,7 +52,7 @@
  * every memory's prose.
  */
 import type { Counterpart } from "../../core/counterpart.js";
-import { wholeWordRegex } from "../../core/encode/words.js";
+import { nameRegex, wholeWordRegex } from "../../core/encode/words.js";
 import { OTHER_EMOTION, wheelEntry } from "../../core/feelings-wheel.js";
 import { wireChars } from "../../core/fit/index.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
@@ -402,11 +402,10 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
   if (bestCard !== null) {
     lens = { kind: "card", id: bestCard.id, name: bestCard.name };
     for (const id of bestCard.ids) hold(id, 1);
-    // The possessive too ("Han's"): the shared whole-word rule keeps an
-    // apostrophe inside a word, so "Han" alone never meets "Han's".
-    const terms = cardTerms(c, bestCard.id).flatMap((t) => [t, `${t}'s`, `${t}’s`]);
-    const res = terms.map((t) => wholeWordRegex(t, "giu"));
-    lineMatch = terms.map((t) => wholeWordRegex(t));
+    // By the alias index's own name rule: "Han's" names Han.
+    const terms = cardTerms(c, bestCard.id);
+    const res = terms.map((t) => nameRegex(t, "giu"));
+    lineMatch = terms.map((t) => nameRegex(t));
     if (res.length > 0) {
       textMatch = (text) => {
         let n = 0;

@@ -265,6 +265,18 @@ describe("a card's arc", () => {
 });
 
 describe("other lenses", () => {
+  test("a question naming the card by its possessive reaches the card's arc", () => {
+    const c = brain();
+    const s = seed(c);
+    const r = meaningRecall(ctx(c), "How has Han's work gone?");
+    expect(r.lens).toEqual({ kind: "card", id: s.han, name: "Han" });
+    // "Han's birthday" in a memory links it to Han now, so it is a moment.
+    const bday = moment(c, "sess_e", "Han's birthday cake order went in.");
+    expect(c.store.subjectsOf(bday)).toEqual([s.han]);
+    const again = meaningRecall(ctx(c), "How has Han's work gone?");
+    expect(entries(again).flatMap((e) => e.moments.map((m) => m.id))).toContain(bday);
+  });
+
   test('"us" is the memories marked about: us', () => {
     const c = brain();
     const s = seed(c);

@@ -1158,10 +1158,11 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
 - **A bare write is weak, not faded.** `strength` of a memory `put` without salience measures
   0.09 on its first day, so an absolute floor called fresh memories faded. Faded reads the
   share KEPT instead: `decay × fadeOf ≤ 0.2`.
-- **Possessives do not link.** The shared whole-word rule keeps an apostrophe inside a word,
-  so "Han's birthday" names no card and gets no `memory_subjects` row. Meaning mode reads a
-  chapter's words with the possessive added; the links themselves are Release A's (a
-  follow-up there, if it matters in use).
+- **Possessives did not link.** The shared whole-word rule keeps an apostrophe inside a word,
+  so "Han's birthday" named no card and got no `memory_subjects` row, and a question saying
+  "Han's" reached no card either. Fixed in review: `encode/words.ts#nameRegex` reads a
+  trailing possessive as the name, for the alias index (links, the backfill, crediting) and
+  for meaning mode's reading of a chapter's words.
 - **Moments are placed, not resolved.** `chapter-address.ts#chapterTimesOf` reads an
   episode's chapter moments once and `chapterAt` places a memory by `resolveChapter`'s span
   rule; only the chapters shown read their whole span (for feelings).
