@@ -99,7 +99,11 @@ const PHRASE_STOP = new Set([
 ]);
 
 /** Event "phrases" that are not events: time words a caller cannot search. */
-const NOT_EVENTS = new Set(["then", "time", "that time", "now", "noon", "midnight", "the time", "this time", "that", "same time"]);
+const NOT_EVENTS = new Set([
+  "then", "time", "that time", "now", "noon", "midnight", "the time", "this time", "that", "same time",
+  // A stretch of time, not an event to search for ("during the week", review of #323).
+  "day", "days", "week", "weeks", "weekend", "month", "months", "year", "morning", "afternoon", "evening", "night",
+]);
 
 const SESSION_PHRASES: readonly string[] = [
   "where did we leave off",
@@ -326,6 +330,12 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   }
 
   // ── days ─────────────────────────────────────────────────────────────────
+  // Before "yesterday" is read on its own (review of #323).
+  const dayBefore = /\bthe day before yesterday\b/i.exec(text);
+  if (dayBefore !== null) {
+    const day = addDays(today, -2);
+    return ask(dayBefore[0], { from: day, to: day }, 0, without(text, dayBefore[0]));
+  }
   const daysAgo = new RegExp(`\\b(${NUMBER_ALT})\\s+days?\\s+ago\\b`, "i").exec(text);
   if (daysAgo !== null) {
     const word = (daysAgo[1] as string).toLowerCase();

@@ -120,6 +120,16 @@ describe("time in a question (time-ask.ts)", () => {
     expect(readTimeAsk("lighthouse at Fernbrook Point", clock)).toBeNull();
     expect(readTimeAsk("questions around pricing", clock)).toBeNull();
     expect(readTimeAsk("around the time we moved", clock)).toBeNull();
+    // Review of #323: a stretch of time is not an event to search for.
+    expect(readTimeAsk("what did we do during the week", clock)?.anchor ?? null).toBeNull();
+    expect(readTimeAsk("anything around the evening", clock)?.anchor ?? null).toBeNull();
+  });
+
+  // Review of #323: read as "yesterday" before.
+  test("the day before yesterday is two days back, exact", () => {
+    const r = readTimeAsk("what happened the day before yesterday", clock);
+    expect(r?.window).toEqual({ from: "2026-10-01", to: "2026-10-01" });
+    expect(r?.rest).toBe("what happened");
   });
 });
 
