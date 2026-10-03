@@ -44,8 +44,8 @@ import type { Fidelity, FitCandidate, Placed } from "../fit/index.js";
 import { emotionalIntensity, sal, strength } from "../physics/index.js";
 import { isHandoff, isSelfPage } from "../recall/index.js";
 import { namesOwner, ownerNames } from "../sleep/index.js";
-import { CARRIED_BY_MAX_CHARS, checkFeelings, checkTraits, defaultStrength, isStoreError, repairEmotion, splitNote } from "../store/index.js";
-import type { DreamChangeRow, DreamRow, FeelingInput, MemoryRow, ProseDoc, Store } from "../store/index.js";
+import { CARRIED_BY_MAX_CHARS, SAID_BY, STATUSES, checkFeelings, checkTraits, defaultStrength, isStoreError, occurredOnOf, repairEmotion, saidByOf, splitNote, statusOf } from "../store/index.js";
+import type { DreamChangeRow, DreamRow, FeelingInput, MemoryRow, MemoryStatus, ProseDoc, SaidBy, Store } from "../store/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
@@ -280,6 +280,10 @@ export interface DreamChange {
   readonly why?: string;
   readonly relevance?: number;
   readonly predictive?: number;
+  /** `gist` (v12, 2026-10-03): when what it draws on happened, who said it, what kind of thing it is. */
+  readonly occurredOn?: string;
+  readonly saidBy?: string;
+  readonly status?: string;
   /** `settle`: the memory that holds, the one it is over, and how (2026-09-29). */
   readonly holds?: string;
   readonly over?: string;
@@ -1329,7 +1333,8 @@ export class Dreams {
         `${String(n())}. Call the counterparts dream tool: phase "begin", session: ${input.session}. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase "part") before you change anything.`,
         `   Tonight's most important memories come whole; the rest come as a line or an excerpt ("fidelity"), with their whole length ("chars"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's "queue" says how many.`,
         `${String(n())}. Read it slowly. Then call phase "propose" with dream: <id> and your changes. Usually far fewer than the ceilings — ${String(L.merge)} merges, ${String(L.link)} links, ${String(L.gist)} gists, ${String(L["feeling-now"])} feelings, ${String(L["nominate-core"])} nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.`,
-        '   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.',
+        '   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.',
+        '   On a gist, occurredOn is when what it draws on happened (a day "2026-09-24", a month, a range "2026-09-21..2026-09-27"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.',
         "   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.",
         `${String(n())}. Call phase "journal" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.`,
         "   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.",
@@ -1708,6 +1713,8 @@ export class Dreams {
         const words = this.words(change.text, dream);
         if (!words.ok) return { action, ok: false, reason: words.reason, detail: `text: ${words.detail}` };
         const kind: Kind = (KINDS as readonly string[]).includes(String(change.kind)) ? (change.kind as Kind) : "fact";
+        // v12: the three fields, loose-first — what cannot be read is dropped and said.
+        const facts = gistFacts(change);
         const cap = PHYSICS.DREAMED_CLAIM_CEILING;
         const title = (change.title ?? "").trim().slice(0, DREAM_TUNABLES.MAX_TITLE_CHARS);
         const id = this.store.put({
@@ -1728,6 +1735,7 @@ export class Dreams {
           meta: { dream: dream.id, dreamed: true, sources, ...confidentialityOf(sourceRows as MemoryRow[]) },
           origin: { ...(dream.session === null ? {} : { session: dream.session }), ...(dream.scope === null ? {} : { scope: dream.scope }), ref: `dream:${dream.id}` },
           ...(dream.model === null ? {} : { model: dream.model }),
+          ...facts.put,
         });
         // The gist's ties to its sources, through the edge module, in the
         // dream's own source order: each lands only where both ends have room
@@ -1753,6 +1761,7 @@ export class Dreams {
         shown.add(id);
         const gistNotes = [
           ...(words.cut ? [`text was kept to its first ${String(DREAM_TUNABLES.MAX_TEXT_CHARS)} characters.`] : []),
+          ...facts.notes,
           ...((change.title ?? "").trim().length > DREAM_TUNABLES.MAX_TITLE_CHARS ? [titleNote()] : []),
           ...(ties.reason === "failed" || ties.reason === "observer"
             ? [`its ties to its sources were not written (${ties.reason}).`]
@@ -2921,6 +2930,32 @@ export function dreamResultChars(text: string, session: string, dream: string): 
 }
 
 /** What a title kept to its cap says — never cut without a word (2026-09-28). */
+/**
+ * A gist's three fields (v12, 2026-10-03), read loose-first: what reads goes
+ * to the row, what does not is dropped with a note — the gist is written
+ * either way, as a malformed `kind` falls back to `fact`.
+ */
+function gistFacts(change: DreamChange): { put: { occurredOn?: string; saidBy?: SaidBy; status?: MemoryStatus }; notes: string[] } {
+  const put: { occurredOn?: string; saidBy?: SaidBy; status?: MemoryStatus } = {};
+  const notes: string[] = [];
+  if (change.occurredOn !== undefined && change.occurredOn !== null) {
+    const d = occurredOnOf(change.occurredOn);
+    if (d === null) notes.push(`occurredOn "${String(change.occurredOn).slice(0, 64)}" is not a date this can read (a day, a month, a year or a range), so it was left off.`);
+    else put.occurredOn = d;
+  }
+  if (change.saidBy !== undefined && change.saidBy !== null) {
+    const v = saidByOf(change.saidBy);
+    if (v === null) notes.push(`saidBy is one of ${SAID_BY.join(", ")}, so it was left off.`);
+    else put.saidBy = v;
+  }
+  if (change.status !== undefined && change.status !== null) {
+    const v = statusOf(change.status);
+    if (v === null) notes.push(`status is one of ${STATUSES.join(", ")}, so it was left off.`);
+    else put.status = v;
+  }
+  return { put, notes };
+}
+
 function titleNote(): string {
   return `title was kept to its first ${String(DREAM_TUNABLES.MAX_TITLE_CHARS)} characters.`;
 }

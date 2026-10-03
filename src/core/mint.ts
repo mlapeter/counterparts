@@ -230,6 +230,10 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     ...(proposal.title === null ? {} : { title: proposal.title }),
     // The reminder date, as the author wrote it (schema v7's `event_date`).
     ...(proposal.eventDate === null ? {} : { eventDate: proposal.eventDate }),
+    // v12: the writer's three fields (when it happened, who said it, what kind).
+    ...(proposal.facts?.occurredOn === undefined ? {} : { occurredOn: proposal.facts.occurredOn }),
+    ...(proposal.facts?.saidBy === undefined ? {} : { saidBy: proposal.facts.saidBy }),
+    ...(proposal.facts?.status === undefined ? {} : { status: proposal.facts.status }),
     meta,
     band: opts.band ?? "episodic",
     ...(opts.model === undefined ? {} : { model: opts.model }),

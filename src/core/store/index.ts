@@ -49,6 +49,7 @@ import {
   isCalendarDate,
   isDay,
   localDate,
+  parseCalendarDate,
   resolveZone,
   utcDate,
 } from "../time.js";
@@ -189,6 +190,7 @@ export {
   V9_UPGRADE_KEY,
   V10_UPGRADE_KEY,
   V11_UPGRADE_KEY,
+  V12_UPGRADE_KEY,
   carriedPairId,
   refileFeelingsV11,
   refileStrayV10Cores,
@@ -349,7 +351,57 @@ export interface PutInput {
    */
   about?: AboutMark;
   aboutBy?: AboutSetter;
+  /**
+   * v12: THE WRITER'S THREE FIELDS (`WriteFacts`) — when the thing happened
+   * (a day, month, year or range, `time.ts#parseCalendarDate`), who said it,
+   * and what kind of thing it is. Absent writes NULL. A belt, not the check:
+   * an unreadable date or an unknown word writes NULL here rather than
+   * refusing the memory (the doors drop them with a note before this).
+   */
+  occurredOn?: string;
+  saidBy?: SaidBy;
+  status?: MemoryStatus;
 }
+
+/**
+ * v12 (2026-10-03): WHO SAID IT — the owner, me (`self`), or my inference
+ * (`inferred`). Not which channel wrote the row (`source` says that): a note
+ * I write can record something the owner said.
+ */
+export const SAID_BY = ["owner", "self", "inferred"] as const;
+export type SaidBy = (typeof SAID_BY)[number];
+/**
+ * v12 (2026-10-03): WHAT KIND OF THING IT IS — `done` (it happened),
+ * `planned` (decided, not yet done), `proposed` (put forward, not decided),
+ * `asked` (a question or request still open). `kind` is taken (physics kind).
+ */
+export const STATUSES = ["done", "planned", "proposed", "asked"] as const;
+export type MemoryStatus = (typeof STATUSES)[number];
+
+/** The writer's three fields, as one value (v12). Each one optional. */
+export interface WriteFacts {
+  readonly occurredOn?: string;
+  readonly saidBy?: SaidBy;
+  readonly status?: MemoryStatus;
+}
+
+/** A value read as who-said-it: anything else is unknown (null). */
+export function saidByOf(v: unknown): SaidBy | null {
+  return typeof v === "string" && (SAID_BY as readonly string[]).includes(v) ? (v as SaidBy) : null;
+}
+
+/** A value read as a status: anything else is unknown (null). */
+export function statusOf(v: unknown): MemoryStatus | null {
+  return typeof v === "string" && (STATUSES as readonly string[]).includes(v) ? (v as MemoryStatus) : null;
+}
+
+/** An occurred-on date as stored — the `time.ts` reading's text — or null when unreadable. */
+export function occurredOnOf(v: unknown): string | null {
+  return parseCalendarDate(v)?.text ?? null;
+}
+
+/** How a subject link was found (`memory_subjects.via`, v12). */
+export type SubjectLinkVia = "write" | "birth" | "backfill";
 
 /**
  * A memory's confidentiality class, from its `meta`.
@@ -755,6 +807,8 @@ export const WRITE_METHODS = [
   "withdrawContradiction",
   "settleContradiction",
   "undoContradictionSettle",
+  // v12 (2026-10-03): a card's birth and the backfill link what names it.
+  "linkSubjects",
 ] as const;
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
@@ -779,7 +833,7 @@ export type WriteMethod = (typeof WRITE_METHODS)[number];
  * A type, not a wrapper: it narrows what a caller can NAME, and a cast gets
  * round it. The stance (`observer: true`) is still what the seam refuses on.
  */
-export type ReadOnlyStore = Omit<Store, WriteMethod | "close" | "guardWrites">;
+export type ReadOnlyStore = Omit<Store, WriteMethod | "close" | "guardWrites" | "findSubjectsWith">;
 
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
@@ -1492,6 +1546,10 @@ export class Store {
       happenedOn?: string;
       /** A new reminder date, or `null` to clear it (a reschedule, a cancel). */
       eventDate?: string | null;
+      /** v12: the writer's three fields, or `null` to clear one. Absent keeps it. */
+      occurredOn?: string | null;
+      saidBy?: SaidBy | null;
+      status?: MemoryStatus | null;
       /** Who wrote the new words (see `PutInput.model`). A revise that changes
        *  the BODY and names no model records NULL: the words are no longer the
        *  last model's. A revise that leaves the body alone keeps the model. */
@@ -1514,8 +1572,9 @@ export class Store {
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
-            title, body, meta, learned_on, happened_on, created_at, model, event_date)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            title, body, meta, learned_on, happened_on, created_at, model, event_date,
+            occurred_on, said_by, status)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         seq,
         patch.reason ?? "revise",
@@ -1531,6 +1590,9 @@ export class Store {
         row.updated_at ?? row.created_at,
         row.model,
         row.event_date,
+        row.occurred_on ?? null,
+        row.said_by ?? null,
+        row.status ?? null,
       );
       const next: ProseDoc = {
         ...prior,
@@ -1556,11 +1618,17 @@ export class Store {
       // Whitespace-only and a lone surrogate go through it too.
       next.body = bodyForStorage(next.body, id);
       const nextHash = hashText(next.body);
+      // v12: the writer's three fields — a patch's, else the row's as they were.
+      const occurredOn =
+        patch.occurredOn === undefined ? (row.occurred_on ?? null) : patch.occurredOn === null ? null : occurredOnOf(patch.occurredOn);
+      const saidBy = patch.saidBy === undefined ? (row.said_by ?? null) : saidByOf(patch.saidBy);
+      const status = patch.status === undefined ? (row.status ?? null) : statusOf(patch.status);
       this.ops.run(
         `UPDATE memories
             SET content_hash = ?, revision = ?, title = ?, body = ?, meta = ?,
                 confidential = ?, learned_on = ?, happened_on = ?,
-                event_date = ?, model = ?, updated_at = ?
+                event_date = ?, model = ?, updated_at = ?,
+                occurred_on = ?, said_by = ?, status = ?
           WHERE id = ?`,
         nextHash,
         seq,
@@ -1576,8 +1644,17 @@ export class Store {
         next.eventDate ?? null,
         model,
         at,
+        occurredOn,
+        saidBy,
+        status,
         id,
       );
+      // v12: NEW WORDS, NEW SUBJECTS — a revise that changes the title or the
+      // body links what the words name now (a chapter copy regrows here); a
+      // meta-only revise (a reminder moved, a thread closed) rescans nothing.
+      if (row.type === "memory" && (patch.body !== undefined || patch.title !== undefined)) {
+        this.relinkSubjects(id, next.title ?? null, next.body);
+      }
       return { doc: next, seq, hash: nextHash };
     });
     this.indexOne(doc);
@@ -1603,8 +1680,9 @@ export class Store {
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
-            title, body, meta, learned_on, happened_on, created_at, model, event_date)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            title, body, meta, learned_on, happened_on, created_at, model, event_date,
+            occurred_on, said_by, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         oldId,
         row.revision + 1,
         reason,
@@ -1620,6 +1698,9 @@ export class Store {
         row.updated_at ?? row.created_at,
         row.model,
         row.event_date,
+        row.occurred_on ?? null,
+        row.said_by ?? null,
+        row.status ?? null,
       );
       this.ops.run(
         `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?,
@@ -1634,6 +1715,7 @@ export class Store {
       // v9: THE ABOUT-ME MARK TRAVELS with the memory to its successor, unless
       // the successor was given its own — a revision is still the same memory.
       carryAboutMark(this.ops, oldId, created.id);
+      carryWriteFacts(this.ops, oldId, created.id);
       return { doc: created, newId: created.id };
     });
     this.indexOne(doc);
@@ -1993,8 +2075,9 @@ export class Store {
       this.ops.run(
         `INSERT INTO versions
            (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
-            title, body, meta, learned_on, happened_on, created_at, model, event_date)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            title, body, meta, learned_on, happened_on, created_at, model, event_date,
+            occurred_on, said_by, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         oldId,
         row.revision + 1,
         reason,
@@ -2010,6 +2093,9 @@ export class Store {
         row.updated_at ?? row.created_at,
         row.model,
         row.event_date,
+        row.occurred_on ?? null,
+        row.said_by ?? null,
+        row.status ?? null,
       );
       this.ops.run(
         `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?, updated_at = ?
@@ -2022,6 +2108,7 @@ export class Store {
       );
       // v9: the about-me mark travels too (the first original that has one).
       carryAboutMark(this.ops, oldId, successorId);
+      carryWriteFacts(this.ops, oldId, successorId);
       if (opts.carryReturns === true) {
         this.ops.run(
           `INSERT OR IGNORE INTO returns (memory_id, day, source, weight, gap, dream_id, at)
@@ -4297,6 +4384,179 @@ export class Store {
     return false;
   }
 
+  /** Whether `table` has `column` — for a reader that may meet a file from
+   *  before the column (v12's fields are read below `OBSERVER_READ_FLOOR`). */
+  hasColumn(table: string, column: string): boolean {
+    try {
+      return this.ops.all<{ name: string }>(`PRAGMA table_info(${table.replace(/[^A-Za-z0-9_]/g, "")})`).some((c) => c.name === column);
+    } catch {
+      return false;
+    }
+  }
+
+  // ── what a memory names (v12, `memory_subjects`) ──────────────────────────
+
+  /** The one slot `findSubjectsWith` fills. */
+  private subjectFinder: ((text: string) => readonly string[]) | null = null;
+
+  /**
+   * THE FUNCTION THAT SAYS WHICH ENTITY CARDS A TEXT NAMES (v12, 2026-10-03)
+   * — installed by the composition root (`Counterpart`, from `schemas/`'s
+   * alias index: the store cannot import it). With one installed, every
+   * memory written through `put` / `putMany` / `supersede`, and every revise
+   * that changes a memory's words, links the cards its title and body name,
+   * in the same transaction. None installed (a bare store, a tool): nothing
+   * is linked, and nothing else changes. One slot; null removes it.
+   */
+  findSubjectsWith(finder: ((text: string) => readonly string[]) | null): void {
+    this.subjectFinder = finder;
+  }
+
+  /**
+   * Inside a write's transaction: the memory's links become what its words
+   * name now — added (`via`), and dropped where the words no longer name a
+   * card. Fail-open: a finder that throws, or a store without the table,
+   * costs the links and never the write (an event says so).
+   */
+  private relinkSubjects(id: string, title: string | null, body: string, via: SubjectLinkVia = "write"): void {
+    const finder = this.subjectFinder;
+    if (finder === null) return;
+    try {
+      if (!this.hasTable("memory_subjects")) return;
+      const want = new Set(finder(title === null || title.length === 0 ? body : `${title}\n${body}`).filter((s) => s !== id));
+      const have = this.ops
+        .all<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id = ?", id)
+        .map((r) => r.subject_id);
+      for (const s of have) {
+        if (!want.has(s)) this.ops.run("DELETE FROM memory_subjects WHERE memory_id = ? AND subject_id = ?", id, s);
+      }
+      const at = this.nowFn();
+      for (const s of [...want].sort()) {
+        this.ops.run(
+          "INSERT OR IGNORE INTO memory_subjects (memory_id, subject_id, via, created_at) VALUES (?, ?, ?, ?)",
+          id,
+          s,
+          via,
+          at,
+        );
+      }
+    } catch (err) {
+      this.emit("store.subjects.failed", id, { code: err instanceof StoreError ? err.code : "UNKNOWN" });
+    }
+  }
+
+  /**
+   * Links found outside a memory's own write — a card born after the memories
+   * that name it (`via: birth`), and the one pass after the v12 upgrade
+   * (`backfill`). One transaction; idempotent (an existing link stays as it
+   * was found). Returns how many were new. A link to itself is skipped.
+   */
+  linkSubjects(links: readonly { readonly memoryId: string; readonly subjectId: string }[], via: SubjectLinkVia): number {
+    return this.mutate("linkSubjects", () => {
+      if (!this.hasTable("memory_subjects")) return 0;
+      const insert = this.ops.prepare(
+        "INSERT OR IGNORE INTO memory_subjects (memory_id, subject_id, via, created_at) VALUES (?, ?, ?, ?)",
+      );
+      const at = this.nowFn();
+      let added = 0;
+      for (const l of links) {
+        if (l.memoryId === l.subjectId) continue;
+        insert.run(l.memoryId, l.subjectId, via, at);
+        added += (this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) > 0 ? 1 : 0;
+      }
+      return added;
+    });
+  }
+
+  /** The cards a memory names (v12), sorted. Empty on a store without the table. */
+  subjectsOf(memoryId: string): string[] {
+    if (!this.hasTable("memory_subjects")) return [];
+    return this.ops
+      .all<{ subject_id: string }>("SELECT subject_id FROM memory_subjects WHERE memory_id = ? ORDER BY subject_id", memoryId)
+      .map((r) => r.subject_id);
+  }
+
+  /** Every link a memory has, with how it was found (v12). */
+  subjectLinksOf(memoryId: string): { subjectId: string; via: string; createdAt: number }[] {
+    if (!this.hasTable("memory_subjects")) return [];
+    return this.ops
+      .all<{ subject_id: string; via: string; created_at: number }>(
+        "SELECT subject_id, via, created_at FROM memory_subjects WHERE memory_id = ? ORDER BY subject_id",
+        memoryId,
+      )
+      .map((r) => ({ subjectId: r.subject_id, via: r.via, createdAt: r.created_at }));
+  }
+
+  /**
+   * The memories that name a card (v12), by id. Live ones only unless
+   * `archived` is true; a removed memory has no links (the owner-op seam
+   * deletes them).
+   */
+  memoriesNaming(subjectId: string, opts: { archived?: boolean } = {}): string[] {
+    if (!this.hasTable("memory_subjects")) return [];
+    return this.ops
+      .all<{ memory_id: string }>(
+        `SELECT s.memory_id FROM memory_subjects s JOIN memories m ON m.id = s.memory_id
+          WHERE s.subject_id = ?${opts.archived === true ? "" : " AND m.archived = 0"}
+          ORDER BY s.memory_id`,
+        subjectId,
+      )
+      .map((r) => r.memory_id);
+  }
+
+  /**
+   * The words of every memory with words — live and archived, never a
+   * tombstone — for a scan that must look at all of them once (a card's
+   * birth, the v12 backfill). Ids, titles and bodies only.
+   */
+  memoryTexts(): { id: string; title: string | null; body: string }[] {
+    return this.ops.all<{ id: string; title: string | null; body: string }>(
+      "SELECT id, title, body FROM memories WHERE type = 'memory' AND body != '' ORDER BY id",
+    );
+  }
+
+  /** How many subject links there are, and on how many memories (v12). Null without the table. */
+  subjectLinkCount(): { links: number; memories: number; subjects: number } | null {
+    if (!this.hasTable("memory_subjects")) return null;
+    const row = this.ops.get<{ links: number; memories: number; subjects: number }>(
+      "SELECT COUNT(*) AS links, COUNT(DISTINCT memory_id) AS memories, COUNT(DISTINCT subject_id) AS subjects FROM memory_subjects",
+    );
+    return { links: row?.links ?? 0, memories: row?.memories ?? 0, subjects: row?.subjects ?? 0 };
+  }
+
+  /**
+   * DOCTOR'S `Write fields` READING (v12): of the memories written since
+   * `since` (UTC ms; null = all) by a door that takes the writer's three
+   * fields — `note`, `session_end` (its write-ups too), a dream's gist — how
+   * many carry each. A dream's MERGE is left out (its words are a dream's,
+   * its `source` the strongest original's, and it takes no fields), as are
+   * chapter copies, the sweep and reflection entries. Null when this file has
+   * no v12 columns yet.
+   */
+  writeFieldShare(since: number | null): { written: number; occurredOn: number; saidBy: number; status: number; all: number } | null {
+    if (!this.hasColumn("memories", "occurred_on")) return null;
+    const row = this.ops.get<{ written: number; occurred_on: number; said_by: number; status: number; all_three: number }>(
+      `SELECT COUNT(*) AS written,
+              COALESCE(SUM(occurred_on IS NOT NULL), 0) AS occurred_on,
+              COALESCE(SUM(said_by IS NOT NULL), 0) AS said_by,
+              COALESCE(SUM(status IS NOT NULL), 0) AS status,
+              COALESCE(SUM(occurred_on IS NOT NULL AND said_by IS NOT NULL AND status IS NOT NULL), 0) AS all_three
+         FROM memories
+        WHERE type = 'memory' AND body != ''
+          AND (source = 'dreamed' OR (source = 'authored' AND (origin_ref IS NULL OR origin_ref NOT LIKE 'dream:%')))
+          AND (? IS NULL OR created_at >= ?)`,
+      since,
+      since,
+    );
+    return {
+      written: row?.written ?? 0,
+      occurredOn: row?.occurred_on ?? 0,
+      saidBy: row?.said_by ?? 0,
+      status: row?.status ?? 0,
+      all: row?.all_three ?? 0,
+    };
+  }
+
   private readonly tablesSeen = new Set<string>();
 
   private traitReads(rows: (TraitRow & { confidential: number })[], includeConfidential: boolean): TraitRead[] {
@@ -4762,8 +5022,8 @@ export class Store {
          archived_reason, superseded_by, revision, content_hash,
          learned_on, happened_on, source, origin_session, origin_scope, origin_ref,
          title, body, meta, confidential, created_at, updated_at, model, event_date, legacy,
-         about, about_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         about, about_by, occurred_on, said_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.type,
       input.kind,
@@ -4803,7 +5063,17 @@ export class Store {
       input.physics?.legacy === true ? 1 : 0,
       input.about !== undefined && aboutMarkOf(input.about) !== null ? input.about : null,
       input.about !== undefined && aboutMarkOf(input.about) !== null ? (input.aboutBy ?? "writer") : null,
+      // v12: the writer's three fields. Unreadable or unknown writes NULL —
+      // the belt; the doors drop them with a note before they get here.
+      input.occurredOn === undefined ? null : occurredOnOf(input.occurredOn),
+      input.saidBy === undefined ? null : saidByOf(input.saidBy),
+      input.status === undefined ? null : statusOf(input.status),
     );
+    // v12: WHAT IT NAMES, linked in the same transaction as the row — every
+    // door that writes a memory passes here (a note, a session's dump, a
+    // write-up, the sweep, a chapter copy, a dream's merge or gist, a
+    // reflection's entry), so no door can forget. Memories only.
+    if (input.type === "memory") this.relinkSubjects(id, doc.title ?? null, doc.body, "write");
     return doc;
   }
 
@@ -5141,6 +5411,29 @@ function carryAboutMark(ops: Db, fromId: string, toId: string): void {
     toId,
     fromId,
   );
+}
+
+/**
+ * v12: a successor takes each of the writer's three fields its predecessor
+ * had and it was not given — a revision or a merge is still the same memory
+ * (as `carryAboutMark`). Of several originals merged, the first that has one
+ * gives it. Inside the caller's transaction; a file without the columns is
+ * left alone.
+ */
+function carryWriteFacts(ops: Db, fromId: string, toId: string): void {
+  for (const col of ["occurred_on", "said_by", "status"] as const) {
+    try {
+      ops.run(
+        `UPDATE memories SET ${col} = (SELECT ${col} FROM memories WHERE id = ?)
+          WHERE id = ? AND ${col} IS NULL AND (SELECT ${col} FROM memories WHERE id = ?) IS NOT NULL`,
+        fromId,
+        toId,
+        fromId,
+      );
+    } catch {
+      return;
+    }
+  }
 }
 
 function modelOrNull(model: string | undefined): string | null {

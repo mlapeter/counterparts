@@ -1916,3 +1916,35 @@ store does with it:
   original's): a feeling is a moment's, as a trait nudge's is, so a merge no longer dates
   what it carries to the merge night. `updated_at` is the write's. Rows merged before keep
   the date they were given.
+
+## 2026-10-03 — v12: the writer's three fields, and subject links (Release A of deliberate recall)
+
+- **Three columns, not one, and none of them reused.** `happened_on` is the lived day of a
+  write-up (`livedOn()` reads it for second-hand rows) and `event_date` is a future date to
+  be reminded on; a write-up of yesterday that mentions something from August needs both,
+  and a reminder needs its own. So `occurred_on` is new, with `event_date`'s shapes (day,
+  month, range, year). `said_by` and `status` are new names because `source` (which
+  channel wrote the row) and `kind` (physics kind) are taken. All NULL on every row the
+  upgrade found: nothing can fill them without a model, and the store is keyless.
+- **Versions mirror them**, as they mirror `event_date`: they describe the words, and a
+  revise that changes the words keeps the old three with the old words.
+- **`OBSERVER_READ_FLOOR` stays 11.** Each earlier raise answered yes to "does an
+  instrument reading the older file get a wrong answer?". v12 re-files nothing; rows are
+  read `m.*`, so a v11 row simply lacks the three; and the one reader of the new fields
+  (doctor's `Write fields`) asks `hasColumn` first and is silent until the upgrade. Keeping
+  the floor keeps doctor and the dashboard reading a v11 store between an install and the
+  first writer. The row types carry the fields as `string | null`; on a v11 file they read
+  undefined, so every reader takes them `?? null`.
+- **Links are written by the store, found by `schemas/`.** The store cannot import the
+  alias index, and the alternative — linking in `Counterpart#creditNamedIn` — misses the
+  doors that call `put` directly (a dream's gist and merge, a reflection's entry). So the
+  composition root installs a finder (`findSubjectsWith`) and `insertOne` / `revise` link
+  in the write's own transaction. Fail-open, with a `store.subjects.failed` event.
+- **The backfill runs after the open, not in the migration**, because the migrating
+  transaction has no alias index. `Counterpart`'s constructor runs it once per store
+  (writer-only, latched by `subjects.v12.backfill` in meta, read first), through
+  `AliasIndex#scanner` — the same hits as `matchesIn` without trying every term on every
+  text (a test holds the two equal). Cost on the live-sized store is one read of the
+  memories' words and a token lookup per word.
+- **The upgrade records its moment** (`recall.v12.upgrade`): doctor counts the share of
+  each field among memories written after it.

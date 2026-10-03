@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Memories record when it happened, who said it, and what kind of thing it is (schema
+  v12).** `note`, each `session_end` entry (write-ups included) and a dream's gist take three
+  optional fields: `occurredOn` (a day, month, range or year — resolve "last week" to a date
+  while you know it), `saidBy` (owner, self, inferred) and `status` (done, planned, proposed,
+  asked). One that cannot be read is dropped and said beside the memory, which is stored all
+  the same; revising a memory by its id carries them over unless new ones are sent. Recall does
+  not read them yet: they fill for a while first, and doctor's new `Write fields` line says how
+  often each one is filled. The upgrade copies the store first, as every upgrade does; old
+  memories keep empty fields.
+- **Memories are linked to the people and projects they name.** Each memory is linked at its
+  write to the entity cards its words name, a new card links the memories already naming it,
+  and the memories from before the upgrade are linked once at the first open after it. Nothing
+  reads the links yet.
+- **A chapter has an address.** `epi_…#2` names the second chapter of an episode and resolves
+  to its heading, its text, the stretch it wrote up and the memories its session wrote in that
+  stretch. Chapters now record the moment they were written. Nothing calls it yet.
 - **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
   next is written locally and ignored; its history stays.
 - **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were

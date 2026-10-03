@@ -515,3 +515,13 @@ confidential memory is confidential, a page rests on nothing confidential — wh
   offer's count) keeps `ctx.owner`, so it counts confidential new memories that the guest
   bundle then leaves out: on a store whose only new memories are confidential, "yes, dream"
   can come back with nothing new. A known quirk, kept as is.
+
+## 2026-10-03 — a gist takes the writer's three fields (schema v12)
+
+- `gist` takes `occurredOn`, `saidBy` and `status` (prompt line and the `dream` tool's
+  schema), read loose-first by `gistFacts`: what reads goes on the row, what does not is
+  left off with a note and the gist is written. Nothing is defaulted — a gist is plainly an
+  inference, but doctor's `Write fields` line measures what the writer fills, so an
+  engine-set `inferred` would read as the writer's. A merge takes no fields; the store
+  carries each original's to the merged memory where it has none (`carryWriteFacts`, the
+  first original that has one, as the about-mark). Reflection entries do not take them yet.

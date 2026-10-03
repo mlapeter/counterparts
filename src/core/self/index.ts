@@ -173,6 +173,7 @@ export * from "./journal-file.js";
 export * from "./page.js";
 export * from "./writer.js";
 export * from "./episodes.js";
+export * from "./chapter-address.js";
 export * from "./freeze.js";
 export * from "./identity.js";
 export * from "./tunables.js";

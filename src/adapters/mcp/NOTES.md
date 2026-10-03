@@ -1134,3 +1134,16 @@ anything about the person, the past or ongoing work, and a negative example says
 is a slice, never the record; `hosts.ts#DESKTOP_ALWAYS_ALLOW` is said by the install, the help,
 QUICKSTART and doctor's Claude Desktop line, which cannot measure it. "The first call carries
 the wake" is not built: it waits on the owner's test.
+
+## 2026-10-03 — the writer's three fields (Release A of deliberate recall)
+
+`note` and each `session_end` entry (so write-ups too) take `occurredOn`, `saidBy` and
+`status`, read by `server.ts#readWriteFacts` before anything mints, and not a refusal: an
+unreadable date or an unknown word is dropped and said (`facts.dropped`, with what to send
+instead), the memory stored all the same. A date in the future is kept with a note that a
+reminder date is `eventDate`. Null is "none" (a revision carries nothing over for it). The
+answer's `facts` says what was recorded after `Counterpart#carryFacts`, what was carried
+over and from where. The descriptions teach the one thing that matters: resolve "last
+week" to a date now, leave it out when unknown, `occurredOn` is when it happened and
+`eventDate` a future date — and `EVENT_DATE_PROPERTY` now points back at `occurredOn`.
+Recall's behaviour did not change in this release.

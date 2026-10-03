@@ -166,6 +166,13 @@ name/alias resolution; birth and death telemetry.
 13. **[M] Every kind reports created-versus-exited counts.** A kind whose exit count is
     zero after the bake-in window is a **defect to investigate, not a base rate to accept**
     (scar §2.17).
+14. **[M] A memory's subjects are the live cards its words name** (v12, 2026-10-03; working
+    default). `subjectsIn` reads them by `creditNamedIn`'s rules — the one whole-word rule,
+    `NAME_MIN_CHARS`, exactly one live holder — and the store links them at every memory
+    write through the finder `Counterpart` installs. A card's birth (a revival too) links
+    the memories already naming it. The backfill's reading goes through
+    `AliasIndex#scanner`, which gives exactly `matchesIn`'s hits (a test holds them equal).
+    `addAliases` does not look back.
 
 ## 6. Scars honored
 

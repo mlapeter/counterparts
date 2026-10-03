@@ -22,6 +22,7 @@
 import { SETTLE_HOWS } from "../types.js";
 import type { Kind, Salience, SettleHow } from "../types.js";
 import { hashText } from "../store/prose.js";
+import type { WriteFacts } from "../store/index.js";
 import { parseCalendarDate } from "../time.js";
 import { randomBytes } from "node:crypto";
 
@@ -141,6 +142,14 @@ export interface Proposal {
    * `meta.reminderFrom` at the minting seam (prospective `DATE_FROM_META`).
    */
   reminderFrom?: string;
+  /**
+   * v12 (2026-10-03): the writer's three fields — when it happened, who said
+   * it, what kind of thing it is — set by `Counterpart#deposit` from what the
+   * door read (never from intake: they are not draft fields, so an unreadable
+   * one is dropped with a note at the door rather than refusing the memory),
+   * with a revision's carried over. Absent on a proposal no author wrote.
+   */
+  facts?: WriteFacts;
   at: number;
   day: number;
   /** Identity for idempotency: CONTENT, not span text (§4.1 G9). */

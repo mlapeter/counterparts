@@ -315,8 +315,42 @@ const TRAITS_PROPERTY = {
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then. Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date and remind carry over unless you send new ones; send null to drop the date (done, cancelled).',
+    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date and remind carry over unless you send new ones; send null to drop the date (done, cancelled).',
 } as const;
+
+/**
+ * v12 (2026-10-03): the writer's three fields on a `note` or a `session_end`
+ * entry — what deliberate recall's facts answer will show for each memory
+ * (when it happened, who said it, what kind of thing it is). Filled at write
+ * time because the context is here now; recall does not guess them.
+ */
+const OCCURRED_ON_PROPERTY = {
+  type: ["string", "null"],
+  description:
+    'Optional: when the thing this memory is about happened — a day "2026-09-24", a month "2026-09", a range "2026-09-21..2026-09-27" or a year "2026". Resolve "yesterday" or "last week" to a real date NOW, while you know today\'s date; leave it out when you do not know. Not eventDate, which is a future date to be reminded on.',
+} as const;
+
+const SAID_BY_PROPERTY = {
+  type: ["string", "null"],
+  enum: ["owner", "self", "inferred", null],
+  description:
+    'Optional: who said it — "owner" (they told you), "self" (you said or decided it), "inferred" (your own reading; nobody said it).',
+} as const;
+
+const STATUS_PROPERTY = {
+  type: ["string", "null"],
+  enum: ["done", "planned", "proposed", "asked", null],
+  description:
+    'Optional: what kind of thing it is — "done" (it happened), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
+} as const;
+
+/** The privilege `note` and `session_end` share for the three fields (v12). */
+const WRITE_FACTS_PRIVILEGE: Privilege = {
+  claim:
+    "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text. One that cannot be read is dropped and said beside the memory, which is stored all the same; revising a memory by its id with `updates` carries all three over unless you send your own (null: none).",
+  mechanizedBy:
+    "src/adapters/mcp/server.ts#readWriteFacts -> src/core/counterpart.ts#carryFacts -> src/core/mint.ts#mintProposal -> src/core/store/index.ts#insertOne (occurred_on, said_by, status)",
+};
 
 const REMIND_PROPERTY = {
   type: "string",
@@ -451,6 +485,7 @@ const NOTE: ToolSpec = {
         "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
     },
     ...DATE_PRIVILEGES,
+    WRITE_FACTS_PRIVILEGE,
     {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/core/store/index.ts#mutate (observer stand-down)",
@@ -512,6 +547,9 @@ const NOTE: ToolSpec = {
       title: { type: "string", description: TITLE_TEXT },
       eventDate: EVENT_DATE_PROPERTY,
       remind: REMIND_PROPERTY,
+      occurredOn: OCCURRED_ON_PROPERTY,
+      saidBy: SAID_BY_PROPERTY,
+      status: STATUS_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
@@ -724,6 +762,7 @@ const SESSION_END: ToolSpec = {
       mechanizedBy: "src/core/encode/secrets.ts + src/adapters/mcp/server.ts#sessionEndTool (per-entry isolation)",
     },
     ...DATE_PRIVILEGES,
+    WRITE_FACTS_PRIVILEGE,
     {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/core/store/index.ts#mutate (observer stand-down)",
@@ -842,6 +881,9 @@ const SESSION_END: ToolSpec = {
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,
             remind: REMIND_PROPERTY,
+            occurredOn: OCCURRED_ON_PROPERTY,
+            saidBy: SAID_BY_PROPERTY,
+            status: STATUS_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,
@@ -1223,7 +1265,7 @@ const DREAM: ToolSpec = {
       changes: {
         type: "array",
         description:
-          "`propose`: the changes, each an object with `action` — `merge` (ids: two or more near-copies, text: the one memory in better words, title?), `link` (a, b), `replayed` (id), `gist` (text, sources: ids, title?, kind?), `contradiction` (a, b), `settle` (holds, over, how: changed|corrected|open, why — only when the reason is plain; flag otherwise), `feeling-now` (id, core, emotion: ONE word, strength, carried_by: the nuance in your own words), `nominate-core` (id, why). Usually far fewer changes than the limits; none is fine.",
+          "`propose`: the changes, each an object with `action` — `merge` (ids: two or more near-copies, text: the one memory in better words, title?), `link` (a, b), `replayed` (id), `gist` (text, sources: ids, title?, kind?, occurredOn?: when what it draws on happened, saidBy?: owner|self|inferred, status?: done|planned|proposed|asked), `contradiction` (a, b), `settle` (holds, over, how: changed|corrected|open, why — only when the reason is plain; flag otherwise), `feeling-now` (id, core, emotion: ONE word, strength, carried_by: the nuance in your own words), `nominate-core` (id, why). Usually far fewer changes than the limits; none is fine.",
         items: {
           type: "object",
           properties: {
@@ -1239,6 +1281,9 @@ const DREAM: ToolSpec = {
             title: { type: "string" },
             kind: { type: "string", enum: ["self", "person", "entity", "skill", "place", "fact"] },
             sources: { type: "array", items: { type: "string" } },
+            occurredOn: { type: "string", description: "`gist`: when what it draws on happened — a day, a month, a year or a range." },
+            saidBy: { type: "string", enum: ["owner", "self", "inferred"], description: "`gist`: who said it; inferred when it is your own reading." },
+            status: { type: "string", enum: ["done", "planned", "proposed", "asked"], description: "`gist`: what kind of thing it is." },
             core: { type: "string", enum: CORES, description: `\`feeling-now\`: ${CORE_TEXT}` },
             emotion: { type: "string", description: `\`feeling-now\`: ${EMOTION_TEXT}` },
             strength: { type: "number", minimum: 0, maximum: 1 },

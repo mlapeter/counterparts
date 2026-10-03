@@ -390,3 +390,20 @@ one of them is reported as not applied rather than bent to fit. A swept declarat
 (`applySweep`) sends no `how`: a retelling of a transcript does not settle what the
 experiencer did not, so it stays a link. A journal chapter (`type` episode) stays a link
 too: it is not a claim.
+
+## 2026-10-03 — subjects: what a memory names (schema v12)
+
+- **`subjectsIn(text)`** is the finder the store links with at every memory write
+  (`Store#findSubjectsWith`, installed by `Counterpart`): the live cards a text names, by
+  `creditNamedIn`'s rules — the one whole-word rule, `NAME_MIN_CHARS`, exactly one live
+  holder (a handle two cards hold links neither). A faded card is not a subject: a mention
+  revives it through `creditNamedIn`, and the rebirth looks back.
+- **A birth looks back** (`linkNamingMemories`, from `birth`, so a revival too): the
+  memories already written that name the new card are linked `via: birth`. One read of the
+  memories' words and one regex per term; fail-open. `addAliases` does not look back for
+  the memories naming a new alias — the brief asked for creation; an alias added later
+  links the memories written after it, and a re-run of the backfill would catch the rest.
+- **The backfill's reading** (`subjectLinksForAll`) goes through `AliasIndex#scanner`, the
+  same hits as `matchesIn` with a word-token prefilter (`encode/words.ts#wordTokens`, the
+  matcher's own word class) and every candidate confirmed by the one rule — so the
+  prefilter can skip work without changing an answer (`test/recall-write-side.test.ts`).

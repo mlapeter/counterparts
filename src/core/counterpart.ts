@@ -178,11 +178,11 @@ import type {
 } from "./self/index.js";
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
-import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
+import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf, occurredOnOf, saidByOf, statusOf } from "./store/index.js";
 import type {
   AboutMark,
   AddFeelingsResult,
-  FeelingInput, Embedder, StoreEvent, TraitInput } from "./store/index.js";
+  FeelingInput, Embedder, StoreEvent, TraitInput, MemoryRow, MemoryStatus, SaidBy } from "./store/index.js";
 import { TUNABLES as PHYSICS, band as bandOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
@@ -521,6 +521,8 @@ export const ASSOCIATE_FLUSH_EVENT = "associate.flush";
  * store's first session, never an old store's whole history.
  */
 export const CONTIGUITY_CURSOR_META = "associateContiguityCursor";
+/** Meta key: the v12 subject backfill's record (latch + what it linked, for doctor). */
+export const SUBJECTS_BACKFILL_META = "subjects.v12.backfill";
 
 /** What one boundary's temporal contiguity pass did. Counts only. */
 export interface ContiguityPass {
@@ -951,9 +953,38 @@ export interface WakeHere {
   readonly exportsFrom?: (scope: string) => boolean;
 }
 
+/**
+ * v12 (2026-10-03): THE WRITER'S THREE FIELDS AS SENT, read and checked by
+ * the door (`mcp/server.ts#readWriteFacts` drops what it cannot read, with a
+ * note, and never refuses the memory for it). Per field: absent = not sent —
+ * a revision (`updates:`, declared and resolved) carries it over from the
+ * memory it revises; `null` = sent as none — nothing is carried.
+ */
+export interface SentFacts {
+  readonly occurredOn?: string | null;
+  readonly saidBy?: SaidBy | null;
+  readonly status?: MemoryStatus | null;
+}
+
+/** The three fields' names, as a writer sends them. */
+export type FactField = "occurredOn" | "saidBy" | "status";
+
+/** What a deposit recorded of the three fields (v12), and what it carried over. */
+export interface DepositFacts {
+  readonly occurredOn: string | null;
+  readonly saidBy: SaidBy | null;
+  readonly status: MemoryStatus | null;
+  /** Fields taken from the memory this one revises because the writer left them out. */
+  readonly inherited: readonly FactField[];
+  /** The memory they were taken from, when any was. */
+  readonly from: string | null;
+}
+
 export interface DepositContext {
   session: string;
   scope: string;
+  /** v12: the writer's three fields, as sent (`SentFacts`). Absent: none sent. */
+  facts?: SentFacts;
   /** The span this deposit IS (a jot's own words), withheld from the sweep. */
   ownSpanHash?: string | null;
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
@@ -1037,6 +1068,8 @@ export interface DepositResult {
    * `Counterpart#closeThread`) or the clear did not land. Absent otherwise.
    */
   readonly thread?: { readonly from: string; readonly closed: boolean; readonly refused?: ThreadRefusal };
+  /** v12: the writer's three fields as recorded — after a revision's carry-over. */
+  readonly facts?: DepositFacts;
 }
 
 /**
@@ -1734,6 +1767,12 @@ export class Counterpart {
       },
       onEvent: (e) => this.relay("schemas", { at: e.at, name: e.event, ...(e.ref === undefined ? {} : { ref: e.ref }), ...(e.data === undefined ? {} : { data: e.data }) }),
     });
+    // v12 (2026-10-03): WHAT A MEMORY NAMES, linked at every write. The store
+    // cannot import `schemas/`, so the finder is handed to it here, and every
+    // door that writes a memory — this file's, `dream/`'s, `self/`'s — links
+    // through the same one. Then, once per store, the memories written before.
+    this.store.findSubjectsWith((text) => this.schemas.subjectsIn(text));
+    if (!this.observer) this.backfillSubjects();
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
@@ -3356,6 +3395,7 @@ export class Counterpart {
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.owner === undefined ? {} : { owner: ctx.owner }),
+      ...(ctx.facts === undefined ? {} : { facts: ctx.facts }),
     });
   }
 
@@ -5313,7 +5353,9 @@ export class Counterpart {
     }
 
     const carry = this.carryReminder(result.proposal);
-    const proposal = carry.proposal;
+    // v12: the writer's three fields, a revision's carried over where unsent.
+    const facts = this.carryFacts(carry.proposal, ctx.facts);
+    const proposal: Proposal = facts === null ? carry.proposal : { ...carry.proposal, facts: { ...(facts.occurredOn === null ? {} : { occurredOn: facts.occurredOn }), ...(facts.saidBy === null ? {} : { saidBy: facts.saidBy }), ...(facts.status === null ? {} : { status: facts.status }) } };
     const mint = mintProposal(this.store, proposal, {
       self: this.self,
       channel: "authored",
@@ -5359,7 +5401,40 @@ export class Counterpart {
       ...(reminder === null ? {} : { reminder }),
       ...(revision === null ? {} : { revision }),
       ...(thread === null ? {} : { thread }),
+      ...(facts === null ? {} : { facts }),
     };
+  }
+
+  /**
+   * THE WRITER'S THREE FIELDS FOR A NEW MEMORY (v12, 2026-10-03): what the
+   * writer sent, field by field, and — for a revision of a memory the author
+   * addressed by `updates:` (declared and resolved, as `carryReminder` reads
+   * it) — what it left out, taken from the memory it revises. A field sent as
+   * null carries nothing. Unlike the reminder nothing MOVES: the old memory
+   * keeps its own three, which describe its words truly. Null when nothing
+   * was sent and nothing carried.
+   */
+  private carryFacts(p: Proposal, sent: SentFacts | undefined): DepositFacts | null {
+    const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+    let row: MemoryRow | undefined;
+    try {
+      row = target === null ? undefined : this.store.row(target);
+    } catch {
+      row = undefined;
+    }
+    const inherited: FactField[] = [];
+    const pick = <T extends string>(field: FactField, given: T | null | undefined, prior: T | null): T | null => {
+      if (given !== undefined) return given;
+      if (prior !== null) inherited.push(field);
+      return prior;
+    };
+    const occurredOn = pick("occurredOn", sent?.occurredOn, occurredOnOf(row?.occurred_on ?? null));
+    const saidBy = pick("saidBy", sent?.saidBy, saidByOf(row?.said_by ?? null));
+    const status = pick("status", sent?.status, statusOf(row?.status ?? null));
+    if (occurredOn === null && saidBy === null && status === null && inherited.length === 0) {
+      return sent === undefined || Object.keys(sent).length === 0 ? null : { occurredOn, saidBy, status, inherited, from: null };
+    }
+    return { occurredOn, saidBy, status, inherited, from: inherited.length > 0 ? (target as string) : null };
   }
 
   /**
@@ -5898,6 +5973,31 @@ export class Counterpart {
       });
     } catch (err) {
       this.emit("counterpart.mention.named.failed", memoryId, { door, code: errCode(err) });
+    }
+  }
+
+  /**
+   * THE v12 BACKFILL (2026-10-03): the memories written before subject links
+   * existed, linked once to the live cards they name (`via: backfill`), by
+   * the rule a write uses (`Schemas#subjectLinksForAll`). Latched by its
+   * record in meta (`SUBJECTS_BACKFILL_META`), read first, so every open
+   * after the first costs one meta read; idempotent if it is cut short (a
+   * link that exists stays as it was found). Writer-only. Fail-open: a store
+   * whose backfill fails opens all the same, and tries again next open.
+   */
+  private backfillSubjects(): void {
+    try {
+      if (this.store.getMeta(SUBJECTS_BACKFILL_META) !== undefined) return;
+      const started = this.nowFn();
+      const found = this.schemas.subjectLinksForAll();
+      const added = found.links.length === 0 ? 0 : this.store.linkSubjects(found.links, "backfill");
+      this.store.setMeta(
+        SUBJECTS_BACKFILL_META,
+        JSON.stringify({ at: this.nowFn(), ms: this.nowFn() - started, memories: found.memories, links: added, cards: found.cards }),
+      );
+      this.emit("counterpart.subjects.backfill", undefined, { memories: found.memories, links: added, cards: found.cards });
+    } catch (err) {
+      this.emit("counterpart.subjects.backfill.failed", undefined, { code: errCode(err) });
     }
   }
 

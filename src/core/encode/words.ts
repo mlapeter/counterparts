@@ -45,6 +45,19 @@ export function occursAsWholeWord(haystack: string, term: string): boolean {
 }
 
 /** How many whole-word occurrences. Used for per-channel attribution, not counts of text. */
+/**
+ * THE TEXT'S WHOLE WORDS, lower-cased: its runs of word characters, by the
+ * one class the matcher above uses (v12, 2026-10-03). A PREFILTER'S INDEX,
+ * never a match — a term can only occur as a whole word where its first run
+ * of word characters is one of these, and every candidate is confirmed with
+ * `occursAsWholeWord` (`schemas/aliases.ts#AliasIndex.scanner`).
+ */
+export function wordTokens(text: string): string[] {
+  return text.toLowerCase().match(WORD_RUN) ?? [];
+}
+
+const WORD_RUN = new RegExp(`${WORD_CHAR}+`, "gu");
+
 export function countWholeWord(haystack: string, term: string): number {
   const t = term.trim();
   if (t.length === 0) return 0;

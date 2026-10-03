@@ -440,6 +440,28 @@ export function chapterHeading(chapter: number, day: number, date?: string, mode
 export { isModelId };
 
 /** Which model wrote each chapter, from an episode's meta — `{ "1": "claude-opus-5-5" }`. */
+/**
+ * The episode's `meta` key for WHEN EACH CHAPTER WAS WRITTEN (v12,
+ * 2026-10-03): `{ "1": <UTC ms>, "2": … }`, the moment the chapter was opened,
+ * off the store's clock. The heading says the calendar day; this says the
+ * moment, which is what a chapter's span is cut by (`chapter-address.ts`).
+ * Stored because the only other record of it — the version row each new
+ * chapter leaves — is pruned after the retention window. Carried whole on
+ * every append, as `models` is (meta merges shallowly).
+ */
+export const CHAPTER_AT_META = "chapterAt";
+
+/** The episode's chapter moments (`CHAPTER_AT_META`), by chapter number. */
+export function chapterMoments(meta: Record<string, unknown>): Record<string, number> {
+  const raw = meta[CHAPTER_AT_META];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (/^\d+$/.test(k) && typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
 export function chapterModels(meta: Record<string, unknown>): Record<string, string> {
   const raw = meta["models"];
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -540,6 +562,7 @@ export function appendChapter(
         sessionId: state.sessionId,
         chapters: chapter,
         ...(model === undefined ? {} : { models: { [String(chapter)]: model } }),
+        [CHAPTER_AT_META]: { [String(chapter)]: store.now() },
         ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
       },
       // The experiencer writing its own journal is the "episode" channel —
@@ -568,12 +591,16 @@ export function appendChapter(
   // the whole map is carried.
   const models = chapterModels(prior.meta);
   if (opensChapter && model !== undefined) models[String(num)] = model;
+  // v12: the moment each chapter opened, carried whole like `models`.
+  const moments = chapterMoments(prior.meta);
+  if (opensChapter) moments[String(num)] = store.now();
   store.revise(state.episodeId, {
     body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day, opts.date, model) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
     meta: {
       sessionId: state.sessionId,
       chapters: Math.max(num, recorded),
       ...(Object.keys(models).length === 0 ? {} : { models }),
+      ...(Object.keys(moments).length === 0 ? {} : { [CHAPTER_AT_META]: moments }),
       ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
     },
     reason: opensChapter ? "episode-chapter" : "episode-append",
