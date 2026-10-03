@@ -312,6 +312,23 @@ describe("other lenses", () => {
     expect(entries(r).map((e) => e.address)).toEqual([`${s.a1.episodeId}#1`, `${s.c1.episodeId}#1`]);
   });
 
+  test("a feeling with a card that only a reading carries: the whole arc, said so", () => {
+    const c = brain();
+    card(c, "Rua");
+    const m = moment(c, "sess_r", "Rua sent the contract back unsigned.");
+    chapter(c, "sess_r", "Rua sent the contract back today, unsigned, with a note asking for two more weeks.");
+    moment(c, "sess_dream", "Rua's silences read as tension.", {
+      title: "Dreamed: Rua",
+      source: "dreamed",
+      meta: { dream: "drm_r", dreamed: true, sources: [m] },
+      feel: [{ whose: "self", emotion: "uneasy", strength: 0.6 }],
+    });
+    const r = meaningRecall(ctx(c), "When was I uneasy about Rua?");
+    expect(r.lens).toMatchObject({ kind: "card", name: "Rua" });
+    expect(entries(r).flatMap((e) => e.moments.map((x) => x.id))).toEqual([m]);
+    expect(r.notes.join(" ")).toContain("none of Rua's moments carry uneasy");
+  });
+
   test("no card and no feeling: the question's rarer words, said so", () => {
     const c = brain();
     const s = seed(c);

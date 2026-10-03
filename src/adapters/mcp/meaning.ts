@@ -452,15 +452,6 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
   }
 
-  // A question about feeling WITH a subject keeps the subject's moments that
-  // carry the feeling — if any do; otherwise the whole arc, and it says so.
-  let feelingFilter: ReadonlyMap<string, number> | null = null;
-  if (feelingAsked && ask !== null && lens !== null && lens.kind !== "feeling") {
-    const kept = [...held.keys()].filter((id) => felt.has(id));
-    if (kept.length > 0) feelingFilter = felt;
-    else notes.push(`none of ${lens.name}'s moments carry ${feelingName(ask.named, ask.whose, whose)}: the whole arc follows`);
-  }
-
   // Readings and chapter copies are not moments: set aside.
   const readingIds = new Set<string>();
   const copies = new Map<string, Held>();
@@ -484,6 +475,17 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     if (isFaded(physics, day)) fadedIds.push(id);
   }
   for (const id of fadedIds) held.delete(id);
+
+  // A question about feeling WITH a subject keeps the subject's moments that
+  // carry the feeling — if any do; otherwise the whole arc, and it says so.
+  // Read after the readings, copies and faded are set aside: a gist or a
+  // faded moment carrying it would keep nothing on the arc.
+  let feelingFilter: ReadonlyMap<string, number> | null = null;
+  if (feelingAsked && ask !== null && lens !== null && lens.kind !== "feeling") {
+    const kept = [...held.keys()].filter((id) => felt.has(id));
+    if (kept.length > 0) feelingFilter = felt;
+    else notes.push(`none of ${lens.name}'s moments carry ${feelingName(ask.named, ask.whose, whose)}: the whole arc follows`);
+  }
 
   // ── 3. the arc: place each moment under its chapter ────────────────────────
   const episodes = episodeIndex(c, owner, denied);
