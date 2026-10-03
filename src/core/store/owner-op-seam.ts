@@ -540,6 +540,13 @@ function redactEntryMemory(db: Db, entryId: string, removedId: string): void {
     hashText(REDACTED_REFLECTION),
     entryId,
   );
+  // v12: its subject links said which cards the redacted words named; the
+  // words are gone, so what they named goes with them.
+  try {
+    db.run("DELETE FROM memory_subjects WHERE memory_id = ?", entryId);
+  } catch {
+    /* a store from before v12 */
+  }
 }
 
 // ── the repair ──────────────────────────────────────────────────────────────

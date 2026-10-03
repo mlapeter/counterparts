@@ -781,8 +781,11 @@ describe("owner rulings on the review's decisions", () => {
     nextDay(c);
     const felt = mem(c, "I felt proud when Mike said the dashboard finally reads like a person.", { kind: "self", about: "me" });
     const kept = mem(c, "We shipped the dashboard.");
-    const { bundle, outcome } = reflect(c, [felt, kept], {});
+    // v12: a card the entry's words name, so the entry carries a subject link.
+    const mike = c.schemas.mention({ name: "Mike", kind: "person", source: "Mike", chunkRef: "card-mike", day: c.store.livedDay() }).id as string;
+    const { bundle, outcome } = reflect(c, [felt, kept], { entry: "Looking back, Mike and I finished what we started." });
     const entry = outcome.entryId as string;
+    expect(c.store.subjectsOf(entry)).toEqual([mike]);
     c.store.appendRemovalRecord({ memoryId: felt, stage: "requested", actor: "owner", reason: "test" });
     c.store.appendRemovalRecord({ memoryId: felt, stage: "dark", actor: "owner", reason: "test" });
     const { chaseRemoved } = await import("../src/core/store/owner-op-seam.js");
@@ -792,6 +795,8 @@ describe("owner rulings on the review's decisions", () => {
     expect(row?.body).toContain("redacted");
     expect(row?.title).toBe("Reflected: [redacted]");
     expect(row?.body).not.toContain("Looking back");
+    // What the redacted words named goes with them.
+    expect(c.store.subjectsOf(entry)).toEqual([]);
     const cites = JSON.parse(row?.meta ?? "{}").cites as string[];
     expect(cites).not.toContain(felt);
     expect(cites).toContain(kept);
