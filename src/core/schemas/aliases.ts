@@ -15,7 +15,7 @@
  * has `register` / `unregister` and no "sync from body text" path.
  */
 
-import { occursAsWholeWord } from "../encode/words.js";
+import { occursAsWholeWord, wholeWordRegex, wordTokens } from "../encode/words.js";
 
 export interface AliasHit {
   id: string;
@@ -119,6 +119,48 @@ export class AliasIndex {
 
   size(): number {
     return this.byId.size;
+  }
+
+  /** Every registered card and its terms, by id (v12: the backfill's term table). */
+  entries(): { id: string; name: string; aliases: string[] }[] {
+    return [...this.byId.entries()].map(([id, r]) => ({ id, name: r.name, aliases: [...r.aliases] }));
+  }
+
+  /**
+   * `matchesIn` FOR MANY TEXTS (v12, 2026-10-03): the same hits, by the same
+   * rule, without testing every term against every text. Built once over the
+   * index as it stands; each text is cut into its whole words
+   * (`encode/words.ts#wordTokens`), only the terms whose first word is among
+   * them are tried, and every one tried is CONFIRMED by the one whole-word
+   * rule — so the scanner can skip work, never add a hit or lose one
+   * (`test/subjects.test.ts` holds it equal to `matchesIn`). A term with no
+   * word characters at all is tried against every text. For the v12 backfill
+   * and anything else that reads the whole store at once.
+   */
+  scanner(): (text: string) => AliasHit[] {
+    const byFirst = new Map<string, { id: string; term: string; source: "name" | "alias"; re: RegExp }[]>();
+    const always: { id: string; term: string; source: "name" | "alias"; re: RegExp }[] = [];
+    for (const [id, reg] of this.byId) {
+      const terms: [string, "name" | "alias"][] = [[reg.name, "name"], ...reg.aliases.map((a): [string, "alias"] => [a, "alias"])];
+      for (const [term, source] of terms) {
+        if (term.trim().length === 0) continue;
+        const entry = { id, term, source, re: wholeWordRegex(term) };
+        const first = wordTokens(term)[0];
+        if (first === undefined) always.push(entry);
+        else {
+          const list = byFirst.get(first) ?? [];
+          list.push(entry);
+          byFirst.set(first, list);
+        }
+      }
+    }
+    return (text: string): AliasHit[] => {
+      const tried = new Set<(typeof always)[number]>(always);
+      for (const token of new Set(wordTokens(text))) for (const e of byFirst.get(token) ?? []) tried.add(e);
+      const hits: AliasHit[] = [];
+      for (const e of tried) if (e.re.test(text)) hits.push({ id: e.id, term: e.term, source: e.source });
+      return hits.sort((a, b) => a.id.localeCompare(b.id) || a.term.localeCompare(b.term));
+    };
   }
 }
 

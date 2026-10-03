@@ -22,6 +22,22 @@ import { preMigrationDir, snapshotBeforeMigration } from "./pre-migration.js";
 import type { ProseType } from "./prose.js";
 
 /**
+ * Bumped to 12 (2026-10-03, the write side of deliberate recall): ADDITIVE,
+ * through the same copy-first seam, and nothing re-filed. `memories` (and
+ * `versions`, which mirror the words' own fields) gain three columns the
+ * WRITER fills at write time: `occurred_on` (when the thing the memory is
+ * about happened — the same day, month, range or year shapes `event_date`
+ * takes, but the past or present, where `event_date` is a future date to be
+ * reminded on and `happened_on` is the lived day of a write-up), `said_by`
+ * (`owner`, `self` or `inferred`: who said it, not which channel wrote the
+ * row) and `status` (`done`, `planned`, `proposed`, `asked`). NULL on every
+ * row written before: they cannot be filled without a model. One table is
+ * new, `memory_subjects`: a memory linked to the entity cards it names, filled
+ * at write time from the alias index and once, after the upgrade, for the rows
+ * already there (`Counterpart`'s backfill — this transaction has no alias
+ * index). The upgrade records its moment (`V12_UPGRADE_KEY`), which is what
+ * doctor's "since v12" reads. `store/NOTES.md` 2026-10-03.
+ *
  * Bumped to 11 (2026-09-30, the feelings wheel v2): ADDITIVE, through the same
  * copy-first seam. The wheel's six cores become seven (happy, warm, calm,
  * curious, sad, uneasy, angry — `core/feelings-wheel.ts`), and `feelings`
@@ -123,7 +139,7 @@ import type { ProseType } from "./prose.js";
  * migrated open MUST converge on the identical schema; a test asserts
  * table_info equality.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 /**
  * The oldest schema an OBSERVER may open without a migration having run.
  *
@@ -158,6 +174,16 @@ export const SCHEMA_VERSION = 11;
  * Raised to 11 with v11 (2026-09-30): a v10 file's feelings are filed under
  * cores this build's readers do not draw (fear, surprise, disgust), and its
  * rows have no `valence`.
+ *
+ * NOT raised with v12 (2026-10-03). The question each raise answered yes to
+ * is whether an instrument reading the older file gets a WRONG answer, and
+ * for v12 it does not: rows are read `m.*`, so a v11 row simply has no
+ * `occurred_on` / `said_by` / `status` (the row type carries them optional),
+ * nothing re-filed what a v11 row says, and the one instrument that reads the
+ * new fields — doctor's `Write fields` line — asks for the column and the
+ * table first and says it is waiting for the upgrade. Keeping the floor keeps
+ * doctor and the dashboard reading a v11 store between an install and the
+ * first writer that opens it.
  */
 export const OBSERVER_READ_FLOOR = 11;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2).
@@ -257,7 +283,10 @@ export const DDL: readonly string[] = [
      last_dream_day    INTEGER,
      about             TEXT,
      about_by          TEXT,
-     fade              REAL NOT NULL DEFAULT 1
+     fade              REAL NOT NULL DEFAULT 1,
+     occurred_on       TEXT,
+     said_by           TEXT,
+     status            TEXT
    )`,
   `CREATE INDEX IF NOT EXISTS memories_band ON memories (band, archived)`,
   `CREATE INDEX IF NOT EXISTS memories_kind ON memories (kind, archived)`,
@@ -286,6 +315,9 @@ export const DDL: readonly string[] = [
      created_at   INTEGER,
      model        TEXT,
      event_date   TEXT,
+     occurred_on  TEXT,
+     said_by      TEXT,
+     status       TEXT,
      PRIMARY KEY (memory_id, seq)
    )`,
   `CREATE TABLE IF NOT EXISTS edges (
@@ -538,6 +570,24 @@ export const DDL: readonly string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS contradiction_settles_pair ON contradiction_settles (pair_id)`,
   `CREATE INDEX IF NOT EXISTS contradiction_settles_at ON contradiction_settles (at)`,
+  // v12 (2026-10-03): WHAT A MEMORY NAMES — one row per memory and entity
+  // card (schema `role: entity`) its title or body names as a whole word,
+  // by the alias index's one rule (`schemas/aliases.ts`). `via` says how the
+  // link was found: `write` (the memory's own write, or a revise of its
+  // words), `birth` (a card born after the memory, which then looked for the
+  // memories already naming it) or `backfill` (the one pass after the
+  // upgrade). Ids only — a link is an address, never words. Not foreign-keyed,
+  // like `contradictions`: the owner's removal deletes a removed memory's or
+  // card's rows itself. Read both ways: a memory's subjects (the primary key)
+  // and a subject's memories (`memory_subjects_subject`).
+  `CREATE TABLE IF NOT EXISTS memory_subjects (
+     memory_id  TEXT NOT NULL,
+     subject_id TEXT NOT NULL,
+     via        TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     PRIMARY KEY (memory_id, subject_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS memory_subjects_subject ON memory_subjects (subject_id, memory_id)`,
   `CREATE INDEX IF NOT EXISTS core_events_memory ON core_events (memory_id)`,
   `CREATE INDEX IF NOT EXISTS core_events_at ON core_events (at)`,
   `CREATE INDEX IF NOT EXISTS feelings_whose_core ON feelings (whose, core)`,
@@ -704,6 +754,18 @@ export interface MemoryRow extends Row {
   about_by: string | null;
   /** v10: the strength multiplier a `changed` settle sets (physics §5.12); 1 otherwise. */
   fade: number;
+  /**
+   * v12: when the thing the memory is about happened, as the writer said it —
+   * a day, a month, a year or a range (`time.ts#parseCalendarDate`). Not
+   * `happened_on` (the lived day of a write-up) and not `event_date` (a
+   * future date to be reminded on). A v11 file read before its upgrade has
+   * no column, and reads undefined (`OBSERVER_READ_FLOOR`): read it `?? null`.
+   */
+  occurred_on: string | null;
+  /** v12: who said it — `owner`, `self` or `inferred` (`SAID_BY`). */
+  said_by: string | null;
+  /** v12: what kind of thing it is — `done`, `planned`, `proposed`, `asked` (`STATUSES`). */
+  status: string | null;
 }
 
 export interface ReflectionRow extends Row {
@@ -890,6 +952,10 @@ export interface VersionRow extends Row {
   created_at: number | null;
   model: string | null;
   event_date: string | null;
+  /** v12: the writer's three fields as they stood on these words (undefined on a v11 file). */
+  occurred_on: string | null;
+  said_by: string | null;
+  status: string | null;
 }
 
 export interface EdgeRow extends Row {
@@ -1302,6 +1368,21 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
           }),
         );
       }
+      // v12 (2026-10-03): THE MOMENT OF THE UPGRADE, for doctor's "since
+      // v12" — the writer's three fields are NULL on every row it found, and
+      // the share that counts is of the rows written after it. Nothing else
+      // moves; the subject links are filled after the open (no alias index here).
+      if (now !== null && Number.parseInt(now, 10) < 12) {
+        const lived = db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'livedDay'")?.value ?? "0";
+        const memories = db.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0",
+        )?.n ?? 0;
+        db.run(
+          "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+          V12_UPGRADE_KEY,
+          JSON.stringify({ from: now, day: Number.parseInt(lived, 10) || 0, at: Date.now(), memories }),
+        );
+      }
       const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
       put.run("livedDay", "0");
       put.run("lastActiveDate", "");
@@ -1454,6 +1535,15 @@ export const ADDED_COLUMNS: readonly { table: string; column: string; ddl: strin
   { table: "feelings", column: "valence", ddl: "ALTER TABLE feelings ADD COLUMN valence REAL" },
   { table: "feelings", column: "core_v10", ddl: "ALTER TABLE feelings ADD COLUMN core_v10 TEXT" },
   { table: "feelings", column: "emotion_v10", ddl: "ALTER TABLE feelings ADD COLUMN emotion_v10 TEXT" },
+  // v12 (2026-10-03, the write side of deliberate recall): the writer's three
+  // fields, on a memory and on each archived version of its words. NULL on
+  // every row the upgrade finds: nothing can fill them without a model.
+  { table: "memories", column: "occurred_on", ddl: "ALTER TABLE memories ADD COLUMN occurred_on TEXT" },
+  { table: "memories", column: "said_by", ddl: "ALTER TABLE memories ADD COLUMN said_by TEXT" },
+  { table: "memories", column: "status", ddl: "ALTER TABLE memories ADD COLUMN status TEXT" },
+  { table: "versions", column: "occurred_on", ddl: "ALTER TABLE versions ADD COLUMN occurred_on TEXT" },
+  { table: "versions", column: "said_by", ddl: "ALTER TABLE versions ADD COLUMN said_by TEXT" },
+  { table: "versions", column: "status", ddl: "ALTER TABLE versions ADD COLUMN status TEXT" },
 ];
 
 /**
@@ -1519,6 +1609,9 @@ export const V10_UPGRADE_KEY = "contradictions.v10.upgrade";
 
 /** Meta key: what the v11 upgrade re-filed (`feelings.v11.upgrade`), for doctor. */
 export const V11_UPGRADE_KEY = "feelings.v11.upgrade";
+
+/** Meta key: when the v12 upgrade ran (`recall.v12.upgrade`) — doctor's "since v12". */
+export const V12_UPGRADE_KEY = "recall.v12.upgrade";
 
 /**
  * THE v11 RE-FILING: every feeling the first wheel stored, moved onto the

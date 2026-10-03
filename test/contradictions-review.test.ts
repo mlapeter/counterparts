@@ -147,6 +147,8 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");
     db.close();
@@ -363,6 +365,8 @@ describe("the minors", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");
     db.close();

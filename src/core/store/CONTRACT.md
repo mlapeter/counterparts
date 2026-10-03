@@ -460,6 +460,22 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     sets (1 otherwise); a settle never moves `last_used_day`. The owner's removal puts a
     standing settle back (fade, archive, closed flags) and then deletes the memory's pairs
     and their trail. The v10 migration carries every open dream flag onto an unsettled pair.
+26. **[M] The writer's three fields, and what a memory names** (schema v12, 2026-10-03;
+    working default, held lightly). `memories` and `versions` carry `occurred_on` (when the
+    thing happened: a calendar date as `time.ts` reads one — not `happened_on`, the lived
+    day of a write-up, and not `event_date`, a future reminder date), `said_by` (`SAID_BY`:
+    owner, self, inferred) and `status` (`STATUSES`: done, planned, proposed, asked). `put`
+    and `revise` write them; one that cannot be read writes NULL rather than refusing (the
+    doors drop them with a note first); a revise that does not name one keeps it, and the
+    version it writes keeps the words' own three. `supersede` / `supersedeInto` carry each
+    to a successor that was not given its own. `memory_subjects` links a memory to the
+    entity cards its title and body name (ids only, `via` write / birth / backfill), read
+    both ways (`subjectsOf`, `memoriesNaming`). The store does not know what a name is:
+    the composition root installs the finder (`findSubjectsWith`), and every memory `put`
+    and every revise of a memory's words relinks in the same transaction, fail-open. The
+    owner's removal blanks the three on the row and its versions and deletes the links
+    both ways, and a reflection entry's memory it redacts loses its links too. The migration adds the columns and the table and records its moment
+    (`V12_UPGRADE_KEY`); `OBSERVER_READ_FLOOR` stays 11.
 
 ## 6. Scars honored
 

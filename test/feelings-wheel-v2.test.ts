@@ -314,15 +314,15 @@ function v10Store(): { memory: string; ids: string[] } {
 }
 
 describe("schema v11: the one migration", () => {
-  test("the version and the observer floor are 11", () => {
-    expect(SCHEMA_VERSION).toBe(11);
+  test("the observer floor is 11 (v12, 2026-10-03, kept it there)", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(11);
     expect(OBSERVER_READ_FLOOR).toBe(11);
   });
 
   test("every live word is re-filed onto the seven, the old pair kept on each row it moved, after a copy", () => {
     const { memory, ids } = v10Store();
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("11");
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     expect(readdirSync(join(root, "snaps")).some((n) => n.includes("v10"))).toBe(true);
     const rows = new Map(s.feelingsFor(memory).map((r) => [r.id, r]));
     LIVE.forEach(([core, emotion, word, wantCore, wantEmotion], i) => {

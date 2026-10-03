@@ -367,6 +367,10 @@ dream having run.
   earns no return by being cited; **[M]** its hand-back carries the mark, so
   the share is told in the session's own words, not captured from the tool's; **[M]**
   the owner's removal redacts a reflection that was shown, cited or quotes the memory.
+- **A gist takes the writer's three fields** (v12, 2026-10-03): `occurredOn`, `saidBy`,
+  `status`, read loose-first — **[M]** one that cannot be read is left off with a note and
+  the gist is written; nothing is defaulted. A merge takes none; the store carries each
+  original's to the merged memory (`store/` guarantee 26).
 
 ## 6. Scars honored
 

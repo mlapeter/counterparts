@@ -59,12 +59,12 @@ import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT } from "../../core
 import { CONTRADICTION_TUNABLES, NEIGHBOURS_HINT } from "../../core/contradictions.js";
 import type { Neighbour } from "../../core/contradictions.js";
 import { localDate, parseCalendarDate, todayIn } from "../../core/time.js";
-import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
+import type { ChapterResult, Counterpart, DepositResult, SentFacts } from "../../core/counterpart.js";
 import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
-import { ABOUT_MARKS, CACHE_SCHEMA_VERSION, CORE_ABOUT_MARKS, SCHEMA_VERSION, StoreError, checkFeelings, checkTraits, isStoreError, schemaAhead } from "../../core/store/index.js";
-import type { AboutMark, FeelingInput, TraitInput } from "../../core/store/index.js";
+import { ABOUT_MARKS, CACHE_SCHEMA_VERSION, CORE_ABOUT_MARKS, SAID_BY, SCHEMA_VERSION, STATUSES, StoreError, checkFeelings, checkTraits, isStoreError, saidByOf, schemaAhead, statusOf } from "../../core/store/index.js";
+import type { AboutMark, FeelingInput, MemoryStatus, SaidBy, TraitInput } from "../../core/store/index.js";
 import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
 import { UNBOUND_SESSION, isKnownSession } from "../../core/types.js";
@@ -1632,10 +1632,14 @@ export class McpServer {
     if ("refused" in about) return this.refuse("note", "about-malformed", { detail: about.refused });
     const traits = readTraits(args["traits"]);
     if ("refused" in traits) return this.refuse("note", "traits-malformed", { detail: traits.refused });
+    // v12: when it happened, who said it, what kind — never a refusal: what
+    // cannot be read is dropped and said beside the memory that landed.
+    const facts = readWriteFacts(args, this.today());
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
       ownSpanHash,
+      facts: facts.sent,
       ...(model === undefined ? {} : { model }),
       // This call's stance, which a Code-tab call on Desktop's server can hold
       // when the store opened as a guest (2026-10-02).
@@ -1653,6 +1657,7 @@ export class McpServer {
       ...this.recordAbout(deposit, about.mark),
       ...this.recordTraits(deposit, traits.inputs, model),
       ...reminderEcho(deposit, dated, this.today()),
+      ...factsEcho(deposit, facts),
       ...this.settledOf(deposit, args["how"] !== undefined),
       ...threadOf(deposit),
       // IN THE PAYLOAD, so it rides in `structuredContent` — which is what
@@ -2693,6 +2698,8 @@ export class McpServer {
     const datedOf: ReminderRead[] = [];
     const aboutOf: AboutRead[] = [];
     const traitsOf: TraitsRead[] = [];
+    const factsOf: FactsRead[] = [];
+    const today = this.today();
     for (const item of raw) {
       if (item === null || typeof item !== "object" || Array.isArray(item)) {
         entries.push({ content: "" });
@@ -2700,6 +2707,7 @@ export class McpServer {
         datedOf.push({ fields: {}, remindIgnored: false });
         aboutOf.push({ mark: null });
         traitsOf.push({ inputs: [] });
+        factsOf.push({ sent: {}, dropped: [], notes: [] });
         continue;
       }
       const rec = item as Record<string, unknown>;
@@ -2724,6 +2732,7 @@ export class McpServer {
       feelingsOf.push(readFeelings(rec["feelings"]));
       aboutOf.push(readAbout(rec["about"]));
       traitsOf.push(readTraits(rec["traits"]));
+      factsOf.push(readWriteFacts(rec, today));
     }
 
     const outcomes: Record<string, unknown>[] = [];
@@ -2757,12 +2766,14 @@ export class McpServer {
         outcomes.push({ stored: false, reason: "traits-malformed", detail: traits.refused });
         continue;
       }
+      const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
       let result: DepositResult;
       try {
         result = await this.counterpart.submitSessionEnd(draft, {
           session,
           scope: scope ?? this.scope,
           owner: this.owner,
+          facts: facts.sent,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
           ...(writeUp === undefined ? {} : { writeUp }),
@@ -2794,6 +2805,7 @@ export class McpServer {
         ...this.recordAbout(result, about.mark),
         ...this.recordTraits(result, traits.inputs, model),
         ...reminderEcho(result, dated, this.today()),
+        ...factsEcho(result, facts),
         ...this.settledOf(result, draft["how"] !== undefined),
         ...threadOf(result),
         ...(neighbours.length === 0 ? {} : { neighbours }),
@@ -4448,6 +4460,83 @@ function threadOf(deposit: DepositResult): Record<string, unknown> {
   const t = deposit.thread;
   if (t === undefined) return {};
   return { thread: t.closed ? { closed: t.from } : { closed: null, from: t.from, reason: t.refused ?? "not-recorded" } };
+}
+
+/**
+ * v12 (2026-10-03): THE WRITER'S THREE FIELDS off a `note` or a
+ * `session_end` entry — `occurredOn` (when it happened: read by `time.ts`,
+ * the one module that reads dates), `saidBy` and `status` (against their
+ * words). LOOSE FIRST: nothing here refuses the memory. What cannot be read
+ * is dropped and said (`dropped`, with what to send instead); null is sent
+ * as none (a revision carries nothing over for it); absent is not sent.
+ * A date in the future is kept, and a note says that a date to be reminded
+ * on is `eventDate`.
+ */
+interface FactsRead {
+  readonly sent: SentFacts;
+  readonly dropped: readonly { readonly field: string; readonly note: string }[];
+  readonly notes: readonly string[];
+}
+
+const OCCURRED_ON_SHAPES =
+  'Send it as a day "2026-09-24", a month "2026-09", a year "2026" or a range "2026-09-21..2026-09-27" — resolve "last week" or "yesterday" to one of those while you know the date.';
+
+const OCCURRED_ON_FUTURE_NOTE =
+  "occurredOn is in the future. It is kept, but it means when this happened; a date to be reminded on is eventDate.";
+
+function readWriteFacts(rec: Record<string, unknown>, today: string): FactsRead {
+  const sent: { occurredOn?: string | null; saidBy?: SaidBy | null; status?: MemoryStatus | null } = {};
+  const dropped: { field: string; note: string }[] = [];
+  const notes: string[] = [];
+  const said = (v: unknown): string => (typeof v === "string" ? `"${v.slice(0, 64)}"` : "(not text)");
+  const date = rec["occurredOn"];
+  if (date === null) sent.occurredOn = null;
+  else if (date !== undefined) {
+    const read = parseCalendarDate(date);
+    if (read === null) {
+      dropped.push({ field: "occurredOn", note: `occurredOn ${said(date)} is not a date this can read, so the memory was kept without it. ${OCCURRED_ON_SHAPES}` });
+    } else {
+      sent.occurredOn = read.text;
+      if (read.first > today) notes.push(OCCURRED_ON_FUTURE_NOTE);
+    }
+  }
+  const by = rec["saidBy"];
+  if (by === null) sent.saidBy = null;
+  else if (by !== undefined) {
+    const v = saidByOf(by);
+    if (v === null) dropped.push({ field: "saidBy", note: `saidBy ${said(by)} is not one of ${SAID_BY.join(", ")}, so the memory was kept without it.` });
+    else sent.saidBy = v;
+  }
+  const st = rec["status"];
+  if (st === null) sent.status = null;
+  else if (st !== undefined) {
+    const v = statusOf(st);
+    if (v === null) dropped.push({ field: "status", note: `status ${said(st)} is not one of ${STATUSES.join(", ")}, so the memory was kept without it.` });
+    else sent.status = v;
+  }
+  return { sent, dropped, notes };
+}
+
+/** The three fields' half of a deposit's answer (v12): what was RECORDED —
+ *  after a revision's carry-over — what was carried and from where, and what
+ *  was dropped and why. Nothing when nothing was sent, dropped or carried. */
+function factsEcho(deposit: DepositResult, read: FactsRead): Record<string, unknown> {
+  const sentAny = Object.keys(read.sent).length > 0;
+  if (!sentAny && read.dropped.length === 0 && deposit.facts === undefined) return {};
+  const dropped = read.dropped.length === 0 ? {} : { dropped: read.dropped.map((d) => ({ field: d.field, note: d.note })) };
+  if (!deposit.deposited) return { facts: { stored: false, reason: "memory-not-stored", ...dropped } };
+  const f = deposit.facts;
+  return {
+    facts: {
+      stored: true,
+      ...((f?.occurredOn ?? null) === null || f === undefined ? {} : { occurredOn: f.occurredOn }),
+      ...((f?.saidBy ?? null) === null || f === undefined ? {} : { saidBy: f.saidBy }),
+      ...((f?.status ?? null) === null || f === undefined ? {} : { status: f.status }),
+      ...(f === undefined || f.inherited.length === 0 ? {} : { carriedOver: [...f.inherited], from: f.from }),
+      ...dropped,
+      ...(read.notes.length === 0 ? {} : { note: read.notes.join(" ") }),
+    },
+  };
 }
 
 function readAbout(raw: unknown): AboutRead {

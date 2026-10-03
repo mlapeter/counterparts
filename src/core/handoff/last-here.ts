@@ -200,18 +200,20 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 /**
  * EVERY CHAPTER OF AN EPISODE, in order, with the calendar date its engine
  * heading names (`YYYY-MM-DD`, or null for a heading from before headings
- * carried one). A body with no heading is one chapter with no date.
+ * carried one), and the heading line itself (v12: a chapter's address
+ * resolves to it — `self/chapter-address.ts`). A body with no heading is one
+ * chapter with no date and no heading.
  */
-export function chaptersOf(body: string): { text: string; date: string | null }[] {
+export function chaptersOf(body: string): { text: string; date: string | null; heading: string | null }[] {
   const heads = [...body.matchAll(HEADING)];
-  if (heads.length === 0) return [{ text: body, date: null }];
+  if (heads.length === 0) return [{ text: body, date: null, heading: null }];
   return heads.map((h, i) => {
     const start = (h.index ?? 0) + h[0].length;
     const next = heads[i + 1];
     const m = /(\d{1,2}) ([A-Za-z]{3}) (\d{4})/.exec(h[0]);
     const month = m === null ? -1 : MONTHS.indexOf((m[2] ?? "").toLowerCase());
     const date = m === null || month < 0 ? null : `${m[3] as string}-${String(month + 1).padStart(2, "0")}-${(m[1] as string).padStart(2, "0")}`;
-    return { text: body.slice(start, next === undefined ? undefined : next.index), date };
+    return { text: body.slice(start, next === undefined ? undefined : next.index), date, heading: h[0].trim() };
   });
 }
 

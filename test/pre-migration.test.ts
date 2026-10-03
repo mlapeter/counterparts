@@ -30,6 +30,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  OBSERVER_READ_FLOOR,
   PRE_MIGRATION_NAME_RE,
   SCHEMA_VERSION,
   STORE_MIGRATED_EVENT,
@@ -254,7 +255,15 @@ describe("a copy before the schema changes", () => {
   test("an observer open of an old store writes nothing and copies nothing", () => {
     oldStore();
     const before = readFileSync(paths.operational(dir));
-    expect(codeOf(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
+    // At or above the observer floor it is read as it stands (v12 kept the
+    // floor at 11); below it, refused. Either way nothing is written or copied.
+    if (Number(OLD) >= OBSERVER_READ_FLOOR) {
+      const s = store({ observer: true });
+      expect(s.getMeta("schemaVersion")).toBe(OLD);
+      s.close();
+    } else {
+      expect(codeOf(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
+    }
     expect(readFileSync(paths.operational(dir)).equals(before)).toBe(true);
     expect(existsSync(snapsDir)).toBe(false);
   });

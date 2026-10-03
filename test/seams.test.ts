@@ -451,6 +451,8 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       withdrawContradiction: ["ctr_x"],
       settleContradiction: [{ pairId: "ctr_x", how: "open", holds: null, over: null, actor: "owner", actorId: null, why: null, day: 0 }],
       undoContradictionSettle: [{ pairId: "ctr_x", settleSeq: 1, actor: "owner", actorId: null, why: null, day: 0 }],
+      // v12 (2026-10-03): a card's birth and the backfill link what names it.
+      linkSubjects: [[{ memoryId: "mem_x", subjectId: "sch_x" }], "birth"],
     };
     for (const method of WRITE_METHODS) {
       const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[

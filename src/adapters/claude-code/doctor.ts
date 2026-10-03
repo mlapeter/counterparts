@@ -2673,6 +2673,55 @@ export function upgradeV11Findings(store: Store): Finding[] {
   ];
 }
 
+/** The meta row the v12 upgrade writes (`store/operational.ts#V12_UPGRADE_KEY`). */
+const V12_UPGRADE_META = "recall.v12.upgrade";
+
+/**
+ * WRITE FIELDS (v12, 2026-10-03), informational, never amber or red: of the
+ * memories written since the v12 upgrade by a door that takes the writer's
+ * three fields — `note`, `session_end` (write-ups included) and a dream's
+ * gist — how many say when it happened, who said it and what kind of thing
+ * it is; and how many subject links there are. What the revisit a few days
+ * after the upgrade reads, before recall reads the fields (Release B). A
+ * store born at v12 counts every such memory; one upgraded counts from the
+ * upgrade's moment. Silent on a file without the columns.
+ */
+export function writeFieldFindings(store: Store): Finding[] {
+  let share: ReturnType<Store["writeFieldShare"]> = null;
+  let links: ReturnType<Store["subjectLinkCount"]> = null;
+  const upgrade = metaJson(store, V12_UPGRADE_META);
+  const since = upgrade === null ? null : metaNum(upgrade["at"]) || null;
+  try {
+    share = store.writeFieldShare(since);
+    links = store.subjectLinkCount();
+  } catch {
+    return [];
+  }
+  if (share === null) return [];
+  const pct = (n: number): string => (share === null || share.written === 0 ? "0%" : `${String(Math.round((100 * n) / share.written))}%`);
+  const when = since === null ? "" : ` since the v12 upgrade (${localDate(since, readingZone)})`;
+  const linked =
+    links === null
+      ? ""
+      : `; subject links: ${String(links.links)} on ${String(links.memories)} ${links.memories === 1 ? "memory" : "memories"}`;
+  const detail =
+    share.written === 0
+      ? `no memory written${when} by note, session_end or a dream gist yet${linked}`
+      : `of ${String(share.written)} ${share.written === 1 ? "memory" : "memories"} written${when} by note, session_end or a dream gist — when it happened ${pct(share.occurredOn)}, who said it ${pct(share.saidBy)}, what kind ${pct(share.status)}, all three ${pct(share.all)}${linked}`;
+  return [
+    finding("write-fields", "green", "Write fields", detail, "", {
+      written: share.written,
+      occurredOn: share.occurredOn,
+      saidBy: share.saidBy,
+      status: share.status,
+      all: share.all,
+      since: since ?? 0,
+      links: links?.links ?? 0,
+      linkedMemories: links?.memories ?? 0,
+    }),
+  ];
+}
+
 /**
  * THE RECOGNITION LANE, informational (wheel v2, the review of #301): how
  * many memories nobody marked are on the core's fast lane only because I
@@ -4504,6 +4553,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // v10 (2026-09-29): what the upgrade carried, and the week's contradictions.
     ["upgrade-v10", () => upgradeV10Findings(store)],
     ["upgrade-v11", () => upgradeV11Findings(store)],
+    // v12 (2026-10-03): the writer's three fields, and the subject links. Two aggregates.
+    ["write-fields", () => writeFieldFindings(store)],
     ["recognition-lane", () => recognitionLaneFindings(store)],
     ["contradictions", () => contradictionFindings(store)],
     // Build B (2026-09-28): does anyone read what an index offers in part?

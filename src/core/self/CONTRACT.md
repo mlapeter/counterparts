@@ -511,6 +511,16 @@ second is the smallest room worth rendering a page into rather than a fragment.
 the host's ceiling because delivery will add exactly that line, and one test bounds the
 preface at its widest plausible day, date and store size against the same constant.
 
+**Chapter addresses (v12, 2026-10-03; working default).** **[M]** `epi_…#N` (N from 1)
+names one chapter and `chapter-address.ts#resolveChapter` resolves it — derived from the
+engine headings, not stored — to its heading, text, calendar date, span and the
+session's live memories written in that span (chapter copies left out). **[M]** Each
+chapter's written moment is kept in the episode's meta (`CHAPTER_AT_META`); an episode from
+before is read from its `episode-chapter` versions while they last, and past them the
+resolver says the moment is unknown and lists nothing. **[A]** The span's edges are shifted
+by `CHAPTER_MOMENT_GRACE_MS` so a stretch's memories written just after its chapter are the
+chapter's.
+
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow

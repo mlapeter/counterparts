@@ -47,7 +47,7 @@ import {
 import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
-import { occursAsWholeWord } from "../encode/words.js";
+import { occursAsWholeWord, wholeWordRegex } from "../encode/words.js";
 import { Store, hashText } from "../store/index.js";
 // The WALKING read — not a `Store` method on purpose (`store/walk-seam.ts`): it
 // skips the archived-read telemetry AND the deny-list, and this module is one of
@@ -132,6 +132,10 @@ export const PUBLIC_SURFACE = [
   "story",
   "lifecycle",
   "events",
+  // v12 (2026-10-03): what a memory names — the store's finder, and the
+  // backfill's reading (both reads; the links are the store's to write).
+  "subjectsIn",
+  "subjectLinksForAll",
 ] as const;
 
 const EVENT_RING = 500;
@@ -605,6 +609,9 @@ export class Schemas {
     this.remember(id, { role: "entity", name, aliases: kept });
     this.index.register(id, name, kept);
     this.birthsPerChunk.set(input.chunkRef, (this.birthsPerChunk.get(input.chunkRef) ?? 0) + 1);
+    // v12: A NEW CARD LOOKS BACK — the memories already written that name it
+    // are linked to it now, as a memory written after it would be at its write.
+    this.linkNamingMemories(id);
     const priorlyFaded = this.fadedNamed(name, id);
     if (priorlyFaded !== undefined) {
       this.emit("schema.birth.after-fade", id, { nameHash, priorId: priorlyFaded, day: input.day });
@@ -1556,6 +1563,91 @@ export class Schemas {
         .map((c) => ({ id: c.id, statement: c.statement }));
       return { id: e.id, name: e.name, aliases: [...e.aliases], beliefs, currentState, elided };
     });
+  }
+
+  // ── what a memory names (v12, 2026-10-03) ─────────────────────────────────
+
+  /**
+   * THE LIVE CARDS A TEXT NAMES — a memory's SUBJECTS — by `creditNamedIn`'s
+   * rules: a registered name or alias occurring as a whole word, at least
+   * `NAME_MIN_CHARS` long, held by exactly one live card (a handle two cards
+   * hold names neither). A faded card is not a subject here: a mention
+   * brings one back through `creditNamedIn`, and its rebirth links what
+   * names it (`linkNamingMemories`). Sorted ids. The store calls this at every
+   * memory write (`Store#findSubjectsWith`, installed by `Counterpart`).
+   */
+  subjectsIn(text: string): string[] {
+    if (text.trim().length === 0) return [];
+    return this.subjectsFromHits(this.index.matchesIn(text));
+  }
+
+  private subjectsFromHits(hits: readonly { term: string }[]): string[] {
+    const out = new Set<string>();
+    const seen = new Map<string, string | null>();
+    for (const hit of hits) {
+      const key = handleKey(hit.term);
+      if (key.length < TUNABLES.NAME_MIN_CHARS) continue;
+      let holder = seen.get(key);
+      if (holder === undefined) {
+        const live = this.liveHolders(hit.term);
+        holder = live.length === 1 ? (live[0] as string) : null;
+        seen.set(key, holder);
+      }
+      if (holder !== null) out.add(holder);
+    }
+    return [...out].sort();
+  }
+
+  /**
+   * A card's birth looks back (v12): every memory already written whose title
+   * or body names it — by its own unambiguous terms — is linked to it, `via:
+   * birth`. One read of the memories' words and one regex per term. Fail-open:
+   * the card is born whatever this does, and an event says so when it fails.
+   */
+  private linkNamingMemories(cardId: string): number {
+    try {
+      const terms = this.index.termsFor(cardId);
+      if (terms === undefined) return 0;
+      const res = [terms.name, ...terms.aliases]
+        .filter((t) => handleKey(t).length >= TUNABLES.NAME_MIN_CHARS)
+        .filter((t) => {
+          const live = this.liveHolders(t);
+          return live.length === 1 && live[0] === cardId;
+        })
+        .map((t) => wholeWordRegex(t));
+      if (res.length === 0) return 0;
+      const links: { memoryId: string; subjectId: string }[] = [];
+      for (const m of this.store.memoryTexts()) {
+        const text = m.title === null || m.title.length === 0 ? m.body : `${m.title}\n${m.body}`;
+        if (res.some((re) => re.test(text))) links.push({ memoryId: m.id, subjectId: cardId });
+      }
+      const added = links.length === 0 ? 0 : this.store.linkSubjects(links, "birth");
+      if (added > 0) this.emit("schema.subjects.linked", cardId, { via: "birth", links: added });
+      return added;
+    } catch (err) {
+      this.emit("schema.subjects.failed", cardId, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
+      return 0;
+    }
+  }
+
+  /**
+   * THE v12 BACKFILL'S READING: every memory with words, against every live
+   * card, by `subjectsIn`'s rules — through the index's `scanner`, which
+   * gives `matchesIn`'s hits without trying every term on every text. Returns
+   * the links to write; writes nothing (`Counterpart` writes them, once).
+   */
+  subjectLinksForAll(): { links: { memoryId: string; subjectId: string }[]; memories: number; cards: number } {
+    const scan = this.index.scanner();
+    const links: { memoryId: string; subjectId: string }[] = [];
+    let memories = 0;
+    for (const m of this.store.memoryTexts()) {
+      const text = m.title === null || m.title.length === 0 ? m.body : `${m.title}\n${m.body}`;
+      const subjects = this.subjectsFromHits(scan(text)).filter((s) => s !== m.id);
+      if (subjects.length === 0) continue;
+      memories += 1;
+      for (const s of subjects) links.push({ memoryId: m.id, subjectId: s });
+    }
+    return { links, memories, cards: this.index.size() };
   }
 
   /** The index recall borrows (SEAMS §6). Live object; treat it as read-only. */

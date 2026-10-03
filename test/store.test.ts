@@ -1603,16 +1603,20 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // v6 instrument on one would report an empty store rather than an
     // unreadable one — worse than refusing, because it looks like an answer.
     //
-    // So the floor is the version itself, and this assertion is the thing that
-    // makes the next person DECIDE rather than inherit. Raising SCHEMA_VERSION
-    // without touching this line fails here.
-    expect(OBSERVER_READ_FLOOR).toBe(SCHEMA_VERSION);
+    // So the floor was the version itself through v11, and this assertion is
+    // the thing that makes the next person DECIDE rather than inherit. v12
+    // (2026-10-03) decided to KEEP it at 11: v12 re-files nothing, rows are
+    // read `m.*`, and its one new reader (doctor's `Write fields`) asks for
+    // the column first — no instrument gets a wrong answer from a v11 file
+    // (`operational.ts#OBSERVER_READ_FLOOR`). Raising SCHEMA_VERSION without
+    // touching this line still fails here.
+    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 12, floor: 11 });
   });
 
-  test("a store one version behind refuses under observer — there is no floor below v6", () => {
+  test("a store below the floor refuses under observer — there is no floor below v6", () => {
     const writer = store();
-    writer.put(mem("written by this build, stamped one version back by hand"));
-    writer.setMeta("schemaVersion", String(SCHEMA_VERSION - 1));
+    writer.put(mem("written by this build, stamped below the floor by hand"));
+    writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR - 1));
     writer.close();
     open.length = 0;
     const before = databaseBytes(paths.operational(dir));
@@ -1620,6 +1624,21 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(databaseBytes(paths.operational(dir))).toEqual(before);
     // A WRITER still stamps it forward, as before.
     expect(store({ snapshotsDir: scratch() }).getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+  });
+
+  test("a store one version behind, at the floor, is READ under observer and nothing is written (v12)", () => {
+    const writer = store();
+    const id = writer.put(mem("written by this build, stamped one version back by hand"));
+    writer.setMeta("schemaVersion", String(SCHEMA_VERSION - 1));
+    writer.close();
+    open.length = 0;
+    const before = databaseBytes(paths.operational(dir));
+    const reader = store({ observer: true });
+    expect(reader.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION - 1));
+    expect(reader.row(id)?.body).toContain("one version back");
+    reader.close();
+    open.length = 0;
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
   });
 
   test("ADDED_COLUMNS may never name a column the floor introduced", () => {
@@ -1667,6 +1686,13 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
       "feelings.valence",
       "feelings.core_v10",
       "feelings.emotion_v10",
+      // v12 (2026-10-03): the writer's three fields, on a memory and its versions.
+      "memories.occurred_on",
+      "memories.said_by",
+      "memories.status",
+      "versions.occurred_on",
+      "versions.said_by",
+      "versions.status",
     ]);
     for (const spec of ADDED_COLUMNS) {
       expect({ column: spec.column, namesAFloorColumn: V6_COLUMNS.includes(spec.column) }).toEqual({
@@ -1846,6 +1872,8 @@ describe("observer mode is enforced at the store seam", () => {
     withdrawContradiction: ["ctr_x"],
     settleContradiction: [{ pairId: "ctr_x", how: "open", holds: null, over: null, actor: "owner", actorId: null, why: null, day: 0 }],
     undoContradictionSettle: [{ pairId: "ctr_x", settleSeq: 1, actor: "owner", actorId: null, why: null, day: 0 }],
+    // v12 (2026-10-03): a card's birth and the backfill link what names it.
+    linkSubjects: [[{ memoryId: "mem_x", subjectId: "sch_x" }], "birth"],
   };
 
   function populated(): { id: string; snapshot: string } {

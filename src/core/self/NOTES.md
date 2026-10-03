@@ -1527,3 +1527,21 @@ rotate) or `room` (fewer fitted the room the handoff and "Last here" left; `show
 none). Doctor's Wake line counts the `room` days; the dashboard's wake bar counts the
 directories since the last render, as it does "Last here". `cap` is the rotation working,
 and is not a cost.
+
+## 2026-10-03 — chapter addresses (Release A of deliberate recall)
+
+- **`epi_…#N`** names one chapter (1-based), and `chapter-address.ts#resolveChapter`
+  resolves it to its heading, text, calendar date, span and the session's memories written
+  in that span. The address is derived (the chapter's place among the engine headings,
+  read by `handoff/last-here.ts#chaptersOf`, which now also returns the heading line).
+- **The moment each chapter was written is stored** in the episode's meta
+  (`CHAPTER_AT_META`, carried whole like `models`), because the only other record — the
+  `episode-chapter` version's `archived_at` — is pruned after the retention window.
+  Episodes from before are read from those versions while they last; past them the
+  resolver says `momentsFrom: "unknown"` and lists no memories rather than guessing from
+  the heading's day.
+- **The span** runs from the chapter before's moment (open for the first) to this
+  chapter's, each edge shifted by `CHAPTER_MOMENT_GRACE_MS` (five minutes, a working
+  default): the end-of-stretch answer writes its memories and its chapter in one turn, in
+  either order. Chapter copies are left out of the list. A write-up's memories carry the
+  session's id but a later moment, so they sit under no chapter. No caller yet (Release B).

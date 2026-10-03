@@ -439,6 +439,18 @@ by ambient recall for the session; kept per session — is refused with the way 
 memory, five a call; source `awake`, `recorded_later` today. The path and the rest of its
 guarantees are the reflection's (`dream/reflect.ts#Reflections.feelAgain`).
 
+## 6d. The writer's three fields (2026-10-03, schema v12)
+
+**[M]** `note` and each `session_end` entry (write-ups included) take `occurredOn` (when
+it happened: a day, month, range or year, read by `time.ts`), `saidBy` (owner, self,
+inferred) and `status` (done, planned, proposed, asked), all optional. **[M]** None of them
+refuses a memory: one that cannot be read is dropped and said in the answer's `facts`, with
+what to send instead (`server.ts#readWriteFacts`). **[M]** A revision by `updates` carries
+each over from the memory it revises unless one is sent (null: none); nothing moves off the
+old memory (`counterpart.ts#carryFacts`). **[A]** The descriptions ask the writer to
+resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
+from `eventDate` (a future date to be reminded on). Recall does not read them yet.
+
 ## 7. Open questions
 
 1. **Does `note` still need to exist** once the experiencer writes at every session end?

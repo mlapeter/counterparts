@@ -296,6 +296,17 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
         WHERE memory_id = ?`,
       id,
     );
+    // v12: the writer's three fields on those versions go too — when it
+    // happened, who said it and what kind of thing it was are facts ABOUT the
+    // removed memory. And its subject links, both ways: the memory's, and —
+    // when the removed row is a card — every memory's link to it. A file
+    // without the columns or the table has nothing here.
+    try {
+      db.run("UPDATE versions SET occurred_on = NULL, said_by = NULL, status = NULL WHERE memory_id = ?", id);
+      db.run("DELETE FROM memory_subjects WHERE memory_id = ? OR subject_id = ?", id, id);
+    } catch {
+      /* a store from before v12 */
+    }
 
     if (row !== undefined) {
       // The skeleton: an address, its family, and nothing else. Physics is
@@ -322,6 +333,11 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
         REMOVED_REASON,
         id,
       );
+      try {
+        db.run("UPDATE memories SET occurred_on = NULL, said_by = NULL, status = NULL WHERE id = ?", id);
+      } catch {
+        /* a store from before v12 */
+      }
       if (!noop) {
         db.run(
           `INSERT INTO removal_tombstone
@@ -524,6 +540,13 @@ function redactEntryMemory(db: Db, entryId: string, removedId: string): void {
     hashText(REDACTED_REFLECTION),
     entryId,
   );
+  // v12: its subject links said which cards the redacted words named; the
+  // words are gone, so what they named goes with them.
+  try {
+    db.run("DELETE FROM memory_subjects WHERE memory_id = ?", entryId);
+  } catch {
+    /* a store from before v12 */
+  }
 }
 
 // ── the repair ──────────────────────────────────────────────────────────────

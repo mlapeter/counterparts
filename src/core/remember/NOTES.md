@@ -632,3 +632,11 @@ in a session not at work, not lapsed. `HeldSession.owes` is that rule; `small` r
 and a chapter now claim (`coverage/#claimUnwritten`); a handoff alone does not.
 `RetentionSources` is the host's evidence and the store's zone, nothing else;
 `retention.ts` did not change. Why, and the choices: `core/coverage/NOTES.md`.
+
+## 2026-10-03 — `Proposal.facts` (schema v12)
+
+The writer's three fields (`occurredOn`, `saidBy`, `status`) ride the proposal as `facts`,
+set by `Counterpart#deposit` from what the door read — not by intake, and not in
+`DRAFT_FIELDS`. Intake refuses an unreadable `eventDate`; these are loose-first (an
+unreadable one is dropped with a note at the door and the memory still mints), so they are
+read before intake, the way `about` and `feelings` are. `mint.ts` writes them to the row.

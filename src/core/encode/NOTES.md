@@ -222,3 +222,10 @@ window naming what breaks on each side. Two carry a **standing warning**:
   here forecloses folding it into `remember/`'s pipeline later.
 - The cross-module half of the universality test (note 2) belongs to the suite,
   once there are callers to enumerate.
+
+## 2026-10-03 — `wordTokens`
+
+`words.ts#wordTokens(text)`: the text's runs of word characters, lower-cased, by the same
+`WORD_CHAR` class the whole-word matcher uses. It is a prefilter's index and never a match:
+`schemas/aliases.ts#AliasIndex.scanner` tries only the terms whose first word is among
+them and confirms each with the one rule, so a second definition of a word cannot drift in.

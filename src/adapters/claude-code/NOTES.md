@@ -1938,3 +1938,13 @@ as one window of the last three lived days, newest first under `RUNNER_FAILED_RO
 puts yesterday's row on the previous lived day. One transient failure keeps Spawn amber from the
 failure until the next `adapter.spawn.started` row — latched once per calendar date, so the first
 worker start of the next date: at most the rest of that day and the next day's first turn-end.
+
+## 2026-10-03 — doctor's `Write fields` line (schema v12)
+
+Informational and green: of the memories written since the v12 upgrade (or all, on
+a store born at v12) by a door that takes the writer's three fields — `note`,
+`session_end`, a dream's gist; not a merge, a chapter copy, the sweep or a reflection's
+entry — the share that carries each field and all three, and how many subject links there
+are. Two aggregates, so it runs in the session-start reading too. Silent on a v11 file
+(the observer floor did not move). It is what the revisit a few days after the upgrade
+reads before recall starts reading the fields.

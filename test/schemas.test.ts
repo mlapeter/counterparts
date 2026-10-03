@@ -1324,6 +1324,9 @@ const PRIVATE_HELPERS = new Set([
   "nearCollisions",
   "reMention",
   "birth",
+  // v12: a birth looks back for the memories naming the card; the hits read as subjects.
+  "linkNamingMemories",
+  "subjectsFromHits",
   "requireEntity",
   "mintElement",
   "supersedeBelief",

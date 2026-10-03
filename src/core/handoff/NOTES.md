@@ -399,3 +399,9 @@ choices it left open:
   (`ChapterHere.confidential`, `aboutMe`). No schema change. The Yesterday line, which is
   composed once and read by every session, leaves confidential chapters out for all.
 
+
+## 2026-10-03 — `chaptersOf` returns the heading too
+
+Each chapter `chaptersOf` reads now carries its engine heading line (`heading`, null for a
+body with none), so a chapter address (`self/chapter-address.ts`, v12) resolves to it. The
+two fields it had are unchanged.
