@@ -264,7 +264,7 @@ const FRAME = new Set([
   "coming", "come", "comes", "up", "happened", "happen", "mean", "means", "meant", "think", "felt", "feel", "feeling",
   "feelings", "most", "all", "so", "far", "lately", "recently", "tell", "story", "arc", "been",
   // The asking itself ("what do I know about Will", review of #323).
-  "know", "knew", "known", "remember", "remembered", "recall",
+  "know", "knew", "known", "remember", "remembered",
 ]);
 
 /**
