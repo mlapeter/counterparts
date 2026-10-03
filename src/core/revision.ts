@@ -84,7 +84,7 @@
  * an observer's chunk produces neither, and this function stands down on its own
  * besides.
  */
-import { hashText } from "./store/index.js";
+import { hashText, occurredOnOf, saidByOf, statusOf } from "./store/index.js";
 import type { MemoryRow, Store } from "./store/index.js";
 import { applyChallenge, successorSeed, supersedeRecord } from "./physics/index.js";
 import { directionOf } from "./mint.js";
@@ -439,12 +439,24 @@ function identityChallenge(
   let successorId: string | null = null;
   if (outcome.verdict === "revise") {
     const statement = (input.statement ?? store.readProse(input.challengerId).body).trim();
+    // v12: the successor's words are the CHALLENGER's statement, so its three
+    // fields are the challenger's too (which already carry over what its
+    // writer left out of the target's, `Counterpart#carryFacts`). Without them
+    // the supersede's carry would stamp the target's — the old fact's date,
+    // speaker and kind — onto the new fact's words.
+    const said = store.row(input.challengerId);
+    const occurredOn = occurredOnOf(said?.occurred_on ?? null);
+    const saidBy = saidByOf(said?.said_by ?? null);
+    const status = statusOf(said?.status ?? null);
     successorId = store.supersede(
       targetId,
       {
         type: "memory",
         kind: row.kind,
         body: statement,
+        ...(occurredOn === null ? {} : { occurredOn }),
+        ...(saidBy === null ? {} : { saidBy }),
+        ...(status === null ? {} : { status }),
         meta: { revisedFrom: targetId, groundedIn: [input.challengerId] },
         // Identity is entered by INHERITING it through a declared revision or by
         // the counted promotion crossing, and never otherwise (physics §5.3).

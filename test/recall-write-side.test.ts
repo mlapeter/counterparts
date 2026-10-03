@@ -27,6 +27,8 @@ import { writeFieldFindings } from "../src/adapters/claude-code/doctor.js";
 import { TOOLS, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart, SUBJECTS_BACKFILL_META } from "../src/core/counterpart.js";
+import { applyRevision } from "../src/core/revision.js";
+import { Schemas } from "../src/core/schemas/index.js";
 import { AliasIndex } from "../src/core/schemas/aliases.js";
 import {
   CHAPTER_AT_META,
@@ -170,6 +172,47 @@ describe("store v12", () => {
     // The belt: an unreadable date or an unknown word stores NULL, never refuses.
     const loose = s.put({ type: "memory", kind: "fact", body: "Something with a bad date on it.", occurredOn: "last week", saidBy: "nobody" as never });
     expect([s.row(loose)?.occurred_on, s.row(loose)?.said_by]).toEqual([null, null]);
+  });
+
+  test("an identity memory revised under pressure: the successor takes the challenger's fields, not the old memory's", () => {
+    const s = Store.open({ dir, now: () => clock });
+    open.push(s);
+    const sc = Schemas.open({ store: s });
+    const target = s.put({
+      type: "memory",
+      kind: "self",
+      body: "I go to the gym at seven in the morning.",
+      band: "identity",
+      salience: { novelty: null, relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+      occurredOn: "2026-09-12",
+      saidBy: "owner",
+      status: "done",
+    });
+    // Three lived days of pressure; the last challenger's words become the successor's.
+    const bodies = ["I went to the gym at six today.", "Six again at the gym this morning.", "I go to the gym at six in the morning now."];
+    let challengerId = "";
+    let successorId: string | null = null;
+    for (const [i, body] of bodies.entries()) {
+      const day = i + 1;
+      challengerId = s.put({
+        type: "memory",
+        kind: "self",
+        body,
+        meta: { updates: target },
+        salience: { novelty: null, relevance: 0.45, emotional: 0.45, predictive: 0.45 },
+        physics: { birthDay: day, lastUsedDay: day },
+        occurredOn: "2026-09-28",
+        saidBy: "self",
+      });
+      successorId = applyRevision(s, sc, { updates: target, challengerId, day, method: "declared" }, {}).successorId ?? successorId;
+    }
+    expect(successorId).not.toBeNull();
+    const successor = s.row(successorId as string);
+    expect(successor?.body).toBe(s.row(challengerId)?.body);
+    // The challenger's date and speaker; the challenger sent no status, so the
+    // old memory's carries (a revision is still the same memory).
+    expect([successor?.occurred_on, successor?.said_by, successor?.status]).toEqual(["2026-09-28", "self", "done"]);
   });
 });
 
