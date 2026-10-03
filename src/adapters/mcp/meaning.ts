@@ -294,9 +294,11 @@ interface Entry {
 
 /**
  * Answer a question in meaning mode. Never throws on a store that will not
- * answer one of its reads: that part is empty and the rest stands.
+ * answer one of its reads: that part is empty and the rest stands. `page`
+ * picks the arc's page (from 1); `roomChars` is the rendered room,
+ * `MEANING_RESULT_CHARS` unless a test passes a small one to reach the trim.
  */
-export function meaningRecall(ctx: MeaningContext, question: string, opts: { page?: number } = {}): MeaningResult {
+export function meaningRecall(ctx: MeaningContext, question: string, opts: { page?: number; roomChars?: number } = {}): MeaningResult {
   const c = ctx.counterpart;
   const store = c.store;
   const owner = ctx.owner;
@@ -473,7 +475,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     }
   }
 
-  // Faded moments: listed after the arc, never in its slots.
+  // Faded moments: listed after the arc, not in its slots.
   const strengthOf = new Map<string, number>();
   const fadedIds: string[] = [];
   for (const [id] of held) {
@@ -664,7 +666,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     reason: lens === null || (all.length === 0 && faded.length === 0 && readingsAll.length === 0 && openAll.length === 0) ? "nothing-came" : "answered",
     semantic,
     lens,
-    others,
+    others: others.filter((o) => o.memories > 0),
     feeling: feelingAsked && ask !== null ? { words: [...ask.named], whose: ask.whose === null ? null : whose[ask.whose] } : null,
     counts: {
       chapters: chapters.length,
@@ -687,7 +689,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     chars: 0,
     trimmed: false,
   };
-  return fit(result);
+  return fit(result, opts.roomChars ?? MEANING_RESULT_CHARS);
 }
 
 // ── showing one entry ────────────────────────────────────────────────────────
@@ -941,7 +943,7 @@ function patternsOf(
  * items, no patterns, then entries off the page's ranked tail (each becomes
  * part of a fold) — and set `shown` to exactly what is printed.
  */
-function fit(r: MeaningResult): MeaningResult {
+function fit(r: MeaningResult, room: number): MeaningResult {
   const levels: ((x: MeaningResult) => MeaningResult)[] = [
     (x) => x,
     (x) => ({ ...x, arc: mapEntries(x.arc, (e) => ({ ...e, moments: e.moments.slice(0, 2), line: clip(e.line, 140) })) }),
@@ -958,7 +960,7 @@ function fit(r: MeaningResult): MeaningResult {
   for (const level of levels) {
     cur = level(cur);
     const text = renderMeaning(cur);
-    if (wireChars(text) <= MEANING_RESULT_CHARS) return finish(cur, text, cur !== r);
+    if (wireChars(text) <= room) return finish(cur, text, cur !== r);
   }
   // Still too big: drop entries from the page, the last-ranked first (an
   // entry's place in time stays a fold).
@@ -970,7 +972,7 @@ function fit(r: MeaningResult): MeaningResult {
     arc = refold(arc, victim.entry.address);
     cur = { ...cur, arc };
     const text = renderMeaning(cur);
-    if (wireChars(text) <= MEANING_RESULT_CHARS) return finish(cur, text, true);
+    if (wireChars(text) <= room) return finish(cur, text, true);
   }
   cur = { ...cur, readings: [], open: [], faded: [], patterns: { subjects: [], feelings: [] } };
   return finish(cur, renderMeaning(cur), true);

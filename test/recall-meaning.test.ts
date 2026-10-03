@@ -376,7 +376,6 @@ describe("a long arc", () => {
 
   test("a big arc stays under the 12,000-character room, and shown is what was printed", () => {
     const c = brain();
-    card(c, "Ada");
     longArc(c, 30, 6);
     const r = meaningRecall(ctx(c), "What has Ada been to me?");
     const text = renderMeaning(r);
@@ -384,6 +383,29 @@ describe("a long arc", () => {
     expect(r.chars).toBe(wireChars(text));
     const printed = new Set(text.match(/\b(?:mem|epi)_[a-z0-9]+/g) ?? []);
     expect(new Set(r.shown)).toEqual(printed);
+  });
+
+  test("the fit trims to a smaller room: fewer moments, then entries folded; the arc's total is kept", () => {
+    const c = brain();
+    longArc(c, 30, 6);
+    const full = meaningRecall(ctx(c), "What has Ada been to me?");
+    expect(full.trimmed).toBe(false);
+    const total = (r: MeaningResult) => r.arc.reduce((n, l) => n + (l.fold ? l.count : 1), 0);
+    for (const room of [3_000, 1_800, 900]) {
+      const r = meaningRecall(ctx(c), "What has Ada been to me?", { roomChars: room });
+      const text = renderMeaning(r);
+      expect(r.trimmed).toBe(true);
+      expect(wireChars(text)).toBeLessThanOrEqual(room);
+      expect(r.chars).toBe(wireChars(text));
+      // Every entry is still on the arc, shown or folded.
+      expect(total(r)).toBe(total(full));
+      // Two folds never sit side by side.
+      expect(r.arc.some((l, i) => l.fold && r.arc[i + 1]?.fold === true)).toBe(false);
+      const printed = new Set(text.match(/\b(?:mem|epi)_[a-z0-9]+/g) ?? []);
+      expect(new Set(r.shown)).toEqual(printed);
+    }
+    // The smallest room had to fold entries off the page.
+    expect(entries(meaningRecall(ctx(c), "What has Ada been to me?", { roomChars: 900 })).length).toBeLessThan(entries(full).length);
   });
 });
 

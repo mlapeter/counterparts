@@ -472,7 +472,7 @@ them.
 - **[M]** Feelings are shown per entry with whose they are, the asker's and the other's
   side by side, never merged.
 - **[M]** Faded moments (kept a fifth of their strength or less, `MEANING_FADED_RETAINED`)
-  are a few labelled lines after the arc, never in its slots. Readings (dream gists,
+  are a few labelled lines after the arc, not in its slots. Readings (dream gists,
   reflection entries) that name the subject or cite its memories are listed dated; the
   dream journal stays outside. Open threads and reminders dated today or later are listed.
   Recurring subjects and feelings are laid side by side, unnamed.
