@@ -466,7 +466,8 @@ them.
 - **[M]** The arc is the chapters (`epi_…#N`) that hold the subject — its memories
   written in a chapter's span, and the chapter's own words naming it — ranked by how much
   they hold and shown in time order, 8 to a page (`page`); moments a session wrote with no
-  chapter are an entry of their own, labelled so. A long arc keeps its start, its end and
+  chapter, or under none of its chapters (their moments unknown, from before v12, or a
+  later write-up), are an entry per session, labelled which. A long arc keeps its start, its end and
   its turns (the feelings' valence changing sign) on page 1; what is not on the page folds
   to one line per stretch.
 - **[M]** Feelings are shown per entry with whose they are, the asker's and the other's

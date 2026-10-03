@@ -21,7 +21,9 @@
  *      it — whose they are, side by side, never merged — and two or three of
  *      its moments by id. A long arc keeps its start, its end and its turns;
  *      the stretches between fold to one line each. Moments a session wrote
- *      with no chapter come as entries of their own, labelled so.
+ *      with no chapter — or under none of its chapters, when their moments
+ *      are unknown or come after the last — are an entry per session,
+ *      labelled which.
  *   3. Faded moments: a few title lines, labelled, after the arc.
  *   4. Earlier readings: dream gists and reflection entries that touched the
  *      subject, dated. The dream journal stays outside (dream CONTRACT).
