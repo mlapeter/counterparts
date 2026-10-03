@@ -331,15 +331,15 @@ const OCCURRED_ON_PROPERTY = {
 } as const;
 
 const SAID_BY_PROPERTY = {
-  type: ["string", "null"],
-  enum: ["owner", "self", "inferred", null],
+  type: "string",
+  enum: ["owner", "self", "inferred"],
   description:
     'Optional: who said it — "owner" (they told you), "self" (you said or decided it), "inferred" (your own reading; nobody said it).',
 } as const;
 
 const STATUS_PROPERTY = {
-  type: ["string", "null"],
-  enum: ["done", "planned", "proposed", "asked", null],
+  type: "string",
+  enum: ["done", "planned", "proposed", "asked"],
   description:
     'Optional: what kind of thing it is — "done" (it happened), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
 } as const;
@@ -347,7 +347,7 @@ const STATUS_PROPERTY = {
 /** The privilege `note` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
-    "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text. One that cannot be read is dropped and said beside the memory, which is stored all the same; revising a memory by its id with `updates` carries all three over unless you send your own (null: none).",
+    "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text. One that cannot be read is dropped and said beside the memory, which is stored all the same; revising a memory by its id with `updates` carries all three over unless you send your own (occurredOn null: no date carried).",
   mechanizedBy:
     "src/adapters/mcp/server.ts#readWriteFacts -> src/core/counterpart.ts#carryFacts -> src/core/mint.ts#mintProposal -> src/core/store/index.ts#insertOne (occurred_on, said_by, status)",
 };

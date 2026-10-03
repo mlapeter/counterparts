@@ -19,7 +19,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -131,6 +131,8 @@ describe("store v12", () => {
     const s = Store.open({ dir, snapshotsDir: join(root, "snaps"), now: () => clock });
     open.push(s);
     expect(s.getMeta("schemaVersion")).toBe("12");
+    // The copy came first, named for the versions it spans.
+    expect(readdirSync(join(root, "snaps")).some((n) => n.includes("v11-to-v12"))).toBe(true);
     const up = JSON.parse(s.getMeta(V12_UPGRADE_KEY) ?? "{}") as Record<string, unknown>;
     expect(up["from"]).toBe("11");
     expect(up["memories"]).toBe(1);
@@ -158,6 +160,13 @@ describe("store v12", () => {
     expect([s.row(id)?.occurred_on, s.row(id)?.said_by, s.row(id)?.status]).toEqual(["2026-09-28", "owner", null]);
     const v = s.versions(id)[0];
     expect([v?.occurred_on, v?.said_by, v?.status]).toEqual(["2026-09-28", "owner", "done"]);
+    // A merge's successor takes each field it was not given, from the first original that has one.
+    const a = s.put({ type: "memory", kind: "fact", body: "Standup is at nine on Mondays now.", occurredOn: "2026-09-29", saidBy: "owner" });
+    const b = s.put({ type: "memory", kind: "fact", body: "Monday standup moved to nine.", status: "done", saidBy: "self" });
+    const merged = s.put({ type: "memory", kind: "fact", body: "Monday standup is at nine now.", status: "planned" });
+    s.supersedeInto(a, merged, "dream-merge");
+    s.supersedeInto(b, merged, "dream-merge");
+    expect([s.row(merged)?.occurred_on, s.row(merged)?.said_by, s.row(merged)?.status]).toEqual(["2026-09-29", "owner", "planned"]);
     // The belt: an unreadable date or an unknown word stores NULL, never refuses.
     const loose = s.put({ type: "memory", kind: "fact", body: "Something with a bad date on it.", occurredOn: "last week", saidBy: "nobody" as never });
     expect([s.row(loose)?.occurred_on, s.row(loose)?.said_by]).toEqual([null, null]);
