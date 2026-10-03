@@ -65,7 +65,7 @@ import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../
 import type { ChapterTimes } from "../../core/self/index.js";
 import { feelingValence, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
-import { calendarOverlaps, localDate } from "../../core/time.js";
+import { calendarOverlaps, daysBetween, localDate } from "../../core/time.js";
 import { RECALL_RESULT_CHARS } from "./deliberate.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
@@ -506,7 +506,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
       const t = timesOf(e.id);
       const date = e.chapters[k - 1]?.date ?? null;
       const at = t?.moments[k] ?? (date !== null ? Date.parse(`${date}T12:00:00Z`) : e.createdAt);
-      entry = { key, kind: "chapter", episode: e, chapter: k, session: e.session, at, date: date ?? dateOf(at, zone), hold: 0, textHold: 0, moments: [] };
+      entry = { key, kind: "chapter", episode: e, chapter: k, session: e.session, at, date: date ?? localDay(at, zone), hold: 0, textHold: 0, moments: [] };
       entries.set(key, entry);
     }
     return entry;
@@ -531,12 +531,12 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
       placed = entries.get(key) ?? null;
       if (placed === null) {
         const when = at ?? 0;
-        placed = { key, kind: "session", episode: null, chapter: null, session, at: when, date: at === null ? emptyNull(h.row.learned_on) : dateOf(at, zone), hold: 0, textHold: 0, moments: [] };
+        placed = { key, kind: "session", episode: null, chapter: null, session, at: when, date: at === null ? emptyNull(h.row.learned_on) : localDay(at, zone), hold: 0, textHold: 0, moments: [] };
         entries.set(key, placed);
       }
       if (at !== null && at < placed.at) {
         placed.at = at;
-        placed.date = dateOf(at, zone);
+        placed.date = localDay(at, zone);
       }
     }
     placed.moments.push(h);
@@ -847,7 +847,7 @@ function readingsFor(
     .map((r) => ({
       id: r.id,
       by: r.source === "dreamed" ? ("dreamed" as const) : ("reflected" as const),
-      date: r.created_at === null ? r.learned_on : dateOf(r.created_at, zone) ?? r.learned_on,
+      date: r.created_at === null ? r.learned_on : localDay(r.created_at, zone) ?? r.learned_on,
       title: clip(oneLine(r.title ?? firstLine(r.body)), TITLE_CHARS),
       excerpt: clip(oneLine(r.body), 160),
     }));
@@ -872,7 +872,7 @@ function openFor(
       continue;
     }
     if (parseMeta(r.meta)[UNRESOLVED_META_KEY] === true) {
-      open.push({ id, title, why: "open", date: r.created_at === null ? emptyNull(r.learned_on) : dateOf(r.created_at, zone), at: r.created_at ?? 0 });
+      open.push({ id, title, why: "open", date: r.created_at === null ? emptyNull(r.learned_on) : localDay(r.created_at, zone), at: r.created_at ?? 0 });
     }
   }
   dated.sort((a, b) => a.sort.localeCompare(b.sort) || a.id.localeCompare(b.id));
@@ -1174,7 +1174,7 @@ function momentOf(r: MemoryRow, zone: string | undefined): MeaningMoment {
   return {
     id: r.id,
     title: clip(oneLine(r.title !== null && r.title.trim().length > 0 ? r.title : firstLine(r.body)), TITLE_CHARS),
-    date: (r.created_at === null ? null : dateOf(r.created_at, zone)) ?? r.learned_on,
+    date: (r.created_at === null ? null : localDay(r.created_at, zone)) ?? r.learned_on,
   };
 }
 
@@ -1195,7 +1195,7 @@ function parseMeta(meta: string): Record<string, unknown> {
   }
 }
 
-function dateOf(at: number, zone: string | undefined): string | null {
+function localDay(at: number, zone: string | undefined): string | null {
   const d = localDate(at, zone);
   return d.length === 0 ? null : d;
 }
@@ -1205,7 +1205,7 @@ function emptyNull(s: string): string | null {
 }
 
 function daysApart(a: string, b: string): number {
-  return Math.abs(Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000;
+  return safe(() => Math.abs(daysBetween(a, b)), Number.POSITIVE_INFINITY);
 }
 
 /** `MM-DD` for a whole day (the arc's own entries keep the year); ranges and months as written. */
