@@ -451,6 +451,37 @@ old memory (`counterpart.ts#carryFacts`). **[A]** The descriptions ask the write
 resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
 from `eventDate` (a future date to be reminded on). Recall does not read them yet.
 
+## 6e. Meaning mode (2026-10-03, Release B of deliberate recall)
+
+`recall` with `mode: "meaning"` arranges what memory holds about a subject over time;
+the reader interprets (`meaning.ts`). Working defaults, held lightly; the revisit checks
+them.
+
+- **[M]** The subject is read from the question: the cards its names reach
+  (`Schemas#subjectsIn` → `memory_subjects`), the best of them the arc and the rest
+  one-liners; "us" (the words *us*, *ourselves*, *together*) is the memories marked
+  `about: us`; a ranked question about feeling (`feeling-ask.ts`) with no card is the
+  stamps that match it by word, core and whose; with none of those, the question's rarer
+  words and its meaning, and the answer says no card named it.
+- **[M]** The arc is the chapters (`epi_…#N`) that hold the subject — its memories
+  written in a chapter's span, and the chapter's own words naming it — ranked by how much
+  they hold and shown in time order, 8 to a page (`page`); moments a session wrote with no
+  chapter are an entry of their own, labelled so. A long arc keeps its start, its end and
+  its turns (the feelings' valence changing sign) on page 1; what is not on the page folds
+  to one line per stretch.
+- **[M]** Feelings are shown per entry with whose they are, the asker's and the other's
+  side by side, never merged.
+- **[M]** Faded moments (kept a fifth of their strength or less, `MEANING_FADED_RETAINED`)
+  are a few labelled lines after the arc, never in its slots. Readings (dream gists,
+  reflection entries) that name the subject or cite its memories are listed dated; the
+  dream journal stays outside. Open threads and reminders dated today or later are listed.
+  Recurring subjects and feelings are laid side by side, unnamed.
+- **[M]** A search writes nothing. `shown` is exactly the ids printed, for the seen set
+  and quote credit. Confidential material is left out of a non-owner's answer silently.
+  The rendered answer stays inside the 12,000-character list room (`fit`).
+- **[A]** "us" is not triggered by *we* or *our*, which a question uses for joint work.
+  A chapter address names a chapter; its episode id is what opens it today.
+
 ## 7. Open questions
 
 1. **Does `note` still need to exist** once the experiencer writes at every session end?

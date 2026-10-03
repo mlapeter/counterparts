@@ -519,7 +519,8 @@ chapter's written moment is kept in the episode's meta (`CHAPTER_AT_META`); an e
 before is read from its `episode-chapter` versions while they last, and past them the
 resolver says the moment is unknown and lists nothing. **[A]** The span's edges are shifted
 by `CHAPTER_MOMENT_GRACE_MS` so a stretch's memories written just after its chapter are the
-chapter's.
+chapter's. **[M]** `chapterTimesOf` and `chapterAt` give the same placement for many memories
+at once (one read of an episode's moments; recall's meaning mode).
 
 ## 6. Scars honored
 

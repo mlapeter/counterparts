@@ -1545,3 +1545,7 @@ and is not a cost.
   default): the end-of-stretch answer writes its memories and its chapter in one turn, in
   either order. Chapter copies are left out of the list. A write-up's memories carry the
   session's id but a later moment, so they sit under no chapter. No caller yet (Release B).
+- **First caller (Release B, meaning mode):** `chapterTimesOf` reads an episode's chapter
+  moments once and `chapterAt` places one memory by the same span rule, so recall can put
+  hundreds of a subject's memories under their chapters without a `resolveChapter` (and its
+  per-memory prose reads) for each; a test holds the two to the same answer.
