@@ -92,10 +92,59 @@ function day(): {
   };
 }
 
-type Row = { id: string; recent?: boolean; from?: string };
+type Row = { id: string; from?: string };
 function rows(r: { structuredContent?: unknown }): Row[] {
   return ((r.structuredContent as Record<string, unknown>)["memories"] as Row[]) ?? [];
 }
+/** One result of a facts answer, read off its labeled lines (`mcp/facts.ts`). */
+interface FactLine {
+  readonly id: string;
+  readonly title: string;
+  readonly journal: boolean;
+  readonly ways: string[];
+  /** The `learned …` line (a journal's `my journal · written …` line), as printed. */
+  readonly learned: string;
+  readonly lines: string[];
+}
+
+/** A facts answer: the payload, the header lines, and each result. */
+function factsOf(r: { structuredContent?: unknown }): { payload: Record<string, unknown>; header: string[]; items: FactLine[] } {
+  const payload = (r.structuredContent ?? {}) as Record<string, unknown>;
+  const text = typeof payload["answer"] === "string" ? payload["answer"] : "";
+  const lines = text.split("\n");
+  const blank = lines.indexOf("");
+  const header = blank === -1 ? lines : lines.slice(0, blank);
+  const items: FactLine[] = [];
+  let cur: string[] | null = null;
+  const flush = (): void => {
+    if (cur === null) return;
+    const m = /^\d+\. (\[journal\] )?(.*) · ((?:mem|epi)_[0-9a-f]+)(?: \(chapter \d+ of \d+\))? · (.*)$/.exec(cur[0] ?? "");
+    if (m !== null) {
+      items.push({
+        id: m[3] as string,
+        title: m[2] as string,
+        journal: m[1] !== undefined,
+        ways: (m[4] as string).split(", "),
+        learned: cur.find((l) => /^ {3}(learned |my journal · )/.test(l)) ?? "",
+        lines: cur,
+      });
+    }
+    cur = null;
+  };
+  for (const l of lines) {
+    if (/^\d+\. /.test(l)) {
+      flush();
+      cur = [l];
+    } else if (l.startsWith("   ") && cur !== null) {
+      cur.push(l);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return { payload, header, items };
+}
+
 function idOf(r: { structuredContent?: unknown }): string {
   return (r.structuredContent as Record<string, unknown>)["id"] as string;
 }
@@ -142,22 +191,27 @@ describe("`from` on a note written before the bind", () => {
     k.talk(B, at(17, 1));
     k.set(at(17, 2));
     const b = k.unbound();
-    const before = rows(await b.call("recall", { question: "the cold frame lid hinge" })).find((m) => m.id === id);
-    expect(before?.from).toBe(want);
+    // By id, the whole `from`; asked as a question (facts mode), the same
+    // words on the result's learned line.
+    const line = `   learned 09-30 in ${HERE} · ${UNIDENTIFIED_SESSION_WORDS} · CURRENT`;
+    expect(rows(await b.call("recall", { ids: [id] }))[0]?.from).toBe(want);
+    const before = factsOf(await b.call("recall", { question: "the cold frame lid hinge", mode: "facts" })).items.find((m) => m.id === id);
+    expect(before?.learned).toBe(line);
 
     // After B binds (its first chapter): it used to read "session mcp, …".
     const ch = await b.call("chapter", { session: B, text: "We looked at the cold frame and the frost dates." });
     expect(ch.isError).not.toBe(true);
-    const after = rows(await b.call("recall", { question: "the cold frame lid hinge" })).find((m) => m.id === id);
-    expect(after?.from).toBe(want);
+    expect(rows(await b.call("recall", { ids: [id] }))[0]?.from).toBe(want);
+    const after = factsOf(await b.call("recall", { question: "the cold frame lid hinge", mode: "facts" })).items.find((m) => m.id === id);
+    expect(after?.learned).toBe(line);
     for (const r of [before, after]) {
-      expect(r?.from).not.toMatch(/^this session/);
-      expect(r?.from).not.toContain(`session ${UNBOUND_SESSION}`);
+      expect(r?.learned).not.toContain("this session");
+      expect(r?.learned).not.toContain(`session ${UNBOUND_SESSION}`);
     }
   });
 });
 
-describe("the recency lead and a session's notes from before it bound", () => {
+describe("the last session, asked in facts mode, and a session's notes from before it bound", () => {
   /** A's afternoon: turns from 16:01, two notes before its server bound, a
    *  chapter at 16:35 (the bind), one note after, the end. */
   async function afternoonA(k: ReturnType<typeof day>): Promise<{ early: string; mid: string; late: string; chapter: string }> {
@@ -182,7 +236,7 @@ describe("the recency lead and a session's notes from before it bound", () => {
     return { early, mid, late, chapter };
   }
 
-  test("a closed session's notes from before its bind lead with its chapter; one inside its stretch says so, placed by its time (2026-10-01)", async () => {
+  test("a closed session is the last one, its chapter leads, and a note from before its bind says it was placed by its time (2026-10-01)", async () => {
     const k = day();
     const { early, mid, late, chapter } = await afternoonA(k);
     expect(k.c.store.row(early)?.origin_session).toBe(UNBOUND_SESSION);
@@ -190,19 +244,23 @@ describe("the recency lead and a session's notes from before it bound", () => {
     recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
     k.talk(B, at(17, 1));
     k.set(at(17, 2));
-    const got = rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" }));
-    const lead = got.filter((m) => m.recent === true).map((m) => m.id);
-    expect(lead[0]).toBe(chapter);
-    // Newest first: the note after the bind, then the two before it.
-    expect(lead.slice(1, 4)).toEqual([late, mid, early]);
+    const got = factsOf(await k.unbound().call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    expect(got.header.some((l) => l.includes("(session a1b2c3d4, its rows first)"))).toBe(true);
+    // A's own rows lead — its chapter (16:35) and the note after the bind
+    // (16:36), newest first: in facts mode recency only breaks the tie.
+    expect(got.items.slice(0, 2).map((m) => m.id)).toEqual([late, chapter]);
+    // The notes from before the bind are A's too: they lead with it.
+    const lead = got.items.filter((m) => m.ways.includes("session")).map((m) => m.id);
+    expect(new Set(lead)).toEqual(new Set([late, chapter, mid, early]));
+    expect(got.items.slice(0, 4).map((m) => m.id).sort()).toEqual([late, chapter, mid, early].sort());
     // Inside A's stretch and no one else's: A's, and the words say how it was
     // placed (random-f2's item 4). The row itself still names nobody.
-    expect(got.find((m) => m.id === mid)?.from).toBe(`session a1b2c3d4 (placed by when it was written), ${HERE}, 09-30 16:15`);
+    expect(got.items.find((m) => m.id === mid)?.learned).toBe(`   learned 09-30 (in the window by this date) in ${HERE} · session a1b2c3d4 (placed by when it was written) · CURRENT`);
     expect(k.c.store.row(mid)?.origin_session).toBe(UNBOUND_SESSION);
-    expect(got.find((m) => m.id === late)?.from).toBe(`session a1b2c3d4, ${HERE}, 09-30 16:36`);
+    expect(got.items.find((m) => m.id === late)?.learned).toBe(`   learned 09-30 (in the window by this date) in ${HERE} · session a1b2c3d4 · CURRENT`);
   });
 
-  test("side by side: a note written while another session was at work here is nobody's, and does not lead", async () => {
+  test("side by side: a note written while another session was at work here is nobody's; one inside A's stretch alone is A's", async () => {
     const k = day();
     // C works in the same directory from 16:10 to 16:20, alongside A.
     recordSession(storeDir, { sessionId: C, scope: HERE, phase: "start", at: at(16, 9), model: "claude-opus-5-5" });
@@ -226,16 +284,19 @@ describe("the recency lead and a session's notes from before it bound", () => {
     recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
     k.talk(B, at(17, 1));
     k.set(at(17, 2));
-    const got = rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" }));
-    const lead = new Set(got.filter((m) => m.recent === true).map((m) => m.id));
-    expect(lead.has(early)).toBe(true);
-    expect(lead.has(mid)).toBe(false);
+    const got = factsOf(await k.unbound().call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    const e = got.items.find((m) => m.id === early);
+    expect(e?.ways).toContain("session");
+    expect(e?.learned).toContain("session a1b2c3d4 (placed by when it was written)");
+    const m2 = got.items.find((m) => m.id === mid);
+    expect(m2?.ways ?? []).not.toContain("session");
+    expect(m2?.learned).toContain(UNIDENTIFIED_SESSION_WORDS);
     // Nor is it placed by its time: two sessions were at work then.
     const named = rows(await k.unbound().call("recall", { ids: [mid] }));
     expect(named[0]?.from).toBe(`${UNIDENTIFIED_SESSION_WORDS}, ${HERE}, 09-30 16:15`);
   });
 
-  test("a note from before the bind in ANOTHER directory never leads here", async () => {
+  test("a note from before the bind in ANOTHER directory never leads here, and says where it was written", async () => {
     const k = day();
     const { early } = await afternoonA(k);
     const elsewhere = join(root, "elsewhere");
@@ -246,9 +307,14 @@ describe("the recency lead and a session's notes from before it bound", () => {
     recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
     k.talk(B, at(17, 1));
     k.set(at(17, 2));
-    const lead = new Set(rows(await k.unbound().call("recall", { question: "what do you remember from our most recent session?" })).filter((m) => m.recent === true).map((m) => m.id));
-    expect(lead.has(early)).toBe(true);
-    expect(lead.has(other)).toBe(false);
+    const got = factsOf(await k.unbound().call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    expect(got.items.map((m) => m.id)).toContain(early);
+    const away2 = got.items.find((m) => m.id === other);
+    expect(away2?.ways ?? []).not.toContain("session");
+    expect(away2?.learned).toContain(`in ${elsewhere} · `);
+    // Whatever leads, the other directory's note is not before it.
+    const firstOther = got.items.findIndex((m) => !m.ways.includes("session"));
+    expect(got.items.slice(firstOther === -1 ? got.items.length : firstOther).some((m) => m.ways.includes("session"))).toBe(false);
   });
 });
 

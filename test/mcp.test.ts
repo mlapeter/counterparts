@@ -28,10 +28,8 @@ import { TUNABLES } from "../src/core/physics/index.js";
 import { Store } from "../src/core/store/index.js";
 import { SESSION_TTL_MS, recordSession } from "../src/adapters/sessions.js";
 import {
-  DELIBERATE_TIERS,
   ERROR_CODES,
   FrameReader,
-  HARD_GATES,
   McpServer,
   PROTOCOL_VERSIONS,
   RECALL_BODY_CHARS,
@@ -48,12 +46,11 @@ import {
   renderDescription,
   resolveScope,
   serveStdio,
-  tierOf,
   toolSpec,
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions, ownerStance } from "../src/adapters/mcp/bin/serve.js";
-import { TUNABLES as RECALL_TUNABLES } from "../src/core/recall/index.js";
+import { FACTS_JOURNAL_GLOSS } from "../src/adapters/mcp/facts.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_mcp_1";
@@ -969,7 +966,51 @@ describe("recall — deliberate retrieval", () => {
     );
   });
 
-  test("the result is bounded: excerpts in a list, and it says when it cut something", async () => {
+  test("a question needs a mode — there is no default — and an address takes none (Release B, 2026-10-03)", async () => {
+    const s = server();
+    seed(s.counterpart);
+    const id = s.counterpart.store.put({
+      type: "memory",
+      kind: "skill",
+      title: "Sourdough starter",
+      body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+    });
+    // No mode: refused, and the refusal teaches both modes.
+    const bare = await s.call("recall", { question: "what happened to my sourdough starter" });
+    expect(bare.isError).toBe(true);
+    expect(payload(bare)["reason"]).toBe("mode-required");
+    expect(String(payload(bare)["modes"])).toContain('"facts"');
+    expect(String(payload(bare)["modes"])).toContain('"meaning"');
+    // An unknown mode: refused by name.
+    const odd = await s.call("recall", { question: "sourdough", mode: "vibes" });
+    expect(odd.isError).toBe(true);
+    expect(payload(odd)["reason"]).toBe("mode-unknown");
+    // A bad page is refused too.
+    expect(payload(await s.call("recall", { question: "sourdough", mode: "facts", page: 0 }))["reason"]).toBe(
+      "page-not-a-positive-integer",
+    );
+    // facts answers with labeled lines.
+    const facts = payload(await s.call("recall", { question: "what happened to my sourdough starter", mode: "facts" }));
+    expect(facts["path"]).toBe("question");
+    expect(facts["mode"]).toBe("facts");
+    expect(facts["reason"]).toBe("answered");
+    expect(facts["ids"]).toContain(id);
+    expect(String(facts["answer"])).toContain(id);
+    // meaning is its own path, answered by meaning.ts.
+    const meaning = payload(await s.call("recall", { question: "what has the starter been to me", mode: "meaning" }));
+    expect(meaning["path"]).toBe("question");
+    expect(meaning["mode"]).toBe("meaning");
+    expect(typeof meaning["answer"]).toBe("string");
+    // A mode beside an address is ignored, and the result says so.
+    const byId = payload(await s.call("recall", { ids: [id], mode: "facts" }));
+    expect(byId["reason"]).toBe("expanded");
+    expect(String(byId["modeIgnored"])).toContain("question only");
+    const byHandle = payload(await s.call("recall", { handle: id, mode: "meaning" }));
+    expect(byHandle["reason"]).toBe("expanded");
+    expect(byHandle["modeIgnored"]).toBeDefined();
+  });
+
+  test("the result is bounded: excerpts in a list, and it says how to read one whole", async () => {
     // MEASURED 2026-09-04: three real `recall` calls returned 7, 8 and 12 full
     // bodies — 73,000 to 122,000 characters — and every one overflowed the
     // host's tool-result ceiling. The bound is the fix; this is its floor.
@@ -984,25 +1025,21 @@ describe("recall — deliberate retrieval", () => {
         body: `${long} Entry ${i}: the sourdough starter died after neglect.`,
       });
     }
-    const result = payload(await s.call("recall", { question: "my sourdough starter died" }));
-    const memories = result["memories"] as { id: string; excerpt: string; bodyChars: number; truncated: boolean }[];
-    expect(memories.length).toBeGreaterThan(0);
-
-    // Every excerpt is bounded, the total is bounded, and the whole rendered
-    // result is comfortably under the ceiling the live calls blew through.
-    for (const m of memories) {
-      expect(m.excerpt.length).toBeLessThanOrEqual(RECALL_EXCERPT_CHARS);
-      expect(m.bodyChars).toBeGreaterThan(m.excerpt.length);
-      expect(m.truncated).toBe(true);
-    }
+    const result = payload(await s.call("recall", { question: "my sourdough starter died", mode: "facts" }));
+    const ids = result["ids"] as string[];
+    expect(ids.length).toBeGreaterThan(0);
+    const answer = String(result["answer"]);
+    // No body shipped whole: every line is bounded, and the whole answer is
+    // under the list budget.
+    for (const line of answer.split("\n")) expect(line.length).toBeLessThanOrEqual(RECALL_EXCERPT_CHARS + 20);
+    expect(answer).not.toContain(long);
     expect(result["chars"] as number).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
     expect(JSON.stringify(result).length).toBeLessThan(RECALL_RESULT_CHARS + 4000);
-    // Truncation is STATED, never silent, and the budget names its own remedy.
-    expect(result["truncated"]).toBe(true);
-    expect(result["budget"] as string).toContain("ids");
-    // `considered` is a cap, and the payload says which one (§9.1 G3).
-    expect(result["consideredCap"]).toBe(RECALL_TUNABLES.MAX_CANDIDATES);
-    expect(result["considered"] as number).toBeLessThanOrEqual(RECALL_TUNABLES.MAX_CANDIDATES);
+    // An excerpt names its own remedy.
+    expect(answer).toContain("read any whole with ids");
+    // The header counts what matched.
+    expect(answer.split("\n")[0]).toMatch(/^\d+ match · showing \d+/);
+    expect(result["matched"] as number).toBeGreaterThanOrEqual(ids.length);
   });
 
   test("ids expands a few of those in full, capped, and refuses one past the cap", async () => {
@@ -1117,68 +1154,82 @@ describe("recall — deliberate retrieval", () => {
       body: "The lighthouse at Fernbrook Point stopped turning in 1974 when the keeper left.",
     });
 
-    // The question path: both rows come back, one of them flagged.
-    const asked = payload(await s.call("recall", { question: "the lighthouse at Fernbrook Point" }));
-    const rows = asked["memories"] as { id: string; journal: boolean }[];
-    const chapterRow = rows.find((m) => m.id === chapter);
-    expect(chapterRow).toBeDefined();
-    expect(chapterRow?.journal).toBe(true);
-    const memoryRow = rows.find((m) => m.id === memory);
-    expect(memoryRow).toBeDefined();
-    expect(memoryRow?.journal).toBe(false);
-    // The word is glossed once in the payload, next to the tier glosses, so the
-    // flag is not a bare boolean the reader has to guess the meaning of.
-    expect(String(asked["journal"])).toContain("not a memory");
+    // The question path: both rows come back, the chapter flagged.
+    const asked = payload(await s.call("recall", { question: "the lighthouse at Fernbrook Point", mode: "facts" }));
+    const ids = asked["ids"] as string[];
+    expect(ids).toContain(chapter);
+    expect(ids).toContain(memory);
+    const lines = String(asked["answer"]).split("\n");
+    const chapterLine = lines.find((l) => l.includes(chapter));
+    const memoryLine = lines.find((l) => l.includes(memory));
+    expect(chapterLine).toContain("[journal]");
+    expect(memoryLine).not.toContain("[journal]");
+    // The word is glossed once in the answer, so the mark is not one the
+    // reader has to guess the meaning of.
+    expect(String(asked["answer"])).toContain(FACTS_JOURNAL_GLOSS);
 
     // And the exact-address path says the same thing about the same row.
     const expanded = payload(await s.call("recall", { handle: chapter }));
     expect((expanded["memories"] as { journal: boolean }[])[0]?.journal).toBe(true);
+    expect(String(expanded["journal"])).toContain("not a memory");
   });
 
-  test("a question answers in labeled tiers, and reports what it considered separately from what it returned", async () => {
+  test("an address may name ONE chapter, epi_…#N: that chapter's words, its address and its moments", async () => {
     const s = server();
     seed(s.counterpart);
-    s.counterpart.store.put({
+    const first = payload(await s.call("chapter", { session: SESSION, text: "We fixed the kiln thermostat together." }));
+    const episode = first["episodeId"] as string;
+    expect(s.counterpart.episodeAsk(SESSION, { turns: 40, bytes: 40_000 }).asked).toBe(true);
+    const second = payload(await s.call("chapter", { session: SESSION, text: "Later we glazed the twelve bowls in celadon." }));
+    expect(second["chapter"]).toBe(2);
+
+    const byHandle = payload(await s.call("recall", { handle: `${episode}#2` }));
+    expect(byHandle["reason"]).toBe("expanded");
+    const [m] = byHandle["memories"] as { id: string; address: string; excerpt: string; moments: string[]; journal: boolean }[];
+    expect(m?.id).toBe(episode);
+    expect(m?.address).toBe(`${episode}#2`);
+    expect(m?.excerpt).toContain("celadon");
+    expect(m?.excerpt).not.toContain("thermostat");
+    expect(Array.isArray(m?.moments)).toBe(true);
+    expect(m?.journal).toBe(true);
+    // The same through ids; a chapter that is not there is not-found, by name.
+    const byIds = payload(await s.call("recall", { ids: [`${episode}#1`, `${episode}#9`] }));
+    expect(byIds["perId"]).toEqual([
+      { id: `${episode}#1`, reason: "expanded" },
+      { id: `${episode}#9`, reason: "handle-unknown" },
+    ]);
+    expect((byIds["memories"] as { excerpt: string }[])[0]?.excerpt).toContain("thermostat");
+  });
+
+  test("a facts answer gives each result its labeled lines, and has no tiers", async () => {
+    const s = server();
+    seed(s.counterpart);
+    const id = s.counterpart.store.put({
       type: "memory",
       kind: "skill",
       title: "Sourdough starter",
       body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
       salience: { relevance: 0.6, emotional: 0.2, predictive: 0.4 },
     });
-    const result = payload(await s.call("recall", { question: "my sourdough starter died again" }));
-    const memories = result["memories"] as { tier: string; excerpt: string }[];
-
+    const result = payload(await s.call("recall", { question: "my sourdough starter died again", mode: "facts" }));
     expect(result["reason"]).toBe("answered");
-    expect(memories.length).toBeGreaterThan(0);
-    // ADJUSTED 2026-09-04: `body` -> `excerpt` (see the handle test above).
-    expect(memories[0]?.excerpt.length).toBeGreaterThan(0);
-    expect(["vivid", "quiet", "dim"]).toContain(memories[0]?.tier as string);
-    // §9.1 G3: considered is the candidate count, storeSize the denominator.
-    // Neither is "how many I chose to show you".
-    expect(result["considered"] as number).toBeGreaterThanOrEqual(memories.length);
-    expect(result["storeSize"] as number).toBeGreaterThanOrEqual(FILLER.length);
-    expect((result["tiers"] as Record<string, string>)["dim"]).toContain("deliberately");
-  });
-
-  test("effort lowers the bar and never overturns a hard gate", () => {
-    for (const verdict of HARD_GATES) {
-      expect(tierOf(verdict, false, false)).toBe(null);
-    }
-    for (const verdict of DELIBERATE_TIERS) {
-      expect(tierOf(verdict, false, false)).toBe("dim");
-    }
-    expect(tierOf("confidential-withheld", false, false)).toBe(null);
-    expect(tierOf("inhibited", false, false)).toBe(null);
-    expect(tierOf("below-bar", true, false)).toBe("vivid");
-    expect(tierOf("below-bar", false, true)).toBe("quiet");
+    expect(result["ids"]).toContain(id);
+    const answer = String(result["answer"]);
+    // Who said it, its status and its event date — unknown on a row the
+    // writer did not fill — and whether it still holds.
+    expect(answer).toContain("speaker unknown");
+    expect(answer).toContain("no event date");
+    expect(answer).toContain("CURRENT");
+    expect(answer).toMatch(/· words/);
+    // No tiers any more (Release B): the order is match strength.
+    expect(answer).not.toMatch(/\b(vivid|dim)\b/);
+    expect(result["page"]).toBe(1);
+    expect(result["pages"]).toBe(1);
   });
 
   test("the FIRST note is recallable by question, on a store of one", async () => {
     // The cold-stranger path, exactly: a fresh store with no identity core, one
     // memory through the `note` door, one question that plainly matches it.
-    // Before the fix this answered `nothing-came` with `considered: 0` and
-    // `storeSize: 1` — and writing ANY unrelated second memory fixed it, which
-    // is what named the bug.
     const s = server();
     const note = payload(
       await s.call("note", {
@@ -1188,27 +1239,18 @@ describe("recall — deliberate retrieval", () => {
     const id = note["id"] as string;
     expect(note["stored"]).toBe(true);
 
-    const result = payload(await s.call("recall", { question: "what happened to my sourdough starter" }));
+    const result = payload(await s.call("recall", { question: "what happened to my sourdough starter", mode: "facts" }));
     expect(result["reason"]).toBe("answered");
-    expect(result["storeSize"]).toBe(1);
-    expect(result["considered"] as number).toBeGreaterThan(0);
-    expect((result["memories"] as { id: string }[]).map((m) => m.id)).toContain(id);
+    expect(result["ids"] as string[]).toContain(id);
 
-    // The `handle` path already worked at N=1 — the question path is what did
-    // not — so assert they now agree rather than only that one of them answers.
+    // The `handle` path agrees.
     const byHandle = payload(await s.call("recall", { handle: id }));
     expect(byHandle["reason"]).toBe("expanded");
   });
 
   test("I13 — REVISING the first note does not make it dark again", async () => {
-    // The same cold-stranger store one step further on. `revision.ts:385` calls
-    // `store.supersede` when a declared `updates:` crosses a belief's bar or
-    // replaces a "now" fact; the head is archived and keeps its `doc_tokens`
-    // rows, so `df(sourdough)` read 2 against `storeSize` 1 and
-    // `informativeness` returned exactly zero — the N=1 symptom, restored by a
-    // revision. The setup calls `supersede` directly because the `note` door's
-    // own `updates:` on an ordinary memory is LINK-ONLY by owner ruling; the
-    // door under test here is `recall`.
+    // The same cold-stranger store one step further on: the head is superseded
+    // and archived. The successor answers; the superseded head is not delivered.
     const s = server();
     const first = payload(
       await s.call("note", {
@@ -1222,22 +1264,16 @@ describe("recall — deliberate retrieval", () => {
     });
 
     const result = payload(
-      await s.call("recall", { question: "what happened to my sourdough starter" }),
+      await s.call("recall", { question: "what happened to my sourdough starter", mode: "facts" }),
     );
-    expect(result["storeSize"]).toBe(1);
     expect(result["reason"]).toBe("answered");
-    expect(result["considered"] as number).toBeGreaterThan(0);
-    const ids = (result["memories"] as { id: string }[]).map((m) => m.id);
+    const ids = result["ids"] as string[];
     expect(ids).toContain(successor);
-    // The superseded head is not delivered — it never was, and that is the half
-    // that was already right. What changed is that it no longer votes on rarity.
     expect(ids).not.toContain(first);
   });
 
   test("N=2 and N=3 at the note door: the first note keeps answering as the store grows", async () => {
-    // A REGRESSION GUARD, not a demonstration: both sizes pass on pre-fix code
-    // too. The bug was N=1 only, and this is here so a later change to the
-    // smoothing cannot buy N=1 back by spending N=2 or N=3.
+    // A REGRESSION GUARD: the first note keeps answering as the store grows.
     const s = server();
     const first = payload(
       await s.call("note", { text: "The sourdough starter died after two weeks of neglect." }),
@@ -1246,9 +1282,7 @@ describe("recall — deliberate retrieval", () => {
       await s.call("note", { text: "Bought hiking boots that finally fit properly." }),
     )["id"] as string;
     const ask = async (question: string): Promise<string[]> =>
-      ((payload(await s.call("recall", { question }))["memories"] ?? []) as { id: string }[]).map(
-        (m) => m.id,
-      );
+      (payload(await s.call("recall", { question, mode: "facts" }))["ids"] ?? []) as string[];
 
     expect(await ask("what happened to my sourdough starter")).toContain(first);
     expect(await ask("are the new hiking boots comfortable")).toContain(second);
@@ -1264,10 +1298,11 @@ describe("recall — deliberate retrieval", () => {
     const s = server();
     seed(s.counterpart);
     const result = payload(
-      await s.call("recall", { question: "zygomorphic bryophyte taxonomy fieldwork" }),
+      await s.call("recall", { question: "zygomorphic bryophyte taxonomy fieldwork", mode: "facts" }),
     );
     expect(result["reason"]).toBe("nothing-came");
-    expect((result["memories"] as unknown[]).length).toBe(0);
+    expect((result["ids"] as unknown[]).length).toBe(0);
+    expect(String(result["answer"])).toContain("Nothing matched");
   });
 
   test("confidentiality: STATED for a direct lookup, SILENT in a list", async () => {
@@ -1287,9 +1322,10 @@ describe("recall — deliberate retrieval", () => {
     expect(direct["withheld"]).toContain("confidential");
     expect((direct["memories"] as unknown[]).length).toBe(0);
 
-    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines" }));
-    const ids = (listed["memories"] as { id: string }[]).map((m) => m.id);
+    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines", mode: "facts" }));
+    const ids = listed["ids"] as string[];
     expect(ids).not.toContain(id);
+    expect(String(listed["answer"])).not.toContain(id);
     // Silent means silent: no count, no gap announced, nothing that says a
     // withheld thing exists. Only the memories that were shown are named.
     expect(JSON.stringify(listed)).not.toContain("withheld");
@@ -1332,7 +1368,7 @@ describe("recall — deliberate retrieval", () => {
       s.counterpart.store.eventLog({ name, limit: 100 }).length;
     const beforeRecallRows = rowsOf("recall.decision");
 
-    await s.call("recall", { question: "sourdough starter feeding" });
+    await s.call("recall", { question: "sourdough starter feeding", mode: "facts" });
     await s.call("recall", { handle: "Sourdough" });
     await s.call("status", {});
 
@@ -1363,7 +1399,7 @@ describe("recall — deliberate retrieval", () => {
       body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
     });
     const secret = "pangolin-vellichor-quotidian";
-    await s.call("recall", { question: `what happened to my sourdough starter ${secret}` });
+    await s.call("recall", { question: `what happened to my sourdough starter ${secret}`, mode: "facts" });
     await s.call("recall", { handle: id });
     await s.call("recall", { handle: "no such memory anywhere" });
 
@@ -1380,21 +1416,20 @@ describe("recall — deliberate retrieval", () => {
     expect(JSON.stringify(rows)).not.toContain(id);
 
     // The expansion path counts what it opened; the question path counts what
-    // surfaced, and neither claims the other's number.
+    // its answer showed, and neither claims the other's number.
     expect(p[1]?.["expanded"]).toBe(1);
     expect(p[1]?.["surfaced"]).toBe(0);
     expect(p[0]?.["expanded"]).toBe(0);
+    // A question's row says its mode, how many matched and how many it showed.
+    expect(p[0]?.["mode"]).toBe("facts");
+    expect(p[0]?.["matched"] as number).toBeGreaterThanOrEqual(1);
+    expect(p[0]?.["surfaced"] as number).toBeGreaterThanOrEqual(1);
+    expect(p[0]?.["surfaced"] as number).toBeLessThanOrEqual(p[0]?.["matched"] as number);
+    expect(p[0]?.["page"]).toBe(1);
+    expect(typeof p[0]?.["blockedBy"]).toBe("object");
 
-    // WHAT WAS PREVENTED. An address that answers nothing says so by name, and
-    // a question that considered more than it returned says what kept the rest
-    // out rather than leaving the gap unexplained.
+    // WHAT WAS PREVENTED. An address that answers nothing says so by name.
     expect((p[2]?.["blockedBy"] as Record<string, number>)["handle-unknown"]).toBe(1);
-    const gated = p[0]?.["blockedBy"] as Record<string, number>;
-    expect(Object.values(gated).reduce((a, b) => a + b, 0)).toBe(
-      (p[0]?.["considered"] as number) -
-        (p[0]?.["surfaced"] as number) -
-        (p[0]?.["dim"] as number),
-    );
   });
 
   test("blockedBy carries `confidential-withheld` to the OWNER'S STORE, and still not to the caller", async () => {
@@ -1413,7 +1448,7 @@ describe("recall — deliberate retrieval", () => {
       salience: { relevance: 0.7, emotional: 0.5, predictive: 0.5 },
       meta: { confidential: true },
     });
-    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines" }));
+    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines", mode: "facts" }));
     expect(JSON.stringify(listed)).not.toContain("withheld");
 
     const row = s.counterpart.store.eventLog({ name: "mcp.recall", limit: 5 })[0];
@@ -1429,7 +1464,7 @@ describe("recall — deliberate retrieval", () => {
     const owner = server();
     seed(owner.counterpart);
     const watcher = server({ observer: true });
-    await watcher.call("recall", { question: "sourdough starter feeding" });
+    await watcher.call("recall", { question: "sourdough starter feeding", mode: "facts" });
     expect(owner.counterpart.store.eventLog({ name: "mcp.recall", limit: 5 }).length).toBe(0);
   });
 });
@@ -1687,7 +1722,7 @@ describe("the lazy session bind", () => {
     // shared "mcp" gate-state row the moment the bind lands (INTERFACE-GAPS §6).
     const noted = payload(await s.call("note", { text: "A note written after the bind rides the same session as the dump." }));
     expect(noted["stored"]).toBe(true);
-    expect(payload(await s.call("recall", { question: "what binds this server?" }))["path"]).toBeDefined();
+    expect(payload(await s.call("recall", { question: "what binds this server?", mode: "facts" }))["path"]).toBeDefined();
     expect(s.counterpart.store.row(noted["id"] as string)?.origin_scope).toBe("/proj/alpha");
   });
 });
@@ -1780,7 +1815,7 @@ describe("observer stands down over the wire", () => {
 
     const calls: [string, Record<string, unknown>][] = [
       ["note", { text: "An instrument must not deposit this." }],
-      ["recall", { question: "anything at all" }],
+      ["recall", { question: "anything at all", mode: "facts" }],
       ["status", {}],
       ["session_end", { session: SESSION, memories: [{ content: "Nor this." }] }],
       ["chapter", { session: SESSION, text: "Nor an instrument's own first-person reflection." }],
@@ -1866,7 +1901,7 @@ describe("the recall tool embeds the question when it can, and SAYS SO when it c
     const emb = embedder([0.1, 0.2, 0.3]);
     const s = server({ embedder: emb });
     seed(s.counterpart);
-    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    const out = await s.call("recall", { question: "What did we decide about the storage split?", mode: "facts" });
     expect(emb.asked).toEqual(["What did we decide about the storage split?"]);
     expect(out.structuredContent["semantic"]).toBe("in-line");
     expect(s.events("mcp.recall")[0]?.data?.["semantic"]).toBe("in-line");
@@ -1875,7 +1910,7 @@ describe("the recall tool embeds the question when it can, and SAYS SO when it c
   test("no embedder ⇒ the ask still answers, LEXICALLY, and says which channel was dark", async () => {
     const s = server();
     seed(s.counterpart);
-    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    const out = await s.call("recall", { question: "What did we decide about the storage split?", mode: "facts" });
     // Degraded, not failed: guarantee 1 is "degrade to lexical-only rather than
     // fail", and the caller is told rather than handed a quietly thinner answer.
     expect(out.structuredContent["semantic"]).toBe("embedder-off");
@@ -1885,7 +1920,7 @@ describe("the recall tool embeds the question when it can, and SAYS SO when it c
   test("an embedder that refuses is `embed-failed`, not silence", async () => {
     const s = server({ embedder: embedder(null) });
     seed(s.counterpart);
-    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    const out = await s.call("recall", { question: "What did we decide about the storage split?", mode: "facts" });
     expect(out.structuredContent["semantic"]).toBe("embed-failed");
   });
 
@@ -1904,7 +1939,7 @@ describe("the recall tool embeds the question when it can, and SAYS SO when it c
     // initialized by an ordinary session first — as it would be in life.
     server().counterpart.close();
     const s = server({ observer: true, embedder: emb });
-    await s.call("recall", { question: "Anything at all?" });
+    await s.call("recall", { question: "Anything at all?", mode: "facts" });
     expect(emb.asked).toEqual([]);
   });
 });

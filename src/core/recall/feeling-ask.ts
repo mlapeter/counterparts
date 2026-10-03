@@ -25,7 +25,8 @@
  * sad memory into a conversation nobody asked it into. A deliberate question is
  * the experiencer asking on purpose. Nothing here is read by `detectAffect`,
  * and `Recall.build` runs the lane only when the turn carries a `feeling` ask,
- * which only `mcp/deliberate.ts#answerQuestion` sets.
+ * which only a deliberate caller sets (the old question path until 2026-10-03;
+ * meaning mode's now, `mcp/meaning.ts`, when it asks).
  *
  * **Whose.** The table holds two: `owner` and `self`. First person means the
  * ASKER (the counterpart, through its `recall` tool; the owner, through the

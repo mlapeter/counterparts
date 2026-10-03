@@ -50,6 +50,9 @@ import type { Stance } from "./observer.js";
 import { Prospective, DATE_LINEAGE_MAX, DATE_MOVED_TO_META, cueModeOf } from "./prospective/index.js";
 import type { PlainDue } from "./prospective/index.js";
 import {
+  ASKED_KIND,
+  ASKED_MAX,
+  askedTurn,
   Recall,
   isConfidential,
   loadGateState,
@@ -2903,10 +2906,22 @@ export class Counterpart {
   }
 
   /**
-   * The same, for the whole set a reply used — and then the Hebbian half: what
-   * fired together in one reply is buffered as co-activation, flushed at the
-   * boundary. `associate/` refuses a set of fewer than two on its own terms.
+   * THE MEMORIES A DELIBERATE QUESTION'S ANSWER SHOWED, for one session
+   * (Release B, 2026-10-03): recorded as `asked` gate records, so that
+   * quoting one's words in a reply credits it at the boundary
+   * (`creditReferences`). A list shown credits nothing on its own. Written
+   * through the store's gate-record door, so an observer's store refuses it
+   * (the caller swallows that, as it does every telemetry write).
    */
+  noteAsked(sessionId: string, ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const day = this.store.livedDay();
+    const at = askedTurn(this.store.now());
+    this.store.setGateRecords(
+      [...new Set(ids)].map((id) => ({ sessionId, kind: ASKED_KIND, ref: id, turn: at, lastDay: day, tier: "asked", trains: true })),
+    );
+  }
+
   /**
    * THE CREDIT SEAM, decided and applied in one call (recall §9.2; INTERFACE-GAPS
    * §5, closed). Candidates are what this session surfaced LOUD — read from the
@@ -2935,6 +2950,35 @@ export class Counterpart {
       }
       try {
         candidates.push({ id, tier: "surfaced", body: this.store.readProse(id).body });
+      } catch {
+        unreadable += 1;
+      }
+    }
+    // WHAT A DELIBERATE QUESTION SHOWED (Release B, 2026-10-03): its answer's
+    // memories, with their words, are quotable as a loud surfacing is — the
+    // owner's 09-14 rule (opening or quoting credits) on the deliberate path.
+    // Not `cued`: the display decides, as for an expansion. A memory already a
+    // candidate is not added twice.
+    const have = new Set(candidates.map((c) => c.id));
+    let asked: { ref: string; turn: number }[] = [];
+    try {
+      asked = this.store
+        .gateRecords(sessionId, ASKED_KIND)
+        .sort((a, b) => b.turn - a.turn)
+        .slice(0, ASKED_MAX);
+    } catch {
+      asked = [];
+    }
+    for (const rec of asked) {
+      if (have.has(rec.ref)) continue;
+      have.add(rec.ref);
+      if (input.deadline !== undefined && now() > input.deadline) {
+        budgetExceeded = true;
+        candidates.push({ id: rec.ref, tier: "surfaced", body: "" });
+        continue;
+      }
+      try {
+        candidates.push({ id: rec.ref, tier: "surfaced", body: this.store.readProse(rec.ref).body });
       } catch {
         unreadable += 1;
       }
@@ -3287,6 +3331,12 @@ export class Counterpart {
     return out;
   }
 
+  /**
+   * The same as `resolveUse`, for the whole set a reply used — and then the
+   * Hebbian half: what fired together in one reply is buffered as
+   * co-activation, flushed at the boundary. `associate/` refuses a set of
+   * fewer than two on its own terms.
+   */
   resolveUses(
     sessionId: string,
     uses: readonly { memoryId: string; tier: UseTier }[],

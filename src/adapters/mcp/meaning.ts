@@ -59,7 +59,7 @@ import { OTHER_EMOTION, wheelEntry } from "../../core/feelings-wheel.js";
 import { wireChars } from "../../core/fit/index.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
 import { UNRESOLVED_META_KEY } from "../../core/mint.js";
-import { decay, fadeOf, softenedFeeling, strength } from "../../core/physics/index.js";
+import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
 import { feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
@@ -68,7 +68,7 @@ import type { ChapterTimes } from "../../core/self/index.js";
 import { feelingValence, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
 import { calendarOverlaps, daysBetween, localDate } from "../../core/time.js";
-import { RECALL_RESULT_CHARS } from "./deliberate.js";
+import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
 
@@ -88,15 +88,6 @@ export const MEANING_PATTERNS_SHOWN = 4;
 export const MEANING_SEMANTIC_MAX = 100;
 /** The words channel's reach on a question with no card. */
 export const MEANING_WORDS_MAX = 200;
-/**
- * A moment is FADED when it has kept this share of its strength or less —
- * decay since its last use, times a `changed` settle's fade (physics §5.12)
- * — whatever its height. CAL: a working default with no measurement behind
- * it. Not an absolute strength: a quiet memory written today is low, not
- * faded (a bare write measures 0.09), and physics' prune floor (`PHI_PRUNE`,
- * 0.02) is too near the prune to name anything before it goes.
- */
-export const MEANING_FADED_RETAINED = 0.2;
 /** The rendered answer's room, in `wireChars`: the list budget every deliberate answer keeps. */
 export const MEANING_RESULT_CHARS = RECALL_RESULT_CHARS;
 /** A word held by more than this share of the indexed memories says nothing about a subject. */
@@ -807,9 +798,9 @@ function showEntry(
   };
 }
 
-/** Has the memory kept `MEANING_FADED_RETAINED` of its strength or less (`decay` × `fadeOf`)? */
+/** Faded: one rule for both question modes (`deliberate.ts#hasFaded`, decay × fade ≤ `FADED_RETAINED`). */
 function isFaded(p: MemoryPhysics, day: number): boolean {
-  return decay(p, day) * fadeOf(p) <= MEANING_FADED_RETAINED;
+  return hasFaded(p, day);
 }
 
 /** The strongest three distinct feeling words of one person. */

@@ -103,6 +103,9 @@ import type { Band, Kind } from "../../core/types.js";
 // rules about what recall means. `mcp/deliberate.ts` imports nothing from here,
 // so the direction stays one-way.
 import { deliberateRecall, embedQuestion } from "../mcp/deliberate.js";
+// A question at the console is answered in FACTS MODE, the MCP `recall`'s own
+// path (2026-10-03), for the same reason.
+import { factsRecall, renderFacts } from "../mcp/facts.js";
 // The ONE rule for "which host configuration": the console resolves it with the
 // same function the hook, the worker and the MCP server do.
 import {
@@ -683,8 +686,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   note: ["kind", "title", "salience", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
-  ask: ["id", "json", "full", "config", "voiced"],
-  recall: ["id", "json", "full", "config", "voiced"],
+  ask: ["id", "json", "full", "page", "config", "voiced"],
+  recall: ["id", "json", "full", "page", "config", "voiced"],
   export: [
     "out",
     "passphrase",
@@ -888,13 +891,14 @@ const FLAG_HELP: Record<string, string> = {
   title: "a title for the memory, instead of one taken from its first line",
   salience: "0..1 — how much this one matters",
   id: "one memory, by id, instead of a question",
-  full: "every answer in full, with how the question was answered and what each tier means — not just the top five, one line each",
+  full: "the whole facts answer, as the model reads it: a count header and every result's labeled lines (who said it, its status, when it happened and was learned, whether it still holds) — not just the top five, one line each",
+  page: "which page of the answer (ten results a page), with --full or --json",
   // TWO COMMANDS, ONE SENTENCE (`recall --json` is the MCP tool's payload,
   // `doctor --json` is the findings): the table is keyed by flag NAME, so the
   // sentence has to be true of both.
   json: "machine-readable output — the structured payload rather than the console's rendering",
   voiced:
-    "the question is already in the counterpart's own voice (the dashboard's rewrite), so \"I\" in a question about feeling means the counterpart, not you",
+    "the question is already in the counterpart's own voice (the dashboard's rewrite); accepted, and read by no facts answer since 2026-10-03 — feelings are meaning mode's",
   out: "the directory to write into",
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
@@ -1324,6 +1328,8 @@ export function parse(argv: readonly string[]): Parsed {
       id: { type: "string" },
       json: { type: "boolean" },
       full: { type: "boolean" },
+      // `ask`'s page of a facts answer (2026-10-03).
+      page: { type: "string" },
       // `ask`'s: the question is already in the counterpart's voice (U13).
       voiced: { type: "boolean" },
       apply: { type: "boolean" },
@@ -5739,81 +5745,70 @@ async function recallCommand(
   try {
     // Same rule as `note` and `status`: say which store answered.
     if (parsed.flags["json"] !== true) io.out(`Store: ${counterpart.store.dir}`);
-    // In line, and every way it can decline said by name (§9.1 G5) — the same
-    // call the MCP `recall` makes (`mcp/deliberate.ts#embedQuestion`).
-    const embedded =
-      question.length > 0
-        ? await embedQuestion(embedder, question)
-        : { vector: null, semantic: "embedder-off" as const };
-    const result = deliberateRecall(
-      counterpart,
-      idFlag.length > 0 ? { handle: idFlag } : { question },
-      {
-        sessionId: "console",
-        owner: true,
-        vector: embedded.vector,
-        semantic: embedded.semantic,
-        // WHOSE "I" (U13): the owner is the one typing here, so "what have I
-        // felt" is his — unless the dashboard rewrote the question into the
-        // counterpart's voice first (`--voiced`), and then "I" is the counterpart.
-        asker: parsed.flags["voiced"] === true ? "self" : "owner",
-      },
-    );
-    if (parsed.flags["json"] === true) {
-      io.out(JSON.stringify(result, null, 2));
-      return result.memories.length > 0 ? EXIT.ok : EXIT.ok;
-    }
-    // SHORT BY DEFAULT (2026-09-24): a header in plain words and the top few,
-    // numbered, two lines each. `--full` is the page this command printed before, and
-    // `--id` is always a whole memory.
-    if (parsed.flags["full"] !== true && idFlag.length === 0) {
+    // A QUESTION is answered in FACTS MODE (Release B, 2026-10-03) — the same
+    // path the MCP `recall` takes with `mode: "facts"` (`mcp/facts.ts`), so
+    // the console cannot drift into a softer question path than the model
+    // gets. Embedded in line, and every way it can decline said by name — the
+    // same call the MCP `recall` makes (`mcp/deliberate.ts#embedQuestion`).
+    if (idFlag.length === 0) {
+      const embedded = await embedQuestion(embedder, question);
+      const facts = factsRecall(
+        { counterpart, sessionId: "console", owner: true, vector: embedded.vector, semantic: embedded.semantic },
+        question,
+        typeof parsed.flags["page"] === "string" && /^[1-9]\d*$/.test(parsed.flags["page"]) ? { page: Number(parsed.flags["page"]) } : {},
+      );
+      if (parsed.flags["json"] === true) {
+        io.out(JSON.stringify(facts, null, 2));
+        return EXIT.ok;
+      }
+      // SHORT BY DEFAULT (2026-09-24): a header in plain words and the top
+      // few, numbered, two lines each. `--full` is the facts answer as the
+      // model reads it — every result's labeled lines.
+      if (parsed.flags["full"] === true) {
+        io.out(renderFacts(facts));
+        return EXIT.ok;
+      }
       printAskList(
         io,
-        result,
-        askChannel(result.semantic, counterpart.store.embedderVerdict.kind, embedder),
+        facts,
+        askChannel(facts.semantic, counterpart.store.embedderVerdict.kind, embedder),
         said,
         {
-          learnedOn: (id) => {
-            try {
-              return counterpart.store.readProse(id).learnedOn;
-            } catch {
-              return null;
-            }
-          },
+          learnedOn: (id) => facts.memories.find((m) => m.id === id)?.learned ?? null,
           dim: paint(io, env).dim,
         },
       );
       return EXIT.ok;
     }
+    const result = deliberateRecall(counterpart, { handle: idFlag }, { sessionId: "console", owner: true });
+    if (parsed.flags["json"] === true) {
+      io.out(JSON.stringify(result, null, 2));
+      return EXIT.ok;
+    }
     io.out(
-      `${result.path} · ${result.reason} · semantic ${result.semantic} · ` +
+      `${result.path} · ${result.reason} · ` +
         // "live rows", not "live memories": the denominator counts schemas and
         // episodes too, so a store made with `install --name` reads one higher
         // than its memory count. Naming the population is cheaper than a second
         // number, and `status` prints the split.
-        `considered ${result.considered} of ${result.storeSize} live rows · returned ${result.memories.length}`,
+        `${result.storeSize} live rows · returned ${result.memories.length}`,
     );
     if (result.memories.length === 0) {
       io.out("");
       // NOTHING CAME, said as a sentence rather than as an absence. A blank
       // where a memory would have been is the one output a reader cannot tell
       // from a crash, and the reason belongs in the same breath.
-      io.out(
-        result.considered === 0
-          ? "NOTHING CAME BACK — nothing in the store shared a word with the question, so no memory was even scored."
-          : `NOTHING CAME BACK — ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} scored and none was close enough to show.`,
-      );
-      io.out("  Try words the memory itself would use, or ask for it by id:");
-      io.out(`  ${BIN.cli} ${said} --id <mem_...>`);
+      io.out(`NOTHING CAME BACK — no memory has that id or that exact title.`);
+      io.out(`  Ask a question instead: ${BIN.cli} ${said} "..."`);
       return EXIT.ok;
     }
     for (const m of result.memories) {
       io.out("");
       // THE JOURNAL SAYS SO (owner ruling, 2026-09-04 — LAUNCH-STATUS §I14). A
       // chapter stays recallable and is never presented as a memory; the word
-      // rides in front of the kind, where the tier already is.
+      // rides in front of the kind.
       const journal = m.journal ? "[journal] " : "";
-      io.out(`  ${m.id}  [${m.tier}] ${journal}${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
+      io.out(`  ${m.id}  ${journal}${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
       // ITS STANDING, before the words (2026-09-29): earlier, corrected by,
       // replaced by, disagrees with, unsettled — so an old memory never reads as current.
       if (m.standing !== undefined) io.out(`    (${m.standing})`);
@@ -5829,26 +5824,8 @@ async function recallCommand(
       }
       if (felt !== "") io.out(`    feelings — ${felt}`);
     }
-    // THE TIER LEGEND, and it is not decoration. `answered` means the question
-    // reached something, never that the something is right, and the loudest
-    // tier present is the only confidence signal in the output. A reader who
-    // takes `[quiet]` for a strong hit is reading a footnote as an answer —
-    // the cold-stranger review asked a one-row store about Mars, got the
-    // espresso machine, and had nothing on screen to tell it apart from the
-    // right answer to a real question.
-    io.out("");
-    const tiers = new Set(result.memories.map((m) => m.tier));
-    for (const [tier, gloss] of [
-      ["vivid", "came clearly to mind; the ambient path would have surfaced this"],
-      ["quiet", "quietly available; the ambient path would have footnoted it, not said it"],
-      ["dim", "reached only because you asked deliberately — lower confidence, and labelled so"],
-    ] as const) {
-      if (tiers.has(tier)) io.out(`  ${tier} = ${gloss}`);
-    }
-    if (!tiers.has("vivid")) {
-      io.out("  Nothing here came back vividly, so treat these as leads rather than answers.");
-    }
     if (result.memories.some((m) => m.journal)) {
+      io.out("");
       io.out(
         "  journal = a chapter, the first-person account a memory was made from — not a memory, and outside decay and the prune.",
       );
@@ -5865,17 +5842,22 @@ async function recallCommand(
  * numbered, two lines each and a blank line between — the words first
  * (`askGist`), and under them a quieter line saying what it is, when, and its
  * id (`askMeta`), dimmed on a terminal that takes colour (`ui.ts#paint`: never
- * on a pipe unless FORCE_COLOR asks, never under NO_COLOR). What `--full` adds
- * is the path, the reason, the considered/stored numbers, every body in full
- * and the tier legend.
+ * on a pipe unless FORCE_COLOR asks, never under NO_COLOR). What `--full`
+ * prints is the facts answer as the model reads it (2026-10-03): the count
+ * header, and every result's labeled lines — who said it, its status, when
+ * it happened and when it was learned, whether it still holds.
  *
- * The "nothing came back vividly — treat these as leads" line is GONE from
- * here: on the owner's store it read as doubt about an answer that was right.
- * `--full`'s tier legend still says it, unchanged.
+ * The count is facts mode's `matched` — every distinct fact that matched, not
+ * only the page — when the result carries it.
  */
 export function printAskList(
   io: Io,
-  result: ReturnType<typeof deliberateRecall>,
+  result: {
+    readonly memories: readonly { readonly id: string; readonly title: string | null; readonly kind: string; readonly journal: boolean; readonly body: string }[];
+    readonly considered: number;
+    readonly matched?: number;
+    readonly fadedTotal?: number;
+  },
   how: string,
   said: string,
   opts: {
@@ -5885,13 +5867,16 @@ export function printAskList(
     readonly dim?: (s: string) => string;
   } = {},
 ): void {
-  const found = result.memories.length;
+  const found = Math.max(result.matched ?? 0, result.memories.length);
   if (found === 0) {
     io.out(`Nothing found (${how}).`);
+    const faded = result.fadedTotal ?? 0;
     io.out(
-      result.considered === 0
-        ? "  Nothing in the store came near the question, so no memory was even scored."
-        : `  ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} scored and none was close enough to show.`,
+      faded > 0
+        ? `  Only ${String(faded)} faded ${faded === 1 ? "memory" : "memories"} matched: --full lists them.`
+        : result.considered === 0
+          ? "  Nothing in the store came near the question, so no memory was even scored."
+          : `  ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} weighed and none was close enough to show.`,
     );
     io.out(`  Try words the memory itself would use, or ask for it by id: ${BIN.cli} ${said} --id <mem_...>`);
     return;

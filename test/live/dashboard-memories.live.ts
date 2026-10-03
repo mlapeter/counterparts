@@ -218,7 +218,9 @@ describe("the memories tab, live", () => {
       expect(folded).not.toContain(copyOf.get(chapter));
       expect(new Set(folded).size).toBe(folded.length);
       expect(await page.textContent("#find-head")).toContain(`${folded.length} memor`);
-      expect(await page.locator("#mlist .mtier").first().textContent()).toMatch(/^(strong match|match|weak match)$/);
+      // Facts mode (2026-10-03) answers `ask` and has no confidence tiers, so
+      // no row carries a tier label any more.
+      expect(await page.locator("#mlist .mtier").count()).toBe(0);
       write("A fact written while the answer was open.");
       await refresh();
       expect(await answers()).toEqual(folded);

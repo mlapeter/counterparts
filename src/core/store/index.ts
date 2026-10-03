@@ -476,6 +476,32 @@ export interface DatedMemory {
   readonly eventDate: string;
 }
 
+/**
+ * ONE LIVE ROW as deliberate recall's facts mode ranks and labels it (Release
+ * B, 2026-10-03): the columns, never the body (`Store#recallRows`). The
+ * writer's three fields are null on a row from before v12, and on a file
+ * that has not been upgraded.
+ */
+export interface RecallRow {
+  readonly id: string;
+  readonly type: string;
+  readonly kind: string;
+  readonly title: string | null;
+  readonly learned_on: string;
+  readonly created_at: number | null;
+  readonly updated_at: number | null;
+  readonly occurred_on: string | null;
+  readonly said_by: string | null;
+  readonly status: string | null;
+  readonly source: string | null;
+  readonly origin_session: string | null;
+  readonly origin_scope: string | null;
+  readonly origin_ref: string | null;
+  readonly confidential: number;
+  /** `meta` for a schema or an episode row (a role, a session); null for a memory. */
+  readonly meta: string | null;
+}
+
 export interface PruneReport {
   pruned: number;
   cutoffDay: number;
@@ -4512,6 +4538,27 @@ export class Store {
         subjectId,
       )
       .map((r) => r.memory_id);
+  }
+
+  /**
+   * EVERY LIVE ROW deliberate recall's facts mode can answer with (Release B,
+   * 2026-10-03), in one read: memories, episodes and schemas that are not
+   * archived, not superseded and not a tombstone, with the columns facts mode
+   * ranks and labels by — never a body. One query for the whole store, so a
+   * question's pool is matched in memory rather than with a row read per
+   * candidate. A read; nothing here crosses the write seam.
+   */
+  recallRows(): RecallRow[] {
+    const v12 = this.hasColumn("memories", "occurred_on");
+    return this.ops.all<RecallRow>(
+      `SELECT id, type, kind, title, learned_on, created_at, updated_at,
+              ${v12 ? "occurred_on, said_by, status" : "NULL AS occurred_on, NULL AS said_by, NULL AS status"},
+              source, origin_session, origin_scope, origin_ref, confidential,
+              CASE WHEN type = 'memory' THEN NULL ELSE meta END AS meta
+         FROM memories
+        WHERE archived = 0 AND superseded_by IS NULL AND NOT (body = '' AND content_hash = '')
+        ORDER BY id`,
+    );
   }
 
   /**

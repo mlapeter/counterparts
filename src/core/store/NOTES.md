@@ -1948,3 +1948,10 @@ store does with it:
   memories' words and a token lookup per word.
 - **The upgrade records its moment** (`recall.v12.upgrade`): doctor counts the share of
   each field among memories written after it.
+
+## 2026-10-03 — `recallRows`, one read for facts mode
+
+- Facts mode ranks in memory over every live row's columns (type, kind, title, dates, the
+  writer's three fields, provenance, confidential, and `meta` for schemas and episodes only),
+  read in one query rather than a `row()` per candidate. Never a body. A v11 file reads the
+  three fields as null.

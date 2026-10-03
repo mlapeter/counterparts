@@ -33,11 +33,15 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 - **An explicit "remember this" channel exists, and is never the interface.** [v1]
   decisions-triage 07-23, constitution line 8.
 - **One tool, not two.** [v1] test-triage `mcp.test.ts` — a real design decision, kept.
-- **Deliberate recall is a deeper effort with different thresholds**, adds a **labeled**
-  lower-confidence tier, and returns footnote-tier items as bodies. [v1] behavioral-spec
-  §9.1 G2.
-- **One argument, two paths**: a handle expands *that* memory exactly; a question runs a
-  query. Expansion must never degrade into fuzzy search. [v1] §9.1 G1.
+- **Deliberate recall is its own path, not the ambient one with lower thresholds.** [v1]
+  behavioral-spec §9.1 G2 kept the ambient ranking and added a labeled lower-confidence
+  tier; **dropped 2026-10-03 (Release B, Mike's design of 10-02/10-03):** a question asked
+  on purpose gets every memory it matches, in one of two modes with their own ranking
+  (§6f), and the vivid / quiet / dim tiers and the hard gates effort could not overturn are
+  gone.
+- **One kind of ask per call**: a handle (or `ids`) reads *that* memory exactly; a question
+  runs a search in the mode it names. Expansion must never degrade into fuzzy search. [v1]
+  §9.1 G1.
 - **Exposure is not recording; retrieval is.** A SEARCH strengthens nothing — `build()` is
   pure, and nothing on that path calls `resolveUse` or `coactivate`, so a memory that was
   merely ranked and listed is no stronger for it. EXPANDING one in full, by id or by title
@@ -98,7 +102,7 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 **Inputs** — MCP tool calls:
 `note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
-`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?,
+`recall(handle | ids[, part] | question, mode[, page])`, `status()`, `session_end(session, memories[], handoff?,
 writeUp?, part?)` whose
 entries take the same optional dimensions — `handoff` (2026-09-20, E1) is a FIELD on the
 call and never one of the entries: it is this directory's working context, filed by
@@ -117,7 +121,8 @@ each bound to one session as `session_end` is (their fields are `tools.ts`'s); f
 Claude Desktop client only, `wake()` (§5 G20) and the `prompts/list` / `prompts/get` pair; the
 session's observer role; the launch's session, scope, data dir and host when the host can
 supply them.
-**Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
+**Outputs** — a stored memory (note), a mode's answer as labeled lines or memories read
+whole (recall), a
 census (status), an appended chapter with the episode's id and the chapter number the store
 actually wrote (chapter), the written self page or the version a write to it produced
 (`self_page`, 2026-09-18); telemetry by reference.
@@ -144,8 +149,11 @@ actually wrote (chapter), the written self page or the version a write to it pro
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero
    closes in 13 days).
-4. **[M] `recall` and `status` write nothing and train nothing**, asserted by a test that
-   runs both against a populated store and checks canonical state is byte-identical.
+4. **[M] `recall` and `status` write no memory and train nothing in the call**, asserted by
+   a test that runs both against a populated store and checks every body, version and use
+   count is unchanged. What `recall` writes is bookkeeping: its durable count row, the
+   handle-resolution line, and (2026-10-03) the `asked` gate records that let a QUOTE of
+   an answer's words be credited at the boundary — the credit itself is the boundary's.
 5. **[M] Under observer, every tool stands down over the wire and says so** (scars E7,
    §2.4).
 6. **[M] Confidential material is returned only in the owner's own session.**
@@ -449,7 +457,7 @@ what to send instead (`server.ts#readWriteFacts`). **[M]** A revision by `update
 each over from the memory it revises unless one is sent (null: none); nothing moves off the
 old memory (`counterpart.ts#carryFacts`). **[A]** The descriptions ask the writer to
 resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
-from `eventDate` (a future date to be reminded on). Recall does not read them yet.
+from `eventDate` (a future date to be reminded on). Facts mode reads them (§6f).
 
 ## 6e. Meaning mode (2026-10-03, Release B of deliberate recall)
 
@@ -472,7 +480,7 @@ them.
   to one line per stretch.
 - **[M]** Feelings are shown per entry with whose they are, the asker's and the other's
   side by side, never merged.
-- **[M]** Faded moments (kept a fifth of their strength or less, `MEANING_FADED_RETAINED`)
+- **[M]** Faded moments (kept a fifth of their strength or less, `deliberate.ts#hasFaded`)
   are a few labelled lines after the arc, not in its slots. Readings (dream gists,
   reflection entries) that name the subject or cite its memories are listed dated; the
   dream journal stays outside. Open threads and reminders dated today or later are listed.
@@ -481,7 +489,50 @@ them.
   and quote credit. Confidential material is left out of a non-owner's answer silently.
   The rendered answer stays inside the 12,000-character list room (`fit`).
 - **[A]** "us" is not triggered by *we* or *our*, which a question uses for joint work.
-  A chapter address names a chapter; its episode id is what opens it today.
+  A chapter address names a chapter, and `ids` / `handle` open it (§6f).
+
+## 6f. Facts mode, and the recall tool's two modes (2026-10-03, Release B)
+
+Working defaults, held lightly; the revisit (a few days of daily use) checks them.
+
+- **[M]** A `question` needs `mode`: `facts` or `meaning`, no default (`mode-required`,
+  `mode-unknown`, each naming both modes). `ids` and `handle` take none: a `mode` beside
+  one is ignored and the result says so (`modeIgnored`). Each mode is its own path with
+  its own ranking; the answer is its rendering, shipped as `answer`, with the `ids` it
+  showed. Those ids feed the seen set (`note.feelingsNow`) and the `asked` records, so
+  quoting their words credits at the boundary (`counterpart.ts#creditReferences`).
+- **[M]** Facts mode (`facts.ts`) pools every memory the question's content words reach
+  (each word's every hit, weighted by rarity), every memory linked to a card it names
+  (`memory_subjects`), and the 100 nearest by meaning above this embedder's inline floor;
+  a question that is only a time pools its window. Score is the sum over the ways matched;
+  recency breaks ties only; the order is stable and pages by 10 (`page`).
+- **[M]** A time in the question (`recall/time-ask.ts`) filters, by `occurred_on` or, with
+  none, the learned date (the line says which); weeks and months stretch two days each
+  side, "N days ago" one, dates stay exact; matches outside are counted. "Around the X"
+  resolves X to the date of its best word match, shown in the header; "the last session"
+  is the session "Last here" names (else the newest here), whose rows lead.
+- **[M]** Rebuilt here, not inherited from ambient: a chapter and its copy are one result
+  (the chapter, labeled journal); near-duplicates (token overlap ≥ 0.85) are left out and
+  counted; the self page and handoffs are never results; confidential rows are absent for
+  a non-owner, silently (counted on the durable row only).
+- **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
+  | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
+  (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
+  current one in); corrected ones hidden and counted; `open` and unsettled pairs named.
+  Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
+- **[M]** The header counts distinct facts; "may not be everything" only when the meaning
+  cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
+  (kept a fifth of their strength or less — `deliberate.ts#hasFaded`, the rule meaning
+  mode shares) are title lines after the results, never in the main slots. The whole
+  answer stays under 12,000 characters.
+- **[M]** `ids` / `handle` read a chapter address `epi_…#N` as that chapter
+  (`self/chapter-address.ts#resolveChapter`): its words, `address`, and its `moments`.
+- **Deleted promises (Mike, 10-03):** "effort lowers the bar but never removes the hard
+  gates: a memory the conversation did not reach stays dark"; "the lower-confidence tier is
+  labeled"; "a question about time is answered with the session it means first, marked
+  `recent: true`" (replaced by the time filter and the session anchor); "a question about
+  feeling is answered from the feelings recorded on memories" (meaning mode's now);
+  "considered is reported beside `consideredCap`" (the count header replaces it).
 
 ## 7. Open questions
 
@@ -491,8 +542,9 @@ them.
 2. **What does `status` show?** v1's answer grew into a dashboard. The useful minimum is
    probably the symmetry counters (created versus exited per kind, up-moves versus
    down-moves) — the numbers that made v1's pathologies visible — not a store census.
-3. **Should `recall` expose the confidence label as a tier name or a number?** v1 labeled
-   the fallback tier and left the rest implicit.
+3. ~~**Should `recall` expose the confidence label as a tier name or a number?**~~
+   **Moot 2026-10-03:** the tiers are retired; a facts result says how it matched (its
+   ways) and the header says when the tail was weak (§6f).
 4. **NAMED GAP: the stated-emotion gate cannot supply the `emotional` dimension.**
    The obvious brain-faithful move — affect at encoding stamping a memory vivid — is not
    available here, for two separate reasons, and neither was papered over. (a)

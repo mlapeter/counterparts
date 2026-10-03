@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **`recall` asks which kind of question it is.** A question now needs `mode`: `facts` (what
+  happened, who said it, when, and whether it still holds) or `meaning` (how something went
+  and what it adds up to). There is no default; a question without one is refused with the
+  two modes named. `ids` and `handle` are unchanged and take no mode, and `ids` / `handle`
+  now also read one chapter by its address, `epi_…#2`. The vivid / quiet / dim tiers are
+  gone.
+- **Facts mode answers with every match.** It considers every memory the question's words
+  reach, every memory about a person or project it names, and the 100 closest by meaning,
+  and ranks them by how strongly and how many ways they matched. The answer opens with a
+  count (`12 match · showing 10 · 2 more → page 2`) and pages with `page: 2`. Each fact says
+  who said it, what kind of thing it is, when it happened and when it was learned, and whether
+  it is current, with earlier versions folded under it. A time in the question ("last week",
+  "in September", "around the cut-over", "where did we leave off") keeps only what is inside
+  it and counts the rest. Memories that faded from long disuse are listed after the results.
+  Quoting the words of a fact it showed you now counts as using that memory, as opening it by
+  id does. `counterparts ask` answers in facts mode too; `--full` prints the whole answer.
 - **Memories record when it happened, who said it, and what kind of thing it is (schema
   v12).** `note`, each `session_end` entry (write-ups included) and a dream's gist take three
   optional fields: `occurredOn` (a day, month, range or year — resolve "last week" to a date

@@ -392,7 +392,7 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     recordSession(dir, { sessionId: "tab-1", scope: project, phase: "start", at: t.now(), entrypoint: CODE_TAB_ENTRYPOINT });
     // Desktop's place OFF; the Code tab's project stays on.
     expect(payload(await s.call("scope", { mode: "off" }))["scope"]).toBe(DESKTOP_SCOPE);
-    const out = payload(await s.call("recall", { session: "tab-1", question: "the relief valve on the reservoir loop" }));
+    const out = payload(await s.call("recall", { session: "tab-1", question: "the relief valve on the reservoir loop", mode: "facts" }));
     expect(out["reason"]).not.toBe("scope-off");
     expect(ticked).toBe(1);
     // The tick asked about claude-desktop: (off) and took the launch record

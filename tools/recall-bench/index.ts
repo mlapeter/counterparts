@@ -48,7 +48,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { DELIBERATE_DIM_CAP, tierOf } from "../../src/adapters/mcp/deliberate.js";
+import { factsRecall, renderFacts } from "../../src/adapters/mcp/facts.js";
 import { Recall, TUNABLES, withTunables } from "../../src/core/recall/index.js";
 import { activate } from "../../src/core/recall/index.js";
 import { Associate } from "../../src/core/associate/index.js";
@@ -277,52 +277,36 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
 }
 
 /**
- * The deliberate path, through the SAME scoring. `tierOf` is imported from the
- * adapter rather than reimplemented: a bench that re-derives the tiering is
- * measuring its own copy of it (observer-mode.md G7, in miniature).
+ * The deliberate path: FACTS MODE (2026-10-03), the same function the MCP
+ * `recall` calls with `mode: "facts"` — imported rather than reimplemented,
+ * because a bench that re-derives the path is measuring its own copy of it
+ * (observer-mode.md G7, in miniature). Words only here, like the rest of the
+ * bench: no embedder, no question vector, and no schemas, so the subject way
+ * answers nothing.
  *
- * `chars` is what the tool would put on the wire under the OLD payload — full
- * bodies for everything admitted. It is reported because that number, not the
- * ranking, is what overflowed the host's tool-result cap on 3 of 3 calls.
+ * `chars` is the answer the tool would put on the wire — the rendered facts
+ * answer, bounded by `RECALL_RESULT_CHARS`.
  */
 function runToolQuery(
   store: Store,
   recall: Recall,
   tq: { question: string; should_surface?: readonly string[] },
   hubs: ReadonlySet<string>,
-  day: number,
+  _day: number,
   label: string,
 ): ToolRow {
-  const built = recall.build({ sessionId: `bench-tool-${label}`, text: tq.question, owner: true, day });
-  const d = built.decision;
-  const surfaced = new Set(d.surfaced);
-  const footnoted = new Set(d.footnotes);
-  const admitted: Delivered[] = [];
-  const dim: { id: string; activation: number }[] = [];
-  for (const v of d.verdicts) {
-    const tier = tierOf(v.verdict, surfaced.has(v.id), footnoted.has(v.id));
-    if (tier === null) continue;
-    if (tier === "dim") dim.push({ id: v.id, activation: v.activation });
-    else admitted.push({ id: v.id, tier });
-  }
-  dim.sort((a, b) => b.activation - a.activation);
-  for (const v of dim.slice(0, DELIBERATE_DIM_CAP)) admitted.push({ id: v.id, tier: "dim" });
-
-  let chars = 0;
-  for (const m of admitted) {
-    try {
-      chars += store.readProse(m.id).body.length;
-    } catch {
-      // A row whose prose has gone contributes no characters and no failure.
-    }
-  }
+  const facts = factsRecall(
+    { counterpart: { store, recall }, sessionId: `bench-tool-${label}`, owner: true, vector: null, semantic: "embedder-off" },
+    tq.question,
+  );
+  const admitted: Delivered[] = facts.memories.map((m) => ({ id: m.id, tier: "facts" }));
   const marks = split(store, tq.should_surface ?? [], admitted);
   return {
     label,
-    reason: d.reason,
-    considered: d.candidates,
+    reason: facts.reason,
+    considered: facts.considered,
     returned: admitted.length,
-    chars,
+    chars: renderFacts(facts).length,
     delivered: admitted,
     hubHits: admitted.filter((x) => hubs.has(x.id)).map((x) => x.id),
     ...marks,

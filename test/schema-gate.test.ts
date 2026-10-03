@@ -161,7 +161,7 @@ function hostFiles(root: string): Record<string, string> {
  */
 const ARGS: Record<string, Record<string, unknown>> = {
   note: { text: "The reservoir loop is four miles and takes forty minutes at an easy pace.", salience: 0.6 },
-  recall: { question: "how long is the reservoir loop" },
+  recall: { question: "how long is the reservoir loop", mode: "facts" },
   status: {},
   session_end: {
     session: SESSION,

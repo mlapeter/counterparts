@@ -25,21 +25,20 @@ export { DESKTOP_TOOLS, TOOLS, TOOL_NAMES, WAKE, renderDescription, toolDefiniti
 export type { Privilege, ToolName, ToolSpec } from "./tools.js";
 
 export {
-  DELIBERATE_DIM_CAP,
-  DELIBERATE_TIERS,
-  HARD_GATES,
   RECALL_BODY_CHARS,
   RECALL_EXCERPT_CHARS,
   RECALL_ID_RESULT_CHARS,
   RECALL_MAX_IDS,
   RECALL_RESULT_CHARS,
-  answerQuestion,
+  FADED_RETAINED,
   boundById,
-  boundMemories,
+  hasFaded,
   deliberateRecall,
+  embedQuestion,
   expandHandle,
   expandIds,
-  tierOf,
+  provenanceOf,
+  provenanceParts,
 } from "./deliberate.js";
 export type {
   BoundedMemory,
@@ -49,8 +48,20 @@ export type {
   DeliberateReason,
   DeliberateResult,
   Recalled,
-  Tier,
 } from "./deliberate.js";
+
+export {
+  FACTS_EARLIER_SHOWN,
+  FACTS_FADED_LINES,
+  FACTS_MEANING_CAP,
+  FACTS_PAGE_SIZE,
+  FACTS_WEAK_FRACTION,
+  factsRecall,
+  renderFacts,
+} from "./facts.js";
+export type { FactItem, FactsContext, FactsResult, FactsTime, FactWay } from "./facts.js";
+export { meaningRecall, renderMeaning } from "./meaning.js";
+export type { MeaningContext, MeaningResult } from "./meaning.js";
 
 export {
   DESKTOP_DREAM_NOTE,

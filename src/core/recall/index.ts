@@ -54,6 +54,7 @@ export * from "./render.js";
 export * from "./session.js";
 export * from "./standing.js";
 export * from "./recency-ask.js";
+export * from "./time-ask.js";
 export * from "./tunables.js";
 export { activate, isConfidential, isHandoff, isSelfPage, gatedSal, recordedIdentity, salienceRank } from "./activate.js";
 export type { FeelingLane, SpreadFn, SpreadStats } from "./activate.js";
@@ -133,7 +134,8 @@ export interface Turn {
   /**
    * A DELIBERATE question, which may be about feeling (2026-09-30, U13): who is
    * asking, and the owner's names. Set only by the deliberate ask
-   * (`mcp/deliberate.ts#answerQuestion`); absent on every ambient turn, so the
+   * (the old `mcp/deliberate.ts#answerQuestion` until 2026-10-03; meaning
+   * mode's now, when it asks); absent on every ambient turn, so the
    * feeling lane (`activate.ts`, `feeling-ask.ts`) never runs there and the
    * ambient affect gates (§9 G10/G11) are untouched.
    */

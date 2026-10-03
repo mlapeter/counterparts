@@ -17,8 +17,9 @@
  *      later, not only after the next boundary;
  *   2. the handoff pointer says how far the work since is written up;
  *   3. asked plainly, "what do you remember from our most recent session?",
- *      recall answers with A's chapter first, then what A wrote, even with a
- *      busier session next door filling the candidate cap;
+ *      recall (facts mode, since Release B 2026-10-03) names that session in
+ *      its header and answers with A's chapter first, then what A wrote, even
+ *      with a busier session next door;
  *   4. every recall result says which session, which directory and when.
  *
  * Hermetic: every test makes its own temp directory and removes it. The clock
@@ -41,7 +42,6 @@ import {
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { readRecencyAsk } from "../src/core/recall/index.js";
 import { WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
-import { deliberateRecall } from "../src/adapters/mcp/deliberate.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
 
@@ -376,7 +376,56 @@ describe("its room in the wake", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("asked plainly, recall finds the last session here first (the recall half)", () => {
+/** One result of a facts answer, read off its labeled lines (`mcp/facts.ts`). */
+interface FactLine {
+  readonly id: string;
+  readonly title: string;
+  readonly journal: boolean;
+  readonly ways: string[];
+  /** The `learned …` line (a journal's `my journal · written …` line), as printed. */
+  readonly learned: string;
+  readonly lines: string[];
+}
+
+/** A facts answer: the payload, the header lines, and each result. */
+function factsOf(r: { structuredContent?: unknown }): { payload: Record<string, unknown>; header: string[]; items: FactLine[] } {
+  const payload = (r.structuredContent ?? {}) as Record<string, unknown>;
+  const text = typeof payload["answer"] === "string" ? payload["answer"] : "";
+  const lines = text.split("\n");
+  const blank = lines.indexOf("");
+  const header = blank === -1 ? lines : lines.slice(0, blank);
+  const items: FactLine[] = [];
+  let cur: string[] | null = null;
+  const flush = (): void => {
+    if (cur === null) return;
+    const m = /^\d+\. (\[journal\] )?(.*) · ((?:mem|epi)_[0-9a-f]+)(?: \(chapter \d+ of \d+\))? · (.*)$/.exec(cur[0] ?? "");
+    if (m !== null) {
+      items.push({
+        id: m[3] as string,
+        title: m[2] as string,
+        journal: m[1] !== undefined,
+        ways: (m[4] as string).split(", "),
+        learned: cur.find((l) => /^ {3}(learned |my journal · )/.test(l)) ?? "",
+        lines: cur,
+      });
+    }
+    cur = null;
+  };
+  for (const l of lines) {
+    if (/^\d+\. /.test(l)) {
+      flush();
+      cur = [l];
+    } else if (l.startsWith("   ") && cur !== null) {
+      cur.push(l);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return { payload, header, items };
+}
+
+describe("asked plainly, recall finds the last session here first (the recall half, facts mode)", () => {
   /** Another session, in another directory, busy with release work later the
    *  same day — the work that filled the candidate cap on the live store. */
   async function nextDoor(k: ReturnType<typeof afternoon>): Promise<void> {
@@ -390,7 +439,8 @@ describe("asked plainly, recall finds the last session here first (the recall ha
     }
   }
 
-  type Row = { id: string; recent?: boolean; from?: string; journal: boolean };
+  /** By id, the address path still answers with `memories`. */
+  type Row = { id: string; from?: string; journal: boolean };
   function rows(r: { structuredContent?: unknown }): Row[] {
     return ((r.structuredContent as Record<string, unknown>)["memories"] as Row[]) ?? [];
   }
@@ -401,41 +451,44 @@ describe("asked plainly, recall finds the last session here first (the recall ha
     await nextDoor(k);
     k.set(at(18, 30));
     const b = k.server(B);
-    const r = await b.call("recall", { question: "what do you remember from our most recent session?" });
-    const got = rows(r);
-    expect(got[0]?.id).toBe(episodeId);
-    expect(got[0]?.journal).toBe(true);
-    expect(got[0]?.recent).toBe(true);
-    expect(got[0]?.from).toBe("session a1b2c3d4, " + HERE + ", 09-30 17:50");
-    // Then the memories A wrote, newest first, all marked.
-    const lead = got.filter((m) => m.recent === true);
+    const got = factsOf(await b.call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    expect(got.payload["mode"]).toBe("facts");
+    // The header names the session it resolved to, so a wrong anchor is visible.
+    expect(got.header.some((l) => /^time: our most recent session → 09-30 \(session a1b2c3d4, its rows first\)/.test(l))).toBe(true);
+    expect(got.items[0]?.id).toBe(episodeId);
+    expect(got.items[0]?.journal).toBe(true);
+    expect(got.items[0]?.ways).toContain("session");
+    expect(got.items[0]?.learned).toBe(`   my journal · written 09-30 in ${HERE} · session a1b2c3d4`);
+    // Then the memories A wrote: its rows first, each saying whose they are.
+    const lead = got.items.filter((m) => m.ways.includes("session"));
     expect(lead.length).toBeGreaterThanOrEqual(3);
-    for (const m of lead.slice(1)) expect(m.from).toMatch(/^session a1b2c3d4, .*, 09-30 17:4\d$/);
+    for (const m of lead.slice(1)) expect(m.learned).toMatch(/· session a1b2c3d4 · CURRENT$/);
     // Nothing from next door leads, and what of it came back says where it is from.
-    const firstOther = got.findIndex((m) => m.recent !== true);
+    const firstOther = got.items.findIndex((m) => !m.ways.includes("session"));
     expect(firstOther === -1 || firstOther >= lead.length).toBe(true);
-    for (const m of got.filter((x) => x.recent !== true)) expect(m.from).toContain("session ");
-    expect((r.structuredContent as Record<string, unknown>)["recent"]).toContain("a1b2c3d4");
+    for (const m of got.items.filter((x) => !x.ways.includes("session"))) expect(m.learned).toContain("session ");
   });
 
-  test("a question that is not about time is answered as before, with provenance", async () => {
+  test("a question that is not about time is answered with provenance, and filters nothing by time", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
     const b = k.server(B);
-    const got = rows(await b.call("recall", { question: "Montaigne and his three meals" }));
-    expect(got.length).toBeGreaterThan(0);
-    expect(got.some((m) => m.recent === true)).toBe(false);
-    expect(got[0]?.from).toMatch(/^session a1b2c3d4, /);
+    const got = factsOf(await b.call("recall", { question: "Montaigne and his three meals", mode: "facts" }));
+    expect(got.items.length).toBeGreaterThan(0);
+    expect(got.header.some((l) => l.startsWith("time:"))).toBe(false);
+    expect(got.items.some((m) => m.ways.includes("session"))).toBe(false);
+    expect(got.items[0]?.learned).toContain("session a1b2c3d4");
   });
 
-  test("the asker's own session is not 'the most recent session'; its own rows say 'this session'", async () => {
+  test("the asker's own session is not 'the last session'; its own rows say 'this session'", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
     const a = k.server(A);
-    const r = await a.call("recall", { question: "what did we do in the last session?" });
-    expect(rows(r).some((m) => m.recent === true)).toBe(false);
-    const own = rows(await a.call("recall", { question: "Montaigne and his three meals" }));
-    expect(own[0]?.from).toMatch(/^this session, /);
+    const r = factsOf(await a.call("recall", { question: "what did we do in the last session?", mode: "facts" }));
+    expect(r.items.some((m) => m.ways.includes("session"))).toBe(false);
+    expect(r.header.some((l) => l.includes("no earlier session found"))).toBe(true);
+    const own = factsOf(await a.call("recall", { question: "Montaigne and his three meals", mode: "facts" }));
+    expect(own.items[0]?.learned).toContain("this session");
   });
 
   test("'our most recent session' is the one Last here names, not a live sibling still at work (review of #302 MAJOR-2)", async () => {
@@ -446,40 +499,32 @@ describe("asked plainly, recall finds the last session here first (the recall ha
     for (const m of [56, 58]) k.talk(D, at(17, m));
     k.set(at(17, 59));
     await k.server(D).call("note", { session: D, text: "Halfway through the parser rewrite; the empty input still fails." });
-    const got = rows(await k.server(B).call("recall", { question: "what do you remember from our most recent session?" }));
-    expect(got[0]?.id).toBe(episodeId);
-    for (const m of got.filter((x) => x.recent === true)) expect(m.from).toMatch(/^session a1b2c3d4, /);
+    const got = factsOf(await k.server(B).call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    expect(got.header.some((l) => l.includes("(session a1b2c3d4, its rows first)"))).toBe(true);
+    expect(got.items[0]?.id).toBe(episodeId);
+    for (const m of got.items.filter((x) => x.ways.includes("session"))) expect(m.learned).toContain("session a1b2c3d4");
   });
 
-  test("a named window means the sessions at work in it; none then, no lead (review of #302 MINOR-2)", async () => {
+  test("a named window filters: this evening's work comes back, this morning holds nothing", async () => {
     const k = afternoon();
     const { episodeId } = await mikesAfternoon(k);
     const b = k.server(B);
-    const evening = rows(await b.call("recall", { question: "what did we do this evening?" }));
-    expect(evening[0]?.id).toBe(episodeId);
-    const morning = await b.call("recall", { question: "what did we do this morning?" });
-    expect(rows(morning).some((m) => m.recent === true)).toBe(false);
-    expect((morning.structuredContent as Record<string, unknown>)["recent"]).toBeUndefined();
+    const evening = factsOf(await b.call("recall", { question: "what did we do this evening?", mode: "facts" }));
+    expect(evening.header.some((l) => l.startsWith("time: this evening → 09-30"))).toBe(true);
+    expect(evening.items[0]?.id).toBe(episodeId);
+    for (const m of evening.items) expect(m.ways).toContain("time");
+    const morning = factsOf(await b.call("recall", { question: "what did we do this morning?", mode: "facts" }));
+    expect(morning.payload["matched"]).toBe(0);
+    expect(morning.items.length).toBe(0);
   });
 
-  test("a question that asks about something else only moves up what the search found (review of #302 MINOR-1)", async () => {
+  test("a question about something else, with a day in it, is filtered to that day", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
-    const question = "what did we decide about the parser today?";
-    const got = rows(await k.server(B).call("recall", { question }));
-    // The same question with no directory named: no recency lane at all.
-    const plain = deliberateRecall(k.c, { question }, { sessionId: B, owner: true }).memories.map((m) => m.id);
-    // Promoting adds nothing: the same rows, the recent ones moved to the front.
-    expect(new Set(got.map((m) => m.id))).toEqual(new Set(plain));
-    const marked = got.findIndex((m) => m.recent !== true);
-    expect(got.slice(marked === -1 ? got.length : marked).some((m) => m.recent === true)).toBe(false);
-  });
-
-  test("a question about feeling keeps its own order (review of #302 MINOR-3)", async () => {
-    const k = afternoon();
-    await mikesAfternoon(k);
-    const r = await k.server(B).call("recall", { question: "how did I feel this evening?" });
-    expect(rows(r).some((m) => m.recent === true)).toBe(false);
+    const got = factsOf(await k.server(B).call("recall", { question: "Montaigne at the table today", mode: "facts" }));
+    expect(got.header.some((l) => l.startsWith("time: today → 09-30"))).toBe(true);
+    expect(got.items.length).toBeGreaterThan(0);
+    for (const m of got.items) expect(m.ways).toContain("time");
   });
 
   test("a dream's row is not the session's own words, and says what made it (review of #302 MAJOR-1)", async () => {
@@ -494,14 +539,21 @@ describe("asked plainly, recall finds the last session here first (the recall ha
       source: "dreamed",
       origin: { session: A, scope: HERE, ref: "dream:drm_000000000001" },
     });
-    const got = rows(await k.server(B).call("recall", { question: "what do you remember from our most recent session?" }));
-    expect(got[0]?.id).toBe(episodeId);
-    expect(got.filter((m) => m.recent === true).map((m) => m.id)).not.toContain(dreamt);
+    const got = factsOf(await k.server(B).call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));
+    expect(got.items[0]?.id).toBe(episodeId);
+    // In the window, it comes back — but not as the session's own row, and
+    // its line says a dream made it.
+    const dream = got.items.find((m) => m.id === dreamt);
+    expect(dream).toBeDefined();
+    expect(dream?.ways).not.toContain("session");
+    expect(dream?.learned).toContain("a dream launched from session a1b2c3d4");
+    const firstOther = got.items.findIndex((m) => !m.ways.includes("session"));
+    expect(got.items.findIndex((m) => m.id === dreamt)).toBeGreaterThanOrEqual(firstOther);
     const named = rows(await k.server(B).call("recall", { ids: [dreamt] }));
     expect(named[0]?.from).toMatch(/^a dream launched from session a1b2c3d4, /);
   });
 
-  test("the lead chapter shows its FIRST chapter, what its title names, and says there are more (2026-10-01; was its latest, review of #302 MINOR-4)", async () => {
+  test("'where did we leave off?' names the newest session here and puts its episode first", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
     const E = "e5e5e5e5-0000-4000-8000-00000000000e";
@@ -516,10 +568,10 @@ describe("asked plainly, recall finds the last session here first (the recall ha
       source: "episode",
       origin: { session: E, scope: HERE },
     });
-    const got = (await k.server(B).call("recall", { question: "where did we leave off?" })).structuredContent as Record<string, unknown>;
-    const first = (got["memories"] as { id: string; excerpt: string }[])[0];
-    expect(first?.id).toBe(epi);
-    expect(first?.excerpt).toBe(`(Chapter 1 of 2; recall ${epi} for every chapter.) The first chapter, long done.`);
+    const got = factsOf(await k.server(B).call("recall", { question: "where did we leave off?", mode: "facts" }));
+    expect(got.header.some((l) => l.includes("(session e5e5e5e5, its rows first)"))).toBe(true);
+    expect(got.items[0]?.id).toBe(epi);
+    expect(got.items[0]?.journal).toBe(true);
   });
 });
 

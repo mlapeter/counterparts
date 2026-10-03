@@ -116,16 +116,15 @@ import type { ServerRecord } from "../sessions.js";
 import {
   JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
-  RECALL_EXCERPT_CHARS,
   RECALL_MAX_IDS,
   RECALL_ID_RESULT_CHARS,
-  RECALL_RESULT_CHARS,
   boundById,
-  boundMemories,
   deliberateRecall,
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
+import { factsRecall, renderFacts } from "./facts.js";
+import { meaningRecall, renderMeaning } from "./meaning.js";
 import {
   ERROR_CODES,
   failure,
@@ -1851,11 +1850,24 @@ export class McpServer {
   }
 
   /**
-   * `recall` — the deeper look. Deposits no memory and touches no physics; see
-   * `deliberate.ts`. The ONE thing it writes is host state: a handle path that
-   * was answered leaves a line in `adapters/expansions.ts`'s resolution log, so
-   * the boundary's credit pass can tell which memory a TITLE reached
-   * (`noteHandleResolution`, and `mcp/INTERFACE-GAPS` §9).
+   * `recall` — the deeper look. Deposits no memory and touches no physics.
+   * Three kinds of ask, exactly one per call:
+   *
+   *   - a QUESTION, with a REQUIRED `mode` (Release B, 2026-10-03): `facts`
+   *     (`facts.ts`) or `meaning` (`meaning.ts`), each its own path with its
+   *     own ranking and its own answer — labeled lines, shipped as `answer`;
+   *   - `ids` or a `handle`: an exact address, read whole (`deliberate.ts`).
+   *     They take no mode: opening a memory is not a search. A `mode` sent
+   *     beside one is ignored, and the result says so.
+   *
+   * What it writes is host state and bookkeeping, never a memory: a handle
+   * path that was answered leaves a line in `adapters/expansions.ts`'s
+   * resolution log, so the boundary's credit pass can tell which memory a
+   * TITLE reached (`noteHandleResolution`, `mcp/INTERFACE-GAPS` §9); a
+   * question's shown memories are recorded for this session as QUOTABLE
+   * (`noteAsked`), so quoting one's words in a reply credits it at the
+   * boundary as quoting a loud surfacing does; and one durable `mcp.recall`
+   * row (`noteRecall`).
    */
   private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
@@ -1876,23 +1888,25 @@ export class McpServer {
     if (part !== undefined && (typeof part !== "number" || !Number.isInteger(part) || part < 1)) {
       return this.refuse("recall", "part-not-a-positive-integer", {});
     }
-    const askedIds = ((ids as string[] | undefined) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
-    // IN LINE, and only for a question: the handle and `ids` paths are exact
-    // addresses and embedding them would buy nothing but a round trip. A refusal
-    // is a NAME, not a narrower answer — `deliberateRecall` degrades to lexical
-    // and says which.
-    const asked = typeof question === "string" && question.trim().length > 0;
-    // One embedding call, and every way it can decline, by name
-    // (`deliberate.ts#embedQuestion`, which the console's `ask` shares).
-    const embedded = asked ? await embedQuestion(this.embedder, question) : { vector: null, semantic: "none" as SemanticSource };
-    // THE GATE AGAIN, after this tool's wait: a migration that committed
-    // during the embedding's round-trip must not be recalled past. The store's
-    // write guard would stop `noteRecall`'s row anyway; this also stops the
-    // read and the handle log before them.
-    if (asked) {
-      const moved = this.schemaGate("recall");
-      if (moved !== null) return moved;
+    // PAGES (2026-10-03): which page of a question's answer.
+    const page = args["page"];
+    if (page !== undefined && (typeof page !== "number" || !Number.isInteger(page) || page < 1)) {
+      return this.refuse("recall", "page-not-a-positive-integer", {});
     }
+    const mode = args["mode"];
+    if (mode !== undefined && mode !== "facts" && mode !== "meaning") {
+      return this.refuse("recall", "mode-unknown", { modes: RECALL_MODE_WORDS });
+    }
+    const askedIds = ((ids as string[] | undefined) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
+    const asked = typeof question === "string" && question.trim().length > 0;
+    const addressed = (typeof handle === "string" && handle.trim().length > 0) || askedIds.length > 0;
+
+    // A QUESTION, alone: a mode answers it.
+    if (asked && !addressed) {
+      if (mode === undefined) return this.refuse("recall", "mode-required", { modes: RECALL_MODE_WORDS });
+      return this.askQuestion(question, mode, typeof page === "number" ? page : 1);
+    }
+
     const result = deliberateRecall(
       this.counterpart,
       {
@@ -1900,20 +1914,15 @@ export class McpServer {
         ...(typeof question === "string" ? { question } : {}),
         ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
-      {
-        sessionId: this.session ?? this.hostSession() ?? UNBOUND_SESSION,
-        owner: this.owner,
-        vector: embedded.vector,
-        semantic: embedded.semantic,
-        // A question about time leads with THIS directory's most recent
-        // session (2026-09-30, `recall/recency-ask.ts`).
-        scope: this.scope,
-      },
+      { sessionId: this.session ?? this.hostSession() ?? UNBOUND_SESSION, owner: this.owner },
     );
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
     // index offered only in part? Counted per mechanism, never the ids.
-    const payload = this.recallPayload(result, typeof part === "number" ? part : 1);
+    const payload: Record<string, unknown> = {
+      ...this.recallPayload(result, typeof part === "number" ? part : 1),
+      ...(mode !== undefined && addressed ? { modeIgnored: "ids and handle are exact addresses; mode applies to a question only." } : {}),
+    };
     // Counted from what was DELIVERED (review of #278), not what was asked:
     // an id that waited is not a lookup yet, and one is fetched whole only
     // when its last part went out.
@@ -1934,9 +1943,24 @@ export class McpServer {
       // it blows. The three overflowed calls of 2026-09-04 emitted nothing.
       chars: payload["chars"] as number,
       truncated: payload["truncated"] === true,
-      droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
+      droppedForBudget: 0,
     });
-    this.noteRecall(result, askedIds.length, question, resolved, payload, fromIndex);
+    this.noteRecall(
+      {
+        path: result.path,
+        reason: result.reason,
+        semantic: result.semantic,
+        considered: result.considered,
+        storeSize: result.storeSize,
+        expanded: result.path === "handle" ? result.memories.length : 0,
+        blockedBy: addressBlocked(result),
+      },
+      askedIds.length,
+      question,
+      resolved,
+      payload,
+      fromIndex,
+    );
     // Only what was DELIVERED (review of #316): an id left `waiting` was not shown.
     const deliveredIds = ((payload["memories"] as { id?: unknown }[] | undefined) ?? []).map((m) => m.id).filter((x): x is string => typeof x === "string");
     this.markSeen(deliveredIds);
@@ -1947,6 +1971,126 @@ export class McpServer {
       result.reason === "ids-too-many" ||
       result.reason === "handle-confidential-withheld";
     return this.result(payload, bad);
+  }
+
+  /**
+   * A QUESTION, answered by its mode (Release B, 2026-10-03). Embedded in
+   * line first — the one deliberate path allowed to (the ruling of
+   * 2026-09-04) — with every way the embedding can decline said by name
+   * (`deliberate.ts#embedQuestion`, which the console's `ask` shares). The
+   * answer is the mode's own rendering, shipped whole as `answer`; the ids it
+   * showed go to the seen set and the quotable record.
+   */
+  private async askQuestion(question: string, mode: "facts" | "meaning", page: number): Promise<ToolResult> {
+    const embedded = await embedQuestion(this.embedder, question);
+    // THE GATE AGAIN, after this tool's wait: a migration that committed
+    // during the embedding's round-trip must not be recalled past.
+    const moved = this.schemaGate("recall");
+    if (moved !== null) return moved;
+    const ctx = {
+      counterpart: this.counterpart,
+      sessionId: this.session ?? this.hostSession() ?? UNBOUND_SESSION,
+      owner: this.owner,
+      ...(this.scope === undefined ? {} : { scope: this.scope }),
+      vector: embedded.vector,
+      semantic: embedded.semantic,
+      asker: "self" as const,
+    };
+    let answer: string;
+    let ids: readonly string[];
+    let body: Record<string, unknown>;
+    let row: RecallRowFields;
+    if (mode === "facts") {
+      const r = factsRecall(ctx, question, { page });
+      answer = renderFacts(r);
+      ids = r.memories.map((m) => m.id);
+      body = {
+        matched: r.matched,
+        page: r.page,
+        pages: r.pages,
+        ...(r.fadedTotal > 0 ? { faded: r.fadedTotal } : {}),
+      };
+      row = {
+        path: "question",
+        reason: r.reason,
+        semantic: r.semantic,
+        considered: r.considered,
+        storeSize: r.storeSize,
+        expanded: 0,
+        blockedBy: r.blockedBy,
+        mode,
+        matched: r.matched,
+        shown: r.memories.length,
+        faded: r.fadedTotal,
+        page: r.page,
+        ...(r.time === null ? {} : { time: r.time.anchor?.kind ?? "window" }),
+      };
+    } else {
+      const r = meaningRecall(ctx, question, { page });
+      answer = renderMeaning(r);
+      ids = r.shown;
+      body = { page: r.page, pages: r.pages, counts: { ...r.counts } };
+      row = {
+        path: "question",
+        reason: r.reason,
+        semantic: r.semantic,
+        considered: r.counts.moments + r.counts.faded,
+        storeSize: 0,
+        expanded: 0,
+        blockedBy: {},
+        mode,
+        matched: r.counts.moments,
+        shown: ids.length,
+        faded: r.counts.faded,
+        page: r.page,
+        counts: { ...r.counts },
+      };
+    }
+    const payload: Record<string, unknown> = {
+      path: "question",
+      mode,
+      reason: row.reason,
+      semantic: row.semantic,
+      ...body,
+      chars: answer.length,
+      answer,
+      ids: [...ids],
+    };
+    this.emit("mcp.recall", undefined, {
+      path: "question",
+      mode,
+      reason: row.reason,
+      semantic: row.semantic,
+      returned: ids.length,
+      considered: row.considered,
+      owner: this.owner,
+      chars: answer.length,
+      truncated: false,
+      droppedForBudget: 0,
+    });
+    this.noteRecall(row, 0, question, false, payload);
+    this.markSeen(ids);
+    this.noteAsked(ids);
+    return this.result(payload, false);
+  }
+
+  /**
+   * THE QUOTABLE RECORD (Release B, 2026-10-03): the memories a question's
+   * answer showed with their words, recorded for the asking session so the
+   * boundary's credit pass may count a QUOTE of one (`Counterpart#
+   * creditReferences`, `reference.ts`'s verbatim window) — the owner's 09-14
+   * rule, opening or quoting credits, extended to deliberate results. A list
+   * shown does not credit; only a quote of its words in a reply does. Keyed
+   * like the seen set (`seenKey`); nothing for a session nobody identified.
+   * Never throws.
+   */
+  private noteAsked(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const session = this.seenKey();
+    if (session === UNBOUND_SESSION) return;
+    this.telemetry(() => {
+      this.counterpart.noteAsked(session, ids);
+    });
   }
 
   /**
@@ -1973,53 +2117,48 @@ export class McpServer {
    * unreadable as the inventory found it — a withholding that happened and one
    * that never had to, the same absence.
    *
+   * A question's row (2026-10-03) carries its `mode`, how many matched, how
+   * many were shown and how many listed faded, and the page — still counts.
+   *
    * Never throws: a tool answer may not fail because its telemetry did.
    */
   private noteRecall(
-    result: DeliberateResult,
+    row: RecallRowFields,
     askedIds: number,
     question: unknown,
     handleResolved: boolean,
     payload: Record<string, unknown>,
     fromIndex: Partial<Record<FitMechanism, number>> = {},
   ): void {
-    const byAddress = result.path === "handle";
-    const blockedBy: Record<string, number> = { ...(result.blockedBy ?? {}) };
-    // The address paths' refusals are their own `reason` — one per id on the
-    // `ids` path, so three unknown ids read as three and not as one.
-    if (byAddress) {
-      const reasons =
-        result.perId === undefined
-          ? result.reason === "expanded"
-            ? []
-            : [result.reason]
-          : result.perId.filter((p) => p.reason !== "expanded").map((p) => p.reason);
-      for (const r of reasons) blockedBy[r] = (blockedBy[r] ?? 0) + 1;
-    } else if (result.path === "none") {
-      blockedBy[result.reason] = (blockedBy[result.reason] ?? 0) + 1;
-    }
+    const byAddress = row.path === "handle";
+    const shown = row.shown ?? 0;
     this.telemetry(() => {
       this.counterpart.noteAdapterEvent(MCP_RECALL_EVENT, {
-        path: result.path,
-        reason: result.reason,
+        path: row.path,
+        reason: row.reason,
+        ...(row.mode === undefined ? {} : { mode: row.mode }),
         // WHAT WAS ASKED, as shapes and sizes. Never the words.
         queryChars: typeof question === "string" ? question.trim().length : 0,
         askedIds,
         handleResolved,
-        semantic: result.semantic,
+        semantic: row.semantic,
         // What came back, split the way the reader's question splits: an
-        // expansion answered an address, a surfacing answered a question.
-        surfaced: byAddress ? 0 : result.memories.filter((m) => m.tier !== "dim").length,
-        dim: byAddress ? 0 : result.memories.filter((m) => m.tier === "dim").length,
-        expanded: byAddress ? result.memories.length : 0,
-        considered: result.considered,
-        storeSize: result.storeSize,
+        // expansion answered an address, a question's answer showed results.
+        surfaced: byAddress ? 0 : shown,
+        expanded: byAddress ? row.expanded : 0,
+        ...(row.matched === undefined ? {} : { matched: row.matched }),
+        ...(row.faded === undefined ? {} : { faded: row.faded }),
+        ...(row.page === undefined ? {} : { page: row.page }),
+        ...(row.time === undefined ? {} : { time: row.time }),
+        ...(row.counts === undefined ? {} : { counts: row.counts }),
+        considered: row.considered,
+        storeSize: row.storeSize,
         owner: this.owner,
         chars: payload["chars"] ?? 0,
         truncated: payload["truncated"] === true,
-        droppedForBudget: payload["droppedForBudget"] ?? 0,
+        droppedForBudget: 0,
         // THE POINT OF THE ROW: what kept the rest out, by name.
-        blockedBy,
+        blockedBy: row.blockedBy,
         // How many of the expanded ids a mechanism's index had offered only
         // in part (2026-09-28) — the lookup's use, per mechanism. Counts only.
         ...(Object.keys(fromIndex).length > 0 ? { fromIndex } : {}),
@@ -2109,48 +2248,28 @@ export class McpServer {
   }
 
   /**
-   * The payload, BOUNDED. A list answers "which memories" and ships excerpts;
-   * an address (`handle`, or `ids`) answers "what did it say" and ships as much
-   * body as the total budget allows. See `deliberate.ts`'s size constants for
-   * the measurement that set them.
+   * The ADDRESS payload, BOUNDED: `handle` or `ids` answers "what did it
+   * say" and ships as much body as the total budget allows, in parts. See
+   * `deliberate.ts`'s size constants for the measurement that set them. (A
+   * question's answer is its mode's rendering — `askQuestion`.)
    */
   private recallPayload(result: DeliberateResult, part = 1): Record<string, unknown> {
-    const byAddress = result.path === "handle";
     // By address, IN PARTS (2026-09-28): each body a part at a time, the ids
-    // past the total waiting by name; a list, excerpts.
-    const bounded = byAddress ? boundById(result.memories, part) : boundMemories(result.memories, RECALL_EXCERPT_CHARS);
+    // past the total waiting by name.
+    const bounded = boundById(result.memories, part);
     const lastPart = Math.max(1, ...bounded.memories.map((m) => m.parts ?? 1));
     return {
       path: result.path,
       reason: result.reason,
-      /** Said out loud, never inferred from a thinner answer: when the semantic
-       *  channel could not run, the asker is told which channel answered. */
       semantic: result.semantic,
-      /** The two numbers §9.1 G3 exists for: a count here is never a top-K. */
       considered: result.considered,
-      /** `considered` is `MAX_CANDIDATES`, and saying so is the difference
-       *  between a bound and a census (§9.1 G3). Read from the recall instance
-       *  in force, not the module default, or a calibration override would be
-       *  invisible in the one place the number is explained. */
-      consideredCap: this.counterpart.recall.tunables.MAX_CANDIDATES,
-      /** The cap bounds what the words and the meaning reached; a memory the
-       *  links or a feeling brought has its own bound, so `considered` can pass
-       *  it (2026-10-01: "considered 30, consideredCap 24" read as a broken cap). */
-      ...(result.considered > this.counterpart.recall.tunables.MAX_CANDIDATES && result.path === "question"
-        ? {
-            consideredNote: `${String(result.considered - this.counterpart.recall.tunables.MAX_CANDIDATES)} past the cap came in through links between memories or a feeling the question named; consideredCap bounds only what its words and meaning reached.`,
-          }
-        : {}),
       storeSize: result.storeSize,
       returned: bounded.memories.length,
       chars: bounded.chars,
       truncated: bounded.truncated,
-      ...(bounded.droppedForBudget > 0 ? { droppedForBudget: bounded.droppedForBudget } : {}),
-      ...(bounded.truncated || bounded.droppedForBudget > 0
+      ...(bounded.truncated
         ? {
-            budget: byAddress
-              ? `By id, a body comes in parts of ${RECALL_BODY_CHARS} characters ("part" of "parts" on each; bodyChars is the whole length).${part < lastPart ? ` Ask again with the same ids and part: ${String(part + 1)} for the next.` : " That was the last part."}`
-              : `A list is bounded to ${RECALL_RESULT_CHARS} characters, ${RECALL_EXCERPT_CHARS} per memory. To read any whole, ask again with ids: [...] — up to ${RECALL_MAX_IDS} at once; a long body comes in parts (part: 2, 3, …).`,
+            budget: `By id, a body comes in parts of ${RECALL_BODY_CHARS} characters ("part" of "parts" on each; bodyChars is the whole length).${part < lastPart ? ` Ask again with the same ids and part: ${String(part + 1)} for the next.` : " That was the last part."}`,
           }
         : {}),
       ...(bounded.waiting !== undefined
@@ -2170,6 +2289,12 @@ export class McpServer {
               "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
           }
         : {}),
+      ...(result.reason === "both-arguments"
+        ? { refused: "One kind of ask per call: a question (with a mode), ids, or a handle." }
+        : {}),
+      ...(result.reason === "no-argument"
+        ? { refused: `Send a question with mode (${RECALL_MODE_WORDS}), or ids, or a handle.` }
+        : {}),
       memories: bounded.memories.map((m) => ({ ...m })),
       /** The label the ruling of 2026-09-04 put on every delivered chapter,
        *  glossed once here so `journal: true` on a row is not a bare boolean the
@@ -2178,21 +2303,6 @@ export class McpServer {
        *  bytes explaining a flag that is not on any row is the wire budget spent
        *  on a word nobody read. */
       ...(bounded.memories.some((m) => m.journal) ? { journal: JOURNAL_GLOSS } : {}),
-      /** A question about time (2026-09-30): which session's rows lead, and
-       *  why. CONDITIONAL, like `journal`. */
-      ...(result.recent === undefined
-        ? {}
-        : {
-            recent: `Rows marked recent: true come first because the question asked about time ("${result.recent.cue}"): they are what the session it means here (${result.recent.session}) wrote — its latest episode, shown from its first chapter (what its title names; the id fetches every chapter), then its memories, newest first. A quiet one among them was put there by the question, not reached by the search. Everything after them is ranked as usual.`,
-          }),
-      tiers: {
-        vivid: "came clearly to mind",
-        quiet:
-          result.recent === undefined
-            ? "quietly available — the ambient path would have footnoted this"
-            : "quietly available — the ambient path would have footnoted this; or, marked recent: true, put first by a question about time without the search reaching it",
-        dim: "reached only because you asked deliberately; lower confidence, and labeled so",
-      },
     };
   }
 
@@ -4237,6 +4347,52 @@ export function dreamHow(bundle: Pick<DreamBundle, "queue" | "shownAs">): string
     `Shown whole: ${String(s.whole)}; as an excerpt: ${String(s.excerpt)}; as a line: ${String(s.line)}${s.notShown > 0 ? `; related, not shown: ${String(s.notShown)}` : ""}. ` +
     `To read any whole, call the recall tool with ids: [...] — up to ${String(RECALL_MAX_IDS)} at once.`
   );
+}
+
+/**
+ * THE TWO MODES, in the words a refusal teaches them with (Release B,
+ * 2026-10-03). There is no default: the caller says which question it is
+ * asking.
+ */
+export const RECALL_MODE_WORDS =
+  'A question needs mode: "facts" — what happened, who said it, when, and whether it still holds (every match, ranked, with dates and speaker); or "meaning" — how something went, felt, and what it adds up to (a person, a project, us).';
+
+/** What one recall call's durable row says (`noteRecall`). Counts only. */
+interface RecallRowFields {
+  readonly path: "handle" | "question" | "none";
+  readonly reason: string;
+  readonly semantic: string;
+  readonly considered: number;
+  readonly storeSize: number;
+  readonly expanded: number;
+  readonly blockedBy: Readonly<Record<string, number>>;
+  readonly mode?: "facts" | "meaning";
+  readonly matched?: number;
+  readonly shown?: number;
+  readonly faded?: number;
+  readonly page?: number;
+  /** A question that named a time: `window`, `event` or `session`. */
+  readonly time?: string;
+  /** Meaning mode's own counts (`MeaningResult.counts`). */
+  readonly counts?: Readonly<Record<string, number>>;
+}
+
+/**
+ * The address paths' refusals are their own `reason` — one per id on the
+ * `ids` path, so three unknown ids read as three and not as one.
+ */
+function addressBlocked(result: DeliberateResult): Record<string, number> {
+  const out: Record<string, number> = {};
+  const reasons =
+    result.path === "none"
+      ? [result.reason]
+      : result.perId === undefined
+        ? result.reason === "expanded"
+          ? []
+          : [result.reason]
+        : result.perId.filter((p) => p.reason !== "expanded").map((p) => p.reason);
+  for (const r of reasons) out[r] = (out[r] ?? 0) + 1;
+  return out;
 }
 
 function resolvedIdOf(result: DeliberateResult): string | null | undefined {

@@ -97,7 +97,7 @@ function wake(c: Counterpart, session: string, budget = 9_000, scope = HERE, exp
   return c.wake(budget, { date: "2026-09-30" }, { scope, session, ...(exportsFrom === undefined ? {} : { exportsFrom }) }).text;
 }
 
-type Row = { id: string; from?: string; excerpt?: string; recent?: boolean };
+type Row = { id: string; from?: string; excerpt?: string };
 function rows(r: { structuredContent?: unknown }): Row[] {
   return ((r.structuredContent as Record<string, unknown>)["memories"] as Row[]) ?? [];
 }
@@ -180,7 +180,7 @@ describe("'Last here' pairs the title with the chapter it names (item 3)", () =>
     expect(chapterFor(body, { from: "2026-10-05 00:00", to: "2026-10-05 23:59" })).toMatchObject({ index: 0 });
   });
 
-  test("recall's time lead for a session that ran across days excerpts the chapter inside the window asked about", async () => {
+  test("a facts question about a day finds a session that ran across days, and excerpts the chapter dated in the window", async () => {
     const k = afternoon();
     for (const m of [1, 20]) k.talk(A, at(-8, m));
     for (const m of [1, 20]) k.talk(A, at(10, m));
@@ -196,11 +196,25 @@ describe("'Last here' pairs the title with the chapter it names (item 3)", () =>
     });
     k.set(at(14, 0));
     k.talk(B, at(14, 0));
-    const got = rows(await k.server(B).call("recall", { question: "what did we do yesterday?" }));
-    const lead = got.find((r) => r.id === epi);
-    expect(lead?.excerpt).toBe(`(Chapter 1 of 2; recall ${epi} for every chapter.) On the first day we cleared the north bed of bindweed.`);
-    const today = rows(await k.server(B).call("recall", { question: "what did we do this morning?" })).find((r) => r.id === epi);
-    expect(today?.excerpt).toBe(`(Chapter 2 of 2; recall ${epi} for every chapter.) On the second day we sowed the broad beans in the cleared bed.`);
+    const ask = async (question: string): Promise<{ ids: unknown; answer: string; mode: unknown }> => {
+      const out = (await k.server(B).call("recall", { question, mode: "facts" })).structuredContent as Record<string, unknown>;
+      return { ids: out["ids"], answer: String(out["answer"]), mode: out["mode"] };
+    };
+    // Yesterday: the episode was written today, but its first chapter is
+    // dated yesterday — the heading puts it in the window, and that chapter
+    // is the one excerpted.
+    const yesterday = await ask("what did we do yesterday?");
+    expect(yesterday.mode).toBe("facts");
+    expect(yesterday.ids).toContain(epi);
+    expect(yesterday.answer).toMatch(/^time: yesterday → 09-29/m);
+    expect(yesterday.answer).toMatch(new RegExp(`^\\d+\\. \\[journal\\] Two days in the garden · ${epi} \\(chapter 1 of 2\\) · `, "m"));
+    expect(yesterday.answer).toContain("On the first day we cleared the north bed of bindweed.");
+    // This morning: the second chapter, dated today.
+    const morning = await ask("what did we do this morning?");
+    expect(morning.ids).toContain(epi);
+    expect(morning.answer).toMatch(/^time: this morning → 09-30/m);
+    expect(morning.answer).toMatch(new RegExp(`^\\d+\\. \\[journal\\] Two days in the garden · ${epi} \\(chapter 2 of 2\\) · `, "m"));
+    expect(morning.answer).toContain("On the second day we sowed the broad beans in the cleared bed.");
   });
 });
 

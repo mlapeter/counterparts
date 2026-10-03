@@ -94,11 +94,13 @@ reply actually used reconsolidates, where in humans every retrieval does.
   [v1 §9 G14–G15]
 - **Hard caps on volume, and the tiers are disjoint** — a memory is "came to mind" *or*
   "quietly available", never both. [v1 §9 G16]
-- **Deliberate recall is a deeper effort with different thresholds, on purpose** — the ambient
-  seed floor is the right bar for surfacing uninvited and the wrong bar for a question someone
-  asked (measured: five on-point traces, best similarity 0.366, zero surfaced). It adds a
-  **labeled** lower-confidence tier and returns footnote-tier items as bodies. **Ranking is
-  not recording**: it trains nothing and deposits nothing. [v1 §9.1]
+- **Deliberate recall is not this module's ranking any more** (2026-10-03, Release B): a
+  question asked on purpose is answered by `mcp/facts.ts` or `mcp/meaning.ts`, each its own
+  path, and neither calls `build()`. The reason the old rule gave still stands — the ambient
+  seed floor is the right bar for surfacing uninvited and the wrong bar for a question
+  someone asked (measured: five on-point traces, best similarity 0.366, zero surfaced) — so
+  the answer is now every match, not the ambient pool re-tiered. **A search is not
+  recording**: it trains nothing; opening or quoting credits at the boundary. [v1 §9.1]
 - **A candidate count must not become an undercount** — a top-K tuned for surfacing is wrong
   for an aggregation question. [v1 §9.1 G3]
 - **Reference resolution reads the assistant's turns only, uses no model and no file reads,
@@ -230,7 +232,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    `LINK_POINTERS_MAX`, beside `MAX_FOOTNOTES`; 2026-09-28.)*
 7. **[M]** Ambiguous handles fire at reduced weight AND train nothing — both halves, with a
    test that greps for the consumer, not the comment (scar §2.6).
-8. **[M]** Deliberate recall trains nothing and deposits nothing.
+8. **[M]** A deliberate SEARCH trains nothing and deposits no memory (2026-10-03: stated
+   as the owner's rule of 09-16 — exposure never strengthens, retrieval does). Opening a
+   memory by id or title, or quoting the words a deliberate answer showed (`asked` gate
+   records, read by `Counterpart#creditReferences`; never by the ambient gate), is credited
+   at the boundary like any use.
 9. **[M]** Confidentiality is enforced at the boundary of the ask — sensitive material returns
    only in the owner's own session; withholding is *stated* for a direct lookup and silent in
    a list.
@@ -302,7 +308,10 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     unfelt. The affect flag's "charged" test reads the same intensity.
 19. **[M]** **A deliberate question about feeling is answered from the stamps** (U13,
     2026-09-30, revised after the review of #293 — working default; `feeling-ask.ts`,
-    `activate.ts`). Only when the turn carries a `feeling` ask, which only the deliberate
+    `activate.ts`). *2026-10-03: the deliberate caller that set `feeling` was the old
+    question path, retired in Release B; facts mode reads no feeling lane, and feeling
+    questions are meaning mode's (`mcp/meaning.ts`). The lane below is unchanged in the
+    core.* Only when the turn carries a `feeling` ask, which only a deliberate
     path sets: the ambient turn, its affect gate (G10/G11) and mood-matching (G18) are
     unchanged. A stamp answers to its emotion word (an `other` whose own word is on the
     wheel reads as that word), its group's word, the aliases pointing at it, its wheel
@@ -344,7 +353,12 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     numbers only reach `BuildOutput.feeling`; no feeling's word reaches the decision
     record. Tests: `recall-feelings.test.ts`.
 
-20. **[M]** **A deliberate question about time leads with the session it means**
+20. **RETIRED 2026-10-03 (Release B).** Facts mode reads time as a FILTER instead
+    (`recall/time-ask.ts`, `mcp/facts.ts`; mcp CONTRACT §6f): a window the question names
+    keeps only what is inside it, and "the last session" is resolved to the session the
+    wake's "Last here" names, whose rows lead. `recency-ask.ts` stays, read by
+    `time-ask.ts` for days and clock times. What this guarantee said, for the record:
+    **A deliberate question about time leads with the session it means**
     (2026-09-30, the continuity test; revised after the review of #302 — working default;
     `recency-ask.ts`, `mcp/deliberate.ts#recentRows`). Only on the deliberate path, only
     when the caller names the asking session's directory (the MCP `recall`; not the
@@ -416,8 +430,9 @@ nothing about what is recallable or ranked moves. Episodes record their director
    checkpoints rather than a race, so an overrun aborts the turn instead of degrading the
    channel, and every hook is a fresh process already spending 700-1000 ms cold against
    1200 ms. The cue is computed by the detached worker after a turn and used on the next
-   one (§5 G17). The deliberate ask is the exception and embeds in line, under its own
-   budget (`mcp/deliberate.ts`, `DELIBERATE_BUDGET_MS`).
+   one (§5 G17). The deliberate ask is the exception and embeds in line
+   (`mcp/deliberate.ts#embedQuestion`; since 2026-10-03 it ranks in its own mode, not
+   through `build()`).
 3. **Does `associate/` fold in here** (traversal), with its arithmetic going to `physics/`?
    The module map's standing check-in question; owned by `associate/`.
 4. **Is the "quietly available / ignorable" framing actually ignorable to a model?** v1
