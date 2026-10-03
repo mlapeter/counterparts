@@ -47,7 +47,7 @@ import {
 import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
-import { occursAsWholeWord, wholeWordRegex } from "../encode/words.js";
+import { nameRegex, occursAsWholeWord } from "../encode/words.js";
 import { Store, hashText } from "../store/index.js";
 // The WALKING read — not a `Store` method on purpose (`store/walk-seam.ts`): it
 // skips the archived-read telemetry AND the deny-list, and this module is one of
@@ -1614,7 +1614,7 @@ export class Schemas {
           const live = this.liveHolders(t);
           return live.length === 1 && live[0] === cardId;
         })
-        .map((t) => wholeWordRegex(t));
+        .map((t) => nameRegex(t));
       if (res.length === 0) return 0;
       const links: { memoryId: string; subjectId: string }[] = [];
       for (const m of this.store.memoryTexts()) {

@@ -14,7 +14,8 @@
  *      `note` into a `recall`;
  *   3. a SessionStart hook runs end to end on a fake payload and injects a wake;
  *   4. `install`'s printed commands name Node, and the hook command it prints is
- *      one the hook reader recognises as ours.
+ *      one the hook reader recognises as ours;
+ *   5. recall's meaning mode answers in this process (`mcp/meaning.ts`).
  *
  * Hermetic: every child gets HOME pointed into the temp directory and
  * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, and nothing here names a default path.
@@ -29,7 +30,9 @@ import { fileURLToPath } from "node:url";
 
 import { hookCommand, runCommand } from "../src/adapters/cli/install.js";
 import { isOurHookCommand } from "../src/adapters/cli/wire.js";
+import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
 import { NODE_HOOKS, currentRuntime, scriptArgs } from "../src/adapters/runtime.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import { openDb } from "../src/core/store/db.js";
 import { Store } from "../src/core/store/index.js";
 
@@ -192,5 +195,20 @@ describe("under Node", () => {
     assert.ok(isOurHookCommand(hook), hook);
     assert.ok(isOurHookCommand(hookCommand(config, process.execPath)));
     assert.ok(runCommand(SERVE, process.execPath).endsWith(`"${SERVE}"`));
+  });
+
+  test("meaning mode arranges a card's arc in this process", () => {
+    const c = Counterpart.open({ dir: join(work, "meaning"), snapshotsDir: join(work, "meaning-snaps"), owner: true });
+    try {
+      const card = c.schemas.mention({ name: "Ada", kind: "person", source: "Ada", chunkRef: "card-Ada", aliases: [], day: c.store.livedDay() });
+      assert.ok(card.ok, String(card.reason));
+      const id = c.store.put({ type: "memory", kind: "fact", body: "Ada shipped the parser today.", origin: { session: "node-smoke-m", scope: work } });
+      const r = meaningRecall({ counterpart: c, sessionId: "node-smoke-m", owner: true }, "What has Ada been to me?");
+      assert.equal(r.reason, "answered");
+      assert.ok(r.shown.includes(id), JSON.stringify(r.shown));
+      assert.match(renderMeaning(r), /^Ada · 1 session with no chapter · 1 moment/);
+    } finally {
+      c.close();
+    }
   });
 });

@@ -26,7 +26,10 @@
  * up later) carry this session's id but a later moment, so they fall after
  * the last chapter and are not listed under any.
  *
- * No caller in recall yet (Release B); the tests prove it resolves.
+ * Recall's meaning mode (Release B) places many memories at once: it reads
+ * each episode's chapter moments once (`chapterTimesOf`) and puts a memory
+ * under a chapter by the same span rule (`chapterAt`), resolving in full only
+ * the chapters it shows.
  */
 import { chaptersOf } from "../handoff/last-here.js";
 import type { ReadOnlyStore } from "../store/index.js";
@@ -142,6 +145,54 @@ export function resolveChapter(store: ReadOnlyStore, address: string): ChapterRe
       moments,
     },
   };
+}
+
+/** When each chapter of an episode was written, read once (`chapterTimesOf`). */
+export interface ChapterTimes {
+  readonly episodeId: string;
+  /** How many chapters the episode holds. */
+  readonly of: number;
+  /** Chapter number (1-based) -> the moment it was written, UTC ms; a chapter missing here is unknown. */
+  readonly moments: Readonly<Record<number, number>>;
+  readonly from: ChapterMomentSource;
+}
+
+/**
+ * The moments an episode's chapters were written, by `resolveChapter`'s own
+ * reading (stored, else the versions), without resolving each chapter's
+ * memories — for a caller that places many memories at once. Null when the
+ * id is not an episode with words. Never throws.
+ */
+export function chapterTimesOf(store: ReadOnlyStore, episodeId: string): ChapterTimes | null {
+  try {
+    const row = store.row(episodeId);
+    if (row === undefined || row.type !== "episode" || row.body.length === 0) return null;
+    const meta = store.readProse(episodeId).meta;
+    const of = chaptersOf(row.body).length;
+    const { moments, from } = chapterTimes(store, episodeId, meta, of, row.created_at);
+    return { episodeId, of, moments, from };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The chapter (1-based) a memory of the episode's session written at `at`
+ * falls under, by `resolveChapter`'s span rule — after the chapter before it
+ * was written (plus the grace), up to this one's moment plus the grace — or
+ * null when no chapter's span can be cut there (its moment, or the one
+ * before it, unknown) or `at` is past the last chapter (a later write-up).
+ */
+export function chapterAt(times: ChapterTimes, at: number): number | null {
+  for (let k = 1; k <= times.of; k++) {
+    const to = times.moments[k];
+    if (to === undefined) continue;
+    const from = k === 1 ? null : times.moments[k - 1];
+    if (from === undefined) continue;
+    const lo = from === null ? Number.NEGATIVE_INFINITY : from + CHAPTER_MOMENT_GRACE_MS;
+    if (at > lo && at <= to + CHAPTER_MOMENT_GRACE_MS) return k;
+  }
+  return null;
 }
 
 /**

@@ -443,6 +443,51 @@ describe("subject links", () => {
     expect(again.store.subjectsOf(id1)).toEqual([]);
   });
 
+  test("a possessive names its card — at the write, at a card's birth, and in crediting; Hans and Oskarsson still do not", () => {
+    const c = brain();
+    const han = card(c, "Han");
+    const james = card(c, "James");
+    const at = c.store.put({ type: "memory", kind: "fact", body: "Han's birthday is on the twelfth." });
+    const curly = c.store.put({ type: "memory", kind: "fact", body: "We moved Han’s review to Friday." });
+    const plural = c.store.put({ type: "memory", kind: "fact", body: "James' bike was stolen outside the office." });
+    const not = c.store.put({ type: "memory", kind: "fact", body: "Hans said the Han'll-style contraction is odd." });
+    expect(c.store.subjectsOf(at)).toEqual([han]);
+    expect(c.store.subjectsOf(curly)).toEqual([han]);
+    expect(c.store.subjectsOf(plural)).toEqual([james]);
+    expect(c.store.subjectsOf(not)).toEqual([]);
+    expect(c.schemas.subjectsIn("Hans and Oskarsson came by.")).toEqual([]);
+    expect(c.schemas.subjectsIn("What has Han's work been like?")).toEqual([han]);
+
+    // A card born after a memory naming it by its possessive links it (via birth).
+    const before = c.store.put({ type: "memory", kind: "fact", body: "Oskar's draft of the budget is due Friday." });
+    const oskar = card(c, "Oskar");
+    expect(c.store.subjectsOf(before)).toEqual([oskar]);
+    expect(c.store.subjectLinksOf(before)[0]?.via).toBe("birth");
+
+    // Crediting reads the same rule: a memory saying "Han's" credits Han.
+    const credited = c.schemas.creditNamedIn({ text: "Han's notes were good.", day: c.store.livedDay() + 1, ref: "test" });
+    expect([...credited.credited, ...credited.refused]).toContain(han);
+    const none = c.schemas.creditNamedIn({ text: "Hans' notes were good.", day: c.store.livedDay() + 1, ref: "test" });
+    expect([...none.credited, ...none.refused]).not.toContain(han);
+  });
+
+  test("the backfill links a possessive (the scanner's prefilter tries the name a possessive ends)", () => {
+    const bare = Store.open({ dir, snapshotsDir: join(root, "snaps"), now: () => clock });
+    const first = bare.put({ type: "memory", kind: "fact", body: "Mira’s launch checklist is the one we use." });
+    bare.close();
+    const c = brain();
+    const mira = card(c, "Mira");
+    c.close();
+    open.splice(0);
+    const db = new Database(paths.operational(dir));
+    db.run("DELETE FROM memory_subjects");
+    db.run("DELETE FROM meta WHERE key = ?", [SUBJECTS_BACKFILL_META]);
+    db.close();
+    const again = brain();
+    expect(again.store.subjectsOf(first)).toEqual([mira]);
+    expect(again.store.subjectLinksOf(first)[0]?.via).toBe("backfill");
+  });
+
   test("the scanner gives exactly matchesIn's hits", () => {
     const idx = new AliasIndex();
     idx.register("sch_a", "Mira", ["Mira Chen", "M.C."]);
@@ -460,8 +505,14 @@ describe("subject links", () => {
       "M.C. signed it. Nothing else here.",
       "",
       "Oskarsson is not Oskar's.",
+      "Mira Chen's plan, Osk’s plan, and harbour's edge.",
+      "James' and Mira's.",
     ];
     for (const t of texts) expect(scan(t)).toEqual(idx.matchesIn(t));
+    // The possessives are hits, not just equal: the prefilter tries the name a possessive ends.
+    expect(scan("Oskarsson is not Oskar's.").map((h) => h.id)).toEqual(["sch_b"]);
+    expect(scan("mira chen, MIRA, mira's notes").map((h) => h.term)).toEqual(["Mira", "Mira Chen"]);
+    expect(scan("Mira Chen's plan, Osk’s plan, and harbour's edge.").map((h) => h.term)).toEqual(["Mira", "Mira Chen", "Osk", "harbour"]);
   });
 });
 

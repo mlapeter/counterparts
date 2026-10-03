@@ -1147,3 +1147,24 @@ over and from where. The descriptions teach the one thing that matters: resolve 
 week" to a date now, leave it out when unknown, `occurredOn` is when it happened and
 `eventDate` a future date — and `EVENT_DATE_PROPERTY` now points back at `occurredOn`.
 Recall's behaviour did not change in this release.
+
+## 2026-10-03 — meaning mode (Release B of deliberate recall)
+
+`meaning.ts#meaningRecall(ctx, question, { page })` and `renderMeaning(result)`; B-facts'
+dispatch calls them for `mode: "meaning"`. `MeaningContext` is what `recallTool` already holds
+after `embedQuestion`: the counterpart, the session, `owner`, the vector and its `semantic`
+reason (the function is synchronous, so the embedder is not in it). What the build learned:
+
+- **A bare write is weak, not faded.** `strength` of a memory `put` without salience measures
+  0.09 on its first day, so an absolute floor called fresh memories faded. Faded reads the
+  share KEPT instead: `decay × fadeOf ≤ 0.2`.
+- **Possessives did not link.** The shared whole-word rule keeps an apostrophe inside a word,
+  so "Han's birthday" named no card and got no `memory_subjects` row, and a question saying
+  "Han's" reached no card either. Fixed in review: `encode/words.ts#nameRegex` reads a
+  trailing possessive as the name, for the alias index (links, the backfill, crediting) and
+  for meaning mode's reading of a chapter's words.
+- **Moments are placed, not resolved.** `chapter-address.ts#chapterTimesOf` reads an
+  episode's chapter moments once and `chapterAt` places a memory by `resolveChapter`'s span
+  rule; only the chapters shown read their whole span (for feelings).
+- **The chapter address does not open yet.** The `ids` path resolves `mem_`/`epi_` ids, not
+  `epi_…#N`; the answer says to open the episode by its id.

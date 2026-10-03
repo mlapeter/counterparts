@@ -10,12 +10,17 @@
  * measured 21% false-positive rate on the self schema. A copy of that rule here
  * would drift from it in exactly one release.
  *
+ * What a text NAMES (`matchesIn`, `scanner`) reads the rule through
+ * `nameRegex` (2026-10-03, review of #322): the same rule, with a trailing
+ * possessive read as the name, so "Han's birthday" names Han. Birth's
+ * name-in-source test keeps the strict rule.
+ *
  * Aliases are first-class and change only through explicit alias operations,
  * never as a side effect of editing prose (§4.2 G4) — which is why this index
  * has `register` / `unregister` and no "sync from body text" path.
  */
 
-import { occursAsWholeWord, wholeWordRegex, wordTokens } from "../encode/words.js";
+import { nameRegex, occursAsName, unpossessed, wordTokens } from "../encode/words.js";
 
 export interface AliasHit {
   id: string;
@@ -103,15 +108,16 @@ export class AliasIndex {
 
   /**
    * Every registered term occurring in `text` AS A WHOLE WORD, by the one shared
-   * definition. This is what birth tests a name with and what preselection's
-   * lexical channel tests a slice with — the same function, called twice.
+   * definition — a trailing possessive ("Han's", "James'") read as the name
+   * (`encode/words.ts#nameRegex`). Subject links and the crediting of a card a
+   * memory names both read this.
    */
   matchesIn(text: string): AliasHit[] {
     const hits: AliasHit[] = [];
     for (const [id, reg] of this.byId) {
-      if (occursAsWholeWord(text, reg.name)) hits.push({ id, term: reg.name, source: "name" });
+      if (occursAsName(text, reg.name)) hits.push({ id, term: reg.name, source: "name" });
       for (const alias of reg.aliases) {
-        if (occursAsWholeWord(text, alias)) hits.push({ id, term: alias, source: "alias" });
+        if (occursAsName(text, alias)) hits.push({ id, term: alias, source: "alias" });
       }
     }
     return hits.sort((a, b) => a.id.localeCompare(b.id) || a.term.localeCompare(b.term));
@@ -144,7 +150,7 @@ export class AliasIndex {
       const terms: [string, "name" | "alias"][] = [[reg.name, "name"], ...reg.aliases.map((a): [string, "alias"] => [a, "alias"])];
       for (const [term, source] of terms) {
         if (term.trim().length === 0) continue;
-        const entry = { id, term, source, re: wholeWordRegex(term) };
+        const entry = { id, term, source, re: nameRegex(term) };
         const first = wordTokens(term)[0];
         if (first === undefined) always.push(entry);
         else {
@@ -156,7 +162,9 @@ export class AliasIndex {
     }
     return (text: string): AliasHit[] => {
       const tried = new Set<(typeof always)[number]>(always);
-      for (const token of new Set(wordTokens(text))) for (const e of byFirst.get(token) ?? []) tried.add(e);
+      // A possessive's token ("han's") tries the name it ends ("han") too.
+      const tokens = new Set(wordTokens(text).flatMap((t) => [t, unpossessed(t)]));
+      for (const token of tokens) for (const e of byFirst.get(token) ?? []) tried.add(e);
       const hits: AliasHit[] = [];
       for (const e of tried) if (e.re.test(text)) hits.push({ id: e.id, term: e.term, source: e.source });
       return hits.sort((a, b) => a.id.localeCompare(b.id) || a.term.localeCompare(b.term));
