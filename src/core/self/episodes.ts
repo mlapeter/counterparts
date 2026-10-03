@@ -439,7 +439,6 @@ export function chapterHeading(chapter: number, day: number, date?: string, mode
 /** The model-id screen lives in `core/types.ts` now (2026-09-25); re-exported. */
 export { isModelId };
 
-/** Which model wrote each chapter, from an episode's meta — `{ "1": "claude-opus-5-5" }`. */
 /**
  * The episode's `meta` key for WHEN EACH CHAPTER WAS WRITTEN (v12,
  * 2026-10-03): `{ "1": <UTC ms>, "2": … }`, the moment the chapter was opened,
@@ -462,6 +461,7 @@ export function chapterMoments(meta: Record<string, unknown>): Record<string, nu
   return out;
 }
 
+/** Which model wrote each chapter, from an episode's meta — `{ "1": "claude-opus-5-5" }`. */
 export function chapterModels(meta: Record<string, unknown>): Record<string, string> {
   const raw = meta["models"];
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};

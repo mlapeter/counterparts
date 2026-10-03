@@ -2945,12 +2945,12 @@ function gistFacts(change: DreamChange): { put: { occurredOn?: string; saidBy?: 
   }
   if (change.saidBy !== undefined && change.saidBy !== null) {
     const v = saidByOf(change.saidBy);
-    if (v === null) notes.push(`saidBy is one of ${SAID_BY.join(", ")}, so it was left off.`);
+    if (v === null) notes.push(`saidBy "${String(change.saidBy).slice(0, 64)}" is not one of ${SAID_BY.join(", ")}, so it was left off.`);
     else put.saidBy = v;
   }
   if (change.status !== undefined && change.status !== null) {
     const v = statusOf(change.status);
-    if (v === null) notes.push(`status is one of ${STATUSES.join(", ")}, so it was left off.`);
+    if (v === null) notes.push(`status "${String(change.status).slice(0, 64)}" is not one of ${STATUSES.join(", ")}, so it was left off.`);
     else put.status = v;
   }
   return { put, notes };

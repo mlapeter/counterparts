@@ -322,7 +322,7 @@ describe("the three fields on a dream's gist", () => {
       session: "s-dream",
       changes: [
         { action: "gist", text: "Boot order keeps biting: migrations first.", sources: [a, b], occurredOn: "2026-09-21..2026-09-30", saidBy: "inferred", status: "done" },
-        { action: "gist", text: "Container starts keep needing their migrations run first.", sources: [a], occurredOn: "lately", saidBy: "inferred" },
+        { action: "gist", text: "Container starts keep needing their migrations run first.", sources: [a], occurredOn: "lately", saidBy: "inferred", status: "maybe" },
       ],
     });
     expect(out.ok).toBe(true);
@@ -331,8 +331,9 @@ describe("the three fields on a dream's gist", () => {
     expect([g1?.occurred_on, g1?.said_by, g1?.status]).toEqual(["2026-09-21..2026-09-30", "inferred", "done"]);
     expect(out.results[1]?.ok).toBe(true);
     const g2 = c.store.row(out.results[1]?.id as string);
-    expect([g2?.occurred_on, g2?.said_by]).toEqual([null, "inferred"]);
+    expect([g2?.occurred_on, g2?.said_by, g2?.status]).toEqual([null, "inferred", null]);
     expect(out.results[1]?.note).toContain("occurredOn");
+    expect(out.results[1]?.note).toContain('status "maybe" is not one of done, planned, proposed, asked');
   });
 });
 
