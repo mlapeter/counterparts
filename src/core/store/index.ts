@@ -915,6 +915,12 @@ export interface MemoryFilter {
    * session wrote without reading every row.
    */
   originSession?: string;
+  /**
+   * MARKED ABOUT THIS — v9's `about` column (`ABOUT_MARKS`). Exact match; an
+   * unmarked row never matches. Added 2026-10-03 for recall's meaning mode,
+   * where "us" is the memories marked `us`.
+   */
+  about?: AboutMark;
 }
 
 function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | number)[] } {
@@ -955,6 +961,10 @@ function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | nu
   if (filter.originSession !== undefined) {
     where.push("origin_session = ?");
     args.push(filter.originSession);
+  }
+  if (filter.about !== undefined) {
+    where.push("about = ?");
+    args.push(filter.about);
   }
   return { clause: where.length ? `WHERE ${where.join(" AND ")}` : "", args };
 }

@@ -1,0 +1,1246 @@
+/**
+ * MEANING MODE — deliberate recall's second path (Release B, 2026-10-03).
+ *
+ * `recall` with `mode: "meaning"` answers "what has X been to me", "how have
+ * things gone between us", "when was I uneasy": questions about a SUBJECT
+ * over time, or a feeling, rather than a fact. Facts mode (`facts.ts`) finds
+ * the memories that say something; this one ARRANGES what memory holds about
+ * a subject so the reader can interpret it. Recall runs without a language
+ * model, so the tool lays the material out and the counterpart writes "what
+ * it adds up to" in its own reply, as today's reading (the design of
+ * 2026-10-03, `~/counterparts-notes/2026-10-03-deliberate-recall-design.md`).
+ *
+ * **What an answer is**, in order:
+ *
+ *   1. A header: the subject, how many chapters and moments hold it, the page,
+ *      the other subjects the question named (one line each, to ask for), and
+ *      what makes the evidence thin when it is.
+ *   2. The ARC: the chapters (`epi_…#N`, `self/chapter-address.ts`) that hold
+ *      the subject, ranked by how much of it they hold and SHOWN IN TIME
+ *      ORDER; under each, a line of what happened, the feelings recorded in
+ *      it — whose they are, side by side, never merged — and two or three of
+ *      its moments by id. A long arc keeps its start, its end and its turns;
+ *      the stretches between fold to one line each. Moments a session wrote
+ *      with no chapter come as entries of their own, labelled so.
+ *   3. Faded moments: a few title lines, labelled, after the arc.
+ *   4. Earlier readings: dream gists and reflection entries that touched the
+ *      subject, dated. The dream journal stays outside (dream CONTRACT).
+ *   5. Still open with the subject: unresolved threads and dated reminders.
+ *   6. Recurring: the subjects and feelings that come back across several
+ *      chapters, side by side. Nothing names the pattern; the reader does.
+ *
+ * **The subject.** The question's names, read through the alias index
+ * (`Schemas#subjectsIn`), reach their cards' memories (`memory_subjects`,
+ * v12); the card holding the most is the arc, the rest are one-liners. "us"
+ * is the memories marked `about: us`. A question about feeling
+ * (`recall/feeling-ask.ts#readFeelingAsk`, ranked) with no card is answered
+ * by the stamps that match it — word, core, whose; with a card, it keeps the
+ * chapters where the card's moments carry the feeling. Nothing named and no
+ * feeling: the question's rarer words (BM25) and its meaning (the in-line
+ * vector) find the moments, and the answer says no card named it.
+ *
+ * **What it never does.** It writes nothing (no physics, no memory, no host
+ * state): a search credits nothing. Opening a moment by id, or quoting one
+ * the caller was shown (`MeaningResult.shown`), is what credits. Confidential
+ * material is left out of a non-owner's answer SILENTLY — not counted, not
+ * hinted at (§9.1 G5's list rule). Corrected (archived), superseded and
+ * removed memories are not moments. Ambient recall is untouched.
+ *
+ * **Reads, bounded.** Indexed reads only: `memoriesNaming`, `feelingsOn`,
+ * `list` + `row`, `copiesOf`, `memoriesOfSession` for the chapters shown,
+ * one prose read per subject memory (the `unresolved` flag). No scan of
+ * every memory's prose.
+ */
+import type { Counterpart } from "../../core/counterpart.js";
+import { wholeWordRegex } from "../../core/encode/words.js";
+import { OTHER_EMOTION, wheelEntry } from "../../core/feelings-wheel.js";
+import { wireChars } from "../../core/fit/index.js";
+import { chaptersOf } from "../../core/handoff/last-here.js";
+import { UNRESOLVED_META_KEY } from "../../core/mint.js";
+import { decay, fadeOf, softenedFeeling, strength } from "../../core/physics/index.js";
+import type { MemoryPhysics } from "../../core/physics/index.js";
+import { feelingTokens, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
+import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
+import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../../core/self/index.js";
+import type { ChapterTimes } from "../../core/self/index.js";
+import { feelingValence, tokenize } from "../../core/store/index.js";
+import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
+import { calendarOverlaps, localDate } from "../../core/time.js";
+import { RECALL_RESULT_CHARS } from "./deliberate.js";
+
+// ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
+
+/** Entries in the arc on one page. Past it, `page: 2`. */
+export const MEANING_CHAPTERS_SHOWN = 8;
+/** Moment ids under one chapter. */
+export const MEANING_MOMENTS_PER_CHAPTER = 3;
+/** Faded moments listed after the arc. */
+export const MEANING_FADED_SHOWN = 4;
+/** Earlier readings listed (the newest). */
+export const MEANING_READINGS_SHOWN = 4;
+/** Open items listed. */
+export const MEANING_OPEN_SHOWN = 5;
+/** Recurring subjects, and recurring feelings, listed (each). */
+export const MEANING_PATTERNS_SHOWN = 4;
+/** The meaning channel's reach on a question with no card: the nearest this many. */
+export const MEANING_SEMANTIC_MAX = 100;
+/** The words channel's reach on a question with no card. */
+export const MEANING_WORDS_MAX = 200;
+/**
+ * A moment is FADED when it has kept this share of its strength or less —
+ * decay since its last use, times a `changed` settle's fade (physics §5.12)
+ * — whatever its height. CAL: a working default with no measurement behind
+ * it. Not an absolute strength: a quiet memory written today is low, not
+ * faded (a bare write measures 0.09), and physics' prune floor (`PHI_PRUNE`,
+ * 0.02) is too near the prune to name anything before it goes.
+ */
+export const MEANING_FADED_RETAINED = 0.2;
+/** The rendered answer's room, in `wireChars`: the list budget every deliberate answer keeps. */
+export const MEANING_RESULT_CHARS = RECALL_RESULT_CHARS;
+/** A word held by more than this share of the indexed memories says nothing about a subject. */
+const COMMON_SHARE = 0.25;
+/** How long a chapter's line may be, before the fit trims it. */
+const LINE_CHARS = 220;
+/** How long a title line may be. */
+const TITLE_CHARS = 90;
+
+// ── the shapes ───────────────────────────────────────────────────────────────
+
+/**
+ * What the server holds that this path needs (`server.ts#recallTool`): the
+ * brain, who is asking, whether it is the owner's session, and the question's
+ * embedding — computed IN LINE by the caller (`deliberate.ts#embedQuestion`),
+ * because this function is synchronous. Field names follow
+ * `deliberate.ts#DeliberateOptions`.
+ */
+export interface MeaningContext {
+  readonly counterpart: Counterpart;
+  readonly sessionId: string;
+  /** The owner's own session? Confidential material is left out otherwise, silently. */
+  readonly owner: boolean;
+  /** The question's embedding, or null / absent: the meaning channel is then off, and a no-card answer says so. */
+  readonly vector?: readonly number[] | null;
+  /** Why there is no vector, when there is none. Defaults to `embedder-off`. */
+  readonly semantic?: SemanticSource;
+  /** Whose "I" a question about feeling means: `self` (the default) for the counterpart's `recall`. */
+  readonly asker?: FeelingWhose;
+  /** The lived day, for a test; the store's own otherwise. */
+  readonly day?: number;
+}
+
+/** What the arc is about. */
+export type MeaningLens =
+  | { readonly kind: "card"; readonly id: string; readonly name: string }
+  | { readonly kind: "us"; readonly name: string }
+  | { readonly kind: "feeling"; readonly name: string }
+  | { readonly kind: "words"; readonly name: string };
+
+export interface MeaningMoment {
+  readonly id: string;
+  readonly title: string;
+  /** `YYYY-MM-DD`, local, when it was written. */
+  readonly date: string;
+}
+
+export interface MeaningFeeling {
+  readonly word: string;
+  /** As recorded, 0..1. */
+  readonly strength: number;
+}
+
+/** One entry of the arc: a chapter, or the moments of a session that wrote no chapter. */
+export interface MeaningEntry {
+  /** `epi_…#N` for a chapter; `session <short id>` for a session with no chapter. */
+  readonly address: string;
+  readonly kind: "chapter" | "session";
+  /** The episode id, which opens the chapter's words; null for a session entry. */
+  readonly episodeId: string | null;
+  readonly chapter: number | null;
+  readonly of: number | null;
+  readonly title: string | null;
+  /** `YYYY-MM-DD`, or null when nothing dates it. */
+  readonly date: string | null;
+  /** A line of what happened: the chapter's first sentence that names the subject, else its first. Empty for a session entry. */
+  readonly line: string;
+  /** How much of the subject it holds — what the ranking reads. */
+  readonly hold: number;
+  /** The subject's moments in it (not faded), and how many there are. */
+  readonly moments: readonly MeaningMoment[];
+  readonly momentCount: number;
+  /** The feelings recorded in it, strongest first: the asker's, and the other's. Never merged. */
+  readonly feelings: { readonly self: readonly MeaningFeeling[]; readonly owner: readonly MeaningFeeling[] };
+  /** Where the feelings turn (valence flips from the entry before), or the first or last of a long arc. */
+  readonly marks: readonly ("start" | "end" | "turn")[];
+}
+
+/** A stretch of the arc not shown on this page, folded to one line. */
+export interface MeaningFold {
+  readonly count: number;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+export type MeaningArcLine = { readonly fold: false; readonly entry: MeaningEntry } | ({ readonly fold: true } & MeaningFold);
+
+export interface MeaningReading {
+  readonly id: string;
+  readonly by: "dreamed" | "reflected";
+  readonly date: string;
+  readonly title: string;
+  readonly excerpt: string;
+}
+
+export interface MeaningOpen {
+  readonly id: string;
+  readonly title: string;
+  /** `open` — an unresolved thread; `dated` — a reminder on or after today. */
+  readonly why: "open" | "dated";
+  readonly date: string | null;
+}
+
+export interface MeaningPattern {
+  readonly label: string;
+  /** In how many entries of the arc it recurs, of `of`. */
+  readonly entries: number;
+  readonly of: number;
+}
+
+export interface MeaningResult {
+  readonly mode: "meaning";
+  readonly reason: "answered" | "nothing-came";
+  readonly semantic: SemanticSource;
+  readonly lens: MeaningLens | null;
+  /** The other subjects the question named, as one-liners to ask for. */
+  readonly others: readonly { readonly name: string; readonly memories: number }[];
+  /** A question about feeling: the words it named and whose ("mine", "Mike's"), or null. */
+  readonly feeling: { readonly words: readonly string[]; readonly whose: string | null } | null;
+  readonly counts: {
+    /** Chapters in the whole arc (all pages). */
+    readonly chapters: number;
+    /** Sessions with the subject's moments and no chapter for them. */
+    readonly sessions: number;
+    /** The subject's moments (not faded). */
+    readonly moments: number;
+    readonly faded: number;
+    readonly readings: number;
+    readonly open: number;
+  };
+  readonly page: number;
+  readonly pages: number;
+  readonly arc: readonly MeaningArcLine[];
+  readonly faded: readonly MeaningMoment[];
+  readonly readings: readonly MeaningReading[];
+  readonly open: readonly MeaningOpen[];
+  readonly patterns: { readonly subjects: readonly MeaningPattern[]; readonly feelings: readonly MeaningPattern[] };
+  /** What makes the evidence thin, and other plain notes ("no card names it"). */
+  readonly notes: readonly string[];
+  /** Whose labels the renderer prints: the asker's and the other's. */
+  readonly whose: { readonly self: string; readonly owner: string };
+  /**
+   * Every id the rendered answer shows — memories and episodes — for the
+   * seen set (`server.ts#markSeen`, which `note.feelingsNow` reads) and quote
+   * credit. Exactly what `renderMeaning` prints, after the fit.
+   */
+  readonly shown: readonly string[];
+  /** The rendered size, `wireChars`, and whether the fit had to trim. */
+  readonly chars: number;
+  readonly trimmed: boolean;
+}
+
+// ── the path ─────────────────────────────────────────────────────────────────
+
+/** Words a question is built from rather than about (the no-card words channel only). */
+const FRAME = new Set([
+  "what", "when", "where", "which", "who", "whom", "whose", "why", "how", "whats", "was", "were", "is", "are", "am",
+  "be", "been", "being", "do", "does", "did", "have", "has", "had", "can", "could", "will", "would", "should", "may",
+  "ive", "im", "the", "an", "this", "that", "these", "those", "some", "any", "them", "they", "their", "of", "to", "in",
+  "on", "at", "for", "with", "about", "from", "by", "as", "into", "and", "or", "but", "if", "than", "then", "not",
+  "very", "really", "me", "my", "mine", "you", "your", "yours", "we", "us", "our", "ours", "it", "its", "there",
+  "been", "since", "ever", "over", "time", "times", "things", "thing", "between", "together", "keeps", "keep",
+  "coming", "come", "comes", "up", "happened", "happen", "mean", "means", "meant", "think", "felt", "feel", "feeling",
+  "feelings", "most", "all", "so", "far", "lately", "recently", "tell", "story", "arc", "been",
+]);
+
+/** Words that make "us" the subject: the two of them together. Not "we" or "our", which a question uses for joint work. */
+const US_WORDS = new Set(["us", "ourselves", "together"]);
+
+interface Held {
+  readonly row: MemoryRow;
+  /** How strongly this memory holds the subject (1 for a card's; a stamp's value; a word/meaning score). */
+  weight: number;
+}
+
+interface EpisodeInfo {
+  readonly id: string;
+  readonly session: string | null;
+  readonly title: string | null;
+  readonly createdAt: number;
+  readonly chapters: readonly { text: string; date: string | null; heading: string | null }[];
+}
+
+interface Entry {
+  readonly key: string;
+  readonly kind: "chapter" | "session";
+  readonly episode: EpisodeInfo | null;
+  readonly chapter: number | null;
+  readonly session: string | null;
+  /** When it sits in time, UTC ms — what the arc is ordered by. */
+  at: number;
+  date: string | null;
+  hold: number;
+  textHold: number;
+  readonly moments: Held[];
+}
+
+/**
+ * Answer a question in meaning mode. Never throws on a store that will not
+ * answer one of its reads: that part is empty and the rest stands.
+ */
+export function meaningRecall(ctx: MeaningContext, question: string, opts: { page?: number } = {}): MeaningResult {
+  const c = ctx.counterpart;
+  const store = c.store;
+  const owner = ctx.owner;
+  const day = ctx.day ?? safe(() => store.livedDay(), 0);
+  const zone = safe(() => store.zone(), undefined);
+  const today = safe(() => store.today(), localDate(Date.now(), zone));
+  const vector = ctx.vector ?? null;
+  const semantic: SemanticSource = vector !== null && vector.length > 0 ? "in-line" : (ctx.semantic ?? "embedder-off");
+  const asker: FeelingWhose = ctx.asker ?? "self";
+  const ownerName = ownerDisplayName(c);
+  const whose = {
+    self: asker === "self" ? "mine" : "the counterpart's",
+    owner: asker === "owner" ? "mine" : ownerName === null ? "the owner's" : `${ownerName}'s`,
+  };
+  const page = Number.isInteger(opts.page) && (opts.page as number) >= 1 ? (opts.page as number) : 1;
+  const denied = new Set(safe(() => store.deniedIds(), [] as string[]));
+  const rows = new Map<string, MemoryRow | null>();
+  /** A memory row the asker may see, or null: live, not superseded, not removed, not confidential to a non-owner. */
+  const usable = (id: string): MemoryRow | null => {
+    if (rows.has(id)) return rows.get(id) ?? null;
+    let out: MemoryRow | null = null;
+    try {
+      const row = store.row(id);
+      if (
+        row !== undefined &&
+        row.type === "memory" &&
+        row.archived === 0 &&
+        row.superseded_by === null &&
+        !denied.has(id) &&
+        (owner || row.confidential !== 1)
+      ) {
+        out = row;
+      }
+    } catch {
+      out = null;
+    }
+    rows.set(id, out);
+    return out;
+  };
+
+  // ── 1. the question: feeling, cards, "us" ──────────────────────────────────
+  const stamps = safe(() => store.feelingsLive(), [] as (FeelingRow & { birth_day: number })[]);
+  const tokensOf = stamps.map((f) => feelingTokens(f));
+  const stored = new Set(tokensOf.flatMap((x) => [...x]));
+  const minLen = c.recall.tunables.MIN_CUE_LENGTH;
+  const ask = safe(
+    () => readFeelingAsk(question, { asker, ownerNames: ownerNamesLower(c), owner }, stored, minLen),
+    null,
+  );
+  const feelingAsked = ask !== null && ask.ranked;
+  /** memory -> the strongest matching stamp's value (a core-tier match counts half). */
+  const felt = new Map<string, number>();
+  if (feelingAsked && ask !== null) {
+    const every = ask.named.size === 0;
+    stamps.forEach((f, i) => {
+      if (ask.whose !== null && f.whose !== ask.whose) return;
+      const answers = tokensOf[i] as Set<string>;
+      const exact = every || [...ask.named].some((w) => answers.has(w));
+      const core = !exact && stampCores(f).some((x) => ask.cores.has(x));
+      if (!exact && !core) return;
+      const soft = softenedFeeling(f.strength, day - f.birth_day, feelingValence(f));
+      const value = (ask.strongest ? f.strength : soft) * (exact ? 1 : 0.5);
+      if (!(value > 0)) return;
+      if (usable(f.memory_id) === null) return;
+      felt.set(f.memory_id, Math.max(felt.get(f.memory_id) ?? 0, value));
+    });
+  }
+
+  const cards = safe(() => c.schemas.subjectsIn(question), [] as string[])
+    .map((id) => {
+      const name = safe(() => c.schemas.entity(id)?.name ?? null, null);
+      const ids = safe(() => store.memoriesNaming(id), [] as string[]).filter((m) => usable(m) !== null);
+      return { id, name, ids };
+    })
+    .filter((x): x is { id: string; name: string; ids: string[] } => x.name !== null)
+    .sort((a, b) => b.ids.length - a.ids.length || a.name.localeCompare(b.name));
+  const usAsked = tokenize(question).some((w) => US_WORDS.has(w)) || /\bbetween\s+(you\s+and\s+me|me\s+and\s+you)\b/i.test(question);
+  const usIds = usAsked
+    ? safe(() => store.list({ type: "memory", archived: false, about: "us" }), [] as string[]).filter((m) => usable(m) !== null)
+    : [];
+  const usName = ownerName === null ? "us" : `us (${ownerName} and me)`;
+
+  // ── 2. the lens, and the memories that hold it ─────────────────────────────
+  const held = new Map<string, Held>();
+  const hold = (id: string, weight: number): void => {
+    const row = usable(id);
+    if (row === null || !(weight > 0)) return;
+    const had = held.get(id);
+    if (had === undefined) held.set(id, { row, weight });
+    else had.weight = Math.max(had.weight, weight);
+  };
+  let lens: MeaningLens | null = null;
+  /** A chapter's words hold the subject too: the card's terms, or the question's words. */
+  let textMatch: ((text: string) => number) | null = null;
+  /** The regexes a chapter's line is picked by. */
+  let lineMatch: readonly RegExp[] = [];
+  const others: { name: string; memories: number }[] = [];
+  const notes: string[] = [];
+  const bestCard = cards.find((x) => x.ids.length > 0) ?? null;
+
+  if (bestCard !== null) {
+    lens = { kind: "card", id: bestCard.id, name: bestCard.name };
+    for (const id of bestCard.ids) hold(id, 1);
+    // The possessive too ("Han's"): the shared whole-word rule keeps an
+    // apostrophe inside a word, so "Han" alone never meets "Han's".
+    const terms = cardTerms(c, bestCard.id).flatMap((t) => [t, `${t}'s`, `${t}’s`]);
+    const res = terms.map((t) => wholeWordRegex(t, "giu"));
+    lineMatch = terms.map((t) => wholeWordRegex(t));
+    if (res.length > 0) {
+      textMatch = (text) => {
+        let n = 0;
+        for (const re of res) n += (text.match(re) ?? []).length;
+        return Math.min(n, 4) * 0.5;
+      };
+    }
+    for (const x of cards) if (x !== bestCard) others.push({ name: x.name, memories: x.ids.length });
+    if (usIds.length > 0) others.push({ name: usName, memories: usIds.length });
+  } else if (usIds.length > 0) {
+    lens = { kind: "us", name: usName };
+    for (const id of usIds) hold(id, 1);
+    for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
+  } else if (feelingAsked && ask !== null) {
+    lens = { kind: "feeling", name: feelingName(ask.named, ask.whose, whose) };
+    for (const [id, v] of felt) hold(id, v);
+    for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
+  } else {
+    const words = contentWords(c, question, minLen, ask?.named ?? new Set());
+    if (words.length > 0 || (vector !== null && vector.length > 0)) {
+      lens = { kind: "words", name: words.length > 0 ? `"${words.join(" ")}"` : "the question's meaning" };
+      if (words.length > 0) {
+        const hits = safe(() => store.search(words.join(" "), MEANING_WORDS_MAX), []);
+        const top = hits[0]?.score ?? 0;
+        for (const h of hits) if (top > 0) hold(h.id, h.score / top);
+        const need = Math.max(1, Math.ceil(words.length / 2));
+        textMatch = (text) => {
+          const have = new Set(tokenize(text));
+          const n = words.filter((w) => have.has(w)).length;
+          return n >= need ? n / words.length : 0;
+        };
+        lineMatch = words.map((w) => wholeWordRegex(w));
+      }
+      if (vector !== null && vector.length > 0) {
+        const floor = safe(() => semanticTuning(c.recall.tunables, store.rankingIdentity(), "inline").floor, 0.45);
+        for (const h of safe(() => store.nearestTo(vector, MEANING_SEMANTIC_MAX), [])) {
+          if (h.score >= floor) hold(h.id, Math.min(1, h.score));
+        }
+      }
+      notes.push(
+        `no card names it: matched by its words${vector !== null && vector.length > 0 ? " and its meaning" : ` only (meaning search off: ${semantic})`}`,
+      );
+    }
+    for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
+  }
+
+  // A question about feeling WITH a subject keeps the subject's moments that
+  // carry the feeling — if any do; otherwise the whole arc, and it says so.
+  let feelingFilter: ReadonlyMap<string, number> | null = null;
+  if (feelingAsked && ask !== null && lens !== null && lens.kind !== "feeling") {
+    const kept = [...held.keys()].filter((id) => felt.has(id));
+    if (kept.length > 0) feelingFilter = felt;
+    else notes.push(`none of ${lens.name}'s moments carry ${feelingName(ask.named, ask.whose, whose)}: the whole arc follows`);
+  }
+
+  // Readings and chapter copies are not moments: set aside.
+  const readingIds = new Set<string>();
+  const copies = new Map<string, Held>();
+  for (const [id, h] of held) {
+    if (h.row.source === "dreamed" || h.row.source === "reflection") {
+      readingIds.add(id);
+      held.delete(id);
+    } else if (h.row.source === "episode" && h.row.origin_ref !== null && h.row.origin_ref.startsWith("epi_")) {
+      copies.set(id, h);
+      held.delete(id);
+    }
+  }
+
+  // Faded moments: listed after the arc, never in its slots.
+  const strengthOf = new Map<string, number>();
+  const fadedIds: string[] = [];
+  for (const [id] of held) {
+    const physics = safe(() => store.physicsOf(id), null);
+    if (physics === null) continue;
+    strengthOf.set(id, strength(physics, day));
+    if (isFaded(physics, day)) fadedIds.push(id);
+  }
+  for (const id of fadedIds) held.delete(id);
+
+  // ── 3. the arc: place each moment under its chapter ────────────────────────
+  const episodes = episodeIndex(c, owner, denied);
+  const bySession = new Map<string, EpisodeInfo[]>();
+  for (const e of episodes) {
+    if (e.session === null) continue;
+    const list = bySession.get(e.session) ?? [];
+    list.push(e);
+    bySession.set(e.session, list);
+  }
+  const times = new Map<string, ChapterTimes | null>();
+  const timesOf = (id: string): ChapterTimes | null => {
+    if (!times.has(id)) times.set(id, chapterTimesOf(store, id));
+    return times.get(id) ?? null;
+  };
+  const entries = new Map<string, Entry>();
+  const chapterEntry = (e: EpisodeInfo, k: number): Entry => {
+    const key = chapterAddress(e.id, k);
+    let entry = entries.get(key);
+    if (entry === undefined) {
+      const t = timesOf(e.id);
+      const date = e.chapters[k - 1]?.date ?? null;
+      const at = t?.moments[k] ?? (date !== null ? Date.parse(`${date}T12:00:00Z`) : e.createdAt);
+      entry = { key, kind: "chapter", episode: e, chapter: k, session: e.session, at, date: date ?? dateOf(at, zone), hold: 0, textHold: 0, moments: [] };
+      entries.set(key, entry);
+    }
+    return entry;
+  };
+  const momentList = [...held.values()].filter((h) => feelingFilter === null || feelingFilter.has(h.row.id));
+  for (const h of momentList) {
+    const session = h.row.origin_session;
+    const at = h.row.created_at;
+    let placed: Entry | null = null;
+    if (session !== null && at !== null) {
+      for (const e of bySession.get(session) ?? []) {
+        const t = timesOf(e.id);
+        const k = t === null ? null : chapterAt(t, at);
+        if (k !== null) {
+          placed = chapterEntry(e, k);
+          break;
+        }
+      }
+    }
+    if (placed === null) {
+      const key = `session ${session === null || session.length === 0 ? "unrecorded" : session.slice(0, 8)}`;
+      placed = entries.get(key) ?? null;
+      if (placed === null) {
+        const when = at ?? 0;
+        placed = { key, kind: "session", episode: null, chapter: null, session, at: when, date: at === null ? emptyNull(h.row.learned_on) : dateOf(at, zone), hold: 0, textHold: 0, moments: [] };
+        entries.set(key, placed);
+      }
+      if (at !== null && at < placed.at) {
+        placed.at = at;
+        placed.date = dateOf(at, zone);
+      }
+    }
+    placed.moments.push(h);
+    placed.hold += feelingFilter !== null ? (feelingFilter.get(h.row.id) ?? 0) : h.weight;
+  }
+  // The chapters' own words (a card's terms, the question's words). Not on a
+  // feeling-filtered arc: a chapter that names the subject without the feeling
+  // is not where it was felt.
+  if (textMatch !== null && feelingFilter === null) {
+    for (const e of episodes) {
+      e.chapters.forEach((ch, i) => {
+        const n = textMatch(ch.text);
+        if (n > 0) {
+          const entry = chapterEntry(e, i + 1);
+          entry.textHold += n;
+          entry.hold += n;
+        }
+      });
+    }
+  } else if (feelingFilter === null) {
+    // No words to read a chapter by ("us", a feeling): a chapter copy the lens
+    // reached holds it in its episode's latest chapter (the copy's mark is the
+    // latest chapter's, `self/episodes.ts#EPISODE_ABOUT_META`).
+    for (const h of copies.values()) {
+      const e = episodes.find((x) => x.id === h.row.origin_ref);
+      if (e === undefined) continue;
+      const entry = chapterEntry(e, e.chapters.length);
+      entry.hold += h.weight;
+    }
+  }
+  const all = [...entries.values()].filter((e) => e.hold > 0).sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+
+  // Feelings on the subject's moments, for the turns and the patterns.
+  const momentIds = all.flatMap((e) => e.moments.map((m) => m.row.id));
+  const feelingsAll = safe(() => store.feelingsOn(momentIds), new Map<string, (FeelingRow & { birth_day: number })[]>());
+  const marks = new Map<string, ("start" | "end" | "turn")[]>();
+  const mark = (key: string, m: "start" | "end" | "turn"): void => {
+    const list = marks.get(key) ?? [];
+    if (!list.includes(m)) list.push(m);
+    marks.set(key, list);
+  };
+  // A TURN (working default): the entry where the feelings' valence flips
+  // sign from the last entry that had a clear one.
+  let lastSign = 0;
+  for (const e of all) {
+    const fs = e.moments.flatMap((m) => feelingsAll.get(m.row.id) ?? []);
+    const sign = valenceSign(fs);
+    if (sign !== 0) {
+      if (lastSign !== 0 && sign !== lastSign) mark(e.key, "turn");
+      lastSign = sign;
+    }
+  }
+  const long = all.length > MEANING_CHAPTERS_SHOWN;
+  if (long) {
+    mark((all[0] as Entry).key, "start");
+    mark((all[all.length - 1] as Entry).key, "end");
+  }
+
+  // Ranked: on a long arc its start and end first, then the turns, then by
+  // how much each holds (the newer first on a tie). Shown in time order.
+  const ranked = long
+    ? [...all].sort((a, b) => {
+        const ra = rankOf(marks.get(a.key));
+        const rb = rankOf(marks.get(b.key));
+        if (ra !== rb) return ra - rb;
+        if (b.hold !== a.hold) return b.hold - a.hold;
+        return b.at - a.at;
+      })
+    : all;
+  const pages = Math.max(1, Math.ceil(all.length / MEANING_CHAPTERS_SHOWN));
+  const onPage = new Set(ranked.slice((page - 1) * MEANING_CHAPTERS_SHOWN, page * MEANING_CHAPTERS_SHOWN).map((e) => e.key));
+  if (page > pages) notes.push(`page ${String(page)} is past the end: the arc has ${String(pages)} page${pages === 1 ? "" : "s"}`);
+
+  // ── 4. the entries shown, in full ─────────────────────────────────────────
+  const arc: MeaningArcLine[] = [];
+  let gap: Entry[] = [];
+  const flush = (): void => {
+    if (gap.length === 0) return;
+    arc.push({ fold: true, count: gap.length, from: (gap[0] as Entry).date, to: (gap[gap.length - 1] as Entry).date });
+    gap = [];
+  };
+  for (const e of all) {
+    if (!onPage.has(e.key)) {
+      gap.push(e);
+      continue;
+    }
+    flush();
+    arc.push({ fold: false, entry: showEntry(c, e, { usable, strengthOf, lineMatch, zone, feelingFilter, marks: marks.get(e.key) ?? [], day }) });
+  }
+  flush();
+  // A page past the end shows no entry, and so no fold either.
+  const shownArc = arc.some((l) => !l.fold) ? arc : [];
+
+  // ── 5. faded, readings, open, patterns ────────────────────────────────────
+  const faded = fadedIds
+    .map((id) => usable(id))
+    .filter((r): r is MemoryRow => r !== null)
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+    .map((r) => momentOf(r, zone));
+
+  const subjectSet = new Set([...momentList.map((h) => h.row.id), ...fadedIds, ...copies.keys()]);
+  const readingsAll = readingsFor(c, subjectSet, readingIds, usable, zone);
+  const openAll = openFor(c, [...momentList.map((h) => h.row.id), ...fadedIds], usable, today, zone);
+  const patterns = patternsOf(c, all, lens, feelingsAll, whose);
+
+  // ── 6. what makes the evidence thin ───────────────────────────────────────
+  const chapters = all.filter((e) => e.kind === "chapter");
+  const sessions = all.filter((e) => e.kind === "session");
+  const momentCount = all.reduce((n, e) => n + e.moments.length, 0);
+  if (lens !== null && all.length > 0) {
+    if (chapters.length === 0) notes.push(`no chapter holds it: ${plural(momentCount, "moment")} from sessions that wrote none`);
+    else if (chapters.length <= 3) {
+      const dates = chapters.map((e) => e.date).filter((d): d is string => d !== null).sort();
+      const first = dates[0];
+      const last = dates[dates.length - 1];
+      if (chapters.length === 1) notes.push("one chapter");
+      else if (first !== undefined && last !== undefined && daysApart(first, last) <= 7) notes.push(`${plural(chapters.length, "chapter")}, all from one week`);
+    }
+    const feltAny = all.some((e) => e.moments.some((m) => (feelingsAll.get(m.row.id) ?? []).length > 0));
+    if (!feltAny) notes.push("no feelings recorded");
+  }
+
+  const result: MeaningResult = {
+    mode: "meaning",
+    reason: lens === null || (all.length === 0 && faded.length === 0 && readingsAll.length === 0 && openAll.length === 0) ? "nothing-came" : "answered",
+    semantic,
+    lens,
+    others,
+    feeling: feelingAsked && ask !== null ? { words: [...ask.named], whose: ask.whose === null ? null : whose[ask.whose] } : null,
+    counts: {
+      chapters: chapters.length,
+      sessions: sessions.length,
+      moments: momentCount,
+      faded: faded.length,
+      readings: readingsAll.length,
+      open: openAll.length,
+    },
+    page,
+    pages,
+    arc: shownArc,
+    faded: faded.slice(0, MEANING_FADED_SHOWN),
+    readings: readingsAll.slice(-MEANING_READINGS_SHOWN),
+    open: openAll.slice(0, MEANING_OPEN_SHOWN),
+    patterns,
+    notes,
+    whose,
+    shown: [],
+    chars: 0,
+    trimmed: false,
+  };
+  return fit(result);
+}
+
+// ── showing one entry ────────────────────────────────────────────────────────
+
+function showEntry(
+  c: Counterpart,
+  e: Entry,
+  opts: {
+    usable: (id: string) => MemoryRow | null;
+    strengthOf: ReadonlyMap<string, number>;
+    lineMatch: readonly RegExp[];
+    zone: string | undefined;
+    feelingFilter: ReadonlyMap<string, number> | null;
+    marks: readonly ("start" | "end" | "turn")[];
+    day: number;
+  },
+): MeaningEntry {
+  const store = c.store;
+  // The subject's moments, the ones holding it most first, then the stronger.
+  const own = [...e.moments].sort(
+    (a, b) =>
+      (opts.feelingFilter?.get(b.row.id) ?? b.weight) - (opts.feelingFilter?.get(a.row.id) ?? a.weight) ||
+      (opts.strengthOf.get(b.row.id) ?? 0) - (opts.strengthOf.get(a.row.id) ?? 0) ||
+      (a.row.created_at ?? 0) - (b.row.created_at ?? 0),
+  );
+  // Chosen by how much they hold, shown in the order they were written.
+  let shown = own
+    .slice(0, MEANING_MOMENTS_PER_CHAPTER)
+    .sort((a, b) => (a.row.created_at ?? 0) - (b.row.created_at ?? 0) || a.row.id.localeCompare(b.row.id))
+    .map((h) => momentOf(h.row, opts.zone));
+  // Every memory the stretch wrote, for its feelings (and to fill a chapter
+  // that holds the subject by its words alone with two of its own moments).
+  let span: MemoryRow[] = [];
+  if (e.kind === "chapter" && e.episode !== null && e.session !== null && e.chapter !== null) {
+    const t = chapterTimesOf(store, e.episode.id);
+    if (t !== null) {
+      span = safe(() => store.memoriesOfSession(e.session as string), [])
+        .filter((m) => chapterAt(t, m.at) === e.chapter)
+        .map((m) => opts.usable(m.id))
+        .filter((r): r is MemoryRow => r !== null && !(r.source === "episode" && (r.origin_ref ?? "").startsWith("epi_")));
+    }
+  } else {
+    span = e.moments.map((h) => h.row);
+  }
+  if (own.length === 0 && span.length > 0) {
+    const have = new Set(shown.map((m) => m.id));
+    const extra = span
+      .filter((r) => !have.has(r.id))
+      .map((r) => ({ r, p: safe(() => store.physicsOf(r.id), null) }))
+      .filter((x): x is { r: MemoryRow; p: NonNullable<typeof x.p> } => x.p !== null && !isFaded(x.p, opts.day))
+      .map((x) => ({ r: x.r, s: strength(x.p, opts.day) }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 2 - shown.length)
+      .map((x) => momentOf(x.r, opts.zone));
+    shown = [...shown, ...extra];
+  }
+  const ids = [...new Set([...span.map((r) => r.id), ...e.moments.map((h) => h.row.id)])];
+  const fs = [...safe(() => store.feelingsOn(ids), new Map<string, (FeelingRow & { birth_day: number })[]>()).values()].flat();
+  const ep = e.episode;
+  const text = ep !== null && e.chapter !== null ? (ep.chapters[e.chapter - 1]?.text ?? "") : "";
+  return {
+    address: e.key,
+    kind: e.kind,
+    episodeId: ep?.id ?? null,
+    chapter: e.chapter,
+    of: ep?.chapters.length ?? null,
+    title: ep?.title ?? null,
+    date: e.date,
+    line: text.length === 0 ? "" : lineOf(text, opts.lineMatch, LINE_CHARS),
+    hold: round2(e.hold),
+    moments: shown,
+    momentCount: e.moments.length,
+    feelings: { self: topFeelings(fs, "self"), owner: topFeelings(fs, "owner") },
+    marks: opts.marks,
+  };
+}
+
+/** Has the memory kept `MEANING_FADED_RETAINED` of its strength or less (`decay` × `fadeOf`)? */
+function isFaded(p: MemoryPhysics, day: number): boolean {
+  return decay(p, day) * fadeOf(p) <= MEANING_FADED_RETAINED;
+}
+
+/** The strongest three distinct feeling words of one person. */
+function topFeelings(fs: readonly FeelingRow[], who: FeelingWhose): MeaningFeeling[] {
+  const best = new Map<string, number>();
+  for (const f of fs) {
+    if (f.whose !== who) continue;
+    const word = feelingWord(f);
+    best.set(word, Math.max(best.get(word) ?? 0, f.strength));
+  }
+  return [...best]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([word, s]) => ({ word, strength: round2(s) }));
+}
+
+/** A stamp's word as the wheel prints it, or the writer's own. */
+function feelingWord(f: Pick<FeelingRow, "emotion" | "other_word">): string {
+  if (f.emotion === OTHER_EMOTION) return f.other_word ?? "other";
+  return wheelEntry(f.emotion)?.word ?? f.emotion.split(".").pop() ?? f.emotion;
+}
+
+/** −1, 0 or +1: the feelings' strength-weighted valence, with a dead band. */
+function valenceSign(fs: readonly FeelingRow[]): number {
+  let sum = 0;
+  let weight = 0;
+  for (const f of fs) {
+    sum += f.strength * feelingValence(f);
+    weight += f.strength;
+  }
+  if (!(weight > 0)) return 0;
+  const v = sum / weight;
+  return v > 0.15 ? 1 : v < -0.15 ? -1 : 0;
+}
+
+function rankOf(m: readonly string[] | undefined): number {
+  if (m === undefined) return 3;
+  if (m.includes("start") || m.includes("end")) return 0;
+  if (m.includes("turn")) return 1;
+  return 3;
+}
+
+// ── readings, open, patterns ─────────────────────────────────────────────────
+
+/**
+ * Dream gists and reflection entries that touched the subject — linked to it
+ * themselves, or citing one of its memories (a gist's `sources`, an entry's
+ * `cites`) — oldest first. The dream journal is not one of them.
+ */
+function readingsFor(
+  c: Counterpart,
+  subject: ReadonlySet<string>,
+  linked: ReadonlySet<string>,
+  usable: (id: string) => MemoryRow | null,
+  zone: string | undefined,
+): MeaningReading[] {
+  const store = c.store;
+  const out = new Map<string, MemoryRow>();
+  for (const id of linked) {
+    const r = usable(id);
+    if (r !== null) out.set(id, r);
+  }
+  if (subject.size > 0) {
+    for (const source of ["dreamed", "reflection"] as const) {
+      for (const id of safe(() => store.list({ type: "memory", archived: false, source }), [] as string[])) {
+        if (out.has(id)) continue;
+        const r = usable(id);
+        if (r === null) continue;
+        const meta = parseMeta(r.meta);
+        const cited = source === "dreamed" ? meta["sources"] : meta["cites"];
+        if (Array.isArray(cited) && cited.some((x) => typeof x === "string" && subject.has(x))) out.set(id, r);
+      }
+    }
+  }
+  return [...out.values()]
+    .sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0) || a.id.localeCompare(b.id))
+    .map((r) => ({
+      id: r.id,
+      by: r.source === "dreamed" ? ("dreamed" as const) : ("reflected" as const),
+      date: r.created_at === null ? r.learned_on : dateOf(r.created_at, zone) ?? r.learned_on,
+      title: clip(oneLine(r.title ?? firstLine(r.body)), TITLE_CHARS),
+      excerpt: clip(oneLine(r.body), 160),
+    }));
+}
+
+/** The subject's open threads (`unresolved`) and its reminders dated today or later. Dated first, soonest first. */
+function openFor(
+  c: Counterpart,
+  ids: readonly string[],
+  usable: (id: string) => MemoryRow | null,
+  today: string,
+  zone: string | undefined,
+): MeaningOpen[] {
+  const dated: (MeaningOpen & { sort: string })[] = [];
+  const open: (MeaningOpen & { at: number })[] = [];
+  for (const id of new Set(ids)) {
+    const r = usable(id);
+    if (r === null) continue;
+    const title = clip(oneLine(r.title ?? firstLine(r.body)), TITLE_CHARS);
+    if (r.event_date !== null && calendarOverlaps(r.event_date, today, "9999-12-31")) {
+      dated.push({ id, title, why: "dated", date: r.event_date, sort: r.event_date });
+      continue;
+    }
+    if (parseMeta(r.meta)[UNRESOLVED_META_KEY] === true) {
+      open.push({ id, title, why: "open", date: r.created_at === null ? emptyNull(r.learned_on) : dateOf(r.created_at, zone), at: r.created_at ?? 0 });
+    }
+  }
+  dated.sort((a, b) => a.sort.localeCompare(b.sort) || a.id.localeCompare(b.id));
+  open.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+  return [...dated.map(({ sort: _s, ...x }) => x), ...open.map(({ at: _a, ...x }) => x)];
+}
+
+/**
+ * THE SIMPLE PATTERNS (the design's "likeliest to disappoint", first thing to
+ * check at the revisit): other subjects named by the moments of several
+ * entries, and feelings recorded in several, side by side. Several: 2 on an
+ * arc of up to 5 entries, 3 past that; nothing on an arc of fewer than 3.
+ */
+function patternsOf(
+  c: Counterpart,
+  all: readonly Entry[],
+  lens: MeaningLens | null,
+  feelings: ReadonlyMap<string, readonly FeelingRow[]>,
+  whose: { readonly self: string; readonly owner: string },
+): MeaningResult["patterns"] {
+  const n = all.length;
+  if (n < 3) return { subjects: [], feelings: [] };
+  const min = n <= 5 ? 2 : 3;
+  const subjectIn = new Map<string, Set<string>>();
+  const feelingIn = new Map<string, Set<string>>();
+  let looked = 0;
+  for (const e of all) {
+    for (const h of e.moments) {
+      if (looked < 600) {
+        looked += 1;
+        for (const s of safe(() => c.store.subjectsOf(h.row.id), [] as string[])) {
+          if (lens?.kind === "card" && s === lens.id) continue;
+          const set = subjectIn.get(s) ?? new Set<string>();
+          set.add(e.key);
+          subjectIn.set(s, set);
+        }
+      }
+      for (const f of feelings.get(h.row.id) ?? []) {
+        const label = `${f.whose === "owner" ? whose.owner : whose.self} ${feelingWord(f)}`;
+        const set = feelingIn.get(label) ?? new Set<string>();
+        set.add(e.key);
+        feelingIn.set(label, set);
+      }
+    }
+  }
+  const subjects = [...subjectIn]
+    .filter(([, set]) => set.size >= min)
+    .map(([id, set]) => ({ label: safe(() => c.schemas.entity(id)?.name ?? null, null), entries: set.size }))
+    .filter((x): x is { label: string; entries: number } => x.label !== null)
+    .sort((a, b) => b.entries - a.entries || a.label.localeCompare(b.label))
+    .slice(0, MEANING_PATTERNS_SHOWN)
+    .map((x) => ({ ...x, of: n }));
+  const felt = [...feelingIn]
+    .filter(([, set]) => set.size >= min)
+    .map(([label, set]) => ({ label, entries: set.size, of: n }))
+    .sort((a, b) => b.entries - a.entries || a.label.localeCompare(b.label))
+    .slice(0, MEANING_PATTERNS_SHOWN);
+  return { subjects, feelings: felt };
+}
+
+// ── the fit ──────────────────────────────────────────────────────────────────
+
+/**
+ * Keep the rendered answer inside `MEANING_RESULT_CHARS`, trimming in a fixed
+ * order — fewer moments per entry, shorter lines, fewer readings and open
+ * items, no patterns, then entries off the page's ranked tail (each becomes
+ * part of a fold) — and set `shown` to exactly what is printed.
+ */
+function fit(r: MeaningResult): MeaningResult {
+  const levels: ((x: MeaningResult) => MeaningResult)[] = [
+    (x) => x,
+    (x) => ({ ...x, arc: mapEntries(x.arc, (e) => ({ ...e, moments: e.moments.slice(0, 2), line: clip(e.line, 140) })) }),
+    (x) => ({
+      ...x,
+      arc: mapEntries(x.arc, (e) => ({ ...e, moments: e.moments.slice(0, 1), line: clip(e.line, 100) })),
+      readings: x.readings.slice(-2).map((g) => ({ ...g, excerpt: clip(g.excerpt, 80) })),
+      faded: x.faded.slice(0, 2),
+      open: x.open.slice(0, 3),
+    }),
+    (x) => ({ ...x, patterns: { subjects: [], feelings: [] }, others: x.others.slice(0, 2), arc: mapEntries(x.arc, (e) => ({ ...e, line: clip(e.line, 60) })) }),
+  ];
+  let cur = r;
+  for (const level of levels) {
+    cur = level(cur);
+    const text = renderMeaning(cur);
+    if (wireChars(text) <= MEANING_RESULT_CHARS) return finish(cur, text, cur !== r);
+  }
+  // Still too big: drop entries from the page, the last-ranked first (an
+  // entry's place in time stays a fold).
+  let arc = cur.arc;
+  while (arc.some((l) => !l.fold)) {
+    const entries = arc.filter((l): l is { fold: false; entry: MeaningEntry } => !l.fold);
+    const victim = [...entries].sort((a, b) => a.entry.hold - b.entry.hold)[0];
+    if (victim === undefined) break;
+    arc = refold(arc, victim.entry.address);
+    cur = { ...cur, arc };
+    const text = renderMeaning(cur);
+    if (wireChars(text) <= MEANING_RESULT_CHARS) return finish(cur, text, true);
+  }
+  cur = { ...cur, readings: [], open: [], faded: [], patterns: { subjects: [], feelings: [] } };
+  return finish(cur, renderMeaning(cur), true);
+}
+
+function finish(r: MeaningResult, text: string, trimmed: boolean): MeaningResult {
+  const shown = new Set<string>();
+  for (const l of r.arc) {
+    if (l.fold) continue;
+    if (l.entry.episodeId !== null) shown.add(l.entry.episodeId);
+    for (const m of l.entry.moments) shown.add(m.id);
+  }
+  for (const m of r.faded) shown.add(m.id);
+  for (const g of r.readings) shown.add(g.id);
+  for (const o of r.open) shown.add(o.id);
+  return { ...r, shown: [...shown], chars: wireChars(text), trimmed: r.trimmed || trimmed };
+}
+
+function mapEntries(arc: readonly MeaningArcLine[], fn: (e: MeaningEntry) => MeaningEntry): MeaningArcLine[] {
+  return arc.map((l) => (l.fold ? l : { fold: false, entry: fn(l.entry) }));
+}
+
+/** The arc with one entry folded into its neighbours' folds. */
+function refold(arc: readonly MeaningArcLine[], address: string): MeaningArcLine[] {
+  const out: MeaningArcLine[] = [];
+  for (const l of arc) {
+    const asFold: MeaningFold | null = l.fold ? l : l.entry.address === address ? { count: 1, from: l.entry.date, to: l.entry.date } : null;
+    const prev = out[out.length - 1];
+    if (asFold !== null && prev !== undefined && prev.fold) {
+      out[out.length - 1] = { fold: true, count: prev.count + asFold.count, from: prev.from ?? asFold.from, to: asFold.to ?? prev.to };
+    } else if (asFold !== null) {
+      out.push({ fold: true, ...asFold });
+    } else {
+      out.push(l);
+    }
+  }
+  return out;
+}
+
+// ── the words ────────────────────────────────────────────────────────────────
+
+/**
+ * What the tool returns: labelled lines, not prose. The reader interprets;
+ * nothing here says what the arc means.
+ */
+export function renderMeaning(r: MeaningResult): string {
+  const out: string[] = [];
+  if (r.lens === null) {
+    out.push("Nothing came: the question names no card, asks about no feeling, and none of its words reach a memory.");
+    out.push("Try a person's or project's name, or facts mode for a single fact.");
+    return out.join("\n");
+  }
+  const head = [r.lens.name];
+  if (r.counts.chapters > 0) head.push(plural(r.counts.chapters, "chapter"));
+  if (r.counts.sessions > 0) head.push(`${plural(r.counts.sessions, "session")} with no chapter`);
+  head.push(`${plural(r.counts.moments, "moment")}${r.counts.faded > 0 ? ` (+${String(r.counts.faded)} faded)` : ""}`);
+  out.push(head.join(" · "));
+  if (r.feeling !== null) {
+    out.push(`feeling asked: ${r.feeling.words.length > 0 ? r.feeling.words.join(", ") : "any"} · ${r.feeling.whose ?? "both of us"}`);
+  }
+  const total = r.counts.chapters + r.counts.sessions;
+  if (r.pages > 1) {
+    const showing = r.arc.filter((l) => !l.fold).length;
+    out.push(
+      `${plural(total, "entry", "entries")} · page ${String(r.page)} of ${String(r.pages)}, showing ${String(showing)}${r.page < r.pages ? ` → page ${String(r.page + 1)}` : ""}`,
+    );
+  }
+  if (r.others.length > 0) {
+    out.push(`also named: ${r.others.map((o) => `${o.name} (${plural(o.memories, "memory", "memories")})`).join(", ")} — ask about one by name for its arc`);
+  }
+  if (r.notes.length > 0) out.push(`note: ${r.notes.join("; ")}`);
+  if (r.reason === "nothing-came") {
+    out.push("Nothing holds it yet.");
+    return out.join("\n");
+  }
+
+  if (r.arc.length > 0) {
+    out.push("");
+    out.push("ARC (time order; a chapter opens by its episode id, a moment by its mem_ id)");
+    for (const l of r.arc) {
+      if (l.fold) {
+        const span = l.from === null ? "" : l.to === null || l.to === l.from ? `, ${short(l.from)}` : `, ${short(l.from)} → ${short(l.to)}`;
+        out.push(`  · ${plural(l.count, r.page === 1 ? "quieter entry" : "entry", r.page === 1 ? "quieter entries" : "entries")} not shown here${span}`);
+        continue;
+      }
+      const e = l.entry;
+      const where =
+        e.kind === "chapter"
+          ? `${e.address}${e.of !== null && e.of > 1 ? ` (chapter ${String(e.chapter)} of ${String(e.of)})` : ""}${e.title !== null ? ` "${clip(oneLine(e.title), 60)}"` : ""}`
+          : `${e.address} · no chapter written`;
+      const flags = e.marks.length > 0 ? ` · ${e.marks.join(", ")}` : "";
+      out.push(`${e.date === null ? "undated" : e.date}  ${where}${flags}`);
+      if (e.line.length > 0) out.push(`  ${e.line}`);
+      const mine = e.feelings.self.map((f) => `${f.word} ${num(f.strength)}`).join(", ");
+      const theirs = e.feelings.owner.map((f) => `${f.word} ${num(f.strength)}`).join(", ");
+      if (mine.length > 0 || theirs.length > 0) {
+        const sides = [mine.length > 0 ? `${r.whose.self}: ${mine}` : null, theirs.length > 0 ? `${r.whose.owner}: ${theirs}` : null].filter((x) => x !== null);
+        out.push(`  feelings — ${sides.join(" | ")}`);
+      }
+      for (const m of e.moments) out.push(`  ${m.id}  ${m.title}`);
+      if (e.momentCount > e.moments.length) out.push(`  (+${String(e.momentCount - e.moments.length)} more of its moments hold it)`);
+    }
+  }
+  if (r.faded.length > 0) {
+    out.push("");
+    out.push(`FADED (${String(r.counts.faded)}; still readable by id)`);
+    for (const m of r.faded) out.push(`  ${short(m.date)}  ${m.id}  ${m.title}`);
+  }
+  if (r.readings.length > 0) {
+    out.push("");
+    out.push(`EARLIER READINGS (${String(r.counts.readings)}${r.counts.readings > r.readings.length ? `, the newest ${String(r.readings.length)}` : ""})`);
+    for (const g of r.readings) out.push(`  ${short(g.date)} ${g.by}  ${g.id}  ${g.title} — ${g.excerpt}`);
+  }
+  if (r.open.length > 0) {
+    out.push("");
+    out.push(`STILL OPEN (${String(r.counts.open)})`);
+    for (const o of r.open) out.push(`  ${o.id}  ${o.title} · ${o.why === "dated" ? `dated ${o.date ?? "?"}` : `open since ${o.date === null ? "?" : short(o.date)}`}`);
+  }
+  if (r.patterns.subjects.length > 0 || r.patterns.feelings.length > 0) {
+    out.push("");
+    out.push("RECURRING (across entries of the arc)");
+    if (r.patterns.subjects.length > 0) out.push(`  with: ${r.patterns.subjects.map((p) => `${p.label} (${String(p.entries)} of ${String(p.of)})`).join(", ")}`);
+    if (r.patterns.feelings.length > 0) out.push(`  feelings: ${r.patterns.feelings.map((p) => `${p.label} (${String(p.entries)} of ${String(p.of)})`).join(", ")}`);
+  }
+  return out.join("\n");
+}
+
+// ── small readers ────────────────────────────────────────────────────────────
+
+/** Every live, readable episode: its session, title and chapters. Confidential ones are left out for a non-owner. */
+function episodeIndex(c: Counterpart, owner: boolean, denied: ReadonlySet<string>): EpisodeInfo[] {
+  const store = c.store;
+  const ids = safe(() => store.list({ type: "episode", archived: false }), [] as string[]).filter((id) => !denied.has(id));
+  const copies = owner ? null : safe(() => store.copiesOf(ids), null);
+  const out: EpisodeInfo[] = [];
+  for (const id of ids) {
+    try {
+      const row = store.row(id);
+      if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
+      // A store that will not say is read as confidential (`chaptersBySession`'s rule).
+      if (!owner && (row.confidential === 1 || copies === null || (copies.get(id) ?? []).some((x) => x.confidential))) continue;
+      let session = row.origin_session;
+      if (session === null || session.length === 0) {
+        const s = parseMeta(row.meta)["sessionId"];
+        session = typeof s === "string" ? s : null;
+      }
+      out.push({
+        id,
+        session,
+        title: row.title === null || row.title.trim().length === 0 ? null : row.title,
+        createdAt: row.created_at ?? 0,
+        chapters: chaptersOf(row.body),
+      });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+/** A card's own terms, the ones it alone holds (a handle two cards hold names neither). */
+function cardTerms(c: Counterpart, id: string): string[] {
+  try {
+    const index = c.schemas.aliasIndex();
+    const terms = index.termsFor(id);
+    if (terms === undefined) return [];
+    return [terms.name, ...terms.aliases].filter((t) => t.trim().length >= 2 && index.lookup(t).length === 1);
+  } catch {
+    return [];
+  }
+}
+
+/** The question's rarer words: not its frame, not a feeling word, not held by a quarter of the store. */
+function contentWords(c: Counterpart, question: string, minLen: number, feelingNamed: ReadonlySet<string>): string[] {
+  const words = [...new Set(tokenize(question))].filter((w) => w.length >= minLen && !FRAME.has(w) && !feelingNamed.has(w));
+  if (words.length === 0) return [];
+  const total = safe(() => c.store.countMemories({ archived: false }), 0);
+  if (total < 20) return words;
+  const df = safe(() => c.store.docFrequency(words), new Map<string, number>());
+  return words.filter((w) => (df.get(w) ?? 0) <= total * COMMON_SHARE);
+}
+
+function feelingName(named: ReadonlySet<string>, who: FeelingWhose | null, whose: { readonly self: string; readonly owner: string }): string {
+  const words = [...named].filter((w) => w.length > 0);
+  const what = words.length > 0 ? words.slice(0, 3).join(" / ") : "feelings";
+  return who === null ? what : `${what} (${whose[who]})`;
+}
+
+/** The owner's name as written on the identity core, or null. */
+function ownerDisplayName(c: Counterpart): string | null {
+  const name = safe(() => identityCoreName(c.store), null);
+  return name === null || name.length < 2 ? null : (name.split(/\s+/)[0] ?? null);
+}
+
+function ownerNamesLower(c: Counterpart): string[] {
+  const n = ownerDisplayName(c);
+  return n === null ? [] : [n.toLowerCase()];
+}
+
+function momentOf(r: MemoryRow, zone: string | undefined): MeaningMoment {
+  return {
+    id: r.id,
+    title: clip(oneLine(r.title !== null && r.title.trim().length > 0 ? r.title : firstLine(r.body)), TITLE_CHARS),
+    date: (r.created_at === null ? null : dateOf(r.created_at, zone)) ?? r.learned_on,
+  };
+}
+
+/** A chapter's line: the first sentence a matcher finds, else its first; headings and markup off. */
+function lineOf(text: string, matchers: readonly RegExp[], max: number): string {
+  const flat = oneLine(text.replace(/^#{1,6}[^\n]*$/gm, " ").replace(/[*_`>]+/g, ""));
+  const sentences = flat.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+  const hit = sentences.find((s) => matchers.some((re) => re.test(s)));
+  return clip(hit ?? sentences[0] ?? flat, max);
+}
+
+function parseMeta(meta: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(meta || "{}") as unknown;
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function dateOf(at: number, zone: string | undefined): string | null {
+  const d = localDate(at, zone);
+  return d.length === 0 ? null : d;
+}
+
+function emptyNull(s: string): string | null {
+  return s.length === 0 ? null : s;
+}
+
+function daysApart(a: string, b: string): number {
+  return Math.abs(Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000;
+}
+
+/** `MM-DD` for a whole day (the arc's own entries keep the year); ranges and months as written. */
+function short(ymd: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd.slice(5) : ymd;
+}
+
+function firstLine(body: string): string {
+  return body.split("\n").find((l) => l.trim().length > 0) ?? body;
+}
+
+function oneLine(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function clip(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${String(n)} ${n === 1 ? one : many}`;
+}
+
+function num(x: number): string {
+  return x.toFixed(1).replace(/^0\./, ".");
+}
+
+function round2(x: number): number {
+  return Math.round(x * 100) / 100;
+}
+
+function safe<T>(fn: () => T, fallback: T): T {
+  try {
+    return fn();
+  } catch {
+    return fallback;
+  }
+}
