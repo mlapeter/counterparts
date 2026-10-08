@@ -767,18 +767,23 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     expect(Number(deliveredRow(a)["bytesRead"])).toBeLessThanOrEqual(WAKE_HEAD_MAX_BYTES);
     expect(elapsed).toBeLessThan(250);
 
-    // A path the host named and nothing wrote.
+    // A path the host named and nothing wrote: the prompt leaves it open
+    // (2026-10-08), and the Stop answers it.
     const { a: b } = await woken("s2");
     b.userPromptSubmit(input({ sessionId: "s2", prompt: "hello", transcriptPath: join(root, "nowhere.jsonl") }));
+    expect(b.events("adapter.wake.delivered")).toEqual([]);
+    b.stop(input({ sessionId: "s2", transcriptPath: join(root, "nowhere.jsonl") }));
     expect(deliveredRow(b)["transcript"]).toBe("absent");
     expect(deliveredRow(b)["outcome"]).toBe("not-found");
 
     // A payload with no path at all, which is every hook before this shipped.
     const { a: c } = await woken("s3");
     const result = c.userPromptSubmit(input({ sessionId: "s3", prompt: "what did we settle about storage?" }));
-    expect(deliveredRow(c)["outcome"]).toBe("not-found");
+    expect(c.events("adapter.wake.delivered")).toEqual([]);
     // And the TURN still happened: the check never costs the recall.
     expect(result.ok).toBe(true);
+    c.stop(input({ sessionId: "s3" }));
+    expect(deliveredRow(c)["outcome"]).toBe("not-found");
 
     // Lines that are not JSON are COUNTED, and the attachment behind them is
     // still found (scar §2.4: nothing is silently swallowed).
@@ -1055,6 +1060,96 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
       expect(arrival.reason).toBe("unreadable");
     }
   }, 10_000);
+
+  // ── the host writes the transcript after the first prompt (2026-10-08) ─────
+
+  /** Write the file the host names, the way it appears once the first turn is in. */
+  function arrive(path: string, injection: string): void {
+    writeFileSync(
+      path,
+      `${[...PREAMBLE, hookAttachment({ stdout: injection }), { type: "user", message: { role: "user", content: "hello" } }]
+        .map((e) => JSON.stringify(e))
+        .join("\n")}\n`,
+      "utf8",
+    );
+  }
+
+  test("(i) no transcript yet at the first prompt: no row, nothing marked — and the Stop reads it `delivered`", async () => {
+    const { a, injection } = await woken();
+    const path = join(hostDir, "late.jsonl");
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(undefined);
+
+    arrive(path, injection);
+    a.stop(input({ transcriptPath: path }));
+    const rows = a.events("adapter.wake.delivered");
+    expect(rows.length).toBe(1);
+    expect({ outcome: rows[0]?.data?.["outcome"], transcript: rows[0]?.data?.["transcript"], checkedAt: rows[0]?.data?.["checkedAt"] }).toEqual({
+      outcome: "delivered",
+      transcript: "read",
+      checkedAt: "stop",
+    });
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(true);
+
+    // Answered: later turns, in later processes, ask nothing.
+    const later = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(later.counterpart);
+    later.userPromptSubmit(input({ prompt: "two", transcriptPath: path }));
+    later.stop(input({ transcriptPath: path }));
+    expect(later.events("adapter.wake.delivered")).toEqual([]);
+    expect(a.counterpart.store.eventLog({ name: "adapter.wake.delivered", limit: 100 }).length).toBe(1);
+  });
+
+  test("(i) a file that is there by the next prompt is read there, and the Stop then adds nothing", async () => {
+    const { a, injection } = await woken();
+    const path = join(hostDir, "late.jsonl");
+    a.userPromptSubmit(input({ prompt: "one", transcriptPath: path }));
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+
+    arrive(path, injection);
+    a.userPromptSubmit(input({ prompt: "two", transcriptPath: path }));
+    expect({ outcome: deliveredRow(a)["outcome"], checkedAt: deliveredRow(a)["checkedAt"] }).toEqual({
+      outcome: "delivered",
+      checkedAt: "prompt",
+    });
+    a.stop(input({ transcriptPath: path }));
+    expect(a.events("adapter.wake.delivered").length).toBe(1);
+  });
+
+  test("(i) a transcript that never appears is answered ONCE, at the first Stop, as `absent`", async () => {
+    const { a } = await woken();
+    const path = join(hostDir, "never.jsonl");
+    a.userPromptSubmit(input({ prompt: "one", transcriptPath: path }));
+    a.userPromptSubmit(input({ prompt: "two", transcriptPath: path }));
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+
+    // The bound: the Stop is final, so the question does not stay open forever.
+    a.stop(input({ transcriptPath: path }));
+    expect({
+      outcome: deliveredRow(a)["outcome"],
+      transcript: deliveredRow(a)["transcript"],
+      checkedAt: deliveredRow(a)["checkedAt"],
+    }).toEqual({ outcome: "not-found", transcript: "absent", checkedAt: "stop" });
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(true);
+
+    a.userPromptSubmit(input({ prompt: "three", transcriptPath: path }));
+    a.stop(input({ transcriptPath: path }));
+    expect(a.counterpart.store.eventLog({ name: "adapter.wake.delivered", limit: 100 }).length).toBe(1);
+  });
+
+  test("(i) a session with NO record before its Stop is never reported as a lost wake", () => {
+    // The off→on flip (#92 review, F1): the boundary seals it and writes its
+    // record, with no sentinel in it — no wake was composed under this memory.
+    const { a } = adapter();
+    a.stop(input({ transcriptPath: writeTranscript(PREAMBLE) }));
+    expect(a.events("adapter.scope.joined-late")[0]?.data?.["sealed"]).toBe(true);
+    expect(a.events("adapter.wake.delivered").length).toBe(1);
+    expect({ outcome: deliveredRow(a)["outcome"], transcript: deliveredRow(a)["transcript"] }).toEqual({
+      outcome: "no-wake-expected",
+      transcript: "not-read",
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

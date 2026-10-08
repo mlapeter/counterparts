@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
+  about 09-25 Claude Code writes a session's transcript only after the first prompt, which
+  is when the check read it, so nearly every session said its wake was "not found in the
+  transcript". The check now waits: if the file is not there yet it reads again at the next
+  prompt or when the first answer ends. Rows already in the store from before say "not
+  checked (no transcript to read)" and are left out of "N of M arrived whole".
+
 ## 0.3.12 — 2026-10-08
 
 `recall` now asks which kind of question it is. Facts mode answers with every match,

@@ -2703,6 +2703,35 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(amber.detail).toContain("1 of 4 wakes reached the session cut short");
   });
 
+  test("Wake: a `not-found` with no transcript to read is not checked, apart from one missing from a transcript read (2026-10-08)", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    const wake = (outcome: string, transcript: string): void => {
+      s.appendEvent({ name: WAKE_DELIVERED_EVENT, day: s.livedDay(), payload: { outcome, transcript, date: "2026-10-08" } });
+    };
+    // What the first prompt wrote before the host started writing the file
+    // after it: nothing was looked in. A window of only these still says so.
+    wake("not-found", "absent");
+    wake("not-found", "absent");
+    const only = by(doctorFindings(input({ store: s })), "wake");
+    expect(only.severity).toBe("green");
+    expect(only.detail).toContain("no wake checked on arrival; 2 not checked (no transcript to read)");
+    expect(only.detail).not.toContain("not found in the transcript");
+
+    wake("delivered", "read");
+    wake("not-found", "read");
+    const f = by(doctorFindings(input({ store: s })), "wake");
+    expect(f.severity).toBe("green");
+    // Out of the "N of M": those wakes were never checked.
+    expect(f.detail).toContain("1 of 2 wakes arrived whole; 1 not found in the transcript; 2 not checked (no transcript to read)");
+    expect({ wakes: f.data["wakes"], notFound: f.data["notFound"], notChecked: f.data["notChecked"] }).toEqual({
+      wakes: 2,
+      notFound: 1,
+      notChecked: 2,
+    });
+  });
+
   test("Spawn: a failure after the newest start is amber, naming the step; one a later start passed is green unless the step failed today and yesterday", () => {
     mintStore();
     writeConfig();

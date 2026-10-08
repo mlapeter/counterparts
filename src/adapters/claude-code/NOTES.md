@@ -1948,3 +1948,20 @@ entry — the share that carries each field and all three, and how many subject 
 are. Two aggregates, so it runs in the session-start reading too. Silent on a v11 file
 (the observer floor did not move). It is what the revisit a few days after the upgrade
 reads before recall starts reading the fields.
+
+## 2026-10-08 — the wake check waits for the transcript
+
+Since about 09-25 Claude Code creates a session's transcript only after the first prompt
+is handled, so the arrival check at that prompt found no file: on the owner's store 42 of
+43 sessions in a week read `not-found` / `transcript: "absent"`, and their files existed a
+moment later. The one `delivered` was a session where a local `/model` command had written
+the file first. Nothing acted on the verdict; doctor's Wake line said "42 not found".
+
+When a wake was expected and the file is absent, the prompt now writes no row and does not
+mark the session; the next prompt or the first Stop reads again. The Stop is final: by the
+end of a turn the host has written the file, so an absent one there writes the row once,
+`checkedAt: "stop"`, rather than asking every turn. The check still never makes a record;
+at a Stop the boundary already has (`sealJoinedLate` for a session with none), so such a
+session says `no-wake-expected` there, as its second prompt used to. Doctor's Wake line
+counts a `not-found` with no transcript read as "not checked" and leaves it out of "N of M
+arrived whole" — which is also how the week of rows already in stores now reads.

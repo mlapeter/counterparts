@@ -3073,7 +3073,8 @@ const WAKE_WINDOW_DAYS = 7;
 
 /**
  * DID THE WAKE ARRIVE (2026-10-02, the "nobody saw it" review). At each
- * session's first prompt the hook reads the transcript for the wake's tail
+ * session's first prompt (or, since 2026-10-08, its first Stop when the host
+ * had not yet written the file) the hook reads the transcript for the wake's tail
  * mark and writes one `adapter.wake.delivered` row with the outcome
  * (`hooks.ts#wakeOutcome`) — and until now no line read it: a wake the host
  * cut short, or that arrived as something else, was green everywhere, along
@@ -3103,12 +3104,20 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     return [];
   }
   const counts: Record<string, number> = {};
+  // A `not-found` with no transcript READ is not a wake that failed to arrive:
+  // there was nothing to look in (2026-10-08). Since about 09-25 the host
+  // writes the file only after the first prompt, where the check used to run,
+  // so most rows written before the check moved to the Stop say this. Counted
+  // apart, and out of the "N of M" — those wakes were never checked.
+  let unread = 0;
   for (const row of wakes) {
-    const o = str(payloadOf(row), "outcome") ?? "unknown";
-    counts[o] = (counts[o] ?? 0) + 1;
+    const p = payloadOf(row);
+    const o = str(p, "outcome") ?? "unknown";
+    if (o === "not-found" && str(p, "transcript") !== "read") unread += 1;
+    else counts[o] = (counts[o] ?? 0) + 1;
   }
-  const expected = wakes.length - (counts["no-wake-expected"] ?? 0);
-  if (expected <= 0 && !room.any) return [];
+  const expected = wakes.length - (counts["no-wake-expected"] ?? 0) - unread;
+  if (expected <= 0 && unread === 0 && !room.any) return [];
   const whole = counts["delivered"] ?? 0;
   const cut = counts["truncated"] ?? 0;
   const mismatched = counts["mismatch"] ?? 0;
@@ -3120,6 +3129,7 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     (mismatched > 0 ? `; ${String(mismatched)} carried another wake's mark (a session resumed after its record was let go)` : "") +
     (unverified > 0 ? `; ${String(unverified)} printed but not verifiable on this host build` : "") +
     (missing > 0 ? `; ${String(missing)} not found in the transcript` : "") +
+    (unread > 0 ? `; ${String(unread)} not checked (no transcript to read)` : "") +
     room.clauses +
     (floor ? ". More rows than were read: the counts are a floor" : "");
   const data = {
@@ -3129,6 +3139,7 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     mismatch: mismatched,
     unverified,
     notFound: missing,
+    notChecked: unread,
     overBudget: room.overBudget,
     overCap: room.overCap,
     noticeDropped: room.noticeDropped,

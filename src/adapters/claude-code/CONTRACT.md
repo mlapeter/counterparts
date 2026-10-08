@@ -74,7 +74,8 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   the only thing that can report *arrival*, and v1 shipped eleven days of truncated wakes
   because only the render was instrumented. SessionStart writes the sentinel it printed
   into the session registry record, and the session's FIRST PROMPT reads the head of the
-  host's transcript for this package's SessionStart attachment — what the hook printed
+  host's transcript (or, when the host has not written the file yet, the next prompt or the
+  first Stop — 2026-10-08) for this package's SessionStart attachment — what the hook printed
   beside what the host recorded as injected — and leaves one `adapter.wake.delivered` row
   saying `delivered`, `truncated`, `mismatch`, `printed-unverified` (this host build
   records no injected copy to check against), `not-found` or `no-wake-expected`, in counts
