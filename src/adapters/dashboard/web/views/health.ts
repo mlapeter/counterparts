@@ -278,7 +278,7 @@ const ADAPTER_EVENTS: readonly DurableEventName[] = [
 
 const ADAPTER_NOTE: Partial<Record<DurableEventName, string>> = {
   "adapter.wake.injected": "bytes handed to the host, never the text",
-  "adapter.wake.delivered": "whether the briefing was actually seen the next turn",
+  "adapter.wake.delivered": "whether the briefing actually arrived, checked at the first prompt or the first Stop",
   "adapter.recall": "how long recall took, when the adapter recorded it",
   "adapter.ask": "asked, paced out, or capped for the day",
   "adapter.authorship.ask": "historical — nothing writes this now",

@@ -791,7 +791,7 @@ export const NARRATORS = {
     notable(`I handed the host who I have been — ${n(t, "bytes") ?? 0} bytes of briefing, at the start of a session.`),
   "adapter.wake.delivered": (t) => {
     const seen = t.p["seen"] === true || t.p["sentinelSeen"] === true || t.p["ok"] === true;
-    if (seen) return calm(`I checked the next turn and my briefing had arrived intact.`);
+    if (seen) return calm(`I checked the session's transcript and my briefing had arrived intact.`);
     // The check says WHY since 2026-09-17, and one of its answers is not a problem:
     // a session that was owed no briefing (nothing was printed at its start).
     const outcome = s(t, "outcome");
@@ -809,7 +809,20 @@ export const NARRATORS = {
     if (outcome === "mismatch") {
       return amber(`A briefing arrived, but not the one I composed for this session — most likely a resumed session showing an earlier run's.`);
     }
-    return amber(`I checked the next turn and could not confirm my briefing arrived. A wake nobody read is a day I started as a stranger.`);
+    // WHAT THE CHECK COULD READ (2026-10-08), as doctor's Wake line splits it.
+    // No file at the first prompt is the host writing it later, not a lost
+    // wake: the rows from before the check learned to wait for the Stop.
+    const transcript = s(t, "transcript");
+    if (transcript === "absent" && s(t, "checkedAt") !== "stop") {
+      return calm(`I could not check whether my briefing arrived: the session had not written its transcript yet when I looked. That is not a sign it went missing.`);
+    }
+    if (transcript === "absent") {
+      return amber(`By the end of the first turn this session still had no transcript, so I could not check that my briefing arrived.`);
+    }
+    if (transcript === "unreadable") {
+      return amber(`The session's transcript was there and I could not read it, so I could not check that my briefing arrived.`);
+    }
+    return amber(`I read the session's transcript and could not find my briefing in it. A wake nobody read is a day I started as a stranger.`);
   },
 
   // ── the host's session ─────────────────────────────────────────────────────

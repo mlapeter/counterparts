@@ -834,7 +834,7 @@ export const MECHANISMS: readonly Mechanism[] = [
   },
   {
     id: "wake-delivered",
-    label: "whether the briefing actually arrived was checked on the next turn",
+    label: "whether the briefing actually arrived was checked at the first prompt or the first Stop",
     module: "claude-code/hooks.ts",
     evidence: { kind: "event", names: ["adapter.wake.delivered"] },
   },

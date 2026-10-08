@@ -1210,6 +1210,14 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // withholds is the ASK, which is delivery: an ask from a system the
       // owner is not talking to today is exactly the double-voice G3 forbids.
       const deliver = this.deliveryVerdict("stop", input);
+      // THE WAKE'S ARRIVAL, closed here when the first prompt could not
+      // (2026-10-08): the host writes the transcript only after that prompt, so
+      // the end of the first turn is where every session can be read. Muted
+      // sessions are not checked, for the prompt's reason. The check marks a
+      // record that exists and never makes one; a session the boundary above
+      // just sealed (no record before it) has one with no sentinel, and says
+      // `no-wake-expected` — what its second prompt used to say.
+      if (deliver) this.checkWakeArrival(input, { final: true });
       // THE AUTHORED FRONT DOOR, first: the experiencer writes its own memories
       // while it still has the pen, and the sweep the worker spawns below is
       // only the fallback for the day nobody got to (contract §4). The ask goes
@@ -1340,13 +1348,25 @@ export class ClaudeCodeAdapter extends Lifecycle {
 
   /**
    * DID THE WAKE THIS SESSION COMPOSED REACH THE SESSION? — once, at the first
-   * prompt, and never again for this session.
+   * prompt or the end of the first turn, and never again for this session.
    *
    * **Why here and not at the end.** Nothing inside the SessionStart hook can
    * know what the host did with its return value, and SessionEnd's hooks share
-   * 1.5 s between them. The first `UserPromptSubmit` is the earliest moment the
-   * host has written the record of its own injection, and it is once per session
+   * 1.5 s between them. The first `UserPromptSubmit` was the earliest moment the
+   * host had written the record of its own injection, and it is once per session
    * rather than once per turn.
+   *
+   * **And at the first Stop when the prompt was too early (2026-10-08).** Since
+   * about 09-25 Claude Code creates the transcript only after the first prompt
+   * is handled, so the prompt found no file and nearly every session's row said
+   * `not-found` / `absent` — about a file that existed a moment later. A wake was
+   * expected and there is no file: the prompt records nothing and leaves the
+   * question open, and the next prompt or the first Stop (`final`) asks again.
+   * The Stop is the bound: by the end of a turn the host has written the file,
+   * so one that is still absent there will not appear, and the row says
+   * `absent` once rather than the session asking at every turn. The Stop has
+   * already read the whole transcript to capture the turn; this head read is
+   * 256 KiB at most beside it.
    *
    * **What it reads.** The head of the host's transcript, bounded
    * (`transcript.ts#readWakeArrival`): this package's SessionStart attachment
@@ -1364,7 +1384,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * retroactive-capture guard reads that same absence to detect, and a record
    * written from here would take that evidence away.
    */
-  private checkWakeArrival(input: HookInput): void {
+  private checkWakeArrival(input: HookInput, opts: { readonly final?: boolean } = {}): void {
     if (this.observer) return;
     if (input.sessionId.length === 0) return;
     const started = this.nowFn();
@@ -1382,9 +1402,21 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // the row says so rather than reporting a wake that was never composed.
       const arrival =
         expected === null ? NO_ARRIVAL : readWakeArrival(input.transcriptPath, { expect: expected });
+      // Not written yet: no row and no mark, so the next prompt or the Stop
+      // reads again (above). The ring says it waited, for whoever debugs it.
+      if (expected !== null && arrival.reason === "absent" && opts.final !== true) {
+        this.emit("adapter.wake.check.deferred", {
+          transcript: arrival.reason,
+          pathGiven: input.transcriptPath !== undefined,
+          elapsedMs: this.nowFn() - started,
+        });
+        return;
+      }
       const outcome = wakeOutcome(expected, arrival);
       this.record(WAKE_DELIVERED_EVENT, input, {
         outcome,
+        // Which hook answered: the first prompt, or the end of the first turn.
+        checkedAt: opts.final === true ? "stop" : "prompt",
         // `ok` and `delivered` say the same thing under the two names this row's
         // readers already look for.
         ok: outcome === "delivered",

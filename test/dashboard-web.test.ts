@@ -933,6 +933,29 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     }
   });
 
+  test("adapter.wake.delivered: no transcript at the first prompt is calm; one missing at the Stop, unreadable or read without the wake is amber (2026-10-08)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-web-wake-"));
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      const row = (payload: Record<string, unknown>): void => {
+        c.store.appendEvent({ name: "adapter.wake.delivered", day: 1, payload: { outcome: "not-found", ok: false, ...payload } });
+      };
+      row({ transcript: "absent" }); // a row from before the check waited for the Stop
+      row({ transcript: "absent", checkedAt: "stop" });
+      row({ transcript: "unreadable", checkedAt: "prompt" });
+      row({ transcript: "read", checkedAt: "prompt" });
+      const lines = c.store.eventLog({ name: "adapter.wake.delivered", limit: 10, order: "asc" }).map((r) => narrate(c.store, r));
+      expect(lines.map((l) => l.tone)).toEqual(["calm", "amber", "amber", "amber"]);
+      expect(lines[0]?.text).toContain("had not written its transcript yet");
+      expect(lines[1]?.text).toContain("end of the first turn");
+      expect(lines[2]?.text).toContain("could not read it");
+      expect(lines[3]?.text).toContain("could not find my briefing");
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a recall decision resolves its refs BY TYPE — a session id is not a memory", () => {
     const d = open(richDir);
     try {
