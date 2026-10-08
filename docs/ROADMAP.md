@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-02. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-08. A plan for now, not a rule. Change it when it stops fitting.*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -12,13 +12,12 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.11 (Oct 1) |
-| **On master, not released** | every tool result under one measured ceiling (#315); feelings round 3: feelings over weeks, re-feeling awake, the reflection marks the unmarked (#317); follow-ups: the wake rebuilt after an install, a stale-server notice, "Work here" rotation, the owner's own sessions are the owner's in the tools, doctor gaps, Desktop wake-first (#318) |
+| **On npm** | 0.3.12 (Oct 8) |
+| **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11). Not Windows. |
 
 **In flight:**
-- **Release 0.3.12**: what is on master above.
 - **The association walk**: links form but are starved; diagnose why before building anything.
 
 ---
@@ -26,7 +25,7 @@ each mechanism is working. It should run in whatever AI host people use.
 ## Next
 
 1. **More hosts**: claude.ai, if it's doable (see Under discussion).
-2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, unreleased). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
+2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, 0.3.12). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
 3. **Mechanisms**, one at a time, each talked through before it's built: association first (above).
 4. **Dashboard**: finish the walk (Health, Flow, mobile).
 5. **Platforms**: Windows (WSL first).
@@ -42,7 +41,7 @@ each mechanism is working. It should run in whatever AI host people use.
 | ⬜ **Not built** | schemas |
 
 **What's left:**
-- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10); feelings over weeks in the reflection, and re-feeling an old memory awake (#317, unreleased). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
+- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10); feelings over weeks in the reflection, and re-feeling an old memory awake (#317, 0.3.12). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
 - **Schemas**: beliefs and entities that grow from what's lived.
 - **Episodic → semantic**: gist, where many episodes become one understanding.
 - **Interference**: similar memories competing, not just contradictions.
