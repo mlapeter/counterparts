@@ -1403,8 +1403,15 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const arrival =
         expected === null ? NO_ARRIVAL : readWakeArrival(input.transcriptPath, { expect: expected });
       // Not written yet: no row and no mark, so the next prompt or the Stop
-      // reads again (above).
-      if (expected !== null && arrival.reason === "absent" && opts.final !== true) return;
+      // reads again (above). The ring says it waited, for whoever debugs it.
+      if (expected !== null && arrival.reason === "absent" && opts.final !== true) {
+        this.emit("adapter.wake.check.deferred", {
+          transcript: arrival.reason,
+          pathGiven: input.transcriptPath !== undefined,
+          elapsedMs: this.nowFn() - started,
+        });
+        return;
+      }
       const outcome = wakeOutcome(expected, arrival);
       this.record(WAKE_DELIVERED_EVENT, input, {
         outcome,

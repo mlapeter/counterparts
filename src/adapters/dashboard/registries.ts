@@ -280,7 +280,7 @@ export const DURABLE_EVENTS = {
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",
   "adapter.recall": "a turn's recall was composed for injection (counts and bytes)",
-  "adapter.wake.delivered": "the previous wake's arrival was checked on the next turn",
+  "adapter.wake.delivered": "the wake's arrival was checked, at the first prompt or the first Stop",
   "adapter.wake.injected": "a wake bundle was handed to the host (bytes, never text)",
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",

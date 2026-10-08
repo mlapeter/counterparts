@@ -7,7 +7,9 @@
   is when the check read it, so nearly every session said its wake was "not found in the
   transcript". The check now waits: if the file is not there yet it reads again at the next
   prompt or when the first answer ends. Rows already in the store from before say "not
-  checked (no transcript to read)" and are left out of "N of M arrived whole".
+  checked (no transcript to read)" and are left out of "N of M arrived whole", and the
+  dashboard no longer shows them in orange. A transcript still missing when the first answer
+  ends, or one that could not be read, is named on its own.
 
 ## 0.3.12 — 2026-10-08
 

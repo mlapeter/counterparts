@@ -1965,3 +1965,10 @@ at a Stop the boundary already has (`sealJoinedLate` for a session with none), s
 session says `no-wake-expected` there, as its second prompt used to. Doctor's Wake line
 counts a `not-found` with no transcript read as "not checked" and leaves it out of "N of M
 arrived whole" — which is also how the week of rows already in stores now reads.
+
+After the review of #325: only an `absent` transcript at the first prompt is "not checked".
+`absent` at the Stop (no transcript by the end of a turn) and `unreadable` (a file that
+would not open) each have their own clause and stay in the "N of M" — counted, not graded,
+like `not-found`; amber would hold forever on a host build that never writes the file, with
+nothing to do by hand. The dashboard's narrator says the same split: the first calm, the
+other two amber. The prompt's wait is a ring event, `adapter.wake.check.deferred`.

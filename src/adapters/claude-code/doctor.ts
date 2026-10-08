@@ -3104,17 +3104,30 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     return [];
   }
   const counts: Record<string, number> = {};
-  // A `not-found` with no transcript READ is not a wake that failed to arrive:
-  // there was nothing to look in (2026-10-08). Since about 09-25 the host
-  // writes the file only after the first prompt, where the check used to run,
-  // so most rows written before the check moved to the Stop say this. Counted
-  // apart, and out of the "N of M" — those wakes were never checked.
+  // A `not-found` splits three ways by what the check could read (2026-10-08).
+  // ABSENT AT THE FIRST PROMPT is not a wake that failed to arrive: since about
+  // 09-25 the host writes the file only after that prompt, so the rows written
+  // before the check learned to wait for the Stop say this. Counted apart, and
+  // out of the "N of M" — those wakes were never checked. ABSENT AT THE STOP
+  // (`checkedAt: "stop"`) is different: no transcript by the end of a turn
+  // means the host did not write one where it said. And UNREADABLE is a file
+  // that was there and could not be opened. Both stay in the "N of M", each
+  // with its own clause; counted, not graded, like `not-found` itself.
   let unread = 0;
+  let noFile = 0;
+  let unreadable = 0;
   for (const row of wakes) {
     const p = payloadOf(row);
     const o = str(p, "outcome") ?? "unknown";
-    if (o === "not-found" && str(p, "transcript") !== "read") unread += 1;
-    else counts[o] = (counts[o] ?? 0) + 1;
+    const transcript = str(p, "transcript");
+    if (o === "not-found" && transcript === "absent") {
+      if (str(p, "checkedAt") === "stop") noFile += 1;
+      else unread += 1;
+    } else if (o === "not-found" && transcript === "unreadable") {
+      unreadable += 1;
+    } else {
+      counts[o] = (counts[o] ?? 0) + 1;
+    }
   }
   const expected = wakes.length - (counts["no-wake-expected"] ?? 0) - unread;
   if (expected <= 0 && unread === 0 && !room.any) return [];
@@ -3129,6 +3142,8 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     (mismatched > 0 ? `; ${String(mismatched)} carried another wake's mark (a session resumed after its record was let go)` : "") +
     (unverified > 0 ? `; ${String(unverified)} printed but not verifiable on this host build` : "") +
     (missing > 0 ? `; ${String(missing)} not found in the transcript` : "") +
+    (noFile > 0 ? `; ${String(noFile)} had no transcript even at the end of the first turn` : "") +
+    (unreadable > 0 ? `; ${String(unreadable)} ${unreadable === 1 ? "transcript" : "transcripts"} could not be read` : "") +
     (unread > 0 ? `; ${String(unread)} not checked (no transcript to read)` : "") +
     room.clauses +
     (floor ? ". More rows than were read: the counts are a floor" : "");
@@ -3139,6 +3154,8 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     mismatch: mismatched,
     unverified,
     notFound: missing,
+    noTranscriptAtStop: noFile,
+    unreadable,
     notChecked: unread,
     overBudget: room.overBudget,
     overCap: room.overCap,

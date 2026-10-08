@@ -1080,6 +1080,9 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
     expect(a.events("adapter.wake.delivered")).toEqual([]);
     expect(readSession(dir, "s1")?.wakeChecked).toBe(undefined);
+    // The wait is said on the ring, never as a durable row.
+    expect(a.events("adapter.wake.check.deferred")[0]?.data).toMatchObject({ transcript: "absent", pathGiven: true });
+    expect(a.counterpart.store.eventLog({ name: "adapter.wake.check.deferred", limit: 10 })).toEqual([]);
 
     arrive(path, injection);
     a.stop(input({ transcriptPath: path }));
@@ -1133,6 +1136,8 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     }).toEqual({ outcome: "not-found", transcript: "absent", checkedAt: "stop" });
     expect(readSession(dir, "s1")?.wakeChecked).toBe(true);
 
+    // Neither the host's re-fire of that Stop nor a later turn asks again.
+    a.stop(input({ transcriptPath: path, reFired: true }));
     a.userPromptSubmit(input({ prompt: "three", transcriptPath: path }));
     a.stop(input({ transcriptPath: path }));
     expect(a.counterpart.store.eventLog({ name: "adapter.wake.delivered", limit: 100 }).length).toBe(1);
@@ -2024,6 +2029,17 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     expect(result.ask).toBe(null);
     expect(a.events("adapter.ask")).toEqual([]);
     expect(a.events(PRIMACY_STANDDOWN_EVENT)[0]?.data?.hook).toBe("stop");
+  });
+
+  test("stop under a stand-down checks no wake's arrival (2026-10-08)", () => {
+    // A record that expects a wake and a transcript without it: an unmuted Stop
+    // would write `not-found` here. A muted one rendered nothing to test.
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    recordSession(dir, { sessionId: "s1", scope: "proj", phase: "start", wakeSentinel: "<!-- counterparts:wake/end day=1 bytes=9 -->" });
+    a.stop(input({ transcriptPath: writeTranscript(PREAMBLE) }));
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(undefined);
   });
 
   test("override engram: the delivering hooks behave EXACTLY as the non-parallel adapter, plus a deliver record", () => {
