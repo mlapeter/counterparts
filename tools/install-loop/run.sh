@@ -472,23 +472,25 @@ recall: $RECALL_OUT"
   fi
 fi
 
-step "an answer names the TIER it came back at"
+step "the full answer counts its matches and says how each one stands"
 # `answered` says the question reached something, never that it is right. The
-# tier is the only confidence signal there is, and `--full` glosses every tier
-# on screen — and says "treat these as leads" when nothing came back vividly
-# (and only then). The SHORT answer no longer says it (owner, 2026-09-24: it
-# read as doubt about an answer that was right). Since `note` embeds on write,
-# the demo's answer may come back vivid.
+# vivid / quiet / dim tiers went with #323 (0.3.12): `--full` is now the facts
+# answer the model reads — a count first (`1 match · showing 1`, the line under
+# `Store:`), then each fact numbered with its id and the ways it matched, who
+# said it and its status, when it was learned, and whether it is still CURRENT.
+# The short answer is step 18's.
 eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
 FULL_OUT=$(eval "$RECALL_CMD --full" 2>&1)
 unset COUNTERPARTS_DATA_DIR
-if grep -q '^  vivid = ' <<<"$FULL_OUT"; then VIVID=1; else VIVID=0; fi
-if grep -q "treat these as leads" <<<"$FULL_OUT"; then LEADS=1; else LEADS=0; fi
-if grep -qE '^  (vivid|quiet|dim) = ' <<<"$FULL_OUT" && [ "$VIVID" != "$LEADS" ] &&
-   ! grep -q "treat these as leads" <<<"$RECALL_OUT"; then
+if sed -n 2p <<<"$FULL_OUT" | grep -qE '^[0-9]+ match( · |$)' &&
+   grep -qE '^1\. .*port 5433.* · mem_[0-9a-f]+ · (words|meaning|subject|time|session)' <<<"$FULL_OUT" &&
+   grep -qE '^   (you said|I said|inferred|speaker unknown) · ' <<<"$FULL_OUT" &&
+   grep -qE '^   learned .* · CURRENT' <<<"$FULL_OUT" &&
+   ! grep -q "Rancilio Silvia" <<<"$FULL_OUT" &&
+   ! grep -qE '^  (vivid|quiet|dim) = ' <<<"$FULL_OUT"; then
   ok
 else
-  no "no tier gloss under --full, its leads line disagrees with it, or the short answer still says it" "short: $RECALL_OUT
+  no "--full did not open with the count, or a fact lacks its id, ways, speaker or standing" "short: $RECALL_OUT
 full: $FULL_OUT"
 fi
 
@@ -703,7 +705,8 @@ step "note then recall round-trips through the MCP server"
 # The canary is deliberately plain ASCII with no quotes or backslashes, so it
 # needs no JSON escaping to be embedded here.
 NOTE_PARAMS=$(printf '{"name":"note","arguments":{"text":"%s"}}' "$CANARY")
-RECALL_PARAMS='{"name":"recall","arguments":{"question":"what espresso machine is in the kitchen?"}}'
+# A question needs `mode` since #323 (0.3.12): without one it is refused.
+RECALL_PARAMS='{"name":"recall","arguments":{"question":"what espresso machine is in the kitchen?","mode":"facts"}}'
 RPC=$(
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
   printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
