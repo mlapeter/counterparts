@@ -31,10 +31,16 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 **Status:** `built` (#315, merged 2026-10-02), **ships in 0.3.12** (cut 2026-10-08). The
 0.3.11 the owner runs was published 2026-10-01 22:06 UTC, about half a day before the fix
-merged. After 0.3.12 is installed, two checks close this: the next night's transcript under
-`~/.claude/projects/-Users-mlapeter--counterparts-store/` has no "Output too large" on dream
-or reflect calls, and doctor's Tool results line turns amber on a night whose bundle spilled
-(green on one that didn't).
+merged. After 0.3.12 is installed, two checks close this. First, the next night's transcript
+under `~/.claude/projects/-Users-mlapeter--counterparts-store/` has no "Output too large" on
+dream or reflect calls. Second, doctor's Tool results line, which appears once a dream or
+reflection has been handed in parts (so after the first 0.3.12 night), reads green with the
+largest part under 40,000 characters and every part read. It goes amber when a result had to
+be cut to the ceiling or a dream or reflection finished without fetching a part (both seen in
+the release check). A spill the host makes below its own line (item 3's residual risk) would
+not show there; the transcript is the check for that. On a copy of the owner's store taken
+10-08, 0.3.12 handed the dream in 2 parts and the reflection in 6, the largest 38,286
+characters.
 
 **Observed.** Every night since at least 2026-10-02 (six nights or more), part 1 of the
 dream bundle, the reflection bundle, or both came back at 51–52 KB. Claude Code saved each
