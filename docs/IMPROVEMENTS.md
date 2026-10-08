@@ -27,6 +27,59 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## U14 — The night run still can't open bundles over ~50 KB: the fix ships in 0.3.12 (2026-10-07)
+
+**Status:** `built` (#315, merged 2026-10-02), **ships in 0.3.12** (cut 2026-10-08). The
+0.3.11 the owner runs was published 2026-10-01 22:06 UTC, about half a day before the fix
+merged. After 0.3.12 is installed, two checks close this. First, the next night's transcript
+under `~/.claude/projects/-Users-mlapeter--counterparts-store/` has no "Output too large" on
+dream or reflect calls. Second, doctor's Tool results line, which appears once a dream or
+reflection has been handed in parts (so after the first 0.3.12 night), reads green with the
+largest part under 40,000 characters and every part read. It goes amber when a result had to
+be cut to the ceiling or a dream or reflection finished without fetching a part (both seen in
+the release check). A spill the host makes below its own line (item 3's residual risk) would
+not show there; the transcript is the check for that. On a copy of the owner's store taken
+10-08, 0.3.12 handed the dream in 2 parts and the reflection in 6, the largest 38,286
+characters.
+
+**Observed.** Every night since at least 2026-10-02 (six nights or more), part 1 of the
+dream bundle, the reflection bundle, or both came back at 51–52 KB. Claude Code saved each
+one to `tool-results/` and showed the model a 2 KB preview. The headless night run is
+allowed only the counterparts tools, so it can't Read that file. On 2026-10-07:
+- dream part 1 was 51 KB and hid 21 of 30 memories plus the list of what was new;
+- reflection part 1 was 52.1 KB and hid the last few days, the core list and the memories
+  that matter most.
+
+The reflection still ran and rewrote the self page. What stopped it from making things up
+was its own restraint, not the system: it wrote "I can't see, so I won't make it up." On
+10-07 it got around part of the gap by asking deliberate recall by question for what was
+lived since the last dream, which reached about 14 of 30.
+
+**Where.** The installed package's caps sit above the host's line:
+- `src/core/dream/tunables.ts` has `RESULT_CHARS` and `PART_CHARS` at 54,000;
+- `src/core/dream/reflect.ts` has `RESULT_CHARS` at 54,000;
+- Claude Code 2.1.287 persists any tool result over 50,000 characters to a file.
+
+On master, `src/core/fit/index.ts#TOOL_RESULT_CEILING` holds every result under 40,000,
+measured by `wireChars` (#315, follow-ups in 4061156). Original finding:
+`mem_a98d318f3396`; brief: `~/counterparts-notes/2026-10-02-lane-result-ceiling-brief.md`.
+
+**The softer half: the report never reached anyone.** For six nights the only record was
+the "conditions" paragraph in each dream and reflection entry. `doctor` stayed green, and
+the owner heard about it on 2026-10-07 only because the reflection put it in the morning
+share. #315 says doctor now reads "what reached the model" (Tool results). Once it's
+released, check that a spilled night actually turns doctor amber.
+
+**Proposed.**
+1. Release master. Then check the next night's transcript under
+   `~/.claude/projects/-Users-mlapeter--counterparts-store/` for no "Output too large" on
+   dream or reflect calls.
+2. Confirm that doctor flags a spilled bundle.
+3. Residual risk, already noted in `fit/index.ts`: the host can lower the 50,000-character
+   line through a remote flag, and nothing pins it the way `night-run.ts` pins the token
+   line. Consider having the night run check the preview marker in its own results and
+   say so in the morning share whenever it fires.
+
 ## U13 — Deliberate recall can't find memories by how they felt (2026-09-30)
 
 **Status:** items 1 and 2 and the three chapter-copy fixes BUILT on branch

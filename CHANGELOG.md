@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.3.12 — 2026-10-08
+
+`recall` now asks which kind of question it is. Facts mode answers with every match,
+counted and paged, each fact saying who said it, when it happened and whether it still
+holds; meaning mode lays out a person's, a project's or a feeling's arc across chapters.
+Memories record when the thing happened, who said it and what kind of thing it is, and
+are linked to the people and projects they name. The nightly run reads its whole bundle
+again (every tool result stays under 40,000 characters), and doctor checks what reached
+the model, not only what ran. **The store's format changes (v11 → v12).** The first
+process that writes to the store after the install copies it to
+`snapshots/<time>-pre-migration-v11-to-v12` and then upgrades it; 0.3.11 cannot open a
+v12 store, so going back to 0.3.11 means putting that copy back, and what was remembered
+since is lost.
+
+Deliberate recall: two modes, and what a memory records (#321, #322, #323).
 
 - **`recall` asks which kind of question it is.** A question now needs `mode`: `facts` (what
   happened, who said it, when, and whether it still holds) or `meaning` (how something went
@@ -39,6 +53,9 @@
   to its heading, its text, the stretch it wrote up and the memories its session wrote in that
   stretch. Chapters now record the moment they were written. Meaning mode names chapters this
   way, and `recall` with `ids` or `handle` opens one.
+
+Follow-ups from 0.3.11 (#318, #319).
+
 - **`docs/HANDOFF.md` is no longer in the repository.** The note one session leaves for the
   next is written locally and ignored; its history stays.
 - **The wake is rebuilt after an install.** Until now the first wakes after an upgrade were
@@ -56,7 +73,7 @@
   takes the install's `"owner": true`, and so does a Claude Code session from Desktop's Code
   tab: it can close a question opened anywhere, and confidential memories are said in its
   answers. A dream's and a reflection's bundles still leave confidential memories out, on
-every server. A Desktop chat is unchanged, the nightly run keeps its old stance, and
+  every server. A Desktop chat is unchanged, the nightly run keeps its old stance, and
   `COUNTERPARTS_OWNER=0` on the server's launch turns it off. A close that is still refused
   now leaves the question in "Still open". Nothing to reinstall: it takes effect on upgrade,
   once the memory server reconnects.
@@ -77,6 +94,9 @@ every server. A Desktop chat is unchanged, the nightly run keeps its old stance,
   and never to present a search as the complete record.
 - **Doctor's Spawn line sees a step that failed two days running.** It read only today's
   failures, so "the same step failed today and yesterday" could never be said.
+
+The night run's bundles, and what reached the model (#315).
+
 - **The nightly run reads its whole bundle again.** Claude Code does not hand a tool result
   over 50,000 characters to the model: it saves it to a file and shows a 2 KB preview, and the
   headless run cannot open the file. On the nights of 10-01 and 10-02 the dream's first part
@@ -91,6 +111,9 @@ every server. A Desktop chat is unchanged, the nightly run keeps its old stance,
   The Spawn line goes amber when the background worker failed after it last started, or the
   same step failed two days running, and the Self page line says when the wake shows only the
   start of a long page.
+
+Feelings, round 3 (#317).
+
 - **The nightly reflection sees how feelings ran over the last four weeks.** Its bundle now
   carries a short pattern, a few hundred characters: how many feelings of each kind were
   recorded each week, mine and the owner's apart, what changed over the last two weeks, and
