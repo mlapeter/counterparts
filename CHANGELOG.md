@@ -13,6 +13,24 @@
   every other week and "the first Monday" aren't supported. Revising the memory keeps
   the repeat unless you say otherwise, and never repeats a reminder already given that
   day. No change to the store's format.
+- **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
+  do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
+  export or un-merge a memory, or something fails. One, the check after the v8 upgrade,
+  runs only once. `counterparts mechanisms --all` now lists the first kind as **waiting**
+  and a one-time job that ran as **done**, instead of "gone quiet" or "never fired", and
+  doctor counts them the same way. One silence is still a fault: a reminder you marked
+  plain that fell due on a day you used Claude Code and was not said. That turns the line
+  amber, and the short `counterparts mechanisms` view says so on its Prospective line.
+- **Doctor's Reflection line counts "returns this week" from your local midnight**, not
+  UTC's. West of UTC it counted returns from the evening before the week; far to the east
+  it missed the first hours of the week.
+- **With `CLAUDE_CONFIG_DIR` set, `connect`, `install` and doctor use the settings file
+  Claude Code actually reads**, `$CLAUDE_CONFIG_DIR/settings.json`. They used
+  `$CLAUDE_CONFIG_DIR/.claude/settings.json`, which Claude Code never opens, so the hooks
+  never ran while doctor, reading the same file, said they were connected. `install` also
+  now recognises Claude Code from that directory. Nothing changes if you don't set the
+  variable. If you do and ran `connect` before, run it again; the stray
+  `.claude/settings.json` inside that directory can be deleted.
 - **Facts recall reads "last Saturday" and "before 7/22" the way you mean them.** "Last
   Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
   the most recent Saturday before today, so asked on a Saturday it is the one a week ago.

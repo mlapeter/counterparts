@@ -541,7 +541,9 @@ function modeOf(path: string): { mode?: string } {
  * is ours. `~/.claude.json` in particular is the host's own state file, which
  * its documentation describes as one the host writes for itself — so it may
  * move, and the line must then read "I looked here and did not find it", never
- * "you did not install it". `CLAUDE_CONFIG_DIR` relocates both, checked first.
+ * "you did not install it". `CLAUDE_CONFIG_DIR` relocates both, checked first:
+ * the user settings to `$CLAUDE_CONFIG_DIR/settings.json` (`hostSettingsDir`) and
+ * the MCP file to `$CLAUDE_CONFIG_DIR/.claude.json` (`hostConfigBase`).
  *
  * Hooks MERGE across the host's settings files, so all four places a block can
  * land are read and the answer is their union: finding the command in a project
@@ -620,14 +622,37 @@ export function hookTargetPath(command: string): string | null {
   return null;
 }
 
-/** The host's settings files that can carry a user's hooks, in merge order. */
-export function hostSettingsFiles(base: string, cwd: string): string[] {
+/**
+ * The host's settings files that can carry a user's hooks, in merge order.
+ * `userDir` is the host's own directory (`hostSettingsDir`) — `~/.claude`, or
+ * `CLAUDE_CONFIG_DIR` itself when that is set — and NOT the base the MCP file
+ * hangs off: the project files are `<cwd>/.claude/…` either way.
+ */
+export function hostSettingsFiles(userDir: string, cwd: string): string[] {
   return [
-    join(base, ".claude", "settings.json"),
-    join(base, ".claude", "settings.local.json"),
+    join(userDir, "settings.json"),
+    join(userDir, "settings.local.json"),
     join(cwd, ".claude", "settings.json"),
     join(cwd, ".claude", "settings.local.json"),
   ];
+}
+
+/**
+ * THE HOST'S OWN DIRECTORY, where its user settings live (2026-10-09):
+ * `CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+ *
+ * Until today the user settings file was `hostConfigBase` + `.claude/settings.json`,
+ * which is right with no variable and wrong with one: the host's documentation
+ * says `CLAUDE_CONFIG_DIR` overrides the configuration directory whose default
+ * is `~/.claude`, and that every `~/.claude` path lives under it instead — so
+ * the file is `$CLAUDE_CONFIG_DIR/settings.json`, and we were reading (and
+ * `connect` was writing) `$CLAUDE_CONFIG_DIR/.claude/settings.json`, a file the
+ * host never opens. Two agents found it independently. `~/.claude.json` is
+ * not a `~/.claude` path, so the MCP file keeps `hostConfigBase`.
+ */
+export function hostSettingsDir(home: string, env: Record<string, string | undefined>): string {
+  const moved = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  return moved.length > 0 ? moved : join(home, ".claude");
 }
 
 /**
@@ -645,7 +670,8 @@ export function hostMcpFile(base: string): string {
   return join(base, ".claude.json");
 }
 
-/** The base both live under: `CLAUDE_CONFIG_DIR` when set, else the home dir. */
+/** The base the MCP file (`.claude.json`) lives under: `CLAUDE_CONFIG_DIR` when
+ *  set, else the home dir. The user settings file is `hostSettingsDir`'s. */
 export function hostConfigBase(home: string, env: Record<string, string | undefined>): string {
   const moved = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
   return moved.length > 0 ? moved : home;
@@ -695,7 +721,7 @@ export function readHost(
     row.used.add(used);
     runtimes.set(run.exe, row);
   };
-  for (const path of hostSettingsFiles(base, cwd)) {
+  for (const path of hostSettingsFiles(hostSettingsDir(home, env), cwd)) {
     const read = readJsonFile(path);
     if (read.state === "unreadable") settingsUnreadable.push(path);
     if (read.state !== "read") continue;

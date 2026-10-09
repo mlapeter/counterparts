@@ -51,13 +51,29 @@
  *      which did not fire inside the window is `blocked`, and the line says by
  *      what. `REFUSAL_READERS` is still the only place a refusal column comes
  *      from, and it still reads only fields a writer already fills.
+ *   5. **Not every mechanism has something to do every week** (2026-10-09).
+ *      On the owner's store doctor went amber because two rows "went quiet":
+ *      a plain reminder that had simply not fallen due, and the v8 upgrade's
+ *      census, which runs once by design. A row with a `cadence` says so — a
+ *      ONE-TIME job is `done` after it fires, an OCCASION-driven one is
+ *      `waiting` while its occasion has not come — and where the store can
+ *      tell whether the occasion came (`OCCASION_CHECKS`), an occasion that
+ *      came and went unanswered is the finding, and stays one.
  */
 import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
-import { addDays, daysBetween as calendarDaysBetween, localDate } from "../core/time.js";
+import {
+  DATE_FROM_META,
+  DATE_LINEAGE_MAX,
+  PROSPECTIVE_PLAIN_EVENT,
+  cueModeOf,
+  windowKey,
+} from "../core/prospective/index.js";
+import { addDays, daysBetween as calendarDaysBetween, localDate, parseCalendarDate } from "../core/time.js";
 import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
 import { rowToPhysics } from "../core/store/index.js";
 import { emotionalIntensity } from "../core/physics/index.js";
 import type { DurableEventName } from "./dashboard/registries.js";
+import { NON_INTERACTIVE_ENTRYPOINTS, readSession } from "./sessions.js";
 
 /** The window every count on this page is measured over. Seven CALENDAR days,
  *  inclusive of today — today and the six before it. */
@@ -95,6 +111,13 @@ export const PROBE_CEILING = 50_000;
  *     has not yet been time for it to be a worry.
  *   - `blind` — no durable evidence exists at all. The row says which row would
  *     fix it. NOT a synonym for silent: a blind mechanism may be running fine.
+ *   - `waiting` — it fires only on an occasion (an owner's action, a failure, a
+ *     reminder falling due) and none came this week; or a one-time job whose
+ *     occasion this store has never had. Not silence, and not a fault
+ *     (2026-10-09). An occasion the store can SEE came and went unanswered is
+ *     not `waiting`: that row keeps its `quiet` or `never` and is named in
+ *     `missedOccasion`.
+ *   - `done` — a one-time job (an upgrade's) that ran. Never `quiet`.
  *   - `disabled` — stood down by a named decision (Amendment 15), not a fault.
  *   - `retired` — a phase of the run ended and took the mechanism with it.
  */
@@ -105,6 +128,8 @@ export const FIRED_STATES = [
   "blind",
   "firing",
   "new",
+  "waiting",
+  "done",
   "disabled",
   "retired",
 ] as const;
@@ -119,6 +144,8 @@ export const STATE_ORDER: readonly FiredState[] = [
   "blind",
   "firing",
   "new",
+  "waiting",
+  "done",
   "disabled",
   "retired",
 ];
@@ -131,9 +158,39 @@ export const STATE_MEANING: Record<FiredState, string> = {
   never: "the evidence exists and has never carried a row",
   new: "never fired, and its evidence is younger than the window — not yet a worry",
   blind: "nothing durable records it, so firing and silence read alike",
+  waiting:
+    "it fires only when its occasion comes — an owner's action, a failure, a reminder falling due — so a week without one is not a fault",
+  done: "a one-time job: it ran once, as designed, and has nothing more to do",
   disabled: "stood down by a named decision, not a fault",
   retired: "a phase of the run ended and took it with it",
 };
+
+/**
+ * HOW OFTEN A MECHANISM HAS A REASON TO FIRE, when it is not "whenever the
+ * store is used" (2026-10-09). Absent on most rows, and absent means what it
+ * always meant: a silence after a firing is `quiet`, the state worth reading
+ * first.
+ *
+ *   - `one-time` — a job done once, at an upgrade. After it fires it is `done`,
+ *     never `quiet`; before, `waiting`, because a store that never had the
+ *     upgrade never had the job.
+ *   - `occasion` — it fires only when its occasion arises: a plain reminder
+ *     falling due, the owner erasing or exporting or un-merging, a failure. Its
+ *     silence is `waiting`. `when` is the occasion in plain words, printed on
+ *     the row. `check` names a reading of the store that says whether the
+ *     occasion CAME this week (`OCCASION_CHECKS`); one that came and went
+ *     unanswered is the one silence here that is still a fault.
+ *
+ * Classified only where the mechanism's own description makes it obvious; a
+ * row that is merely rare (promotion, the prune, the fade) is not an occasion,
+ * it is arithmetic that has not crossed its line yet, and keeps the old states.
+ */
+export type Cadence =
+  | { readonly kind: "one-time"; readonly when: string }
+  | { readonly kind: "occasion"; readonly when: string; readonly check?: OccasionCheckId };
+
+/** The occasions the store can see, each read by `OCCASION_CHECKS`. */
+export type OccasionCheckId = "plain-due";
 
 /**
  * The table reads that stand in for a mechanism with no event of its own — the
@@ -264,6 +321,8 @@ export interface Mechanism {
   readonly disabled?: string;
   /** Retired with a phase of the run, with the phase named. */
   readonly retired?: string;
+  /** One-time or occasion-driven, when it is either (`Cadence`, 2026-10-09). */
+  readonly cadence?: Cadence;
   /**
    * Durable event names this row ACCOUNTS FOR in the coverage test, when they
    * are not simply its own evidence. A blind mechanism can still be the row that
@@ -429,6 +488,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "accommodation",
     label: "something the owner declared outright replaced what had been inferred",
     module: "schemas/",
+    cadence: { kind: "occasion", when: "the owner declares outright something that had only been inferred" },
     evidence: { kind: "probe", probe: "versions:replaced-by-declaration" },
   },
 
@@ -478,6 +538,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "result-cut",
     label: "a tool answer too long for the host to show was cut to fit, with a note saying so, instead of vanishing into a file",
     module: "mcp/server.ts (withinCeiling)",
+    cadence: { kind: "occasion", when: "a tool answer comes out too long for the host to show" },
     evidence: { kind: "event", names: ["mcp.result.oversize"] },
     // The same mechanism's failure, seen from the host's side (2026-10-09): a
     // result under the ceiling that the host saved to a file anyway, read from
@@ -601,15 +662,19 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "core-demote",
     label: "the owner sent a core memory back to ordinary fading, and said why",
     module: "counterpart.ts#demoteCore",
+    cadence: { kind: "occasion", when: "the owner sends a core memory back" },
     evidence: { kind: "event", names: ["band.demoted"] },
     since: "2026-09-26",
   },
   {
     // The v8 upgrade's one-time proof: every memory measured by the old
     // arithmetic and the new. One row per store, ever; doctor reads the verdict.
+    // ONE-TIME (2026-10-09): it read `quiet` a week after it ran, and doctor
+    // went amber on a job that had finished — the false alarm `Cadence` ends.
     id: "upgrade-census",
     label: "after the v8 upgrade, every memory was checked by the old rules and the new",
     module: "sleep/upgrade.ts",
+    cadence: { kind: "one-time", when: "a store made before v8 is upgraded" },
     evidence: { kind: "event", names: ["physics.upgrade.census"] },
     since: "2026-09-26",
   },
@@ -622,9 +687,27 @@ export const MECHANISMS: readonly Mechanism[] = [
     // `no-similarity-supplied` is the embedder being off, which fires for EVERY
     // pair on the default configuration and already has its own amber on
     // doctor's Embedder line.
+    //
+    // AN OCCASION, AND AN EXACT ONE (2026-10-09). The owner's store, eighteen
+    // days and some eight hundred memories old, had never carried a row here,
+    // and the question was whether the wiring was broken. It is not: the night
+    // runs this phase on every cycle, but no similarity source is handed to it
+    // (`counterpart.ts` passes `runCycle` no `candidates`), so its only
+    // candidates are byte-identical bodies — and the door already refuses a
+    // repeat by content in the same directory (`DUPLICATE_CONTENT`,
+    // `remember/proposals.ts`). Reproduced on the seeded demo store: thirty
+    // cycles ran the phase, one merged the seed's planted copy, and a copy
+    // deposited from a second directory was merged that night. A DREAM's
+    // merge of near-copies is a different path with its own row
+    // (`dream.changed`, read by `dream-changes`); folding it in here would
+    // count one merge on two rows.
     id: "dedup",
-    label: "a duplicate is merged into the memory it duplicates",
+    label: "an exact copy of a memory is merged into the one it copies, overnight",
     module: "sleep/dedup.ts",
+    cadence: {
+      kind: "occasion",
+      when: "an exact copy of a memory's words gets past the door, which turns a repeat away first (near-copies are a dream's to merge, on the dream's row)",
+    },
     evidence: { kind: "event", names: ["memory.merged"] },
     refusals: {
       names: ["sleep.cycle"],
@@ -681,6 +764,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "revision",
     label: "a belief took a credited challenge and was revised under the pressure",
     module: "schemas/index.ts",
+    cadence: { kind: "occasion", when: "a belief takes a credited challenge" },
     evidence: { kind: "event", names: ["revision.pressure"] },
   },
   {
@@ -691,6 +775,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "contradictions",
     label: "two memories that disagree were settled — changed, corrected or kept open — or flagged, or a settle undone",
     module: "core/contradictions.ts (revision.ts, dream/, mcp note, cli settle)",
+    cadence: { kind: "occasion", when: "two memories disagree" },
     evidence: { kind: "event", names: ["contradiction.settled"] },
     covers: ["contradiction.flagged", "contradiction.undone"],
     since: "2026-09-29",
@@ -853,6 +938,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "protection",
     label: "the owner marked a memory permanent, so nothing may revise or forget it",
     module: "physics/, store/",
+    cadence: { kind: "occasion", when: "the owner marks a memory permanent" },
     evidence: {
       kind: "probe",
       probe: "protected",
@@ -864,12 +950,14 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "removal",
     label: "the owner erased a memory, and the erasure left a record",
     module: "store/owner-op-seam.ts",
+    cadence: { kind: "occasion", when: "the owner erases a memory" },
     evidence: { kind: "probe", probe: "removals" },
   },
   {
     id: "unmerge",
     label: "the owner put back a memory a merge had archived",
     module: "store/owner-op-seam.ts",
+    cadence: { kind: "occasion", when: "the owner puts back a memory a merge archived" },
     evidence: { kind: "event", names: ["memory.unmerged"] },
   },
   {
@@ -900,6 +988,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "prospective-fired",
     label: "that future date arrived and the reminder came back",
     module: "prospective/, counterpart.ts#spendArrivals",
+    cadence: { kind: "occasion", when: "a dated memory's day comes round and it comes up in a turn" },
     evidence: { kind: "event", names: ["prospective.fire"] },
     // The refusal row is ACCOUNTED FOR here, and deliberately not read as a
     // refusal column: its reasons are budget and calendar ("already fired
@@ -911,9 +1000,16 @@ export const MECHANISMS: readonly Mechanism[] = [
   {
     // A PLAIN reminder told to the person on its day (2026-09-26): one row per
     // memory, window and beat, latched.
+    //
+    // AN OCCASION THE STORE CAN SEE (2026-10-09). A week with no plain reminder
+    // due is `waiting` — on the owner's store it went `quiet` six days after
+    // its last one and turned doctor amber. A week where one fell due on a day
+    // a session ran, and was not said, is the fault this row exists for, and
+    // `OCCASION_CHECKS["plain-due"]` keeps it amber.
     id: "prospective-plain",
     label: "a reminder marked plain was said plainly on its day",
     module: "prospective/, lifecycle.ts",
+    cadence: { kind: "occasion", when: "a reminder marked plain falls due on a day a session runs", check: "plain-due" },
     evidence: { kind: "event", names: ["prospective.plain"] },
     since: "2026-09-26",
   },
@@ -953,6 +1049,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "worker-trouble",
     label: "the worker was refused, could not be started, or failed after starting",
     module: "lifecycle.ts, bin/runner.ts",
+    cadence: { kind: "occasion", when: "the worker is refused, cannot start, or fails" },
     evidence: {
       kind: "event",
       names: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
@@ -995,6 +1092,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "snapshot-trouble",
     label: "a copy of the store could not be made (the store itself is unharmed)",
     module: "adapters/snapshots.ts",
+    cadence: { kind: "occasion", when: "a copy of the store fails" },
     evidence: { kind: "event", names: ["snapshot.failed"] },
     since: "2026-09-18",
   },
@@ -1052,6 +1150,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     id: "export",
     label: "the owner took a readable copy of the memories off this machine, by hand",
     module: "cli/export.ts",
+    cadence: { kind: "occasion", when: "the owner exports" },
     evidence: { kind: "event", names: ["store.export"] },
     since: "2026-09-20",
   },
@@ -1077,8 +1176,17 @@ export interface FiredRow {
   readonly topRefusal: string | null;
   /** The dotted names or the table this row was read from, for the reader who greps. */
   readonly evidence: string;
-  /** Present on `blind`, `disabled`, `retired` and `new` — the line that says why. */
+  /** Present on `blind`, `disabled`, `retired`, `new`, `waiting`, `done` and a
+   *  missed occasion — the line that says why. */
   readonly note: string | null;
+  /** `one-time` or `occasion` when the registry says so (`Cadence`), else null. */
+  readonly cadence: Cadence["kind"] | null;
+  /**
+   * Occasions the store SAW this week that this mechanism did not answer — a
+   * plain reminder due on a day a session ran, not said. 0 when nothing was
+   * missed, and 0 on every row without an occasion check.
+   */
+  readonly occasionMissed: number;
 }
 
 export interface FiredReport {
@@ -1114,6 +1222,14 @@ export interface FiredReport {
    * finding read greener.
    */
   readonly wentBlocked: readonly string[];
+  /**
+   * Occasion-driven mechanisms whose occasion the store SAW come this week and
+   * that did not answer it, by label with what was missed (2026-10-09). The
+   * third list doctor grades on: `waiting` takes an occasion row out of
+   * `wentQuiet`, and without this list a plain reminder due and not said —
+   * this week, with nothing last week to compare — would have read green.
+   */
+  readonly missedOccasion: readonly string[];
   /** The store's own clock — the number of days it has actually LIVED. */
   readonly livedDay: number;
   /** Calendar days between the oldest row this pass read and today, or null
@@ -1202,12 +1318,19 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
 
   const rows: FiredRow[] = [];
   const notRead: string[] = [];
+  const missedOccasion: string[] = [];
   for (const m of MECHANISMS) {
     if (m.evidence.kind === "probe" && probed === null) {
       notRead.push(m.id);
       continue;
     }
-    rows.push(rowFor(m, log, probed, window));
+    // An occasion check reads memories, so it costs what a probe costs and is
+    // skipped with them: an unchecked occasion row reads `waiting`, claiming
+    // nothing either way.
+    const occasion = probed === null ? null : readOccasion(m, store, log, window);
+    const row = rowFor(m, log, probed, window, occasion);
+    rows.push(row);
+    if (occasion !== null && occasion.missed > 0) missedOccasion.push(`${row.label} (${occasion.says})`);
   }
 
   const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
@@ -1244,8 +1367,11 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
           !comparisonIsTooYoung(r.id, window),
       )
       .map((r) => `${r.label} (${r.topRefusal ?? UNNAMED_REFUSAL})`),
+    // A missed occasion is named in its own list, with what was missed, rather
+    // than twice.
+    missedOccasion,
     wentQuiet: rows
-      .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
+      .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0 && r.occasionMissed === 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,
       // which has run seven days across fifteen calendar ones — so the sentence
       // says which clock answered rather than claiming a calendar week it did
@@ -1316,9 +1442,15 @@ const EMPTY_READING: Reading = {
   blind: null,
 };
 
-function rowFor(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): FiredRow {
+function rowFor(
+  m: Mechanism,
+  log: LogRead,
+  probed: Probed | null,
+  w: Window,
+  occasion: OccasionReading | null = null,
+): FiredRow {
   const read = readEvidence(m, log, probed);
-  const state = stateOf(m, read, w);
+  const state = stateOf(m, read, w, occasion);
   return {
     id: m.id,
     label: m.label,
@@ -1332,7 +1464,9 @@ function rowFor(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): F
     refusedInWindow: read.refused,
     topRefusal: read.topRefusal,
     evidence: read.evidence,
-    note: noteFor(m, read, state),
+    note: noteFor(m, read, state, occasion),
+    cadence: m.cadence?.kind ?? null,
+    occasionMissed: occasion?.missed ?? 0,
   };
 }
 
@@ -1342,7 +1476,7 @@ function rowFor(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): F
  * count; blindness is a fact about the EVIDENCE and outranks the rest; only then
  * do the counts speak.
  */
-function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
+function stateOf(m: Mechanism, read: Reading, w: Window, occasion: OccasionReading | null = null): FiredState {
   if (m.disabled !== undefined) return "disabled";
   if (m.retired !== undefined) return "retired";
   if (read.blind !== null) return "blind";
@@ -1351,7 +1485,17 @@ function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
   // `never` because it answers the question they leave open: a mechanism that
   // was turned away every time it was reached is not one that had nothing to do.
   if (read.refused > 0) return "blocked";
+  // A JOB DONE ONCE IS DONE (2026-10-09), not quiet: the census that ran at
+  // the v8 upgrade has nothing to do the week after, or ever again.
+  if (m.cadence?.kind === "one-time" && read.total > 0) return "done";
+  // AN OCCASION NOT COME IS NOT A SILENCE (2026-10-09) — unless the store saw
+  // it come and go unanswered, and then the row keeps `quiet` or `never`
+  // below, because that silence is exactly the finding.
+  if (m.cadence !== undefined && (occasion === null || occasion.missed === 0)) return "waiting";
   if (read.total > 0) return "quiet";
+  // ...and a missed occasion is a worry however young its evidence: `new`
+  // means "not yet had the chance", and this one had it.
+  if (occasion !== null && occasion.missed > 0) return "never";
   // Never fired. A mechanism whose EVIDENCE is younger than the window has not
   // had time to be a worry yet, and grading it as one is how a view teaches its
   // reader to ignore it.
@@ -1359,10 +1503,29 @@ function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
   return "never";
 }
 
-function noteFor(m: Mechanism, read: Reading, state: FiredState): string | null {
+function noteFor(
+  m: Mechanism,
+  read: Reading,
+  state: FiredState,
+  occasion: OccasionReading | null = null,
+): string | null {
   if (state === "disabled") return m.disabled ?? null;
   if (state === "retired") return m.retired ?? null;
   if (state === "blind") return read.blind;
+  // What was missed is said whatever else the row says: a week that told one
+  // plain reminder and dropped another is `firing`, and still owes a sentence.
+  if (occasion !== null && occasion.missed > 0) {
+    return `its occasion came this week and was not answered: ${occasion.says}`;
+  }
+  if (state === "done" && m.cadence !== undefined) {
+    return `a one-time job, run when ${m.cadence.when}; it has run, and has nothing more to do`;
+  }
+  if (state === "waiting" && m.cadence !== undefined) {
+    if (m.cadence.kind === "one-time") {
+      return `a one-time job, run when ${m.cadence.when}; this store has not needed it`;
+    }
+    return `it fires only when ${m.cadence.when}${occasion === null ? "" : `; ${occasion.says}`}`;
+  }
   if (state === "new" && m.since !== undefined) return `its evidence was added ${m.since}`;
   if (state === "blocked") {
     // The whole point of the state, in one sentence: not "quiet", not "never" —
@@ -1488,7 +1651,37 @@ interface LogRead {
   /** The calendar date of the OLDEST row this pass saw, for the store's age.
    *  A truncated read is the oldest rows, so this stays right when it happens. */
   readonly oldestDate: string | null;
+  /**
+   * The rows of THIS window that say a session was there (2026-10-09): a
+   * session start handed its briefing, or a turn decided what came to mind —
+   * the two moments a plain reminder is said (`claude-code/hooks.ts`).
+   * `presentDays` keeps the ones a person could have been told something in;
+   * an occasion check reads that, because a reminder due on a day nobody came
+   * is not one a session could have said.
+   */
+  readonly presence: readonly PresenceRow[];
+  /**
+   * What each session's briefing row said about whether anybody could be told
+   * anything in it (`interactive` on `adapter.wake.injected`, review of #337),
+   * by session id, from every briefing this pass read. Absent: the row did not
+   * say, or this pass did not see it.
+   */
+  readonly attended: ReadonlyMap<string, boolean>;
 }
+
+/** One row of the window that says a session was there (`PRESENCE_EVENTS`). */
+interface PresenceRow {
+  readonly date: string;
+  readonly at: number;
+  /** The session it belongs to, or null when the row names none. */
+  readonly session: string | null;
+}
+
+/** The briefing row: the one that says whether its session is attended. */
+const WAKE_EVENT = "adapter.wake.injected";
+
+/** The rows that say a session was there: a briefing handed over, a turn decided. */
+const PRESENCE_EVENTS: ReadonlySet<string> = new Set([WAKE_EVENT, "recall.decision"]);
 
 /**
  * The tally key for a name read through a `positive` filter. A character no
@@ -1539,11 +1732,11 @@ function emptyTally(): NameTally {
  */
 function readLog(store: ReadOnlyStore, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
-  const age = { oldest: null as string | null };
+  const age: PassState = { oldest: null, presence: [], attended: new Map() };
   const first = store.eventLog({ limit: EVENT_CEILING });
   for (const row of first) tallyRow(byName, row, w, age);
   if (first.length < EVENT_CEILING) {
-    return { byName, truncated: false, oldestDate: age.oldest };
+    return { byName, truncated: false, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
   }
   const lastSeq = first[first.length - 1]?.seq ?? 0;
   // A lived day is never longer than a calendar day, so `livedDay - 14` cannot
@@ -1556,18 +1749,30 @@ function readLog(store: ReadOnlyStore, w: Window): LogRead {
     if (row.seq <= lastSeq) continue;
     tallyRow(byName, row, w, age);
   }
-  return { byName, truncated: true, oldestDate: age.oldest };
+  return { byName, truncated: true, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
 }
 
-function tallyRow(
-  byName: Map<string, NameTally>,
-  row: EventRow,
-  w: Window,
-  age: { oldest: string | null },
-): void {
+/** What one pass over the log gathers beside the tallies. */
+interface PassState {
+  oldest: string | null;
+  presence: PresenceRow[];
+  attended: Map<string, boolean>;
+}
+
+function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window, age: PassState): void {
   const payload = payloadOf(row);
   const date = rowDate(row, payload, w.zone);
   if (age.oldest === null || date < age.oldest) age.oldest = date;
+  if (PRESENCE_EVENTS.has(row.name)) {
+    const session = str(payload, "session") ?? (row.ref !== null && row.ref.length > 0 ? row.ref : null);
+    const said = payload["interactive"];
+    // Any briefing that says nobody attends marks the session; a later one
+    // saying otherwise does not unmark it (a compaction re-fires the start).
+    if (row.name === WAKE_EVENT && session !== null && typeof said === "boolean" && age.attended.get(session) !== false) {
+      age.attended.set(session, said);
+    }
+    if (date >= w.from && date <= w.to) age.presence.push({ date, at: row.at, session });
+  }
   const t = countInto(byName, row.name, date, w);
   // THE FILTERED TALLIES, in the same pass (`Evidence.positive`). They count
   // the row and NOTHING ELSE: the refusal reader below answers for every phase
@@ -1750,6 +1955,177 @@ function countsIn(p: Record<string, unknown>, key: string): [string, number][] {
 function str(p: Record<string, unknown>, key: string): string | null {
   const v = p[key];
   return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+// ── occasions the store can see ─────────────────────────────────────────────
+
+/**
+ * WHETHER AN OCCASION CAME, AND WHETHER IT WAS ANSWERED (2026-10-09).
+ *
+ * An occasion-driven row is `waiting` while its occasion has not come, which
+ * takes it out of `wentQuiet` — so where the store CAN tell that the occasion
+ * came this week, it has to say so here, or a real fault would read green.
+ */
+export interface OccasionReading {
+  /** Occasions this week that went unanswered. Above 0, the row is a finding. */
+  readonly missed: number;
+  /** One plain sentence: what came, or that nothing did. */
+  readonly says: string;
+}
+
+/** The checks, by `OccasionCheckId`. Each is a READ, and each may fail. */
+const OCCASION_CHECKS: Record<
+  OccasionCheckId,
+  (store: ReadOnlyStore, log: LogRead, w: Window) => OccasionReading
+> = {
+  "plain-due": plainDueReading,
+};
+
+/** The occasion reading for one mechanism, or null when it has no check — or
+ *  when its check could not be read, which is "cannot tell", never a fault. */
+function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Window): OccasionReading | null {
+  if (m.cadence?.kind !== "occasion" || m.cadence.check === undefined) return null;
+  try {
+    return OCCASION_CHECKS[m.cadence.check](store, log, w);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * WAS A PLAIN REMINDER DUE THIS WEEK, AND WAS IT SAID?
+ *
+ * The beats are `Prospective#plainDue`'s, restated as a read because that
+ * method refuses an observer and doctor is one: a DAY item is due on its day;
+ * a MONTH or RANGE item opens (`opens`) on the first day it is seen inside its
+ * span and is due again on its last day (`last-day`); a YEAR is never told.
+ * A beat is told when its latch row exists (`prospective.plain`, keyed
+ * `<memory>:<window>:<beat>`) on the memory or on any memory its reminder
+ * moved from — the same lineage `plainTold` walks.
+ *
+ * A beat counts as DUE only on a day of the window, today excluded, on which a
+ * session a person could be told something in was there AFTER the memory
+ * existed (`presentDays`): a reminder is said at a session start or a turn, so
+ * a day nobody came, a day only the headless run or `claude -p` came, or a
+ * reminder written at the day's last turn, is not one a session could have
+ * said. Today is left out because its sessions may still say it.
+ *
+ * A memory that cannot be read is skipped, as `plainDue` skips it, rather than
+ * failing the whole reading: one unreadable row must not turn a real miss on
+ * another into "cannot tell" (review of #337).
+ */
+function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): OccasionReading {
+  const lastDay = daysBefore(w.to, 1);
+  const none: OccasionReading = { missed: 0, says: "none fell due this week on a day a session ran" };
+  if (lastDay < w.from) return none;
+  const denied = new Set(store.deniedIds());
+  // Read only once a plain reminder is in the window: most weeks there is none.
+  let present: ReadonlyMap<string, number> | null = null;
+  let due = 0;
+  let missed = 0;
+  for (const dated of store.datedMemories(w.from, lastDay)) {
+    if (denied.has(dated.id)) continue;
+    const row = store.row(dated.id);
+    if (row === undefined || row.archived === 1 || row.superseded_by !== null) continue;
+    let doc;
+    try {
+      doc = store.read(dated.id).doc;
+    } catch {
+      continue;
+    }
+    if (doc.type === "episode" || cueModeOf(doc) !== "plain") continue;
+    const span = parseCalendarDate(dated.eventDate);
+    if (span === null || span.text !== dated.eventDate || span.precision === "year") continue;
+    present ??= presentDays(store, log);
+    const beats = new Set<string>();
+    for (let day = span.first > w.from ? span.first : w.from; day <= lastDay && day <= span.last; day = addDays(day, 1)) {
+      const seen = present.get(day);
+      // An older row with no birth moment is read as existing all along.
+      if (seen === undefined || seen <= (row.created_at ?? 0)) continue;
+      beats.add(span.precision === "day" ? "day" : day === span.last ? "last-day" : "opens");
+    }
+    if (beats.size === 0) continue;
+    due += 1;
+    const key = windowKey(dated.eventDate, span.precision);
+    const lineage = plainLineage(store, dated.id);
+    // Counted per REMINDER, not per beat: a month item that missed both its
+    // opening and its last day is one reminder not said.
+    const untold = [...beats].some(
+      (beat) =>
+        !lineage.some((id) =>
+          store
+            .eventLog({ name: PROSPECTIVE_PLAIN_EVENT, ref: id, order: "desc", limit: 50 })
+            .some((e) => e.dedup_key === `${PROSPECTIVE_PLAIN_EVENT}:${id}:${key}:${beat}`),
+        ),
+    );
+    if (untold) missed += 1;
+  }
+  if (due === 0) return none;
+  if (missed === 0) {
+    return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said` };
+  }
+  return {
+    missed,
+    says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said`,
+  };
+}
+
+/**
+ * THE DAYS A PERSON COULD HAVE BEEN TOLD SOMETHING, each with its newest such
+ * moment (review of #337). A session nobody attends — the headless nightly
+ * run, `claude -p`, an Agent SDK one — still writes a briefing row and turns,
+ * but is never handed a plain reminder (`hooks.ts#isInteractive`,
+ * `SessionInput.nightRun`), so its rows are not an occasion: counted, every
+ * day the night run came read as a day a reminder went unsaid.
+ *
+ * Its briefing row says so (`interactive`). A row written before that field,
+ * or a session whose briefing this pass did not see, is asked of the session's
+ * registry record — its `entrypoint`, as `sessions.ts#pointable` asks — and a
+ * session nothing is known about reads as a person's, the direction that keeps
+ * the finding rather than hiding it.
+ */
+function presentDays(store: ReadOnlyStore, log: LogRead): Map<string, number> {
+  const asked = new Map<string, boolean>();
+  const unattended = (session: string | null): boolean => {
+    if (session === null) return false;
+    const said = log.attended.get(session);
+    if (said !== undefined) return !said;
+    let known = asked.get(session);
+    if (known === undefined) {
+      const entrypoint = readSession(store.dir, session)?.entrypoint;
+      known = entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(entrypoint);
+      asked.set(session, known);
+    }
+    return known;
+  };
+  const out = new Map<string, number>();
+  for (const p of log.presence) {
+    if (unattended(p.session)) continue;
+    const was = out.get(p.date);
+    if (was === undefined || p.at > was) out.set(p.date, p.at);
+  }
+  return out;
+}
+
+/** The memory, then each one its reminder moved from — `Prospective`'s private
+ *  walk, read the same way: `meta.reminderFrom`, bounded, cycle-safe. */
+function plainLineage(store: ReadOnlyStore, memoryId: string): string[] {
+  const out = [memoryId];
+  let current = memoryId;
+  for (let hop = 0; hop < DATE_LINEAGE_MAX; hop++) {
+    const raw = store.row(current)?.meta;
+    if (raw === undefined || raw === null) break;
+    let from: unknown;
+    try {
+      from = (JSON.parse(raw) as Record<string, unknown>)[DATE_FROM_META];
+    } catch {
+      break;
+    }
+    if (typeof from !== "string" || out.includes(from)) break;
+    out.push(from);
+    current = from;
+  }
+  return out;
 }
 
 // ── the table probes ────────────────────────────────────────────────────────
