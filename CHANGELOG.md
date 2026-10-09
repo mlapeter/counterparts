@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A project's `.env` can no longer point Counterparts at another memory.** Bun reads
+  `.env` files from the folder it starts in, and Claude Code starts the hooks and the
+  memory server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR`
+  or `COUNTERPARTS_CONFIG` could send the plugin's server, an npm install's hooks or
+  the `counterparts` command to a different store. Every place Counterparts starts Bun
+  now passes `--no-env-file`: the hook and server commands `install` and `connect`
+  write, the plugin's launcher, the installed commands, and the workers and nightly
+  run it starts itself. Node never read a `.env` on its own. **If you installed
+  through npm, run `counterparts connect` once** to rewrite your hooks and server
+  registration. Until you do, doctor's Runtime line is amber and says so. Plugin users
+  get the change when the plugin updates.
 - **The dashboard no longer says a repeating reminder is about to be put away.** A memory
   whose date still repeats is kept for its next time however faint it has grown, so the
   memories list no longer marks it "fading" and its card names no day it would be put

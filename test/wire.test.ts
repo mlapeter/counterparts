@@ -70,6 +70,7 @@ import {
 } from "../src/adapters/cli/wire.js";
 import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adapters/cli/wire.js";
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
+import { scriptArgs } from "../src/adapters/runtime.js";
 import { recordServerLaunch } from "../src/adapters/sessions.js";
 import type { BuildStamp } from "../src/adapters/sessions.js";
 
@@ -502,7 +503,8 @@ describe("the MCP registration", () => {
     const args = mcpAddArgs(store(), undefined, EXE);
     expect(args.slice(0, 5)).toEqual(["mcp", "add", MCP_SERVER_NAME, "-s", "user"]);
     expect(args).toContain(`COUNTERPARTS_DATA_DIR=${store()}`);
-    expect(args.slice(-3)).toEqual([EXE, "run", MCP_SCRIPT]);
+    expect(args.slice(-4)).toEqual([EXE, ...scriptArgs(MCP_SCRIPT, EXE)]);
+    expect(args.slice(-4)).toEqual([EXE, "--no-env-file", "run", MCP_SCRIPT]);
     // No shell quoting anywhere: these are argv entries, not a command line.
     expect(args.some((a) => a.includes('"'))).toBe(false);
   });
@@ -536,13 +538,27 @@ describe("the MCP registration", () => {
         mcpServers: {
           [MCP_SERVER_NAME]: {
             command: EXE,
-            args: ["run", MCP_SCRIPT],
+            args: scriptArgs(MCP_SCRIPT, EXE),
             env: { COUNTERPARTS_DATA_DIR: store() },
           },
         },
       }),
     );
     expect(readMcp(home, ENV, store(), undefined, EXE).matches).toBe(true);
+
+    // WRITTEN BEFORE `--no-env-file` (2026-10-09): same store, same script, the
+    // old arguments. Not a match, so `connect` re-registers it with the flag.
+    writeFileSync(
+      mcpFile(),
+      JSON.stringify({
+        mcpServers: {
+          [MCP_SERVER_NAME]: { command: EXE, args: ["run", MCP_SCRIPT], env: { COUNTERPARTS_DATA_DIR: store() } },
+        },
+      }),
+    );
+    const old = readMcp(home, ENV, store(), undefined, EXE);
+    expect(old.present).toBe(true);
+    expect(old.matches).toBe(false);
   });
 
   test("a ~/.claude.json that will not parse reads as unreadable, never as not-installed", () => {
@@ -604,7 +620,7 @@ describe("wire", () => {
       mcpFile(),
       JSON.stringify({
         mcpServers: {
-          [MCP_SERVER_NAME]: { command: EXE, args: ["run", MCP_SCRIPT], env: { COUNTERPARTS_DATA_DIR: store() } },
+          [MCP_SERVER_NAME]: { command: EXE, args: scriptArgs(MCP_SCRIPT, EXE), env: { COUNTERPARTS_DATA_DIR: store() } },
         },
       }),
     );
@@ -1400,7 +1416,7 @@ describe("install, at a terminal", () => {
         mcpServers: {
           [MCP_SERVER_NAME]: {
             command: process.execPath,
-            args: ["run", MCP_SCRIPT],
+            args: scriptArgs(MCP_SCRIPT, process.execPath),
             env: { COUNTERPARTS_DATA_DIR: store() },
           },
         },

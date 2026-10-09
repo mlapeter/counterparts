@@ -335,8 +335,9 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     const mcp = JSON.parse(plan.args[plan.args.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }> };
     expect(Object.keys(mcp.mcpServers)).toEqual(["counterparts"]);
     expect(mcp.mcpServers["counterparts"]?.command).toBe("/usr/local/bin/bun");
-    expect(mcp.mcpServers["counterparts"]?.args[1]).toBe(NIGHT_MCP_SCRIPT);
-    expect(mcp.mcpServers["counterparts"]?.args[1]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
+    // Bun is told not to read the project's .env (runtime.ts#BUN_NO_ENV_FILE).
+    expect(mcp.mcpServers["counterparts"]?.args).toEqual(["--no-env-file", "run", NIGHT_MCP_SCRIPT]);
+    expect(mcp.mcpServers["counterparts"]?.args[2]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
     expect(mcp.mcpServers["counterparts"]?.env).toEqual({
       COUNTERPARTS_DATA_DIR: dir,
       // The headless run keeps the guest's stance, said (2026-10-02).

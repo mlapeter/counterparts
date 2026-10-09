@@ -9,18 +9,35 @@
  * writes into a host's configuration, and every worker it spawns, is
  * `<runtime> <scriptArgs(script)>`, with the runtime the one running NOW
  * (`process.execPath`) — so `counterparts install` run under Node wires Node,
- * and under Bun wires Bun, and the Bun shape is byte-for-byte what it has been
- * since 2026-09-03.
+ * and under Bun wires Bun. The Bun shape was `run <script>` from 2026-09-03
+ * and is `--no-env-file run <script>` since 2026-10-09 (below).
  *
  * The runtime is read off the executable's NAME, not off this process, so a
  * caller that passes a fixed executable (every test does) gets the shape that
  * executable needs. Anything not named `node…` is treated as Bun, which is what
  * every command written before Node support said.
+ *
+ * **BUN IS TOLD NOT TO READ THE PROJECT'S `.env` (2026-10-09).** Bun loads
+ * `.env`, `.env.local` and `.env.<NODE_ENV>` from the WORKING DIRECTORY into
+ * `process.env` before any of our code runs, and a host starts our hooks and
+ * servers in the person's project. So a project whose `.env` set
+ * `COUNTERPARTS_DATA_DIR` or `COUNTERPARTS_CONFIG` could point Counterparts at
+ * another store — measured, for the plugin's server, which no `-e` pins (scar
+ * §2.13 from a direction the spawner's pinning never covered). A variable
+ * already in the real environment still wins over a `.env` (also measured), so
+ * the hole was every variable nobody set. `--no-env-file` switches the loading
+ * off; Node never had it (it reads a `.env` only when `--env-file` names one).
+ * Commands written before this carry `run <script>` alone: they still parse
+ * (`parseScriptInvocation`), `doctor` names them, and `counterparts connect`
+ * rewrites them.
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export type RuntimeKind = "bun" | "node";
+
+/** Bun's switch that stops it loading `.env` files from the working directory. */
+export const BUN_NO_ENV_FILE = "--no-env-file";
 
 /** The module Node loads before a script (`--import`). Absolute, from this file. */
 export const NODE_HOOKS = fileURLToPath(new URL("./node-hooks.mjs", import.meta.url));
@@ -49,10 +66,10 @@ export function runtimeOf(exe: string): RuntimeKind {
   return /^node(js)?(\d[\d.]*)?(\.exe)?$/i.test(exe.split(/[\\/]/).pop() ?? "") ? "node" : "bun";
 }
 
-/** The arguments that make `exe` run `script`: `run <script>` for Bun,
- *  `--import <node-hooks.mjs> <script>` for Node. */
+/** The arguments that make `exe` run `script`: `--no-env-file run <script>`
+ *  for Bun, `--import <node-hooks.mjs> <script>` for Node. */
 export function scriptArgs(script: string, exe: string = process.execPath): string[] {
-  return runtimeOf(exe) === "node" ? ["--import", NODE_HOOKS, script] : ["run", script];
+  return runtimeOf(exe) === "node" ? ["--import", NODE_HOOKS, script] : [BUN_NO_ENV_FILE, "run", script];
 }
 
 /** A command split into its parts, when it is `<exe> <scriptArgs(script)> <rest…>`. */
@@ -62,23 +79,49 @@ export interface ScriptInvocation {
   readonly script: string;
   /** Whatever followed the script (`--config <path>`, flags). */
   readonly rest: readonly string[];
+  /** Whether the runtime reads the project's `.env` into the process: `read`
+   *  for a Bun command written before `--no-env-file`, else `ignored`. */
+  readonly projectEnv: "read" | "ignored";
 }
 
 /**
- * Read `<exe> run <script> …` or `<exe> --import <…node-hooks.mjs> <script> …`
- * back out of a token list — the inverse of `scriptArgs`, for the readers that
- * must recognise what the writers wrote (`wire.ts#isOurHookCommand`, doctor's
- * runtime line). Null for any other shape: a command this cannot read is not
- * one of ours.
+ * Read `<exe> [--no-env-file] run [--no-env-file] <script> …` or `<exe>
+ * --import <…node-hooks.mjs> <script> …` back out of a token list — the
+ * inverse of `scriptArgs`, for the readers that must recognise what the
+ * writers wrote (`wire.ts#isOurHookCommand`, doctor's runtime line, the
+ * plugin's npm-wiring check). The Bun shape without the flag is what every
+ * install wrote until 2026-10-09, so it is still ours. Null for any other
+ * shape: a command this cannot read is not one of ours.
  */
 export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocation | null {
   const exe = tokens[0] ?? "";
   if (exe.length === 0) return null;
-  if (tokens[1] === "run" && (tokens[2] ?? "").length > 0) {
-    return { exe, runtime: runtimeOf(exe), script: tokens[2] as string, rest: tokens.slice(3) };
+  let at = 1;
+  let noEnvFile = false;
+  if (tokens[at] === BUN_NO_ENV_FILE) {
+    noEnvFile = true;
+    at += 1;
   }
+  if (tokens[at] === "run") {
+    at += 1;
+    if (tokens[at] === BUN_NO_ENV_FILE) {
+      noEnvFile = true;
+      at += 1;
+    }
+    const script = tokens[at] ?? "";
+    if (script.length === 0) return null;
+    const runtime = runtimeOf(exe);
+    return {
+      exe,
+      runtime,
+      script,
+      rest: tokens.slice(at + 1),
+      projectEnv: runtime === "node" || noEnvFile ? "ignored" : "read",
+    };
+  }
+  if (noEnvFile) return null;
   if (tokens[1] === "--import" && /(^|[/\\])node-hooks\.mjs$/.test(tokens[2] ?? "") && (tokens[3] ?? "").length > 0) {
-    return { exe, runtime: "node", script: tokens[3] as string, rest: tokens.slice(4) };
+    return { exe, runtime: "node", script: tokens[3] as string, rest: tokens.slice(4), projectEnv: "ignored" };
   }
   return null;
 }

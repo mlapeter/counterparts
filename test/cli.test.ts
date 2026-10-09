@@ -5600,9 +5600,9 @@ describe("install", () => {
     expect(existsSync(HOOK_SCRIPT)).toBe(true);
     expect(existsSync(MCP_SCRIPT)).toBe(true);
     // `run` against the real runtime this process is using, absolute both sides.
-    expect(runCommand(HOOK_SCRIPT)).toBe(`"${process.execPath}" run "${HOOK_SCRIPT}"`);
+    expect(runCommand(HOOK_SCRIPT)).toBe(`"${process.execPath}" --no-env-file run "${HOOK_SCRIPT}"`);
     // A path with a space stays one argument.
-    expect(runCommand("/a b/c.ts", "/x y/bun")).toBe('"/x y/bun" run "/a b/c.ts"');
+    expect(runCommand("/a b/c.ts", "/x y/bun")).toBe('"/x y/bun" --no-env-file run "/a b/c.ts"');
   });
 
   test("--embedder is the only way the scripted arm writes the embedder knob — and it is the local table", async () => {

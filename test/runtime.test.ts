@@ -32,6 +32,7 @@ import { isOurHookCommand, mcpAddArgs, processMark, readMcp } from "../src/adapt
 import { describeFault } from "../src/adapters/claude-code/standdown.js";
 import { StoreError } from "../src/core/store/index.js";
 import {
+  BUN_NO_ENV_FILE,
   CLI_SCRIPT,
   NODE_HOOKS,
   currentRuntime,
@@ -67,8 +68,10 @@ describe("which runtime an executable names", () => {
     expect(currentRuntime()).toBe("bun");
   });
 
-  test("the arguments: `run <script>` for Bun, `--import <node-hooks.mjs> <script>` for Node", () => {
-    expect(scriptArgs("/s/hook.ts", BUN)).toEqual(["run", "/s/hook.ts"]);
+  test("the arguments: `--no-env-file run <script>` for Bun, `--import <node-hooks.mjs> <script>` for Node", () => {
+    // Bun is told not to load the project's .env (runtime.ts, 2026-10-09).
+    expect(scriptArgs("/s/hook.ts", BUN)).toEqual([BUN_NO_ENV_FILE, "run", "/s/hook.ts"]);
+    expect(BUN_NO_ENV_FILE).toBe("--no-env-file");
     expect(scriptArgs("/s/hook.ts", NODE)).toEqual(["--import", NODE_HOOKS, "/s/hook.ts"]);
     expect(NODE_HOOKS.endsWith("/src/adapters/node-hooks.mjs")).toBe(true);
   });
@@ -86,18 +89,42 @@ describe("which runtime an executable names", () => {
 
 describe("reading an invocation back", () => {
   test("both shapes parse, with what follows the script kept", () => {
-    expect(parseScriptInvocation([BUN, "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
+    expect(parseScriptInvocation([BUN, "--no-env-file", "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
       exe: BUN,
       runtime: "bun",
       script: "/s/hook.ts",
       rest: ["--config", "/c.json"],
+      projectEnv: "ignored",
     });
     expect(parseScriptInvocation([NODE, "--import", NODE_HOOKS, "/s/hook.ts"])).toEqual({
       exe: NODE,
       runtime: "node",
       script: "/s/hook.ts",
       rest: [],
+      projectEnv: "ignored",
     });
+  });
+
+  test("what install wrote before --no-env-file still parses, and says it reads the project's .env", () => {
+    expect(parseScriptInvocation([BUN, "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
+      exe: BUN,
+      runtime: "bun",
+      script: "/s/hook.ts",
+      rest: ["--config", "/c.json"],
+      projectEnv: "read",
+    });
+    // Bun takes the flag after `run` too; a hand edit that put it there is ours.
+    expect(parseScriptInvocation([BUN, "run", "--no-env-file", "/s/hook.ts"])?.projectEnv).toBe("ignored");
+    expect(parseScriptInvocation([BUN, "run", "--no-env-file", "/s/hook.ts"])?.script).toBe("/s/hook.ts");
+  });
+
+  test("every shape scriptArgs writes reads back as the same script, ignoring the project's .env", () => {
+    for (const exe of [BUN, NODE]) {
+      const read = parseScriptInvocation([exe, ...scriptArgs("/s/hook.ts", exe), "--config", "/c.json"]);
+      expect(read?.script).toBe("/s/hook.ts");
+      expect(read?.rest).toEqual(["--config", "/c.json"]);
+      expect(read?.projectEnv).toBe("ignored");
+    }
   });
 
   test("anything else is not an invocation of ours", () => {
@@ -105,13 +132,24 @@ describe("reading an invocation back", () => {
     expect(parseScriptInvocation([BUN, "/s/hook.ts"])).toBeNull();
     expect(parseScriptInvocation([NODE, "--import", "/x/other.mjs", "/s/hook.ts"])).toBeNull();
     expect(parseScriptInvocation([NODE, "--import", NODE_HOOKS])).toBeNull();
+    expect(parseScriptInvocation([BUN, "--no-env-file", "/s/hook.ts"])).toBeNull();
+    expect(parseScriptInvocation([BUN, "--no-env-file", "run"])).toBeNull();
   });
 });
 
 describe("what install writes, and what reads it back", () => {
-  test("the Bun hook command is exactly the shape written before Node support", () => {
-    expect(runCommand("/s/hook.ts", BUN)).toBe(`"${BUN}" run "/s/hook.ts"`);
-    expect(hookCommand("/c/claude-code.json", BUN)).toBe(`"${BUN}" run "${HOOK_SCRIPT}" --config "/c/claude-code.json"`);
+  test("the Bun hook command tells Bun to skip the project's .env, the flag unquoted", () => {
+    expect(runCommand("/s/hook.ts", BUN)).toBe(`"${BUN}" --no-env-file run "/s/hook.ts"`);
+    expect(hookCommand("/c/claude-code.json", BUN)).toBe(
+      `"${BUN}" --no-env-file run "${HOOK_SCRIPT}" --config "/c/claude-code.json"`,
+    );
+  });
+
+  test("a hook command written before --no-env-file is still ours, so connect repairs it in place", () => {
+    const old = `"${BUN}" run "${HOOK_SCRIPT}"`;
+    expect(isOurHookCommand(old)).toBe(true);
+    expect(isOurHookCommand(`${old} --config "/c/claude-code.json"`)).toBe(true);
+    expect(hookTargetPath(old)).toBe(HOOK_SCRIPT);
   });
 
   test("the Node hook command names the loader and the script, both quoted", () => {
@@ -136,7 +174,7 @@ describe("what install writes, and what reads it back", () => {
   });
 
   test("the MCP registration carries the runtime's arguments, and reads back as a match", () => {
-    expect(mcpAddArgs("/st", undefined, BUN).slice(-3)).toEqual([BUN, "run", MCP_SCRIPT]);
+    expect(mcpAddArgs("/st", undefined, BUN).slice(-4)).toEqual([BUN, "--no-env-file", "run", MCP_SCRIPT]);
     expect(mcpAddArgs("/st", undefined, NODE).slice(-4)).toEqual([NODE, "--import", NODE_HOOKS, MCP_SCRIPT]);
     expect(mcpCommand("/st", runCommand(MCP_SCRIPT, NODE))).toContain(`-- "${NODE}" --import "${NODE_HOOKS}"`);
     for (const exe of [BUN, NODE]) {
@@ -162,7 +200,7 @@ describe("what install writes, and what reads it back", () => {
 
   test("Claude Desktop's entry and the nightly run's server carry the same arguments", () => {
     expect(desktopEntry("/st", NODE).args).toEqual(["--import", NODE_HOOKS, MCP_SCRIPT]);
-    expect(desktopEntry("/st", BUN).args).toEqual(["run", MCP_SCRIPT]);
+    expect(desktopEntry("/st", BUN).args).toEqual(["--no-env-file", "run", MCP_SCRIPT]);
     const night = JSON.parse(nightMcpConfig({ runtime: NODE, dataDir: "/st", session: "s", scope: "/p" })) as {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
@@ -237,7 +275,7 @@ describe("doctor's Runtime line", () => {
     writeFileSync(node, "");
     hostWith(node);
     const { host, line } = runtimeLine("node 24.9.0");
-    expect(host.runtimes).toEqual([{ exe: node, kind: "node", present: true, used: ["hooks", "mcp"] }]);
+    expect(host.runtimes).toEqual([{ exe: node, kind: "node", present: true, used: ["hooks", "mcp"], projectEnv: [] }]);
     expect(line?.severity).toBe("green");
     expect(line?.detail).toBe(`hooks and mcp run under node (${node}); this console is node 24.9.0`);
   });
@@ -252,6 +290,38 @@ describe("doctor's Runtime line", () => {
     // The launcher prefers bun, so the Node way is spelled out, not left to "run it under X".
     expect(line?.fix).toContain(`node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect`);
     expect(line?.fix).not.toContain("under the runtime you want");
+  });
+
+  test("Bun commands written before --no-env-file: amber, naming the .env hole, and connect as the fix", () => {
+    const bun = join(root, "bin", "bun");
+    mkdirSync(join(root, "bin"));
+    writeFileSync(bun, "");
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `"${bun}" run "${HOOK_SCRIPT}"` }] }] } }),
+    );
+    writeFileSync(
+      join(root, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: bun, args: ["run", MCP_SCRIPT] } } }),
+    );
+    const { host, line } = runtimeLine();
+    expect(host.runtimes).toEqual([{ exe: bun, kind: "bun", present: true, used: ["hooks", "mcp"], projectEnv: ["hooks", "mcp"] }]);
+    expect(line?.severity).toBe("amber");
+    expect(line?.detail).toContain("hooks and mcp were wired before Counterparts told Bun to skip a project's .env");
+    expect(line?.fix).toContain("counterparts connect");
+    expect(line?.data["projectEnv"]).toBe("hooks,mcp");
+  });
+
+  test("Bun commands as connect writes them now: green", () => {
+    const bun = join(root, "bin", "bun");
+    mkdirSync(join(root, "bin"));
+    writeFileSync(bun, "");
+    hostWith(bun);
+    const { host, line } = runtimeLine();
+    expect(host.runtimes[0]?.projectEnv).toEqual([]);
+    expect(line?.severity).toBe("green");
+    expect(line?.data["projectEnv"]).toBe("ignored");
   });
 
   test("nothing of ours configured: no Runtime line at all", () => {
