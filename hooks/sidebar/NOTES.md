@@ -123,22 +123,58 @@ Found on the way (each **verified** unless marked):
 
 ## The frame rate and the load, measured
 
-The brain repaints on `$.clock.every(1000 / target)` with `$.ui.blit`. Each
-blit's completion time and each frame's compute time are recorded.
-`/counterparts fps` reports them and toggles a ` · N fps` suffix on the status
-line. In a tmux-hosted session (200 x 60, 256 colours):
+The brain (rebuilt in the brain lab, `dev/brain-lab/`, 2026-10-09; rounds and
+measurements in `dev/brain-lab/out/round-*/NOTES.md`) repaints on
+`$.clock.every(1000 / target)` with `$.ui.blit`. The target is **12**, which is
+the most it draws. Each tick, the brain says how much to draw:
+
+| Mode | When | Draws |
+|---|---|---|
+| burst | a pulse's arc is flying (about 1.75 s) | every tick: 12 fps |
+| calm | it sways, or a glow fades | every other tick: 6 fps |
+| rest | nothing has fired for a minute | nothing; the last frame stands |
+
+It sways 16° either side of 18° (side view to three-quarter) over 40 s. At its
+fastest, a pole of the 42 x 14 brain moves a quarter of a braille dot a frame.
+After a quiet minute it eases into 18° and stops; it eases back out when
+something fires.
+
+The brain keeps its own clock, the sum of the ticks' `dt`, never less than one
+tick's interval. So it moves with the ticks that draw it, a test's fake clock
+included.
+
+`frame()` hands back the standing frame when nothing has moved a fifth of a dot
+(no `fresh`). `tick` then sends no blit at all. Swaying at 6 fps, about 4.5
+frames a second change. 45 of the 42 x 14 brain's 588 cells change a frame,
+against 255 before the rebuild.
+
+**What `/counterparts fps` reports, and how to read it:**
+- **"fps achieved"** counts blits taken over the last 10 s, and only frames that
+  changed are blitted. Expect about 4.5 while it sways, 0 at rest, and up to 12
+  during an arc.
+- **"A frame takes N ms"** averages the last 120 frames asked for. That
+  includes frames the cache answered in microseconds, so it reads low. The cost
+  of a frame drawn afresh comes from `bun hooks/sidebar/dev/brain-lab/bench.ts`.
+  At load average about 7, it measured 0.99 ms at 42 x 14 (the old brain 1.46),
+  0.62 ms at 30 x 10, and 5.3 ms at 90 x 32.
+
+`/counterparts fps <1-30>` sets the target (the burst rate), which is kept.
+Calm draws every `round(target / 6)`-th tick: 6 fps at the default 12, 5 at
+15. Setting the target restarts the
+timer from the command's own `$`, which works live, as do the 30 s auto-closes
+started from a press.
+
+**Before the rebuild** (the point-cloud brain at a fixed rate, measured in a
+tmux-hosted session at 200 x 60 and 256 colours):
 
 | Target | Achieved | Frame compute |
 |---|---|---|
 | 10 | 9.1 fps | 6.2 ms |
 | 15 | 13.7 fps | 2.6 ms |
-| 6 (default) | 5.5 fps | 3–8 ms |
+| 6 (then the default) | 5.5 fps | 3–8 ms |
 
-`/counterparts fps <1-30>` sets the target, which is kept. That restarts the
-timer from the command's own `$`, which works live, as do the 30 s auto-closes
-started from a press.
-
-CPU of the `claude` process, idle, from `top` over 10 s:
+CPU of the `claude` process, idle, from `top` over 10 s (before the rebuild;
+re-measure live):
 
 | State | CPU | Before the fix round |
 |---|---|---|
@@ -170,7 +206,9 @@ Mike's first real run is the real measurement.
 
 - **The sidebar paints its own background** (`#05080c`, the mockup's black),
   the brain's empty cells included. The dock's grey made the navy glow read as
-  a dark box. In a light theme the palette would have been unreadable.
+  a dark box. In a light theme the palette would have been unreadable. The
+  glow itself is gone since the brain lab: a cell has one background, so a
+  radial glow steps.
 - **Search runs on Enter, not on every keystroke.** Each `recall` writes a count
   row (it counts under Retrieval's "deliberate look-ups") and the "shown this
   session" bookkeeping. Typing "publish" would have made seven.
@@ -217,8 +255,22 @@ Mike's first real run is the real measurement.
   session). Each drawing reads the stored value, so a switch turned in another
   session never shows stale. A session with the pane drawn follows such a
   change within a poll (its prompt caches are rebuilt then).
-- **The brain runs at 6 fps by default.** At 0.175 rad a second that stays
-  smooth, for well under half the CPU of 10.
+- **The brain is line art, not a point cloud** (brain lab, 2026-10-09). The
+  shape is 13 ellipsoids proportioned from Gray's lateral view, cast one ray
+  per braille dot. It draws:
+  - a bright rim, white-hot where it turns most edge-on;
+  - the lateral fissure carved as a channel over the temporal lobe;
+  - leaning, sinuous sulci;
+  - a lilac cerebellum with arc folia, tucked under the back;
+  - an open stalk for the stem;
+  - the near hemisphere's thalamus, hippocampus and amygdala in their region
+    colours.
+
+  The point cloud read as a blob at 42 x 14 (the judge's scorecards are in
+  `dev/brain-lab/out/`).
+- **The brain sways and rests rather than spinning** at a fixed 6 fps. Front
+  and back views read worst, and a still brain costs nothing. 12 fps is only
+  for arcs.
 
 ## Known gaps (v0.1)
 

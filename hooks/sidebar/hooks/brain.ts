@@ -95,11 +95,11 @@ function buildOuter(): Ell[] {
     out.push(ell([0.3 * s, -0.02, 0.45], [0.44, 0.4, 0.55], 0, CER_L + L)); // the frontal pole and its flat underside
     out.push(ell([0.26 * s, -0.12, -0.7], [0.38, 0.26, 0.3], 0, CER_L + L)); // the occipital pole
     out.push(ell([T_C[0] * s, T_C[1], T_C[2]], T_R, T_TILT, TMP_L + L)); // the temporal lobe
-    out.push(ell([0.24 * s, -0.56, -0.5], [0.3, 0.22, 0.3], 0, CBL_L + L)); // the cerebellum, a tenth short of the back
+    out.push(ell([0.24 * s, -0.57, -0.51], [0.3, 0.25, 0.29], 0.25, CBL_L + L)); // the cerebellum, a tenth short of the back, lowest toward its back
   }
   out.push(ell([0, -0.2, -0.12], [0.12, 0.14, 0.12], 0, STEM)); // midbrain
-  out.push(ell([0, -0.44, -0.07], [0.14, 0.15, 0.14], 0, STEM)); // pons
-  out.push(ell([0, -0.92, -0.15], [0.1, 0.5, 0.1], 0.2, STEM)); // medulla: down and a little back, before the cerebellum, off the bottom
+  out.push(ell([0, -0.44, -0.07], [0.12, 0.14, 0.12], 0, STEM)); // pons
+  out.push(ell([0, -0.92, -0.15], [0.066, 0.5, 0.066], 0.2, STEM)); // medulla: one stalk about 5 dots wide, down and a little back, off the bottom
   return out;
 }
 
@@ -184,7 +184,7 @@ const fsin = (x: number): number => SIN_T[((x * SIN_K) | 0) & (SIN_N - 1)] as nu
 // one part, NaN where it does not run. `ax` is |x|: both hemispheres alike.
 
 /** The central sulcus: from the top just behind the middle, down and leaning forward toward the fissure. */
-const Zc = (y: number): number => -0.12 + (0.64 - y) * 0.42;
+const Zc = (y: number): number => -0.16 + (0.64 - y) * 0.62;
 /** The temporal lobe's own frame: along its height, and along its length. */
 const tY = (y: number, z: number): number => (y - T_C[1]) * T_CT + (z - T_C[2]) * T_ST;
 const tZ = (y: number, z: number): number => -(y - T_C[1]) * T_ST + (z - T_C[2]) * T_CT;
@@ -198,31 +198,34 @@ function foldBits(g: number, ax: number, y: number, z: number, sv: number, mk: n
   let s = 0, v = 0;
   if (g <= 1) {
     const zc = Zc(y);
-    // central, and the gyri either side of it parallel
-    if (y > 0.03) { v |= 1; if (z - zc - 0.03 * fsin(y * 17 + 0.6) - 0.012 * fsin(ax * 15) >= 0) s |= 1; }
-    if (y > 0.06 && y < 0.58) { v |= 2; if (z - zc - 0.2 - 0.026 * fsin(y * 15 + 2.2) >= 0) s |= 2; }
-    if (y > 0.08 && y < 0.6 && z > -0.75) { v |= 4; if (z - zc + 0.19 - 0.026 * fsin(y * 14 + 4.1) >= 0) s |= 4; }
-    // frontal: superior and inferior, front to back
-    if (y > 0.18 && z > zc + 0.28 && z < 0.86) { v |= 8; if (ax - 0.25 - 0.03 * fsin(z * 12 + 1) >= 0) s |= 8; }
-    if (ax > 0.32 && y > -0.3 && z > zc + 0.28 && z < 0.84) { v |= 16; if (y - 0.08 - 0.1 * (z - 0.5) - 0.028 * fsin(z * 13 + 0.4) >= 0) s |= 16; }
-    // parietal: intraparietal, front to back
-    if (ax > 0.28 && z < zc - 0.26 && z > -0.82) { v |= 32; if (y - 0.3 - 0.18 * (z + 0.45) - 0.03 * fsin(z * 11 + 2) >= 0) s |= 32; }
-    // occipital: transverse
-    if (ax > 0.2 && y > -0.3 && y < 0.32) { v |= 64; if (z + 0.8 - 0.12 * y - 0.025 * fsin(y * 14) >= 0) s |= 64; }
+    // central, and the gyri either side of it parallel: leaning back at the top, wobbling about
+    // a dot and a half every eight (the wobble is what makes them gyri and not rulings)
+    if (y > 0.03) { v |= 1; if (z - zc - 0.04 * fsin(y * 27 + 0.6) - 0.016 * fsin(y * 53 + 2) - 0.012 * fsin(ax * 15) >= 0) s |= 1; }
+    if (y > 0.08 && y < 0.56) { v |= 2; if (z - zc - 0.2 - 0.038 * fsin(y * 25 + 2.2) - 0.015 * fsin(y * 49 + 1) >= 0) s |= 2; }
+    if (y > 0.1 && y < 0.58 && z > -0.75) { v |= 4; if (z - zc + 0.19 - 0.038 * fsin(y * 26 + 4.1) - 0.015 * fsin(y * 47 + 3) >= 0) s |= 4; }
+    // frontal: superior and inferior, front to back, stopping short of the precentral (no T-joins)
+    if (y > 0.18 && z > zc + 0.34 && z < 0.86) { v |= 8; if (ax - 0.25 - 0.035 * fsin(z * 22 + 1) >= 0) s |= 8; }
+    if (ax > 0.32 && y > -0.3 && z > zc + 0.34 && z < 0.84) { v |= 16; if (y - 0.08 - 0.12 * (z - 0.5) - 0.036 * fsin(z * 24 + 0.4) >= 0) s |= 16; }
+    // parietal: intraparietal, front to back, starting clear of the postcentral
+    if (ax > 0.28 && z < zc - 0.33 && z > -0.8) { v |= 32; if (y - 0.3 - 0.2 * (z + 0.45) - 0.038 * fsin(z * 21 + 2) >= 0) s |= 32; }
+    // occipital: a short one, tilted like the rest rather than parallel to the back edge
+    if (ax > 0.2 && y > -0.18 && y < 0.14) { v |= 64; if (z + 0.72 + 0.55 * y - 0.03 * fsin(y * 26) >= 0) s |= 64; }
   } else if (g <= 3) {
     // temporal: superior and inferior, along the lobe
     const qy = tY(y, z), qz = tZ(y, z);
-    if (Math.abs(qz) < 0.4) { v |= 128; if (qy - 0.03 - 0.02 * fsin(qz * 14 + 0.5) >= 0) s |= 128; }
-    if (qz > -0.36 && qz < 0.3) { v |= 256; if (qy + 0.09 - 0.02 * fsin(qz * 12 + 2) >= 0) s |= 256; }
+    if (Math.abs(qz) < 0.4) { v |= 128; if (qy - 0.03 - 0.028 * fsin(qz * 24 + 0.5) >= 0) s |= 128; }
+    if (qz > -0.36 && qz < 0.3) { v |= 256; if (qy + 0.09 - 0.026 * fsin(qz * 22 + 2) >= 0) s |= 256; }
   }
   if (g <= 3 && mk > 0) {
     v |= B_MAZE;
     if (fsin(mk * (0.8 * ax + 0.6 * y) + 1.3) + fsin(mk * (-0.45 * y + 0.89 * z) + 2.1)
       + fsin(mk * (0.55 * z - 0.83 * ax) + 0.4) + 0.8 * fsin(mk * 1.6 * (0.36 * ax + 0.66 * y - 0.66 * z) + 2.7) >= 0) s |= B_MAZE;
   } else if (g === 4 || g === 5) {
-    // the folia: horizontal stripes every other dot row, bending a little with the cerebellum
+    // the folia: shallow arcs every other dot row, round a point above and in front of the
+    // cerebellum, so they follow its round back and bottom like the reference's fingerprint
     v |= B_FOLIA;
-    if (fsin(Math.PI * sv * (y + 0.1 * (z + 0.5) * (z + 0.5)) + 1e-3) >= 0) s |= B_FOLIA;
+    const dy = y + 0.2, dz = z + 0.36;
+    if (fsin(Math.PI * sv * Math.sqrt(dy * dy + dz * dz) + 1e-3) >= 0) s |= B_FOLIA;
   }
   FS = s; FV = v;
 }
@@ -251,9 +254,9 @@ function toward(c: number, t: Rgb, m: number): number {
 }
 
 const CYAN: Rgb = [0, 205, 255], TEAL: Rgb = [40, 232, 182], WHITE: Rgb = [255, 255, 255];
-const RIM = pack(120, 238, 255);
-const CBL_COL = { rim: pack(246, 182, 238), folia: pack(214, 140, 214), crease: pack(196, 128, 200) };
-const STEM_COL = { rim: pack(128, 150, 255), crease: pack(112, 132, 245), stipple: pack(40, 150, 210) };
+const RIM = pack(120, 238, 255), HOT: Rgb = [200, 250, 255];
+const CBL_COL = { rim: pack(246, 182, 238), folia: pack(178, 114, 180), crease: pack(196, 128, 200) };
+const STEM_COL = { rim: pack(120, 166, 255), crease: pack(112, 150, 250), stipple: pack(40, 170, 220) };
 const INNER_COL = [pack(255, 196, 76), pack(176, 126, 255), pack(255, 110, 160)];
 const MONO_GREY = [0, 62, 100, 112, 150, 186, 186, 200];
 
@@ -304,6 +307,14 @@ export class Brain {
   /** Of the surface that faces away from the middle, about how much the stipple covers. */
   stippleDensity = 0.15;
   private phase = 0;
+  /**
+   * The brain's own time, the sum of `step`'s `dt`: the sway, the rest, the
+   * glows and the arcs all run on it, so the brain moves with the ticks that
+   * draw it (and a test's clock), whatever the wall clock says.
+   */
+  private clock = 0;
+  /** Whether the last `frame()` drew afresh; false when it handed back the standing frame. */
+  fresh = true;
   /** The sway's amplitude: 1 swaying, 0 at rest at the centre; eases between them over a few seconds. */
   private motion = 1;
   private lastActive = -1;
@@ -322,17 +333,18 @@ export class Brain {
     return this.seed / 0x7fffffff;
   }
 
-  /** A region fires: it flares in `col`, and a signal arcs to it from `from`. */
+  /** A region fires: it flares in `col`, and a signal arcs to it from `from`. (`now` is the caller's; the arc runs on the brain's own clock.) */
   pulse(region: RegionKey, col: Rgb, now: number, from: RegionKey = 'thalamus'): void {
+    void now;
     const r = RID[region];
-    this.lastActive = now;
+    this.lastActive = this.clock;
     this.glowTarget[r] = 1;
     this.glowCol[r] = col;
     const jit = (a: V3): V3 => [a[0] + (this.rand() - 0.5) * 0.12, a[1] + (this.rand() - 0.5) * 0.12, a[2] + (this.rand() - 0.5) * 0.12];
     const p0 = jit((REGIONS[RID[from]] as Region).anchor), p2 = jit((REGIONS[r] as Region).anchor);
     const k = 1.35 + 0.3 * this.rand();
     const mid: V3 = [((p0[0] + p2[0]) / 2) * k, ((p0[1] + p2[1]) / 2) * k + 0.3, ((p0[2] + p2[2]) / 2) * k];
-    this.signals.push({ p0, mid, p2, reg: r, col, born: now, dur: 1400 });
+    this.signals.push({ p0, mid, p2, reg: r, col, born: this.clock, dur: 1400 });
   }
 
   /** Holds a region lit while a mechanism is picked (called every frame it is). */
@@ -345,8 +357,10 @@ export class Brain {
 
   /** Sways the view and lets glows ease and fade; `dt` in milliseconds. */
   step(now: number, dt: number): void {
-    if (this.lastActive < 0 || this.poked) { this.lastActive = now; this.poked = false; }
-    const awake = now - this.lastActive < this.restAfter ? 1 : 0;
+    void now;
+    this.clock += dt;
+    if (this.lastActive < 0 || this.poked) { this.lastActive = this.clock; this.poked = false; }
+    const awake = this.clock - this.lastActive < this.restAfter ? 1 : 0;
     this.motion += (awake - this.motion) * Math.min(1, dt / 2500);
     if (awake === 0 && this.motion < 0.004) this.motion = 0; // settled at the centre: rest exactly
     if (this.spin !== 0) {
@@ -358,7 +372,7 @@ export class Brain {
       this.glow[i] = g + (tg - g) * Math.min(1, 0.012 * dt);
       this.glowTarget[i] = tg * Math.pow(0.9993, dt);
     }
-    this.signals = this.signals.filter(s => now - s.born < s.dur * 1.25);
+    this.signals = this.signals.filter(s => this.clock - s.born < s.dur * 1.25);
   }
 
   /**
@@ -415,9 +429,12 @@ export class Brain {
   frame(cols: number, rows: number, now: number, opts: FrameOptions = {}): Uint32Array {
     const S = this.scratchFor(cols, rows);
     // nothing that shapes the picture has moved since the last frame of this size: it stands
-    const key = this.frameKey(opts, Math.min(cols * 2 / 2.1, (rows * 4) / 1.5));
-    if (this.signals.length === 0 && key === S.key) return S.out;
+    const key = this.frameKey(opts, Math.min(cols * 2 / 2.1, (rows * 4) / 1.58));
+    if (this.signals.length === 0 && key === S.key) { this.fresh = false; return S.out; }
+    this.fresh = true;
     S.key = this.signals.length === 0 ? key : '';
+    void now;
+    const clock = this.clock;
     const { DW, DH, dep, grp, eid, idep, igrp, hx, hy, hz, fs, fv, near, fold, stack, pri, col, out } = S;
     const N = DW * DH;
     const mono = opts.mono === true;
@@ -428,8 +445,8 @@ export class Brain {
     const fx = Math.cos(th) * Math.cos(ph), fy = -Math.sin(ph), fz = -Math.sin(th) * Math.cos(ph); // into the screen
     const rx = -Math.sin(th), ry = 0, rz = -Math.cos(th); // screen right
     const ux = fy * rz - fz * ry, uy = fz * rx - fx * rz, uz = fx * ry - fy * rx; // screen up
-    const SC = Math.min(DW / 2.1, DH / 1.5 / DOT_ASPECT), SV = SC * DOT_ASPECT;
-    const midX = DW / 2, midY = DH / 2 - 0.07 * SV;
+    const SC = Math.min(DW / 2.1, DH / 1.58 / DOT_ASPECT), SV = SC * DOT_ASPECT;
+    const midX = DW / 2, midY = DH / 2 - 0.1 * SV;
     const toX = (x: number, y: number, z: number): number => midX + (x * rx + y * ry + z * rz) * SC;
     const toY = (x: number, y: number, z: number): number => midY - (x * ux + y * uy + z * uz) * SV;
 
@@ -483,7 +500,7 @@ export class Brain {
         if (Q < 1) { grp[i] = TMP_L + (x < 0 ? 0 : 1); continue; }
         if (qy > -0.35 * T_R[1] && qz > -0.5 * T_R[2]) {
           // the channel narrows to nothing at its back end, so its lips meet as a fissure's do
-          const taper = Math.min(1, (qz + 0.5 * T_R[2]) / (0.3 * T_R[2]));
+          const t0 = Math.min(1, (qz + 0.5 * T_R[2]) / (0.5 * T_R[2])), taper = t0 * (2 - t0);
           const gy = (2 * qy) / (T_R[1] * T_R[1]), gz = (2 * qz) / (T_R[2] * T_R[2]);
           if ((Q - 1) / Math.sqrt(gy * gy + gz * gz) < W * taper) grp[i] = CHAN;
         }
@@ -503,6 +520,8 @@ export class Brain {
 
     // how far each dot is from the outside, up to 3 (the canvas edge is not outside: the stalk runs off it)
     for (let i = 0; i < N; i++) near[i] = outside(i) ? 0 : 3;
+    // the top and side edges close the shape; the bottom one is open, the stalk runs off it
+    for (let i = 0; i < N; i++) { const X = i % DW; if (near[i] === 3 && (i < DW || X === 0 || X === DW - 1)) near[i] = 1; }
     for (let pass = 1; pass <= 2; pass++) {
       for (let Y = 0; Y < DH; Y++) for (let X = 0; X < DW; X++) {
         const i = Y * DW + X;
@@ -538,13 +557,13 @@ export class Brain {
       return pack((CYAN[0] + (TEAL[0] - CYAN[0]) * w) * k, (CYAN[1] + (TEAL[1] - CYAN[1]) * w) * k, (CYAN[2] + (TEAL[2] - CYAN[2]) * w) * k);
     };
     /** The stem fades as it drops, to nothing at the bottom row. */
-    const stemTop = midY + 0.55 * SV;
-    const stemFade = (Y: number): number => Math.max(0.3, Math.min(1, 1 - (0.7 * (Y - stemTop)) / Math.max(1, DH - stemTop)));
+    /** The stalk keeps its strength down to the last row of cells, where it fades out. */
+    const stemFade = (Y: number): number => (Y >= DH - 4 ? 0.5 : 1);
     type Kind = 'rim' | 'crease' | 'fold' | 'maze';
     const lineCol = (g: number, i: number, kind: Kind): number => {
       if (g === STEM) return dim(kind === 'rim' ? STEM_COL.rim : STEM_COL.crease, stemFade(Math.floor(i / DW)));
       if (g === CBL_L || g === CBL_R) return kind === 'rim' ? CBL_COL.rim : kind === 'crease' ? CBL_COL.crease : CBL_COL.folia;
-      if (kind === 'rim') return RIM;
+      if (kind === 'rim') return rimCol(i);
       return cortexCol(hy[i] as number, hz[i] as number, kind === 'maze' ? 0.34 : kind === 'crease' ? 0.8 : 0.62);
     };
     const mark = (i: number, p: number, kind: Kind): void => {
@@ -552,6 +571,26 @@ export class Brain {
       const reg = regionAt(g, hy[i] as number, hz[i] as number, i % DW, Math.floor(i / DW));
       if (lit(reg) >= 0.05) put(i, P_LIT, flare(reg, lineCol(g, i, kind)));
       else put(i, p, lineCol(g, i, kind));
+    };
+
+    /** How squarely the surface under dot `i` faces us, 0 edge-on to 1 head-on; `nX nY nZ` hold its normal. */
+    let nX = 0, nY = 0, nZ = 0;
+    const facing = (i: number): number => {
+      const e = OUTER[eid[i] as number] as Ell;
+      const dx = (hx[i] as number) - e.cx, dy = (hy[i] as number) - e.cy, dz = (hz[i] as number) - e.cz;
+      const nx = dx * e.ix * e.ix, ly = (dy * e.ct + dz * e.st) * e.iy * e.iy, lz = (-dy * e.st + dz * e.ct) * e.iz * e.iz;
+      const ny = ly * e.ct - lz * e.st, nz = ly * e.st + lz * e.ct, l = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      nX = nx / l; nY = ny / l; nZ = nz / l;
+      return Math.abs(nX * fx + nY * fy + nZ * fz);
+    };
+    /** The rim runs white-hot where it turns most edge-on toward the upper left, light cyan elsewhere. */
+    const LX = -0.55, LY = 0.83;
+    const rimCol = (i: number): number => {
+      const face = facing(i);
+      const sx = nX * rx + nY * ry + nZ * rz, sy = nX * ux + nY * uy + nZ * uz;
+      const sl = Math.sqrt(sx * sx + sy * sy) || 1;
+      const lit2 = Math.max(0, (sx * LX + sy * LY) / sl);
+      return toward(RIM, HOT, Math.min(1, lit2 * lit2 * 1.3 * (1 - face)));
     };
 
     // 3. the rim, then the edges inside it
@@ -570,12 +609,14 @@ export class Brain {
           const gn = grp[nr] as number, gf = grp[fr] as number;
           if (Math.abs(di - dj) > JUMP) {
             if ((near[nr] as number) <= 2) continue; // an inner edge hugging the rim would double it
-            if (gn <= TMP_R && gf <= TMP_R && (gn & 1) !== (gf & 1)) mark(nr, P_FOLD, 'fold'); // the midline cleft, quiet
-            else if (gn <= TMP_R && gf <= TMP_R) mark(nr, P_FOLD, 'fold');
-            else mark(nr, P_OUTLINE, 'rim');
+            if (gn <= TMP_R && gf <= TMP_R) {
+              // cortex before cortex: the midline cleft, or the temporal pole before the frontal lobe, quiet;
+              // one lobe's piece before another of the same lobe is no edge at all (it drew ghost arcs)
+              if (((gn & 1) !== (gf & 1) && facing(nr) > 0.35) || (gn >= TMP_L) !== (gf >= TMP_L)) mark(nr, P_FOLD, 'fold');
+            } else mark(nr, P_OUTLINE, 'rim');
           } else if (gj !== g) {
             const lo = Math.min(g, gj), hi = Math.max(g, gj);
-            if (hi <= TMP_R) { const m = g & 1 ? i : j; if ((g & 1) !== (gj & 1) && (near[m] as number) >= 3) mark(m, P_FOLD, 'fold'); } // the midline; temporal-to-cerebrum is the channel's
+            if (hi <= TMP_R) { const m = g & 1 ? i : j; if ((g & 1) !== (gj & 1) && (near[m] as number) >= 3 && facing(m) > 0.35) mark(m, P_FOLD, 'fold'); } // the midline, where it faces us; temporal-to-cerebrum is the channel's
             else if (lo === CBL_L && hi === CBL_R) mark(g === CBL_R ? i : j, P_FOLD, 'crease');
             else mark(g === hi ? i : j, P_FISSURE, 'crease'); // the stem's and the cerebellum's edges against the rest
           }
@@ -584,22 +625,15 @@ export class Brain {
     }
 
     // 4. the folds: named sulci, long and curved; the maze of gyri, faint; the folia
-    const facing = (i: number): number => {
-      const e = OUTER[eid[i] as number] as Ell;
-      const dx = (hx[i] as number) - e.cx, dy = (hy[i] as number) - e.cy, dz = (hz[i] as number) - e.cz;
-      const nx = dx * e.ix * e.ix, ly = (dy * e.ct + dz * e.st) * e.iy * e.iy, lz = (-dy * e.st + dz * e.ct) * e.iz * e.iz;
-      const ny = ly * e.ct - lz * e.st, nz = ly * e.st + lz * e.ct;
-      return Math.abs(nx * fx + ny * fy + nz * fz) / Math.sqrt(nx * nx + ny * ny + nz * nz);
-    };
     fold.fill(0);
-    const mk = this.mazeFill ? this.gyriK * Math.sqrt(SC / 35) : 0;
+    const mk = this.mazeFill && SC >= 50 ? this.gyriK * Math.sqrt(SC / 35) : 0; // below that the maze is dashes; the named folds carry it
     for (let i = 0; i < N; i++) {
       const g = grp[i] as number;
       if (g < 0 || g > CBL_R) { fv[i] = 0; continue; }
       foldBits(g, Math.abs(hx[i] as number), hy[i] as number, hz[i] as number, SV, mk);
       fs[i] = FS; fv[i] = FV;
     }
-    const CLASSES = [[B_NAMED, 1, 3, 0.2], [B_FOLIA, 3, 2, 0.12], [B_MAZE, 2, 3, 0.3]] as const;
+    const CLASSES = [[B_NAMED, 1, 3, 0.25], [B_FOLIA, 3, 2, 0.12], [B_MAZE, 2, 3, 0.4]] as const; // folds keep off surfaces seen edge-on (they ran parallel to the top rim)
     for (let i = 0; i < N; i++) {
       const vi = fv[i] as number;
       if (vi === 0) continue;
@@ -643,31 +677,46 @@ export class Brain {
     keepLong(3, 3, P_FOLD, 'fold');
     keepLong(2, 6, P_STIPPLE, 'maze');
 
-    // 5. the stipple: fixed surface points, densest where the surface turns away (the rim's glow), sparse where it faces us
+    // 5. the stipple: fixed surface points, sparse over the body so the middle reads as dark
+    // glass, a little denser on the stem; lit, a region fills with them evenly
     {
       const want = Math.min(1, (this.stippleDensity * 6 * SC * SC) / (STIPPLE.n * 0.5));
-      const { P, N: Nm, G, rank } = STIPPLE;
+      const { P, G, rank } = STIPPLE;
       let most = 0;
       for (let i = 0; i < REGIONS.length; i++) most = Math.max(most, lit(i));
-      const stop = want * (2.42 + 3.2 * most);
+      const stop = want * (1.6 + 3.2 * most);
       const eps = 1.6 / SC;
       for (let k = 0; k < STIPPLE.n && (rank[k] as number) < stop; k++) {
-        const face = Math.abs((Nm[k * 3] as number) * fx + (Nm[k * 3 + 1] as number) * fy + (Nm[k * 3 + 2] as number) * fz);
-        const turn = 1 - face;
-        const wgt = 0.22 + 2.2 * turn * turn * turn;
-        const r = rank[k] as number;
-        if (r >= want * (wgt + 3.2 * most)) continue; // not shown even if lit: skip before projecting
+        const g = G[k] as number, r = rank[k] as number;
+        const wgt = g === STEM ? 1.6 : 0.55;
+        if (r >= want * (wgt + 3.2 * most)) continue;
         const x = P[k * 3] as number, y = P[k * 3 + 1] as number, z = P[k * 3 + 2] as number;
         const X = Math.floor(toX(x, y, z)), Y = Math.floor(toY(x, y, z));
         if (X < 0 || Y < 0 || X >= DW || Y >= DH) continue;
         const i = Y * DW + X;
+        if ((near[i] as number) < 3 && g !== STEM) continue; // the band by the rim is the glow's
         if (x * fx + y * fy + z * fz > (dep[i] as number) + eps) continue;
-        const g = G[k] as number;
         const reg = regionAt(g, y, z, X, Y), gl = lit(reg);
-        if (r >= want * (wgt + 3.2 * gl)) continue; // lit, it fills evenly
-        const base = g === STEM ? dim(STEM_COL.stipple, stemFade(Y)) : cortexCol(y, z, 0.26 + 0.42 * turn);
+        if (r >= want * (wgt + 3.2 * gl)) continue;
+        const base = g === STEM ? dim(STEM_COL.stipple, stemFade(Y)) : cortexCol(y, z, 0.42);
         if (gl >= 0.05 && r >= want * wgt) put(i, P_LIT, flare(reg, base));
         else put(i, P_STIPPLE, gl >= 0.05 ? flare(reg, base) : base);
+      }
+      // the rim's glow: about a fifth of the dots right inside the rim, at under half its brightness,
+      // chosen by where they sit on the surface (a dot-sized cell of it), so they hold still as it turns
+      const q = 1.5 / SC;
+      const cellHash = (i: number): number => ((Math.imul(Math.floor((hx[i] as number) / q), 73856093) ^ Math.imul(Math.floor((hy[i] as number) / q), 19349663)
+        ^ Math.imul(Math.floor((hz[i] as number) / q), 83492791)) >>> 0) & 1023;
+      for (let i = 0; i < N; i++) {
+        const g = grp[i] as number, nr = near[i] as number;
+        if (!isPart(g) || nr < 2) continue;
+        if (g === STEM) {
+          // the stalk's inside: a sparse cyan fill, strong enough to share a cell with its edges, so it reads as one stalk
+          if (cellHash(i) < 420) put(i, P_FISSURE, dim(STEM_COL.stipple, stemFade(Math.floor(i / DW))));
+          continue;
+        }
+        if (nr !== 2 || cellHash(i) >= 220) continue;
+        put(i, P_STIPPLE, dim(g >= CBL_L ? CBL_COL.rim : RIM, 0.45));
       }
     }
 
@@ -696,6 +745,7 @@ export class Brain {
             }
           }
         } else if (edge) put(i, P_INNER, base);
+        else if (g === THAL && SC < 50 && !mono) put(i, P_INNER, dim(base, 0.85)); // small, a ring breaks up: a solid oval
         else if (!mono && (X + 2 * Y) % 4 === 0) put(i, P_INNER, dim(base, 0.62));
       }
     }
@@ -718,8 +768,8 @@ export class Brain {
     // 7. signals arcing between regions
     if (!mono) {
       for (const s of this.signals) {
-        const tt = Math.min(1, (now - s.born) / s.dur);
-        const fadeS = now - s.born < s.dur ? 1 : 1 - (now - s.born - s.dur) / (s.dur * 0.25);
+        const tt = Math.min(1, (clock - s.born) / s.dur);
+        const fadeS = clock - s.born < s.dur ? 1 : 1 - (clock - s.born - s.dur) / (s.dur * 0.25);
         if (fadeS <= 0) continue;
         for (let k = 0; k <= 14; k++) {
           const t = tt - k * 0.022;
@@ -763,7 +813,7 @@ export class Brain {
         let bits = 0, n = 0, r = 0, g = 0, b = 0;
         for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
           const i = (cy * 4 + dy) * DW + cx * 2 + dx, p = pri[i] as number;
-          if (p === 0 || (p < P_FOLD && top > P_FOLD)) continue;
+          if (p === 0 || (p < P_FOLD && top > P_FOLD) || (p < P_FISSURE && (top === P_OUTLINE || top === P_FISSURE))) continue;
           bits |= (BRAILLE[dy] as number[])[dx] ?? 0;
           if (p === top) { const c = col[i] as number; r += (c >> 16) & 255; g += (c >> 8) & 255; b += c & 255; n++; }
         }
@@ -793,16 +843,15 @@ export class Brain {
     };
     const label = ` ${tag.label} `;
     let best: { x: number; y: number; cost: number } | null = null;
-    for (const dy of [-2, -3, 2, 3, -1, 1, -4, 4]) {
+    for (const dy of [-2, -3, 2, 3, -1, 1, -4, 4, -5, 5, -6, 6]) {
       const ly = ay + dy;
       if (ly < 0 || ly >= rows) continue;
-      for (const right of [true, false]) {
-        const lx = right ? ax + 2 : ax - label.length - 1;
+      for (const lx of [ax + 2, ax - label.length - 1, 0, cols - label.length]) {
         if (lx < 0 || lx + label.length > cols) continue;
-        let cost = Math.abs(dy) * 0.6;
+        let cost = Math.abs(dy) * 0.6 + Math.abs(lx + label.length / 2 - ax) * 0.08;
         for (let k = 0; k < label.length; k++) {
           const t = cellTop(lx + k, ly);
-          cost += t >= P_LIT ? 6 : t === P_INNER ? 4 : t >= P_FISSURE ? 1.5 : t > 0 ? 0.3 : 0;
+          cost += t >= P_LIT ? 6 : t === P_INNER ? 4 : t >= P_FISSURE ? 3 : t > 0 ? 0.3 : 0;
         }
         if (best === null || cost < best.cost) best = { x: lx, y: ly, cost };
       }

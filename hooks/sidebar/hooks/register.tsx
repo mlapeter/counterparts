@@ -685,7 +685,8 @@ function redrawAfterRefusal($: EngineInterface): void {
 function tick($: EngineInterface, gen: number): void {
   if (gen !== run.brainGen) return
   const now = Date.now()
-  const dt = fps.lastTick === 0 ? 0 : Math.min(250, now - fps.lastTick)
+  // the brain moves at least a tick's worth each tick: its clock is the ticks', not the wall's
+  const dt = fps.lastTick === 0 ? 0 : Math.min(250, Math.max(now - fps.lastTick, 1000 / fps.target))
   fps.lastTick = now
   brain.step(now, dt)
   if (!raster.live) {
@@ -698,6 +699,7 @@ function tick($: EngineInterface, gen: number): void {
   fps.ticks += 1
   if (mode === 'rest' || (mode === 'calm' && fps.ticks % Math.max(1, Math.round(fps.target / brain.calmFps)) !== 0)) return
   const cells = frameCells(raster.cols, raster.rows, now)
+  if (!brain.fresh) return // nothing moved a fifth of a dot: the frame on screen stands, no blit
   fps.inFlight = true
   void $.ui.blit({ requestId: PANE, key: 'brain', cells, columns: raster.cols, rows: raster.rows }).then(
     r => {
