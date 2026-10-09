@@ -144,6 +144,14 @@ describe("the ask action searches in my voice", () => {
     expect(plain.searched?.changed).toBe(false);
   });
 
+  test("in meaning mode the owner's I is you, never his name: his name would be a card meaning takes as the subject (review of #333)", () => {
+    const meaning = buildArgv("ask", { question: "what has Ilya been to me", mode: "meaning" }, ctx);
+    expect(meaning.argv.slice(-2)).toEqual(["--", "what has Ilya been to you"]);
+    expect(meaning.argv).toContain("--voiced");
+    const facts = buildArgv("ask", { question: "what has Ilya been to me", mode: "facts" }, ctx);
+    expect(facts.argv.at(-1)).toBe("what has Ilya been to Mike");
+  });
+
   test("an --id ask is an address, never turned", () => {
     const b = buildArgv("ask", { id: "mem_0123456789ab" }, ctx);
     expect(b.argv.slice(-2)).toEqual(["--id", "mem_0123456789ab"]);

@@ -1,13 +1,13 @@
 /**
  * The memories tab, round 3 (2026-09-27, a try, not a rule): the memory card's
  * road to the core names the fast lane when it applies (M1); the curve starts
- * at "written" until there is a real use (M2); Ask folds a journal chapter and
- * the memory drawn from it into one answer (M3); a dream's near-copy merges
- * say what they were (M4).
+ * at "written" until there is a real use (M2); a journal chapter and the
+ * memory drawn from it are one answer to Ask (M3; folded by facts mode itself
+ * since 2026-10-09); a dream's near-copy merges say what they were (M4).
  *
  * The card's words are pure browser modules (`shared/memory-card-words.js`,
- * `pages/memories/fold.js`), imported here directly — `diff.js` in
- * `dashboard-self.test.ts` is the precedent.
+ * and Ask's rows in `pages/memories/sections/search.js`), imported here
+ * directly — `diff.js` in `dashboard-self.test.ts` is the precedent.
  *
  * Hermetic: a fresh temp store seeded through `tools/demo`, the extra states
  * written through the store's own API, then removed.
@@ -24,32 +24,25 @@ import { TUNABLES, promotionEligibility } from "../src/core/physics/index.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
-import { chapterLinks, coreRoad, memoryDetail } from "../src/adapters/dashboard/web/views.js";
+import { runAction } from "../src/adapters/dashboard/web/actions.js";
+import { coreRoad, memoryDetail } from "../src/adapters/dashboard/web/views.js";
 import type { MemoryDetail } from "../src/adapters/dashboard/web/views.js";
 import { isChapterMemory } from "../src/adapters/dashboard/web/views/memory-words.js";
 // @ts-expect-error — a plain browser module, no declarations
 import * as cardWordsJs from "../src/adapters/dashboard/web/shared/memory-card-words.js";
-// @ts-expect-error — a plain browser module, no declarations
-import * as foldJs from "../src/adapters/dashboard/web/pages/memories/fold.js";
+import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { seedDemo } from "../tools/demo/seed.js";
 
 // The browser modules' shapes, as this file uses them.
 type Step = MemoryDetail["timeline"][number];
 interface Ref { id: string; text: string; confidential: boolean }
 interface VersionRow { rel: string; dream: boolean; label: string; day: number | null; reason: string | null; refs: Ref[] }
-interface Link { episodeId: string; label: string | null }
-interface Answer { id: string; journal: boolean; tier: string; kind: string; title: string | null; body: string }
-type Folded = Answer & { from: Link | null; chapter: boolean };
 type CurveReading = Pick<MemoryDetail, "curve" | "uses" | "lastUsedDay">;
 const { coreRoadLine, curveStart, fadingSince, versionRows } = cardWordsJs as {
   coreRoadLine: (p: MemoryDetail["promotion"], promoted: boolean) => string;
   curveStart: (d: CurveReading) => string;
   fadingSince: (d: CurveReading) => string;
   versionRows: (timeline: readonly Step[]) => VersionRow[];
-};
-const { foldChapters, fromWords } = foldJs as {
-  foldChapters: (mems: readonly Answer[], links: Record<string, Link>) => Folded[];
-  fromWords: (from: Link | null | undefined) => string;
 };
 
 const HOST = "127.0.0.1:4747";
@@ -228,59 +221,53 @@ describe("M2 — the curve starts at 'written' until there is a real use", () =>
   });
 });
 
-describe("M3 — Ask folds a journal chapter and the memory drawn from it into one answer", () => {
-  function aChapter(src: DashboardSource): { memory: string; episode: string; title: string | null } {
+describe("M3 — a journal chapter and the memory drawn from it are one answer", () => {
+  // Since 2026-10-09 the page has no fold of its own (`fold.js`, and the
+  // `/api/chapters` read it took its links from, are gone): facts mode folds
+  // the pair itself (`mcp/facts.ts`, "a chapter and its own copy are one
+  // result") and the page draws what the answer says. Checked on a real
+  // answer, through the dashboard's own action, not on a hand-made one.
+  function aChapter(src: DashboardSource): { memory: string; episode: string } {
     for (const id of src.store.list({ archived: false })) {
       const row = src.store.row(id);
       if (row === undefined || !isChapterMemory(row)) continue;
       const episode = (JSON.parse(row.meta) as Record<string, unknown>)["episodeId"] as string;
-      return { memory: id, episode, title: src.store.row(episode)?.title ?? null };
+      return { memory: id, episode };
     }
     throw new Error("the demo store should hold a chapter memory");
   }
 
-  test("/api/chapters names the chapter a chapter memory came from, and nothing for anything else", () => {
-    withSrc((src) => {
-      const ch = aChapter(src);
-      const v = chapterLinks(src, [ch.memory, ch.episode, ids.fact as string, "mem_nothinghere"]);
-      expect(Object.keys(v.links)).toEqual([ch.memory]);
-      expect(v.links[ch.memory]).toEqual({ episodeId: ch.episode, label: ch.title?.trim() || null });
-      const reply = router(new URL(`http://${HOST}/api/chapters?ids=${ch.memory},${ch.episode}`), HOST, src);
-      expect(reply.status).toBe(200);
-      expect(JSON.parse(reply.body)).toEqual(v);
-      const none = router(new URL(`http://${HOST}/api/chapters`), HOST, src);
-      expect(JSON.parse(none.body)).toEqual({ links: {} });
+  test("asked in a chapter's own words: the chapter answers, as a journal row, and its copy does not answer beside it", async () => {
+    const { ch, words } = withSrc((src) => {
+      const found = aChapter(src);
+      const body = src.store.row(found.episode)?.body ?? "";
+      const prose = body.split("\n").filter((l) => l.trim().length > 0 && !l.trim().startsWith("#")).join(" ");
+      return { ch: found, words: prose.split(/\s+/).slice(0, 12).join(" ") };
     });
+    const r = await runAction("ask", { question: words, json: true, mode: "facts" }, { dir });
+    expect(r.body.exit).toBe(0);
+    const answer = JSON.parse((r.body.out ?? []).join("\n")) as FactsResult;
+    const answered = answer.memories.map((m) => m.id);
+    expect(answered).toContain(ch.episode);
+    expect(answered).not.toContain(ch.memory);
+    // The browser modules touch `window` at load (`window.openMemory = …`); give them one.
+    (globalThis as { window?: unknown }).window ??= globalThis;
+    // @ts-expect-error — a plain browser module, no declarations
+    const { factsRows } = (await import("../src/adapters/dashboard/web/pages/memories/sections/search.js")) as {
+      factsRows: (r: FactsResult, q: string) => string;
+    };
+    const html = factsRows(answer, words);
+    expect(html).toContain(`data-id="${ch.episode}"`);
+    expect(html).toContain("Journal · ");
+    expect(html).not.toContain(`data-id="${ch.memory}"`);
   });
 
-  test("looking — the chapter links and these cards — leaves the store byte-identical", () => {
+  test("looking — these cards — leaves the store byte-identical", () => {
     const before = canonical(dir);
     withSrc((src) => {
-      const ch = aChapter(src);
-      router(new URL(`http://${HOST}/api/chapters?ids=${ch.memory},${ch.episode}`), HOST, src);
       for (const id of Object.values(ids)) router(new URL(`http://${HOST}/api/memory?id=${id}`), HOST, src);
     });
     expect([...canonical(dir).entries()]).toEqual([...before.entries()]);
-  });
-
-  test("the pair becomes one answer: the memory, at the better rank and tier, with its 'from chapter' link", () => {
-    const mems = [
-      { id: "epi_1", journal: true, tier: "vivid", kind: "self", title: "Pilot — 2026-06-01", body: "same words" },
-      { id: "mem_x", journal: false, tier: "vivid", kind: "fact", title: null, body: "other" },
-      { id: "mem_c", journal: false, tier: "quiet", kind: "self", title: null, body: "same words" },
-      { id: "epi_2", journal: true, tier: "dim", kind: "self", title: "A chapter alone", body: "alone" },
-    ];
-    const links = { mem_c: { episodeId: "epi_1", label: "Pilot — 2026-06-01" } };
-    const out = foldChapters(mems, links);
-    expect(out.map((m) => m.id)).toEqual(["mem_c", "mem_x", "epi_2"]);
-    expect(out[0]?.tier).toBe("vivid");
-    expect(out[0]?.chapter).toBe(true);
-    expect(fromWords(out[0]?.from)).toBe("from chapter “Pilot — 2026-06-01”");
-    // A chapter with no memory of it in the answer stays as it was.
-    expect(out[2]?.from).toBeNull();
-    // Nothing to fold: the answers come back as they were, in order.
-    expect(foldChapters(mems, {}).map((m) => m.id)).toEqual(mems.map((m) => m.id));
-    expect(fromWords({ episodeId: "epi_1", label: null })).toBe("from its journal chapter");
   });
 });
 

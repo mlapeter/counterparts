@@ -1886,3 +1886,14 @@ words only and prints nothing about it — doctor and the backfill name a missin
   `counterparts mechanisms` (no mechanism line of its own: traits feed nothing), so it
   shows in the plumbing count and in `mechanisms --all`. No doctor line: nothing there
   fits without forcing it.
+
+## 2026-10-09 — `ask --mode meaning`
+
+The dashboard's "by meaning" went through `ask`, and `ask` answered every question in
+facts mode, so there was no door to meaning mode from the console at all. `--mode`
+takes `facts` (the default; saying it changes nothing) or `meaning`, the MCP tool's two
+words. Meaning has no short list: its rendering is already short, so without `--json`
+the console prints `renderMeaning` under the `Store:` line. A mode that is neither is
+refused before the store opens. `--voiced` is read again here: a question typed at the
+console is the owner's, so its "I" is his (`asker: "owner"`); one the dashboard turned
+into my voice is mine.

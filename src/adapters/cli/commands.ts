@@ -104,8 +104,10 @@ import type { Band, Kind } from "../../core/types.js";
 // so the direction stays one-way.
 import { deliberateRecall, embedQuestion } from "../mcp/deliberate.js";
 // A question at the console is answered in FACTS MODE, the MCP `recall`'s own
-// path (2026-10-03), for the same reason.
+// path (2026-10-03), for the same reason — and in MEANING MODE, its other path,
+// when `--mode meaning` asks for it (2026-10-09).
 import { factsRecall, renderFacts } from "../mcp/facts.js";
+import { meaningRecall, renderMeaning } from "../mcp/meaning.js";
 // The ONE rule for "which host configuration": the console resolves it with the
 // same function the hook, the worker and the MCP server do.
 import {
@@ -686,8 +688,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   note: ["kind", "title", "salience", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
-  ask: ["id", "json", "full", "page", "config", "voiced"],
-  recall: ["id", "json", "full", "page", "config", "voiced"],
+  ask: ["id", "json", "full", "page", "mode", "config", "voiced"],
+  recall: ["id", "json", "full", "page", "mode", "config", "voiced"],
   export: [
     "out",
     "passphrase",
@@ -892,13 +894,14 @@ const FLAG_HELP: Record<string, string> = {
   salience: "0..1 — how much this one matters",
   id: "one memory, by id, instead of a question",
   full: "the whole facts answer, as the model reads it: a count header and every result's labeled lines (who said it, its status, when it happened and was learned, whether it still holds) — not just the top five, one line each",
-  page: "which page of the answer (ten results a page), with --full or --json",
+  page: "which page of the answer (ten results a page; in meaning mode, eight entries of the arc), with --full or --json",
+  mode: "facts (the default): every memory that answers the question, counted and paged — or meaning: what a person, a project or a feeling has been over time, the chapters that hold it in time order",
   // TWO COMMANDS, ONE SENTENCE (`recall --json` is the MCP tool's payload,
   // `doctor --json` is the findings): the table is keyed by flag NAME, so the
   // sentence has to be true of both.
   json: "machine-readable output — the structured payload rather than the console's rendering",
   voiced:
-    "the question is already in the counterpart's own voice (the dashboard's rewrite); accepted, and read by no facts answer since 2026-10-03 — feelings are meaning mode's",
+    "the question is already in the counterpart's own voice (the dashboard's rewrite): in meaning mode its \"I\" is the counterpart, so a question about feeling asks about the counterpart's feelings; a facts answer reads no feelings and is the same either way",
   out: "the directory to write into",
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
@@ -1183,6 +1186,7 @@ const VALUED_FLAGS: readonly string[] = [
   "version",
   "restore",
   "if-version",
+  "mode",
   "show",
   "demote",
   "pair",
@@ -1330,6 +1334,8 @@ export function parse(argv: readonly string[]): Parsed {
       full: { type: "boolean" },
       // `ask`'s page of a facts answer (2026-10-03).
       page: { type: "string" },
+      // `ask`'s mode: facts (the default) or meaning (2026-10-09).
+      mode: { type: "string" },
       // `ask`'s: the question is already in the counterpart's voice (U13).
       voiced: { type: "boolean" },
       apply: { type: "boolean" },
@@ -5722,6 +5728,15 @@ async function recallCommand(
     io.err("refused: a question and --id are two different asks. Send one.");
     return EXIT.usage;
   }
+  // THE MODE, as the MCP `recall` takes it (2026-10-09): facts unless meaning
+  // is asked for by name. Read before the store opens, so a mistyped mode is a
+  // refusal rather than a facts answer to a question meant for the arc. With
+  // `--id` there is no question to answer in a mode, and it is not read.
+  const modeFlag = parsed.flags["mode"];
+  if (modeFlag !== undefined && modeFlag !== "facts" && modeFlag !== "meaning") {
+    io.err(`refused: --mode is facts or meaning, not ${typeof modeFlag === "string" ? JSON.stringify(modeFlag) : "empty"}.`);
+    return EXIT.usage;
+  }
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}. Run 'counterparts install' first.`);
     return EXIT.failed;
@@ -5752,10 +5767,32 @@ async function recallCommand(
     // same call the MCP `recall` makes (`mcp/deliberate.ts#embedQuestion`).
     if (idFlag.length === 0) {
       const embedded = await embedQuestion(embedder, question);
+      const page = typeof parsed.flags["page"] === "string" && /^[1-9]\d*$/.test(parsed.flags["page"]) ? { page: Number(parsed.flags["page"]) } : {};
+      // MEANING MODE: the arc, the MCP `recall`'s `mode: "meaning"` path. Whose
+      // "I" a question about feeling means is the one thing the console adds:
+      // a question typed here is the owner's, so his; one the dashboard turned
+      // into my voice (`--voiced`) is mine. Its rendering is already short, so
+      // there is no list form: `--json` is the payload, anything else the answer.
+      if (modeFlag === "meaning") {
+        const meaning = meaningRecall(
+          {
+            counterpart,
+            sessionId: "console",
+            owner: true,
+            vector: embedded.vector,
+            semantic: embedded.semantic,
+            asker: parsed.flags["voiced"] === true ? "self" : "owner",
+          },
+          question,
+          page,
+        );
+        io.out(parsed.flags["json"] === true ? JSON.stringify(meaning, null, 2) : renderMeaning(meaning));
+        return EXIT.ok;
+      }
       const facts = factsRecall(
         { counterpart, sessionId: "console", owner: true, vector: embedded.vector, semantic: embedded.semantic },
         question,
-        typeof parsed.flags["page"] === "string" && /^[1-9]\d*$/.test(parsed.flags["page"]) ? { page: Number(parsed.flags["page"]) } : {},
+        page,
       );
       if (parsed.flags["json"] === true) {
         io.out(JSON.stringify(facts, null, 2));

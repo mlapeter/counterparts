@@ -87,7 +87,6 @@ const ENDPOINTS = [
   "/api/overview",
   "/api/memories",
   "/api/search?q=swap",
-  "/api/chapters?ids=mem_nothinghere",
   "/api/mind",
   "/api/flow",
   "/api/health",

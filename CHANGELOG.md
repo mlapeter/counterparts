@@ -10,6 +10,19 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **The dashboard's Ask reads 0.3.12's answers.** After recall took a mode, the Memories
+  page kept reading the old answer, so most dates, the "strong match" words and the "from
+  chapter" links vanished, and "by meaning" got a facts answer. The switch beside the box
+  now has three ways: **by word** (as you type, as before), **facts** (every memory that
+  answers the question, counted and paged, each saying who said it, when it happened or was
+  learned, and what it was before it changed) and **by meaning** (the chapters that hold a
+  person, a project or a feeling, in time order, with their moments and whose feelings
+  they were). The match-strength words are gone, as recall has none now.
+- **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
+  `mode: "meaning"` does; facts stays the default. `--page` pages either.
+- **A memory id written inside a memory's words is a link.** On the Memories page,
+  "(mem_cb6eea7a6b9f)" shows as "memory ↗" and opens that memory; a chapter's address
+  opens its journal.
 - **A chapter's memory keeps its links when the chapter grows.** Each journal chapter is
   also kept as an ordinary memory, and when the chapter grows that memory is rebuilt and
   the old one archived. The links the old one had learned (to what was written beside it,
