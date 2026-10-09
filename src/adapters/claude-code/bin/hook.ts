@@ -13,6 +13,7 @@
  * trivia and may change with the host without touching a core contract (G9).
  */
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,6 +58,8 @@ import {
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 import { scriptArgs } from "../../runtime.js";
+import { npmWiring } from "../../host-wiring.js";
+import { ensureFirstRun, hookGate, runningAsPlugin } from "../../plugin.js";
 
 /**
  * The host's own spellings of the two events that carry a notice — one
@@ -555,13 +558,40 @@ async function main(): Promise<void> {
     wroteStdout: false,
     didWork: false,
   };
+  // THE PLUGIN'S PREAMBLE (`adapters/plugin.ts`), and only when Claude Code
+  // launched this process as the Counterparts plugin. Two questions before
+  // anything opens: is the npm install's wiring live in this host (then the
+  // plugin stands down, and says so once, at session start), and does this
+  // machine have an install at all (then the plugin makes one, the way
+  // `counterparts install` does). A settings-wired hook never gets here.
+  const pluginLines: string[] = [];
+  if (runningAsPlugin(process.env)) {
+    const home = homedir();
+    const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? eventDirectory(payload);
+    const gate = hookGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { mcp: false } }), home);
+    if (gate.standDown) {
+      process.stderr.write("[counterparts] plugin hook stood down: the npm install's hooks are live in this host\n");
+      if (name === "session-start" && gate.line !== null) process.stdout.write(JSON.stringify({ systemMessage: gate.line }));
+      return;
+    }
+    if (gate.line !== null) pluginLines.push(gate.line);
+    try {
+      const first = ensureFirstRun({ choice, env: process.env, home });
+      if (first.detail !== undefined) process.stderr.write(`[counterparts] plugin first run ${first.state}: ${first.detail}\n`);
+      if (first.line !== null) pluginLines.push(first.line);
+    } catch (err) {
+      // A first run that threw is a stand-down further on (no configuration,
+      // so the default store's guard decides), never a failed session.
+      process.stderr.write(`[counterparts] plugin first run threw: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
   // THE FAULT HANDLER, HERE RATHER THAN AT THE ENTRY POINT, because this is
   // where the event's own facts are in scope — which hook, which session, which
   // store — and all three are needed to say a stand-down out loud once. The
   // entry point's handler below stays exactly what it was: the last resort for
   // anything that fails before any of this is known.
   try {
-    await runHook(name, payload, choice, said);
+    await runHook(name, payload, choice, said, pluginLines);
   } catch (err) {
     // MASTER'S EXIT CODE, RESTORED EXACTLY. On master a throw out of `main`
     // reached the entry point's rejection handler, which always exits 0 — so a
@@ -588,6 +618,9 @@ async function runHook(
   payload: Record<string, unknown>,
   choice: ConfigChoice,
   said: Said,
+  /** The plugin's own session-start lines (first run, stale npm entries);
+   *  empty for every hook the plugin did not launch. */
+  pluginLines: readonly string[] = [],
 ): Promise<void> {
   // `namedConfigRefusal` covers the flag's own refusals AND the one the first
   // review of this rule found: an absolute path to a file that is not there was
@@ -787,7 +820,7 @@ async function runHook(
       name,
       result,
       payload,
-      name === "session-start" ? [adapter.notice(input), trouble] : null,
+      name === "session-start" ? [adapter.notice(input), ...pluginLines, trouble] : null,
       adapter,
       input,
     );

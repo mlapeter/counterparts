@@ -25,6 +25,7 @@
  * Nothing in this file is a memory rule; all of it is host trivia (§5 G8).
  */
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -60,6 +61,9 @@ import { hostScope, openServer } from "../index.js";
 import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
+import { stoodDownServer } from "../stood-down.js";
+import { npmWiring } from "../../host-wiring.js";
+import { ensureFirstRun, mcpGate, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { scriptArgs } from "../../runtime.js";
 import {
@@ -317,6 +321,32 @@ async function main(): Promise<void> {
   // an unrelated reason (scar §2.4 — a path that discards something says what).
   for (const line of stanceNotices) process.stderr.write(`${line}\n`);
   const choice = serverConfigChoice();
+  // THE PLUGIN'S PREAMBLE (`adapters/plugin.ts`), only when Claude Code started
+  // this process as the Counterparts plugin's server. A live `counterparts`
+  // registration from the npm install wins: this one then serves the protocol
+  // and no tools, so the model is never offered every memory tool twice. And a
+  // machine with no install yet gets one here, the way `counterparts install`
+  // makes it — the hook may be racing to do the same, which the lock settles.
+  if (runningAsPlugin(process.env)) {
+    const home = homedir();
+    const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
+    const gate = mcpGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }), home);
+    if (gate.standDown) {
+      process.stderr.write("[counterparts] plugin server stood down: the npm install's server is registered in this host\n");
+      await serveStdio(stoodDownServer(gate.instructions ?? ""), process.stdin, {
+        write: (chunk) => {
+          process.stdout.write(chunk);
+        },
+      });
+      return;
+    }
+    try {
+      const first = ensureFirstRun({ choice, env: process.env, home });
+      if (first.detail !== undefined) process.stderr.write(`[counterparts] plugin first run ${first.state}: ${first.detail}\n`);
+    } catch (err) {
+      process.stderr.write(`[counterparts] plugin first run threw: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
   // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
   // armed, an UNNAMED configuration refuses the launch too — the default one is
   // somebody's configuration and names somebody's store. Never armed on the live host.

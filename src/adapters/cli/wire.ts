@@ -83,6 +83,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
+import { isOurHookCommand } from "../host-wiring.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
 import { parseScriptInvocation, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
@@ -595,51 +596,13 @@ export interface MergeResult {
 }
 
 /**
- * IS THIS COMMAND OURS TO REWRITE — which is a stricter question than "does it
- * mention us" (review m1).
- *
- * `HOOK_COMMAND_MARK` answers the reporting question `doctor` asks: is a hook
- * of ours installed on this event? It matches a COMPOSITE command, and it
- * should — a wrapper that ends in `counterparts-hook` really does run our hook,
- * and a doctor that said otherwise would be wrong.
- *
- * It is the wrong question for a WRITE. The review wrapped our hook two ways —
- * `~/bin/log-start.sh && counterparts-hook`, and `/opt/mytool/bin/wrap --then
- * counterparts-hook` — and `wire` overwrote the first with ours alone while
- * `unwire` deleted the second outright. Both are somebody's own line, and this
- * file's own promise is that nothing belonging to another tool is a candidate.
- *
- * So a command is ours to rewrite only when it IS our invocation and nothing
- * else: our runtime and our hook script, or the installed shim, optionally
- * followed by `--config <path>`. Anything with a shell operator in it is
- * refused outright, whatever else it looks like — a command this cannot parse
- * is a command this does not edit.
- *
- * `test/wire.test.ts` holds the two to each other in the direction that
- * matters: everything `wire` WRITES is matched by both, so a hook we installed
- * can never read as missing on the surface a person checks.
+ * IS THIS COMMAND OURS TO REWRITE — `host-wiring.ts#isOurHookCommand`, which
+ * is where the rule and its history now live (moved 2026-10-09 so the plugin's
+ * hook and MCP server can recognise the npm wiring without importing the
+ * console). Re-exported unchanged: this file and `doctor` still ask exactly the
+ * same question of exactly the same function.
  */
-export function isOurHookCommand(command: string): boolean {
-  // A shell operator means the line does something besides run our hook.
-  if (/&&|\|\||;|\||>|<|`|\$\(/.test(command)) return false;
-  const tokens = shellTokens(command);
-  if (tokens.length === 0) return false;
-  const tail = (from: number): boolean => {
-    const rest = tokens.slice(from);
-    if (rest.length === 0) return true;
-    return rest.length === 2 && rest[0] === CONFIG_FLAG && (rest[1] ?? "").length > 0;
-  };
-  const first = tokens[0] ?? "";
-  // The installed shim, by itself.
-  if (/(^|[/\\])counterparts-hook$/.test(first)) return tail(1);
-  // `<runtime> run <our hook script>`, or Node's
-  // `<runtime> --import <node-hooks.mjs> <our hook script>` (`runtime.ts`).
-  const run = parseScriptInvocation(tokens);
-  if (run !== null && /claude-code[/\\]bin[/\\]hook\.ts$/.test(run.script)) {
-    return tail(tokens.length - run.rest.length);
-  }
-  return false;
-}
+export { isOurHookCommand };
 
 /** Is this inner entry one this command may rewrite or remove? */
 function isOurs(entry: unknown): entry is Record<string, unknown> {
