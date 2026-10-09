@@ -646,7 +646,7 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "Each fact says who said it (\"you said\" is the owner, \"I said\" is you, or \"inferred\"), what kind of thing it is (done, planned, proposed, asked), when it happened (or \"no event date\"), when and where it was learned, and whether it is CURRENT. A field the writer did not record says so (\"speaker unknown\"). Earlier versions are folded under the current one with their dates; a corrected one is hidden and counted.",
+        "Each fact says who said it (\"you said\" is the owner, \"I said\" is you, or \"inferred\"), what kind of thing it is (done, planned, proposed, asked), when it happened (or \"no event date\"), when and where it was learned, and whether it is CURRENT. A field the writer did not record says so (\"speaker unknown\"). Earlier versions are folded under the current one with their dates; a corrected one was wrong and is never a result, but is named under it as \"corrected (was wrong)\" with its id, to open by id.",
       mechanizedBy: "src/adapters/mcp/facts.ts#factItem (occurred_on, said_by, status; versions rows + contradictions pairs) + src/adapters/mcp/deliberate.ts#provenanceParts",
     },
     {

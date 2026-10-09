@@ -43,8 +43,12 @@
  * folded under it: in-place revisions (`versions` rows whose words differ)
  * and memories it settled as `changed` (a contradiction pair) — an earlier
  * one that matched brings its current one in as the result. Corrected
- * versions are hidden and counted. An `open` pair says "disagrees with", an
- * unsettled older one "may be out of date".
+ * versions (they were wrong) are never results — archived, they are out of
+ * the word index — but are named under the memory that corrected them, up to
+ * `FACTS_CORRECTED_SHOWN` with a count for the rest, each labeled "corrected
+ * (was wrong)" with its id, so one a wrong correction archived can still be
+ * opened (2026-10-09). An `open` pair says "disagrees with", an unsettled
+ * older one "may be out of date".
  *
  * FADED. A matched memory that has kept `deliberate.ts#FADED_RETAINED` of
  * its strength or less (it was not used for a long while; `hasFaded`, the
@@ -63,6 +67,7 @@
  *      you said · done · happened 09-28
  *      learned 09-28 in ~/counterparts · session a1b2c3d4 · CURRENT
  *      earlier: "gym at 7" (learned 09-12), changed 09-28 · mem_…
+ *      corrected (was wrong): "gym on Tuesdays" (learned 09-10), corrected 09-11 · mem_…
  *      <the body whole when short, else a 300-character excerpt>
  *
  *   faded (3):
@@ -121,6 +126,14 @@ export const FACTS_FADED_LINES = 5;
 export const FACTS_WEAK_FRACTION = 0.2;
 /** Earlier versions shown under a result; the rest are counted. */
 export const FACTS_EARLIER_SHOWN = 2;
+/**
+ * Corrected versions named under a result; the rest are counted. One more than
+ * the earlier ones: an earlier (`changed`) memory is still live, so a question's
+ * words reach it and fold it under its current one, while a corrected one is
+ * archived and out of the word index — this line is its only way in from a
+ * question (2026-10-09).
+ */
+export const FACTS_CORRECTED_SHOWN = 3;
 /** Token overlap at or above which two results are near-duplicates (the gate's `NEAR_DUPLICATE`). */
 export const FACTS_NEAR_DUPLICATE = 0.85;
 /** How far an event anchor's window reaches each side of its date. */
@@ -185,6 +198,20 @@ export interface EarlierVersion {
   readonly id?: string;
 }
 
+/**
+ * A version settled as `corrected` — it was wrong. Archived, so never a result
+ * of its own; named under the memory that corrected it so it can be opened by
+ * id (a wrong correction must not make a true memory unreachable).
+ */
+export interface CorrectedVersion {
+  /** Its title, or the start of its words. */
+  readonly text: string;
+  readonly learned: string | null;
+  /** When it was corrected, `YYYY-MM-DD` in the store's zone. */
+  readonly corrected: string | null;
+  readonly id: string;
+}
+
 export interface FactItem {
   readonly id: string;
   readonly title: string | null;
@@ -213,8 +240,14 @@ export interface FactItem {
   readonly now?: string;
   readonly earlier: readonly EarlierVersion[];
   readonly earlierMore: number;
-  /** Corrected (wrong) versions of it, hidden. */
+  /** Corrected (wrong) versions of it: every one, named or not. */
   readonly corrected: number;
+  /**
+   * The corrected versions named, at most `FACTS_CORRECTED_SHOWN`: those the
+   * question's words reach first, then the latest corrected. Absent when none
+   * is named (none corrected, or none this asker may be told of).
+   */
+  readonly correctedShown?: readonly CorrectedVersion[];
   /** Pair labels besides earlier/corrected: disagrees with, unsettled. */
   readonly standing: readonly string[];
   readonly ways: readonly FactWay[];
@@ -814,6 +847,8 @@ function factItem(
     });
   }
   let corrected = 0;
+  const wrong: (CorrectedVersion & { reached: number })[] = [];
+  const asked = new Set(tokens);
   const standing: string[] = [];
   let now: string | undefined;
   for (const p of pairs) {
@@ -832,6 +867,19 @@ function factItem(
       now = canName(p.holds) ? p.holds : "a later version";
     } else if (p.state === "settled" && p.how === "corrected" && p.holds === c.id) {
       corrected += 1;
+      // Named so it can be opened by id: counted, but not named, when this
+      // asker may not be told of it or nothing of it is left to read.
+      const over = p.over;
+      const o = over === null ? undefined : safe(() => store.row(over), undefined);
+      if (over === null || o === undefined || o.body.length === 0 || !canName(over)) continue;
+      const held = new Set(tokenize(`${o.title ?? ""}\n${o.body}`));
+      wrong.push({
+        text: plainLine(o.title ?? o.body, 60),
+        learned: o.learned_on.length > 0 ? o.learned_on : null,
+        corrected: localDate(p.updated_at, zone),
+        id: over,
+        reached: [...asked].filter((t) => held.has(t)).length,
+      });
     } else if (p.state === "settled" && p.how === "open") {
       if (canName(other)) standing.push(`disagrees with ${other}`);
     } else if (p.state === "unsettled" && p.a === c.id) {
@@ -845,6 +893,10 @@ function factItem(
     const fb = b.id !== undefined && c.foldedEarlier.has(b.id) ? 0 : 1;
     return fa - fb || (b.changed ?? "").localeCompare(a.changed ?? "");
   });
+  // Corrected: those the question's words reach first (a search that names
+  // one should find it here), then the latest corrected.
+  wrong.sort((a, b) => b.reached - a.reached || (b.corrected ?? "").localeCompare(a.corrected ?? "") || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const correctedShown = wrong.slice(0, FACTS_CORRECTED_SHOWN).map(({ text, learned, corrected: on, id }) => ({ text, learned, corrected: on, id }));
   const title = row.title ?? doc.title;
   return {
     id: c.id,
@@ -868,6 +920,7 @@ function factItem(
     earlier: earlier.slice(0, FACTS_EARLIER_SHOWN),
     earlierMore: Math.max(0, earlier.length - FACTS_EARLIER_SHOWN),
     corrected,
+    ...(correctedShown.length === 0 ? {} : { correctedShown }),
     standing: standing.slice(0, 2),
     ways: (["words", "meaning", "subject", "session", "time"] as const).filter((x) => c.ways.has(x)),
     ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }),
@@ -1002,7 +1055,22 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number):
     out.push(`   earlier: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
   }
   if (m.earlierMore > 0) out.push(`   +${String(m.earlierMore)} more earlier`);
-  if (m.corrected > 0) out.push(`   ${String(m.corrected)} corrected version${m.corrected === 1 ? "" : "s"} hidden`);
+  // Corrected versions were WRONG: said so in front, never read as a fact,
+  // each with its id so it can be opened (a correction can itself be wrong).
+  const named = m.correctedShown ?? [];
+  for (const e of named) {
+    const learned = e.learned === null ? "" : ` (learned ${shortDate(e.learned, today)})`;
+    const on = e.corrected === null ? "" : `, corrected ${shortDate(e.corrected, today)}`;
+    out.push(`   corrected (was wrong): "${e.text}"${learned}${on} · ${e.id}`);
+  }
+  const unnamed = m.corrected - named.length;
+  if (unnamed > 0) {
+    out.push(
+      named.length === 0
+        ? `   ${String(unnamed)} corrected version${unnamed === 1 ? "" : "s"} hidden`
+        : `   +${String(unnamed)} more corrected (was wrong)`,
+    );
+  }
   const words = m.body.length <= excerptChars ? m.body : cutExcerpt(m.body, excerptChars);
   out.push(`   ${words}`);
   return out;

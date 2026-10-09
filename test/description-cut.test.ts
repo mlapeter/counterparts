@@ -137,7 +137,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     );
     expect(lengths).toEqual({
       note: { total: 5091, beforeList: 951 },
-      recall: { total: 6176, beforeList: 1200 },
+      recall: { total: 6263, beforeList: 1200 },
       status: { total: 1212, beforeList: 501 },
       session_end: { total: 7218, beforeList: 811 },
       chapter: { total: 2097, beforeList: 746 },
