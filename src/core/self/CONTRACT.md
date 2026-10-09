@@ -323,7 +323,10 @@ proposals and their archive; render and delivery telemetry.
     ifVersion? })` is the only door — the MCP tool, the owner's console and the nightly
     writer all arrive there — and it crosses the same gate battery the journal does, so a
     credential cannot land in the one piece of prose every session reads. **A redaction is
-    reported**: accepted is not the same as unaltered, and both doors say so. Every
+    reported**: accepted is not the same as unaltered, and both doors say so. A line of
+    the page's own that opens "Last revised" is left out before the caps and the gate see
+    the body (2026-10-09, `page.ts#stripRevisedLines`): the wake dates the page, and the
+    revision row counts what went (`datelines`). Every
     accepted revision leaves a version (`store.revise` archives the prior one first) and a
     durable `self.page.revised` row; every refusal leaves a `self.page.refused` row and a
     named reason; an observer writes neither. The page is `type: "schema"`,
@@ -336,7 +339,9 @@ proposals and their archive; render and delivery telemetry.
     VERSIONS take the ordinary retention, deliberately un-special-cased (owner ruling 1).
     Proved by a test that runs a full cycle and the prune over a store holding a page with
     two versions.
-16. **[M]** **The page is what "Who I am" prints, first and as is**, under
+16. **[M]** **The page is what "Who I am" prints, first and as is** — less any short
+    line of its own that opens "Last revised", since the wake's dateline under it is the
+    page's date (2026-10-09; a page stored before the write-side strip printed two) — under
     `PAGE_WAKE_BYTES` clamped to the caller's budget **less `PAGE_FLOOR_RESERVE_BYTES`, the
     furniture the wake wraps it in** — the page is furniture the trim loop cannot pop, so a
     page sized against the whole ceiling puts the composition over it with nothing left to

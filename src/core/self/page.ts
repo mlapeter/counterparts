@@ -276,6 +276,56 @@ function byteLengthOf(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
+// ── the page's own revision line ────────────────────────────────────────────
+
+/**
+ * The longest line that can be a page's own revision line. Past it the line
+ * is prose that happens to open with the words, and it stays.
+ */
+export const REVISED_LINE_MAX_CHARS = 160;
+
+/**
+ * IS THIS LINE THE PAGE'S OWN "LAST REVISED" LINE (2026-10-09)? A whole line
+ * that opens — past any wrapping of parentheses, brackets, emphasis, a quote
+ * marker or a dash — with "Last revised", and is short. A sentence that says
+ * the words in the middle of a paragraph is not one.
+ */
+export function isRevisedLine(line: string): boolean {
+  const t = line.trim();
+  if (t.length === 0 || t.length > REVISED_LINE_MAX_CHARS) return false;
+  return /^last\s+revised\b/i.test(t.replace(/^[>(\[*_\s\-–—]+/u, ""));
+}
+
+/**
+ * THE PAGE WITHOUT ITS OWN "LAST REVISED" LINES (2026-10-09). The wake dates
+ * the page (`briefing.ts#pageDateline`), so a page that carries its own line
+ * printed two, one under the other. The writers were told not to add one
+ * (`writer.ts#PAGE_WRITING_RULE`, 2026-10-01), which is guidance and checks
+ * nothing, and a page that already carried the line kept printing it. Taken
+ * out where the wake renders the page and where the page is written
+ * (`Self#revisePage`), so a stored page heals the next time it is written.
+ *
+ * Only the line goes, and the blank line it stood behind when it stood
+ * between two, so a removed line leaves no gap of two. `stripped` counts what
+ * went; with none, the body is returned exactly as it came. Pure.
+ */
+export function stripRevisedLines(body: string): { body: string; stripped: number } {
+  const lines = body.split("\n");
+  const out: string[] = [];
+  let stripped = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (!isRevisedLine(line)) {
+      out.push(line);
+      continue;
+    }
+    stripped += 1;
+    const before = out[out.length - 1];
+    if ((before === undefined || before.trim() === "") && (lines[i + 1] ?? "x").trim() === "") i += 1;
+  }
+  return stripped === 0 ? { body, stripped: 0 } : { body: out.join("\n").trim(), stripped };
+}
+
 // ── what the wake prints ────────────────────────────────────────────────────
 
 export interface RenderedPage {

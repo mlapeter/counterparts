@@ -1549,3 +1549,19 @@ and is not a cost.
   moments once and `chapterAt` places one memory by the same span rule, so recall can put
   hundreds of a subject's memories under their chapters without a `resolveChapter` (and its
   per-memory prose reads) for each; a test holds the two to the same answer.
+
+## 2026-10-09 — the page's own "Last revised" line is taken out
+
+The 10-01 guidance (`PAGE_WRITING_RULE`, above) told both writers to add no revised-on
+line, and nothing checked it: the wake still printed two date lines under "Who I am" for a
+page that carried one, and a page that already had it kept it. Now
+`page.ts#stripRevisedLines` takes the line out in two places: where the wake renders the
+page (`Self#pageBlock`, so a page stored with the line prints one date from the next
+render), and at the one write door (`Self#revisePage`, before the caps, the gate and the
+byte count), so a stored page heals the next time anyone writes it. A line is the page's
+own when the whole of it opens with "Last revised" past any parentheses, brackets,
+emphasis, quote marker or dash, and it is at most 160 characters; the words inside a
+paragraph stay. The blank line it stood behind goes with it. The revision row says how many
+went (`datelines`), because the owner's console writes through the same door. A page that
+is nothing but the line is refused as `empty` at write, and printed as it stands at render.
+The guidance stays: the strip is the check, not a reason to stop asking.

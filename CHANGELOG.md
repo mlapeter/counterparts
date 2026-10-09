@@ -10,6 +10,10 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **The self page no longer prints "Last revised" twice.** A page that carried its own
+  "(Last revised …)" line showed it under the wake's own date line. The wake now leaves the
+  page's line out, and so does writing the page, so a stored page loses it the next time it
+  is revised.
 
 ## 0.3.12 — 2026-10-08
 

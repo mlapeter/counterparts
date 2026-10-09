@@ -41,12 +41,14 @@ import {
   findSelfPage,
   identityCoreLine,
   identityCoreName,
+  isRevisedLine,
   SELF_TUNABLES,
   pageDateline,
   pageSections,
   pageTooLargeLine,
   readSelfPage,
   renderPage,
+  stripRevisedLines,
   truncationMarker,
 } from "../src/core/self/index.js";
 import type { SelfTunables } from "../src/core/self/index.js";
@@ -588,6 +590,75 @@ describe("the page in the wake", () => {
     s.revise(findSelfPage(s) as string, { meta: { revisedOn: "not-a-date" } });
     expect(me.pageStale()).toBe(true);
     expect(me.build(req).text).toContain("(Last revised — the page carries no readable date.)");
+  });
+});
+
+// ── the page's own "Last revised" line (2026-10-09) ─────────────────────────
+
+describe("a page that carries its own 'Last revised' line", () => {
+  const req = { budgetBytes: 9000, day: 5 };
+  const CARRIED = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n(Last revised 2026-09-30 by the reflection.)\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder.`;
+
+  test("the wake prints one dateline, its own, for a page stored with the line", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    // A page written before the strip existed: put on the row directly, the
+    // way it stands in a store today.
+    s.revise(findSelfPage(s) as string, { body: CARRIED });
+    const text = me.build(req).text;
+    expect(text.match(/Last revised/g)).toHaveLength(1);
+    expect(text).toContain(`(Last revised ${s.today()}.)`);
+    expect(text).not.toContain("by the reflection");
+    // The rest of the page is printed as it stands, with no gap of two.
+    expect(text).toContain(PAGE);
+  });
+
+  test("a write leaves the line out, and the revision row counts it", () => {
+    const s = store();
+    const me = self(s);
+    const out = me.revisePage(CARRIED, { reason: "first", by: "session" });
+    expect(out.written).toBe(true);
+    expect(readSelfPage(s)?.body).toBe(PAGE);
+    expect(out.bytes).toBe(byteLength(PAGE));
+    const row = s.eventLog({ name: SELF_PAGE_REVISED_EVENT, limit: 1, order: "desc" })[0];
+    expect(JSON.parse(row?.payload ?? "{}")["datelines"]).toBe(1);
+    // A page without one says nothing of it.
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
+    const next = s.eventLog({ name: SELF_PAGE_REVISED_EVENT, limit: 1, order: "desc" })[0];
+    expect(JSON.parse(next?.payload ?? "{}")["datelines"]).toBeUndefined();
+  });
+
+  test("the shapes a writer uses, and what is not one", () => {
+    for (const line of [
+      "(Last revised 2026-10-01.)",
+      "*Last revised 2026-10-01 by Opus 5.5.*",
+      "_(Last revised: 2026-09-30)_",
+      "> Last revised on 2026-09-30",
+      "— last revised 2026-09-30 —",
+      "[Last revised 2026-09-30]",
+    ]) {
+      expect(stripRevisedLines(`Core: placeholder.\n\n${line}`)).toEqual({ body: "Core: placeholder.", stripped: 1 });
+      expect(stripRevisedLines(`${line}\n\nCore: placeholder.`)).toEqual({ body: "Core: placeholder.", stripped: 1 });
+    }
+    // In the middle of a paragraph, or a long line of prose, it stays.
+    const mid = "Core: placeholder. Last revised the plan after the review.";
+    expect(stripRevisedLines(mid)).toEqual({ body: mid, stripped: 0 });
+    const prose = `Last revised ${"the view on something at some length, ".repeat(5)}`;
+    expect(isRevisedLine(prose)).toBe(false);
+    expect(stripRevisedLines(prose).stripped).toBe(0);
+    // With none, the body comes back exactly as it came.
+    const spaced = "Core: placeholder.\n\n\n\nLately: placeholder.\n";
+    expect(stripRevisedLines(spaced).body).toBe(spaced);
+  });
+
+  test("a page that is nothing but the line is refused as empty, and printed as it is", () => {
+    const s = store();
+    const me = self(s);
+    expect(me.revisePage("(Last revised 2026-09-30.)", { reason: "first", by: "session" }).reason).toBe("empty");
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    s.revise(findSelfPage(s) as string, { body: "(Last revised 2026-09-30.)" });
+    expect(me.build(req).text).toContain("(Last revised 2026-09-30.)");
   });
 });
 
