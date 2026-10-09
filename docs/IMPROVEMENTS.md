@@ -42,6 +42,16 @@ not show there; the transcript is the check for that. On a copy of the owner's s
 10-08, 0.3.12 handed the dream in 2 parts and the reflection in 6, the largest 38,286
 characters.
 
+**Item 3 built** on branch `fix/night-spill-check` (2026-10-09, not yet merged or released):
+the night run names its child's session (`--session-id`), reads that transcript once the
+child exits, and counts results of ours the host replaced with its marker — matched where the
+host puts it, not as a substring, because the morning's manual search for "Output too large"
+found two memories quoting the check. One `mcp.result.spilled` row per cut result; doctor's
+Tool results line goes amber, and its green line says whether the last night's transcript
+was read; the morning hand-back says it plainly. The same branch tightens the reflection's
+instructions when its bundle comes in parts (a release-check reflection finished without
+part 2).
+
 **Observed.** Every night since at least 2026-10-02 (six nights or more), part 1 of the
 dream bundle, the reflection bundle, or both came back at 51–52 KB. Claude Code saved each
 one to `tool-results/` and showed the model a 2 KB preview. The headless night run is
@@ -78,7 +88,7 @@ released, check that a spilled night actually turns doctor amber.
 3. Residual risk, already noted in `fit/index.ts`: the host can lower the 50,000-character
    line through a remote flag, and nothing pins it the way `night-run.ts` pins the token
    line. Consider having the night run check the preview marker in its own results and
-   say so in the morning share whenever it fires.
+   say so in the morning share whenever it fires. *(Built 2026-10-09, above.)*
 
 ## U13 — Deliberate recall can't find memories by how they felt (2026-09-30)
 

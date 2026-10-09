@@ -50,6 +50,7 @@ import {
   GATE_DEPOSIT_EVENT,
   MCP_OVERSIZE_EVENT,
   MCP_PART_EVENT,
+  MCP_SPILLED_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -3283,21 +3284,29 @@ const RESULTS_ROWS = 2_000;
  *     it acted on a bundle it had not read. A run still open is not judged;
  *     a run begun before parts were logged has no part-1 row and is not
  *     judged either.
+ *   - an `mcp.result.spilled` row (2026-10-09, U14 item 3): the nightly run's
+ *     own transcript showed a result of ours that Claude Code replaced with a
+ *     short preview — its line is lower than the ceiling now (a remote flag
+ *     can lower it), and the server could not see it. AMBER, like the two
+ *     above: nothing to do by hand, and the night has already happened.
  *
- * Green says how many runs came in parts and the largest result handed.
- * Silent on a store whose window holds no part rows at all.
+ * Green says how many runs came in parts, the largest result handed, and
+ * whether the last night's transcript was read for the host's cut. Silent on a
+ * store whose window holds none of the three rows.
  */
 export function resultFindings(store: Store): Finding[] {
   const since = Math.max(0, store.livedDay() - RESULTS_WINDOW_DAYS);
   let oversize: EventRow[];
+  let spilled: EventRow[];
   const runs = new Map<string, { mechanism: string; of: number; fetched: Set<number>; date: string | null }>();
   let largest = 0;
   let floor = false;
   const open = new Set<string>();
   try {
     oversize = store.eventLog({ name: MCP_OVERSIZE_EVENT, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
+    spilled = store.eventLog({ name: MCP_SPILLED_EVENT, sinceDay: since, order: "desc", limit: RESULTS_ROWS });
     const parts = store.eventLog({ name: MCP_PART_EVENT, sinceDay: since, order: "asc", limit: RESULTS_ROWS });
-    floor = oversize.length >= RESULTS_ROWS || parts.length >= RESULTS_ROWS;
+    floor = oversize.length >= RESULTS_ROWS || parts.length >= RESULTS_ROWS || spilled.length >= RESULTS_ROWS;
     for (const row of parts) {
       const p = payloadOf(row);
       const ref = str(p, "ref");
@@ -3314,7 +3323,7 @@ export function resultFindings(store: Store): Finding[] {
   } catch {
     return [];
   }
-  if (oversize.length === 0 && runs.size === 0) return [];
+  if (oversize.length === 0 && runs.size === 0 && spilled.length === 0) return [];
   const ceiling = TOOL_RESULT_CEILING.CHARS;
   const inParts = [...runs.entries()].filter(([, r]) => r.of > 1);
   const unread = inParts
@@ -3338,6 +3347,41 @@ export function resultFindings(store: Store): Finding[] {
       : unread
           .map((r) => `${r.mechanism === "reflection" ? "reflection" : "dream"} ${r.ref}${r.date === null ? "" : ` (${r.date})`} was handed in ${String(r.of)} parts and finished without part${r.missing.length === 1 ? "" : "s"} ${r.missing.join(", ")}`)
           .join("; ");
+  const newestSpill = spilled[0];
+  const sp = payloadOf(newestSpill);
+  const spillTool = (str(sp, "tool") ?? "a tool").replace(/^mcp__counterparts__/, "");
+  const spillRuns = new Set(spilled.map((r) => str(payloadOf(r), "run") ?? "")).size;
+  const spillSaid =
+    newestSpill === undefined
+      ? ""
+      : `${String(spilled.length)} ${spilled.length === 1 ? "result" : "results"} of the nightly run${spillRuns > 1 ? ` (${String(spillRuns)} runs)` : ""} reached the model only as Claude Code's short preview — the newest, ${spillTool}${str(sp, "phase") === null ? "" : ` ${str(sp, "phase") as string}`} on ${rowDate(newestSpill) ?? "an unknown day"}${str(sp, "said") === null ? "" : `, at ${str(sp, "said") as string}`}`;
+  // WAS THE LAST NIGHT CHECKED AT ALL (2026-10-09)? Said on the line, green or
+  // amber, so a transcript the host stopped writing where it is looked for is
+  // not silence that reads as "nothing cut". A last run whose own cuts the
+  // amber text already names adds nothing here.
+  let checked = "";
+  let lastTranscript: string | null = null;
+  try {
+    const last = nightRunOf(store);
+    lastTranscript = last?.transcript ?? null;
+    if (last !== null && last.transcript !== undefined && !(last.transcript === "read" && (last.spills ?? 0) > 0)) {
+      checked =
+        last.transcript === "read"
+          ? `; the ${last.date} run's transcript showed none of our results cut by Claude Code`
+          : `; the ${last.date} run's transcript ${last.transcript === "absent" ? "was not found where Claude Code keeps sessions" : "could not be read"}, so Claude Code's cut was not checked`;
+    }
+  } catch {
+    /* the line stands without it */
+  }
+  // WHY THE HOST CUT, by the newest cut's shape (review of #330): the
+  // character line, the token line the run pins, or the budget for one turn.
+  const spillShape = str(sp, "shape");
+  const spillFix =
+    spillShape === "turn-budget"
+      ? "Nothing to do by hand: the run fetched several results in one turn, and together they passed Claude Code's budget for one turn, so it cut the largest to a preview. Worth reporting with this line."
+      : spillShape === "tokens" || spillShape === "token-cut"
+        ? `Nothing to do by hand: Claude Code's token limit on one tool result came out lower than the ${String(TOOL_RESULT_CEILING.HOST_TOKENS)} tokens the nightly run sets it to, so the night read through a keyhole. Worth reporting with this line.`
+        : `Nothing to do by hand: Claude Code's limit on one tool result is lower than the ${String(ceiling)} characters Counterparts keeps them under, so the night read through a keyhole. Worth reporting with this line — the ceiling has to come down to meet it.`;
   const data = {
     ceiling,
     oversize: oversize.length,
@@ -3346,18 +3390,23 @@ export function resultFindings(store: Store): Finding[] {
     runsInParts: inParts.length,
     runsUnread: unread.length,
     largestPart: largest,
+    spilled: spilled.length,
+    newestSpillTool: str(sp, "tool"),
+    lastTranscript,
     floor,
   };
-  if (overSaid.length > 0 || unreadSaid.length > 0) {
+  if (spillSaid.length > 0 || overSaid.length > 0 || unreadSaid.length > 0) {
     return [
       finding(
         "results",
         "amber",
         "Tool results",
-        `${window} — ${[overSaid, unreadSaid].filter((x) => x.length > 0).join("; ")}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
-        overSaid.length > 0
-          ? "Nothing to do by hand: the model was told the answer was cut. It means a cap upstream lets a result grow past the ceiling — worth reporting with this line."
-          : "Nothing to do by hand: the next night reads its own bundle. If it repeats, the run is skipping parts — worth reporting with this line.",
+        `${window} — ${[spillSaid, overSaid, unreadSaid].filter((x) => x.length > 0).join("; ")}${checked}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
+        spillSaid.length > 0
+          ? spillFix
+          : overSaid.length > 0
+            ? "Nothing to do by hand: the model was told the answer was cut. It means a cap upstream lets a result grow past the ceiling — worth reporting with this line."
+            : "Nothing to do by hand: the next night reads its own bundle. If it repeats, the run is skipping parts — worth reporting with this line.",
         data,
       ),
     ];
@@ -3367,7 +3416,7 @@ export function resultFindings(store: Store): Finding[] {
       "results",
       "green",
       "Tool results",
-      `${window} — every result under ${String(ceiling)} characters; ${inParts.length === 0 ? "no bundle came in parts" : `${String(inParts.length)} ${inParts.length === 1 ? "bundle" : "bundles"} came in parts, every part read`}; the largest part handed was ${String(largest)} characters${floor ? ". More rows than were read: the counts are a floor" : ""}`,
+      `${window} — every result under ${String(ceiling)} characters; ${inParts.length === 0 ? "no bundle came in parts" : `${String(inParts.length)} ${inParts.length === 1 ? "bundle" : "bundles"} came in parts, every part read`}; the largest part handed was ${String(largest)} characters${checked}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
       "",
       data,
     ),

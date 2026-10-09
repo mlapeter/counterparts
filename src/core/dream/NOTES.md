@@ -525,3 +525,24 @@ confidential memory is confidential, a page rests on nothing confidential — wh
   engine-set `inferred` would read as the writer's. A merge takes no fields; the store
   carries each original's to the merged memory where it has none (`carryWriteFacts`, the
   first original that has one, as the about-mark). Reflection entries do not take them yet.
+
+## 2026-10-09 — a reflection in parts is told to read every part first
+
+On the 0.3.12 release-check copy of the owner's store, a reflection handed its bundle in 2
+parts finished without fetching part 2 (doctor's Tool results line measures "every part
+read"). The launch prompt and part 1's `parts.next` both said to fetch the rest "before you
+answer", but `how` — the instructions beside the bundle, which read as the procedure — went
+from "Reflect on the questions" straight to "call finish", with no word about parts. The
+dream's `how` gives no procedure of its own, so its launch prompt's "before you change
+anything" stands alone there.
+
+- `instructions` now opens, when the bundle comes in parts, with "First, read every part:
+  this bundle comes in N parts and this is part 1", the exact `part` call for part 2 (and
+  "each part up to N"), and "reflect and write only once you have read them all".
+- `pack` measures the instructions with that line in place (a placeholder note of 99
+  parts), so the first part's room is not overrun by the line that says it is a part.
+- "before you answer" became "before you answer or write anything" in the two reflection
+  launch prompts, the night's launch prompt and `parts.next`: "answer" alone can read as
+  the final message, and the finish call is writing.
+
+Untested against a model: whether this is enough. Doctor's line is the measure.

@@ -654,6 +654,18 @@ export const MCP_RECALL_EVENT = "mcp.recall";
  */
 export const MCP_PART_EVENT = "mcp.part";
 export const MCP_OVERSIZE_EVENT = "mcp.result.oversize";
+/**
+ * …AND WHAT THE HOST DID AFTER (2026-10-09, U14 item 3). The two rows above
+ * are the server's view: what it handed, what it cut. Neither can see the host
+ * cut a result the server sized under the ceiling — a remote flag can lower
+ * Claude Code's line below it. The nightly run reads its own child's
+ * transcript once the child exits (`claude-code/transcript.ts#readToolSpills`)
+ * and writes one `mcp.result.spilled` row per result of ours the host showed
+ * only as a preview: the run, the tool, the phase, the marker's shape and the
+ * size the host said. Never the saved file's path, never the text. No
+ * `dedupKey`: a run is read once.
+ */
+export const MCP_SPILLED_EVENT = "mcp.result.spilled";
 
 /**
  * WHAT A DELIVERY COULD NOT CARRY (durable since 2026-10-02; ring-only
@@ -836,6 +848,7 @@ export type AdapterDurableEventName =
   | typeof MCP_RECALL_EVENT
   | typeof MCP_PART_EVENT
   | typeof MCP_OVERSIZE_EVENT
+  | typeof MCP_SPILLED_EVENT
   | DeliveryWarningName
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT

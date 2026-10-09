@@ -1973,6 +1973,52 @@ like `not-found`; amber would hold forever on a host build that never writes the
 nothing to do by hand. The dashboard's narrator says the same split: the first calm, the
 other two amber. The prompt's wait is a ring event, `adapter.wake.check.deferred`.
 
+## 2026-10-09 — the night run reads its own transcript for the host's cut (U14 item 3)
+
+0.3.12 keeps every result under 40,000 characters, 20% under Claude Code's 50,000-character
+line, but the host can lower that line by a remote flag and nothing pins it. A result past
+it reaches the model as a 2 KB preview, and nothing in the store can tell: the server
+answered whole, the parts were fetched, every line was green. So the night now asks the
+host's own record. The child gets `--session-id` with a UUID the waiting process chose;
+when it exits the transcript is found by that name and read for the host's marker on
+results of ours. One `mcp.result.spilled` row per cut result; `transcript` and `spills` on
+the run's row; doctor's Tool results line amber; a plain line in the morning hand-back.
+
+- **The markers were read from the host's code, 2.1.295** (strings in the binary, not a
+  transcript): `<persisted-output>` + "Output too large (51.5KB). Full output saved to: …"
+  + "Preview (first 2KB):" + `</persisted-output>` is the one the nights of 10-01 to 10-07
+  met. Three more: the same with "Output exceeded the … persist limit" (a result past the
+  file cap), `<truncated-output>` + "It could not be saved" (the save failed), "Error:
+  result (N characters) exceeds maximum allowed tokens. Output has been saved to …" (the MCP
+  token line), and, with no file kept, the result cut and "[OUTPUT TRUNCATED - exceeded N
+  token limit]" + "The tool output was truncated." appended. A host that rewords them
+  makes the check go quiet, not wrong.
+- **Anchored, never a substring.** The morning's manual check (grep "Output too large" in
+  the night's transcript) found two hits that were memories quoting the check, inside a
+  recall answer. The first three markers are matched at the START of a `tool_result`, the
+  token trailer at its very END with the real line breaks the host writes — a quoted line
+  break inside our JSON is the two characters `\n`. Only `tool_result` blocks answering a
+  `tool_use` named `mcp__counterparts__…`; the model's own text, the person's, and other
+  tools' results are never read. The test carries exactly that recall answer.
+- **Found by name, not by guessing the host's spelling.** The host turns the directory into
+  a name (every character but a letter or digit to "-"), shortens a long one with a hash of
+  its own, and may start from a git worktree's root. The spelling is tried first, then
+  every project directory is asked for `<id>.jsonl` — a fresh UUID, so only one file can
+  answer. `absent` and `unreadable` go on the row and are said in doctor's green line ("not
+  checked"), never read as clean.
+- **Amber, not red.** A spill is the same kind of fact as the two ambers already on the
+  line (a result cut by our net, a part never fetched): the night has happened, and nothing
+  can be done by hand. Red would be defensible — the run read through a keyhole — but the
+  standing preference is loose first.
+- **Not covered:** the morning catch-up's child (its write-up parts are sized by
+  `WRITE_UP_PART_BYTES`, far under any line), and ordinary sessions. A result cut in a
+  session the owner watches is in front of him.
+- **Unmeasured on a real machine:** that `claude -p` honours `--session-id` (its help lists
+  the flag with no print-mode caveat), and that the transcript lands where it is looked
+  for. If either fails, the row says `absent` and doctor says the night was not checked.
+- The same change tightened the reflection's instructions when its bundle comes in parts
+  (`dream/NOTES.md`, 2026-10-09).
+
 ## 2026-10-09 — the write-up plan at session start: measured, the skip not built
 
 The plan behind the write-up pointer (`writeUpPlan`) runs at every start until the day's

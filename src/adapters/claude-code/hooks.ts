@@ -1067,14 +1067,16 @@ export class ClaudeCodeAdapter extends Lifecycle {
 
   /**
    * THE HAND-BACK OF A HEADLESS RUN THAT ENDED — the dream's line, then the
-   * morning share if there is one — claimed once across every session. Empty
-   * when there is nothing to hand back, or another prompt already did.
+   * morning share if there is one, then the host's cut if the run's transcript
+   * showed one (2026-10-09) — claimed once across every session. Empty when
+   * there is nothing to hand back, or another prompt already did.
    */
   private nightHandBack(input: HookInput): string[] {
     const dreams = this.counterpart.dreams;
     const night = dreams.nightRun();
     if (night === null || night.state === "started" || night.state === "could-not-start") return [];
-    if (night.dream === null && night.reflection === null) return [];
+    // A run the host cut is told even when it journaled nothing: the cut may be why.
+    if (night.dream === null && night.reflection === null && (night.spills ?? 0) === 0) return [];
     // A READ on the per-prompt path once it is handed: nothing is written again.
     if (night.handedAt !== undefined) return [];
     const claimed = dreams.claimNightHandBack(night.run, input.sessionId);
@@ -1089,6 +1091,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const share = this.counterpart.reflections.carryLine({ session: input.sessionId, reflection: night.reflection });
       if (share !== null) out.push(share);
     }
+    const spill = dreams.nightSpillLine(night);
+    if (spill !== null) out.push(spill);
     this.emit("adapter.night.handed", { run: night.run, lines: out.length });
     return out;
   }

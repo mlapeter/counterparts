@@ -123,6 +123,7 @@ export const LANES = {
   "mcp.recall": "flow",
   "mcp.part": "flow",
   "mcp.result.oversize": "flow",
+  "mcp.result.spilled": "flow",
   "prospective.fire.refused": "flow",
   "recall.decision": "flow",
   "remember.prune": "flow",

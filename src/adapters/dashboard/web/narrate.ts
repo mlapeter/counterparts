@@ -896,6 +896,13 @@ export const NARRATORS = {
         : `${said}; it went out whole, as nothing in it was one long text to cut.`,
     );
   },
+  // The host's cut, read from the night run's own transcript (2026-10-09).
+  "mcp.result.spilled": (t) => {
+    const tool = typeof t.p["tool"] === "string" ? t.p["tool"].replace(/^mcp__counterparts__/, "") : "a tool";
+    const phase = typeof t.p["phase"] === "string" ? ` (${t.p["phase"]})` : "";
+    const size = typeof t.p["said"] === "string" ? `, at ${t.p["said"]},` : "";
+    return amber(`Claude Code showed the nightly run's answer from ${tool}${phase}${size} only as a short preview — the run read part of it.`);
+  },
 
   // ── going looking on purpose ───────────────────────────────────────────────
   "mcp.recall": (t) => {
@@ -1163,6 +1170,7 @@ export const REF_KIND = {
   // A part's run id (a dream's or a reflection's) is in its payload, not a memory.
   "mcp.part": "none",
   "mcp.result.oversize": "none",
+  "mcp.result.spilled": "none",
   "adapter.envelope.overcap": "none",
   "adapter.notice.dropped": "none",
   "adapter.envelope.gave-way": "none",
