@@ -394,8 +394,12 @@ written for both precisions so the two cannot drift if that changes.
   revised. The old row keeps its `meta.recurring` when its date is cleared — inert with no
   date, and kept in its version either way.
 
-Named, not fixed: `exitReport` re-derives a past occurrence's row with `windowFor`, which
-does not know the clipping, so a weekly occurrence that never fired can read `open` for a
-few days longer than its clipped window. It only colours the exit count. The dream's
+Named, not fixed: `exitReport` (§5 G12, "every dated memory names its exit") sees a
+repeating memory's CURRENT or next occurrence, plus any past occurrence that left a firing
+row. A past occurrence nobody fired — a quiet birthday in a week with no sessions, or a
+plain one told only through the plain latch, which writes an event and no firing row —
+exits nowhere, so G12 is narrower for repeats than for one-off dates. And a past
+occurrence's row is re-derived with `windowFor`, which does not know the clipping, so its
+phase can read a few days long. Both only colour the exit count. The dream's
 "coming up" list and the dashboard's "ahead" list read `datedMemories` alone, so they do
 not show a repeating date's next occurrence yet.
