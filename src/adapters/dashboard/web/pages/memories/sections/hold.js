@@ -14,7 +14,8 @@ import { filters, onFilter, toggle } from "../state.js";
  * [key, words, what it means]. True to the forgetting rules (`views/memories.ts#holdOf`,
  * `physics`): firm is still settled into what I know 30 lived days on if unused
  * (and a lived day is never shorter than a calendar day); fading is what prune
- * could let go within 14 lived days, unless a revision still leans on it.
+ * could let go within 14 lived days, unless a revision still leans on it. A
+ * date that still repeats is kept by prune, so it is never fading (2026-10-09).
  */
 export const PARTS = [
   ["firm", "firm", "I'll still know these a month from now, even if they're never used."],

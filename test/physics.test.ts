@@ -1100,6 +1100,29 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     expect(
       pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy,
     ).toEqual(["protected", "recurring"]);
+    // `protected` on the same terms (2026-10-09): named only where the floor
+    // would have let it go. Above it, or not yet past the dwell, the verdict is
+    // the arithmetic's alone — and the memory is kept all the same.
+    const kept = { ...faded, protected: true };
+    expect(pruneVerdict(kept, 100, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
+    expect(pruneVerdict(kept, 5, { inLiveRevisionChain: false }).blockedBy).toEqual([
+      "above-floor",
+      "dwell-too-short",
+      "band-not-episodic",
+    ]);
+    for (const d of [5, 60, 100, 280, 2000]) expect(pruneVerdict(kept, d, { inLiveRevisionChain: false }).prune).toBe(false);
+    // `in-live-revision-chain` on the same terms (review of #343): a chain
+    // holding a row above the floor is not what keeps it.
+    expect(pruneVerdict(faded, 100, { inLiveRevisionChain: true }).blockedBy).toEqual(["above-floor"]);
+    expect(pruneVerdict(faded, 5, { inLiveRevisionChain: true }).blockedBy).toEqual([
+      "above-floor",
+      "dwell-too-short",
+      "band-not-episodic",
+    ]);
+    for (const d of [5, 60, 100, 280, 2000]) expect(pruneVerdict(faded, d, { inLiveRevisionChain: true }).prune).toBe(false);
+    expect(
+      pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: true, recurring: true }).blockedBy,
+    ).toEqual(["protected", "in-live-revision-chain", "recurring"]);
   });
 
   test("the prune record carries counts, kind and dates — never a body, never a hash", () => {

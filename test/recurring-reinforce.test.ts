@@ -28,6 +28,7 @@ import { join } from "node:path";
 import type { PlainReminder } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS, pruneVerdict, strength } from "../src/core/physics/index.js";
 import { CUE_MODE_META, RECURRING_META } from "../src/core/prospective/index.js";
+import { inLiveRevisionChain } from "../src/core/sleep/index.js";
 import type { CycleReport } from "../src/core/sleep/index.js";
 import { recurrenceOfRow } from "../src/core/store/index.js";
 import type { Store } from "../src/core/store/index.js";
@@ -195,7 +196,8 @@ describe("each occurrence that reaches the person counts as a use", () => {
     expect(s.prospectiveFor(quiet).map((r) => r.window_key)).toEqual(["d:2027-06-20", "d:2028-06-20", "d:2029-06-20"]);
     expect(uses(s, quiet)).toBe(0.25 * 3);
     expect(a.counterpart.prospective.deriveFor(quiet, "2030-06-20", [], s.livedDay())?.blockedBy).not.toContain("faded");
-  });
+    // Three years of nights through the hooks: 5.5–6 s alone, over bun's 5 s default.
+  }, 30_000);
 
   test("a QUIET yearly at the default salience has FADED by its 2nd and 3rd dates, and fires on both all the same", async () => {
     const a = hooks();
@@ -360,7 +362,7 @@ describe("what is not a repeat is not credited", () => {
   });
 });
 
-describe("the prune's `recurring` refusal is counted only where it held a memory back", () => {
+describe("the prune's named refusals are counted only where they held a memory back", () => {
   test("a strong daily repeat on a store with nothing to prune: the cycle names `above-floor`, not `recurring`, and the prune row is not BLOCKED", async () => {
     // Review of #341. The fired view's prune row reads BLOCKED whenever a
     // named rule refused a memory and nothing was pruned that week; a repeat
@@ -380,6 +382,78 @@ describe("the prune's `recurring` refusal is counted only where it held a memory
       expect(blocked(cycle, "above-floor")).toBeGreaterThan(0);
     }
     expect(uses(s, id)).toBe(0.25 * 7);
+    const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
+    expect(prune?.refusedInWindow).toBe(0);
+    expect(prune?.state).not.toBe("blocked");
+  });
+
+  test("a protected memory and the self page (born protected) on a young store: `protected` is not counted, and the prune row is not BLOCKED", async () => {
+    // The same rule for `protected` (2026-10-09). The owner's store, under
+    // three weeks old, read "memory.pruned BLOCKED: 10 refusals, protected
+    // ×8": nothing there can have sat unused for the 90-day dwell, so every
+    // one of those was a protected row the arithmetic was keeping anyway.
+    const a = hooks();
+    const s = a.counterpart.store;
+    const kept = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "never forget this",
+      body: "The owner asked that this one never be forgotten, in so many words.",
+      learnedOn: "2026-10-09",
+      salience: DEFAULTED,
+      physics: { protected: true },
+    });
+    const page = a.counterpart.revisePage("Who I am, so far: the page the self keeps.", { by: "owner", reason: "test" }).id as string;
+    expect(s.row(kept)?.protected).toBe(1);
+    expect(s.row(page)?.protected).toBe(1);
+    await evening(a, "2026-10-09");
+    let date = "2026-10-09";
+    for (let i = 0; i < 7; i++) {
+      date = addDays(date, 1);
+      morning(a, date);
+      const cycle = await evening(a, date);
+      expect(blocked(cycle, "protected")).toBe(0);
+      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+    }
+    // Kept all the same: the outcome never depended on the name.
+    expect(s.row(kept)?.archived).toBe(0);
+    expect(s.row(page)?.archived).toBe(0);
+    const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
+    expect(prune?.refusedInWindow).toBe(0);
+    expect(prune?.state).not.toBe("blocked");
+  });
+
+  test("a memory under challenge pressure on a young store: `in-live-revision-chain` is not counted, and the prune row is not BLOCKED", async () => {
+    // The same rule for the chain (review of #343): a row with challenge
+    // pressure standing against it is in a live revision chain on every night
+    // the pressure lasts, and was counted as a refusal on each of them while
+    // the arithmetic alone was keeping it.
+    const a = hooks();
+    const s = a.counterpart.store;
+    await evening(a, "2026-10-09");
+    const challenged = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "the deploy runs on Fridays",
+      body: "The deploy runs on Fridays, though a correction is arguing otherwise.",
+      learnedOn: "2026-10-09",
+      salience: DEFAULTED,
+      physics: { pressure: 0.5, lastChallengedDay: s.livedDay() },
+    });
+    let date = "2026-10-09";
+    for (let i = 0; i < 7; i++) {
+      date = addDays(date, 1);
+      morning(a, date);
+      const cycle = await evening(a, date);
+      // Not vacuous: the prune asked, and the chain was live that night.
+      const row = s.row(challenged);
+      expect(row).toBeDefined();
+      expect(inLiveRevisionChain(s, challenged, row!, rowToPhysics(row!), cycle.day)).toBe(true);
+      expect(blocked(cycle, "in-live-revision-chain")).toBe(0);
+      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+    }
+    // Kept all the same: the outcome never depended on the name.
+    expect(s.row(challenged)?.archived).toBe(0);
     const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
     expect(prune?.refusedInWindow).toBe(0);
     expect(prune?.state).not.toBe("blocked");

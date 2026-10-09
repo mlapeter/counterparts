@@ -2,7 +2,8 @@
    Title on its own line with the words dimmer beneath (two lines, clipped); the
    date, the kind and the marks on the right. Every row is drawn at the same
    brightness (round 4, 2026-09-28): how well it is remembered shows only when
-   it is not the usual — the one word "fading". A plain fact carries no kind
+   it is not the usual — the one word "fading", or for a date that still
+   repeats, how often ("repeats every May 14"). A plain fact carries no kind
    tag (the quiet default); a journal chapter is titled by its day. An id
    written inside the words is a small link to that memory (2026-10-09). */
 import { esc } from "../../shared/dom.js";
@@ -108,7 +109,9 @@ export function memRow(r, opts = {}) {
   // A plain fact is the quiet default: no tag. A journal chapter says so in its title.
   const kindTag = !r.kind || (r.kind === "fact" && !r.schemaRole) || r.journal ? ""
     : '<span class="mkind" title="' + esc(kindWords) + '">' + kindMark(r.kind, false) + '<span class="klabel">' + esc(kindWords) + "</span></span>";
-  const held = r.hold === "fading" ? '<span class="mfading" title="unless it is used, I may put it away within my next two weeks of use">fading</span>' : "";
+  // A date that still repeats is kept for its next time, however faint (2026-10-09): it is never "fading", and says how often instead.
+  const held = r.hold === "fading" ? '<span class="mfading" title="unless it is used, I may put it away within my next two weeks of use">fading</span>'
+    : r.repeats ? '<span class="mrepeats" title="' + esc("it comes round " + r.repeats + ", so I'll keep it while it does") + '">repeats ' + esc(r.repeats) + "</span>" : "";
   const date = r.date && !r.journal
     ? '<span class="mdate" title="' + esc(DATE_WORDS[r.dateFrom] || "") + '">' + esc(dateOr(r.date)) + "</span>" : "";
   const put = r.archived
