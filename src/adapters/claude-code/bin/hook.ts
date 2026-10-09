@@ -558,11 +558,6 @@ async function main(): Promise<void> {
     wroteStdout: false,
     didWork: false,
   };
-  // THE FAULT HANDLER, HERE RATHER THAN AT THE ENTRY POINT, because this is
-  // where the event's own facts are in scope — which hook, which session, which
-  // store — and all three are needed to say a stand-down out loud once. The
-  // entry point's handler below stays exactly what it was: the last resort for
-  // anything that fails before any of this is known.
   // THE PLUGIN'S PREAMBLE (`adapters/plugin.ts`), and only when Claude Code
   // launched this process as the Counterparts plugin. Two questions before
   // anything opens: is the npm install's wiring live in this host (then the
@@ -590,6 +585,11 @@ async function main(): Promise<void> {
       process.stderr.write(`[counterparts] plugin first run threw: ${err instanceof Error ? err.message : String(err)}\n`);
     }
   }
+  // THE FAULT HANDLER, HERE RATHER THAN AT THE ENTRY POINT, because this is
+  // where the event's own facts are in scope — which hook, which session, which
+  // store — and all three are needed to say a stand-down out loud once. The
+  // entry point's handler below stays exactly what it was: the last resort for
+  // anything that fails before any of this is known.
   try {
     await runHook(name, payload, choice, said, pluginLines);
   } catch (err) {
