@@ -115,6 +115,8 @@ export const CONTRADICTION_TUNABLES = {
   UPDATE_COSINE: 0.3,
   /** Characters of a held memory's text shown back to the writer: enough to judge by. */
   HELD_TEXT_CHARS: 600,
+  /** Most rows `heldCorrections` reads of each name (holds newest first). */
+  HELD_READ_ROWS: 5000,
 } as const;
 
 /** The archive reason a `corrected` memory carries. */
@@ -758,7 +760,7 @@ export function heldCorrections(
   store: Pick<Store, "eventLog">,
   opts: { sinceDay?: number } = {},
 ): { held: number; settledAfter: number; byMeaning: number; byWords: number } {
-  const since = opts.sinceDay === undefined ? {} : { sinceDay: opts.sinceDay };
+  const limit = CONTRADICTION_TUNABLES.HELD_READ_ROWS;
   const read = (raw: string | null): Record<string, unknown> => {
     try {
       return JSON.parse(raw ?? "{}") as Record<string, unknown>;
@@ -766,8 +768,16 @@ export function heldCorrections(
       return {};
     }
   };
-  const holds = store.eventLog({ name: CONTRADICTION_HELD_EVENT, ...since }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
-  const settles = store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, ...since }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
+  // The newest holds, and every settle from the day of the oldest of them on
+  // (`eventLog` reads 500 rows unless told otherwise, oldest first).
+  const holds = store
+    .eventLog({ name: CONTRADICTION_HELD_EVENT, ...(opts.sinceDay === undefined ? {} : { sinceDay: opts.sinceDay }), order: "desc", limit })
+    .map((e) => ({ seq: e.seq, day: e.day, p: read(e.payload) }));
+  const from = holds.reduce((d, h) => Math.min(d, h.day), Number.POSITIVE_INFINITY);
+  const settles =
+    holds.length === 0
+      ? []
+      : store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, sinceDay: from, limit }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
   let settledAfter = 0;
   for (const h of holds) {
     if (settles.some((s) => s.seq > h.seq && s.p["holds"] === h.p["holds"] && s.p["over"] === h.p["over"])) settledAfter += 1;
