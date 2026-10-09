@@ -38,8 +38,10 @@
  * 2026-10-09; it was the card holding the most) — and the rest are
  * one-liners. The owner's "I" asked about ("what have you been like", in the
  * counterpart's voice) is his own card. A name asked about that has NO card
- * (2026-10-09) is never passed over in silence: above every card it names,
- * the answer is the moments that mention it, as typed, and its first line
+ * (2026-10-09) is never passed over in silence for another card: above every
+ * card the question names, the answer is the moments that mention it, as
+ * typed (naming no card, the question's words and meaning answer it, as
+ * before), and its first line
  * says so ("No card for Han yet; here is what mentions Han"); asked about
  * alongside a card, the card leads and the first line says the name has
  * none (`MeaningResult.noCard`). "us"
@@ -475,12 +477,27 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
   // store is usually the owner's: "what has Ilya been to Mike" answered
   // about Mike.
   const ownerCard = safe(() => findIdentityCore(store), null);
+  /** Each word of a live card's name or alias, lower case → the cards it is a word of (read once, when asked). */
+  let cardWords: Map<string, string[]> | null = null;
+  const cardWord = (word: string): boolean => {
+    if (cardWords === null) {
+      const index = new Map<string, string[]>();
+      for (const e of safe(() => c.schemas.entities(), [] as ReturnType<typeof c.schemas.entities>)) {
+        for (const w of new Set([e.name, ...e.aliases].flatMap((t) => tokenize(t)))) index.set(w, [...(index.get(w) ?? []), e.id]);
+      }
+      cardWords = index;
+    }
+    // Only a card the asker may see something of: one that holds nothing for
+    // him reads as no card, as everywhere else here.
+    return (cardWords.get(word) ?? []).some((id) => (cardOf(id)?.ids.length ?? 0) > 0);
+  };
   const subject = subjectOf(question, cards, {
     terms: (id) => cardTerms(c, id),
     ownerCard,
     ownerPronoun: feelingAsked || usAsked ? null : asker === "self" ? OWNER_AS_YOU : OWNER_AS_I,
     ownerCardOf: () => (ownerCard === null ? null : cardOf(ownerCard)),
     ownerNames: new Set(ownerNamesLower(c).flatMap((n) => tokenize(n))),
+    cardWord,
   });
   const bestCard = subject.card;
   if (bestCard !== null && subject.alike.length > 0) {
@@ -1390,7 +1407,10 @@ function mentionRank(m: { readonly slot: Slot; readonly pronoun: boolean; readon
  * been to Mike", on a store whose one card is Mike's, answered with Mike's
  * arc and no word about Han. A name the asker capitalised mid-sentence
  * (`askedNames`) that no card with memories covers — not the owner's, not a
- * month or a weekday — is read in place like a card's, typed as written. In
+ * month or a weekday, not a word of a card's longer name, not an acronym — is
+ * read in place like a card's, typed as written, when the question names a
+ * card too (with none named, nothing is answered in its place, and the
+ * question's words and meaning follow it as before). In
  * an aside it is passed over. Outranking every card, or level with only the
  * owner's (which leaves a field it shares), it is `bare`: the answer is what
  * mentions it, said so first. Level with another card, the card leads and
@@ -1406,6 +1426,12 @@ function subjectOf(
     readonly ownerCardOf: () => NamedCard | null;
     /** The owner's names, lower case, word by word: never a name without a card. */
     readonly ownerNames: ReadonlySet<string>;
+    /**
+     * Is this word (lower case) part of the name or an alias of a card the
+     * asker may see — "Marguerite" of Marguerite Solberg? Never a name
+     * without a card, though `subjectsIn` does not read it as that card.
+     */
+    readonly cardWord: (word: string) => boolean;
   },
 ): { card: NamedCard | null; alike: readonly string[]; bare: string | null; bareAlike: readonly string[] } {
   const live = cards.filter((x) => x.ids.length > 0);
@@ -1440,7 +1466,7 @@ function subjectOf(
     kept.push(m);
   }
   // The names no card covers, between and around the cards' own.
-  const uncarded = uncardedNames(question, kept, o.ownerNames);
+  const uncarded = uncardedNames(question, kept, o.ownerNames, o.cardWord);
   // Joined to the name before it ("X and Y", "X, Y"), a name takes that one's
   // place — and joined to the owner's pronoun ("how have you and Ilya been"),
   // the place the grammar gives, not the pronoun's lower rank. Cards and
@@ -1452,7 +1478,11 @@ function subjectOf(
     if (JOINED.test(question.slice(prev.end, m.at))) m.slot = prev.slot;
   }
   // In an aside a name with no card is passed over; the first named breaks a tie.
-  const bare = uncarded
+  // With no card named at all, none is: nothing would be answered in its
+  // place, and the question's own words and meaning already follow it — "what
+  // did I learn about Postgres indexing" stays a question about indexing too
+  // (review of #347).
+  const bare = (kept.length === 0 ? [] : uncarded)
     .map((b) => ({ ...b, rank: mentionRank({ slot: b.slot, pronoun: false, lowered: false }) }))
     .filter((b) => b.slot !== "aside");
   const bareBest = bare.reduce((r, b) => Math.max(r, b.rank), Number.NEGATIVE_INFINITY);
@@ -1494,18 +1524,36 @@ const CALENDAR_NAMES = new Set([
 ]);
 
 /**
+ * Words a question is built from, never a name: one of them capitalised
+ * mid-sentence means the question was typed in Title Case ("What Has Changed
+ * Since Monday"), which capitalises nothing in particular (review of #347).
+ * Not "will", "may" or "can", which are names too.
+ */
+const TITLE_CASE_TELLS = new Set([
+  "has", "have", "had", "is", "are", "was", "were", "been", "did", "does",
+  "the", "of", "to", "in", "on", "at", "for", "with", "about", "from", "into", "than", "and", "or", "since",
+  "what", "how", "when", "why", "where", "who", "this", "that", "it", "you", "your", "we", "our",
+  "they", "their", "his", "her", "him", "them",
+]);
+
+/**
  * The names the asker capitalised mid-sentence (`askedNames`) that no kept
  * card mention covers — "Han", or "Han Seo" for two in a row — with where
- * each sits. Not the owner's name, and not a month or a weekday ("since
- * March" is a time). A possessive is dropped ("Han's" names Han).
+ * each sits. Not the owner's name, not a month or a weekday ("since March"
+ * is a time), and not a word of a card's longer name ("Marguerite" when
+ * Marguerite Solberg has a card: there IS a card). Not an acronym or a word
+ * with a digit ("API", "Q3"): a thing's label, not a name. Nothing in a
+ * question typed in Title Case. A possessive is dropped ("Han's" names Han).
  */
 function uncardedNames(
   question: string,
   taken: readonly { readonly at: number; readonly end: number }[],
   ownerNames: ReadonlySet<string>,
+  cardWord: (word: string) => boolean,
 ): { name: string; at: number; end: number; slot: Slot }[] {
   const proper = safe(() => askedNames(question), new Set<string>());
   if (proper.size === 0) return [];
+  if ([...proper].some((w) => TITLE_CASE_TELLS.has(w))) return [];
   const out: { name: string; at: number; end: number; slot: Slot }[] = [];
   let run: { at: number; end: number; parts: string[]; closed: boolean } | null = null;
   const flush = (): void => {
@@ -1522,9 +1570,12 @@ function uncardedNames(
     const isName =
       /^[A-Z]/.test(tok) &&
       proper.has(tok.toLowerCase().replace(/['’]/g, "")) &&
+      !/\d/.test(word) &&
+      !/^[A-Z][A-Z]/.test(word) &&
       !CALENDAR_NAMES.has(low) &&
       !ownerNames.has(low) &&
-      !taken.some((t) => at < t.end && end > t.at);
+      !taken.some((t) => at < t.end && end > t.at) &&
+      !tokenize(word).some((w) => cardWord(w));
     const current = run as { at: number; end: number; parts: string[]; closed: boolean } | null;
     if (isName && current !== null && !current.closed && /^[ \t]+$/.test(question.slice(current.end, at))) {
       current.parts.push(word);

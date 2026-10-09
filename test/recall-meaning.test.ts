@@ -493,6 +493,41 @@ describe("a name asked about that has no card", () => {
     expect(meaningRecall(ctx(c), "what happened on Thursday at the dentist?").noCard).toBeNull();
     expect(meaningRecall(ctx(c), "what has Mike been like?").noCard).toBeNull();
   });
+
+  // Review of #347, on the demo store: "No card for Marguerite yet" where
+  // Marguerite Solberg has one, and "No card for Q3 yet" for "how has the Q3
+  // roadmap gone", which then lost the two chapters its words had found.
+  test("a word of a card's longer name is not a name with no card: there is a card", () => {
+    const c = ownerBrain();
+    card(c, "Han Seo");
+    oneCard(c);
+    moment(c, "sess_s", "Han Seo moved to Boulder in the spring.");
+    const r = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(r.noCard).toBeNull();
+  });
+
+  test("with no card named, nothing is answered in a name's place: no line, and the words and meaning answer as before", () => {
+    const c = ownerBrain();
+    const { han } = oneCard(c);
+    const r = meaningRecall(ctx(c), "what has Han been up to?");
+    expect(r.noCard).toBeNull();
+    expect(r.lens?.kind).toBe("words");
+    expect(entries(r).flatMap((e) => e.moments.map((m) => m.id))).toEqual(expect.arrayContaining(han));
+    // The sentence's first word is capitalised too, and is nobody.
+    for (const q of ["What has changed since Monday?", "How has the Q3 roadmap gone?", "What did we decide about the API?", "When did I feel proud?"]) {
+      expect(meaningRecall(ctx(c), q).noCard).toBeNull();
+    }
+  });
+
+  test("an acronym, a word with a digit, or a question in Title Case names nobody, even beside a card", () => {
+    const c = ownerBrain();
+    oneCard(c);
+    expect(meaningRecall(ctx(c), "what has the API been to Mike?").noCard).toBeNull();
+    expect(meaningRecall(ctx(c), "how has Q3 been for Mike?").noCard).toBeNull();
+    const titled = meaningRecall(ctx(c), "What Has Changed For Mike Since Monday?");
+    expect(titled.noCard).toBeNull();
+    expect(titled.lens).toMatchObject({ kind: "card", name: "Mike" });
+  });
 });
 
 describe("a long arc", () => {

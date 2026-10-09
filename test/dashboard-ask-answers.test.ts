@@ -289,12 +289,18 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     } finally {
       c.close();
     }
-    const { answer } = await ask<MeaningResult>({ question: "what has Zqhan been to me", mode: "meaning" });
+    // Asked about above a card the question also names (review of #347: with
+    // no card named, nothing is answered in its place, and no line is added).
+    const { answer } = await ask<MeaningResult>({ question: "what has Zqhan been to Halfmoon", mode: "meaning" });
     expect(answer.noCard).toBe("No card for Zqhan yet; here is what mentions Zqhan");
     const head = seen(page.meaningHead(answer));
     expect(head).toStartWith(`No card for Zqhan yet; here is what mentions Zqhan."Zqhan" · `);
     expect(page.meaningHead(answer)).toStartWith('<span class="find-lead">');
     expect(answer.arc.flatMap((l) => (l.fold ? [] : l.entry.moments.map((m) => m.id)))).toContain(said);
+    // Named alone, its words and meaning answer it, as before: no line.
+    const { answer: alone } = await ask<MeaningResult>({ question: "what has Zqhan been to me", mode: "meaning" });
+    expect(alone.noCard).toBeNull();
+    expect(alone.arc.flatMap((l) => (l.fold ? [] : l.entry.moments.map((m) => m.id)))).toContain(said);
     // A card's answer has no such line.
     const { answer: carded } = await ask<MeaningResult>({ question: "what has Halfmoon been to me", mode: "meaning" });
     expect(carded.noCard).toBeNull();

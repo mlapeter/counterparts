@@ -47,6 +47,10 @@
   about. If nothing mentions Han, it says that instead. When the question asks about a
   name with no card alongside one that has a card ("how have Han and Oskar been?"), it
   follows the card and says Han has none. The dashboard's Ask shows the same first line.
+  A question that names no card at all ("what has Han been up to?") is answered as
+  before, by its words and meaning. A first name of a card's longer name ("Marguerite"
+  for Marguerite Solberg), an acronym ("API", "Q3") and a question typed in Title Case
+  are never taken for a name with no card.
 
 ## 0.3.13 — 2026-10-09
 
