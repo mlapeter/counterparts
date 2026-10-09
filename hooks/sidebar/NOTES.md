@@ -97,9 +97,9 @@ measurement.
 - **Search runs on Enter, not on every keystroke.** Each `recall` writes a count
   row (it counts under Retrieval's "deliberate look-ups") and the "shown this
   session" bookkeeping. Typing "publish" would have made seven.
-- **Esc doesn't clear the search.** Esc hands the keyboard back to the prompt
-  and never reaches a mod's Input. Clearing is the `✕` beside the field, or an
-  empty Enter.
+- **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
+  back to the prompt and never reaches a mod's Input (**assumed**: not pressed
+  in the live run). Clearing is the `✕` beside the field, or an empty Enter.
 - **The Counterparts switch starts dim when the folder's state isn't known.**
   Asking at start would open a permission dialog (above). The first press
   learns the state (and toasts it). After that, each press pauses or resumes,
@@ -133,5 +133,9 @@ measurement.
   That assumes the store's session id is Claude Code's (true in today's feed).
 - The brain timer keeps ticking (one dispatch per frame) while the pane is
   hidden. It computes nothing until the pane draws again.
+- After an Enter in the live run, the engine emptied the search field while the
+  module still holds the query (`run.draft`, drawn back as the field's `value`).
+  Nothing visible went wrong, but a later redraw may put the query back in the
+  field.
 - Unexplained: once, in the tmux session, focusing the pane with ctrl+x tab and
   then Enter widened the dock to about 60 columns. Not reproduced.
