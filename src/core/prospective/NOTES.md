@@ -126,6 +126,8 @@ because the memory was actually USED is the best exit there is, and folding it i
 
 ## 9. Recurrence stays absent, and so does anything that could grow into it
 
+**Was true until 2026-10-09** — the owner lifted it; §15 is what replaced it.
+
 No re-arm, no next-occurrence, no "annual" flag, no date arithmetic that produces a date
 the author never stated. The recorded punt (CONTRACT §4) is not a to-do: annual re-arm is
 scheduling physics, and scheduling physics is where task-queue behavior creeps back in.
@@ -344,3 +346,56 @@ session that day) keeps its grace week in the lane.
 Named, not proved through the lane: month and range items take no wake line at all
 (tune question c), so the `last-day` half of the rule has no visible effect today. It is
 written for both precisions so the two cannot drift if that changes.
+
+## 15. A date that repeats (2026-10-09, the owner's design, held lightly)
+
+`recurring: daily | weekly | monthly | yearly` on a `note` or `session_end` entry, beside
+`eventDate` and `remind`, anchored on the event date. What the build chose:
+
+- **Where it lives: `meta.recurring`, beside `meta.remind`** (`store`'s `RECURRING_META`).
+  No schema bump: the owner wanted it in 0.3.13 without a store-format change, and a
+  build that never heard of it (0.3.12) reads the same file and sees a one-off date that
+  has passed — inert, never wrong in the loud direction. The anchor stays on
+  `event_date`, as stated, so `datedMemories` keeps its meaning ("the date as stated
+  reaches this span"); `Store.recurringMemories()` is the other half — live rows with a
+  day `event_date` and the word in meta, a loose text match on the meta (as
+  `planCandidates` does for `unresolved`) that the parsed meta confirms. `arrivals()` and
+  `plainDue()` union the two; `time.ts#occurrenceBetween` decides which repeats reach the
+  span.
+- **Prospectivity is still derived.** `contentDates` carries the rule to `derive`, which
+  asks `windows.ts#recurringWindowAt` for the ONE occurrence window open on `at` — or the
+  next, pending. Nothing is re-armed and nothing is stored per occurrence until it fires,
+  exactly as a one-off date. A repeating date therefore never reads `window-passed`.
+- **The key is the occurrence's date** (`d:2027-05-14`). That one choice makes every
+  per-window brake per occurrence without a line of its own: `FIRES_PER_WINDOW`, once per
+  lived day, the plain latch per beat, referenced-stop, `told-plainly-today`. And it is
+  what keeps a revision from telling or firing the same occurrence twice: `lineage`
+  (§13) counts what was spent "for the SAME window key" on the memories a reminder moved
+  through, and an occurrence's key does not change when the words do. A revision that
+  moves the anchor to another day of the year starts fresh, like a reschedule.
+- **Two occurrences are never open together.** Lead (3) and grace (7) make a window
+  eleven days wide, so a weekly date would have two open and a daily one eleven, each with
+  its own fire budget — a task queue by arithmetic. So each occurrence's window opens no
+  earlier than the day after the previous occurrence and closes the day before the next
+  one opens: the coming lead wins over the last grace. Daily: the day. Weekly: Friday to
+  Thursday around a Monday. Monthly and yearly: untouched.
+- **Only a day repeats.** A month, a range or a year beside `recurring` is refused at the
+  door (`recurring-needs-day`, `RECURRING_NEEDS_DAY`); a revision that moves a repeating
+  date to a month drops the repeat and says so. "Every October" is an owner question
+  (CONTRACT §7.5), not a gap.
+- **The calendar is `time.ts`'s**, counted from the anchor every time: monthly on the
+  29th–31st falls on the last day of a shorter month; yearly on Feb 29 falls on Feb 28 in
+  a common year; never an occurrence before the anchor. `readableRecurrence` gives the
+  words ("every May 14", "every Monday", "every month on the 31st", "every day"), from the
+  anchor so a February occurrence of the 31st still reads as the 31st. Words live there,
+  not here: this module still exports nothing that produces text.
+- **Carried field by field on `updates`** (`Counterpart#carryReminder`): sent wins,
+  `null` stops the repeat (the date stays, once), left out comes from the memory being
+  revised. The old row keeps its `meta.recurring` when its date is cleared — inert with no
+  date, and kept in its version either way.
+
+Named, not fixed: `exitReport` re-derives a past occurrence's row with `windowFor`, which
+does not know the clipping, so a weekly occurrence that never fired can read `open` for a
+few days longer than its clipped window. It only colours the exit count. The dream's
+"coming up" list and the dashboard's "ahead" list read `datedMemories` alone, so they do
+not show a repeating date's next occurrence yet.

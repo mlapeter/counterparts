@@ -1257,3 +1257,25 @@ Nkechi Abernathy arrived" answered about Nkechi.
   question typed all in lower case loses the step on every name, so the grammar still
   decides. The matching itself (and a Will card linking every "will" in the store's
   memories at birth) is the alias index's, untouched here.
+
+## 2026-10-09 — `recurring` beside `eventDate` (the owner's design, held lightly)
+
+- **The field**: `recurring: "daily" | "weekly" | "monthly" | "yearly" | null` on `note`
+  and on each `session_end` entry, one sentence on the field (served whole; the tool
+  descriptions are cut at 2,048 characters, so the field is where the model reads it).
+  The plain/quiet privilege grew one short sentence — "A recurring date counts each time
+  it comes round as its own" — rather than a new privilege, so nothing the cut tests pin
+  moves.
+- **Refused by name, before anything is captured** (`readReminder`), as an unreadable
+  date is: an unknown word is `recurring-unknown` (the detail lists the four, and says
+  every other week and the like are not kept); a word beside a month, a range or a year
+  is `recurring-needs-day`. On `session_end` either refuses its own entry only. With no
+  `eventDate` it is dropped and said (`ignored: "recurring"`), unless a revision carries
+  a date for it.
+- **The answer**: `reminder` carries `recurring`, `every` ("every May 14") and `next`
+  (the next occurrence on or after today) — and never the "already passed" note, which
+  a birthday anchored in 1990 would otherwise get. A revision's `carriedOver` can name
+  `recurring`.
+- **Meaning recall** dates a repeating reminder by its next occurrence and says how
+  often: `dated 2026-10-12, every October 12`. Facts mode and an expansion show no
+  reminder date today, so they have nothing to add it beside.

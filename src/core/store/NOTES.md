@@ -1955,3 +1955,17 @@ store does with it:
   writer's three fields, provenance, confidential, and `meta` for schemas and episodes only),
   read in one query rather than a `row()` per candidate. Never a body. A v11 file reads the
   three fields as null.
+
+## 2026-10-09 — a repeating reminder date, in meta (no schema bump)
+
+- **`meta.recurring` (`RECURRING_META`), not a column.** The owner wanted recurring dates
+  without a store-format change: a new version means a migration 0.3.12 cannot read back,
+  and format changes are batched so migrations stay rare. The word sits beside
+  `meta.remind`, its nearest sibling, and the anchor stays on `event_date` as stated. A
+  build that never heard of it reads the anchor as a one-off date that has passed.
+- **`recurringMemories()`** is the read `datedMemories` cannot be: a birthday stated as
+  `1990-05-14` never overlaps this year's span. Live rows (archived with
+  `{ archived: true }`) with a DAY `event_date` and `meta LIKE '%"recurring":"%'`, the
+  parsed meta deciding — the same loose-match-then-confirm `planCandidates` uses for
+  `unresolved`. The partial `event_date` index bounds the scan to dated rows.
+  `datedMemories` is unchanged.

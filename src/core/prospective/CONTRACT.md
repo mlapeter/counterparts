@@ -37,6 +37,23 @@ clothes. **Hold debts, lose deadlines.**
   or range's last day) it leaves the wake's horizon lane for the rest of its grace
   (2026-09-29): it was said, and "Arriving:" would say it again as still to come. It
   still arrives as a cue, so recall still finds it.
+- **A date can repeat, by the owner's design (2026-10-09, a working default, held
+  lightly).** A dated memory may carry `recurring: daily | weekly | monthly | yearly`,
+  anchored on its event date and kept in its meta beside `remind` (no schema bump): a
+  birthday stored as `1990-05-14` with `yearly` comes back every May 14. Each
+  OCCURRENCE is its own window, keyed by its own date (`d:2027-05-14`), so everything
+  above that is per window — the fire cap, once per lived day, the plain beat, the
+  referenced stop, and what a revision's `lineage` counts — is per occurrence: told once
+  each May 14, never once ever, never twice. Two occurrences are never open together: an
+  occurrence's window opens no earlier than the day after the last one and closes the day
+  before the next one opens (the coming lead wins over the last grace), so a daily date's
+  window is its day and a weekly one runs from three days before to three days after.
+  Only a DAY repeats; a month, a range or a year with `recurring` is refused at the door.
+  Two calendar rules, counted from the anchor every time so nothing drifts: **monthly on
+  the 29th, 30th or 31st falls on the last day of a month too short to have it** (Jan 31
+  → Feb 28, or 29 → Mar 31 → Apr 30), and **yearly on Feb 29 falls on Feb 28 in a common
+  year**. Out, loose first: every other week, "the first Monday", and anything finer
+  than a day.
 - **Prospectivity is DERIVED, never stored.** [v1] §12 G2 — eligibility is a predicate over
   the event date, the encode date, salience, and flags, so the property expires by itself
   when the window passes: no cleanup pass, no second source of truth, nothing for decay to
@@ -94,8 +111,11 @@ clothes. **Hold debts, lose deadlines.**
   three unsynchronized writers — a hook, a pre-spawn boundary call, and a lock-holding
   horizon computation — each serializing the whole map, so a stale writer clobbered
   unrelated entries too (scar §2.1). Transactions close the class.
-- **Recurrence stays absent.** [v1's recorded punt, kept] Annual re-arm is scheduling
-  physics, and scheduling physics is where task-queue behavior creeps back in.
+- **Recurrence was absent until 2026-10-09.** [v1's recorded punt, kept until then]
+  "Annual re-arm is scheduling physics, and scheduling physics is where task-queue
+  behavior creeps back in." The owner lifted it (§3): a repeating date re-arms nothing
+  and stores nothing new — each occurrence is DERIVED from the anchor at read time, under
+  every brake a one-off date has. The risk the punt named is still the one to watch.
 - **v1's knob set is not inherited as defaults.** Salience floor, lead days, grace days, cue
   strength, fires per window, horizon lines per wake: each ships with a recorded
   calibration and a fixture-bounded window, or ships disabled (scar §2.8). v1's values are
@@ -167,3 +187,6 @@ admission criterion, with a named negative example) · **§2.17** (exit paths ar
 4. **Is "plain" the right amount of loud?** (2026-09-26.) Once on the day, twice for a
    month or range, only on the stated span — no lead-day warning, no nag when the day is
    missed. The owner's first weeks of use answer it; nothing here measured it.
+5. **What should repeat beyond a day?** (2026-10-09.) "Every October" (a month, yearly),
+   "hourly", every other week, "the first Monday" — each left out, loose first, until a
+   real use asks for one.

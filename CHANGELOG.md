@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Dates can repeat.** A dated memory can now say `recurring`: `daily`, `weekly`,
+  `monthly` or `yearly`, counted from its date. A birthday saved as 1990-05-14 with
+  `yearly` comes back every May 14 — a plain one is said on the day each year, once, and
+  a quiet one can surface around it each year, at most twice. The wake's Arriving line
+  and recall's open items show it beside the date: "due 2026-10-12, every Monday".
+  Monthly on the 29th, 30th or 31st falls on the last day of a shorter month, and yearly
+  on February 29 falls on February 28 in other years. Only a single day can repeat (not a
+  month or a range); every other week and "the first Monday" aren't supported. Revising
+  the memory keeps the repeat unless you say otherwise, and never repeats a reminder
+  already given that day. No change to the store's format.
 - **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
   about 09-25 Claude Code writes a session's transcript only after the first prompt, which
   is when the check read it, so nearly every session said its wake was "not found in the

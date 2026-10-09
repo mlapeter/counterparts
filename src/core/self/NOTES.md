@@ -1587,3 +1587,12 @@ a month's name, or today / tonight / yesterday), straight after or after "on" or
 "by …"; and a line inside a code fence, beside another such line (a history), or an entry
 beside another entry of a list stays. A lone one, at the head, the foot or between
 sections, still goes.
+
+## 2026-10-09 — the Arriving line says how often a repeating date comes round
+
+A horizon item whose date repeats (`prospective/` NOTES §15) carries `every` beside
+`due` (`core/briefing.ts#selfRenderer` → `HorizonItem.every` → `Resolved.every`), and
+`datePrefix` prints `2026-08-25 (due 2026-10-12, every Monday) · `. `due` is this
+occurrence, never the anchor, so a birthday stated in 1990 reads as due this year. Unlike
+a one-off date, the parenthesis stays when the occurrence falls on the learned date:
+"every May 14" is news even then. Nothing about what the lane selects changed.
