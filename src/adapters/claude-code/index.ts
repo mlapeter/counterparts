@@ -95,6 +95,7 @@ export {
   planNightChild,
   planNightRunner,
   readKind,
+  readNightSpills,
   runNight,
 } from "./night-run.js";
 export type { NightChildPlan, NightKind, NightRunInput, NightRunnerPlan, NightStarter } from "./night-run.js";
@@ -114,19 +115,29 @@ export type { BackfillReport, LagReport } from "./vectors.js";
 
 export {
   COUNTERPARTS_HOOK_COMMAND,
+  COUNTERPARTS_TOOL,
   FOREIGN_MARKERS,
   NO_ARRIVAL,
+  SPILL_MAX_BYTES,
   WAKE_HEAD_MAX_BYTES,
   WAKE_HEAD_MAX_LINES,
   attributePeers,
   classifyBlock,
+  hostConfigDir,
+  hostTranscriptPath,
+  parseToolSpills,
   parseTranscript,
+  readToolSpills,
   readTranscript,
   readWakeArrival,
+  spillOf,
 } from "./transcript.js";
 export type {
   PeerAttribution,
   SentinelSighting,
+  Spill,
+  SpillShape,
+  ToolSpills,
   TranscriptRead,
   WakeArrival,
 } from "./transcript.js";

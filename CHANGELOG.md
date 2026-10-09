@@ -10,6 +10,17 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **The nightly run notices if Claude Code cut what it was handed.** Counterparts keeps every
+  tool result under 40,000 characters, under Claude Code's limit of 50,000 — but Claude Code
+  can lower that limit on its own, and a result past it reaches the model as a short preview.
+  After each nightly run, Counterparts now reads that run's own transcript for Claude Code's
+  marker on its tool results. If it finds one, doctor's Tool results line turns amber and
+  says which result and how large, and the next morning your session tells you plainly that
+  last night's run read only part of what it was handed. Memories that merely quote the
+  marker are not counted. Doctor's green line also says whether the last night's transcript
+  was found and read.
+- **A reflection handed its bundle in parts is told, first thing, to read every part before
+  it writes.** One finished without its second part during the 0.3.12 release check.
 
 ## 0.3.12 — 2026-10-08
 

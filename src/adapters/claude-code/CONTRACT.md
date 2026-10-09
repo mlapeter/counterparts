@@ -672,7 +672,8 @@ session launches anything.** On the first prompt of a calendar day that is due
 records the run `started`, with its watchdog. That process composes the launch prompt from
 the store, starts `claude -p` with it on STDIN (`planNightChild`), waits under the run's own
 watchdog (`dreaming.timeoutMs`, default `NIGHT_RUN_MS` 20 minutes) and records the end. The
-outcome is read from the exit and the store, never from the child's output:
+outcome is read from the exit and the store, never from the child's output (the host's cut,
+below, is read from the host's own transcript of it):
 
 - `done`: the dream and the reflection ran (the reflection, for a reflection-alone run);
 - `partial`: some of the run's parts ran and not all, whatever the exit, with the parts on
@@ -690,17 +691,35 @@ reach the network, start agents or workflows, or schedule work (`NIGHT_DENIED_TO
 deny beats the user's own allow rules; `ToolSearch` stays, for hosts that defer MCP tools);
 `--strict-mcp-config` with an `--mcp-config` naming only the counterparts server, as the
 install registers it (`nightMcpConfig`); `--max-turns` (`NIGHT_MAX_TURNS` 60,
-`dreaming.maxTurns`); `--model` only when `dreaming.model` is set. It starts in a NEUTRAL
-directory — the store's own — so no project's CLAUDE.md, hooks or MCP servers load. The
-parent's stance, `CLAUDE_PROJECT_DIR` and `CLAUDECODE` variables are removed;
-this package's values are written last.
+`dreaming.maxTurns`); `--model` only when `dreaming.model` is set; `--session-id` a fresh
+UUID the waiting process chose (2026-10-09), so it can find the child's transcript. It
+starts in a NEUTRAL directory — the store's own — so no project's CLAUDE.md, hooks or MCP
+servers load. The parent's stance, `CLAUDE_PROJECT_DIR` and `CLAUDECODE` variables are
+removed; this package's values are written last.
+
+**[M] The run reads its child's transcript for the host's cut (2026-10-09, U14 item 3 — held
+lightly).** Once the child exits, the waiting process finds its transcript by that session
+id (`transcript.ts#hostTranscriptPath`: `CLAUDE_CONFIG_DIR` or `~/.claude`, then
+`projects/<the store's directory, spelled>/<id>.jsonl`, failing that the same name in any
+project directory) and reads it for results of ours — `mcp__counterparts__*` — that the host
+replaced with its marker (`readToolSpills`): `<persisted-output>` "Output too large (…)" or
+"Output exceeded the … persist limit", `<truncated-output>`, "Error: result (…) exceeds
+maximum allowed tokens", or the "[OUTPUT TRUNCATED - exceeded … token limit]" trailer — as
+read from Claude Code 2.1.295. Matched where the host puts each one, at the start or the very
+end of a `tool_result`, never as a substring: a memory quoting the marker sits inside our
+JSON. Each cut result is one durable `mcp.result.spilled` row (run, tool, phase, shape, the
+size the host said; never the saved file's path); the run's row carries `transcript` (`read`
+| `absent` | `unreadable`) and, when read, `spills`. Doctor's Tool results line goes amber on
+any row in its window and says in green whether the last night's transcript was read; the
+morning hand-back adds a plain line (`Dreams.nightSpillLine`), even for a run that journaled
+nothing. The catch-up child is not read.
 
 **[M] Session binding: the run is attributed to the session that started it.** The launch
 prompt names that session's id, and the id and its directory are PINNED
 (`COUNTERPARTS_SESSION`, `COUNTERPARTS_SCOPE`) on the child's environment and on its MCP
 server's, so the server is launched bound to it — never lazy-bound through the registry,
 whose liveness check refuses a session left open overnight (review of #282, finding 1). The
-child's own host-minted session is QUIET (`HookInput.nightRun`, from
+child's own session (`--session-id`, host-minted before 2026-10-09) is QUIET (`HookInput.nightRun`, from
 `COUNTERPARTS_NIGHT_RUN`): its hooks capture nothing (so it owes no write-up) and give no dream
 lines, plain reminders, Stop ask, write-up pointer or first-launch question. It still wakes
 with the ordinary wake.

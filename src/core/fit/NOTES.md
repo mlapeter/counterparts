@@ -62,8 +62,11 @@ What the build learned. Newest last.
   tested under 80% of it.
 - **Residual risk.** The host can lower either line by a remote flag. The nightly run's child
   pins the token line with `MAX_MCP_OUTPUT_TOKENS=25000` (the env var outranks the flag); nothing
-  pins the char line, and the server's net (`mcp/server.ts#withinCeiling`) and doctor's Tool
-  results line are what would show it.
+  pins the char line. The server's net (`mcp/server.ts#withinCeiling`) cannot show it — it
+  measures against our own ceiling, and the host acts after it answers. Since 2026-10-09 the
+  nightly run reads its child's transcript for the host's marker (`claude-code/NOTES.md`,
+  2026-10-09) and writes `mcp.result.spilled`; doctor's Tool results line and the morning
+  hand-back say it. Ordinary sessions are not read: a cut there shows only in that session.
 - **New durable event names after all** (§1 said none): `mcp.part` and `mcp.result.oversize`.
   The lookup count measures what a receiver fetched by id, which cannot see a part the host
   never showed; these two say what was handed and what was cut. Every dashboard registry

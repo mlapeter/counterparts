@@ -37,7 +37,9 @@
  *   - the child starts in a NEUTRAL directory, the store's own, so no
  *     project's CLAUDE.md, hooks or MCP servers load; the launching session's
  *     directory reaches the MCP server as its pinned scope instead;
- *   - `--max-turns` bounds it beside the watchdog.
+ *   - `--max-turns` bounds it beside the watchdog;
+ *   - `--session-id` names its session with a UUID this process chose
+ *     (2026-10-09), so its transcript can be read once it exits.
  * What is left and not allowed stops at a prompt nobody can answer, which is
  * the direction this should fail in. The parent's stance variables are
  * removed from its environment; this package's own values are written last.
@@ -53,8 +55,9 @@
  * hook's, so no corroboration is lost. The child starts in the STORE's own
  * directory, a neutral one (owner decision B, `planNightChild`), without the
  * host's `CLAUDE_PROJECT_DIR`; the session's directory reaches it only as
- * `COUNTERPARTS_SCOPE`. The child's own session id — minted by the host after this process
- * is gone — is flagged QUIET (`NIGHT_RUN_ENV`): our hooks inside it capture
+ * `COUNTERPARTS_SCOPE`. The child's own session id — chosen after the hook is
+ * gone, by the waiting process (`--session-id`, since 2026-10-09; the host
+ * minted it before) — is flagged QUIET (`NIGHT_RUN_ENV`): our hooks inside it capture
  * nothing and ask nothing (`hooks.ts`), so it owes no write-up either.
  *
  * Proved against a STUB executable only. What a real machine must show — the
@@ -62,9 +65,10 @@
  * server binding as above, the host not refusing a nested `claude` — is
  * written in the PR, not claimed here.
  */
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart } from "../../core/counterpart.js";
+import { Counterpart, MCP_SPILLED_EVENT } from "../../core/counterpart.js";
 import type { CounterpartEvent } from "../../core/counterpart.js";
 import type { NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
@@ -77,6 +81,8 @@ import { TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
 import { CATCH_UP_TOOLS, runCatchUp } from "./night-catch-up.js";
+import { hostConfigDir, hostTranscriptPath, readToolSpills } from "./transcript.js";
+import type { ToolSpills } from "./transcript.js";
 import type { ChildPlan, ChildResult } from "./child.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import type { SpawnPlan } from "../spawn.js";
@@ -285,6 +291,12 @@ export interface NightChildInput {
   /** Its turn ceiling and watchdog; absent, the night's own (`nightMaxTurns`, `nightTimeoutMs`). */
   readonly maxTurns?: number;
   readonly timeoutMs?: number;
+  /**
+   * The child's OWN session id, a fresh UUID (`--session-id`), so its
+   * transcript can be found by name once it exits (2026-10-09, U14 item 3).
+   * Absent, the host mints one (the catch-up child).
+   */
+  readonly hostSession?: string;
 }
 
 /**
@@ -318,6 +330,7 @@ export function planNightChild(input: NightChildInput): NightChildPlan {
     }),
     "--strict-mcp-config",
     ...(model === undefined ? [] : ["--model", model]),
+    ...(input.hostSession === undefined || input.hostSession.length === 0 ? [] : ["--session-id", input.hostSession]),
   ];
   const plan = (ok: boolean, reason: NightChildRefusal | "ready"): NightChildPlan => ({
     ok,
@@ -378,6 +391,12 @@ export interface NightRunInput {
   readonly start?: NightStarter;
   /** TESTS ONLY: the catch-up child's starter (`night-catch-up.ts`); absent, a real child. */
   readonly startCatchUp?: NightStarter;
+  /**
+   * Where the host keeps its sessions (`<dir>/projects/…`), for the read of
+   * the child's transcript; absent, the child's `CLAUDE_CONFIG_DIR` or
+   * `~/.claude` (`transcript.ts#hostConfigDir`).
+   */
+  readonly hostConfigDir?: string;
   readonly now?: () => number;
   /** The process log's (`adapters/log/`), for what the store does not write. */
   readonly onEvent?: (e: CounterpartEvent) => void;
@@ -387,7 +406,11 @@ export interface NightRunInput {
  * RUN THE NIGHT, headless: compose, start, wait, record. Never throws; the
  * record it returns is the one it wrote. What happened is read from the exit
  * and from the STORE (a dream journaled, a reflection finished) — never from
- * the child's output, which is prose nobody here should parse.
+ * the child's output, which is prose nobody here should parse. One thing more
+ * is read from the HOST's record of the child, its transcript (2026-10-09):
+ * whether the host cut any of our tool results to a preview — markers the host
+ * writes in place of a result, matched there and nowhere else
+ * (`transcript.ts#readToolSpills`).
  */
 export async function runNight(input: NightRunInput): Promise<NightRun> {
   const now = input.now ?? ((): number => Date.now());
@@ -421,7 +444,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     }
     return run;
   };
-  const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts">>): NightRun =>
+  const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts" | "transcript" | "spills">>): NightRun =>
     record({ ...base(null), endedAt: now(), dream: null, reflection: null, ...fields });
 
   if (input.kind.kind === "night") {
@@ -477,12 +500,16 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   } catch (err) {
     return ended({ state: "could-not-start", reason: "refused", detail: err instanceof Error ? err.name : "UNKNOWN", code: null });
   }
+  // THE CHILD'S OWN SESSION, CHOSEN HERE (2026-10-09): so its transcript can
+  // be found by name once it exits, and read for the host's cut.
+  const hostSession = randomUUID();
   const plan = planNightChild({
     config: input.config,
     run: input.run,
     prompt,
     scope: input.scope,
     session: input.session,
+    hostSession,
     ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
     ...(input.baseEnv === undefined ? {} : { baseEnv: input.baseEnv }),
     ...(input.command === undefined ? {} : { command: input.command }),
@@ -496,6 +523,20 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     return ended({ state: "could-not-start", reason: "spawn-failed", detail: err instanceof Error ? err.name : "UNKNOWN", code: null });
   }
   const ms = now() - startedAt;
+  const neverStarted = result.spawnCode !== undefined || (result.code === null && !result.timedOut && result.error !== null);
+
+  // WHAT THE HOST CUT (2026-10-09, U14 item 3), read from the child's own
+  // transcript — the host's record of what the model saw, not the child's
+  // prose. A child that never started left none.
+  const spill = neverStarted ? null : readNightSpills({ configDir: input.hostConfigDir ?? hostConfigDir(plan.env), id: hostSession, ...(plan.cwd === undefined ? {} : { cwd: plan.cwd }) });
+  if (spill !== null) {
+    input.onEvent?.({
+      at: now(),
+      name: "adapter.night.spill",
+      ref: input.run,
+      data: { transcript: spill.reason, results: spill.results, spills: spill.spills.length, short: spill.short, corrupt: spill.corrupt },
+    });
+  }
 
   // WHAT THE RUN DID, from the store.
   let dream: string | null = null;
@@ -516,6 +557,10 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
       const reflected = reflections.find((r) => r.state === "reflected");
       reflection = reflected?.id ?? null;
       dream = journaled?.id ?? reflected?.dream_id ?? (input.kind.kind === "reflection" && reflected !== undefined ? input.kind.dream : null);
+      // One row per result the host cut (`counterpart.ts#MCP_SPILLED_EVENT`).
+      for (const s of spill?.spills ?? []) {
+        c.noteAdapterEvent(MCP_SPILLED_EVENT, { run: input.run, tool: s.tool, phase: s.phase, shape: s.shape, said: s.said });
+      }
     } finally {
       // THE WAKE CATCHES UP TO THE RUN (2026-09-30), whatever state it ended
       // in: the page it wrote, the dream's merges. Nothing else follows it —
@@ -538,9 +583,14 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // whatever the exit said, which rides along as the reason.
   const parts: NightPart[] = [...(writerRan ? ["writer" as const] : []), ...(dreamed ? ["dream" as const] : []), ...(reflection !== null ? ["reflection" as const] : [])];
   const complete = input.kind.kind === "reflection" ? reflection !== null : parts.includes("dream") && reflection !== null;
-  const found = { dream, reflection, parts };
+  const found = {
+    dream,
+    reflection,
+    parts,
+    ...(spill === null ? {} : { transcript: spill.reason, ...(spill.reason === "read" ? { spills: spill.spills.length } : {}) }),
+  };
 
-  if (result.spawnCode !== undefined || (result.code === null && !result.timedOut && result.error !== null)) {
+  if (neverStarted) {
     const missing = result.spawnCode === "ENOENT";
     return ended({ state: "could-not-start", reason: missing ? "no-claude" : "spawn-failed", detail: result.spawnCode ?? result.error, code: null });
   }
@@ -558,6 +608,21 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // were not there for it.
   if (!began) return ended({ state: "could-not-start", reason: "nothing-ran", detail: null, code: 0 });
   return ended({ state: "failed", reason: "unfinished", detail: null, code: 0, ...found });
+}
+
+/**
+ * THE CHILD'S TRANSCRIPT, READ FOR THE HOST'S CUT (2026-10-09, U14 item 3):
+ * found by the session id this process chose (`hostTranscriptPath`), judged by
+ * `readToolSpills` — `absent` when the host did not write it where it keeps
+ * sessions, said apart from a clean read. Never throws.
+ */
+export function readNightSpills(input: { configDir: string; id: string; cwd?: string }): ToolSpills {
+  try {
+    const path = hostTranscriptPath(input);
+    return readToolSpills(path);
+  } catch {
+    return { reason: "unreadable", results: 0, spills: [], corrupt: 0, short: false };
+  }
 }
 
 /** The store as the run's process opens it — the hook's options, no embedder.
