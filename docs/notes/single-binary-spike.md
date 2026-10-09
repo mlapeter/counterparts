@@ -180,8 +180,10 @@ temp store with 40 notes, same config, same payload. M3 Pro.
   build beats every launcher** (about 20 ms under `bun hook.mjs`), for +13 MiB
   raw / +4 MiB gz. The bytecode build passed the same 21/21 smoke test.
 - **SessionStart from source is slower for reasons that have nothing to do with
-  the binary.** Run from a checkout, it does work an installed copy doesn't (the
-  git checkout grade). Compare the UserPromptSubmit column.
+  the binary.** Measured with the hook's own `process.end`, 12 runs each: 71 ms
+  of in-process work from a checkout vs. 18 ms in the binary. So about 53 ms is
+  work only a checkout does, probably the git checkout grade (which step was not
+  isolated). Compare the UserPromptSubmit column instead.
 - **Bare startup** (`--version`): 63 ms for `bun counterparts.mjs`, 65 ms for
   the binary, 40 ms for bytecode.
 - **The hook's own in-process work is about 9 ms** (`process.end` in its log).
