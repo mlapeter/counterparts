@@ -1,17 +1,33 @@
 /* Find a memory: ONE box (round 4, 2026-09-28) with a switch beside it
-   (2026-09-30): "by word" finds memories by their words as you type
-   (`/api/search`), Enter only runs it at once; "by meaning" asks, on Enter (the
-   console's own `counterparts ask`, through the actions seam). The switch never
-   flips by itself. Either way the answers take the list's place — never a
-   second list — and the "×" gives the list back.
-   How close an answer came is said plainly: strong match, match, weak match.
-   Ask is the owner talking to me, so the server turns the question into my
-   voice before it searches (`web/ask-voice.ts`); that is not shown. */
+   (2026-09-30). Three ways since 2026-10-09, when recall took a mode (0.3.12):
+
+   - "by word" finds memories by their words as you type (`/api/search`);
+     Enter only runs it at once.
+   - "facts" asks on Enter, in facts mode: every memory that answers the
+     question, counted and paged, best first — each with who said it, when it
+     happened or was learned, and whether it still holds.
+   - "by meaning" asks on Enter, in meaning mode: what a person, a project or
+     a feeling has been over time — the journal chapters that hold it, in time
+     order, with their moments and the feelings recorded in them.
+
+   Both asks are the console's own `counterparts ask --json` (with `--mode`),
+   through the actions seam, and the page draws the answer the command
+   returned: no label here stands for a field the answer does not carry. The
+   drawing is pure (`factsRows`, `meaningRows`, …) and the tests feed it real
+   answers from a temp store (`test/dashboard-ask-answers.test.ts`) — the page
+   read the old answer's shape for a release after it changed, and nothing
+   failed, because its tests were fed by hand.
+
+   The switch never flips by itself. Either way the answers take the list's
+   place — never a second list — and the "×" gives the list back. Ask is the
+   owner talking to me, so the server turns the question into my voice before
+   it searches (`web/ask-voice.ts`); that is not shown. */
 import { absenceLine } from "../../../shared/absence.js";
 import { act, resultHtml } from "../../../shared/actions.js";
 import { api, fail } from "../../../shared/api.js";
+import { dateOr } from "../../../shared/dates.js";
 import { $, esc } from "../../../shared/dom.js";
-import { foldChapters, fromWords } from "../fold.js";
+import { withIdMarks } from "../../../shared/memory-marks.js";
 import { memRow, searchWords } from "../row.js";
 import { find, onFilter, setFilter } from "../state.js";
 
@@ -30,11 +46,14 @@ export const markup = `
 
 let qtimer = null;
 let seq = 0;
+/** The question and mode the answer on the page is for, so its pager asks the same again. */
+let asked = null;
 
-/** The two ways to find, as the switch says them, and what the box says for each. */
+/** The three ways to find, as the switch says them, and what the box says for each. */
 export const MODES = {
   word: { label: "by word", placeholder: "a word or two — the answers come as you type" },
-  meaning: { label: "by meaning", placeholder: "ask a question, then press Enter" },
+  facts: { label: "facts", placeholder: "ask a question, then press Enter — every memory that answers it" },
+  meaning: { label: "by meaning", placeholder: "who or what, over time — ask, then press Enter" },
 };
 
 /** The switch and the box's placeholder, as `find.mode` says. */
@@ -57,7 +76,7 @@ export function mount() {
     if (e.key === "Enter") {
       e.preventDefault();
       clearTimeout(qtimer);
-      if (find.mode === "word") runSearch(); else ask();
+      if (find.mode === "word") runSearch(); else ask(box.value.trim(), find.mode, 1);
     } else if (e.key === "Escape" && box.value) { e.preventDefault(); clear(); }
   });
   $("q-x").addEventListener("click", () => { clear(); box.focus(); });
@@ -70,13 +89,21 @@ export function mount() {
     const words = box.value;
     if (!words.trim()) return;
     if (find.mode === "word") { runSearch(); return; }
-    // By meaning waits for Enter: the list comes back, the question stays.
+    // An ask waits for Enter: the list comes back, the question stays.
     seq++;
     if (find.on) setFilter({});
     box.value = words;
     $("q-x").hidden = false;
     $("find-head").hidden = false;
     $("find-head").innerHTML = '<span class="find-hint">press Enter to ask</span>';
+  });
+  // An answer's pages: the same question, in the same mode, again. (The
+  // list's own pager buttons carry `data-off`; these carry `data-ask-page`.)
+  $("mpager").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-ask-page]");
+    if (!b || b.disabled || !asked || !find.on) return;
+    ask(asked.q, asked.mode, Number(b.dataset.askPage));
+    $("q").scrollIntoView({ block: "start", behavior: "smooth" });
   });
   // A filter chosen anywhere else (a chip, the chart, a link from Home) ends
   // the find: the box empties so it never shows words the list isn't answering.
@@ -127,7 +154,7 @@ async function runSearch() {
   const close = d.close || [];
   takeList(esc(findHead(d.hits.length, d.total, close.length)));
   $("mlist").innerHTML = d.absent
-    ? absenceLine(d.absent, "nothing I hold uses those words — try finding it by meaning")
+    ? absenceLine(d.absent, "nothing I hold uses those words — try asking for the facts")
     : d.hits.map((h) => memRow({ ...h, text: h.shown, archived: null }, { mark: searchWords(q) })).join("") +
       (close.length > 0
         ? '<div class="mclose-h">Close matches <span>· a letter or two off</span></div>' +
@@ -150,61 +177,246 @@ export function questionWords(q) {
   return searchWords(q).filter((w) => w.length >= 4 && !QUESTION_WORDS.has(w));
 }
 
-/** The tiers `ask` sorts answers into, in plain words. */
-export const TIER = { vivid: "strong match", quiet: "match", dim: "weak match" };
-
-/** An answer's words as a row shows them: headings dropped, a date written at
- *  the front lifted off (display only — the memory is untouched). */
-export function answerWords(body) {
-  const flat = String(body || "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")).join(" ");
-  const m = /^(\d{4}-\d{2}-\d{2})(?:[ \t]*[:,—–-][ \t]*|[ \t]+)(?=\S)/.exec(flat);
-  let rest = m ? flat.slice(m[0].length) : flat;
-  if (m) rest = rest.charAt(0).toUpperCase() + rest.slice(1);
-  return { date: m ? m[1] : null, text: rest.length > 320 ? rest.slice(0, 319) + "…" : rest };
-}
-
-async function ask() {
-  const q = $("q").value.trim();
+/** Ask the console, in `mode`, and put its answer where the list is. */
+async function ask(q, mode, page) {
   if (!q) return;
   const mine = ++seq;
+  asked = { q, mode };
   takeList("thinking…");
   $("mlist").innerHTML = "";
-  const r = await act("ask", { question: q, json: true });
+  const r = await act("ask", { question: q, json: true, mode, ...(page > 1 ? { page } : {}) });
   if (mine !== seq) return;
   let result = null;
   if (r && r.ok && Array.isArray(r.out)) {
     try { result = JSON.parse(r.out.join("\n")); } catch (e) { result = null; }
   }
-  if (!result) { takeList("I couldn't ask that"); $("mlist").innerHTML = resultHtml(r); return; }
-  const raw = Array.isArray(result.memories) ? result.memories : [];
-  // A chapter and the memory drawn from it are one answer (`fold.js`). The
-  // links are a read; without them the answers show as they came.
-  let links = {};
-  if (raw.length > 0) {
-    try { links = (await api("/api/chapters?ids=" + encodeURIComponent(raw.map((m) => m.id).join(",")))).links || {}; }
-    catch (e) { links = {}; }
+  // An answer in another mode than the one asked is not drawn as if it were.
+  if (!result || result.mode !== mode) { takeList("I couldn't ask that"); $("mlist").innerHTML = resultHtml(r); return; }
+  const meaning = mode === "meaning";
+  takeList(meaning ? meaningHead(result) : factsHead(result));
+  $("mlist").innerHTML = meaning ? meaningRows(result) : factsRows(result, q);
+  $("mpager").innerHTML = askPager(result);
+}
+
+// ── the answers, drawn (pure: no DOM, so `bun test` draws real ones) ─────────
+
+/** Results on one page of a facts answer: `mcp/facts.ts#FACTS_PAGE_SIZE` (a test holds the two equal). */
+export const FACTS_PAGE = 10;
+
+/** Who said it (`FactItem.saidBy`), in my voice — the console's words (`facts.ts`). */
+export const SAID = { owner: "you said", self: "I said", inferred: "inferred" };
+
+const plural = (n, one, many) => n + " " + (n === 1 ? one : many || one + "s");
+
+/** Why words alone answered, when they did (`facts.ts#channelWords`); null when meaning searched too. */
+export function channelWords(semantic) {
+  if (semantic === "embedder-off") return "by words only — recall by meaning is off";
+  if (semantic === "embed-failed") return "by words only — the question could not be embedded";
+  return null;
+}
+
+/** The notes under a head line, quieter, or nothing. */
+const noteLine = (notes) => (notes.length > 0 ? '<span class="find-note">' + esc(notes.join(" · ")) + "</span>" : "");
+
+/** A window of days: "Sep 21st – Sep 27th", or one day. */
+function span(w) {
+  if (!w) return "";
+  return w.from === w.to ? dateOr(w.from) : dateOr(w.from) + " – " + dateOr(w.to);
+}
+
+/** The time a facts question named (`FactsResult.time`), in a line; "" when it named none. */
+export function timeWords(t) {
+  if (!t) return "";
+  const outside = t.outside > 0 ? ", " + t.outside + " more outside it" : "";
+  if (t.anchor && t.anchor.date === null) {
+    return t.anchor.kind === "event"
+      ? "nothing I hold names “" + t.anchor.phrase + "”, so time left nothing out"
+      : "no earlier session found, so time left nothing out";
   }
-  if (mine !== seq) return;
-  const mems = foldChapters(raw, links);
-  if (mems.length === 0) {
-    takeList("nothing came to mind");
-    $("mlist").innerHTML = '<div class="empty">' +
-      (result.considered === 0
-        ? "Nothing I hold shared a word with the question."
-        : esc(String(result.considered)) + " memories were weighed and none was close enough.") +
-      " Try the words the memory itself would use.</div>";
-    return;
+  if (t.anchor) {
+    return (t.anchor.kind === "event" ? t.anchor.phrase : t.cue) + " → " + dateOr(t.anchor.date) +
+      (t.anchor.kind === "event" && t.window ? " (" + span(t.window) + ")" : "") + outside;
   }
-  takeList(mems.length + (mems.length === 1 ? " memory came to mind" : " memories came to mind") + ", best match first");
-  $("mlist").innerHTML = mems.map((m) => {
-    const w = answerWords(m.body);
-    return memRow({
-      id: m.id, title: m.title, text: w.text, confidential: false, kind: m.kind,
-      date: w.date, dateFrom: w.date ? "text" : null, journal: false, core: false, feelings: [], archived: null,
-    }, {
-      tier: TIER[m.tier] || m.tier,
-      from: m.from ? { id: m.from.episodeId, words: fromWords(m.from) } : null,
-      mark: questionWords(q),
-    });
-  }).join("");
+  return t.cue + " → " + span(t.said) + (t.stretch > 0 ? ", give or take " + plural(t.stretch, "day") : "") + outside;
+}
+
+/** A facts answer's head: how many answer it, then the quieter notes. Markup. */
+export function factsHead(r) {
+  const lead = r.matched === 0
+    ? (r.fadedTotal > 0 ? "only faded memories answer it" : "nothing answers it")
+    : plural(r.matched, "memory answers it", "memories answer it") + (r.matched > 1 ? ", best first" : "");
+  const notes = [];
+  if (r.subjects.length > 0) notes.push("about " + r.subjects.map((s) => s.name).join(", "));
+  const t = timeWords(r.time);
+  if (t) notes.push(t);
+  const ch = channelWords(r.semantic);
+  if (ch) notes.push(ch);
+  if (r.weak > 0) notes.push(plural(r.weak, "weak match", "weak matches") + " not shown");
+  if (r.meaningCapped) notes.push("the search by meaning stopped at its cap, so this may not be everything");
+  if (r.duplicates > 0) notes.push(plural(r.duplicates, "near-copy", "near-copies") + " of an answer left out");
+  return esc(lead) + noteLine(notes);
+}
+
+/** A chapter's heading at the front of its words ("chapter 2 — Mon 1 Jun 2026 ·
+ *  lived day 3"), stacked or not, taken off — the row's title says the day and
+ *  its line says which chapter (`self/episodes.ts#readChapterLead`, flattened).
+ *  Display only. */
+export function withoutChapterHeading(text) {
+  const lead = /^\s*chapter\s+\d+(?:\s*[—–-]\s*(?:[A-Za-z]{3} \d{1,2} [A-Za-z]{3} \d{4}\s*·\s*)?(?:[A-Za-z0-9][A-Za-z0-9._:[\]-]*\s*·\s*)?lived day\s+\d+)?\s*/i;
+  let rest = String(text || "");
+  for (let m = lead.exec(rest); m && m[0].length > 0; m = lead.exec(rest)) rest = rest.slice(m[0].length);
+  return rest;
+}
+
+/** Under one fact's words: who said it, its status, when it was learned
+ *  (when the right-hand date is when it happened), which chapter, and what it
+ *  was before. Only what the answer carries; markup, or "". */
+export function factLines(m) {
+  const said = [];
+  if (m.journal) {
+    if (m.chapter) said.push("chapter " + m.chapter.n + " of " + m.chapter.of);
+    if (m.lastWritten) said.push("written until " + dateOr(m.lastWritten));
+  } else {
+    if (m.saidBy) said.push(SAID[m.saidBy] || m.saidBy);
+    if (m.status) said.push(m.status);
+    if (m.occurredOn && m.learned && m.learned !== m.occurredOn) said.push("learned " + dateOr(m.learned));
+  }
+  const parts = said.map(esc);
+  if (!m.current) {
+    parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "an earlier version — now " + withIdMarks(m.now) : "an earlier version — a later one holds now");
+  }
+  for (const s of m.standing || []) parts.push(withIdMarks(s));
+  if (m.corrected > 0) parts.push(esc(plural(m.corrected, "corrected version") + " hidden"));
+  const earlier = (m.earlier || []).map((e) =>
+    '<div class="mearlier">earlier: “' + esc(e.text) + "”" +
+      esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.changed ? ", changed " + dateOr(e.changed) : "")) +
+      (e.id ? " " + withIdMarks(e.id) : "") + "</div>").join("") +
+    (m.earlierMore > 0 ? '<div class="mearlier">+' + m.earlierMore + " more earlier</div>" : "");
+  if (parts.length === 0 && !earlier) return "";
+  return '<div class="mfacts">' + (parts.length > 0 ? "<div>" + parts.join(" · ") + "</div>" : "") + earlier + "</div>";
+}
+
+/** One fact as a row: its date is when it happened, else when it was learned
+ *  (a chapter: when it was written, in its title). */
+export function factRow(m, words) {
+  return memRow({
+    id: m.id,
+    title: m.title,
+    text: m.journal ? withoutChapterHeading(m.body) : m.body,
+    kind: m.kind,
+    journal: m.journal,
+    date: m.journal ? m.learned : m.occurredOn || m.learned,
+    dateFrom: m.journal ? null : m.occurredOn ? "happened" : "learned",
+    confidential: false, core: false, feelings: [], archived: null,
+  }, { mark: words, under: factLines(m) });
+}
+
+/** A facts answer's rows: the page's results, then its faded ones. Markup. */
+export function factsRows(r, q) {
+  const words = questionWords(q);
+  const rows = r.memories.map((m) => factRow(m, words)).join("");
+  const faded = r.faded.length === 0 ? "" :
+    '<div class="mclose-h">Faded <span>· ' + esc(plural(r.fadedTotal, "memory", "memories") + " not used for a long while") + "</span></div>" +
+    r.faded.map((f) => memRow({ id: f.id, title: f.line, text: "", date: f.date, dateFrom: "learned", feelings: [] }, { mark: words })).join("");
+  if (!rows && !faded) {
+    return '<div class="empty">Nothing I hold answers that. Try the words the memory itself would use, a person or a project it names, or a wider time.</div>';
+  }
+  return rows + faded;
+}
+
+/** A meaning answer's head: what it is about, how much holds it, then the quieter notes. Markup. */
+export function meaningHead(r) {
+  if (r.lens === null) return esc("nothing came");
+  const c = r.counts;
+  const parts = [r.lens.name];
+  if (c.chapters > 0) parts.push(plural(c.chapters, "chapter"));
+  const chapterless = c.sessions - c.unplaced;
+  if (chapterless > 0) parts.push(plural(chapterless, "session") + " with no chapter");
+  if (c.unplaced > 0) parts.push(plural(c.unplaced, "session") + " with moments outside its chapters");
+  parts.push(plural(c.moments, "moment") + (c.faded > 0 ? " (+" + c.faded + " faded)" : ""));
+  const notes = [];
+  if (r.feeling) notes.push("feeling asked: " + (r.feeling.words.length > 0 ? r.feeling.words.join(", ") : "any") + " · " + (r.feeling.whose || "both of us"));
+  if (r.others.length > 0) {
+    notes.push("also named: " + r.others.map((o) => o.name + " (" + plural(o.memories, "memory", "memories") + ")").join(", ") + " — ask about one by name");
+  }
+  // Its own notes say what makes it thin — words alone, when no card or
+  // feeling found the moments, among them — so no channel line is added here.
+  for (const n of r.notes) notes.push(n);
+  return esc(parts.join(" · ")) + noteLine(notes);
+}
+
+/** What a mark on an arc entry says (`MeaningEntry.marks`). */
+const MARK_WORDS = { start: "where it starts", end: "the latest", turn: "the feelings turn here" };
+
+/** Whose feelings, side by side and never merged: "mine: proud · Mike's: worried". */
+function feelingSides(f, whose) {
+  const side = (list, who) => (list && list.length > 0 ? who + ": " + list.map((x) => x.word).join(", ") : null);
+  return [side(f.self, whose.self), side(f.owner, whose.owner)].filter(Boolean).join(" · ");
+}
+
+/** One entry of the arc: a chapter (opens its journal), or a session's moments
+ *  with no chapter (opens nothing). Its moments are links under it. */
+export function arcRow(e, whose) {
+  const chapter = e.kind === "chapter";
+  const lines = [];
+  if (chapter && e.of > 1) lines.push("chapter " + e.chapter + " of " + e.of);
+  for (const mk of e.marks) lines.push(MARK_WORDS[mk] || mk);
+  const felt = feelingSides(e.feelings, whose);
+  if (felt) lines.push(felt);
+  const more = e.momentCount - e.moments.length;
+  const moments = e.moments.map((m) =>
+    '<button type="button" class="mmoment" data-open="' + esc(m.id) + '">' + withIdMarks(m.title, true) + "</button>").join("") +
+    (more > 0 ? '<span class="mmore">+' + more + " more of its moments</span>" : "");
+  const under = (lines.length > 0 ? '<div class="mfacts"><div>' + esc(lines.join(" · ")) + "</div></div>" : "") +
+    (moments ? '<div class="mmoments">' + moments + "</div>" : "");
+  return memRow(chapter
+    ? { id: e.episodeId, title: e.title, text: e.line, journal: true, date: e.date, feelings: [] }
+    : { id: null, title: e.unplaced ? "Moments outside that session's chapters" : "A session with no chapter written", text: "",
+        date: e.date, dateFrom: "recorded", feelings: [] },
+  { under });
+}
+
+/** A stretch of the arc this page does not show, as one quiet line. */
+function foldRow(l, page) {
+  const what = page === 1 ? plural(l.count, "quieter entry", "quieter entries") : plural(l.count, "entry", "entries");
+  const when = l.from === null ? "" : l.to === null || l.to === l.from ? ", " + dateOr(l.from) : ", " + dateOr(l.from) + " – " + dateOr(l.to);
+  return '<div class="mfold">' + esc("· " + what + " not shown here" + when) + "</div>";
+}
+
+/** A titled part after the arc, or nothing when it is empty. */
+function part(title, note, rows) {
+  return rows ? '<div class="mclose-h">' + esc(title) + (note ? " <span>· " + esc(note) + "</span>" : "") + "</div>" + rows : "";
+}
+
+/** A meaning answer's rows: the arc in time order, then the faded moments,
+ *  what I made of it before, what is still open, and what recurs. Markup. */
+export function meaningRows(r) {
+  if (r.lens === null) {
+    return '<div class="empty">Nothing came: the question names no one and nothing I keep a card for, asks about no feeling, and none of its words reach a memory. Try a person’s or a project’s name — or ask for the facts.</div>';
+  }
+  if (r.reason === "nothing-came") return '<div class="empty">Nothing I hold is about that yet. Try a person’s or a project’s name — or ask for the facts.</div>';
+  const plain = (x, under) => memRow({ id: x.id, title: x.title, text: x.excerpt || "", date: x.date, dateFrom: "recorded", feelings: [] },
+    under ? { under: '<div class="mfacts"><div>' + esc(under) + "</div></div>" } : {});
+  const p = r.patterns;
+  const recurring = [
+    p.subjects.length > 0 ? "with " + p.subjects.map((x) => x.label + " (" + x.entries + " of " + x.of + ")").join(", ") : "",
+    p.feelings.length > 0 ? "feelings: " + p.feelings.map((x) => x.label + " (" + x.entries + " of " + x.of + ")").join(", ") : "",
+  ].filter(Boolean);
+  return r.arc.map((l) => (l.fold ? foldRow(l, r.page) : arcRow(l.entry, r.whose))).join("") +
+    part("Faded", plural(r.counts.faded, "moment") + " not used for a long while", r.faded.map((m) => plain(m)).join("")) +
+    part("What I made of it before", "dreams and reflections", r.readings.map((g) => plain(g, g.by === "dreamed" ? "from a dream" : "from a reflection")).join("")) +
+    part("Still open", "", r.open.map((o) => plain(o, o.why === "dated" ? "a date still ahead" : "not settled yet")).join("")) +
+    part("Recurring", "across the entries of the arc", recurring.map((x) => '<div class="mfold">' + esc(x) + "</div>").join(""));
+}
+
+/** An answer's pages, as the list's pager looks: back, where, more. "" for one page. */
+export function askPager(r) {
+  if (!(r.pages > 1)) return "";
+  const first = (r.page - 1) * FACTS_PAGE;
+  const range = r.mode === "facts" && r.memories.length > 0
+    ? '<span class="mpage">' + (first + 1) + "–" + (first + r.memories.length) + " of " + r.matched + "</span>" : "";
+  const button = (page, words, off) =>
+    '<button type="button" class="mbtn" data-ask-page="' + page + '"' + (off ? " disabled" : "") + ">" + words + "</button>";
+  return button(r.page - 1, "← back", r.page <= 1) + range +
+    '<span class="mpage mpage-n">page ' + r.page + " of " + r.pages + "</span>" + button(r.page + 1, "more →", r.page >= r.pages);
 }

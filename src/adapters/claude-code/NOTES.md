@@ -1972,3 +1972,17 @@ would not open) each have their own clause and stay in the "N of M" — counted,
 like `not-found`; amber would hold forever on a host build that never writes the file, with
 nothing to do by hand. The dashboard's narrator says the same split: the first calm, the
 other two amber. The prompt's wait is a ring event, `adapter.wake.check.deferred`.
+
+## 2026-10-09 — the write-up plan at session start: measured, the skip not built
+
+The plan behind the write-up pointer (`writeUpPlan`) runs at every start until the day's
+allowance is spent, and when nothing is owed that never happens. Re-measured on a synthetic
+400-session store with one plan per process: ~31 ms (it was ~43 ms in #192's review, when it
+still read the ask rows). The brief was a stamp that skips the scan when nothing has
+changed. It was not built. The stamp that is safe never fires, because every start writes
+its own registry record first and every Stop appends to the buffer. The stamp that fires
+has to restate `coverage/`'s rule (only an end or a new date makes a debt) and be bumped by
+every end. Even then, the usual flow (end one session, open the next) rescans anyway, and a
+missed bump hides a debt until the next date. The numbers, the design and the cheaper
+alternative (the ledger's date formatting and its second read of the span files) are in
+INTERFACE-GAPS §15.

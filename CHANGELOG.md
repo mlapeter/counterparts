@@ -23,6 +23,32 @@
   version each server recorded. It says how many still run an older version (and which),
   how many already run this one, and how many it can't place, for example a server for
   another store. When it can tell, it names the session you ran it from.
+- **The dashboard's Ask reads 0.3.12's answers.** After recall took a mode, the Memories
+  page kept reading the old answer, so most dates, the "strong match" words and the "from
+  chapter" links vanished, and "by meaning" got a facts answer. The switch beside the box
+  now has three ways: **by word** (as you type, as before), **facts** (every memory that
+  answers the question, counted and paged, each saying who said it, when it happened or was
+  learned, and what it was before it changed) and **by meaning** (the chapters that hold a
+  person, a project or a feeling, in time order, with their moments and whose feelings
+  they were). The match-strength words are gone, as recall has none now.
+- **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
+  `mode: "meaning"` does; facts stays the default. `--page` pages either.
+- **A memory id written inside a memory's words is a link.** On the Memories page,
+  "(mem_cb6eea7a6b9f)" shows as "memory ↗" and opens that memory; a chapter's address
+  opens its journal.
+- **A chapter's memory keeps its links when the chapter grows.** Each journal chapter is
+  also kept as an ordinary memory, and when the chapter grows that memory is rebuilt and
+  the old one archived. The links the old one had learned (to what was written beside it,
+  what was used with it, what a dream tied it to) stayed on the archived row, where they do
+  nothing: about a quarter of the links in one real store. The rebuilt memory now inherits
+  them, the way a dream's merged memory inherits its originals'. Links already left behind
+  are carried over once, the first time the store is opened after the update.
+- **Recall now records what it showed that no reply used.** At the end of each answer, the
+  credit check now also notes which of the memories recall showed since the last check the
+  reply neither opened nor quoted, by kind of showing (shown in full, a footnote, a pointer
+  reached through links). Each showing is counted once. `counterparts probe-oq4` prints the
+  resulting hit rate. This only measures: nothing is strengthened, weakened or ranked
+  differently because of it.
 
 ## 0.3.12 — 2026-10-08
 

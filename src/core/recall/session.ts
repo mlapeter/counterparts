@@ -47,7 +47,7 @@ export const GATE_STATE_VERSION = 1;
 
 /** The `gate_session.kind` vocabulary this module owns. `window` is
  *  `prospective/`'s (INTERFACE-GAPS.md §3) and is deliberately not read here. */
-export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic", "asked"] as const;
+export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic", "asked", "judged"] as const;
 /**
  * `asked` (Release B, 2026-10-03): a memory a deliberate QUESTION's answer
  * showed with its words, for this session — quotable at the boundary
@@ -64,6 +64,29 @@ export const ASKED_MAX = 200;
 /** An `asked` record's `turn`: the moment, in whole seconds (ms do not fit the column's meaning). */
 export function askedTurn(nowMs: number): number {
   return Math.floor(nowMs / 1000);
+}
+/**
+ * `judged` (2026-10-09): how far the boundary's credit pass has scored this
+ * session's ambient showings. One row (`ref` `JUDGED_REF`) whose `turn` is the
+ * last recall turn a boundary judged, so each showing is scored once, at the
+ * first boundary after it: used (expanded or quoted) or shown and not used, on
+ * that boundary's `recall.credit` row. Measurement only. Its own kind, written
+ * only by the credit pass: recall's save names its own rows and cannot drop
+ * this one, and the ambient gate never reads it.
+ */
+export const JUDGED_KIND = "judged";
+export const JUDGED_REF = "credit";
+
+/** The last recall turn a boundary judged for this session; 0 when none has
+ *  (including a session older than the row). */
+export function judgedThrough(store: Store, sessionId: string): number {
+  return store.gateRecords(sessionId, JUDGED_KIND).find((r) => r.ref === JUDGED_REF)?.turn ?? 0;
+}
+
+/** Move the session's `judged` mark to `turn`. A gate write like any other, so
+ *  an observer's store refuses it; the caller moves it forward only. */
+export function markJudged(store: Store, sessionId: string, turn: number, day: number): void {
+  store.setGateRecords([{ sessionId, kind: JUDGED_KIND, ref: JUDGED_REF, turn, lastDay: day }]);
 }
 /** The one `scalar` row: the fields that are not per-memory. */
 export const SCALAR_REF = "state";
@@ -144,8 +167,9 @@ interface ScalarPayload {
 export function loadGateState(store: Store, sessionId: string, max = Infinity): LoadResult {
   // `asked` rows (a deliberate answer's, 2026-10-03) are not the ambient
   // gate's: a session whose only rows are those has no gate state yet, and
-  // must read `absent`, not `unreadable`.
-  const rows = store.gateRecords(sessionId).filter((r) => r.kind !== ASKED_KIND);
+  // must read `absent`, not `unreadable`. The credit pass's `judged` mark
+  // (2026-10-09) is not the gate's either.
+  const rows = store.gateRecords(sessionId).filter((r) => r.kind !== ASKED_KIND && r.kind !== JUDGED_KIND);
   if (rows.length === 0) return { state: freshGateState(sessionId), status: "absent" };
 
   const scalarRow = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF);
