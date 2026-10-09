@@ -18,7 +18,7 @@ import { displayName } from "../ask-voice.js";
 import { WITHHELD, revealHere } from "../reveal.js";
 import { archiveWords } from "./archive-words.js";
 import { letGoDay } from "./mechanism-panel.js";
-import { feelingsShown, firstSentence, isChapterMemory, shownOf } from "./memory-words.js";
+import { feelingsShown, firstSentence, isChapterMemory, repeatsOf, shownOf } from "./memory-words.js";
 import type { DateFrom, FeelingShown } from "./memory-words.js";
 import { absenceFor, census, countMap } from "./shared.js";
 import { todayView } from "./today.js";
@@ -107,12 +107,15 @@ export const FIRM_AHEAD_DAYS = 30;
  * Firm, settling or fading. Core and protected memories are firm (neither is
  * pruned). Fading is prune's own verdict within `NEAR_LET_GO_DAYS` (`letGoDay`);
  * an entity card is faded by `schemas/`, not by prune, so it is never fading
- * here. Firm is still settled `FIRM_AHEAD_DAYS` from now if unused. The rest
- * are settling.
+ * here. Nor is a memory whose date still repeats (`opts.recurring`, the row's
+ * `recurrenceOfRow` — 2026-10-09): the prune keeps it for its next occurrence,
+ * so it is firm or settling by its strength like any other, and the row says
+ * how often it comes round (`ListRow.repeats`). Firm is still settled
+ * `FIRM_AHEAD_DAYS` from now if unused. The rest are settling.
  */
-export function holdOf(physics: MemoryPhysics, day: number, opts: { prunable: boolean }): Hold {
+export function holdOf(physics: MemoryPhysics, day: number, opts: { prunable: boolean; recurring?: boolean }): Hold {
   if (physics.promotedIdentity === true || physics.protected === true) return "firm";
-  if (opts.prunable && letGoDay(physics, day, NEAR_LET_GO_DAYS) !== null) return "fading";
+  if (opts.prunable && letGoDay(physics, day, NEAR_LET_GO_DAYS, opts.recurring === true) !== null) return "fading";
   if (strengthOf(physics, day + FIRM_AHEAD_DAYS) >= PHYSICS.THETA_SEM) return "firm";
   return "settling";
 }
@@ -177,7 +180,12 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
     else if (m.unreadable) hold.settling += 1;
     else {
       try {
-        hold[holdOf(store.physicsOf(m.id), day, { prunable: row === undefined || !isEntityCard(row) })] += 1;
+        hold[
+          holdOf(store.physicsOf(m.id), day, {
+            prunable: row === undefined || !isEntityCard(row),
+            recurring: row !== undefined && repeatsOf(row) !== null,
+          })
+        ] += 1;
       } catch {
         hold.settling += 1;
       }
@@ -329,6 +337,10 @@ export interface ListRow {
   readonly createdAt: number | null;
   /** How firmly it is held (`holdOf`); null for an archived row or a journal chapter. */
   readonly hold: Hold | null;
+  /** A live row whose date still repeats: how often, as a person says it
+   *  (`every May 14`, `repeatsOf`) — kept for its next occurrence, so never
+   *  "fading" (2026-10-09). Null otherwise, and on a withheld row. */
+  readonly repeats: string | null;
   /** Put-away rows only: how many put-away versions of the same memory this
    *  one row stands for (itself included) — 1 for most. See `versionKey`. */
   readonly versions: number;
@@ -483,6 +495,7 @@ export function memoryListView(
     core: boolean;
     journal: boolean;
     hold: Hold | null;
+    repeats: string | null;
     /** Put-away rows only: the key its other versions share, or null. */
     group: string | null;
     versions: number;
@@ -503,11 +516,13 @@ export function memoryListView(
     let s = 0;
     const chapter = isChapterMemory(row);
     let hold: Hold | null = null;
+    // Kept while it repeats (the prune's `recurring` gate): live rows only.
+    const repeats = isArchived || chapter ? null : repeatsOf(row);
     try {
       const physics = rowToPhysics(row);
       b = bandOf(physics, day);
       s = strengthOf(physics, day);
-      if (!isArchived && !chapter) hold = holdOf(physics, day, { prunable: !isEntityCard(row) });
+      if (!isArchived && !chapter) hold = holdOf(physics, day, { prunable: !isEntityCard(row), recurring: repeats !== null });
     } catch {
       /* a row whose physics will not compute still lists, at zero */
       if (!isArchived && !chapter) hold = "settling";
@@ -524,6 +539,7 @@ export function memoryListView(
       core: row.promoted_identity === 1,
       journal: chapter,
       hold,
+      repeats,
       group: isArchived ? versionKey(store, row) : null,
       versions: 1,
       cores: new Set(feelingsShown(store, id).map((f) => f.core)),
@@ -621,6 +637,9 @@ export function memoryListView(
       feelings: feelingsShown(store, r.id),
       createdAt: r.createdAt,
       hold: r.hold,
+      // A withheld row shows no date of its own in the list, so not how often
+      // its date comes round either; it is still never "fading".
+      repeats: here.confidential || !here.present ? null : r.repeats,
       versions: r.versions,
     };
   });

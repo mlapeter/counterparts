@@ -905,7 +905,14 @@ describe("the floor prune — archival, never deletion", () => {
 
   test("every blocking gate is named, and all of them are counted — not just the first", () => {
     const s = store();
-    prunable(s, { physics: { protected: true } });
+    // At the floor, past the dwell — so `protected` is what held it. (This used
+    // to pass `{ protected: true }` alone, which replaced the helper's dated
+    // physics with a memory born today: counted `protected` only because the
+    // gate was named on every protected row every night. 2026-10-09: it is
+    // named only where the floor would otherwise have let the memory go.)
+    prunable(s, { physics: { birthDay: -120, lastUsedDay: -100, uses: 0, protected: true } });
+    // Protected and born today: kept by the arithmetic, so not counted as a refusal.
+    put(s, { physics: { protected: true } });
     prunable(s, { salience: { relevance: 1, emotional: 1, predictive: 1 } });
     put(s);
     prunable(s, { physics: { promotedIdentity: true }, salience: { claimed: 0.9 } });

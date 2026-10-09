@@ -488,8 +488,9 @@ the predicate `recurringMemories` uses). Nothing else moves here: decay, band an
 are unchanged, so the memories view still shows a repeat as fading between its dates.
 (Prospective, in the review of #341, stopped refusing a live repeat `faded`, so a QUIET
 yearly that faded by its next date is still cued on it — prospective NOTES §16.) The
-entity-card fade (`schemas/`) and the memories view's `letGoDay` never pass it, so the
-view's "fading" and let-go day for a repeat are what the floor alone would do.
+entity-card fade (`schemas/`) never passes it. The memories view's `letGoDay` did not
+either, so the view called a faded repeat "fading" and gave it a let-go day the prune
+would refuse; it passes it now (2026-10-09, below), and the view shows the repeat instead.
 `fired.ts` counts it with `protected` and `in-live-revision-chain` as a real refusal —
 and so `pruneVerdict` names it only where the floor would otherwise have let the memory
 go (review of #341). It is an exemption from the floor, not a standing rule: named on
@@ -501,3 +502,26 @@ says the reply used it; and `creditReturn` refuses `not-referenced`, so a schedu
 no return and a daily `self` reminder cannot walk the slow core lane on the calendar
 alone. The rep arm still climbs where the kind has one (`uses` +0.25 a day: a daily
 `fact` sits at the 0.5 cap after about 17 days) — rehearsal working, not a side effect.
+
+## 2026-10-09 — `protected` is named on the same terms (follow-up to the review of #341)
+
+The review of #341 made `recurring` an exemption FROM THE FLOOR: named only where the
+three floor conditions would have let the memory go. `protected` is the same kind of
+gate — the owner's "never forget this", not a reason the memory is still strong — and
+was still named on every protected row every night. The self page is born protected
+(`self/page.ts`), so every store with a page carried a `protected` refusal per cycle,
+and `fired.ts` counts `protected` as a real refusal: the owner's store, under three
+weeks old, read "memory.pruned BLOCKED: 10 refusals, protected ×8" when nothing there
+could have sat out the 90-day dwell. Now `pruneVerdict` names `protected` only where
+`floorLetsGo`. Outcomes are unchanged — where the floor holds, `blockedBy` already has an
+arithmetic reason — and so is the entity-card fade's verdict (`schemas/` filters the same
+list; a card above the floor is held by `above-floor`). Measured through the hooks
+(`test/recurring-reinforce.test.ts`): a protected memory and the self page over seven
+nights count no `protected`, and the fired view's prune row is not BLOCKED.
+`in-live-revision-chain` is still named wherever it holds, floor or not; it is the one
+named gate left that can count on a memory the arithmetic was keeping anyway.
+
+The memories view's `letGoDay` passes the row's recurrence (`store#recurrenceOfRow`) as
+`ctx.recurring`, so the dashboard asks physics the exact question the prune asks: a
+faded repeat is not "fading", has no let-go day, and its row and card say how often it
+comes round instead.

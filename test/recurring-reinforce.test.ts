@@ -360,7 +360,7 @@ describe("what is not a repeat is not credited", () => {
   });
 });
 
-describe("the prune's `recurring` refusal is counted only where it held a memory back", () => {
+describe("the prune's named refusals are counted only where they held a memory back", () => {
   test("a strong daily repeat on a store with nothing to prune: the cycle names `above-floor`, not `recurring`, and the prune row is not BLOCKED", async () => {
     // Review of #341. The fired view's prune row reads BLOCKED whenever a
     // named rule refused a memory and nothing was pruned that week; a repeat
@@ -380,6 +380,42 @@ describe("the prune's `recurring` refusal is counted only where it held a memory
       expect(blocked(cycle, "above-floor")).toBeGreaterThan(0);
     }
     expect(uses(s, id)).toBe(0.25 * 7);
+    const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
+    expect(prune?.refusedInWindow).toBe(0);
+    expect(prune?.state).not.toBe("blocked");
+  });
+
+  test("a protected memory and the self page (born protected) on a young store: `protected` is not counted, and the prune row is not BLOCKED", async () => {
+    // The same rule for `protected` (2026-10-09). The owner's store, under
+    // three weeks old, read "memory.pruned BLOCKED: 10 refusals, protected
+    // ×8": nothing there can have sat unused for the 90-day dwell, so every
+    // one of those was a protected row the arithmetic was keeping anyway.
+    const a = hooks();
+    const s = a.counterpart.store;
+    const kept = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "never forget this",
+      body: "The owner asked that this one never be forgotten, in so many words.",
+      learnedOn: "2026-10-09",
+      salience: DEFAULTED,
+      physics: { protected: true },
+    });
+    const page = a.counterpart.revisePage("Who I am, so far: the page the self keeps.", { by: "owner", reason: "test" }).id as string;
+    expect(s.row(kept)?.protected).toBe(1);
+    expect(s.row(page)?.protected).toBe(1);
+    await evening(a, "2026-10-09");
+    let date = "2026-10-09";
+    for (let i = 0; i < 7; i++) {
+      date = addDays(date, 1);
+      morning(a, date);
+      const cycle = await evening(a, date);
+      expect(blocked(cycle, "protected")).toBe(0);
+      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+    }
+    // Kept all the same: the outcome never depended on the name.
+    expect(s.row(kept)?.archived).toBe(0);
+    expect(s.row(page)?.archived).toBe(0);
     const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
     expect(prune?.refusedInWindow).toBe(0);
     expect(prune?.state).not.toBe("blocked");

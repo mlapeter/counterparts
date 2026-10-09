@@ -36,6 +36,16 @@
   repeats comes round on its date even when it has faded: a quiet yearly one is still
   surfaced, and a plain one is still said. One-off dates are unchanged, and a reminder
   whose repeat you drop fades and is cleaned up like any other memory.
+- **The dashboard no longer says a repeating reminder is about to be put away.** A memory
+  whose date still repeats is kept for its next time however faint it has grown, so the
+  memories list no longer marks it "fading" and its card names no day it would be put
+  away. The row says how often it comes round instead ("repeats every May 14"), and the
+  card says "It comes round every May 14, so I'll keep it while it does."
+- **Doctor's prune line no longer reads BLOCKED over protected memories it was keeping
+  anyway.** The nightly cleanup counted every protected memory (the self page is one) as
+  a refusal every night, even when it was nowhere near being let go. It now counts
+  `protected` only where that is what kept the memory, as it already did for `recurring`.
+  Nothing is cleaned up differently.
 - **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
   do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
   export or un-merge a memory, or something fails. One, the check after the v8 upgrade,

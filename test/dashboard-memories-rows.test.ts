@@ -22,8 +22,9 @@ import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
 import { mechanismPanel, memoriesView, memoryDetail, searchView } from "../src/adapters/dashboard/web/views.js";
 import { FIRM_AHEAD_DAYS, NEAR_LET_GO_DAYS, holdOf } from "../src/adapters/dashboard/web/views/memories.js";
+import { RECURRING_META } from "../src/core/prospective/index.js";
 import type { MemoryListView } from "../src/adapters/dashboard/web/views.js";
-import { fadeCurve } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
+import { fadeCurve, letGoDay } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
 import { chapterDate, isChapterMemory, liftDate, shownOf } from "../src/adapters/dashboard/web/views/memory-words.js";
 import { typoDistance, typosAllowed } from "../src/adapters/dashboard/web/views/search.js";
 import { seedDemo } from "../tools/demo/seed.js";
@@ -73,6 +74,30 @@ beforeAll(async () => {
       source: "authored",
     });
     s.updatePhysics(ids.fading, { birthDay: day - 400, lastUsedDay: day - 400 });
+
+    // The same faded physics on a date that still repeats (2026-10-09): the
+    // prune keeps it for its next time, so it is not "fading". And a withheld one.
+    ids.repeat = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "Renew the boat licence",
+      body: "Renew the boat licence before the season opens.",
+      salience: { relevance: 0.05, emotional: 0, predictive: 0 },
+      eventDate: "2019-05-14",
+      meta: { [RECURRING_META]: "yearly" },
+      source: "authored",
+    });
+    s.updatePhysics(ids.repeat, { birthDay: day - 400, lastUsedDay: day - 400 });
+    ids.repeatSecret = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "A private appointment that comes round every week.",
+      salience: { relevance: 0.05, emotional: 0, predictive: 0 },
+      eventDate: "2026-06-01",
+      meta: { [RECURRING_META]: "weekly", confidential: true },
+      source: "authored",
+    });
+    s.updatePhysics(ids.repeatSecret, { birthDay: day - 400, lastUsedDay: day - 400 });
 
     ids.secret = s.put({
       type: "memory",
@@ -252,6 +277,56 @@ describe("how firmly it's held: firm / settling / fading", () => {
       // Archived rows carry no hold, and a junk value is ignored.
       expect(getList(src, "?state=archived&hold=firm").total).toBe(0);
       expect(getList(src, "?hold=nonsense").hold).toBeNull();
+    });
+  });
+});
+
+describe("a date that still repeats is kept, so it is never fading (2026-10-09)", () => {
+  test("the same faded physics: fading as a one-off, settling as a repeat, with no let-go day", () => {
+    withSrc((src) => {
+      const day = src.store.livedDay();
+      const p = src.store.physicsOf(ids.repeat as string);
+      // Not vacuous: as a one-off this memory is let go within the fortnight.
+      expect(letGoDay(p, day, NEAR_LET_GO_DAYS)).not.toBeNull();
+      expect(holdOf(p, day, { prunable: true })).toBe("fading");
+      // As the prune reads it — a repeat — there is no day it is let go.
+      expect(letGoDay(p, day, NEAR_LET_GO_DAYS, true)).toBeNull();
+      expect(holdOf(p, day, { prunable: true, recurring: true })).toBe("settling");
+    });
+  });
+
+  test("the list: not fading, and the row says how often it comes round; a withheld one says nothing of when", () => {
+    withSrc((src) => {
+      const rows = allRows(src);
+      const repeat = rows.find((r) => r.id === ids.repeat);
+      expect(repeat?.hold).toBe("settling");
+      expect(repeat?.repeats).toBe("every May 14");
+      const secret = rows.find((r) => r.id === ids.repeatSecret);
+      expect(secret?.confidential).toBe(true);
+      expect(secret?.hold).toBe("settling");
+      expect(secret?.repeats).toBeNull();
+      // A one-off carries no repeat, and the fading filter holds neither.
+      expect(rows.find((r) => r.id === ids.fading)?.repeats).toBeNull();
+      const fading = getList(src, "?hold=fading&limit=200").rows.map((r) => r.id);
+      expect(fading).toContain(ids.fading as string);
+      expect(fading).not.toContain(ids.repeat as string);
+      expect(fading).not.toContain(ids.repeatSecret as string);
+      // The picture's count agrees with the list's.
+      expect(memoriesView(src).hold.fading).toBe(getList(src, "?limit=1").counts.hold.fading);
+    });
+  });
+
+  test("the card: no let-go day, and the repeat in its place", () => {
+    withSrc((src) => {
+      const card = memoryDetail(src, ids.repeat as string);
+      // The same maths would put it below the archive line tomorrow…
+      expect(fadeCurve(src.store.physicsOf(ids.repeat as string), card.day).archiveDay).not.toBeNull();
+      // …but the prune keeps it, so the card names no day.
+      expect(card.curve?.archiveDay).toBeNull();
+      expect(card.curve?.repeats).toBe("every May 14");
+      const oneOff = memoryDetail(src, ids.fading as string);
+      expect(oneOff.curve?.archiveDay).not.toBeNull();
+      expect(oneOff.curve?.repeats).toBeNull();
     });
   });
 });

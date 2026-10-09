@@ -14,7 +14,7 @@ import type { DashboardSource } from "../../source.js";
 import { WITHHELD, gistOfDoc, reveal, revealHere } from "../reveal.js";
 import { archiveWords } from "./archive-words.js";
 import { fadeCurve } from "./mechanism-panel.js";
-import { chapterDate, feelingsShown, isChapterMemory, liftDate, stripChapterLead } from "./memory-words.js";
+import { chapterDate, feelingsShown, isChapterMemory, liftDate, repeatsOf, stripChapterLead } from "./memory-words.js";
 import { readChapterLead } from "../../../../core/self/index.js";
 import type { FeelingShown } from "./memory-words.js";
 import { LOG_CEILING } from "./shared.js";
@@ -95,9 +95,15 @@ export interface MemoryCurve {
   readonly from: number;
   readonly to: number;
   readonly points: readonly (readonly [number, number])[];
+  /** The first lived day ahead on which it falls below the archive line if
+   *  unused — the day the prune could put it away. Null for a date that still
+   *  repeats: the prune keeps it for its next occurrence (2026-10-09). */
   readonly archiveDay: number | null;
   readonly archiveLine: number;
   readonly semanticFloor: number;
+  /** Its date still repeats: how often, as a person says it (`every May 14`,
+   *  `repeatsOf`), else null. The card says this instead of a let-go day. */
+  readonly repeats: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -302,7 +308,17 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
   else if (physics.promotedIdentity === true) curveNote = "in the core — it doesn't fade";
   else {
     const c = fadeCurve(physics, day);
-    curve = { day, ...c, archiveLine: TUNABLES.PHI_PRUNE, semanticFloor: TUNABLES.THETA_SEM };
+    // A date that still repeats is kept (the prune's `recurring` gate), so it
+    // has no let-go day; a put-away row is past the question.
+    const repeats = row === undefined || row.archived === 1 ? null : repeatsOf(row);
+    curve = {
+      day,
+      ...c,
+      archiveDay: repeats === null ? c.archiveDay : null,
+      archiveLine: TUNABLES.PHI_PRUNE,
+      semanticFloor: TUNABLES.THETA_SEM,
+      repeats,
+    };
   }
 
   const points: { role: string; id: string; text: string }[] = [];

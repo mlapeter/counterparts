@@ -97,9 +97,12 @@ function curvePart(d) {
 }
 
 /** The one plain sentence under the chart (round 4): "I remember this at 41%.
- *  If nobody uses it, I'll put it away around day 67." `c` is the card's curve. */
+ *  If nobody uses it, I'll put it away around day 67." `c` is the card's curve.
+ *  A date that still repeats is kept for its next time (2026-10-09), however
+ *  faint: "It comes round every May 14, so I'll keep it while it does." */
 export function rememberLine(now, c) {
   const head = "I remember this at " + pct(now) + ". ";
+  if (c.repeats) return head + "It comes round " + c.repeats + ", so I'll keep it while it does.";
   if (c.archiveDay !== null) return head + "If nobody uses it, I'll put it away around day " + c.archiveDay + ".";
   if (now < c.archiveLine) return head + "That's low enough that I could put it away soon.";
   const ahead = c.to - c.day;

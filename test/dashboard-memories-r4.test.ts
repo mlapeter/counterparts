@@ -316,6 +316,11 @@ describe("M6 rows", () => {
     expect(plain).not.toContain("mkind");
     expect(plain).not.toContain("fading");
     expect(memRow({ ...base, hold: "fading" })).toContain('class="mfading"');
+    // A date that still repeats (2026-10-09): never "fading", and it says how often instead.
+    const repeat = memRow({ ...base, repeats: "every May 14" });
+    expect(repeat).toContain('<span class="mrepeats" title="it comes round every May 14, so I&#39;ll keep it while it does">repeats every May 14</span>');
+    expect(repeat).not.toContain("fading");
+    expect(plain).not.toContain("mrepeats");
     expect(memRow({ ...base, kind: "person" })).toContain("people");
     expect(journalTitle("2026-09-27")).toMatch(/^Journal · Sun, Sep 27th(, 2026)?$/);
     expect(journalTitle(null)).toBe("Journal");
@@ -392,11 +397,15 @@ describe("M7 the card", () => {
   test("chart, one plain sentence, why it mattered, written once; the rest under details", async () => {
     const { memoryCard, rememberLine } = (await import(join(WEB, "shared/memory-modal.js"))) as {
       memoryCard(d: unknown): string;
-      rememberLine(now: number, c: { archiveDay: number | null; archiveLine: number; to: number; day: number }): string;
+      rememberLine(now: number, c: { archiveDay: number | null; archiveLine: number; to: number; day: number; repeats?: string | null }): string;
     };
     expect(rememberLine(0.41, { archiveDay: 67, archiveLine: 0.1, to: 90, day: 30 })).toBe("I remember this at 41%. If nobody uses it, I'll put it away around day 67.");
     expect(rememberLine(0.85, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30 })).toBe("I remember this at 85%. Even if nobody uses it, I'll keep it for at least the next 60 days.");
     expect(rememberLine(0.05, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30 })).toContain("low enough that I could put it away soon");
+    // A date that still repeats is kept however faint (2026-10-09): no let-go day, and not "soon".
+    expect(rememberLine(0.01, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30, repeats: "every May 14" })).toBe(
+      "I remember this at 1%. It comes round every May 14, so I'll keep it while it does.",
+    );
     withSrc((src) => {
       const d = get(src, `/api/memory?id=${ids.felt[0]}`);
       const html = memoryCard(d);

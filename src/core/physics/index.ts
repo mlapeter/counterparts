@@ -1575,8 +1575,8 @@ export interface PruneRecord {
 export interface PruneVerdict {
   prune: boolean;
   reason: PruneReason;
-  /** Every failing gate, not just the first — all six are named; `recurring`
-   *  only where the floor alone would have let the memory go. */
+  /** Every failing gate, not just the first — all six are named; `protected`
+   *  and `recurring` only where the floor alone would have let the memory go. */
   blockedBy: PruneReason[];
   strength: number;
   band: Band;
@@ -1595,9 +1595,10 @@ export interface PruneVerdict {
  * as a use (`Counterpart#creditOccurrence`), which carries a daily, weekly or
  * monthly repeat; a yearly one is used once a year, and no single use outlasts
  * 365 lived days at an ordinary salience. So a live repeat is refused here by
- * name, as `protected` is — but only where the floor would otherwise have let
- * it go, since it is an exemption from the floor and not a standing rule (review
- * of #341). Only the prune: it still fades, its band and strength read as
+ * name, as `protected` is — and, like `protected`, only where the floor would
+ * otherwise have let it go, since both are exemptions from the floor and not
+ * standing rules (review of #341; `protected` on the same terms, 2026-10-09).
+ * Only the prune: it still fades, its band and strength read as
  * before. Prospective does not refuse a live repeat `faded` (review of #341,
  * `prospective/derive.ts`), so each occurrence is still delivered.
  */
@@ -1617,7 +1618,14 @@ export function pruneVerdict(
   // The three floor conditions above are arithmetic ("not yet"); the rest are
   // named rules.
   const floorLetsGo = blockedBy.length === 0;
-  if (m.protected) blockedBy.push("protected");
+  // The owner's "never forget this" is an exemption FROM THE FLOOR too, named
+  // on the same terms as `recurring` below (2026-10-09): a protected memory
+  // above the floor is held by arithmetic alone. Named on every protected row
+  // every night — the self page is born protected — it read as a refusal in
+  // the fired view's prune row on a store too young for anything to reach the
+  // floor. Outcomes are unchanged: where the floor holds, `blockedBy` is
+  // already non-empty.
+  if (m.protected && floorLetsGo) blockedBy.push("protected");
   if (ctx.inLiveRevisionChain) blockedBy.push("in-live-revision-chain");
   // An exemption FROM THE FLOOR, so named only where the floor would have let
   // the memory go (review of #341): a repeat well above it is held by

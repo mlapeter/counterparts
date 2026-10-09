@@ -723,8 +723,11 @@ export const MECHANISMS: readonly Mechanism[] = [
     // reminder date that still comes round, kept for its next occurrence —
     // and physics names it only where the floor would otherwise have let the
     // memory go (review of #341), or every pill reminder would read as a
-    // refusal every night. All three are a rule refusing a memory that
-    // qualified. `above-floor`,
+    // refusal every night. `protected` is named on the same terms (2026-10-09):
+    // the self page is born protected, and counting it every night read
+    // "BLOCKED: protected ×8" on a store too young for anything to be at the
+    // floor. All three are a rule refusing a memory that qualified — though
+    // `in-live-revision-chain` is still named floor or not. `above-floor`,
     // `dwell-too-short` and `band-not-episodic`
     // are the ordinary condition of almost every memory on almost every night —
     // the reviewer measured `dwell-too-short ×240` on a healthy forty-memory
