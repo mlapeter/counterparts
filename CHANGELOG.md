@@ -13,6 +13,17 @@
   through npm, run `counterparts connect` once** to rewrite your hooks and server
   registration. Until you do, doctor's Runtime line is amber and says so. Plugin users
   get the change when the plugin updates.
+- **Facts recall now names corrected memories, so they can be opened.** A memory
+  settled as corrected (it was wrong) is never offered as a fact. Facts answers used to
+  say only "1 corrected version hidden" under the memory that corrected it, with no way
+  to reach it, even when the question named it. If the correction itself pointed at the
+  wrong memory, a true memory became unreachable. Each one now gets a line under the
+  memory that corrected it, marked as wrong, with its id:
+  `corrected (was wrong): "…" (learned 09-10), corrected 09-11 · mem_…`. Opening that id
+  with `recall` shows the whole memory and which memory corrected it. Up to three are
+  named, the ones the question's words reach first, and any more are counted. The
+  dashboard's Ask shows them the same way, with links. Answers that have no corrected
+  versions are unchanged.
 - **The dashboard no longer says a repeating reminder is about to be put away.** A memory
   whose date still repeats is kept for its next time however faint it has grown, so the
   memories list no longer marks it "fading" and its card names no day it would be put

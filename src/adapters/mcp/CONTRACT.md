@@ -559,7 +559,11 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
 - **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
   | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
   (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
-  current one in); corrected ones hidden and counted; `open` and unsettled pairs named —
+  current one in); corrected ones never results, but named under the one that corrected
+  them — `corrected (was wrong): "…" (learned <date>), corrected <date> · mem_…`, the
+  ones the question's words reach first, then the latest, three at most and the rest
+  counted (2026-10-09: archived, a corrected memory is out of the word index, and a wrong
+  correction made a true one unreachable); `open` and unsettled pairs named —
   never naming a confidential or removed memory to a non-owner.
   Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
