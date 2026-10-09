@@ -519,6 +519,18 @@ describe("a name asked about that has no card", () => {
     }
   });
 
+  test("a question about feeling led by a name with no card: the note names that name, not the card it outranked", () => {
+    const c = ownerBrain();
+    card(c, "Oskar");
+    oneCard(c);
+    moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
+    const r = meaningRecall(ctx(c), "how did I feel about Han with Oskar?");
+    expect(r.lens?.kind).toBe("feeling");
+    const notes = r.notes.join(" ");
+    expect(notes).toContain('no card names "Han"');
+    expect(notes).not.toContain("Oskar");
+  });
+
   test("an acronym, a word with a digit, or a question in Title Case names nobody, even beside a card", () => {
     const c = ownerBrain();
     oneCard(c);

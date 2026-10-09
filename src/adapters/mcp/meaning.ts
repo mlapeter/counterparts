@@ -533,13 +533,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     // names too, and would bring "Mike" back in for "what has Han been to
     // Mike". The cards it named are one-liners to ask for.
     lens = { kind: "words", name: `"${bareName}"` };
-    const typed = bareName.split(/\s+/).filter((w) => w.length > 0);
-    const topic: TopicWords = {
-      words: typed.map((w) => w.toLowerCase()),
-      names: new Map(typed.map((w) => [w.toLowerCase(), nameRegex(w, "gu")])),
-      shown: [bareName],
-    };
-    const byWords = holdByWords(store, topic, usable, hold);
+    const byWords = holdByWords(store, nameTopic(bareName), usable, hold);
     textMatch = byWords.textMatch;
     lineMatch = byWords.lineMatch;
     notes.push("matched by the name as written, not by meaning");
@@ -562,13 +556,19 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     const asked = question.replace(/\bsince\b[^?.!;]*/gi, " ");
     const proper = safe(() => askedNames(asked), new Set<string>());
     const owners = new Set(ownerNamesLower(c).flatMap((n) => tokenize(n)));
-    const topic = contentWords(
-      c,
-      asked,
-      minLen,
-      ask.named,
-      (w) => isFeelingFrameWord(w, stored, proper) || owners.has(w) || FEELING_FRAME_MORE.has(w),
-    );
+    // A name with no card that leads (`subjectOf`'s `bare`) is the topic, as
+    // typed: the question's other words include the card it outranked, and
+    // "no card names" would then name that card too (review of #347).
+    const topic =
+      subject.bare !== null
+        ? nameTopic(subject.bare)
+        : contentWords(
+            c,
+            asked,
+            minLen,
+            ask.named,
+            (w) => isFeelingFrameWord(w, stored, proper) || owners.has(w) || FEELING_FRAME_MORE.has(w),
+          );
     const reached = new Map<string, number>();
     if (topic.words.length > 0) {
       holdByWords(store, topic, usable, (id) => {
@@ -1588,6 +1588,16 @@ function uncardedNames(
   }
   flush();
   return out;
+}
+
+/** A name with no card as a topic, as typed ("Han", not "han"): its words only. */
+function nameTopic(name: string): TopicWords {
+  const typed = name.split(/\s+/).filter((w) => w.length > 0);
+  return {
+    words: typed.map((w) => w.toLowerCase()),
+    names: new Map(typed.map((w) => [w.toLowerCase(), nameRegex(w, "gu")])),
+    shown: [name],
+  };
 }
 
 /** The place a name at `index` sits in: about, aside, or plain. */
