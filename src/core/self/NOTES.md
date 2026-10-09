@@ -1562,3 +1562,28 @@ and is not a cost.
   `self.episode.relink.failed`, and the ingestion reports what it always did.
 - The links stranded before this are carried once at open, in `counterpart.ts`
   (associate NOTES §15).
+
+## 2026-10-09 — the page's own "Last revised" line is taken out
+
+The 10-01 guidance (`PAGE_WRITING_RULE`, above) told both writers to add no revised-on
+line, and nothing checked it: the wake still printed two date lines under "Who I am" for a
+page that carried one, and a page that already had it kept it. Now
+`page.ts#stripRevisedLines` takes the line out in two places: where the wake renders the
+page (`Self#pageBlock`, so a page stored with the line prints one date from the next
+render), and at the one write door (`Self#revisePage`, before the caps, the gate and the
+byte count), so a stored page heals the next time anyone writes it. A line is the page's
+own when the whole of it opens with "Last revised" past any parentheses, brackets,
+emphasis, quote marker or dash, and it is at most 160 characters; the words inside a
+paragraph stay. The blank line it stood behind goes with it. The revision row says how many
+went (`datelines`), because the owner's console writes through the same door. A page that
+is nothing but the line is refused as `empty` at write, and printed as it stands at render.
+The guidance stays: the strip is the check, not a reason to stop asking.
+
+**Review of #332: only a dateline.** As first built the rule took any short line opening
+"Last revised" past its wrappers, which took prose ("Last revised my view of …"), a quoted
+line, a list entry, a code block's line and a page's own history list — at the write door,
+so the words left the stored page. Now the words must be followed by a date (ISO or numeric,
+a month's name, or today / tonight / yesterday), straight after or after "on" or a short
+"by …"; and a line inside a code fence, beside another such line (a history), or an entry
+beside another entry of a list stays. A lone one, at the head, the foot or between
+sections, still goes.

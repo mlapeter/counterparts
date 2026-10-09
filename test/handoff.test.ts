@@ -37,6 +37,12 @@ import {
   isHandoffRow,
   HANDOFF_WAKE_LISTED,
   HANDOFF_WAKE_SHOWN,
+  PLAN_STATUSES,
+  SINCE_READ,
+  SINCE_SHOWN,
+  SINCE_TITLE_BYTES,
+  planWord,
+  sinceLine,
   modelWords,
   pointerBlock,
   pointerBlockMany,
@@ -45,7 +51,7 @@ import {
   reserveBytes,
   WIDEST_POINTER_SINCE,
 } from "../src/core/handoff/index.js";
-import type { Handoff } from "../src/core/handoff/index.js";
+import type { Handoff, PlanSince } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -1873,5 +1879,162 @@ describe("several sessions leave handoffs in one directory", () => {
     await s.call("session_end", { session: "sess_model", memories: [], handoff: BODY_TWO });
     const mine = s.counterpart.readHandoffs(HERE).find((x) => x.session === "sess_model");
     expect(mine?.model).toBe("claude-opus-5-5");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("what was planned here since the handoff (2026-10-09)", () => {
+  const h = (i: number, body = BODY): Handoff => ({
+    id: `sch_00000000000${String(i)}`,
+    scope: HERE,
+    body,
+    bytes: body.length,
+    writtenOn: "2026-09-20",
+    writtenDay: 10,
+    session: `${String(i).repeat(8)}-0000`,
+    version: 0,
+  });
+  const plan = (i: number, word = "planned"): PlanSince => ({ id: `mem_00000000000${String(i)}`, title: `Placeholder plan ${String(i)}`, word });
+  const bytesOf = (s: string): number => new TextEncoder().encode(s).length;
+
+  test("the line names up to three by title, word and id, newest first, and counts the rest", () => {
+    expect(sinceLine({ items: [], more: 0 }, false)).toBeNull();
+    expect(sinceLine({ items: [plan(1)], more: 0 }, false)).toBe("Since this handoff: Placeholder plan 1 (planned, mem_000000000001).");
+    expect(sinceLine({ items: [plan(4), plan(3, "asked"), plan(2, "open"), plan(1)], more: 2 }, true)).toBe(
+      "Since the newest handoff here: Placeholder plan 4 (planned, mem_000000000004); Placeholder plan 3 (asked, mem_000000000003); Placeholder plan 2 (open, mem_000000000002); and 3 more.",
+    );
+    // Every line flattened: a title cannot put a line into the bundle.
+    expect(sinceLine({ items: [{ ...plan(1), title: "Two\nlines" }], more: 0 }, false)).not.toContain("\n");
+  });
+
+  test("a plan is planned, proposed or asked, or a memory still open; nothing else", () => {
+    expect(PLAN_STATUSES).toEqual(["planned", "proposed", "asked"]);
+    for (const s of PLAN_STATUSES) expect(planWord(s, false)).toBe(s);
+    expect(planWord("done", false)).toBeNull();
+    expect(planWord(null, false)).toBeNull();
+    expect(planWord(null, true)).toBe("open");
+    expect(planWord("done", true)).toBe("open");
+    expect(planWord("asked", true)).toBe("asked");
+  });
+
+  test("every rung comes once with the line, widest first, then as it was, byte for byte", () => {
+    const hs = [h(2), h(1, BODY_TWO)];
+    const plain = pointerLadder(hs, 10);
+    const ladder = pointerLadder(hs, 10, { plans: { items: [plan(1)], more: 0 } });
+    expect(ladder).toHaveLength(plain.length * 2);
+    expect(ladder.slice(plain.length)).toEqual(plain);
+    ladder.slice(0, plain.length).forEach((rung, i) => {
+      expect(rung.plans).toEqual(["mem_000000000001"]);
+      expect(rung.block.startsWith(`${plain[i]?.block as string}\n`)).toBe(true);
+    });
+    // The several-handoff rungs say which one the line counts from; the
+    // newest's own block says "this handoff".
+    expect(ladder[0]?.block.split("\n").at(-1)).toStartWith("Since the newest handoff here:");
+    expect(ladder[plain.length - 1]?.block.split("\n").at(-1)).toStartWith("Since this handoff:");
+    // With nothing planned, the ladder is today's.
+    expect(pointerLadder(hs, 10, { plans: { items: [], more: 0 } })).toEqual(plain);
+    for (const rung of plain) expect(rung.plans).toEqual([]);
+  });
+
+  test("the widest block with the widest line is the reserve's ceiling", () => {
+    const widest = (i: number): Handoff => ({
+      id: `sch_${String(i).padStart(12, "f")}`,
+      scope: HERE,
+      body: "Ω".repeat(HANDOFF_MAX_BYTES / 2),
+      bytes: HANDOFF_MAX_BYTES,
+      writtenOn: "2026-09-20",
+      writtenDay: 999_999,
+      session: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+      model: "a".repeat(64),
+      version: 9,
+    });
+    const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
+    const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : { written: "12-31 23:59", after: null, stale: WIDEST_POINTER_SINCE.stale ?? null }));
+    // Three at the title cap, the widest word, a real id's width, and as many
+    // more as one read can find.
+    const title = excerpt("x".repeat(200), SINCE_TITLE_BYTES);
+    expect(bytesOf(title)).toBe(SINCE_TITLE_BYTES);
+    const plans = {
+      items: Array.from({ length: SINCE_SHOWN }, (_, i) => ({ id: `mem_${String(i).padStart(12, "f")}`, title, word: "proposed" })),
+      more: SINCE_READ - SINCE_SHOWN,
+    };
+    const ladder = pointerLadder(hs, 999_999, { since, plans });
+    expect(Math.max(...ladder.map((r) => bytesOf(r.block)))).toBe(HANDOFF_RESERVE_MAX_BYTES);
+    // What the line adds to a block, with its newline: at its widest, and in
+    // the typical case — one plan with a short title.
+    expect(bytesOf(sinceLine(plans, true) as string) + 1).toBe(317);
+    const typical = sinceLine({ items: [{ id: "mem_0123456789ab", title: "Publishing waits until Monday", word: "planned" }], more: 0 }, false);
+    expect(bytesOf(typical as string) + 1).toBe(79);
+  });
+
+  test("who and what is named: any session's plans here after the handoff, its writer's past the same answer, and nothing else", () => {
+    let now = Date.UTC(2026, 9, 9, 12, 0);
+    const s = store({ now: () => now });
+    const MIN = 60_000;
+    const put = (body: string, o: { session: string; scope?: string; status?: "planned" | "proposed" | "asked" | "done"; source?: string; meta?: Record<string, unknown>; at: number }): string => {
+      now = o.at;
+      return s.put({
+        type: "memory",
+        kind: "fact",
+        body,
+        title: body.split(".")[0] as string,
+        source: (o.source ?? "authored") as never,
+        origin: { session: o.session, scope: o.scope ?? HERE },
+        ...(o.status === undefined ? {} : { status: o.status }),
+        ...(o.meta === undefined ? {} : { meta: o.meta }),
+      });
+    };
+    const t0 = now;
+    handoffs(s).write({ body: BODY, scope: HERE, session: "sess_a" });
+    const sameAnswer = put("Same answer plan. Written with the handoff.", { session: "sess_a", status: "planned", at: t0 + 2 * MIN });
+    const later = put("Later plan. The writer changed its mind.", { session: "sess_a", status: "planned", at: t0 + 30 * MIN });
+    const other = put("Other session question. Is it signed?", { session: "sess_b", status: "asked", at: t0 + 31 * MIN });
+    const open = put("Open thread. Still pending.", { session: "sess_b", meta: { unresolved: true }, at: t0 + 32 * MIN });
+    const done = put("Done thing. It shipped.", { session: "sess_b", status: "done", at: t0 + 33 * MIN });
+    const elsewhere = put("Elsewhere plan. Another project.", { session: "sess_b", status: "planned", scope: THERE, at: t0 + 34 * MIN });
+    const dreamed = put("Dreamed plan. A reading of older ones.", { session: "sess_b", status: "planned", source: "dreamed", at: t0 + 35 * MIN });
+    const secret = put("Secret plan. Not for every session.", { session: "sess_b", status: "proposed", meta: { confidential: true }, at: t0 + 36 * MIN });
+    const before = put("Before plan. Older than the handoff.", { session: "sess_b", status: "planned", at: t0 - MIN });
+    const h0 = handoffs(s).readAll(HERE)[0] as Handoff;
+    const named = (ho: Handoffs): string[] => ho.plansSince(HERE, h0).items.map((p) => p.id);
+    // Newest first, three named, the fourth counted.
+    const plain = handoffs(s).plansSince(HERE, h0);
+    expect(plain.items.map((p) => p.id)).toEqual([open, other, later]);
+    expect(plain.items.map((p) => p.word)).toEqual(["open", "asked", "planned"]);
+    expect(plain.items[0]?.title).toBe("Open thread");
+    expect(plain.more).toBe(0);
+    for (const id of [sameAnswer, done, elsewhere, dreamed, secret, before]) expect(named(handoffs(s))).not.toContain(id);
+    // The owner's session is named the confidential one too, and a fourth is counted.
+    const owner = new Handoffs({ store: s, gate: episodeGate(), owner: true }).plansSince(HERE, h0);
+    expect(owner.items.map((p) => p.id)).toEqual([secret, open, other]);
+    expect(owner.more).toBe(1);
+    // What a later memory settled over is not named.
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), settled: () => new Set([open]) }))).toEqual([other, later]);
+    // Nor what the published wake already lists under "Still open:" (review of #332),
+    // and a listing that cannot be read leaves out nothing.
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: () => new Set([open]) }))).toEqual([other, later]);
+    const unreadable = (): ReadonlySet<string> => {
+      throw new Error("no meta");
+    };
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: unreadable }))).toEqual([open, other, later]);
+  });
+
+  test("a store with nothing planned names nothing, and one that cannot answer names nothing rather than failing", () => {
+    const s = store();
+    const ho = handoffs(s);
+    ho.write({ body: BODY, scope: HERE, session: "sess_a" });
+    const h0 = ho.readAll(HERE)[0] as Handoff;
+    expect(ho.plansSince(HERE, h0)).toEqual({ items: [], more: 0 });
+    const refusing = new Proxy(s, {
+      get(target, prop, receiver) {
+        if (prop === "planCandidates") {
+          return () => {
+            throw new Error("no such column: status");
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    expect(new Handoffs({ store: refusing, gate: episodeGate() }).plansSince(HERE, h0)).toEqual({ items: [], more: 0 });
   });
 });
