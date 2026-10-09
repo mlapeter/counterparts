@@ -133,12 +133,12 @@ test('the brain is a Raster the terminal can hold, repainted by blits; /counterp
   const cells = decodeCells(String(r?.props['cells']))
   expect(cells.length).toBe(42 * 14 * 3)
   await w.clock.advance(1000)
-  expect(w.blits.length).toBeGreaterThanOrEqual(4) // six a second by default
+  expect(w.blits.length).toBeGreaterThanOrEqual(4) // swaying draws every other tick of twelve: six a second
   expect(w.blits.length).toBeLessThanOrEqual(7)
   expect(w.blits.every(b => b.requestId === PANE && b.key === 'brain' && b.columns === 42 && b.rows === 14)).toBe(true)
   const out = await $.command.run({ command: 'counterparts', args: 'fps' } as never)
   expect(out.text).toMatch(/Brain: [\d.]+ fps achieved/)
-  expect(out.text).toContain('(target 6)')
+  expect(out.text).toContain('(target 12)')
   expect(out.text).toContain('The status line now shows it.')
   await w.clock.advance(1200)
   expect(w.lastStatus()).toMatch(/ · [\d.]+ fps$/)

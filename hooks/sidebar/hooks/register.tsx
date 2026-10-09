@@ -70,8 +70,11 @@ const STALE_MS = 10 * 60000
 const AUTO_CLOSE_MS = 30000
 const FIRING_MS = 2600
 const FEED_LIMIT = 30
-/** The brain turns 0.175 rad a second; six frames a second keep that smooth at a third of the CPU of ten. */
-const DEFAULT_FPS = 6
+/**
+ * The most the brain draws a second: a pulse's arc, for its second and a half.
+ * Swaying it draws every other tick (`Brain.calmFps`, six), and at rest none.
+ */
+const DEFAULT_FPS = 12
 /** Events that change the memory count, worth one read of `/api/pulse` (the dear one). */
 const COUNT_EVENTS = new Set(['gate.deposit', 'gate.chunk', 'memory.pruned', 'memory.merged', 'dream.changed', 'contradiction.settled'])
 
@@ -134,6 +137,8 @@ const fps = {
   shown: false,
   inFlight: false,
   lastTick: 0,
+  /** Ticks counted, so that swaying draws on every other one. */
+  ticks: 0,
   /** `performance.now()` of each blit the surface took: the measurement. */
   blits: [] as number[],
   frameMs: [] as number[],
@@ -688,6 +693,10 @@ function tick($: EngineInterface, gen: number): void {
     return
   }
   if (fps.inFlight) return
+  // the brain says how much to draw: every tick while an arc flies, every other while it sways, nothing at rest
+  const mode = brain.mode()
+  fps.ticks += 1
+  if (mode === 'rest' || (mode === 'calm' && fps.ticks % Math.max(1, Math.round(fps.target / brain.calmFps)) !== 0)) return
   const cells = frameCells(raster.cols, raster.rows, now)
   fps.inFlight = true
   void $.ui.blit({ requestId: PANE, key: 'brain', cells, columns: raster.cols, rows: raster.rows }).then(

@@ -1,0 +1,7 @@
+dist/
+# References of unknown or owner-only licence stay local (the repository is public);
+# only the public-domain Gray728 and SOURCES.md are tracked.
+refs/*
+!refs/SOURCES.md
+!refs/gray728-lateral.png
+!refs/gray728-lateral.svg
