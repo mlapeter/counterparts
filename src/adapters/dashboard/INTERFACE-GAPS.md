@@ -67,6 +67,10 @@ reachable through `eventLog({ sinceDay })`. That is the likely fix and it is a v
 decision, not a core one — but events are bounded-retention telemetry and the meta
 records are not, so the two are not interchangeable for an old cycle.
 
+*(Noted 2026-10-09: the store has a prefix read now, `Store#metaWithPrefix(prefix)`
+(#95, 2026-09-14). Nothing in the dashboard calls it yet, and `status` still reports
+since birth, so the view's half is open.)*
+
 **Owner:** `store/` (the surface), `sleep/` (the records).
 
 ---
@@ -155,7 +159,12 @@ small by construction. Negligible today; wrong at a hundred names.
 **Owner:** `store/`.
 
 
-## §6 — Returns are kept by moment, the lights' window by lived day (2026-09-26)
+## §6 — Returns are kept by moment, the lights' window by lived day (2026-09-26) — CLOSED 2026-09-26 (noted 2026-10-09)
+
+**Closed in the same PR, #251** (`197e1ca`): `Store#returnCounts` takes
+`{ sinceAt?, sinceDay? }`, and the mechanism lights ask it by lived day
+(`web/views/mechanisms.ts`, `mechanism-panel.ts`, `adapters/mechanism-evidence.ts`). The
+text below is the gap as filed.
 
 **Have:** `store.returnCounts(sinceAt)` counts the `returns` table from a UTC
 moment; the mechanism window is seven LIVED days. A light that wants "returns in

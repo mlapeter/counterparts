@@ -27,7 +27,13 @@ Three symbols are imported from `encode/`, all leaf files, no cycle:
   never become an entity the store indexes. Birth refuses the name outright
   (`name-is-secret`), because unlike an alias, a name has no drop-and-continue.
 
-## 1. `store/` has no durable event log — the revision story is session-scoped
+## 1. `store/` has no durable event log — the revision story is session-scoped — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**Closed by the wave-3 seam pass** (`d88f957`, SEAMS item K): box 2 has an `events` table
+with its own retention sweep, every pressure increment is appended as a
+`revision.pressure` row with a dedup key, and `story()` reads them back through
+`Store#eventLog` before this session's own ring, so a restart keeps the story. The text
+below is the gap as filed.
 
 **Owner:** `store/` (box 2), with `dashboard/` as the consumer.
 **Needed:** contract §5 says every pressure increment is logged and the
@@ -86,6 +92,12 @@ because the shared whole-word matcher is case-insensitive without an option;
 **The gap stays open until a test in the composed pipeline proves the map is
 actually passed** — the safety half is unreachable from inside either module.
 
+**CLOSED 2026-08-25 (noted 2026-10-09)** by the wave-3 seam pass (`d88f957`):
+`core/retrieval.ts#composeTurn` sets `aliases` from `schemas.aliasMap()`, and
+`test/seams.test.ts` proves it in the composed pipeline ("composed, an ambiguous handle
+sets trains:false and resolveUse REFUSES the credit", and the same turn without the
+wiring trains).
+
 ## 4. `encode/`'s `SchemaSlice` has no elision count
 
 **Owner:** `encode/`.
@@ -100,6 +112,12 @@ dropped, so nothing needs announcing.
 by `renderSchemaContext` the way it already announces the identity-core
 truncation. Until then the field is carried and ignored, which is honest but not
 enforced anywhere.
+
+*(Noted 2026-10-09: a slice does elide now. Since 2026-08-29 (`e5e6cea`, #6)
+`slices({ excludeProtected: true })` drops protected elements and counts them in
+`elided`, and the composition root emits `counterpart.sweep.cards.elided` with the sum.
+`SchemaSlice` still has no `elided` field and the prompt does not announce it, so the
+real fix above is still open.)*
 
 ## 5. `self/` must mint the identity core in this module's shape
 

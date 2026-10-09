@@ -6,17 +6,17 @@ What this module still owes, or asks of others (2026-09-26).
    store through the MCP server (launch → begin → propose → journal, then
    `counterparts dream --show/--undo`); a real Claude Code session launching the Agent
    tool with the prompt has not yet been watched end to end on the owner's machine.
-   *(CLOSED 2026-09-29: on the owner's machine that day a session's launch went through
-   once he said yes, after the host's classifier had refused the unasked one (NOTES
-   2026-09-29). Since then `auto` runs headless (#282, `night-run.ts`), and the dream and
-   the reflection have run on his machine night after night: IMPROVEMENTS U14 records the
-   nights of 10-02 to 10-07.)*
+   *(CLOSED 2026-09-29, noted 2026-10-09: on the owner's machine that day a session's
+   launch went through once he said yes, after the host's classifier had refused the
+   unasked one (NOTES 2026-09-29). Since then `auto` runs headless (#282,
+   `night-run.ts`), and the dream and the reflection have run on his machine night after
+   night: IMPROVEMENTS U14 records the nights of 10-02 to 10-07.)*
 2. **The ask is claimed when composed**, not at delivery. If the host drops the line
    (envelope limits), that day's ask is lost. The plain reminders' pattern
    (`bin/hook.ts#deliverTurn` → claim only what the envelope carries) is the fix.
-   *(CLOSED 2026-09-29 by #282, `401fc31`: `Dreams.offer` composes without claiming, and
-   the host claims the day (`claimOffer`) only once the envelope carries the person's
-   line; otherwise the next prompt offers it again.)*
+   *(CLOSED 2026-09-29 by #282 (`401fc31`), noted 2026-10-09: `Dreams.offer` composes
+   without claiming, and the host claims the day (`claimOffer`) only once the envelope
+   carries the person's line; otherwise the next prompt offers it again.)*
 3. **A subagent's own turns (the sidechain).** On current hosts a subagent's transcript
    is a separate file the boundary does not read; if a host ever writes a dreamer's
    turns into the parent's file, only turns carrying the mark are refused. The
@@ -57,19 +57,19 @@ What this module still owes, or asks of others (2026-09-26).
    session switches it over (its `DashboardSource` does not carry `dreams` yet). The
    dashboard is an observer: it passes `owner: true` to preview the owner's own gate
    (confidential memories counted), or leaves it off for a guest's — its call.
-   *(CLOSED 2026-09-27, then moot: `DashboardSource` gained `dreams` and the Tonight line
-   read the gate's preview (#263, `8032668`), and the next day Home round 4 took the
-   Tonight box out (#273, `2cc96b0`). `DashboardSource.dreams` is still
+   *(CLOSED 2026-09-27, then moot; noted 2026-10-09: `DashboardSource` gained `dreams`
+   and the Tonight line read the gate's preview (#263, `8032668`), and the next day Home
+   round 4 took the Tonight box out (#273, `2cc96b0`). `DashboardSource.dreams` is still
    wired, but nothing in the dashboard calls `previewAsk` today.)*
 
 9. **Trait nudges have no reader in the core (2026-09-27), on purpose.** The dashboard's
    Self tab is to draw each axis as a firmness-weighted balance from `Store#traitsAll()`
    (or `traitsOn(ids)` for the memories it already holds); until it does, nudges are
    visible only in `export --markdown` and the `fired` row. A dream backfill of older
-   memories is not built. *(The dashboard half CLOSED 2026-09-27 by #266, `80720e0`: the
-   Self tab's "How I act" draws the seven axes as firmness-weighted balances from
-   `traitsAll` (`dashboard/web/views/traits.ts`). The core still has no reader, on
-   purpose, and the backfill is still not built.)*
+   memories is not built. *(The dashboard half CLOSED 2026-09-27 by #266 (`80720e0`),
+   noted 2026-10-09: the Self tab's "How I act" draws the seven axes as firmness-weighted
+   balances from `traitsAll` (`dashboard/web/views/traits.ts`). The core still has no
+   reader, on purpose, and the backfill is still not built.)*
 
 10. **Contradictions (2026-09-29).** The dream flags and may settle; the reflection may
     settle. Not built: the PAGE WRITER has no settle door of its own — a night-run

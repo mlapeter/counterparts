@@ -297,7 +297,7 @@ proposal and the memory stay the depositor's. The next-session write-up's door p
 `false` on an earlier part and the ended session on the last; the instance-level
 shadowing of `SpanBuffer#claimCoverage` it replaced is gone (NOTES §17).
 
-## 16. `HeldSession` does not say when a session last answered, or last spoke — CLOSED 2026-09-30 by replacement (#289)
+## 16. `HeldSession` does not say when a session last answered, or last spoke — CLOSED 2026-09-30 by replacement, #289 (noted 2026-10-09)
 
 **Closed by replacement** (#289, `fc665c2`, merged 2026-09-30): the asked / answered
 predicate and `sessions.ts#openAndAnswered` are gone. What a session owes is

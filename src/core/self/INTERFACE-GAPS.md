@@ -210,6 +210,9 @@ ask says to close what got done. `THREADS_MAX` is 5 now. (3) is not built.
 the machine's LOCAL calendar day (`calendar.ts`, NOTES §22). What survives is the other
 half named below and in NOTES §22: provenance dates — `learned_on`, the `date` on every
 `adapter.ask` row — are still UTC, and they are `store/`'s and the hooks' to move.
+**That half CLOSED 2026-09-25 by #231 (`ab9b6eb`), noted 2026-10-09:** `Store#today` is
+the person's local date, so `learned_on` is too, and the hook stamps its rows with the
+local date (`bin/hook.ts`). Rows written before then keep their UTC dates.
 
 *The entry as it stood before, for the record:*
 
@@ -314,4 +317,6 @@ wake time would put ranking on the wake path, which is meant to compute nothing.
 
 - **The page writer's `off` mode does not reach the reflection** (2026-09-27): the
   reflection writes the page from the MCP server, which does not read the host
-  configuration. Named in dream INTERFACE-GAPS §7.
+  configuration. Named in dream INTERFACE-GAPS §7. *(CLOSED 2026-09-27 by #256
+  (`39ca6d0`), noted 2026-10-09: the server reads `pageWriter.mode` from the host's
+  config, and with `off` the reflection writes no page.)*

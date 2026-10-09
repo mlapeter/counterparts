@@ -177,6 +177,11 @@ is in, and `rebuildCache` already reaches it.
 
 ## 8. No host but Claude Code passes a scope at wake
 
+*(Noted 2026-10-09: no longer true. Since 2026-09-30 the host-neutral
+`adapters/lifecycle.ts#composeWake` passes the session's scope to `wake` (#292), and
+Claude Desktop chat's `wake` tool calls it with the server's scope (#294). The ask stands
+for the next host. Kept as written.)*
+
 **Owner:** whoever writes the next adapter.
 **Needed:** `Counterpart.wake(budget, delivery, here)`'s third argument.
 **Have:** only `claude-code/hooks.ts#sessionStart` passes it. Every other caller — the CLI,

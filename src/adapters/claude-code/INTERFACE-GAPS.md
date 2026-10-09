@@ -29,7 +29,12 @@ root is doing exactly what the seam suite does.
 path say what it is. One-line union change in `remember/proposals.ts`, plus the
 places that switch on it (none today).
 
-## 2. `Store.open({ dir })` does not run its own path guard — FOUND LIVE
+## 2. `Store.open({ dir })` does not run its own path guard — FOUND LIVE — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**The honest fix below is in the code:** `Store`'s constructor runs
+`this.dir = assertSafeDataDir(opts.dir ?? dataDir())` on every path (`store/index.ts`),
+from `0361e4f`, the commit that filed this section ("two wounds closed at the root").
+The text below is the gap as filed.
 
 **What happened.** `dataDir()` calls `assertSafeDataDir()`, so the
 environment-resolved path is guarded. An EXPLICIT `dir` goes straight into the
@@ -63,7 +68,11 @@ writes under a live store, deletions included. Removing a stray directory from a
 live store is an operator action, not an agent one; that is the design, and the
 guard above is what stops the next one being created.
 
-## 3. `self.appendChapter` has no gate — FOUND BY THE CALLER-UNIVERSALITY TEST
+## 3. `self.appendChapter` has no gate — FOUND BY THE CALLER-UNIVERSALITY TEST — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**The honest fix below is in the code:** `Self#appendChapter` runs its injected gate,
+writes the gate's text and refuses with `self.episode.chapter.refused`
+(`self/index.ts`), from the same commit, `0361e4f`. The text below is the gap as filed.
 
 **What happened.** `SelfOptions.gate` is consulted by `ingestEpisode` and by
 nothing else. `appendChapter` writes the chapter straight into the episode's
@@ -113,7 +122,7 @@ door. The fallback door reaches `encode/` through `gateSweepChunk`, which needs 
 (`DEFAULT_KIND`). Two spellings of one rule. The fix queued item 9 already
 names — move the default behind the gate verdict — closes both.
 
-## 7. The Stop ask has no RETURN CHANNEL in this host's hooks
+## 7. The Stop ask has no RETURN CHANNEL in this host's hooks — CLOSED 2026-09-04
 
 **What exists.** `stop()` raises `stopAsk(sessionId, chapter)` when `self/`'s pacer says a
 chapter is due; the coverage read from `SpanBuffer.coverageReport` rides along as a
@@ -436,7 +445,8 @@ the end of the transcript it can see WITHOUT appending any of it
 thing that writes a cursor, and it writes one as part of depositing.
 
 **What the adapter does instead, and why it is a workaround rather than a
-design.** `hooks.ts#sealJoinedLate` calls `captureSpans` with `turns.length`
+design.** `hooks.ts#sealJoinedLate` (in `adapters/lifecycle.ts` since #292, 2026-09-30)
+calls `captureSpans` with `turns.length`
 PLACEHOLDER turns whose `source` is `tool`. `enters()` refuses that source, so
 `SpanBuffer.captureInner` takes its ALL_EXCLUDED arm — "nothing conversational
 happened: still advance, or the same tool output is re-scanned forever" — which
@@ -529,6 +539,9 @@ That is a different mechanism, not a wider parameter, and it is not built.
    and two clocks in one store is a scar this repo already has a name for. The
    fix, if the mid-evening reset is ever felt, is one per-owner zone read
    wherever a day is decided — `self/INTERFACE-GAPS` carries the decision.
+   *(CLOSED 2026-09-23 by #189, noted 2026-10-09: the cap counts by
+   `Self#calendarToday`, the person's local day; and since #231 (2026-09-25)
+   `Store#today` and the dates stamped beside it are local too.)*
 4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
    them and the backfill no longer stalls behind them, but the two memories on the
    owner's store still hold a lone surrogate in their payload JSON,
@@ -563,7 +576,9 @@ That is a different mechanism, not a wider parameter, and it is not built.
    costs a ladder of lived-day windows instead of one query. Filed in full as
    `cli/INTERFACE-GAPS` §10, where the console's other asks against `store/`
    live; the workaround is exact, not approximate, and the cost is up to five
-   queries on a 150 ms hot path.
+   queries on a 150 ms hot path. *(Noted 2026-10-09: the store side is built,
+   `order: "desc"`, 2026-09-24 (cli §10); doctor keeps its ladder on purpose, as
+   `doctor.ts#WINDOWS` says.)*
 2. **`adapter.checkout` is a durable name in `core/counterpart.ts`.** The third
    time the core has learned a string for an adapter's sake, and for the same
    narrow reason the spawn names did: `dashboard/registries.ts` derives
@@ -597,7 +612,10 @@ That is a different mechanism, not a wider parameter, and it is not built.
    All that is left behind is an `adapter.notice.dropped` ring row, and a ring row
    dies with the process. Closing it properly means either a durable row (a write
    on the wake's path, which §5 G2 argues against) or a second channel that is
-   not the wake's — neither was taken here.
+   not the wake's — neither was taken here. *(The record half CLOSED 2026-10-02 by
+   #318 (`8916e8c`), noted 2026-10-09: `adapter.notice.dropped` is a durable row,
+   one per hook, part and session a lived day, and doctor's Wake line reads it. The
+   terminal still says nothing on the day it happens.)*
 7. **Three findings cannot say "I do not know" — they say green.** `Severity` is
    red / amber / green, so the unknown-newest-row reading (`undetermined`) is
    reported as GREEN with a sentence that explains it is not a grade. Right for
@@ -675,7 +693,7 @@ for: a per-owner zone read wherever a day is decided — one clock, moved once �
 second clock bolted onto this mechanism. Until then it belongs on the findings list for the
 first blank-store trial, where it is a thing to notice rather than a thing to fix.
 
-## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3) — CLOSED for the reader 2026-09-24 (#213)
+## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3) — CLOSED for the reader 2026-09-24 by #213 (noted 2026-10-09)
 
 **Closed for the reader by #213** (`0df2efe`, merged 2026-09-24, in 0.3.0). `transcript.ts`
 reads a `queued_command` attachment the person typed (`commandMode: "prompt"`,
@@ -812,7 +830,7 @@ and the key (`config.ts#apiSweepOn`). Doctor's two lines — `Crash write-up` an
 are C2's and already read the knob (`not-opted-in` on the gate row, core's second skip
 reason); nothing there is owed to C3.
 
-## 17. An open-and-answered session's later words wait up to a week (2026-09-23, C2 re-review m-E) — CLOSED 2026-09-30 (#289)
+## 17. An open-and-answered session's later words wait up to a week (2026-09-23, C2 re-review m-E) — CLOSED 2026-09-30 by #289 (noted 2026-10-09)
 
 **Closed by #289** (`fc665c2`, merged 2026-09-30, in 0.3.8), by replacing the rule rather
 than adding the ask below. `sessions.ts#openAndAnswered` is gone, with the asked /
