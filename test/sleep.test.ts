@@ -905,7 +905,14 @@ describe("the floor prune — archival, never deletion", () => {
 
   test("every blocking gate is named, and all of them are counted — not just the first", () => {
     const s = store();
-    prunable(s, { physics: { protected: true } });
+    // At the floor, past the dwell — so `protected` is what held it. (This used
+    // to pass `{ protected: true }` alone, which replaced the helper's dated
+    // physics with a memory born today: counted `protected` only because the
+    // gate was named on every protected row every night. 2026-10-09: it is
+    // named only where the floor would otherwise have let the memory go.)
+    prunable(s, { physics: { birthDay: -120, lastUsedDay: -100, uses: 0, protected: true } });
+    // Protected and born today: kept by the arithmetic, so not counted as a refusal.
+    put(s, { physics: { protected: true } });
     prunable(s, { salience: { relevance: 1, emotional: 1, predictive: 1 } });
     put(s);
     prunable(s, { physics: { promotedIdentity: true }, salience: { claimed: 0.9 } });
@@ -922,7 +929,15 @@ describe("the floor prune — archival, never deletion", () => {
 
   test("nothing in a LIVE revision chain is pruned", () => {
     const s = store();
-    const challenged = prunable(s, { physics: { pressure: 0.4, lastChallengedDay: -1 } });
+    // At the floor, past the dwell — so the chain is what held it. (The physics
+    // override used to replace the helper's dated physics, leaving a memory
+    // born today: counted only because the gate was named floor or not. Review
+    // of #343: it is named only where the floor would otherwise have let it go.)
+    const challenged = prunable(s, {
+      physics: { birthDay: -120, lastUsedDay: -100, uses: 0, pressure: 0.4, lastChallengedDay: -1 },
+    });
+    // Under challenge and born today: kept by the arithmetic, so not counted.
+    const young = put(s, { physics: { pressure: 0.4, lastChallengedDay: -1 } });
     const superseded = prunable(s);
     s.supersede(superseded, { id: nextId(), type: "memory", kind: "fact", body: "The corrected version." });
 
@@ -930,6 +945,7 @@ describe("the floor prune — archival, never deletion", () => {
     expect(report.pruned).toEqual([]);
     expect(phaseReport(report, "prune").skipped["blocked:in-live-revision-chain"]).toBe(1);
     expect(s.read(challenged).archivedReason).toBeNull();
+    expect(s.read(young).archivedReason).toBeNull();
   });
 });
 

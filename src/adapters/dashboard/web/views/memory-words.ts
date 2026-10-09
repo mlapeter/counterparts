@@ -9,7 +9,9 @@
  */
 import { wheelEntry } from "../../../../core/feelings-wheel.js";
 import { readChapterLead } from "../../../../core/self/index.js";
+import { recurrenceOfRow } from "../../../../core/store/index.js";
 import type { MemoryRow, ReadOnlyStore } from "../../../../core/store/index.js";
+import { readableRecurrence } from "../../../../core/time.js";
 
 /** Where the date shown beside a row came from. */
 export type DateFrom = "text" | "chapter" | "recorded";
@@ -28,6 +30,20 @@ export interface FeelingShown {
   readonly word: string;
   readonly whose: string;
   readonly strength: number;
+}
+
+/**
+ * How often a row's date comes round, as a person says it — `every May 14`,
+ * `every Monday` (`time#readableRecurrence`) — or null for a date that happens
+ * once. The same predicate the prune's `recurring` gate reads
+ * (`store#recurrenceOfRow`, 2026-10-09), so a row that says it repeats is one
+ * the prune keeps for its next occurrence.
+ */
+export function repeatsOf(row: Pick<MemoryRow, "event_date" | "meta">): string | null {
+  const rule = recurrenceOfRow(row);
+  if (rule === null || row.event_date === null) return null;
+  const words = readableRecurrence(row.event_date, rule);
+  return words === "" ? null : words;
 }
 
 /**

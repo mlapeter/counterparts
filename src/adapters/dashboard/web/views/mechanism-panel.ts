@@ -773,15 +773,18 @@ export function fadeCurve(
 /**
  * The first lived day within `horizon` days ahead on which prune's own verdict
  * (`physics#pruneVerdict`: under the floor, long enough unused, episodic, not
- * protected) would let this memory go if nobody used it — or null. The
- * revision-chain gate is not checked here (it needs the store), so this can
- * only say "sooner than it will be", never "later".
+ * protected, not a date that still repeats) would let this memory go if nobody
+ * used it — or null. `recurring` is the row's own repeat (`store#recurrenceOfRow`
+ * !== null), passed the way `sleep/prune.ts` passes it, so a live repeat never
+ * has a let-go day (2026-10-09). The revision-chain gate is not checked here
+ * (it needs the store), so this can only say "sooner than it will be", never
+ * "later".
  */
-export function letGoDay(physics: MemoryPhysics, day: number, horizon: number): number | null {
+export function letGoDay(physics: MemoryPhysics, day: number, horizon: number, recurring = false): number | null {
   // Unused, strength only falls: still over the floor at the horizon means never inside it.
   if (strength(physics, day + horizon) >= TUNABLES.PHI_PRUNE) return null;
   for (let d = day; d <= day + horizon; d++) {
-    if (pruneVerdict(physics, d, { inLiveRevisionChain: false }).prune) return d;
+    if (pruneVerdict(physics, d, { inLiveRevisionChain: false, recurring }).prune) return d;
   }
   return null;
 }
