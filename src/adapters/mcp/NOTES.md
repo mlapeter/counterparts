@@ -1201,3 +1201,7 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
   `matched`; `--full` is the facts answer; `--json` the `FactsResult`, whose `memories`,
   `considered` and `id`/`title`/`body`/`kind` the dashboard's search already reads. `--voiced`
   is accepted and unused (feelings are meaning's).
+  (2026-10-09: the dashboard read more than that — `tier`, `from` and a date at the front of
+  the body — and lost them quietly, its tests fed by hand in the old shape; see the
+  dashboard's NOTES of that day. `ask` takes `--mode meaning` now, and there `--voiced`
+  decides whose "I" a question about feeling means.)

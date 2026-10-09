@@ -741,14 +741,53 @@ can push the envelope past `ENVELOPE_MAX_CHARS` and the doctor notice is the par
 notice is dropped with or without it. Bounded: at most two starts a day carry a pointer,
 and the notice returns at the next start.
 
-**Residual cost (PR #192 review, n1):** the eligibility plan (`writeUpPlan`: every
-scope's span files and up to 90 days of `adapter.ask` rows) runs at EVERY session start
-whose allowance is not spent — and when nothing is owed, the allowance is never spent.
-Measured by the review on 400 held sessions (1.6 MB of spans, 20k ask rows): ~43 ms per
-start, 2 ms with the allowance spent. Acceptable now; it scales with the store. The cheap
-fix, not built: skip the scan when nothing has changed since the last plan (a meta stamp
-of the newest boundary/write-up/answer time the plan saw, compared before scanning), and
-treat a plan that found nothing owed as spending the day's check.
+**Residual cost (PR #192 review, n1):** the eligibility plan (`writeUpPlan`) runs at EVERY
+session start whose allowance is not spent — and when nothing is owed, the allowance is
+never spent. Measured by the review on 400 held sessions (1.6 MB of spans, 20k ask rows):
+~43 ms per start, 2 ms with the allowance spent.
+
+**Re-measured 2026-10-09, and the skip looked at and not built.** Since 2026-09-30 the
+plan is `core/coverage/`'s ledger over every scope's span files plus one registry read per
+session holding text; the `adapter.ask` rows are no longer read. On a synthetic store of
+400 held sessions in 20 projects (1.9 MB of conversation, nothing owed), one plan per
+fresh process as a hook runs it: ~31 ms, which is ~32 of the ~37 ms `sessionStart` body
+there. At 100 sessions it is ~10 ms. Where the time goes: the ledger takes ~23 ms of it
+(~5,000 `localDate` calls, one per piece and one per Stop boundary, ~9 ms; the span files
+~7 ms; 400 registry reads ~4 ms), and `planRetention` reads most of the same files a second
+time (~5 ms). Retention deletes held text a week after a session ends, so the cost grows
+with a week's use, not with the store's age.
+
+- **A stamp of everything the plan reads** (date, zone, version, and a stat of every file
+  under `spans/` and `sessions/`, ~2.5 ms) would be safe, and it would almost never fire.
+  Every start writes its own registry record before the plan runs (`noteSession("start")`,
+  in Claude Code and in the Desktop wake). Every Stop, in any session, appends to the buffer
+  and rewrites that session's record. It fires only when two starts come with no turn
+  anywhere between them.
+- **A stamp that fires** has to know what can make a debt appear. Under today's rule only
+  two things can: a session ending (a `session-end` boundary or a registry end) and the
+  date changing. A capture is stamped `now`, and that makes its session `active`. So the
+  design would be: every session end writes a fresh random token to meta, in
+  `captureBoundary` before the boundary itself (a hook that fails part-way then errs
+  toward a rescan). It is a token and not a counter, so two ends cannot write the same
+  value. A plan that found nothing owed and no progress entries stamps
+  `{date, zone, version, token}`, and a start skips when all four match. The costs: the
+  common flow (end one session, open the next) always rescans, and must, because that is
+  when a crashed or unanswered session gets pointed at. So it saves the ~30 ms only on starts
+  with no end since the last plan, such as a second terminal or a compaction. It is also a
+  second statement of `coverage/`'s rule, kept outside `coverage/`. If "active" ever stops
+  meaning "captured today", or something other than an end uncovers pieces (a retention
+  strike that fails part-way, a restored snapshot, a mark taken back), the stamp hides a
+  debt until the next date. Then the first start and the nightly run both plan in full, so
+  nothing waits more than a day. But the pointer it skipped is the one right after the crash.
+- **What would make the plan cheaper for every caller** (the pointer, doctor, the night
+  run, the door), with nothing to invalidate: a cheaper `localDate` in the ledger, and one
+  read of the span files per plan instead of two. A memo by 15-minute bucket measured
+  ~31 → ~24 ms; every zone offset in use today is a multiple of 15 minutes. That memo
+  belongs to `core/time.ts`, it is date-sensitive, and it is its own change. The single
+  read (~5 ms) is `remember/`'s to offer.
+- **"Treat a plan that found nothing owed as spending the day's check"** (the suggestion
+  this section first carried): no. A session that ends later that day without an answer
+  would not be pointed at until tomorrow, and that is the case the pointer exists for.
 
 ## 16. For C3: the opt-in is `crashWriteUp: "api"` (2026-09-23, C2) — CLOSED 2026-09-24 by removal
 
@@ -793,3 +832,21 @@ words the session left in another (`written-up-here`) owes until a session opens
 Doctor's `Crash write-up` line names that project. A directory set `off` never opens
 one; closing such a session by hand needs a console command that marks `by: "owner"`
 (`WRITE_UP_BY` has the word; nothing may import the seam to use it) — filed, not built.
+
+## 18. The host's cut is read only for the nightly run, and only as the host writes it today (2026-10-09, U14 item 3)
+
+The nightly run reads its child's transcript for the host's marker on our results
+(`night-run.ts#readNightSpills`, `transcript.ts#readToolSpills`). Three things it owes:
+
+1. **Unmeasured on a real machine.** That `claude -p` honours `--session-id`, and that the
+   transcript lands under `projects/` where the lookup asks. Both were read from the host's
+   code (2.1.295), not seen. If either fails, the run's row says `transcript: "absent"` and
+   doctor's green line says the night was not checked — check that line after the first
+   night on a build with this. A host that refuses the flag outright is retried once without
+   it (review of #330), so the night itself is not lost to this check.
+2. **The markers are the host's wording.** Read from 2.1.295's code; a host that rewords
+   them makes the check go quiet (a missed spill), never noisy. A new marker shape is one
+   regex in `transcript.ts`.
+3. **Not read:** the morning catch-up's child (its write-up parts are far under any line)
+   and ordinary sessions. A cut in a session someone watches is in front of them; one in a
+   session nobody watches (a GitHub action) is not seen by anything.

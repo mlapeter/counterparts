@@ -77,7 +77,10 @@
  * The file also holds the WAKE-ARRIVAL READER (bottom of this file), which reads
  * the same transcript for a different question and keeps its own, bounded, pass:
  * capture wants conversation and skips attachments (queued prompts aside),
- * delivery wants exactly the hook's attachment and skips conversation.
+ * delivery wants exactly the hook's attachment and skips conversation. And,
+ * below that, the SPILL READER (2026-10-09): the nightly run asks its own
+ * child's transcript whether the host cut any of our tool results to a preview
+ * — tool results being exactly what capture refuses to read.
  */
 import {
   closeSync,
@@ -85,10 +88,14 @@ import {
   existsSync,
   fstatSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
+  realpathSync,
   statSync,
 } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { carriesDreamMark } from "../../core/dream/mark.js";
 import type { Turn, TurnSource } from "../../core/remember/index.js";
@@ -932,4 +939,264 @@ export function readWakeArrival(
     };
   }
   return { ...NO_ARRIVAL, reason: "read", linesRead, bytesRead: head.bytes, corrupt };
+}
+
+// ── the host's cut, on our own tool results ─────────────────────────────────
+//
+// A THIRD PASS (2026-10-09, U14 item 3), for the nightly run: did the host cut
+// any of THIS package's tool results before the model read them?
+//
+// Claude Code saves a tool result past its line (50,000 characters today, and
+// lower whenever a remote flag says so) to a file and hands the model a 2 KB
+// preview in its place. The headless run cannot open that file. 0.3.12 keeps
+// every result under 40,000 (`fit/TOOL_RESULT_CEILING`), but a lowered line
+// would put the night back to reading through a keyhole with every count
+// green — the MCP server cannot see what the host did after it answered. The
+// host's record of the session can: the transcript holds each tool result as
+// the model saw it, preview and all.
+//
+// THE MARKERS, read from Claude Code 2.1.295's own code (2026-10-09). Each is
+// what the host puts IN PLACE of a result, so each is matched where the host
+// puts it — at the start of the result (the first three) or at its very end
+// (the last) — and only on a `tool_result` block whose call was ours:
+//
+//   - `persisted`: `<persisted-output>`, then "Output too large (51.5KB). Full
+//     output saved to: …" (or "Output exceeded the … persist limit; only the
+//     first … were saved to: …"), then "Preview (first 2KB):" and the preview,
+//     then `</persisted-output>`. The one the nights of 10-01 to 10-07 met.
+//   - `unsaved`: `<truncated-output>`, then "Output too large (…). It could
+//     not be saved, so only the first … are shown" — the same line, when the
+//     save failed.
+//   - `tokens`: "Error: result (51,306 characters) exceeds maximum allowed
+//     tokens. Output has been saved to …" (or "Failed to save output to
+//     file: …") — an MCP result past `MAX_MCP_OUTPUT_TOKENS`.
+//   - `token-cut`: the result cut short, with "[OUTPUT TRUNCATED - exceeded
+//     25000 token limit]" and "The tool output was truncated. …" after it —
+//     the same line, when the host keeps no files.
+//
+// A SECOND PLACE THE HOST CUTS (review of #330): besides each result's own
+// line, 2.1.295 has a budget for ALL the results answering one assistant turn
+// (200,000 characters, behind a remote flag). Past it, the largest are swapped
+// for the same `<persisted-output>` preview — but at request time: the
+// result's own line in the transcript stays WHOLE, and the swap is written as
+// a line of its own, `{"type":"content-replacement","replacements":[{"kind":
+// "tool-result","toolUseId":…,"replacement":…}]}`, which resume replays. So
+// those lines are read too, the replacement judged by the same anchors, and
+// such a cut is shaped `turn-budget`: several results at once, not one too
+// long. Each call is counted once, however many lines speak of it.
+//
+// ANCHORED, NEVER A SUBSTRING (the morning of 2026-10-09): a search of a
+// night's transcript for "Output too large" found two hits that were memories
+// QUOTING that very check, inside our own result. A memory's words sit inside
+// the result's JSON, never at its start or its end; and a quote in the model's
+// own text, or in another tool's result, is not one of our results at all.
+
+/** How the host cut a result, by the marker it left (see above). */
+export type SpillShape = "persisted" | "unsaved" | "tokens" | "token-cut" | "turn-budget";
+
+/** One of our results the host cut. Names, a shape and a size — never the saved file's path, never a byte of the result. */
+export interface Spill {
+  /** The tool as the host names it (`mcp__counterparts__dream`). */
+  readonly tool: string;
+  /** The call's `phase` argument, when it had one (`begin`, `part`). */
+  readonly phase: string | null;
+  readonly shape: SpillShape;
+  /** The size the host said ("51.5KB", "51,306 characters"), when it said one. */
+  readonly said: string | null;
+}
+
+/** What one transcript says about the host's cut. Counts and the spills; nothing else. */
+export interface ToolSpills {
+  readonly reason: "read" | "absent" | "unreadable";
+  /** Our tool results the pass found, cut or not. */
+  readonly results: number;
+  readonly spills: readonly Spill[];
+  /** Lines that were not JSON. Counted, never silently swallowed. */
+  readonly corrupt: number;
+  /** True when the file was longer than the pass reads: the counts are a floor. */
+  readonly short: boolean;
+}
+
+/** THIS package's tools, as the host names them. */
+export const COUNTERPARTS_TOOL = /^mcp__counterparts__/;
+
+/**
+ * **CAL.** How much of a transcript the pass reads. A night's run is a few
+ * bundles of under 40,000 characters each, each recorded more than once — a
+ * megabyte or two. 64 MiB is far past any night and still a bound.
+ */
+export const SPILL_MAX_BYTES = 64 * 1024 * 1024;
+
+const PERSISTED = /^<persisted-output>[ \t]*\r?\n(?:Output too large \(([^)\n]{1,40})\)\. Full output saved to: |Output exceeded the [^\n]{1,40} persist limit; only the first )/;
+const UNSAVED = /^<truncated-output>[ \t]*\r?\nOutput too large \(([^)\n]{1,40})\)\. It could not be saved, so only the first /;
+/** The count is the host's `toLocaleString()`: "51,306", "51.306" or "51 306" by the machine's locale. */
+const TOKENS = /^Error: result \((\d[\d.,'   ]{0,19} characters)[^)\n]{0,80}\) exceeds maximum allowed tokens\. (?:Output has been saved to |Failed to save output to file: )/;
+/**
+ * The `token-cut` trailer, at the very end, with the REAL line breaks the host
+ * writes around its bracket: inside our result's JSON a quoted line break is
+ * the two characters `\n`, so no memory quoting the trailer can match it.
+ */
+const TOKEN_CUT = /\n[ \t]*\[OUTPUT TRUNCATED - exceeded \d{1,9} token limit\][ \t]*\r?\n\s*The tool output was truncated\.[^\n]{0,400}$/;
+/** How near the end the `token-cut` trailer must start: it is about 300 characters long. */
+const TOKEN_CUT_TAIL = 800;
+
+/**
+ * THE HOST'S MARKER on one `tool_result`'s content, or null. The content is a
+ * string or a list of blocks; the start-anchored markers are read off the
+ * first text, the end-anchored one off the last.
+ */
+export function spillOf(content: unknown): { shape: SpillShape; said: string | null } | null {
+  const texts: string[] =
+    typeof content === "string"
+      ? [content]
+      : Array.isArray(content)
+        ? (content as unknown[]).flatMap((b) => (isEntry(b) && b["type"] === "text" && typeof b["text"] === "string" ? [b["text"]] : []))
+        : [];
+  const first = texts[0];
+  const last = texts[texts.length - 1];
+  if (first === undefined || last === undefined) return null;
+  const head = first.trimStart();
+  let m = PERSISTED.exec(head);
+  if (m !== null) return { shape: "persisted", said: m[1] ?? null };
+  m = UNSAVED.exec(head);
+  if (m !== null) return { shape: "unsaved", said: m[1] ?? null };
+  m = TOKENS.exec(head);
+  if (m !== null) return { shape: "tokens", said: m[1] ?? null };
+  if (TOKEN_CUT.test(last.slice(-TOKEN_CUT_TAIL))) return { shape: "token-cut", said: null };
+  return null;
+}
+
+/**
+ * THE PASS, on a transcript's text: every assistant `tool_use` of ours, by id,
+ * then every `tool_result` answering one, judged by `spillOf` — and every
+ * `content-replacement` line's swap of one (the per-turn budget, above).
+ * One result and at most one spill per call id. Exported so the rule is
+ * testable without a file. Never throws.
+ */
+export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = {}): { results: number; spills: Spill[]; corrupt: number } {
+  const ours = opts.tool ?? COUNTERPARTS_TOOL;
+  const calls = new Map<string, { tool: string; phase: string | null }>();
+  const answered = new Set<string>();
+  const cutIds = new Set<string>();
+  const spills: Spill[] = [];
+  let corrupt = 0;
+  const judge = (id: string, content: unknown, budget: boolean): void => {
+    const call = calls.get(id);
+    if (call === undefined) return;
+    answered.add(id);
+    if (cutIds.has(id)) return;
+    const cut = spillOf(content);
+    if (cut === null) return;
+    cutIds.add(id);
+    spills.push({ tool: call.tool, phase: call.phase, shape: budget ? "turn-budget" : cut.shape, said: cut.said });
+  };
+  for (const line of raw.split("\n")) {
+    if (line.trim().length === 0) continue;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      corrupt += 1;
+      continue;
+    }
+    if (!isEntry(entry)) {
+      corrupt += 1;
+      continue;
+    }
+    // The per-turn budget's swap, on a line of its own (see above).
+    if (entry["type"] === "content-replacement") {
+      const swaps = entry["replacements"];
+      for (const r of Array.isArray(swaps) ? (swaps as unknown[]) : []) {
+        if (isEntry(r) && r["kind"] === "tool-result" && typeof r["toolUseId"] === "string") judge(r["toolUseId"], r["replacement"], true);
+      }
+      continue;
+    }
+    const message = entry["message"];
+    const content = isEntry(message) ? message["content"] : undefined;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as unknown[]) {
+      if (!isEntry(block)) continue;
+      const id = block["id"];
+      const name = block["name"];
+      if (block["type"] === "tool_use" && typeof id === "string" && typeof name === "string" && ours.test(name)) {
+        const input = block["input"];
+        calls.set(id, { tool: name, phase: isEntry(input) && typeof input["phase"] === "string" ? input["phase"] : null });
+        continue;
+      }
+      const answers = block["tool_use_id"];
+      if (block["type"] !== "tool_result" || typeof answers !== "string") continue;
+      judge(answers, block["content"], false);
+    }
+  }
+  return { results: answered.size, spills, corrupt };
+}
+
+/** Read one transcript and judge it. `absent` and `unreadable` are said apart from a clean read. Never throws. */
+export function readToolSpills(path: string | null | undefined, opts: { readonly maxBytes?: number; readonly tool?: RegExp } = {}): ToolSpills {
+  const none = { results: 0, spills: [], corrupt: 0, short: false };
+  if (path === null || path === undefined || path.trim().length === 0 || !existsSync(path)) return { reason: "absent", ...none };
+  const maxBytes = opts.maxBytes ?? SPILL_MAX_BYTES;
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch {
+    return { reason: "unreadable", ...none };
+  }
+  const short = size > maxBytes;
+  const head = readHead(path, Math.max(1, Math.min(maxBytes, size)));
+  if (head === null) return { reason: "unreadable", ...none };
+  // A short read is cut mid-line by construction: its last line is dropped.
+  const text = short ? head.text.slice(0, Math.max(0, head.text.lastIndexOf("\n"))) : head.text;
+  return { reason: "read", ...parseToolSpills(text, opts.tool === undefined ? {} : { tool: opts.tool }), short };
+}
+
+// ── where the host keeps a session's transcript ─────────────────────────────
+
+/** The host's own directory: `CLAUDE_CONFIG_DIR` when set, else `~/.claude`. */
+export function hostConfigDir(env: Readonly<Record<string, string | undefined>>): string {
+  const moved = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  return moved.length > 0 ? moved : join(homedir(), ".claude");
+}
+
+/** **CAL.** Project directories the lookup asks before it gives up. */
+export const TRANSCRIPT_DIRS_MAX = 5_000;
+
+/**
+ * WHERE THE HOST WROTE A SESSION WHOSE ID WE CHOSE (`claude --session-id`):
+ * `<config>/projects/<its directory, spelled as a name>/<id>.jsonl`. The
+ * host's spelling turns every character but a letter or a digit into "-" —
+ * read from 2.1.295, which also shortens a long one with a hash of its own and
+ * may start from a git worktree's root — so that spelling is tried first (the
+ * directory as given, then with its links resolved), and failing it every
+ * project directory is asked for the file by name. The id is a fresh UUID, so
+ * only one file can answer. Null when none does. Never throws.
+ */
+export function hostTranscriptPath(input: { readonly configDir: string; readonly id: string; readonly cwd?: string }): string | null {
+  const projects = join(input.configDir, "projects");
+  const file = `${input.id}.jsonl`;
+  const spell = (dir: string): string => dir.replace(/[^a-zA-Z0-9]/g, "-");
+  const guesses: string[] = [];
+  if (input.cwd !== undefined && input.cwd.length > 0) {
+    guesses.push(spell(input.cwd));
+    try {
+      guesses.push(spell(realpathSync(input.cwd)));
+    } catch {
+      /* a directory gone since: the guess as given stands */
+    }
+  }
+  for (const g of new Set(guesses)) {
+    const p = join(projects, g, file);
+    if (existsSync(p)) return p;
+  }
+  let dirs: string[];
+  try {
+    dirs = readdirSync(projects);
+  } catch {
+    return null;
+  }
+  for (const d of dirs.slice(0, TRANSCRIPT_DIRS_MAX)) {
+    const p = join(projects, d, file);
+    if (existsSync(p)) return p;
+  }
+  return null;
 }

@@ -547,3 +547,56 @@ From Fable's review of Health (2026-09-28) and the open follow-ups of #277:
 - **Counts** (329 vs 322 vs 296) were already labelled by 09-28/09-30 work:
   Health's line says it leaves out the people and project cards, and the
   memories grid says its journal chapters aren't scored.
+
+## 2026-10-09 — Ask reads the answers 0.3.12 gives
+
+0.3.12 gave recall a required mode (#323) and the console's `ask --json` started
+printing a `FactsResult`. The Memories page's Ask kept reading the answer it was
+built for: a confidence `tier` (gone with the tiers), a `from` chapter link (folded
+into the answer by facts mode itself, so `/api/chapters` answered `{}`), a date
+written at the front of the body (facts carries `occurredOn` / `learned`), and
+`journal: false` written in by the page. So the match words, the links and most
+dates vanished without an error, and "by meaning" was answered in facts mode — the
+console had no other. Every test of it passed: they fed the page answers written by
+hand, in the old shape.
+
+- **Three ways to find.** The switch is "by word | facts | by meaning". By word is
+  unchanged; facts and by meaning ask on Enter with `act("ask", {json, mode, page})`,
+  which is `counterparts ask --json --mode meaning` for meaning — a flag the console
+  did not have (`--mode`, facts by default, as the MCP tool's `mode`). A third
+  position, rather than turning "by meaning" into facts or Enter-in-by-word into an
+  ask, because the 09-30 switch was the owner's (M3) and adding to it reverses
+  nothing; whether three is right is his to say.
+- **Facts, as the answer says it.** The head counts every match (`matched`), the
+  pager pages it (`page`, `pages`, ten a page), and the notes say what it was about,
+  the time it named, words only, and what was left out. A row's date is when it
+  happened, else when it was learned (the hover says which); under the words, only
+  what the answer carries: who said it, its status, when it was learned, which
+  chapter, "earlier: …" with a link to the earlier memory, corrected ones counted,
+  "disagrees with" as a link. A journal answer's heading is taken off the front of
+  its words, display only.
+- **Meaning, as an arc.** The head names the subject and counts its chapters and
+  moments; each chapter is a row titled by its day that opens its journal, with its
+  line, its marks (start, latest, a turn), whose feelings side by side, and its
+  moments as links; a session's moments with no chapter are a row that opens
+  nothing. Then faded moments, earlier readings, what is still open, what recurs.
+  `--voiced` finally decides something: the dashboard asks in my voice, so "mine"
+  in a meaning answer is mine.
+- **Dropped, not invented:** the match-strength word, `fold.js`, and `/api/chapters`
+  with `views/search.ts#chapterLinks` — their only reader was the fold.
+- **The drawing is pure and fed real answers.** `factsHead`, `factsRows`,
+  `meaningHead`, `meaningRows` and `askPager` in `sections/search.js` take the
+  parsed answer; `test/dashboard-ask-answers.test.ts` gets every answer it draws
+  through `runAction("ask", …)` on a seeded temp store and reads each field it
+  checks off the typed `FactsResult` / `MeaningResult`, so a renamed field breaks
+  the build there before it can vanish from the page again.
+- **An id in a memory's words is a link** (`memory-marks.js#idMark`): "(mem_…)"
+  shows as "memory ↗" and opens it, "epi_…#2" as "journal chapter 2 ↗", the id on
+  hover. Inside something already clickable (a moment's title) it is drawn the same
+  but not linked. The memory card's own body still prints ids as written.
+- **Review of #333: in meaning mode the owner's "I" becomes "you", not his name.**
+  The voice rewrite turned "what has Ilya been to me" into "… to Rosalind", and
+  meaning takes the card with the most memories as its subject: the owner's own
+  card, usually the biggest, won, and the person asked about went under "also
+  named". The answer tests ran the action with no owner name, as the server never
+  does. Facts still gets his name, where words are what match.

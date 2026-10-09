@@ -523,8 +523,8 @@ export class Reflections {
       `${DREAM_MARK} reflection launch⟧ You are ${who}'s counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on ${who}, on the two of you. This is lived — your own act — not a task.`,
       "",
       after === null
-        ? `1. Call the counterparts reflect tool: phase "begin", session: ${input.session}. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer.`
-        : `1. Call the counterparts reflect tool: phase "begin", session: ${input.session}, dream: ${after}. It hands you what that dream saw, the last few days, your whole self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer.`,
+        ? `1. Call the counterparts reflect tool: phase "begin", session: ${input.session}. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer or write anything.`
+        : `1. Call the counterparts reflect tool: phase "begin", session: ${input.session}, dream: ${after}. It hands you what that dream saw, the last few days, your whole self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer or write anything.`,
       '2. Answer them honestly, then call phase "finish" as it tells you. "Nothing much" is a normal answer: a short entry and no share.',
       "3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
     ].join("\n");
@@ -624,9 +624,12 @@ export class Reflections {
       ...composed.chapters.map((c) => ({ kind: "c" as const, id: c.id, size: cost(c) })),
       ...composed.dreamSaw.map((x) => ({ kind: "s" as const, id: x.id, size: cost(x) })),
     ];
-    // The furniture: everything else, with the parts note and a margin.
+    // The furniture: everything else, with the parts note and a margin — and
+    // the instructions as they ship in parts, with their "read every part"
+    // line (2026-10-09).
     const note = { part: 1, of: 99, next: "x".repeat(420) };
-    const fixed = resultChars(render(id, { ...composed, memories: {}, chapters: [], dreamSaw: [], parts: note }), how, questions) + PACK_MARGIN;
+    const howInParts = this.instructions(id, session, { ...composed, parts: note });
+    const fixed = resultChars(render(id, { ...composed, memories: {}, chapters: [], dreamSaw: [], parts: note }), howInParts, questions) + PACK_MARGIN;
     const parts: (typeof pieces)[] = [[]];
     let room = Math.max(0, T.RESULT_CHARS - fixed);
     let used = 0;
@@ -662,7 +665,7 @@ export class Reflections {
         next:
           `This bundle is too long for one result, so it comes in ${String(of)} parts; this is part 1. ` +
           `Some memories named in the lists above, some chapters and some of what the dream saw are in the later parts. ` +
-          `Before you answer, call the reflect tool with phase "part", reflection: ${id}, session: ${session}, part: 2${of > 2 ? `, then each part up to ${String(of)}` : ""}.`,
+          `Before you answer or write anything, call the reflect tool with phase "part", reflection: ${id}, session: ${session}, part: 2${of > 2 ? `, then each part up to ${String(of)}` : ""}.`,
       },
     };
     return { bundle, later };
@@ -774,7 +777,19 @@ export class Reflections {
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (the craft: how a job is done) or world — with why. Only me, us and owner can become core. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
+    // EVERY PART FIRST (2026-10-09). On the 0.3.12 release check a reflection
+    // handed its bundle in 2 parts finished without part 2: the launch prompt
+    // and the part note said to fetch it, but these instructions — what reads
+    // as the procedure — went straight from "reflect" to "finish". Said first
+    // here, like the dream's "before you change anything". A line of about 300
+    // characters that `pack` measures with the note in place.
+    const parts = bundle.parts;
     return [
+      ...(parts === null || parts.of <= 1
+        ? []
+        : [
+            `First, read every part: this bundle comes in ${String(parts.of)} parts and this is part 1. Call the reflect tool with phase "part", reflection: ${id}, session: ${session}, part: 2${parts.of > 2 ? `, then each part up to ${String(parts.of)}` : ""}. The later parts hold memories and chapters this one does not; reflect and write only once you have read them all.`,
+          ]),
       `Reflect on the questions, in your own voice. Cite the memory ids your thoughts rest on — an insight that cites nothing is not one. If nothing much stands out tonight, say so in a line and cite nothing: that is a normal night, and it rewrites nothing.`,
       `Then call the reflect tool with phase "finish", reflection: ${id}, session: ${session}, and:`,
       `- entry: your reflection, first person (title: optional). cites: the ids it rests on.`,

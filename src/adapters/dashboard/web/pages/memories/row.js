@@ -3,17 +3,18 @@
    date, the kind and the marks on the right. Every row is drawn at the same
    brightness (round 4, 2026-09-28): how well it is remembered shows only when
    it is not the usual — the one word "fading". A plain fact carries no kind
-   tag (the quiet default); a journal chapter is titled by its day. */
+   tag (the quiet default); a journal chapter is titled by its day. An id
+   written inside the words is a small link to that memory (2026-10-09). */
 import { esc } from "../../shared/dom.js";
 import { dateOr, dateWords } from "../../shared/dates.js";
-import { badges, feelingDots, kindMark, kindOf } from "../../shared/memory-marks.js";
+import { ID_IN_WORDS, badges, feelingDots, idMark, kindMark, kindOf } from "../../shared/memory-marks.js";
 import { openMemory } from "../../shared/memory-modal.js";
 
 /** Rows under `container` open their memory on a click or Enter (one listener
  *  for every row it will ever hold, so a repaint needs no rewiring). */
 export function wireRows(container) {
   const open = (e) => {
-    // A link inside a row (a found memory's "from chapter …") opens what it names, not the row.
+    // A link inside a row (an id in its words, a moment under a chapter) opens what it names, not the row.
     const link = e.target.closest("[data-open]");
     if (link && container.contains(link)) { openMemory(link.dataset.open); return; }
     const row = e.target.closest(".mrow[data-id]");
@@ -24,7 +25,13 @@ export function wireRows(container) {
   container.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.target.closest("button")) open(e); });
 }
 
-const DATE_WORDS = { text: "the date written in the memory", chapter: "the day its journal chapter names", recorded: "the day it was recorded" };
+const DATE_WORDS = {
+  text: "the date written in the memory",
+  chapter: "the day its journal chapter names",
+  recorded: "the day it was recorded",
+  happened: "the day it happened",
+  learned: "the day I learned it",
+};
 
 /** A journal chapter's title: "Journal · Sun, Sep 27th", or "Journal" with no day. */
 export function journalTitle(date) {
@@ -38,15 +45,25 @@ export function searchWords(q) {
   return String(q || "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
 }
 
+const ID_SPLIT = new RegExp("(" + ID_IN_WORDS.source + ")");
+
 /**
  * `text` with every whole word that is one of `words` (any case) in a
- * `<mark>` (M5, 2026-09-30). Escaped piece by piece BEFORE marking, so nothing
- * unescaped reaches the page and no mark lands inside an entity.
+ * `<mark>` (M5, 2026-09-30), and every memory id in it drawn as a link to that
+ * memory (`memory-marks.js#idMark`, 2026-10-09; `quiet`: drawn, not linked).
+ * Escaped piece by piece BEFORE marking, so nothing unescaped reaches the page
+ * and no mark lands inside an entity or an id.
  */
-export function marked(text, words) {
+export function marked(text, words, quiet) {
   const want = new Set((words || []).map((w) => String(w).toLowerCase()));
-  if (want.size === 0) return esc(text || "");
-  return String(text || "").split(/([A-Za-z0-9]+)/)
+  return String(text || "").split(ID_SPLIT)
+    .map((piece, j) => (j % 2 === 1 ? idMark(piece, quiet) : markWords(piece, want)))
+    .join("");
+}
+
+function markWords(text, want) {
+  if (want.size === 0) return esc(text);
+  return text.split(/([A-Za-z0-9]+)/)
     .map((part, i) => (i % 2 === 1 && want.has(part.toLowerCase()) ? "<mark>" + esc(part) + "</mark>" : esc(part)))
     .join("");
 }
@@ -71,10 +88,12 @@ export function withoutRowDate(title, text, date) {
 
 /**
  * `r`: { id, title, text, confidential, kind, date, dateFrom, core, protected,
- * journal, feelings, archived, hold, versions, schemaRole }. `opts.tier` adds a
- * small match word ("strong match"); `opts.from` ({ id, words }) adds a small
- * link under the words to the journal chapter the memory was drawn from;
- * `opts.mark` (words) marks where a search's words appear.
+ * journal, feelings, archived, hold, versions, schemaRole }. With no `id` the
+ * row opens nothing (a session's moments in an Ask by meaning); with no
+ * `kind` it carries no kind tag (an answer that does not say). `opts.under`
+ * is markup, already escaped, drawn under the words (an Ask answer's who said
+ * it, when, and what it was before); `opts.mark` (words) marks where a
+ * search's words appear.
  */
 export function memRow(r, opts = {}) {
   // The date on the right is not said again in the words beside it.
@@ -87,19 +106,16 @@ export function memRow(r, opts = {}) {
   const k = kindOf(r.kind);
   const kindWords = k.label + (r.schemaRole ? " · " + r.schemaRole : "");
   // A plain fact is the quiet default: no tag. A journal chapter says so in its title.
-  const kindTag = (r.kind === "fact" && !r.schemaRole) || r.journal ? ""
+  const kindTag = !r.kind || (r.kind === "fact" && !r.schemaRole) || r.journal ? ""
     : '<span class="mkind" title="' + esc(kindWords) + '">' + kindMark(r.kind, false) + '<span class="klabel">' + esc(kindWords) + "</span></span>";
-  const held = opts.tier ? '<span class="mtier">' + esc(opts.tier) + "</span>"
-    : r.hold === "fading" ? '<span class="mfading" title="unless it is used, I may put it away within my next two weeks of use">fading</span>' : "";
+  const held = r.hold === "fading" ? '<span class="mfading" title="unless it is used, I may put it away within my next two weeks of use">fading</span>' : "";
   const date = r.date && !r.journal
     ? '<span class="mdate" title="' + esc(DATE_WORDS[r.dateFrom] || "") + '">' + esc(dateOr(r.date)) + "</span>" : "";
   const put = r.archived
     ? '<div class="mwhy">put away: ' + esc(r.archived) + (r.versions > 1 ? " · " + r.versions + " versions" : "") + "</div>" : "";
-  const id = esc(r.id);
-  return '<div class="mrow click' + (r.archived ? " arch" : "") + '" role="button" tabindex="0" data-id="' + id + '">' +
-    '<div class="mmain">' + main +
-      (opts.from ? '<button type="button" class="mchapter" data-open="' + esc(opts.from.id) + '">' + esc(opts.from.words) + "</button>" : "") +
-      put + "</div>" +
+  const open = r.id ? ' click" role="button" tabindex="0" data-id="' + esc(r.id) + '"' : '"';
+  return '<div class="mrow' + (r.archived ? " arch" : "") + open + ">" +
+    '<div class="mmain">' + main + (opts.under || "") + put + "</div>" +
     '<div class="mside">' +
       '<span class="mline">' + held + date + "</span>" +
       '<span class="mline">' + badges({ ...r, journal: false }) + feelingDots(r.feelings, true) + kindTag + "</span>" +

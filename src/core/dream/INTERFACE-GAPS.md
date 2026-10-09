@@ -14,9 +14,12 @@ What this module still owes, or asks of others (2026-09-26).
    turns into the parent's file, only turns carrying the mark are refused. The
    dreamer's final message is the marked hand-back by instruction and by the tool
    handing it the words.
-4. **`export --markdown` does not carry the `dreams` table**, and there is no door to
-   remove one dream's journal short of undoing it (which keeps it, marked undone). The
-   owner's removal of a MEMORY blanks its address in `dream_changes`.
+4. **There is no door to remove one dream's journal** short of undoing it (which keeps
+   it, marked undone). The owner's removal of a MEMORY blanks its address in
+   `dream_changes`. *(The other half of this item — `export --markdown` did not carry the
+   `dreams` table — is CLOSED 2026-10-09: one file per dream under `dreams/`, its journal
+   and its changes; one resting on a confidential memory is left out unless
+   `--include-confidential`, and counted. `cli/NOTES.md`.)*
 5. **Merged memories keep no embedding** until the next backfill embeds them (as any new
    memory).
 6. **Dream links are ordinary edges.** If the association work wants them marked (a
@@ -31,7 +34,9 @@ What this module still owes, or asks of others (2026-09-26).
      for one on a dreamless day. The old SessionStart page writer still covers those
      nights.
    - **Not yet watched live** with a real background agent.
-   - **`export --markdown` does not carry the `reflections` table** (as §4 for dreams).
+   - ~~**`export --markdown` does not carry the `reflections` table**~~ — CLOSED
+     2026-10-09: one file per reflection under `reflections/`, with its morning share and
+     what became of it (as §4 for dreams).
    - **The crash-fallback sweep sets no about mark**: a self memory it mints is unmarked,
      so not a core candidate until something awake marks it. A choice, not an oversight —
      the sweep is a reteller.

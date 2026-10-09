@@ -58,7 +58,8 @@
  * a Claude Code session that is already open. Measured 2026-09-21 — after
  * `settings.json` changes, an open session's hooks fire on its NEXT TURN, and
  * its MCP tools appear only after Claude Code is restarted. `sessionsNote` says
- * exactly that, and counts the memory servers still running when it cheaply can;
+ * exactly that, and counts the memory servers still running when it cheaply can
+ * — by the build each one's own record names, since 2026-10-09 (`serverCensus`);
  * since 2026-09-22 the CALLER prints it, because `install` ends with its own
  * "restart Claude Code, then run doctor" line and two of them on one screen is
  * the finding this round is about.
@@ -83,7 +84,10 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
 import { isOurHookCommand } from "../host-wiring.js";
+import { claudeCodeEnvMarker } from "../hosts.js";
 import { parseScriptInvocation, scriptArgs, shellTokens } from "../runtime.js";
+import { installedBuild, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
+import type { BuildStamp, ServerRecordRead } from "../sessions.js";
 import type { Io } from "./commands.js";
 import {
   BIN,
@@ -967,6 +971,9 @@ export interface RunningProcess {
   /** In the words the output uses: "an MCP server", "the worker", "a dashboard". */
   readonly what: string;
   readonly command: string;
+  /** Its parent, when the look saw it. For an MCP server that is the host
+   *  process that started it — Claude Code, for one of its sessions. */
+  readonly ppid?: number;
 }
 
 /**
@@ -980,6 +987,13 @@ export interface RunningProcess {
 export interface ProcessSighting {
   readonly looked: boolean;
   readonly processes: readonly RunningProcess[];
+  /**
+   * EVERY process's parent (pid → ppid), not only ours — the chain from this
+   * process up to the host it runs under is what tells `connect` which
+   * running server is the session it was typed into (`serverCensus`).
+   * Absent when the look could not say, and from a lister that does not.
+   */
+  readonly parents?: ReadonlyMap<number, number>;
 }
 
 export type ProcessLister = () => ProcessSighting;
@@ -1011,7 +1025,13 @@ export function processMark(command: string): string | null {
 }
 
 /**
- * `ps -axo pid=,command=`, filtered here rather than by `pgrep -f`.
+ * `ps -axwwo pid=,ppid=,command=`, filtered here rather than by `pgrep -f`. The
+ * parent column (2026-10-09) is kept for every line, ours or not, so a caller
+ * can walk from this process up to its host (`ProcessSighting.parents`).
+ *
+ * `ww` (review of #331): procps on Linux cuts `command` at `$COLUMNS` when that
+ * is set, even into a pipe, and the cut can fall before the path segment
+ * `processMark` needs. Unlimited width on both procps and macOS.
  *
  * **It never throws and it never fails the caller.** A machine with no `ps`, a
  * `ps` that times out, a sandbox that refuses process listing — every one of
@@ -1021,7 +1041,7 @@ export function processMark(command: string): string | null {
 export function realProcessLister(env: Record<string, string | undefined>): ProcessLister {
   return () => {
     try {
-      const res = spawnSync("ps", ["-axo", "pid=,command="], {
+      const res = spawnSync("ps", ["-axwwo", "pid=,ppid=,command="], {
         encoding: "utf8",
         timeout: 4000,
         windowsHide: true,
@@ -1033,17 +1053,20 @@ export function realProcessLister(env: Record<string, string | undefined>): Proc
       if (res.error !== undefined && res.error !== null) return NO_LOOK;
       if (res.status !== 0) return NO_LOOK;
       const out: RunningProcess[] = [];
+      const parents = new Map<number, number>();
       for (const line of String(res.stdout ?? "").split("\n")) {
-        const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+        const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
         if (m === null) continue;
         const pid = Number(m[1]);
-        const command = m[2] ?? "";
+        const ppid = Number(m[2]);
+        const command = m[3] ?? "";
+        parents.set(pid, ppid);
         if (pid === process.pid) continue;
         const what = processMark(command);
         if (what === null) continue;
-        out.push({ pid, what, command });
+        out.push({ pid, what, command, ppid });
       }
-      return { looked: true, processes: out };
+      return { looked: true, processes: out, parents };
     } catch {
       return NO_LOOK;
     }
@@ -1063,11 +1086,6 @@ export function look(lister: ProcessLister): ProcessSighting {
   }
 }
 
-/** Only the MCP servers, which is what "restart your sessions" is about. This
- *  one FAILS OPEN on purpose: it is a courtesy line, not a guard. */
-export function runningServers(lister: ProcessLister): readonly RunningProcess[] {
-  return look(lister).processes.filter((p) => p.what === "an MCP server");
-}
 
 // ── the command ─────────────────────────────────────────────────────────────
 
@@ -1424,17 +1442,159 @@ export function wrappedNote(
  * until Claude Code is restarted (a server keeps the code and the registration
  * it was launched with). Both halves are said, because a person who reads only
  * the first will wonder why `note` is missing.
+ *
+ * THE COUNT SAYS WHAT IT KNOWS (2026-10-09). It used to be every memory server
+ * in the process table, called "the previous version's" — which nothing had
+ * checked. The 0.3.12 release run printed "11 sessions are running the
+ * previous version's memory server" over the owner's own open sessions, the
+ * one it was typed into among them. Each server now goes where this store's
+ * own records put it (`serverCensus`): another build than this install,
+ * this build, or no record here at all — and the session the command was run
+ * from is named in whichever it is in, when the process table can say which.
  */
-export function sessionsNote(u: Ui, lister: ProcessLister): void {
+export function sessionsNote(
+  u: Ui,
+  lister: ProcessLister,
+  opts: {
+    /** The store the connected server is told to open — where servers leave their records. */
+    readonly dataDir: string;
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly installed?: BuildStamp;
+    readonly selfPid?: number;
+    readonly now?: number;
+  },
+): void {
   u.hint("Hooks start with your next turn in any open Claude Code session.");
   u.hint("The memory tools appear after you restart Claude Code.");
-  const running = runningServers(lister);
-  if (running.length > 0) {
+  // Only the MCP servers, which is what "restart your sessions" is about. This
+  // FAILS OPEN on purpose: a look that did not happen says nothing, because
+  // this is a courtesy line, not a guard.
+  const sight = look(lister);
+  const running = sight.processes.filter((p) => p.what === "an MCP server");
+  if (running.length === 0) return;
+  const installed = opts.installed ?? installedBuild();
+  const census = serverCensus(running, {
+    dataDir: opts.dataDir,
+    installed,
+    ...(sight.parents === undefined ? {} : { parents: sight.parents }),
+    ...(opts.selfPid === undefined ? {} : { selfPid: opts.selfPid }),
+    ...(opts.now === undefined ? {} : { now: opts.now }),
+  });
+  const here = "the session you ran this from";
+  if (census.other > 0) {
+    const n = census.other;
     u.hint(
-      `(${String(running.length)} session${running.length === 1 ? " is" : "s are"} running the ` +
-        "previous version's memory server — restart them.)",
+      `(${String(n)} open session${n === 1 ? "" : "s"} still run${n === 1 ? "s" : ""} memory server ${census.otherVersions.join(" or ")}, ` +
+        `not this install's ${installed.version ?? "build"}${census.mine === "other" ? ` — ${here} ${n === 1 ? "is that one" : "is one of them"}` : ""}: ` +
+        `restart ${n === 1 ? "it, or run /mcp and Reconnect in it" : "them, or run /mcp and Reconnect in each"}.)`,
     );
   }
+  if (census.current > 0) {
+    const n = census.current;
+    u.hint(
+      `(${String(n)} open session${n === 1 ? "" : "s"} already run${n === 1 ? "s" : ""} this version` +
+        `${census.mine === "current" ? `, ${here} included` : ""}.)`,
+    );
+  }
+  if (census.unplaced > 0) {
+    const n = census.unplaced;
+    const more = census.other + census.current > 0 ? " more" : "";
+    u.hint(
+      `(${String(n)}${more} memory server${n === 1 ? " is" : "s are"} running that this store holds no current record of — ` +
+        "another store's, one in a directory where memory is off, or a build from before servers recorded themselves — " +
+        `so which version ${n === 1 ? "it runs" : "they run"} is not known here${census.mine === "unplaced" ? `; ${here} is ${n === 1 ? "that one" : "one of them"}` : ""}.)`,
+    );
+  }
+  // HONEST WHEN IT CANNOT TELL. Run from inside Claude Code, that session's
+  // own server is one of the ones counted; without the parent column the
+  // count cannot say which, so it says that rather than guess.
+  if (!census.knowsMine && claudeCodeEnvMarker(opts.env ?? {}) !== null) {
+    u.hint("(This was run from inside a Claude Code session, so that session's own server is counted above; which one it is could not be told from here.)");
+  }
+}
+
+/** Where the running memory servers stand, by this store's own records. */
+export interface ServerCensus {
+  /** Servers whose record here names another build than this install's. */
+  readonly other: number;
+  /** Those builds' versions, distinct, in the order first seen. */
+  readonly otherVersions: readonly string[];
+  /** Servers whose record here names this install's build. */
+  readonly current: number;
+  /** Running servers this store holds no believed record of. */
+  readonly unplaced: number;
+  /** Which of the three the server of the session this command runs in is in,
+   *  or null when none of them could be named as its. */
+  readonly mine: "other" | "current" | "unplaced" | null;
+  /** Whether the look gave parents, so `mine` is an answer and not a blank. */
+  readonly knowsMine: boolean;
+}
+
+/**
+ * SORT THE RUNNING MEMORY SERVERS BY WHAT THIS STORE KNOWS OF THEM.
+ *
+ * Every server leaves `sessions/mcp-server@<pid>.json` in the store it opened
+ * (`sessions.ts#recordServerLaunch`): its build, and its parent — the host
+ * process that started it. A record is believed when its pid is one the
+ * process table just listed AND its heartbeat is fresh (`serverBelieved`,
+ * with the table as the liveness answer), so a pid the OS handed on is not
+ * read as the server that left the file.
+ *
+ * THE SESSION THIS COMMAND RUNS IN is the one whose server's parent is one of
+ * this process's own ancestors — run from Claude Code's shell, the chain goes
+ * up through the shell to the very `claude` process that started that server.
+ * Pid 1 is never an ancestor for this: an orphaned server is reparented to it,
+ * and every process descends from it. Pure over its inputs; never throws.
+ */
+export function serverCensus(
+  running: readonly RunningProcess[],
+  input: {
+    readonly dataDir: string;
+    readonly installed: BuildStamp;
+    readonly parents?: ReadonlyMap<number, number>;
+    readonly selfPid?: number;
+    readonly now?: number;
+  },
+): ServerCensus {
+  const listed = new Set(running.map((p) => p.pid));
+  const now = input.now ?? Date.now();
+  const records = new Map<number, ServerRecordRead>();
+  for (const r of readServerRecords(input.dataDir)) {
+    if (serverBelieved(r.pid, r.refreshedAt, now, (pid) => listed.has(pid))) records.set(r.pid, r);
+  }
+  const ancestors = new Set<number>();
+  if (input.parents !== undefined) {
+    let at = input.parents.get(input.selfPid ?? process.pid);
+    while (at !== undefined && at > 1 && !ancestors.has(at)) {
+      ancestors.add(at);
+      at = input.parents.get(at);
+    }
+  }
+  let other = 0;
+  let current = 0;
+  let unplaced = 0;
+  const otherVersions: string[] = [];
+  let mine: ServerCensus["mine"] = null;
+  for (const p of running) {
+    const r = records.get(p.pid);
+    const bucket: NonNullable<ServerCensus["mine"]> =
+      r === undefined ? "unplaced" : sameBuild(r.build, input.installed) ? "current" : "other";
+    if (bucket === "unplaced") unplaced += 1;
+    else if (bucket === "current") current += 1;
+    else {
+      other += 1;
+      const v =
+        r === undefined || r.build.version === null
+          ? "of an unknown version"
+          : r.build.version === input.installed.version
+            ? `${r.build.version} (another build of it)`
+            : r.build.version;
+      if (!otherVersions.includes(v)) otherVersions.push(v);
+    }
+    const ppid = p.ppid ?? input.parents?.get(p.pid);
+    if (mine === null && ((ppid !== undefined && ancestors.has(ppid)) || (r !== undefined && ancestors.has(r.hostPid)))) mine = bucket;
+  }
+  return { other, otherVersions, current, unplaced, mine, knowsMine: input.parents !== undefined };
 }
 
 /**
