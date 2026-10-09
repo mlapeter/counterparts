@@ -115,9 +115,10 @@ at. Then it:
 7. writes a note and recalls it through the plugin's server, finds it again with the
    console, and captures a turn through the plugin's hook command into the store's
    buffer;
-8. wires the npm hooks as well and checks there's one wake plus the stand-down line;
+8. runs doctor the way `/counterparts:doctor` does: the plugin install reads as connected;
+9. wires the npm hooks as well and checks there's one wake plus the stand-down line;
    removes them and checks the plugin wakes on the same store;
-9. uninstalls the plugin and checks `~/.counterparts` is intact.
+10. uninstalls the plugin and checks `~/.counterparts` is intact.
 
 It never logs in. A model turn needs a login, and the loop copies no credential.
 

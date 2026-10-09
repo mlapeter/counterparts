@@ -354,6 +354,18 @@ else
 $STATUS"
 fi
 
+step "doctor (what /counterparts:doctor runs) reads the plugin install as connected"
+DOCTOR=$( cd "$PROJECT" && t 120 "${SERVE_ENV[@]}" sh "$INSTALL_PATH/src/adapters/plugin-run.sh" cli doctor 2>&1 )
+printf '%s\n' "$DOCTOR" > "$WORK/doctor.txt"
+if grep -q "connected as the Claude Code plugin (counterparts@counterparts-loop" <<<"$DOCTOR" &&
+   grep -qE "^GREEN +Recall by meaning +on" <<<"$DOCTOR" &&
+   grep -qE "^GREEN +Checkout +not a git checkout" <<<"$DOCTOR"; then
+  ok
+  grep -E "^[0-9]+ red" <<<"$DOCTOR" | sed 's/^/      /'
+else
+  no "doctor did not read the plugin install (or recall/checkout lines differ)" "$(grep -E "Claude Code|Recall by meaning|Checkout|red,|^RED|^AMBER" <<<"$DOCTOR")"
+fi
+
 # ── 6. the double-install guard ────────────────────────────────────────────
 
 step "with the npm hooks ALSO wired, the plugin stands down and says so once; one wake, not two"
