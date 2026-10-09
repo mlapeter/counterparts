@@ -40,11 +40,11 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { assertSafeDataDir } from "../../core/store/index.js";
 import { daysBetween, isDay, isoInstant, localDate, resolveZone } from "../../core/time.js";
 import { SESSIONS_DIR } from "../sessions.js";
+import { packagePath } from "../runtime.js";
 
 /** The directory, inside `sessions/`. */
 export const LOG_DIR = "log";
@@ -179,7 +179,7 @@ export function clean(data: Record<string, unknown> | undefined): Record<string,
 }
 
 /** This package's `src/`, for an error's top frame. */
-const SRC_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const SRC_ROOT = resolve(packagePath("src"));
 
 /**
  * An error as the log may write it: its class, its code, and the top source

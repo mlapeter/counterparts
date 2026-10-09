@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The plugin works on a computer with no Bun or Node.js.** Until now it gave up there.
+  Now it downloads one prebuilt Counterparts program for that computer (55–75 MB, from
+  this repository's GitHub releases), checks it against a sha256 that ships inside the
+  plugin, keeps it in the plugin's data folder, and runs that. The first session says
+  it's getting ready and that memory starts in the next one. A failed download says so
+  once and tries again later; nothing unchecked is ever run.
+  `COUNTERPARTS_BINARY_DOWNLOAD=off` forbids the download. The program is the whole of
+  Counterparts, with the model and the dashboard packed in. It starts a little faster
+  than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire Claude
+  Code or Claude Desktop itself: `counterparts connect` from it says to use the npm
+  install for that. How it is built and released: `docs/single-binary.md`.
 - **A project's `.env` can no longer point Counterparts at another memory.** Bun reads
   `.env` files from the folder it starts in, and Claude Code starts the hooks and the
   memory server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR`

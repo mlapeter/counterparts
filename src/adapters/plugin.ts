@@ -40,13 +40,14 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
 import type { NpmWiring } from "./host-wiring.js";
-import { CLI_SCRIPT, scriptArgs } from "./runtime.js";
+import { BINARY, CLI_SCRIPT, scriptArgs } from "./runtime.js";
+import type { Binary } from "./runtime.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
 export const PLUGIN_ROOT_ENV = "CLAUDE_PLUGIN_ROOT";
@@ -81,9 +82,20 @@ function realOrResolved(path: string): string {
 export function runningAsPlugin(
   env: Record<string, string | undefined>,
   packageRoot: string = PACKAGE_ROOT,
+  binary: Binary | null = BINARY,
 ): boolean {
   const named = (env[PLUGIN_ROOT_ENV] ?? "").trim();
   if (named.length === 0) return false;
+  // THE SINGLE BINARY: it has no package root on disk — `plugin-run.sh`
+  // downloads it into the plugin's own data directory — so "this very copy"
+  // is a binary sitting under CLAUDE_PLUGIN_DATA, which Claude Code sets only
+  // on the plugin's processes and their children.
+  if (binary !== null) {
+    const data = (env[PLUGIN_DATA_ENV] ?? "").trim();
+    if (data.length === 0) return false;
+    const rel = relative(realOrResolved(data), realOrResolved(binary.self));
+    return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+  }
   return realOrResolved(named) === realOrResolved(packageRoot);
 }
 

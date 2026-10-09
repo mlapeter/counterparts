@@ -32,12 +32,96 @@
  * rewrites them.
  */
 import { existsSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type RuntimeKind = "bun" | "node";
 
 /** Bun's switch that stops it loading `.env` files from the working directory. */
 export const BUN_NO_ENV_FILE = "--no-env-file";
+
+// ── the single binary (docs/single-binary.md) ──────────────────────────────
+//
+// `bun build --compile` (tools/single-binary/) packs every module, the model
+// table and the dashboard's files into one executable that needs no Bun or Node
+// on the machine — what the plugin downloads when it finds neither. Inside it,
+// EVERY module's `import.meta.url` is the binary's own virtual file
+// (`file:///$bunfs/root/<name>`; `B:/~BUN/root/<name>` on Windows), so a path
+// computed from `import.meta.url` no longer says where a module lives, and the
+// files the build embedded sit under that virtual root at their
+// repository-relative paths. Everything below takes the binary as a parameter
+// defaulting to `BINARY`, so a test can run every compiled branch from source.
+
+/** The compiled binary this process is: `root`, the virtual directory its
+ *  embedded files sit under; `self`, the executable on disk. */
+export interface Binary {
+  readonly root: string;
+  readonly self: string;
+}
+
+/** The binary a module URL says this process is, or null when it is source.
+ *  Pure: a test hands it a URL of either shape. */
+export function binaryOf(moduleUrl: string, self: string): Binary | null {
+  const path = moduleUrl.startsWith("file:") ? decodeURIComponent(new URL(moduleUrl).pathname) : moduleUrl;
+  if (!/[\\/]\$bunfs[\\/]|(^|[\\/])~BUN[\\/]/.test(path)) return null;
+  // The directory holding the binary's own virtual file. By hand rather than
+  // `node:path`, which on a POSIX host does not split a Windows path.
+  const root = path.replace(/[\\/][^\\/]*$/, "").replace(/^\/([A-Za-z]:[\\/])/, "$1");
+  return { root, self };
+}
+
+/** This process, if it is the compiled binary; null from source. */
+export const BINARY: Binary | null = binaryOf(import.meta.url, process.execPath);
+
+/** Is this process (or the binary a test names) the compiled binary? */
+export function isCompiled(binary: Binary | null = BINARY): boolean {
+  return binary !== null;
+}
+
+/** A file of this package by its path from the package root (`/`-separated):
+ *  on disk from source, among the binary's embedded files when compiled. */
+export function packagePath(rel: string, binary: Binary | null = BINARY): string {
+  if (binary === null) return fileURLToPath(new URL(`../../${rel}`, import.meta.url));
+  const sep = binary.root.includes("\\") ? "\\" : "/";
+  // Bun names an embedded file at the top of the build root `./<name>` (its
+  // `[dir]` is "."), and the virtual filesystem matches names exactly
+  // (measured on 1.3.10; `<binary> selfcheck`, run by every build, holds it).
+  return rel.includes("/") ? [binary.root, ...rel.split("/")].join(sep) : [binary.root, ".", rel].join(sep);
+}
+
+/** The model table's directory inside the binary; undefined from source,
+ *  where `core/embed/static.ts` resolves the installed package itself. */
+export function bundledModelDir(binary: Binary | null = BINARY): string | undefined {
+  return binary === null ? undefined : packagePath("node_modules/counterparts-model-potion", binary);
+}
+
+/** What the binary's first argument may be: the four a host runs, and the
+ *  two it starts of itself (`scriptArgs`). `tools/single-binary/main.ts`
+ *  dispatches on the same words. */
+export const BINARY_MODES = ["hook", "mcp", "cli", "dashboard", "runner", "nightly"] as const;
+export type BinaryMode = (typeof BINARY_MODES)[number];
+
+/** Each entry script's mode, by file name — which survives the virtual paths. */
+export const BINARY_MODE_OF: Readonly<Record<string, BinaryMode>> = {
+  "hook.ts": "hook",
+  "serve.ts": "mcp",
+  "counterparts.ts": "cli",
+  "dashboard.ts": "dashboard",
+  "runner.ts": "runner",
+  "nightly.ts": "nightly",
+};
+
+/** Does an executable's name look like the single binary? `counterparts`,
+ *  `counterparts.exe`, `counterparts-0.3.14-darwin-arm64` — and not the npm
+ *  shims `counterparts-hook`, `counterparts-mcp`, `counterparts-dashboard`. */
+export function isBinaryName(exe: string): boolean {
+  const name = exe.split(/[\\/]/).pop() ?? "";
+  return /^counterparts([-.][\w.-]*)?$/i.test(name) && !/^counterparts-(hook|mcp|dashboard)(\.exe)?$/i.test(name);
+}
+
+function isBinaryMode(word: string | undefined): word is BinaryMode {
+  return (BINARY_MODES as readonly string[]).includes(word ?? "");
+}
 
 /** The module Node loads before a script (`--import`). Absolute, from this file. */
 export const NODE_HOOKS = fileURLToPath(new URL("./node-hooks.mjs", import.meta.url));
@@ -54,9 +138,11 @@ export function currentRuntime(): RuntimeKind {
   return process.versions.bun === undefined ? "node" : "bun";
 }
 
-/** `bun 1.3.0` or `node 24.9.0` — the runtime this process is, for a reader. */
-export function runtimeLabel(): string {
+/** `bun 1.3.0`, `node 24.9.0`, or `the single binary (bun 1.3.10)` — the
+ *  runtime this process is, for a reader. */
+export function runtimeLabel(binary: Binary | null = BINARY): string {
   const bun = process.versions.bun;
+  if (binary !== null) return `the single binary (bun ${bun ?? "?"})`;
   return bun === undefined ? `node ${process.versions.node}` : `bun ${bun}`;
 }
 
@@ -67,16 +153,25 @@ export function runtimeOf(exe: string): RuntimeKind {
 }
 
 /** The arguments that make `exe` run `script`: `--no-env-file run <script>`
- *  for Bun, `--import <node-hooks.mjs> <script>` for Node. */
-export function scriptArgs(script: string, exe: string = process.execPath): string[] {
+ *  for Bun, `--import <node-hooks.mjs> <script>` for Node, and the script's
+ *  mode alone (`hook`, `runner`, …) when `exe` is the compiled binary itself. */
+export function scriptArgs(script: string, exe: string = process.execPath, binary: Binary | null = BINARY): string[] {
+  // The compiled binary runs ITSELF in another mode: `<binary> runner`.
+  const mode = binary !== null && exe === binary.self ? BINARY_MODE_OF[basename(script)] : undefined;
+  if (mode !== undefined) return [mode];
   return runtimeOf(exe) === "node" ? ["--import", NODE_HOOKS, script] : [BUN_NO_ENV_FILE, "run", script];
 }
 
 /** A command split into its parts, when it is `<exe> <scriptArgs(script)> <rest…>`. */
 export interface ScriptInvocation {
   readonly exe: string;
-  readonly runtime: RuntimeKind;
+  /** `binary` for the single compiled binary, which is its own runtime. */
+  readonly runtime: RuntimeKind | "binary";
+  /** The script it runs — for the binary, the binary itself, which is the
+   *  file that must be on disk for the command to run. */
   readonly script: string;
+  /** The binary's mode (`hook`, `mcp`, …); absent for Bun and Node. */
+  readonly mode?: BinaryMode;
   /** Whatever followed the script (`--config <path>`, flags). */
   readonly rest: readonly string[];
   /** Whether the runtime reads the project's `.env` into the process: `read`
@@ -85,8 +180,9 @@ export interface ScriptInvocation {
 }
 
 /**
- * Read `<exe> [--no-env-file] run [--no-env-file] <script> …` or `<exe>
- * --import <…node-hooks.mjs> <script> …` back out of a token list — the
+ * Read `<exe> [--no-env-file] run [--no-env-file] <script> …`, `<exe>
+ * --import <…node-hooks.mjs> <script> …` or `<binary> <mode> …` back out of a
+ * token list — the
  * inverse of `scriptArgs`, for the readers that must recognise what the
  * writers wrote (`wire.ts#isOurHookCommand`, doctor's runtime line, the
  * plugin's npm-wiring check). The Bun shape without the flag is what every
@@ -96,6 +192,11 @@ export interface ScriptInvocation {
 export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocation | null {
   const exe = tokens[0] ?? "";
   if (exe.length === 0) return null;
+  // `<binary> <mode> …` — what the single binary writes for itself
+  // (`scriptArgs`). It reads no `.env`: it is built with the autoload off.
+  if (isBinaryName(exe) && isBinaryMode(tokens[1])) {
+    return { exe, runtime: "binary", script: exe, mode: tokens[1], rest: tokens.slice(2), projectEnv: "ignored" };
+  }
   let at = 1;
   let noEnvFile = false;
   if (tokens[at] === BUN_NO_ENV_FILE) {

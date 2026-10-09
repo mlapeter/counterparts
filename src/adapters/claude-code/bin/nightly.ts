@@ -85,7 +85,9 @@ function standDown(config: Parameters<typeof openNightCounterpart>[0], run: stri
   }
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** The nightly run, then exit — what this file does as a script, and what the
+ *  single binary's `nightly` mode calls. */
+export function start(): void {
   void main().then(
     () => process.exit(0),
     (err: unknown) => {
@@ -94,3 +96,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();

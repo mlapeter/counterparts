@@ -1,5 +1,5 @@
 #!/bin/sh
-# The Claude Code plugin's launcher (prototype, 2026-10-09).
+# The Claude Code plugin's launcher.
 #
 #   sh plugin-run.sh hook   - the five hooks (hooks/hooks.json)
 #   sh plugin-run.sh mcp    - the memory server (.claude-plugin/plugin.json)
@@ -14,11 +14,15 @@
 # plugin's command is fixed in a file we ship, so the search happens here, at
 # every launch, in this order:
 #
-#   1. COUNTERPARTS_RUNTIME, when set: that executable and nothing else.
+#   1. COUNTERPARTS_RUNTIME, when set: that executable and nothing else (Bun,
+#      Node, or a Counterparts single binary).
 #   2. Bun 1.3+: on PATH, then $BUN_INSTALL/bin, ~/.bun/bin, Homebrew.
 #   3. Node 22.15+: on PATH, then Homebrew, /usr/local, Volta, nvm, fnm, asdf,
 #      mise. A Node older than 22.15 is skipped, not run (it cannot load the
 #      TypeScript sources: adapters/runtime.ts#NODE_FLOOR).
+#   4. THE SINGLE BINARY (docs/single-binary.md): one prebuilt Counterparts
+#      program for this platform and this exact version, kept in the plugin's
+#      data directory, $CLAUDE_PLUGIN_DATA/bin/<version>/counterparts.
 #
 # Bun first, because that is what the npm bins do (cli/bin/counterparts.mjs).
 # The entry it runs is the same one those bins run (hook.mjs, serve.mjs,
@@ -28,27 +32,49 @@
 # the person's project, and Bun would otherwise load that project's .env into
 # them — and nothing pins the plugin server's COUNTERPARTS_DATA_DIR, so a
 # project .env could name another store (adapters/runtime.ts). Node reads no
-# .env unless told to.
+# .env unless told to; the single binary is built with that loading off.
 #
-# With no runtime: a hook says so ONCE, at SessionStart, as a systemMessage the
-# person sees (and a line of context, so the model can say it too), and exits 0;
-# every other event exits 0 in silence. The server exits 127 with the reason on
-# stderr, which /mcp shows. Claude Code's own native binary does not double as
-# a JavaScript runtime (BUN_BE_BUN=1 is ignored; measured on 2.1.295).
+# WITH NONE OF THE FOUR, THIS FETCHES THE BINARY — once, in the background,
+# under a lock, never blocking a hook or the server's start-up:
 #
-# Only shell built-ins and parameter expansion below, plus the runtimes'
-# own --version: a PATH with nothing on it still reaches the message.
+#   - The platform: macOS arm64 (`sysctl hw.optional.arm64`, which a shell
+#     started under Rosetta still answers truthfully, unlike `uname -m`), macOS
+#     x64, Linux x64/arm64 (glibc), Windows x64.
+#   - The program comes from this version's GitHub release
+#     (.claude-plugin/binaries.json names the file and its sha256). The
+#     checksums SHIP WITH THE PLUGIN — a sum fetched from the same place as the
+#     file would prove the transfer and nothing about where it came from. The
+#     download is checked compressed and again unpacked; only then is it moved
+#     into place. A file that fails either check is deleted and never run.
+#   - Meanwhile SessionStart says, once, that Counterparts is getting ready
+#     (the size, where it comes from, and that memory starts next session);
+#     every other hook exits 0 in silence; the server answers the protocol
+#     with no tools and says the same in its instructions. A failure gets one
+#     line and is retried at a later start (not sooner than ten minutes).
+#   - COUNTERPARTS_BINARY_DOWNLOAD=off forbids the download (the message then
+#     names a runtime to install, as it did before the binary existed).
+#     COUNTERPARTS_BINARY_URL replaces the release URL — for tests; the
+#     checksums still come from the plugin.
+#
+# Claude Code's own native binary does not double as a JavaScript runtime
+# (BUN_BE_BUN=1 is ignored; measured on 2.1.295).
+#
+# Shell built-ins and parameter expansion for everything up to the message,
+# plus the runtimes' own --version; the download alone needs curl, gunzip and
+# a sha256 tool, and says so by name when one is missing.
 
 mode="${1:-}"
 [ $# -gt 0 ] && shift
 
 here="${0%/*}"
 [ "$here" = "$0" ] && here="."
+root="$here/../.."
 
 case "$mode" in
   hook) entry="$here/claude-code/bin/hook.mjs" ;;
   mcp) entry="$here/mcp/bin/serve.mjs" ;;
   cli) entry="$here/cli/bin/counterparts.mjs" ;;
+  __fetch) entry="" ;;
   *)
     echo "counterparts plugin-run: usage: sh plugin-run.sh hook|mcp|cli [args]" >&2
     exit 2
@@ -95,37 +121,227 @@ try_node_glob() { # a glob of node binaries: the first that is new enough
   return 1
 }
 
-if [ -n "${COUNTERPARTS_RUNTIME:-}" ]; then
-  case "${COUNTERPARTS_RUNTIME##*/}" in
-    node*) try_node "$COUNTERPARTS_RUNTIME" ;;
-    *) try_bun "$COUNTERPARTS_RUNTIME" ;;
-  esac
-else
-  try_bun "$(command -v bun 2>/dev/null)" ||
-    try_bun "${BUN_INSTALL:-$HOME/.bun}/bin/bun" ||
-    try_bun "$HOME/.bun/bin/bun" ||
-    try_bun /opt/homebrew/bin/bun ||
-    try_bun /usr/local/bin/bun ||
-    try_node "$(command -v node 2>/dev/null)" ||
-    try_node /opt/homebrew/bin/node ||
-    try_node /usr/local/bin/node ||
-    try_node /usr/bin/node ||
-    try_node "$HOME/.volta/bin/node" ||
-    try_node_glob "$HOME"/.nvm/versions/node/v*/bin/node ||
-    try_node_glob "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node ||
-    try_node_glob "$HOME/Library/Application Support/fnm/node-versions"/*/installation/bin/node ||
-    try_node_glob "$HOME"/.asdf/installs/nodejs/*/bin/node ||
-    try_node_glob "$HOME"/.local/share/mise/installs/node/*/bin/node
+if [ "$mode" != "__fetch" ]; then
+  if [ -n "${COUNTERPARTS_RUNTIME:-}" ]; then
+    case "${COUNTERPARTS_RUNTIME##*/}" in
+      node*) try_node "$COUNTERPARTS_RUNTIME" ;;
+      counterparts | counterparts.exe | counterparts-*)
+        [ -x "$COUNTERPARTS_RUNTIME" ] && exec "$COUNTERPARTS_RUNTIME" "$mode" "$@"
+        ;;
+      *) try_bun "$COUNTERPARTS_RUNTIME" ;;
+    esac
+  else
+    try_bun "$(command -v bun 2>/dev/null)" ||
+      try_bun "${BUN_INSTALL:-$HOME/.bun}/bin/bun" ||
+      try_bun "$HOME/.bun/bin/bun" ||
+      try_bun /opt/homebrew/bin/bun ||
+      try_bun /usr/local/bin/bun ||
+      try_node "$(command -v node 2>/dev/null)" ||
+      try_node /opt/homebrew/bin/node ||
+      try_node /usr/local/bin/node ||
+      try_node /usr/bin/node ||
+      try_node "$HOME/.volta/bin/node" ||
+      try_node_glob "$HOME"/.nvm/versions/node/v*/bin/node ||
+      try_node_glob "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node ||
+      try_node_glob "$HOME/Library/Application Support/fnm/node-versions"/*/installation/bin/node ||
+      try_node_glob "$HOME"/.asdf/installs/nodejs/*/bin/node ||
+      try_node_glob "$HOME"/.local/share/mise/installs/node/*/bin/node
+  fi
+
+  if [ "$kind" = "bun" ]; then
+    exec "$runtime" --no-env-file "$entry" "$@"
+  fi
+  if [ -n "$runtime" ]; then
+    exec "$runtime" "$entry" "$@"
+  fi
 fi
 
-if [ "$kind" = "bun" ]; then
-  exec "$runtime" --no-env-file "$entry" "$@"
+# ── the single binary ───────────────────────────────────────────────────────
+
+# "key": value out of one line of JSON, by parameter expansion.
+json_field() { # json_field <line> <key>
+  case "$1" in *"\"$2\": "*) ;; *) return 1 ;; esac
+  jv="${1#*\"$2\": }"
+  jv="${jv#\"}"
+  jv="${jv%%[\",\}]*}"
+  printf '%s' "$jv"
+}
+
+platform=""
+exe=""
+why="" # set when there is no binary to be had, in words
+case "$(uname -s 2>/dev/null)" in
+  Darwin)
+    if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then platform="darwin-arm64"; else platform="darwin-x64"; fi
+    ;;
+  Linux)
+    if ls /lib/ld-musl-* >/dev/null 2>&1; then
+      why="no prebuilt program for musl Linux (Alpine)"
+    else
+      case "$(uname -m 2>/dev/null)" in
+        x86_64 | amd64) platform="linux-x64" ;;
+        aarch64 | arm64) platform="linux-arm64" ;;
+        *) why="no prebuilt program for this processor" ;;
+      esac
+    fi
+    ;;
+  MINGW* | MSYS* | CYGWIN*) platform="windows-x64" exe=".exe" ;;
+  *) why="no prebuilt program for this system" ;;
+esac
+
+data="${CLAUDE_PLUGIN_DATA:-}"
+# `/counterparts:doctor` runs this through Claude Code's Bash tool, whose
+# environment need not carry CLAUDE_PLUGIN_DATA: then the directory Claude
+# Code gives this plugin (`<config dir>/plugins/data/<name>-<marketplace>`),
+# if it is there.
+if [ -z "$data" ] && [ -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/data/counterparts-counterparts" ]; then
+  data="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/data/counterparts-counterparts"
 fi
-if [ -n "$runtime" ]; then
-  exec "$runtime" "$entry" "$@"
+[ -z "$data" ] && [ -z "$why" ] && why="the plugin has no data directory to keep it in"
+case "${COUNTERPARTS_BINARY_DOWNLOAD:-}" in off | 0 | no | false) [ -z "$why" ] && why="COUNTERPARTS_BINARY_DOWNLOAD is off" ;; esac
+
+version=""
+manifest="$root/.claude-plugin/binaries.json"
+if [ -r "$root/.claude-plugin/plugin.json" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    v="$(json_field "$line" version)" && { version="$v"; break; }
+  done <"$root/.claude-plugin/plugin.json"
 fi
 
-said="Counterparts (memory) is not running: it needs Bun 1.3+ or Node.js 22.15+ and found neither on PATH or in the usual places. Install one (https://bun.sh or https://nodejs.org), then restart Claude Code."
+url=""
+asset=""
+sha=""
+gzsha=""
+gzbytes=""
+if [ -z "$why" ]; then
+  if [ ! -r "$manifest" ]; then
+    why="this version of the plugin carries no prebuilt program"
+  else
+    mversion=""
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        *'"version": '*) mversion="$(json_field "$line" version)" ;;
+        *'"url": '*) url="$(json_field "$line" url)" ;;
+        *"\"$platform\": "*)
+          asset="$(json_field "$line" file)"
+          sha="$(json_field "$line" sha256)"
+          gzsha="$(json_field "$line" gzSha256)"
+          gzbytes="$(json_field "$line" gzBytes)"
+          ;;
+      esac
+    done <"$manifest"
+    if [ "$mversion" != "$version" ] || [ -z "$version" ]; then
+      why="no prebuilt program was published for version ${version:-?}"
+    elif [ -z "$asset" ] || [ -z "$sha" ] || [ -z "$gzsha" ]; then
+      why="no prebuilt program for $platform"
+    fi
+  fi
+fi
+[ -n "${COUNTERPARTS_BINARY_URL:-}" ] && url="${COUNTERPARTS_BINARY_URL%/}"
+
+bindir="$data/bin"
+bin="$bindir/$version/counterparts$exe"
+lock="$bindir/download-$version.lock"
+failed="$bindir/download-$version.failed"
+
+if [ -z "$why" ] && [ "$mode" != "__fetch" ] && [ -x "$bin" ]; then
+  exec "$bin" "$mode" "$@"
+fi
+
+sha256_of() { # the hex digest of a file, or nothing
+  if command -v shasum >/dev/null 2>&1; then
+    d="$(shasum -a 256 "$1" 2>/dev/null)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    d="$(sha256sum "$1" 2>/dev/null)"
+  elif command -v openssl >/dev/null 2>&1; then
+    d="$(openssl dgst -sha256 -r "$1" 2>/dev/null)"
+  else
+    d=""
+  fi
+  printf '%s' "${d%% *}"
+}
+
+# ── the download itself: `sh plugin-run.sh __fetch`, detached, lock held ──
+if [ "$mode" = "__fetch" ]; then
+  [ -z "$why" ] || exit 0
+  tmp="$bindir/.partial-$version-$$"
+  fail() {
+    printf '%s\n' "$1" >"$failed"
+    rm -rf "$tmp"
+    rmdir "$lock" 2>/dev/null
+    exit 0
+  }
+  rm -rf "$tmp"
+  mkdir -p "$tmp" || fail "it could not write to the plugin's data directory"
+  curl -fsSL --retry 2 --connect-timeout 20 --max-time 1800 -o "$tmp/download.gz" "$url/$asset" 2>/dev/null ||
+    fail "the download from GitHub failed"
+  [ "$(sha256_of "$tmp/download.gz")" = "$gzsha" ] || fail "the download did not match the checksum the plugin carries"
+  gunzip -c "$tmp/download.gz" >"$tmp/counterparts$exe" 2>/dev/null || fail "the download would not unpack"
+  [ "$(sha256_of "$tmp/counterparts$exe")" = "$sha" ] || fail "the program did not match the checksum the plugin carries"
+  chmod 755 "$tmp/counterparts$exe" || fail "it could not mark the program runnable"
+  mkdir -p "$bindir/$version" && mv -f "$tmp/counterparts$exe" "$bin" || fail "it could not move the program into the plugin's data directory"
+  rm -rf "$tmp"
+  rm -f "$failed"
+  rmdir "$lock" 2>/dev/null
+  exit 0
+fi
+
+# ── no binary yet: start the download (once), and say so ───────────────────
+state="unavailable"
+if [ -z "$why" ]; then
+  for tool in curl gunzip; do
+    command -v "$tool" >/dev/null 2>&1 || why="$tool is not on PATH"
+  done
+  if [ -z "$why" ] && ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1 &&
+    ! command -v openssl >/dev/null 2>&1; then
+    why="no sha256 tool (shasum, sha256sum or openssl) is on PATH"
+  fi
+fi
+if [ -z "$why" ]; then
+  mkdir -p "$bindir" 2>/dev/null
+  # A lock older than half an hour is a download that died holding it.
+  [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +30 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
+  if [ -d "$lock" ]; then
+    state="downloading"
+  elif [ -f "$failed" ] && [ -z "$(find "$failed" -mmin +10 2>/dev/null)" ]; then
+    state="failed"
+  elif mkdir "$lock" 2>/dev/null; then
+    state="downloading"
+    # DETACHED, so neither the hook's exit nor the host ending its process
+    # group takes the download with it: its own session where `setsid`
+    # exists (Linux), its own process group through job control otherwise
+    # (macOS's /bin/sh).
+    if command -v setsid >/dev/null 2>&1; then
+      setsid sh "$0" __fetch </dev/null >/dev/null 2>&1 &
+    else
+      (
+        set -m 2>/dev/null
+        sh "$0" __fetch </dev/null >/dev/null 2>&1 &
+      )
+    fi
+  else
+    state="downloading" # another process took the lock a moment ago
+  fi
+fi
+
+mb=""
+[ -n "$gzbytes" ] && mb="about $((gzbytes / 1048576)) MB, "
+case "$state" in
+  downloading)
+    said="Counterparts is getting ready: this computer has no Bun or Node.js, so it is downloading its own program (${mb}from github.com/mlapeter/counterparts releases, checked against the checksum the plugin carries). Memory starts in your next session."
+    told="Counterparts memory is not running yet in this session: it is downloading its program (${mb}from github.com/mlapeter/counterparts releases) and starts in the next session. If the person asks about memory, tell them that."
+    ;;
+  failed)
+    reason=""
+    IFS= read -r reason <"$failed" 2>/dev/null
+    said="Counterparts could not get its program ready: ${reason:-the download failed}. Nothing unchecked was run. It will try again when a later session starts, or install Bun (https://bun.sh) or Node.js 22.15+ (https://nodejs.org) and restart Claude Code."
+    told="Counterparts memory is not running in this session: downloading its program failed (${reason:-unknown reason}); it retries at a later session start. If the person asks about memory, tell them that."
+    ;;
+  *)
+    said="Counterparts (memory) is not running: it needs Bun 1.3+ or Node.js 22.15+ and found neither on PATH or in the usual places${why:+ ($why)}. Install one (https://bun.sh or https://nodejs.org), then restart Claude Code."
+    told="Counterparts memory is not running in this session (no Bun 1.3+ or Node.js 22.15+ found). If the person asks about memory, tell them that."
+    ;;
+esac
 
 if [ "$mode" = "hook" ]; then
   payload=""
@@ -135,9 +351,57 @@ if [ "$mode" = "hook" ]; then
   case "$payload" in
     *'"hook_event_name":"SessionStart"'* | *'"hook_event_name": "SessionStart"'*)
       printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
-        "$said" "Counterparts memory is not running in this session (no Bun 1.3+ or Node.js 22.15+ found). If the person asks about memory, tell them that."
+        "$said" "$told"
       ;;
   esac
+  exit 0
+fi
+
+if [ "$mode" = "mcp" ] && [ "$state" != "unavailable" ]; then
+  # A SERVER WITH NO TOOLS that says why, so /mcp shows it connected and the
+  # model can answer "is memory on?" — newline-delimited JSON-RPC, read with
+  # parameter expansion. Requests get an answer; notifications get none.
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *'"id"'*) ;; *) continue ;; esac
+    # The request's own id, not one inside its params: next to "jsonrpc"
+    # (the MCP SDK writes `…,"jsonrpc":"2.0","id":N}`, most clients
+    # `{"jsonrpc":"2.0","id":N,…`), else first, else the last one.
+    case "$line" in
+      *'"jsonrpc":"2.0","id":'*) id="${line#*\"jsonrpc\":\"2.0\",\"id\":}" ;;
+      '{"id":'*) id="${line#\{\"id\":}" ;;
+      *)
+        id="${line##*\"id\"}"
+        id="${id#*:}"
+        ;;
+    esac
+    id="${id# }"
+    case "$id" in
+      \"*)
+        id="${id#\"}"
+        id="\"${id%%\"*}\""
+        ;;
+      *) id="${id%%[,\} ]*}" ;;
+    esac
+    method="${line#*\"method\"}"
+    method="${method#*\"}"
+    method="${method%%\"*}"
+    case "$method" in
+      initialize)
+        pv="2025-06-18"
+        case "$line" in *'"protocolVersion"'*)
+          pv="${line#*\"protocolVersion\"}"
+          pv="${pv#*\"}"
+          pv="${pv%%\"*}"
+          ;;
+        esac
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{}},"serverInfo":{"name":"counterparts","version":"%s"},"instructions":"%s"}}\n' \
+          "$id" "$pv" "${version:-0}" "$told"
+        ;;
+      tools/list) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[]}}\n' "$id" ;;
+      ping) printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id" ;;
+      *) printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"%s"}}\n' "$id" "$told" ;;
+    esac
+  done
   exit 0
 fi
 
