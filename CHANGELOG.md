@@ -60,6 +60,14 @@
   learned, and what it was before it changed) and **by meaning** (the chapters that hold a
   person, a project or a feeling, in time order, with their moments and whose feelings
   they were). The match-strength words are gone, as recall has none now.
+- **Recall by meaning answers about the person you asked about.** A question naming two
+  people, or you and someone else, was answered about whichever had more memories, which
+  is usually you: "what has Ilya been to Mike" through the `recall` tool came back as
+  Mike's story, with Ilya listed underneath. It now goes by how the question is worded and
+  the order of the names ("what has Ilya been to Mike" is Ilya's; "how has Ilya changed
+  since Nkechi arrived" is Ilya's). When two are asked about alike ("tell me about Ilya and
+  Nkechi") it follows the first and says so. And "what have I been like" or "how have I
+  changed", asked by meaning on the dashboard, finds your own card again.
 - **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
   `mode: "meaning"` does; facts stays the default. `--page` pages either.
 - **A memory id written inside a memory's words is a link.** On the Memories page,
@@ -78,6 +86,10 @@
   reached through links). Each showing is counted once. `counterparts probe-oq4` prints the
   resulting hit rate. This only measures: nothing is strengthened, weakened or ranked
   differently because of it.
+- **A memory's card in the dashboard says the day it was written on your calendar.** "Written
+  …" used the UTC date, so in Denver anything written in the evening showed the next day, and
+  east of UTC anything written early in the morning showed the day before. It now uses this
+  computer's date, the same day as the card's "recorded" line.
 - **A plan changed after a handoff is shown with it.** When a session left a handoff and
   later wrote a note or a `session_end` memory that changed the plan (status `planned`,
   `proposed` or `asked`, or marked `unresolved`), the next session in that directory saw

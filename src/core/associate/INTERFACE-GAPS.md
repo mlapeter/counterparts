@@ -245,7 +245,8 @@ be its own design.
 
 ## 12. A dream's lookups never reach the credit pass (noted 2026-09-28)
 
-**Owner:** the Claude Code adapter (`transcript.ts`, `hooks.ts#creditAtBoundary`).
+**Owner:** the Claude Code adapter (`transcript.ts`, `hooks.ts#creditAtBoundary` — in
+`adapters/lifecycle.ts` since #292, 2026-09-30).
 **Have:** index co-credit works where the lookups are in the session's own transcript:
 the hook flattens every `recall ids:[…]` batch in a reply's slice into the credit pass's
 expansions (tested, `association-build2.test.ts` › "5."). **Gap:** the nightly run —

@@ -143,9 +143,11 @@ export interface ReplayRun {
 /**
  * A corpus date → the instant the replay's provenance clock reads on that day.
  *
- * Midday UTC. The corpus records a DAY, not a time, and every date this codebase
- * writes is `toISOString().slice(0, 10)` — so an instant in the middle of the day
- * round-trips to the same date under any of them.
+ * Midday UTC. The corpus records a DAY, not a time, and an instant in the middle
+ * of the day round-trips to the same date in UTC, the zone the replay's store is
+ * pinned to (below). Since 2026-09-25 a row's date is the local date of its
+ * moment (docs/time.md), so an unpinned store would read midday UTC as the next
+ * day east of UTC+12.
  */
 export function corpusInstant(date: string): number {
   const at = Date.parse(`${date}T12:00:00Z`);
@@ -181,7 +183,7 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
   // THE CORPUS CLOCK. `replayAt` is moved to the day being replayed at the top of
   // the day loop below, before anything that day writes. Midday UTC, deliberately:
   // a corpus date is a DAY, and putting the instant in the middle of it keeps the
-  // date stable under `dateOf`'s UTC slice no matter which hour a span carried.
+  // date stable in the store's zone, UTC, no matter which hour a span carried.
   let replayAt = corpusInstant(opts.corpus.days()[0] ?? "1970-01-01");
   const now = opts.now ?? ((): number => replayAt);
 
@@ -203,6 +205,11 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     ...(opts.embed === undefined ? {} : { embed: opts.embed }),
     ...(opts.liveVectors === undefined ? {} : { vectors: opts.liveVectors }),
     now,
+    // THE REPLAY'S ZONE IS UTC, as the demo seed's is (`tools/demo/seed.ts`): its
+    // days are midday-UTC instants, and a store left in the machine's zone dated
+    // every row a day late at UTC+14 (2026-10-09). Pinned, a replay reads the
+    // same on every machine.
+    timeZone: "UTC",
     onEvent: (e: CounterpartEvent) => {
       events.push({ name: e.name, data: { ...(e.data ?? {}) } });
     },

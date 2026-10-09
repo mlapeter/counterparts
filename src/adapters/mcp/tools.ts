@@ -616,9 +616,9 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. In a question about feeling, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
+        "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. When it names several, the arc follows the one the question asks about (\"what has X been to Y\" is X's; named alike, the first, and it says so), and the rest are listed to ask for by name. In a question about feeling, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
       mechanizedBy:
-        "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#renderMeaning + src/core/recall/feeling-ask.ts#whoseAsked (asker: self, src/adapters/mcp/server.ts#askQuestion)",
+        "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#subjectOf + src/adapters/mcp/meaning.ts#renderMeaning + src/core/recall/feeling-ask.ts#whoseAsked (asker: self, src/adapters/mcp/server.ts#askQuestion)",
     },
     {
       claim:

@@ -29,7 +29,15 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ## U14 — The night run still can't open bundles over ~50 KB: the fix ships in 0.3.12 (2026-10-07)
 
-**Status:** `built` (#315, merged 2026-10-02), **ships in 0.3.12** (cut 2026-10-08). The
+**Status 2026-10-09:** `built` (#315, merged 2026-10-02), **in 0.3.12** (published
+2026-10-08), and **verified on the first 0.3.12 night** (2026-10-09, the day's
+coordinating session's morning check): the night's transcript had no "Output too large"
+on a dream or reflect call (its two hits were memories quoting the check), and doctor's
+Tool results line read green. Item 3, the
+night's own check for the host's cut, is #330 (merged 2026-10-09, `1936446`, not yet
+released). The rest of this entry is as written before.
+
+**Status before the release:** `built` (#315, merged 2026-10-02), **ships in 0.3.12** (cut 2026-10-08). The
 0.3.11 the owner runs was published 2026-10-01 22:06 UTC, about half a day before the fix
 merged. After 0.3.12 is installed, two checks close this. First, the next night's transcript
 under `~/.claude/projects/-Users-mlapeter--counterparts-store/` has no "Output too large" on
@@ -42,7 +50,7 @@ not show there; the transcript is the check for that. On a copy of the owner's s
 10-08, 0.3.12 handed the dream in 2 parts and the reflection in 6, the largest 38,286
 characters.
 
-**Item 3 built** on branch `fix/night-spill-check` (2026-10-09, not yet merged or released):
+**Item 3 built** in #330 (branch `fix/night-spill-check`, merged 2026-10-09 as `1936446`, not yet released):
 the night run names its child's session (`--session-id`), reads that transcript once the
 child exits, and counts results of ours the host replaced with its marker — matched where the
 host puts it, not as a substring, because the morning's manual search for "Output too large"
@@ -92,7 +100,13 @@ released, check that a spilled night actually turns doctor amber.
 
 ## U13 — Deliberate recall can't find memories by how they felt (2026-09-30)
 
-**Status:** items 1 and 2 and the three chapter-copy fixes BUILT on branch
+**Status 2026-10-09:** items 1 and 2 and the three chapter-copy fixes are `built`: #293,
+merged 2026-09-30 (`e9ff2c6`), released in 0.3.9. Item 3 (the journey over time) is answered
+by meaning mode (#322, merged 2026-10-03, released in 0.3.12; mcp CONTRACT §6e), at the MCP
+layer rather than in `recall/`: asked about a person, a project or a feeling, it lists the
+chapters that hold it in time order, each with its feelings by whose, and page 1 keeps the
+turns where a feeling's valence changes sign. Before the merge, this line read: items 1 and 2
+and the three chapter-copy fixes BUILT on branch
 `fix/recall-feelings-and-chapter-copies` (2026-09-30, not yet merged or released); item 3
 (the journey over time) still open. What was built: a deliberate question about feeling
 reads the stamps (the emotion word, its aliases, its wheel core(s), and the writer's own
@@ -191,8 +205,8 @@ outcome names it, and for `KIND_UNKNOWN` lists the kinds that exist.
 ## U10 — Nothing minted since launch has ever been reinforced; the promotion gradient has no input (2026-09-14)
 
 **Status:** built. Merged 2026-09-14 as master `8d7bd97` (PR #99, after #100/#101), restart #7 run
-the same day. `recall/reference.ts`, `Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`,
-`recall.credit` durable row; proof in `test/lifecycle.test.ts`. Owner rulings folded in: credit only
+the same day. `recall/reference.ts`, `Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`
+(since moved to `adapters/lifecycle.ts#creditAtBoundary`), `recall.credit` durable row; proof in `test/lifecycle.test.ts`. Owner rulings folded in: credit only
 when expanded or quoted (eight words, at least three content words) from what surfaced loud; once per
 (session, memory, lived day); a dedup merge bumps `uses` only and never a reinforced day. First
 identity crossing for a post-launch memory is not possible before about 2026-09-17 (three credited
@@ -290,7 +304,15 @@ renamed or documented as "band at last consolidation."
 
 ## U7 — Yesterday's work is invisible in the wake: recency has no lane (2026-09-14)
 
-**Status:** recommendation drafted for the owner (below); not built.
+**Status 2026-10-09:** question (2) below is answered: since 2026-10-01 `note` and
+`session_end` set `unresolved`, an update closes it, and "Still open:" shows at most five
+(`52384b0`, #313, released in 0.3.11; self INTERFACE-GAPS §8). Question (1), a recency
+lane or recency-weighted hints, is still the owner's ruling (LAUNCH-STATUS G53), and the
+recommendation below is not built. Yesterday does reach the wake by other roads since
+0.3.11: a "Yesterday" line from yesterday's chapters, and "Work here" for the session's
+directory (self CONTRACT §3).
+
+**Status before that:** recommendation drafted for the owner (below); not built.
 
 **Recommendation (2026-09-14, for the owner's ruling; the counterparts session to sanity-check
 against the self CONTRACT's lane vocabulary and the budget).** Do not add a sixth lane. Make
@@ -580,6 +602,13 @@ engram's, and both migrations carried it forward faithfully.
 ---
 
 ## Plan of record for U6–U10 (drafted 2026-09-14 by the ~/random and counterparts sessions; awaiting owner ruling)
+
+**Status 2026-10-09:** carried out on 2026-09-14. The lifecycle test, the §9.2 wiring, the
+dedup route-through and the U6 tie-break landed together as #99 (`8d7bd97`), the U9 rows
+as #100 (`10abffb`), U8's band of record as #106 (`598d72d`), and the `memory.reinforced`
+watch is in `tools/parallel/record.ts`. Of step 5, the leftover rule was looked at and
+kept (U6), and U7's recency question is still the owner's. The plan below is as it was
+written.
 
 Order, with the counterparts session's three amendments folded in:
 

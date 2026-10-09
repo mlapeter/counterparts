@@ -144,7 +144,9 @@ raw transcript (`fallback.ts#renderForSweep` → `interpret-client.ts`), and not
 through this battery before it leaves the machine; only the vector text is redacted
 (`counterpart.ts#sweepFallback`). With the key-based sweep becoming an opt-in (roadmap C2)
 it matters less, but a credential spoken in a crashed session is sent to the interpreter
-as spoken.
+as spoken. *(Noted 2026-10-09: moot since the keys were removed, #201, 2026-09-24:
+`interpret-client.ts` is gone and the worker passes the sweep no interpreter, so no
+shipped path sends the prompt out. If an interpreter ever returns, this applies again.)*
 
 *As filed:*
 

@@ -235,7 +235,9 @@ describe("counterparts mechanisms", () => {
     const s = Store.open({ dir, observer: true, now: () => at(TODAY) });
     let expected: string[];
     try {
-      expected = firedLines(firedReport(s, TODAY), true);
+      // The console reads on the person's day, the store's `today()` — not the
+      // UTC date TODAY spells, which is a day behind it at UTC+14.
+      expected = firedLines(firedReport(s, s.today()), true);
     } finally {
       s.close();
     }

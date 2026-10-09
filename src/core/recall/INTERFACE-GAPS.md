@@ -50,7 +50,14 @@ store read (`aliasesFor(token)` or `ambiguousHandles()`) that recall consults it
 Until then a caller that forgets the map silently loses the safety half — which is
 exactly the scar §2.6 shape, so this gap is the one to close first.
 
-## 3. No document-frequency statistics on the cache — idf is approximated by probing
+**The borrowed map, closed 2026-08-25 (noted 2026-10-09):** the composition root supplies
+it. `core/retrieval.ts#composeTurn` sets `aliases` from `schemas.aliasMap()` (`d88f957`,
+the wave-3 seam pass; schemas INTERFACE-GAPS §3), and `Counterpart`'s turn goes through
+`recallTurn`, so that caller cannot forget it; `test/seams.test.ts` proves the composed
+turn refuses the credit. The real fix above, a box-2 alias table recall reads itself, is
+not built.
+
+## 3. No document-frequency statistics on the cache — idf is approximated by probing — CLOSED 2026-09-04 (noted 2026-10-09)
 
 **Owner:** `store/` (box 3).
 **Needed:** rarity weighting (§9 G4) needs `df(token)` over the index.
@@ -69,6 +76,11 @@ joined box 3 (cache schema v3) and `Store.search(cue, limit, norm)` takes the no
 constants, so the cue channel no longer has to pretend every document is the same size. The
 `df` half above is unchanged.
 
+**The `df` half, closed 2026-09-04 (noted 2026-10-09):** `Store.docFrequency(tokens)` is
+the single `GROUP BY token` over `doc_tokens` (`store/cache.ts#docFrequency`), and
+`activate.ts` asks it for rarity before it probes for postings (`9991dec`, #28). The
+workaround above is gone.
+
 ## 3a. `doc_tokens` outlives the memory — removed rows still count in `df` and `avgLen`
 
 **Closed 2026-09-24** — `store/cache.ts#deindexDoc` drops `doc_tokens` and `doc_lens` at archive and supersede; a removal rebuilds the cache (`cli/removal.ts`). A dead row's vector is a separate note (`recall/NOTES.md` §13).
@@ -84,6 +96,10 @@ content — the ids never become candidates — and both are noise at the store'
 where the deny-list entry is already written.
 
 ## 4. The observer predicate lives in `store/`
+
+**Closed 2026-08-25 (noted 2026-10-09)** — the predicate lives in `src/core/observer.ts`
+(hoisted in the wave-3 seam pass, `d88f957`), and `Recall.observer` still reads
+`store.observer`, as below. Associate §8 closed the same way.
 
 Not a defect, and recorded so nobody "fixes" it: `Recall.observer` reads
 `store.observer` and never re-derives the predicate. `docs/observer-mode.md` G7 says a
@@ -148,7 +164,8 @@ lagged cue itself (the hook does not embed the turn — `hooks.ts`'s to change, 
 0.03 ms it now could). The MCP server's `note` no longer writes vectorless under the
 static table: `openServer` now hands the server's store the embedder's sync face and
 identity (mcp INTERFACE-GAPS §7's option 1, taken in #190 — that page still describes
-the gap as open and is its owner's to close).
+the gap as open and is its owner's to close). *(Noted 2026-10-09: mcp §7 has read
+CLOSED 2026-09-23 (#190) since #195.)*
 
 ## 7. Box 3 is 278 MB and 65% of it is JSON punctuation — NAMED, not fixed here
 
@@ -260,7 +277,10 @@ slips, lexical 10/10). Every number, the grid and the confirmation run:
 - One synthetic persona and builder-written queries; a lag embedded from the question
   alone; one topic-change partner per query.
 - The MCP `recall` tool builds rather than records, so its pair rides `BuildOutput.semantic`
-  but reaches no telemetry ring until `server.ts` logs it.
+  but reaches no telemetry ring until `server.ts` logs it. *(Noted 2026-10-09: the premise
+  is gone. Since #323 (2026-10-03) a question goes to facts or meaning mode, neither of
+  which calls `Recall.build()`; the `mcp.recall` row names the semantic source, not the
+  floor and weight.)*
 
 ## 9. Whether a quiet pointer was USED is measured on one host only — OPEN 2026-09-28
 

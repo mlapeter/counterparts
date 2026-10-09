@@ -403,7 +403,10 @@ on every turn.
   count rows, not payloads; the lane is on each `band.promoted` row's payload and a
   dream's change count is on `dream.changed`'s. The builder is moving the lights into
   the shared `adapters/mechanism-evidence.ts` (master ef37eb1); that is where the
-  Consolidation / Dreaming / Gist lines belong.
+  Consolidation / Dreaming / Gist lines belong. *(Half CLOSED 2026-09-26 by #251
+  (`197e1ca`), noted 2026-10-09: the Dreaming line counts a week's dreams and their
+  changes, and since #262 its core suggestions apart. The lane is still not said: Consolidation reads only
+  "N memories became core".)*
 - **A dream's journal cannot be removed from the console.** `remove` takes memory ids,
   and a journal is not a memory (it lives in the `dreams` table). An owner who wants a
   journal gone has `dream --undo`, which keeps it marked undone. A `dream --forget <id>`
