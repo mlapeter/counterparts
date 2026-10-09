@@ -469,7 +469,7 @@ them.
   (`Schemas#subjectsIn` → `memory_subjects`), the one it is about the arc and the rest
   one-liners (`meaning.ts#subjectOf`, 2026-10-09). A name the words before it ask about
   ("what has X been", "how has X changed", "about X", "my arc with X") ranks over a plain
-  mention, and that over an aside ("to Y", "for Y", "since Y"); a name joined to the one
+  mention, and that over an aside ("been to Y", "since Y", "after Y"); a name joined to the one
   before it ("X and Y") shares its place; the owner's own card leaves a place it shares;
   then the first named wins, memory counts only break a tie, and the answer says when
   more than one were asked about alike. The owner's "I" ("you" in the counterpart's

@@ -296,8 +296,12 @@ const ABOUT_BEFORE: readonly RegExp[] = [
   /\bbetween\s+$/i,
   /\bbetween\s+(?:you|me|him|her|them)\s+and\s+$/i,
 ];
-/** Just before a name, words that make it an ASIDE: who the subject matters to, or since when ("been to Y", "since Y arrived"). */
-const ASIDE_BEFORE = /\b(?:to|for|since|than)\s+$/i;
+/**
+ * Just before a name, words that make it an ASIDE: who the subject matters to
+ * ("been to Y", "meant for Y"), or when ("since Y arrived", "after Y left").
+ * Not a bare "to": "what happened to X" asks about X.
+ */
+const ASIDE_BEFORE = /\b(?:(?:be|been|is|was|are|were|mean|means|meant|matter|matters|mattered)\s+(?:to|for)|since|after|before|until|than)\s+$/i;
 /** What lies between two names asked about alike: "X and Y", "X, Y", "X or Y". */
 const JOINED = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|&)\s+)$/i;
 /** The owner's "I" when the asker is the counterpart (`asker: "self"`): "you". Not "your", which owns a topic ("your garden plan"). */

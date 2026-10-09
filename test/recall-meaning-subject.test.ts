@@ -106,6 +106,9 @@ describe("the recall tool, meaning mode", () => {
     // "since Y" is when, not who.
     expect((await recall(`how has ${fewer.name} changed since ${more.name} arrived?`)).head).toStartWith(`${fewer.name} · `);
     expect((await recall(`how has ${more.name} changed since ${fewer.name} arrived?`)).head).toStartWith(`${more.name} · `);
+    // "what happened to X" asks about X; "after Y left" is when.
+    expect((await recall(`what happened to ${fewer.name} after ${more.name} left`)).head).toStartWith(`${fewer.name} · `);
+    expect((await recall(`what happened to ${more.name} after ${fewer.name} left`)).head).toStartWith(`${more.name} · `);
     // "my arc with X": the person, though a bigger card is named after.
     const arc = await recall(`my arc with ${fewer.name}, and where ${more.name} fits`);
     expect(arc.head).toStartWith(`${fewer.name} · `);

@@ -1218,10 +1218,11 @@ Nkechi Abernathy arrived" answered about Nkechi.
 
 - **Grammar first, then the order of the names, then counts** (`meaning.ts#subjectOf`). Each
   name is read in place by the words just before it: asked about ("what has X been", "how
-  has X changed", "how did X", "about X", "my arc with X", "between X and Y"), an aside ("to
-  Y", "for Y", "since Y", "than Y"), or plain. A name joined to the one before it ("X and Y",
-  "X, Y") shares its place. The best place wins; within it the first named; a longer name at
-  the same spot, then more memories, then the name, break a tie.
+  has X changed", "how did X", "about X", "my arc with X", "between X and Y"), an aside
+  ("been to Y", "meant for Y", "since Y", "after Y", "than Y"), or plain. A bare "to" is
+  not an aside: "what happened to X after Y left" is X's. A name joined to the one before it
+  ("X and Y", "X, Y") shares its place. The best place wins; within it the first named; a
+  longer name at the same spot, then more memories, then the name, break a tie.
 - **The owner leaves a place he shares.** Every memory in his store is his, so beside
   another card in the same place the other says more ("Rosalind and Ilya" is Ilya's arc).
   When the grammar puts him alone in the subject's place ("what has Rosalind been to Ilya")
