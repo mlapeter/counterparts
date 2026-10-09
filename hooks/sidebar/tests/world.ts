@@ -10,6 +10,8 @@ import type { MockClock } from 'claude-code/testing'
 import type { On, RenderPropsOf, UiBlitArgs } from 'claude-code'
 
 export const PLUGIN = 'counterparts'
+/** The folder the test session runs in. */
+export const HERE = '/work/project'
 export const PANE = 'counterparts'
 /** 2026-10-09, 1:35pm in whatever zone the test runs in. */
 export const T0 = new Date(2026, 9, 9, 13, 35, 0).getTime()
@@ -25,6 +27,15 @@ export const PANE_PROPS = {
 } as unknown as RenderPropsOf['Pane']
 
 export const VIEWPORT = { columns: 180, rows: 60, isFullscreen: true }
+
+export const BAND_PROPS = {
+  hasSurvey: false,
+  isWorking: false,
+  maxRows: 20,
+  bodyColumns: 130,
+  scroll: { offset: 0, bodyRows: 20 },
+  view: {},
+} as unknown as RenderPropsOf['AbovePrompt']
 
 export const PULSE = { day: 18, memories: 776, events: 22136, lastSeq: 500 }
 
@@ -91,7 +102,15 @@ export type WorldOptions = {
   down?: boolean;
   tools?: { name: string; description: string; mcp: boolean }[];
   placed?: boolean;
+  /** This folder's scope: its mode, and which folder's entry set it (this one's, by default; null for none). */
   scopeMode?: string;
+  scopeSetBy?: string | null;
+  /** The pane is drawn and the one shown (`$.ui.panes()`): true unless given. */
+  shown?: boolean;
+  /** Every blit is refused (the Raster is no longer mounted). */
+  blitDeny?: boolean;
+  /** The answer a `recall` gets. */
+  factsAnswer?: string;
   store?: Record<string, unknown>;
   /** What the person's permission settings say about the memory tools (`allow` unless given). */
   permission?: 'allow' | 'ask' | 'deny';
@@ -106,7 +125,8 @@ export type World = {
   fetches: string[];
   mcp: { server: string; tool: string; args: Record<string, unknown> }[];
   invalidations: string[];
-  scope: { mode: string };
+  scope: { mode: string; setBy: string | null; resumeTo: string };
+  shown: boolean;
   lastStatus: () => string;
 }
 
@@ -123,7 +143,8 @@ export function world(on: On, opts: WorldOptions = {}): World {
     fetches: [],
     mcp: [],
     invalidations: [],
-    scope: { mode: opts.scopeMode ?? 'on' },
+    scope: { mode: opts.scopeMode ?? 'on', setBy: opts.scopeSetBy === undefined ? HERE : opts.scopeSetBy, resumeTo: 'on' },
+    shown: opts.shown ?? true,
     lastStatus: () => w.statuses.filter((s): s is string => typeof s === 'string').at(-1) ?? '',
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -145,8 +166,16 @@ export function world(on: On, opts: WorldOptions = {}): World {
   })
   on('ui.blit', (_$, e) => {
     w.blits.push(e)
-    return { value: {} }
+    return opts.blitDeny === true ? { value: { deny: 'not mounted' } } : { value: {} }
   })
+  on('ui.panes', () => ({ value: [{ id: PANE, title: 'Counterparts', isShown: w.shown, isFocused: false, isPlaced: w.shown }] }))
+  on('ui.close', () => ({ value: undefined }))
+  // The engine's own band above the prompt: an empty box, which the sidebar's hook passes through.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return Box({})
+  })
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('tool.list', () => ({ value: opts.tools ?? NPM_TOOLS }))
   on('tool.check', () => ({ decision: opts.permission ?? 'allow' }))
   on('http.fetch', (_$, e) => {
@@ -167,19 +196,36 @@ export function world(on: On, opts: WorldOptions = {}): World {
     w.mcp.push({ server: e.server, tool: e.tool, args: e.args })
     const text = (p: unknown, isError = false) => ({ value: { content: [{ type: 'text', text: JSON.stringify(p) }], isError } })
     if (e.tool === 'scope') {
-      if (e.args['mode'] === 'pause') w.scope.mode = 'paused'
-      if (e.args['mode'] === 'resume') w.scope.mode = 'on'
-      return text({ scope: '/work/project', mode: w.scope.mode, stance: w.scope.mode === 'on' ? 'on' : 'off' })
+      // The server's own rules (mcp/server.ts#scopeTool, scopes.ts): a pause
+      // remembers an own on/observer, a resume needs an own entry.
+      const mode = e.args['mode']
+      if (mode === undefined) {
+        return text({ scope: HERE, mode: w.scope.mode, stance: w.scope.mode, ...(w.scope.setBy === null ? {} : { setBy: w.scope.setBy }) })
+      }
+      const own = w.scope.setBy === HERE
+      if (mode === 'resume' && !own) return text({ refused: true, reason: 'nothing-to-resume', detail: 'Nothing is set for this directory.' }, true)
+      if (mode === 'pause') {
+        w.scope.resumeTo = own && (w.scope.mode === 'on' || w.scope.mode === 'observer') ? w.scope.mode : 'on'
+        w.scope.mode = 'paused'
+      } else if (mode === 'resume') w.scope.mode = w.scope.resumeTo
+      else w.scope.mode = String(mode)
+      w.scope.setBy = HERE
+      return text({ set: true, scope: HERE, mode: w.scope.mode, stance: w.scope.mode })
     }
-    if (e.tool === 'recall') return text({ path: 'question', mode: 'facts', answer: FACTS_ANSWER, ids: ['mem_pub00001', 'mem_pub00002'] })
+    if (e.tool === 'recall') return text({ path: 'question', mode: 'facts', answer: opts.factsAnswer ?? FACTS_ANSWER, ids: ['mem_pub00001', 'mem_pub00002'] })
     return text({ reason: 'unknown-tool' }, true)
   })
   return w
 }
 
-/** Starts the session the way a terminal REPL does, and lets the first reads land. */
+/** Starts the session the way a terminal REPL does. Nothing is opened or read yet. */
 export async function start($: { session: { start: (e: { cwd: string; surface: 'terminal' | 'desktop' | 'mobile' | 'vscode' | null; isInteractive: boolean }) => Promise<unknown> } }, w: World, interactive = true): Promise<void> {
-  await $.session.start({ cwd: '/work/project', surface: interactive ? 'terminal' : null, isInteractive: interactive })
+  await $.session.start({ cwd: HERE, surface: interactive ? 'terminal' : null, isInteractive: interactive })
   await w.clock.settle()
   await w.clock.settle()
+}
+
+/** Let what a drawing started (the first dashboard read, the quiet scope read) land. */
+export async function settle(w: World): Promise<void> {
+  for (let i = 0; i < 4; i++) await w.clock.settle()
 }

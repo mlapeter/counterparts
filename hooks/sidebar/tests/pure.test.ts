@@ -114,6 +114,31 @@ describe('the feed', () => {
     ])
   })
 
+  test('a facts answer read from the right: a title holding “ · word_word · ”, a chapter, no ways at all', () => {
+    const answer = [
+      '14 match · showing 3 · 11 more → page 2',
+      '',
+      '1. Sidebar · npm_install · trial notes · mem_bbbbbbbbbbbb · words',
+      '   you said · decided · no event date',
+      '   Body one.',
+      '',
+      '2. [journal] The lighthouse conversation · ep_aaaaaaaaaaaa (chapter 2 of 5) · meaning',
+      '   my journal · written 10-08..10-09',
+      '   Body two.',
+      '',
+      '3. No ways at all · mem_cccccccccccc · ',
+      '   you said · decided · no event date',
+      '   Body three.',
+    ].join('\n')
+    const { total, hits } = parseFacts(answer)
+    expect(total).toBe(14)
+    expect(hits.map(h => [h.id, h.title])).toEqual([
+      ['mem_bbbbbbbbbbbb', 'Sidebar · npm_install · trial notes'],
+      ['ep_aaaaaaaaaaaa', 'The lighthouse conversation'],
+      ['mem_cccccccccccc', 'No ways at all'],
+    ])
+  })
+
   test('kept: note, chapter and session_end under either server name; a refused note is not kept', () => {
     const note = keptRow('mcp__counterparts__note', { title: 'Sidebar shipped', text: 'long' }, '{"stored":true,"id":"mem_new00001"}', T0, 1)
     expect(note).toMatchObject({ word: 'kept', text: '“Sidebar shipped”', keys: ['mem:mem_new00001'], live: true })

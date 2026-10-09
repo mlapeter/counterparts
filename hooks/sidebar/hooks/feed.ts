@@ -264,9 +264,19 @@ export type SearchHit = SidebarHit;
 /**
  * The labeled lines `adapters/mcp/facts.ts#renderFacts` writes: a header,
  * then per result `N. <title> · <id>[ (chapter …)] · <ways>` and indented
- * lines under it, the last of which is the excerpt.
+ * lines under it, the last of which is the excerpt. Read from the RIGHT: a
+ * title may hold ` · ` and words shaped like an id (`Sidebar · npm_install ·
+ * notes`), the ways (`words, meaning`, or nothing) never do.
  */
-export function parseFacts(answer: string): { header: string; hits: SearchHit[] } {
+const ITEM = /^(\d+)\.\s+(?:\[journal\]\s+)?(.*)\s+·\s+([A-Za-z]+_[A-Za-z0-9]+)(?:\s+\(chapter \d+ of \d+\))?\s+·\s*([^·]*)$/
+
+/** `14 match · showing 5 · …` → 14; 0 when the header says no count. */
+export function factsTotal(header: string): number {
+  const m = /^(\d+) match/.exec(header.trim())
+  return m === null ? 0 : Number(m[1])
+}
+
+export function parseFacts(answer: string): { header: string; total: number; hits: SearchHit[] } {
   const lines = answer.split('\n');
   const header = lines[0] ?? '';
   const hits: SearchHit[] = [];
@@ -279,7 +289,7 @@ export function parseFacts(answer: string): { header: string; hits: SearchHit[] 
     cur = null;
   };
   for (const line of lines.slice(1)) {
-    const item = /^(\d+)\.\s+(?:\[journal\]\s+)?(.*?)\s+·\s+([A-Za-z]+_[A-Za-z0-9]+)(?:\s+\(chapter[^)]*\))?(?:\s+·\s+.*)?$/.exec(line);
+    const item = ITEM.exec(line);
     if (item !== null) {
       flush();
       cur = { id: item[3] ?? '', title: item[2] ?? '', under: [] };
@@ -290,7 +300,7 @@ export function parseFacts(answer: string): { header: string; hits: SearchHit[] 
     else if (/^faded \(\d+\):/.test(line)) flush();
   }
   flush();
-  return { header, hits };
+  return { header, total: Math.max(factsTotal(header), hits.length), hits };
 }
 
 // ── words and times ────────────────────────────────────────────────────────

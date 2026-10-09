@@ -45,6 +45,8 @@ export type SidebarSearch = {
   status: 'idle' | 'running' | 'done' | 'error';
   /** The answer's first line (`12 match · showing 10 …`). */
   header: string;
+  /** How many matched in all, from that header; the hits are the page shown. */
+  total: number;
   hits: SidebarHit[];
   error: string | null;
 };
@@ -55,9 +57,18 @@ export type SidebarPulse = { day: number; memories: number; lastSeq: number };
 export type SidebarScope = {
   /** `on`, `paused`, `off`, `observer`, `unset`; `unknown` before the first read. */
   mode: string;
+  /** True when this folder's own entry holds the mode (not an ancestor's, not unset). */
+  own: boolean;
+  /** The folder whose entry governs here, when one does. */
+  setBy: string | null;
+  /** This folder, as the server names it. */
+  dir: string | null;
   error: string | null;
   busy: boolean;
 };
+
+/** A line or two the switch explains itself with, under the switches. */
+export type SidebarNote = { text: string; at: number };
 
 export type SidebarMark = { id: string; at: number };
 
@@ -84,6 +95,10 @@ declare module 'claude-code' {
       rail: boolean;
       /** The switch's ends: Powerline half-discs, or half blocks for a font without them. */
       caps: 'round' | 'block';
+      /** What the Counterparts switch said about a press it would not act on. */
+      switchNote: SidebarNote | null;
+      /** The person closed the pane by hand this session: it is not opened again unasked. */
+      closed: boolean;
     };
   }
 }
