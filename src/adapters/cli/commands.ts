@@ -798,7 +798,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply. --apply requires --dir.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
   "probe-oq4":
-    "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows. Read-only.",
+    "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows, then recall's hit rate — of what it showed, how much a reply expanded or quoted, loud, footnoted and pointer. Read-only.",
   mechanisms:
     "Is each memory mechanism working? One line per mechanism, with a light (● working this week, ◐ built but not firing, ○ not built yet) and the count from the store behind it, then the plumbing in one line that names only what is failing. --all prints the full report: every part, silent first, when it last fired, how often in the last 7 days, what it turned away, and why the store cannot tell for the ones nothing records. Read-only.",
   fired:

@@ -55,8 +55,10 @@ import {
   askedTurn,
   Recall,
   isConfidential,
+  judgedThrough,
   loadGateState,
   loadSessionSemantic,
+  markJudged,
   saveSessionSemantic,
 } from "./recall/index.js";
 import { resolveReferences } from "./recall/reference.js";
@@ -64,6 +66,7 @@ import type { ReferenceCandidate } from "./recall/reference.js";
 import type {
   CandidateVerdict,
   CreditResult,
+  GateState,
   RecallDecision,
   Turn as RecallTurn,
   RecallResult,
@@ -133,7 +136,7 @@ import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionSt
 import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
-import { leftAs } from "./leaving.js";
+import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
 import {
   BRIEFING_KEY,
@@ -526,6 +529,9 @@ export const ASSOCIATE_FLUSH_EVENT = "associate.flush";
 export const CONTIGUITY_CURSOR_META = "associateContiguityCursor";
 /** Meta key: the v12 subject backfill's record (latch + what it linked, for doctor). */
 export const SUBJECTS_BACKFILL_META = "subjects.v12.backfill";
+/** Meta key: the one-time carry of the links regrown chapter copies were left
+ *  holding (2026-10-09) — its latch, and what it carried. */
+export const REGROWN_RELINK_META = "associate.regrown.relink";
 
 /** What one boundary's temporal contiguity pass did. Counts only. */
 export interface ContiguityPass {
@@ -762,6 +768,26 @@ export interface CreditSummary {
    *  shown are on each turn's `recall.decision` (`spread.pointersShown`);
    *  this is the other half: whether they get used. */
   readonly pointersExpanded: number;
+  /** The ambient showings this boundary scored (2026-10-09): what recall showed
+   *  this session since the last boundary that judged, by lane. Measurement
+   *  only — nothing is strengthened, weakened or re-ranked by it. */
+  readonly shown: ShownLanes;
+  /** Of those, how many the replies neither expanded nor quoted, by lane. */
+  readonly unused: ShownLanes;
+  /** Their ids, oldest showing first: with `recall.decision`'s rows, a hit rate
+   *  per memory and per lane. */
+  readonly shownNotUsed: string[];
+  /** The recall turn the scored stretch ends at (the session's `judged` mark
+   *  after this pass); 0 when the session has shown nothing yet. */
+  readonly judgedThrough: number;
+}
+
+/** Ambient showings by lane: shown loud, footnoted on the turn's own cues, or
+ *  footnoted as a quiet pointer (reached only through links). */
+export interface ShownLanes {
+  readonly loud: number;
+  readonly footnotes: number;
+  readonly pointers: number;
 }
 
 /**
@@ -1776,6 +1802,9 @@ export class Counterpart {
     // through the same one. Then, once per store, the memories written before.
     this.store.findSubjectsWith((text) => this.schemas.subjectsIn(text));
     if (!this.observer) this.backfillSubjects();
+    // Once per store, the links regrown chapter copies were left holding
+    // before a regrowth carried them (2026-10-09).
+    if (!this.observer) this.relinkRegrownCopies();
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
@@ -1790,6 +1819,11 @@ export class Counterpart {
         this.relay("self", e);
       },
       onMemoryMinted: (m) => this.creditNamedIn(m.title, m.body, m.day, m.id, "episode"),
+      // SEAMS E once more: a regrown chapter copy inherits its archived copy's
+      // links, as a revision's successor and a dream merge's memory do.
+      retarget: (oldId, newId, day) => {
+        this.associate.retargetOnSupersede(oldId, newId, day);
+      },
       now: this.nowFn,
       ...(opts.selfTunables === undefined ? {} : { tunables: opts.selfTunables }),
     });
@@ -2990,6 +3024,16 @@ export class Counterpart {
       ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
       ...(input.now === undefined ? {} : { now: input.now }),
     });
+    // SHOWN, AND NOT USED (2026-10-09). Recall predicts on every turn that what
+    // it shows will help the reply, and until now a miss left no record per
+    // memory. The ambient showings since the last boundary that judged are
+    // scored once, here: used when a reply expanded or quoted them (whether or
+    // not credit then landed), otherwise listed. Measurement only. A boundary
+    // whose slice holds no reply and no expansion judges nothing (review of
+    // #329): a capture that failed or found nothing new is not a reply that
+    // ignored what it was shown.
+    const replied = input.assistantTurns.length > 0 || input.expansions.length > 0;
+    const showings = this.scoreShowings(sessionId, state, refs.uses, day, replied);
     // An expansion is an ADDRESS the assistant typed into a tool call, and a
     // well-shaped address can still name nothing: a typo, or a memory removed
     // since it was footnoted. Physics would throw on it (`requireRow`) and take
@@ -3092,6 +3136,10 @@ export class Counterpart {
       refused,
       ids,
       linkedDespite,
+      shown: showings.shown,
+      unused: showings.unused,
+      shownNotUsed: showings.shownNotUsed,
+      judgedThrough: showings.judgedThrough,
     };
     this.emit("counterpart.credit", sessionId, {
       reason,
@@ -3102,8 +3150,68 @@ export class Counterpart {
       credited,
       linkedDespite,
       pointersExpanded,
+      shown: showings.shown.loud + showings.shown.footnotes + showings.shown.pointers,
+      shownNotUsed: showings.shownNotUsed.length,
     });
     return summary;
+  }
+
+  /**
+   * One boundary's score of recall's ambient showings (2026-10-09; Hawkins
+   * "2a", measurement only). The stretch is every memory this session's gate
+   * state records as shown after the session's `judged` mark — loud,
+   * footnoted, or footnoted as a quiet pointer — and the mark then moves to the
+   * session's newest recall turn, so the next boundary scores only what came
+   * after. A showing used at a later boundary than its own is still counted
+   * once as not used here, and then as used there (`expandedIds`, or a quote):
+   * the score is of the reply it was shown for. A deliberate answer's memories
+   * (`asked`) are not ambient and are not in the gate state's `surfaced`.
+   *
+   * Never throws: a mark that cannot be read scores from the session's start,
+   * one that cannot be written is re-scored next time — both say more misses,
+   * never fewer, and neither costs the boundary its credit. Under observer the
+   * mark is not written (an instrument deposits nothing).
+   *
+   * `replied` false (the slice held no reply and no expansion): nothing is
+   * scored and the mark stays, so the showings wait for the first boundary
+   * that read a reply (review of #329).
+   */
+  private scoreShowings(
+    sessionId: string,
+    state: GateState,
+    uses: readonly { memoryId: string }[],
+    day: number,
+    replied: boolean,
+  ): { shown: ShownLanes; unused: ShownLanes; shownNotUsed: string[]; judgedThrough: number } {
+    let from = 0;
+    try {
+      from = judgedThrough(this.store, sessionId);
+    } catch {
+      from = 0;
+    }
+    const used = new Set(uses.map((u) => u.memoryId));
+    const shown = { loud: 0, footnotes: 0, pointers: 0 };
+    const unused = { loud: 0, footnotes: 0, pointers: 0 };
+    const shownNotUsed: { id: string; turn: number }[] = [];
+    if (!replied) return { shown, unused, shownNotUsed: [], judgedThrough: from };
+    for (const [id, rec] of Object.entries(state.surfaced)) {
+      if (rec.turn <= from) continue;
+      const lane = rec.tier === "surfaced" ? "loud" : rec.via === "link" ? "pointers" : "footnotes";
+      shown[lane] += 1;
+      if (used.has(id)) continue;
+      unused[lane] += 1;
+      shownNotUsed.push({ id, turn: rec.turn });
+    }
+    shownNotUsed.sort((a, b) => a.turn - b.turn || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const through = Math.max(from, state.turn);
+    if (through > from && !this.observer) {
+      try {
+        markJudged(this.store, sessionId, through, day);
+      } catch (err) {
+        this.emit("counterpart.credit.judged.failed", sessionId, { code: errCode(err) });
+      }
+    }
+    return { shown, unused, shownNotUsed: shownNotUsed.map((s) => s.id), judgedThrough: through };
   }
 
   /**
@@ -6048,6 +6156,88 @@ export class Counterpart {
       this.emit("counterpart.subjects.backfill", undefined, { memories: found.memories, links: added, cards: found.cards });
     } catch (err) {
       this.emit("counterpart.subjects.backfill.failed", undefined, { code: errCode(err) });
+    }
+  }
+
+  /**
+   * THE LINKS REGROWN COPIES WERE LEFT HOLDING, carried once (2026-10-09).
+   * Until then a chapter copy archived `episode-regrown` kept every link it
+   * had learned, and an archived row conducts nothing: the owner's store held
+   * 260 of its 1,200 edge rows on such copies on 10-02. Each copy's links go
+   * to its chapter's live copy (`origin_ref`, the chapter's id) by the rule a
+   * regrowth now uses at the time — `associate.retargetOnSupersede`: the
+   * weight as it stands today, `max`, both ways — so a link that has faded
+   * below the floor since carries nothing. Read from the edge table, so the
+   * pass is as long as the links are, not as long as the store. Latched like
+   * the v12 backfill (its record in meta, read first); idempotent if cut
+   * short; writer-only; fail-open, tried again next open.
+   *
+   * Review of #329: a copy a removal has taken dark carries nothing (its rows
+   * wait for the chase, and must not outlive it on the live copy), and the
+   * reads are one per kind, not one per row: `origin_ref` has no index, and a
+   * `list({ originRef })` per chapter cost 2.3 s of a 2.8 s pass on a
+   * 15k-row store (`store.copiesOf` is the one-scan read the wake uses).
+   */
+  private relinkRegrownCopies(): void {
+    try {
+      if (this.store.getMeta(REGROWN_RELINK_META) !== undefined) return;
+      const started = this.nowFn();
+      const day = this.store.livedDay();
+      const denied = new Set(this.store.deniedIds());
+      const archived = new Set(this.store.list({ type: "memory", archived: true }));
+      let removed = 0;
+      const stale: { id: string; episode: string | null }[] = [];
+      for (const src of new Set(this.store.allEdges().map((e) => e.src))) {
+        if (!archived.has(src)) continue;
+        const row = this.store.row(src);
+        if (row === undefined || row.archived !== 1 || row.archived_reason !== EPISODE_REGROWN_REASON) continue;
+        if (denied.has(src)) {
+          removed += 1;
+          continue;
+        }
+        stale.push({ id: src, episode: row.origin_ref });
+      }
+      // Each chapter's live copy. There is one, unless the chapter's copy was
+      // itself taken out since; were there two, the latest written.
+      const episodes = stale.flatMap((s) => (s.episode === null ? [] : [s.episode]));
+      const held = episodes.length === 0 ? new Map<string, { id: string }[]>() : this.store.copiesOf(episodes);
+      const liveCopy = new Map<string, string | null>();
+      for (const [episode, found] of held) {
+        const ids = found.map((f) => f.id).filter((id) => !denied.has(id));
+        liveCopy.set(
+          episode,
+          ids.length === 0 ? null : ids.reduce((a, b) => ((this.store.row(b)?.created_at ?? 0) > (this.store.row(a)?.created_at ?? 0) ? b : a)),
+        );
+      }
+      let copies = 0;
+      let edges = 0;
+      let noLiveCopy = 0;
+      let failed = 0;
+      for (const { id: src, episode } of stale) {
+        const to = episode === null ? null : (liveCopy.get(episode) ?? null);
+        if (to === null) {
+          noLiveCopy += 1;
+          continue;
+        }
+        const out = this.associate.retargetOnSupersede(src, to, day);
+        // The edge module answers a failed write rather than throwing it.
+        if (out.reason === "failed") {
+          failed += 1;
+          continue;
+        }
+        copies += 1;
+        edges += out.pairs;
+      }
+      this.emit("counterpart.regrown.relink", undefined, { copies, edges, noLiveCopy, removed, failed, day });
+      // A pass a failed write cut short is NOT latched, so the next open tries
+      // again (`max` makes the second carry of what did land a no-op).
+      if (failed > 0) return;
+      this.store.setMeta(
+        REGROWN_RELINK_META,
+        JSON.stringify({ at: this.nowFn(), ms: this.nowFn() - started, day, copies, edges, noLiveCopy, removed }),
+      );
+    } catch (err) {
+      this.emit("counterpart.regrown.relink.failed", undefined, { code: errCode(err) });
     }
   }
 
