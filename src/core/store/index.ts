@@ -2444,6 +2444,11 @@ export class Store {
         );
   }
 
+  /** How many reflections the store holds, counted in SQL — so a caller that wants every one (`export --markdown`) can ask for exactly that many. */
+  reflectionCount(): number {
+    return this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM reflections")?.n ?? 0;
+  }
+
   /** True when the owner's latest word on this memory's core membership is a demotion. */
   coreDemoted(id: string): boolean {
     const last = this.ops.get<{ action: string }>(

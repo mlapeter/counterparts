@@ -196,11 +196,11 @@ describe("the memories tab, live", () => {
       expect(await page.locator("#feel g.feel-axis.on").count()).toBe(0);
       expect(await total()).toBeGreaterThan(2);
 
-      // ── "by meaning" (the switch, 2026-09-30), then Enter, asks; the answers take the list's place.
+      // ── "facts" (the switch, 2026-10-09), then Enter, asks; the answers take the list's place.
       // A chapter and the memory drawn from it come back as ONE answer — the
-      // chapter (recall's collapse, 2026-09-30, U13) — and a refresh keeps it ──
+      // chapter (facts mode folds the pair itself) — and a refresh keeps it ──
       expect(await page.getAttribute('#q-mode button[data-mode="word"]', "aria-pressed")).toBe("true");
-      await page.click('#q-mode button[data-mode="meaning"]');
+      await page.click('#q-mode button[data-mode="facts"]');
       expect(await page.getAttribute("#q", "placeholder")).toContain("press Enter");
       await page.fill("#q", "the first day inside Halfmoon, reading the rota solver");
       await page.press("#q", "Enter");
@@ -217,17 +217,46 @@ describe("the memories tab, live", () => {
       // The memory drawn from the chapter is not also listed as an answer of its own.
       expect(folded).not.toContain(copyOf.get(chapter));
       expect(new Set(folded).size).toBe(folded.length);
-      expect(await page.textContent("#find-head")).toContain(`${folded.length} memor`);
-      // Facts mode (2026-10-03) answers `ask` and has no confidence tiers, so
-      // no row carries a tier label any more.
+      // Every match counted, ten a page, and a pager that asks for the next.
+      const matched = Number(/^(\d+) memor/.exec((await page.textContent("#find-head")) ?? "")?.[1] ?? "-1");
+      expect(matched).toBeGreaterThanOrEqual(folded.length);
+      if (matched > folded.length) expect(await page.textContent("#mpager")).toContain(`1–${folded.length} of ${matched}`);
+      // Facts mode (2026-10-03) answers with no confidence tiers, so no row
+      // carries a tier label, and a journal answer is titled by its day.
       expect(await page.locator("#mlist .mtier").count()).toBe(0);
+      expect(await page.textContent(`#mlist .mrow[data-id="${chapter}"] .mtitle`)).toContain("Journal · ");
       write("A fact written while the answer was open.");
       await refresh();
       expect(await answers()).toEqual(folded);
+      if (matched > folded.length) {
+        await page.click('#mpager button[data-ask-page="2"]');
+        await page.waitForFunction(() => /page 2 of/.test(document.getElementById("mpager")?.textContent ?? ""), undefined, { timeout: 30_000 });
+        expect((await answers()).some((id) => folded.includes(id))).toBe(false);
+        await page.click('#mpager button[data-ask-page="1"]');
+        await page.waitForFunction(() => /page 1 of/.test(document.getElementById("mpager")?.textContent ?? ""), undefined, { timeout: 30_000 });
+        expect(await answers()).toEqual(folded);
+      }
       // The chapter's row opens the chapter.
       await page.locator(`#mlist .mrow[data-id="${chapter}"]`).click();
       await page.waitForSelector("#overlay.show .mc");
       expect(await page.textContent("#modal .mc")).toContain("My journal, kept as written");
+      await page.keyboard.press("Escape");
+
+      // ── "by meaning" asks in meaning mode: a card's arc, its chapters in time
+      // order, each opening its journal; a moment under one opens that memory ──
+      await page.click('#q-mode button[data-mode="meaning"]');
+      await page.fill("#q", "what has Halfmoon been to me");
+      await page.press("#q", "Enter");
+      await page.waitForSelector("#mlist .mmoment", { timeout: 30_000 });
+      expect(await page.textContent("#find-head")).toMatch(/^Halfmoon · \d+ chapters?/);
+      const arc = (await answers()).filter((id) => id.length > 0);
+      expect(arc.length).toBeGreaterThan(0);
+      for (const id of arc) expect(chapterIds).toContain(id);
+      const moment = (await page.locator("#mlist .mmoment").first().getAttribute("data-open")) as string;
+      await page.locator("#mlist .mmoment").first().click();
+      await page.waitForSelector("#overlay.show .mc");
+      const opened = await page.evaluate(async (id) => ((await (await fetch(`/api/memory?id=${id}`)).json()) as { title: string }).title, moment);
+      if (opened) expect(await page.textContent("#modal .mc-title")).toContain(opened);
       await page.keyboard.press("Escape");
 
       // ── no sideways scroll, with the list, the answers and a card open ──

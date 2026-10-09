@@ -140,7 +140,7 @@ describe("M1 who is talking", () => {
 });
 
 describe("M2 one find box", () => {
-  test("one box and a by word / by meaning switch; the answers go where the list is; plain match words", async () => {
+  test("one box and a by word / facts / by meaning switch; the answers go where the list is", async () => {
     const search = read("pages/memories/sections/search.js");
     expect(search).toContain(">Find a memory</label>");
     expect(search).not.toContain('id="ask-q"');
@@ -148,16 +148,21 @@ describe("M2 one find box", () => {
     expect(search).toContain('e.key === "Enter"');
     expect(search).toContain('$("mlist").innerHTML');
     expect(search).toContain('id="q-x"');
-    const { TIER, MODES } = (await import(join(WEB, "pages/memories/sections/search.js"))) as {
-      TIER: Record<string, string>; MODES: Record<string, { label: string; placeholder: string }>;
+    const mod = (await import(join(WEB, "pages/memories/sections/search.js"))) as {
+      MODES: Record<string, { label: string; placeholder: string }>;
     };
-    expect(TIER).toEqual({ vivid: "strong match", quiet: "match", dim: "weak match" });
+    // The confidence tiers left recall with 0.3.12 (facts and meaning modes);
+    // the page carries no word for them (2026-10-09).
+    expect("TIER" in mod).toBe(false);
+    expect(search).not.toContain("strong match");
     // 2026-09-30: a visible switch beside the one box; Enter never flips it.
-    expect(Object.keys(MODES)).toEqual(["word", "meaning"]);
-    expect(MODES["word"]?.label).toBe("by word");
-    expect(MODES["meaning"]?.label).toBe("by meaning");
+    // 2026-10-09: a third way, as recall took a mode — facts, and meaning.
+    expect(Object.keys(mod.MODES)).toEqual(["word", "facts", "meaning"]);
+    expect(mod.MODES["word"]?.label).toBe("by word");
+    expect(mod.MODES["facts"]?.label).toBe("facts");
+    expect(mod.MODES["meaning"]?.label).toBe("by meaning");
     expect(search).toContain('id="q-mode"');
-    expect(search).toContain('if (find.mode === "word") runSearch(); else ask();');
+    expect(search).toContain('if (find.mode === "word") runSearch(); else ask(box.value.trim(), find.mode, 1);');
     expect(read("pages/memories/state.js")).toContain('mode: "word"');
     // The box sits with the list, under the charts, not above them.
     const list = read("pages/memories/sections/list.js");

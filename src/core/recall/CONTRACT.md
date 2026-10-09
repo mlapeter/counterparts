@@ -114,7 +114,10 @@ reply actually used reconsolidates, where in humans every retrieval does.
   model nothing but a title). Never for being named, surfaced, footnoted, or rendered in a
   wake; the `surfaced` and `footnoted` use tiers stay unused by this consumer. Agreement is
   not judged: a memory expanded and then argued with is credited. One durable row per
-  boundary, `recall.credit`, with a `reason` readers split on.**
+  boundary, `recall.credit`, with a `reason` readers split on.** *Since 2026-10-09 that row
+  also scores what ambient recall showed since the session's last scored boundary: by
+  lane, how many a reply expanded or quoted and which it did not (NOTES §28). Measurement
+  only; nothing trains on a miss.*
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
   (§7 OQ4). [v1 §9 G17]
@@ -442,7 +445,8 @@ nothing about what is recallable or ranked moves. Episodes record their director
    citing one", after the model was measured asserting counts and characterizations of
    five footnoted memories from their titles without expanding any (IMPROVEMENTS U5). The
    measurement is `probe.ts` / `counterparts probe-oq4`: per calendar date, footnotes
-   delivered (`recall.decision`) vs. later expanded by id (`recall.credit.expandedIds`).
+   delivered (`recall.decision`) vs. later expanded by id (`recall.credit.expandedIds`),
+   and since 2026-10-09 a hit rate by lane from the credit row's own score (NOTES §28).
    Reversible by one string; the owner rules on the reading, not this file.
 5. ~~**The absolute floors have never fired in v2, and the loud tier needs them.**~~
    **ANSWERED 2026-09-04. The floors are in cue units now, and the "cue-count half" was

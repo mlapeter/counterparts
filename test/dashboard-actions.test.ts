@@ -196,6 +196,18 @@ describe("an action's fields become an argv the console reads as meant", () => {
     ]);
   });
 
+  test("ask's mode and page (2026-10-09): meaning is asked for by name, facts adds nothing, a page is a whole number", () => {
+    const tail = (body: Record<string, unknown>): string[] => buildArgv("ask", { question: "q", exact: true, ...body }, ctx).argv.slice(5);
+    expect(tail({})).toEqual(["--", "q"]);
+    expect(tail({ mode: "facts" })).toEqual(["--", "q"]);
+    expect(tail({ mode: "meaning", json: true })).toEqual(["--json", "--mode", "meaning", "--", "q"]);
+    expect(tail({ mode: "facts", page: 3 })).toEqual(["--page", "3", "--", "q"]);
+    expect(bad("ask", { question: "q", mode: "vibes" })).toContain("facts or meaning");
+    expect(bad("ask", { question: "q", page: 0 })).toContain("whole number");
+    expect(bad("ask", { question: "q", page: 1.5 })).toContain("whole number");
+    expect(bad("ask", { question: "q", page: "2" })).toContain("whole number");
+  });
+
   test("text that begins with -- is refused rather than handed to a flag parser", () => {
     // (After `--` the console would still read it as words, but its unknown-flag
     // check scans every token and would refuse it with a confusing sentence.)

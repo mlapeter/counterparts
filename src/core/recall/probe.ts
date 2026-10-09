@@ -24,6 +24,13 @@
  * recorded what was expanded, so nothing is known. Zero and unknown never
  * share a glyph.
  *
+ * THE HIT RATE (2026-10-09) rides the same rows: a `recall.credit` row now
+ * scores the ambient showings since the session's last boundary that judged —
+ * loud, footnoted and pointer, and how many of each no reply expanded or
+ * quoted (`shownNotUsed` holds their ids, for a per-memory read later). The
+ * probe sums the lanes over the rows that carry the counts. Rows from before
+ * carry none and are left out, so the line says how many boundaries it rests on.
+ *
  * What this does NOT claim: causation. A session that expanded nothing may
  * have had nothing worth expanding. The probe answers "did the behaviour move
  * when the string moved", which is the question OQ4 asks, and leaves the
@@ -86,6 +93,24 @@ export interface ProbeReport {
   };
   /** Days with decision rows and no credit row, and the footnotes they delivered. */
   readonly unmeasured: { readonly days: number; readonly footnotesDelivered: number };
+  /**
+   * RECALL'S HIT RATE (2026-10-09): what the boundaries that score their
+   * showings say — each ambient showing scored once, at the first boundary
+   * after it, as used (expanded or quoted) or not, by lane. Credit rows from
+   * before carry no score and are not counted here: `boundaries` 0 is unknown,
+   * not a rate of zero.
+   */
+  readonly hits: {
+    readonly boundaries: number;
+    readonly shown: { readonly loud: number; readonly footnotes: number; readonly pointers: number };
+    readonly unused: { readonly loud: number; readonly footnotes: number; readonly pointers: number };
+  };
+}
+
+/** A finite count off a payload, or null when the row does not carry it. */
+function count(p: Record<string, unknown>, key: string): number | null {
+  const v = p[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 interface Acc {
@@ -115,6 +140,9 @@ export function probeOQ4(rows: readonly ProbeRow[]): ProbeReport {
   let decisions = 0;
   let credits = 0;
   let unparseable = 0;
+  let scored = 0;
+  const shown = { loud: 0, footnotes: 0, pointers: 0 };
+  const unused = { loud: 0, footnotes: 0, pointers: 0 };
   const get = (session: string, date: string | null): Acc => {
     let a = acc.get(session);
     if (a === undefined) {
@@ -150,6 +178,20 @@ export function probeOQ4(rows: readonly ProbeRow[]): ProbeReport {
       credits += 1;
       a.credits += 1;
       for (const id of ids(p["expandedIds"])) a.expanded.add(id);
+      // A row scores its showings only when it carries all six counts.
+      const lanes = [
+        ["loud", "shownLoud", "unusedLoud"],
+        ["footnotes", "shownFootnotes", "unusedFootnotes"],
+        ["pointers", "shownPointers", "unusedPointers"],
+      ] as const;
+      const got = lanes.map(([, s, u]) => [count(p, s), count(p, u)] as const);
+      if (got.every(([s, u]) => s !== null && u !== null)) {
+        scored += 1;
+        lanes.forEach(([lane], i) => {
+          shown[lane] += got[i]?.[0] ?? 0;
+          unused[lane] += got[i]?.[1] ?? 0;
+        });
+      }
     }
   }
 
@@ -210,6 +252,7 @@ export function probeOQ4(rows: readonly ProbeRow[]): ProbeReport {
       days: unmeasuredDays.length,
       footnotesDelivered: unmeasuredDays.reduce((n, d) => n + d.footnotesDelivered, 0),
     },
+    hits: { boundaries: scored, shown, unused },
   };
 }
 
@@ -233,6 +276,21 @@ export function renderProbe(report: ProbeReport): string[] {
   if (report.unmeasured.days > 0) {
     lines.push(
       `unmeasured: ${report.unmeasured.days} day(s) with no recall.credit row, ${report.unmeasured.footnotesDelivered} footnotes delivered — "-" is unknown, not zero`,
+    );
+  }
+  lines.push("");
+  const h = report.hits;
+  if (h.boundaries === 0) {
+    lines.push("hit rate: - (no recall.credit row scores what recall showed yet)");
+  } else {
+    const lane = (name: string, s: number, u: number): string =>
+      `${name} ${s - u} of ${s} used${s === 0 ? "" : ` (${(((s - u) / s) * 100).toFixed(1)}%)`}`;
+    lines.push(
+      `hit rate, over ${h.boundaries} boundar${h.boundaries === 1 ? "y" : "ies"} that scored what recall showed: ${[
+        lane("loud", h.shown.loud, h.unused.loud),
+        lane("footnotes", h.shown.footnotes, h.unused.footnotes),
+        lane("pointers", h.shown.pointers, h.unused.pointers),
+      ].join(", ")}`,
     );
   }
   return lines;
