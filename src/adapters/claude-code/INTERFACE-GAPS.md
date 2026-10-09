@@ -675,7 +675,18 @@ for: a per-owner zone read wherever a day is decided — one clock, moved once �
 second clock bolted onto this mechanism. Until then it belongs on the findings list for the
 first blank-store trial, where it is a thing to notice rather than a thing to fix.
 
-## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3)
+## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3) — CLOSED for the reader 2026-09-24 (#213)
+
+**Closed for the reader by #213** (`0df2efe`, merged 2026-09-24, in 0.3.0). `transcript.ts`
+reads a `queued_command` attachment the person typed (`commandMode: "prompt"`,
+`origin.kind: "human"`) as a typed turn where it stands (`queuedPromptOf`); every other
+attachment is still skipped. The dedupe was measured before it was written: of 33 queued
+prompts on the owner's machine none was written again as a user entry, so a
+`promptSource: "queued"` user entry with the same words is skipped defensively (NOTES,
+"Prompts typed mid-turn"; `test/queued-prompts.test.ts`). **Still open: ask (1).** The
+capture cursor is still an index into the turn list, so a session open across a deploy
+that changes what counts as a turn re-captures its last few turns once (NOTES, "Deploy
+note"). The text below is the gap as filed.
 
 **Pre-existing; found by the adversarial review of PR #186, measured on the owner's
 machine (shapes only).** When the person types while the model is still working, Claude
@@ -801,7 +812,21 @@ and the key (`config.ts#apiSweepOn`). Doctor's two lines — `Crash write-up` an
 are C2's and already read the knob (`not-opted-in` on the gate row, core's second skip
 reason); nothing there is owed to C3.
 
-## 17. An open-and-answered session's later words wait up to a week (2026-09-23, C2 re-review m-E)
+## 17. An open-and-answered session's later words wait up to a week (2026-09-23, C2 re-review m-E) — CLOSED 2026-09-30 (#289)
+
+**Closed by #289** (`fc665c2`, merged 2026-09-30, in 0.3.8), by replacing the rule rather
+than adding the ask below. `sessions.ts#openAndAnswered` is gone, with the asked /
+answered predicate it guarded; what a session owes is `core/coverage/`'s ledger. An
+answer claims only the pieces said before it, so words captured after it are an unwritten
+stretch, and that stretch is owed once the session is not `active` (it ended, or it has
+captured nothing since the date changed) and has not lapsed. So the case below is
+pointed at from the next date, not after a week (CONTRACT, "A session that ended owing a
+write-up"). The ask to `remember/` (its INTERFACE-GAPS §16) went with it. **The owner's
+hand, last paragraph, is unchanged in one part:** there is still no console command that
+marks a session written up `by: "owner"`. A stretch left in a directory nobody reopens no
+longer waits on one, though: the nightly run's catch-up writes up any project's, and what
+it leaves lapses after three days of use (coverage INTERFACE-GAPS §3). The text below is
+the gap as filed.
 
 **What happens.** A session answers its Stop ask (memories, a chapter, a handoff, or
 "nothing new"), then captures more words at a later Stop that asks nothing, then goes

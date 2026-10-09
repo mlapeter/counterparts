@@ -297,7 +297,15 @@ proposal and the memory stay the depositor's. The next-session write-up's door p
 `false` on an earlier part and the ended session on the last; the instance-level
 shadowing of `SpanBuffer#claimCoverage` it replaced is gone (NOTES §17).
 
-## 16. `HeldSession` does not say when a session last answered, or last spoke
+## 16. `HeldSession` does not say when a session last answered, or last spoke — CLOSED 2026-09-30 by replacement (#289)
+
+**Closed by replacement** (#289, `fc665c2`, merged 2026-09-30): the asked / answered
+predicate and `sessions.ts#openAndAnswered` are gone. What a session owes is
+`core/coverage/`'s ledger (`HeldSession.owes` carries it), which knows per piece whether a
+claim covers it, so words said after an answer are an unwritten stretch with no
+`lastAnswerAt` needed (claude-code INTERFACE-GAPS §17, closed the same way).
+
+*The entry as filed, for the record:*
 
 **Owner:** `remember/owes.ts#planRetention`. Filed 2026-09-23 (C2 re-review m-E).
 `planRetention` computes the time of every answer it counts (proposal times, handoff rows,

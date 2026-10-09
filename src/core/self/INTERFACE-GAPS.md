@@ -173,7 +173,7 @@ and neither wires it today. Recorded here so the freeze does not become v1's
 "documented in three places, enforced in one, consumed by nobody" (scar §2.6). The
 guarantee that this seam is reachable is the coordinator's, not this module's.
 
-## 8. The threads lane has no source on a migrated store — nothing carries `unresolved`
+## 8. The threads lane has no source on a migrated store — nothing carries `unresolved` — CLOSED FOR (1) AND (2) 2026-10-01 (`52384b0`, #313)
 
 **Owner:** `remember/` (who mints and revises memories) plus `tools/migrate` (what came
 across from v1).
