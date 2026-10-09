@@ -323,6 +323,23 @@ describe("what may not be parked or deleted", () => {
     expect(refusal).toContain("Claude Code's own configuration directory");
   });
 
+  test("…and so is the directory CLAUDE_CONFIG_DIR moved it to (review of #337)", () => {
+    const moved = join(home, ".claude-work");
+    mkdirSync(join(moved, "projects", "myproj"), { recursive: true });
+    writeFileSync(join(moved, "settings.json"), "{}");
+    writeFileSync(join(moved, CONFIG_FILE), "{}");
+    const env = { CLAUDE_CONFIG_DIR: moved };
+    expect(configDirRefusal(moved, join(moved, CONFIG_FILE), home, "park", env)).toContain(
+      "Claude Code's own configuration directory",
+    );
+    // Through the plan too, which is what `uninstall` asks.
+    const plan = planUninstall({ configPath: join(moved, CONFIG_FILE), config: {}, home, verb: "park", env });
+    expect(plan.refusal).toContain("Claude Code's own configuration directory");
+    // With no variable the same folder is just a folder: the guard is the
+    // host's directory, wherever it is, and nothing wider.
+    expect(configDirRefusal(moved, join(moved, CONFIG_FILE), home, "park", {})).toBeNull();
+  });
+
   test("a directory that CONTAINS the home directory is refused", () => {
     const above = join(home, "..");
     expect(configDirRefusal(above, join(above, CONFIG_FILE), home, "delete")).toContain(

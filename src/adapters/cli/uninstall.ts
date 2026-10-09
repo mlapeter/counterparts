@@ -77,7 +77,7 @@ import { SCOPES_FILE_NAME } from "../scopes.js";
 import { SNAPSHOTS_DIR_NAME, resolveSnapshotsDir } from "../snapshots.js";
 import type { AdapterConfig } from "../config.js";
 import type { Io } from "./commands.js";
-import { BIN, CONFIG_FILE, LEGACY_CREDENTIALS_FILE, MCP_SERVER_NAME } from "./install.js";
+import { BIN, CONFIG_FILE, LEGACY_CREDENTIALS_FILE, MCP_SERVER_NAME, hostSettingsDir } from "./install.js";
 import {
   PARKED_INFIX,
   pairedSuffix,
@@ -479,6 +479,9 @@ export interface PlanInput {
   readonly home: string;
   /** "park" or "delete", for the refusals' wording. */
   readonly verb: string;
+  /** The process environment, for where the host keeps its own directory
+   *  (`CLAUDE_CONFIG_DIR`, review of #337). Absent: `~/.claude` only. */
+  readonly env?: Record<string, string | undefined>;
 }
 
 /**
@@ -515,7 +518,7 @@ export function planUninstall(input: PlanInput): UninstallPlan {
     refusal: null,
   };
 
-  const dirRefusal = configDirRefusal(configDir, configPath, input.home, input.verb);
+  const dirRefusal = configDirRefusal(configDir, configPath, input.home, input.verb, input.env);
   if (dirRefusal !== null) return { ...empty, refusal: dirRefusal };
 
   if (written !== undefined && written.trim().length > 0 && storeDir === null) {
@@ -649,13 +652,15 @@ function isDirectory(path: string): boolean {
  *
  * `start-fresh`'s ring, plus the four the blocker added: the host's own
  * `~/.claude`, the home directory, any PARENT of the home directory, and
- * anything holding a `.git`.
+ * anything holding a `.git`. The host's own directory is also wherever
+ * `CLAUDE_CONFIG_DIR` puts it, when `env` says so (review of #337).
  */
 export function configDirRefusal(
   configDir: string,
   configPath: string,
   home: string,
   verb: string,
+  env: Record<string, string | undefined> = {},
 ): string | null {
   // THE RAW SPELLING DECIDES THIS ONE. `resolve()` is relative to the process
   // working directory and always hands back an absolute path, so a test on the
@@ -700,7 +705,10 @@ export function configDirRefusal(
   // is a command somebody can type, and the first version of this file renamed
   // Claude Code's settings, project transcripts and todos away under a heading
   // that said "Your memory, parked".
-  if (real === realpathDeep(join(home, ".claude"))) {
+  // `CLAUDE_CONFIG_DIR` MOVES IT (review of #337): the host keeps the same
+  // settings, transcripts and todos there instead, so a configuration inside
+  // `~/.claude-work` is the same mistake as one inside `~/.claude`.
+  if (real === realpathDeep(join(home, ".claude")) || real === realpathDeep(resolve(hostSettingsDir(home, env)))) {
     return (
       `refused: ${written} is Claude Code's own configuration directory. Whatever this ` +
       "install put there, the settings, the project transcripts and the todos beside it are " +
@@ -968,7 +976,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
 
   let plan: UninstallPlan | null = null;
   if (moving) {
-    plan = planUninstall({ configPath: input.configPath, config: input.config, home, verb });
+    plan = planUninstall({ configPath: input.configPath, config: input.config, home, verb, env });
     if (plan.refusal !== null) {
       io.err(plan.refusal);
       io.err("Nothing has changed.");
