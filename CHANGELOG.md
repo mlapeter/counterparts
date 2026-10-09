@@ -6,7 +6,8 @@
   Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
   the most recent Saturday before today, so asked on a Saturday it is the one a week ago.
   "Before 7/22" kept only 07-22 itself; now it keeps every day before it, "after 7/22"
-  every day after it, and "until 7/22" or "by 7/22" every day through it. "Since 7/22" is
+  every day after it, and "until 7/22" or "by 7/22" every day through it; when the date
+  names something on that day ("before the 7/22 flight"), that day stays in. "Since 7/22" is
   unchanged: from that day to today. The same goes for `2023-07-22`, `7/22`, "July 22" and
   `7/22/2023`, and a year written with the date (`7/22/2023`, "July 22, 2023") is now the
   year used; it was ignored before. "This Saturday" and "on Saturday" are still not read,

@@ -26,8 +26,11 @@
  *     `yearFor` picks it. A word in front of a date bounds it (2026-10-09):
  *     "since" runs from the date to today (a month too); "before" / "prior to"
  *     is every day before it, "after" every day after it, open-ended; "until",
- *     "till", "up to", "up until" and "by" every day through it. An open end is
- *     `OPEN_START` / `OPEN_END`, and a bounded window never stretches;
+ *     "till", "up to", "up until" and "by" every day through it — but a date
+ *     that names a thing on it ("before the 7/22 flight", "after July 22's
+ *     standup") keeps its own day under "before" and "after" (review of #338).
+ *     An open end is `OPEN_START` / `OPEN_END`, and a bounded window never
+ *     stretches;
  *   - **anchors**: an event ("around the cut-over", "during the release") or
  *     the last session ("where did we leave off", "last session"). This file
  *     only names them; the caller resolves them against the store, because a
@@ -189,14 +192,24 @@ function stretched(said: DayWindow, days: number): DayWindow {
  * The word in front of a date that bounds it — "before 7/22", "since the
  * 2026-09" — and the phrase through the date as written, to take out of the
  * question whole. Null when the date stands alone ("on 7/22", "7/22").
+ *
+ * `event` when the date names a thing that happened on it rather than a
+ * cutoff: "before the 7/22 flight", "after the July 22 launch" (a "the" in
+ * front and a word after it that is not the question going on), "after July
+ * 22's standup", "after last Saturday's party" (review of #338, 2026-10-09).
+ * "After the 4th of July we sailed" is still a cutoff.
  */
-function boundOf(text: string, found: string): { bound: Bound; word: string; phrase: string } | null {
-  const m = new RegExp(`\\b(${BOUND_ALT})\\s+(?:the\\s+)?${escape(found)}`, "i").exec(text);
+function boundOf(text: string, found: string): { bound: Bound; word: string; phrase: string; event: { cue: string; date: string } | null } | null {
+  const m = new RegExp(`\\b(${BOUND_ALT})\\s+(the\\s+)?${escape(found)}(['’]s\\b)?`, "i").exec(text);
   if (m === null) return null;
   const word = (m[1] as string).toLowerCase().replace(/\s+/g, " ");
   const bound: Bound =
     word === "before" || word === "prior to" ? "before" : word === "after" ? "after" : word === "since" ? "since" : "through";
-  return { bound, word, phrase: m[0] };
+  const next = /^\s+([a-z]+)/i.exec(text.slice(m.index + m[0].length))?.[1];
+  const possessive = m[3] !== undefined || /['’]s$/i.test(found);
+  const named = m[2] !== undefined && next !== undefined && !PHRASE_STOP.has(next.toLowerCase());
+  const date = `${found}${m[3] ?? ""}`;
+  return { bound, word, phrase: m[0], event: possessive || named ? { cue: `${word} ${m[2] !== undefined ? "the " : ""}${date}`, date } : null };
 }
 
 /**
@@ -207,6 +220,14 @@ function boundOf(text: string, found: string): { bound: Bound; word: string; phr
 function dated(text: string, found: string, first: string, last: string, stretch: number, today: string, cue = found): TimeAsk {
   const b = boundOf(text, found);
   if (b === null) return ask(cue, { from: first, to: last }, stretch, without(text, found));
+  if (b.event !== null) {
+    // The date names a thing on that day ("before the 7/22 flight"): the bound
+    // keeps that day, where the thing happened, and only the date leaves the
+    // question. A cutoff past it would hide the very day asked about.
+    const said: DayWindow =
+      b.bound === "since" ? { from: first, to: today } : b.bound === "after" ? { from: first, to: OPEN_END } : { from: OPEN_START, to: last };
+    return ask(b.event.cue, said, b.bound === "since" ? stretch : 0, without(text, b.event.date));
+  }
   const said: DayWindow =
     b.bound === "since"
       ? { from: first, to: today }

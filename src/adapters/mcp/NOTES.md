@@ -1299,6 +1299,16 @@ right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
   - "The day after 7/22", "a week after 7/22", "the night before 7/22" read as the bound
     ("after 7/22", "before 7/22"): wider than meant, but they cover the day meant. They
     were 07-22 alone, which missed it.
+  - *Review of #338:* a date that names a thing on that day keeps that day under "before"
+    and "after". "What did I eat before the 7/22 flight" was through 07-21, and the meal
+    was on 07-22 (master's 07-22 alone found it; the bound hid it). "After the July 22
+    launch" was 07-23 on, hiding the launch day; 07-22 alone would hide the days after.
+    So: a "the" between the word and the date and a word after the date that is not the
+    question going on (`PHRASE_STOP`: "after the 4th of July we sailed" is still a cutoff),
+    or an 's on the date ("after July 22's standup", "after last Saturday's party"), and
+    the window is through the date / from the date on. Only the date leaves the question
+    ("what did I eat before the flight"), and the header says "before the 7/22". Wider by
+    one day than a cutoff, never narrower than either earlier reading.
 - **Not done:** a month NAME under a bound ("before September" is still no time;
   "before September 2023" is still all of September, stretched), "between X and Y" and
   "from X to Y" (still the first date alone), "this Saturday" and "on Saturday" (either can

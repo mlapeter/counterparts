@@ -528,8 +528,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   can be the coming one. A word in front of a date bounds it (2026-10-09): "before" /
   "prior to" is every day before it and "after" every day after it, open-ended (the
   header says "through 07-21", "07-23 onward"); "until", "till", "up to", "up until" and
-  "by" every day through it; "since" from it to today, as before. A bound does not
-  stretch ("since" keeps a month's two days). A date is `2026-07-22`, `2026-07`, `7/22`
+  "by" every day through it; "since" from it to today, as before. When the date names a
+  thing on that day ("before the 7/22 flight", "after July 22's standup": a "the" in front
+  and a word after it, or an 's), "before" and "after" keep that day (review of #338). A
+  bound does not stretch ("since" keeps a month's two days). A date is `2026-07-22`, `2026-07`, `7/22`
   or `07-22` (month first), `7/22/2026`, "July 22", "22 July", "July 22, 2026"; a year
   written with it is the year meant; without one, this year's when its month has begun,
   else last year's ("before 1/5" asked on 01-03 is through this year's 01-04). "Around the X"

@@ -219,6 +219,41 @@ describe("time in a question (time-ask.ts)", () => {
     expect(readTimeAsk("until Dec 30", jan)?.window).toEqual({ from: OPEN_START, to: "2026-12-30" });
     expect(readTimeAsk("before 1/2", { now: Date.parse("2027-01-10T19:00:00Z"), zone: ZONE })?.window).toEqual({ from: OPEN_START, to: "2027-01-01" });
   });
+
+  // Review of #338: "before the 7/22 flight" cut 07-22 off, and the flight was on 07-22.
+  test("a date that names a thing on that day keeps that day under a bound; a cutoff still does not", () => {
+    const flight = readTimeAsk("what did I eat before the 7/22 flight", clock);
+    expect(flight?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    expect(flight?.cue).toBe("before the 7/22");
+    expect(flight?.rest).toBe("what did I eat before the flight");
+    expect(readTimeAsk("what came up after the July 22 meeting", clock)?.window).toEqual({ from: "2026-07-22", to: OPEN_END });
+    const standup = readTimeAsk("what did Rosalind update after July 22's standup", clock);
+    expect(standup?.window).toEqual({ from: "2026-07-22", to: OPEN_END });
+    expect(standup?.rest).toBe("what did Rosalind update after standup");
+    expect(readTimeAsk("two days before the 7/22 launch", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    expect(readTimeAsk("who called after last Saturday's party", clock)?.window).toEqual({ from: "2026-09-26", to: OPEN_END });
+    expect(readTimeAsk("after the 4th of July fireworks", clock)?.window).toEqual({ from: "2026-07-04", to: OPEN_END });
+    // "since", "until", "by" already keep the day.
+    expect(readTimeAsk("since the 7/22 launch", clock)?.window).toEqual({ from: "2026-07-22", to: "2026-10-03" });
+    expect(readTimeAsk("by the 7/22 deadline", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    // A cutoff: nothing after the date, punctuation, or the question going on.
+    expect(readTimeAsk("who did I meet before the 4th of July", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-03" });
+    expect(readTimeAsk("after the 4th of July, what did we sail", clock)?.window).toEqual({ from: "2026-07-05", to: OPEN_END });
+    expect(readTimeAsk("after the 4th of July we sailed", clock)?.window).toEqual({ from: "2026-07-05", to: OPEN_END });
+    expect(readTimeAsk("anything after 2026-07-22?", clock)?.window).toEqual({ from: "2026-07-23", to: OPEN_END });
+  });
+
+  test("\"last Saturday\" is read on the person's own day, not UTC's (Denver, Kiritimati)", () => {
+    // Saturday 22:00 in Denver is Sunday in UTC; Sunday 01:00 on Kiritimati is Saturday in UTC.
+    const denverSat = { now: Date.parse("2026-10-04T04:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("last Saturday", denverSat)?.window).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    const denverSun = { now: Date.parse("2026-10-05T04:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("last Saturday", denverSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
+    const kiriSat = { now: Date.parse("2026-10-02T10:30:00Z"), zone: "Pacific/Kiritimati" };
+    expect(readTimeAsk("last Saturday", kiriSat)?.window).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    const kiriSun = { now: Date.parse("2026-10-03T11:00:00Z"), zone: "Pacific/Kiritimati" };
+    expect(readTimeAsk("last Saturday", kiriSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
+  });
 });
 
 describe("the pool is every match, and the header counts it", () => {
@@ -428,6 +463,10 @@ describe("time filters", () => {
     const only = ask(c, "what happened before 7/22/2026?");
     expect(only.memories.map((m) => m.id)).toContain(early);
     expect(only.memories.map((m) => m.id)).not.toContain(learned);
+    // The date names the thing asked about (review of #338): its day stays in.
+    const pitch = ask(c, "zqtent before the 7/22 pitch");
+    expect(pitch.memories.map((m) => m.id)).toEqual(expect.arrayContaining([early, day]));
+    expect(renderFacts(pitch)).toContain("time: before the 7/22 → through 07-22");
   });
 
   test("a question that is only a time answers with everything in the window", () => {
