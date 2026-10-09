@@ -438,6 +438,14 @@ writing one; `reflect` phase `settle` is the reflection's door; the dream's `pro
 takes a `settle` action. Every settle is `core/contradictions.ts#settle`'s, recorded with
 who, how, why and when; an observer writes nothing and says so.
 
+**[M] A held `updates` answers in the same field** (2026-10-09, the update guard,
+`schemas/CONTRACT.md` §5 1b). A `changed` or `corrected` at a memory that looks unrelated
+comes back as `settled: {ok: false, held: true, reason: "looks-unrelated", how, holds,
+over, title, text, detail}` — the old memory's own title and text (none for a
+confidential one outside the owner's session), the two ids to settle with, and
+`HELD_HINT`, the neighbours' ask said for this case. The held memory is not listed again
+among the neighbours. Nothing else about the reply changes: the memory is stored.
+
 ## 6c. Re-feeling while awake (2026-10-02, lane B)
 
 **[M]** `note` takes `feelingsNow`: how memories this session was shown feel now, recorded
@@ -466,8 +474,18 @@ the reader interprets (`meaning.ts`). Working defaults, held lightly; the revisi
 them.
 
 - **[M]** The subject is read from the question: the cards its names reach
-  (`Schemas#subjectsIn` → `memory_subjects`), the best of them the arc and the rest
-  one-liners; "us" (the words *us*, *ourselves*, *together*) is the memories marked
+  (`Schemas#subjectsIn` → `memory_subjects`), the one it is about the arc and the rest
+  one-liners (`meaning.ts#subjectOf`, 2026-10-09). A name the words before it ask about
+  ("what has X been", "how has X changed", "about X", "my arc with X") ranks over a plain
+  mention, and that over an aside ("been to Y", "since Y", "after Y"); a name joined to the one
+  before it ("X and Y") shares its place; a name typed in lower case that its card
+  capitalises ("will" for Will) is a step under the same place typed as written; the
+  owner's own card leaves a place it shares; then the first named wins, memory counts
+  only break a tie, and the answer says when more than one were asked about alike. The
+  owner's "I" ("you" in the counterpart's voice) asked about is his card, except in a
+  question about feeling or about "us" — and under any card named outside an aside:
+  "what have I done on Driftwood" is Driftwood's, "how have I been since Driftwood" his.
+  "us" (the words *us*, *ourselves*, *together*) is the memories marked
   `about: us`; a ranked question about feeling (`feeling-ask.ts`) with no card is the
   stamps that match it by word, core and whose — narrowed, when it names a topic no card
   holds, to the stamped moments the topic's words reach (none reached: all of them, and
@@ -512,7 +530,19 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
 - **[M]** A time in the question (`recall/time-ask.ts`) filters, by `occurred_on` or, with
   none, the learned date (the line says which); weeks and months stretch two days each
   side, "N days ago" one, dates stay exact; matches outside are counted as distinct facts,
-  after the same folds and without the weak tail. "Around the X"
+  after the same folds and without the weak tail. "Last Saturday" (any weekday; "this
+  past Saturday" too) is the most recent one strictly before today — asked on a Saturday,
+  a week back — and exact; "this Saturday" and "on Saturday" are not read, since either
+  can be the coming one. A word in front of a date bounds it (2026-10-09): "before" /
+  "prior to" is every day before it and "after" every day after it, open-ended (the
+  header says "through 07-21", "07-23 onward"); "until", "till", "up to", "up until" and
+  "by" every day through it; "since" from it to today, as before. When the date names a
+  thing on that day ("before the 7/22 flight", "after July 22's standup": a "the" in front
+  and a word after it, or an 's), "before" and "after" keep that day (review of #338). A
+  bound does not stretch ("since" keeps a month's two days). A date is `2026-07-22`, `2026-07`, `7/22`
+  or `07-22` (month first), `7/22/2026`, "July 22", "22 July", "July 22, 2026"; a year
+  written with it is the year meant; without one, this year's when its month has begun,
+  else last year's ("before 1/5" asked on 01-03 is through this year's 01-04). "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
 - **[M]** Rebuilt here, not inherited from ambient: a chapter and its copy are one result

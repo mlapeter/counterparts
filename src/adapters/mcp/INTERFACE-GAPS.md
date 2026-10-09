@@ -9,6 +9,12 @@ the honest fix is, and where the proof lives. Written 2026-08-25 alongside
 
 ## 1. `recall/` has no deliberate mode — the tiering lives here
 
+*(Noted 2026-10-09: the re-tiering below is retired. Since #323 (2026-10-03) a question
+takes a `mode`, facts or meaning, each with its own ranking (`facts.ts`, `meaning.ts`),
+and nothing in this adapter calls `Recall.build()`; `deliberate.ts` keeps the address
+paths. The per-call override asked for below was never built, and this adapter no longer
+needs it. Kept as written.)*
+
 **What exists.** `Recall.build()` is the pure half of the ambient path and is
 public precisely so it can be reused ("a private half is a promise, not a seam",
 `recall/index.ts`). It returns every candidate's verdict, so the information a
@@ -196,7 +202,8 @@ answers an exact TITLE with the whole body. So a session that named a memory and
 
 **Closed on the tool side, where the resolution happened.** `server.ts#noteHandleResolution`
 writes `<salted hash of the handle> → <resolved id>` to `adapters/expansions.ts`'s log, and
-`claude-code/hooks.ts#creditAtBoundary` translates the transcript's own handle with it
+`claude-code/hooks.ts#creditAtBoundary` (in `adapters/lifecycle.ts` since #292,
+2026-09-30) translates the transcript's own handle with it
 before `creditReferences` sees the slice. `reference.ts` is unchanged and still resolves
 nothing; it is simply handed the address the tool reached.
 
@@ -328,7 +335,9 @@ JSON" was narrowed to what stays true: never without a notice, and never the doc
   migrates, and that is a hook, while the automatic snapshot runs only in the worker, after
   its own open, once a day. If a pre-migration copy is wanted, the place is the writer path
   of `openOperational`, just before the migrate transaction — a store decision, not this
-  adapter's.
+  adapter's. *(CLOSED 2026-09-24 by #214, noted 2026-10-09: `openOperational`'s writer
+  path copies the store to `snapshots/<time>-pre-migration-…` before it migrates
+  (`store/pre-migration.ts`).)*
 
 ## 11. The page writer has no settle door — OPEN 2026-09-29
 
@@ -337,3 +346,16 @@ reflection (`reflect` phase `settle`), the owner (`counterparts settle`). The pa
 writes through `self_page`, which takes no settle; if it settles through `note`, the
 trail says the launching session. A `settle` on `self_page`, or a page-writer claim on
 `note`, would close it — neither is built until the writer is seen wanting one.
+
+## 12. Nobody reads how often the update guard fires — OPEN 2026-10-09
+
+A held `updates` (`schemas/CONTRACT.md` §5 1b) leaves one durable `contradiction.held`
+row: the two ids, the `how`, which reading decided (`meaning` or `words`), the cosine and
+the shared-word count, the door, whether it was a write-up, and the session. The dashboard
+narrates each row on the flow lane; nothing COUNTS them. `core/contradictions.ts#heldCorrections`
+is the reader, written and tested and called by nobody: holds since a day, by which
+reading, and how many the writer settled by hand afterwards (the guard's likely mistakes).
+A doctor line — "N held this week, M settled after" — is the obvious caller; `doctor.ts`
+belonged to another lane when the guard landed, so it was left for that lane to add. The
+number to watch is `settledAfter / held`: high means the 0.30 bar holds back real
+corrections, and it is the evidence for moving it.

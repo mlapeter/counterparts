@@ -17,7 +17,13 @@ Two seams are genuinely stubbed and both are declared: the briefing renderer
 
 ---
 
-## 1. `store/` — box 3 has no strength column and no box-3 writer (WORKED AROUND)
+## 1. `store/` — box 3 has no strength column and no box-3 writer (WORKED AROUND) — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**Closed by the wave-3 seam pass** (`d88f957`, 2026-08-25, SEAMS item J): `cache.sqlite`
+has a `ranking` table that `resetCache` drops with the rest, `Store.setRanking` /
+`ranking` / `rankingAll` read and write it, and `cycle.ts` takes the store as the cache
+(`storeRankingCache`) whenever it supports ranking. `strength-cache.ts` stays, as the
+fallback for a port without `setRanking`. The text below is the gap as filed.
 
 **Owner:** `store/`.
 **Needed:** the decay tick materializes `strength(m, d)` and `band(m, d)` into
@@ -114,7 +120,11 @@ three record types and all three become queryable, which is what the dashboard
 
 ---
 
-## 4. The minting seam — `updates:` must actually reach canonical state
+## 4. The minting seam — `updates:` must actually reach canonical state — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**Closed by the wave-3 seam pass** (`d88f957`, 2026-08-25): `core/mint.ts` writes the
+RESOLVED id to `doc.meta["updates"]`, and an unresolved declaration writes no key (its
+header names this section). The text below is the gap as filed.
 
 **Owner:** whoever mints memories from `remember/`'s proposals.
 **Needed:** CONTRACT §5 G9 — *a memory that declares `updates:` is never merged
@@ -132,7 +142,12 @@ first.
 
 ---
 
-## 5. `physics/` — there is no `consolidationEligibility()`
+## 5. `physics/` — there is no `consolidationEligibility()` — CLOSED 2026-08-25 (noted 2026-10-09)
+
+**Closed by the wave-3 seam pass** (`d88f957`, 2026-08-25): `physics/index.ts` exports
+`consolidationEligibility`, and `consolidate.ts` executes it. Since #251 (2026-09-26) it
+is for legacy memories only (a post-upgrade memory is refused `not-legacy`), so the
+criterion written below is no longer the rule. The text below is the gap as filed.
 
 **Owner:** `physics/`.
 **Needed:** "memories crossing the physics consolidation criteria get the flag".
@@ -270,6 +285,10 @@ more than a name match (a person card for the owner, an embedding), that is a
 `schemas/` question, and this phase should receive the verdict rather than compute it.
 The owner's demotions arrive through the optional `coreDemoted`; a port without it
 cannot be told "not this one".
+*(Noted 2026-10-09: the first paragraph no longer describes the code. Since store v9
+(`0a3e7e9`, #256, 2026-09-27) `aboutMe` reads the memory's `about` mark (the row's, or the
+document's when the row has none) and no longer reads `owner`; the consolidate phase does
+not call `ownerNames`; the dream and the reflection do, among others.)*
 
 
 ## Demotion has no way back (2026-09-26, working default)

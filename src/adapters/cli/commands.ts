@@ -187,7 +187,7 @@ import {
   configObject,
   resolveEmbedderBlock,
   hookCommand,
-  hostConfigBase,
+  hostSettingsDir,
   installLayout,
   parkedSiblings,
   throwawayDefaultRefusal,
@@ -2723,6 +2723,11 @@ export function firedLines(report: FiredReport, all = false): string[] {
   if (report.wentBlocked.length > 0) {
     lines.push(`Fired last week and STOPPED this week: ${report.wentBlocked.join("; ")}`, "");
   }
+  // An occasion that came and was not answered (2026-10-09): the one silence
+  // among the `waiting` rows that is still a fault, said before the groups.
+  if (report.missedOccasion.length > 0) {
+    lines.push(`Its occasion came this week and it did not fire: ${report.missedOccasion.join("; ")}`, "");
+  }
   if (report.wentQuiet.length > 0) {
     lines.push(`Fired last week and not once this week: ${report.wentQuiet.join("; ")}`, "");
   }
@@ -3897,8 +3902,9 @@ async function installConversation(
  *
  * Two questions, and either one answering yes is enough, because they fail in
  * opposite directions. The DIRECTORY is what a person who has ever run Claude
- * Code has — `CLAUDE_CONFIG_DIR` moves it, and `install.ts#hostConfigBase` is
- * the one place that knows so. The BINARY on PATH is what a fresh install has
+ * Code has — `CLAUDE_CONFIG_DIR` moves it (and IS it, when set: not a
+ * `.claude` inside it, 2026-10-09), and `install.ts#hostSettingsDir` is the one
+ * place that knows so. The BINARY on PATH is what a fresh install has
  * before it has been run, and the reason `install.ts`'s own docstring exists: a
  * process's PATH is not a login shell's, so a `claude` we cannot see may still
  * be there for the person.
@@ -3913,7 +3919,7 @@ function claudeCodeHere(
   env: Record<string, string | undefined>,
   spawner: Spawner,
 ): boolean {
-  if (existsSync(join(hostConfigBase(home, env), ".claude"))) return true;
+  if (existsSync(hostSettingsDir(home, env))) return true;
   return !spawner(["--version"]).missing;
 }
 

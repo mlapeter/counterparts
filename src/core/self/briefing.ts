@@ -273,6 +273,12 @@ export interface Resolved {
    */
   readonly due?: string;
   /**
+   * How often an arriving occasion comes round, in words (`HorizonItem.every`,
+   * 2026-10-09), printed beside its due date: `(due 2027-05-14, every May 14)`.
+   * Only a horizon item that repeats carries one.
+   */
+  readonly every?: string;
+  /**
    * True when the encode date is only an UPPER BOUND — the element was known BY
    * then, not learned then. Set for migrated elements, whose `learned_on` is
    * v1's date when v1 carried one and the IMPORT date when it did not, with
@@ -471,8 +477,12 @@ export function datePrefix(r: Resolved): string {
   // "2026-09-27 · …" while the item was due 2026-10-03, and the learned date
   // alone reads as when it happens.
   if (due !== "") {
-    if (learned === "") return `due ${due}${DATE_SEP}`;
-    if (due !== learned) return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (due ${due})${DATE_SEP}`;
+    // A repeating one says how often beside it (2026-10-09) — even when it is
+    // due on the day it was learned, since "every May 14" is news there too.
+    const every = (r.every ?? "").trim();
+    const often = every === "" ? "" : `, ${every}`;
+    if (learned === "") return `due ${due}${often}${DATE_SEP}`;
+    if (due !== learned || often !== "") return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (due ${due}${often})${DATE_SEP}`;
   }
   if (learned === "") return "";
   const happened = (r.happenedOn ?? "").trim();

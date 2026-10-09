@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+- **A memory can no longer fade or retire an unrelated one by mistake.** When a new memory
+  says it changes or corrects an older one (`updates` with `how: changed` or `corrected`),
+  Counterparts now checks the two are about the same thing first: by meaning, through the
+  local embeddings, or by shared words when there are none. If they look unrelated, the
+  new memory is stored but the old one is left as it was and the two are not linked. The
+  reply shows the old memory's title and text and asks the model to settle it itself with
+  `note` if it really meant the correction. In a benchmark with a smaller model, about two
+  thirds of these pointers named the wrong memory (one about a mole removal retired a
+  passport name change); on Opus they were right. Closing an open thread, moving or
+  dropping a reminder's date, and changing a status still go straight through, however
+  short the note. A write-up or the nightly catch-up has nobody to read the reply, so
+  there the old memory simply stays. Each hold is recorded; the dashboard's flow shows
+  them.
+- **Dates can repeat.** A dated memory can now say `recurring`: `daily`, `weekly`,
+  `monthly` or `yearly`, counted from its date. A birthday saved as 1990-05-14 with
+  `yearly` comes back every May 14 — a plain one is said on the day each year, once, and
+  a quiet one can surface around it each year, at most twice. The wake's Arriving line
+  and recall's open items show it beside the date: "due 2026-10-12, every Monday" (a
+  daily one takes no Arriving line; it's every day, not arriving). Monthly on the 29th,
+  30th or 31st falls on the last day of a shorter month, and yearly on February 29 falls
+  on February 28 in other years. Only a single day can repeat (not a month or a range);
+  every other week and "the first Monday" aren't supported. Revising the memory keeps
+  the repeat unless you say otherwise, and never repeats a reminder already given that
+  day. No change to the store's format.
+- **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
+  do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
+  export or un-merge a memory, or something fails. One, the check after the v8 upgrade,
+  runs only once. `counterparts mechanisms --all` now lists the first kind as **waiting**
+  and a one-time job that ran as **done**, instead of "gone quiet" or "never fired", and
+  doctor counts them the same way. One silence is still a fault: a reminder you marked
+  plain that fell due on a day you used Claude Code and was not said. That turns the line
+  amber, and the short `counterparts mechanisms` view says so on its Prospective line.
+- **Doctor's Reflection line counts "returns this week" from your local midnight**, not
+  UTC's. West of UTC it counted returns from the evening before the week; far to the east
+  it missed the first hours of the week.
+- **With `CLAUDE_CONFIG_DIR` set, `connect`, `install` and doctor use the settings file
+  Claude Code actually reads**, `$CLAUDE_CONFIG_DIR/settings.json`. They used
+  `$CLAUDE_CONFIG_DIR/.claude/settings.json`, which Claude Code never opens, so the hooks
+  never ran while doctor, reading the same file, said they were connected. `install` also
+  now recognises Claude Code from that directory. Nothing changes if you don't set the
+  variable. If you do and ran `connect` before, run it again; the stray
+  `.claude/settings.json` inside that directory can be deleted.
+- **Facts recall reads "last Saturday" and "before 7/22" the way you mean them.** "Last
+  Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
+  the most recent Saturday before today, so asked on a Saturday it is the one a week ago.
+  "Before 7/22" kept only 07-22 itself; now it keeps every day before it, "after 7/22"
+  every day after it, and "until 7/22" or "by 7/22" every day through it; when the date
+  names something on that day ("before the 7/22 flight"), that day stays in. "Since 7/22" is
+  unchanged: from that day to today. The same goes for `2023-07-22`, `7/22`, "July 22" and
+  `7/22/2023`, and a year written with the date (`7/22/2023`, "July 22, 2023") is now the
+  year used; it was ignored before. "This Saturday" and "on Saturday" are still not read,
+  since either can mean the coming one.
 - **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
   about 09-25 Claude Code writes a session's transcript only after the first prompt, which
   is when the check read it, so nearly every session said its wake was "not found in the
@@ -42,6 +94,14 @@
   learned, and what it was before it changed) and **by meaning** (the chapters that hold a
   person, a project or a feeling, in time order, with their moments and whose feelings
   they were). The match-strength words are gone, as recall has none now.
+- **Recall by meaning answers about the person you asked about.** A question naming two
+  people, or you and someone else, was answered about whichever had more memories, which
+  is usually you: "what has Ilya been to Mike" through the `recall` tool came back as
+  Mike's story, with Ilya listed underneath. It now goes by how the question is worded and
+  the order of the names ("what has Ilya been to Mike" is Ilya's; "how has Ilya changed
+  since Nkechi arrived" is Ilya's). When two are asked about alike ("tell me about Ilya and
+  Nkechi") it follows the first and says so. And "what have I been like" or "how have I
+  changed", asked by meaning on the dashboard, finds your own card again.
 - **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
   `mode: "meaning"` does; facts stays the default. `--page` pages either.
 - **A memory id written inside a memory's words is a link.** On the Memories page,
@@ -60,6 +120,24 @@
   reached through links). Each showing is counted once. `counterparts probe-oq4` prints the
   resulting hit rate. This only measures: nothing is strengthened, weakened or ranked
   differently because of it.
+- **A memory's card in the dashboard says the day it was written on your calendar.** "Written
+  …" used the UTC date, so in Denver anything written in the evening showed the next day, and
+  east of UTC anything written early in the morning showed the day before. It now uses this
+  computer's date, the same day as the card's "recorded" line.
+- **A plan changed after a handoff is shown with it.** When a session left a handoff and
+  later wrote a note or a `session_end` memory that changed the plan (status `planned`,
+  `proposed` or `asked`, or marked `unresolved`), the next session in that directory saw
+  only the handoff. The handoff now has a "Since this handoff:" line under it naming up to
+  three such memories by title and id, newest first, from any session working in that
+  directory, including the one that wrote the handoff. Memories written in the same answer
+  as the handoff are left out, and a memory named there is not repeated in "Work here"; an
+  open question the wake already lists under "Still open:" is left to that list. When the
+  wake has no room for the line, the handoff is shown as before.
+- **The self page no longer prints "Last revised" twice.** A page that carried its own
+  "(Last revised …)" line showed it under the wake's own date line. The wake now leaves the
+  page's line out, and so does writing the page, so a stored page loses it the next time it
+  is revised. Only a line that is a date goes: prose, a list entry, a quote, a code block or
+  a page's own history that begins with the same words stays.
 
 ## 0.3.12 — 2026-10-08
 

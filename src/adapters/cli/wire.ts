@@ -98,6 +98,7 @@ import {
   hookCommand,
   hostConfigBase,
   hostMcpFile,
+  hostSettingsDir,
   mcpCommand,
   settingsBlock,
 } from "./install.js";
@@ -109,9 +110,11 @@ import type { Ui, UiEnv } from "./ui.js";
 
 /** The user-scope settings file: the ONE this command writes. Project files
  *  (`.claude/settings.json` in a working directory) are read by `doctor` and
- *  never written here — wiring one project is not what anybody asked for. */
+ *  never written here — wiring one project is not what anybody asked for.
+ *  `$CLAUDE_CONFIG_DIR/settings.json` when that is set (`hostSettingsDir`,
+ *  2026-10-09), never `$CLAUDE_CONFIG_DIR/.claude/settings.json`. */
 export function userSettingsPath(home: string, env: UiEnv): string {
-  return join(hostConfigBase(home, env), ".claude", "settings.json");
+  return join(hostSettingsDir(home, env), "settings.json");
 }
 
 /** The infix a backup wears. Named, because the test and the output share it. */

@@ -51,7 +51,7 @@
  * a fortnight of holidays is not a fortnight of work. An expired handoff stops
  * being shown and stops being written over: the row is simply left to the prune.
  */
-import type { ProseDoc, Store } from "../store/index.js";
+import type { MemoryStatus, ProseDoc, Store } from "../store/index.js";
 import { isKnownSession, isModelId } from "../types.js";
 
 /** The `meta.role` that makes a schema row a handoff. One per scope and session. */
@@ -110,11 +110,13 @@ export const HANDOFF_EXCERPT_BYTES = 160;
  * 1,431 since the newest says how far its work since is written up
  * (2026-09-30), and 1,646 since each says why it may be out of date — an
  * older release wrote it, or a newer chapter was written here (2026-10-01).
+ * 1,963 since a "since" line can follow it (2026-10-09): three plans at the
+ * title cap and a count, 317 bytes on the widest block (1,646).
  * In practice the share rule binds first: at the 9,000 bytes the owner's hosts
  * report, no reserve can pass 1,125, so a block that wide is carried with two
  * shown rather than three.
  */
-export const HANDOFF_RESERVE_MAX_BYTES = 1646;
+export const HANDOFF_RESERVE_MAX_BYTES = 1963;
 
 /**
  * Slack on top of the block that actually exists, so a reserve taken at one
@@ -986,6 +988,10 @@ export function pointerBlockMany(
  * rung is for the one-boundary lag (NOTES §2): a directory's first second
  * author appears at a boundary whose reserve was sized to one handoff, and a
  * shorter pointer that fits beats a fuller one dropped whole.
+ *
+ * With `plans` (2026-10-09), each of those rungs comes first with the "since"
+ * line under it (`sinceLine`), and then the rungs above, unchanged. A rung's
+ * `plans` is the ids its line names — none on a rung without one.
  */
 export function pointerLadder(
   hs: readonly Handoff[],
@@ -994,22 +1000,114 @@ export function pointerLadder(
     readonly since?: readonly (PointerSince | null)[];
     readonly reader?: string | null;
     readonly lifeDays?: number;
+    /** What was planned here since the newest (`Handoffs#plansSince`). */
+    readonly plans?: PlansSince | null;
   } = {},
-): { block: string; shown: readonly Handoff[] }[] {
+): { block: string; shown: readonly Handoff[]; plans: readonly string[] }[] {
   const lifeDays = opts.lifeDays ?? HANDOFF_LIFE_DAYS;
   const live = hs.filter((h) => !expired(h, day, lifeDays));
   const first = live[0];
   if (first === undefined) return [];
   const single = pointerBlock(first, day, lifeDays, opts.since?.[0] ?? null, opts.reader ?? null);
-  const out: { block: string; shown: readonly Handoff[] }[] = [];
+  const out: { block: string; shown: readonly Handoff[]; several: boolean }[] = [];
   if (live.length > 1) {
     for (let k = Math.min(HANDOFF_WAKE_SHOWN, live.length); k >= 1; k--) {
       const block = pointerBlockMany(live, day, { ...opts, shown: k });
-      if (block !== null) out.push({ block, shown: live.slice(0, k) });
+      if (block !== null) out.push({ block, shown: live.slice(0, k), several: true });
     }
   }
-  if (single !== null) out.push({ block: single, shown: [first] });
-  return out;
+  if (single !== null) out.push({ block: single, shown: [first], several: false });
+  // SINCE THIS HANDOFF (2026-10-09): every rung once WITH the line, widest
+  // first, then every rung as it was — so a ceiling with no room for the line
+  // carries today's block byte for byte. The line is tried before an older
+  // handoff is kept in full: what was planned here after the newest handoff
+  // is newer than any of them.
+  const plans = opts.plans ?? null;
+  const listed = (plans?.items ?? []).slice(0, SINCE_SHOWN).map((p) => p.id);
+  const withPlans = out.flatMap((rung) => {
+    const line = plans === null ? null : sinceLine(plans, rung.several);
+    return line === null ? [] : [{ block: `${rung.block}\n${line}`, shown: rung.shown, plans: listed }];
+  });
+  return [...withPlans, ...out.map((rung) => ({ block: rung.block, shown: rung.shown, plans: [] as readonly string[] }))];
+}
+
+// ── what was planned here since (2026-10-09) ────────────────────────────────
+
+/**
+ * THE STATUSES THAT READ AS A PLAN OR A NEXT STEP — the v12 field the writer
+ * fills (`store/index.ts#STATUSES`): `planned` (decided, not yet done),
+ * `proposed` (put forward, not decided) and `asked` (a question or request
+ * still open). Not `done`, and not a memory with no status.
+ */
+export const PLAN_STATUSES: readonly MemoryStatus[] = ["planned", "proposed", "asked"];
+
+/** How many the "since" line names, newest first; the rest are a count. */
+export const SINCE_SHOWN = 3;
+
+/** A title's cap in the line, in bytes. The id is the door to the whole memory. */
+export const SINCE_TITLE_BYTES = 60;
+
+/**
+ * WHAT ITS OWN SESSION WROTE THIS SOON AFTER THE HANDOFF IS PART OF THE SAME
+ * ANSWER, not news: the `session_end` call writes its handoff first and its
+ * memories straight after (`mcp/server.ts#sessionEndTool`), and an end-of-
+ * stretch answer may add a note or a chapter in the same turn. Five minutes,
+ * the grace a chapter's span gives the same answer
+ * (`self/chapter-address.ts#CHAPTER_MOMENT_GRACE_MS`). A working default.
+ */
+export const SINCE_SAME_ANSWER_MS = 5 * 60_000;
+
+/** How many candidates one read takes, newest first (`Store#planCandidates`). */
+export const SINCE_READ = 30;
+
+/** One memory the "since" line names. */
+export interface PlanSince {
+  readonly id: string;
+  /** Its title, or its first sentence when it has none, cut to `SINCE_TITLE_BYTES`. */
+  readonly title: string;
+  /** What kind of thing it is, as the line prints it (`planWord`). */
+  readonly word: string;
+}
+
+/** What was planned here since a handoff: the newest first, and how many more. */
+export interface PlansSince {
+  readonly items: readonly PlanSince[];
+  readonly more: number;
+}
+
+/**
+ * IS THIS A PLAN OR A NEXT STEP, and the word the line prints for it: its
+ * status when that is one of `PLAN_STATUSES`, else "open" for a memory still
+ * flagged `unresolved` (the word the wake's "Still open:" lane uses). Null
+ * for anything else. Pure.
+ */
+export function planWord(status: string | null | undefined, unresolved: boolean): string | null {
+  if (typeof status === "string" && (PLAN_STATUSES as readonly string[]).includes(status)) return status;
+  return unresolved ? "open" : null;
+}
+
+/**
+ * THE LINE UNDER THE POINTER (2026-10-09): what this directory's sessions
+ * wrote after the newest handoff that reads as a plan or a next step — up to
+ * `SINCE_SHOWN` by title, word and id, newest first, the rest by count.
+ * `several` says the block shows more than one handoff, so the line says
+ * which one it counts from. Flattened, no bullet: the pointer is furniture.
+ * Null with nothing to name. Pure.
+ */
+export function sinceLine(plans: PlansSince, several: boolean): string | null {
+  const shown = plans.items.slice(0, SINCE_SHOWN);
+  if (shown.length === 0) return null;
+  const more = plans.more + plans.items.length - shown.length;
+  const lead = several ? "Since the newest handoff here:" : "Since this handoff:";
+  const list = shown.map((p) => `${p.title} (${p.word}, ${p.id})`).join("; ");
+  return flatten(`${lead} ${list}${more > 0 ? `; and ${String(more)} more` : ""}.`);
+}
+
+/** `/a/b/` and `/a/b` name one directory, as `self/work.ts` reads them. */
+function scopeSpellings(scope: string): string[] {
+  const trimmed = scope.trim();
+  const bare = trimmed.replace(/\/+$/, "");
+  return bare.length > 0 && bare !== trimmed ? [trimmed, bare] : [trimmed];
 }
 
 // ── the module ──────────────────────────────────────────────────────────────
@@ -1025,6 +1123,25 @@ export interface HandoffsOptions {
     data?: Record<string, string | number | boolean | null>;
   }) => void;
   readonly now?: () => number;
+  /**
+   * Whether a confidential memory may be named in the "since" line — the
+   * owner's own session, as a confidential chapter is "last here" to the
+   * owner only (2026-10-09).
+   */
+  readonly owner?: boolean;
+  /**
+   * The memories a later one settled over (`self/index.ts#settledOver`), which
+   * no wake line shows; asked only when there is something to name. Passed in
+   * by the root, because `handoff/` depends on `store/` and nothing else.
+   */
+  readonly settled?: () => ReadonlySet<string>;
+  /**
+   * The memories the published wake already lists under "Still open:"
+   * (`self/index.ts#threadsShown`), which the "since" line leaves to that
+   * lane rather than name twice (review of #332). Asked only when there is
+   * something to name; passed in by the root, as `settled` is.
+   */
+  readonly listed?: () => ReadonlySet<string>;
 }
 
 export interface WriteInput {
@@ -1045,6 +1162,9 @@ export class Handoffs {
   private readonly observer: boolean;
   private readonly onEvent: HandoffsOptions["onEvent"];
   private readonly nowFn: () => number;
+  private readonly owner: boolean;
+  private readonly settled: (() => ReadonlySet<string>) | undefined;
+  private readonly listed: (() => ReadonlySet<string>) | undefined;
 
   constructor(opts: HandoffsOptions) {
     this.store = opts.store;
@@ -1052,6 +1172,9 @@ export class Handoffs {
     this.observer = opts.observer === true;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? Date.now;
+    this.owner = opts.owner === true;
+    this.settled = opts.settled;
+    this.listed = opts.listed;
   }
 
   private emit(
@@ -1132,7 +1255,10 @@ export class Handoffs {
       // Sized to the widest "how current" words the delivery can add, which
       // it computes only then — on the newest in full, the rest a stamp.
       const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : WIDEST_OLDER_SINCE));
-      const rungs = pointerLadder(hs, d, { since }).map((rung) => byteLengthOf(rung.block));
+      // What was planned here since the newest, as it stands now (2026-10-09):
+      // sized to the line that exists, as the rest of the block is.
+      const plans = hs[0] === undefined ? null : this.plansSince(scope, hs[0]);
+      const rungs = pointerLadder(hs, d, { since, plans }).map((rung) => byteLengthOf(rung.block));
       if (rungs.length > 0) out.set(scope, rungs);
     }
     return out;
@@ -1343,7 +1469,7 @@ export class Handoffs {
     day?: number,
     since?: (h: Handoff, newest: boolean) => PointerSince | null,
     reader?: string | null,
-  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number } | null {
+  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number; plans: readonly string[] } | null {
     return this.pointerChoices(scope, day, since, reader)[0] ?? null;
   }
 
@@ -1360,7 +1486,7 @@ export class Handoffs {
     day?: number,
     since?: (h: Handoff, newest: boolean) => PointerSince | null,
     reader?: string | null,
-  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number }[] {
+  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number; plans: readonly string[] }[] {
     const d = day ?? this.store.livedDay();
     const hs = this.readAll(scope, d);
     const first = hs[0];
@@ -1372,12 +1498,85 @@ export class Handoffs {
         return null;
       }
     });
-    return pointerLadder(hs, d, { since: current, reader: reader ?? null }).map((rung) => ({
+    const plans = this.plansSince(scope, first);
+    return pointerLadder(hs, d, { since: current, reader: reader ?? null, plans }).map((rung) => ({
       block: rung.block,
       handoff: first,
       shown: rung.shown,
       live: hs.length,
+      plans: rung.plans,
     }));
+  }
+
+  /**
+   * WHAT WAS PLANNED HERE SINCE THIS HANDOFF (2026-10-09): the memories this
+   * directory's sessions wrote by hand after its words were written whose
+   * status is a plan or a next step (`PLAN_STATUSES`) or that are still
+   * flagged `unresolved` — newest first, `SINCE_SHOWN` of them named and the
+   * rest counted. A session that wrote a handoff and later changed the plan
+   * in a note, without rewriting the handoff, left the newer memory quiet:
+   * the pointer was the only place a waking session was told to resume from.
+   *
+   * Its own session's memories count, except what it wrote within
+   * `SINCE_SAME_ANSWER_MS` of the handoff, which is the same answer. Left
+   * out: what a later memory settled over, what the published wake already
+   * lists under "Still open:" (`HandoffsOptions.listed`), a journal chapter's
+   * copy, and a confidential memory unless the owner's (`HandoffsOptions.owner`). The
+   * columns are read first (`Store#planCandidates`), then the prose of what
+   * comes back. Never throws: a store that will not answer names nothing.
+   */
+  plansSince(scope: string, h: Handoff): PlansSince {
+    const none: PlansSince = { items: [], more: 0 };
+    try {
+      const after = this.writtenAt(h);
+      if (after === null) return none;
+      const ids = this.store.planCandidates({
+        scopes: scopeSpellings(scope),
+        after,
+        statuses: PLAN_STATUSES,
+        limit: SINCE_READ,
+        confidential: this.owner,
+      });
+      if (ids.length === 0) return none;
+      const ask = (f: (() => ReadonlySet<string>) | undefined): ReadonlySet<string> => {
+        try {
+          return f?.() ?? new Set();
+        } catch {
+          return new Set();
+        }
+      };
+      const settled = ask(this.settled);
+      // ONE PLACE FOR AN OPEN QUESTION (review of #332): one the published
+      // wake already lists under "Still open:" is left to that lane. One it
+      // does not — opened since the last boundary, or past the lane's cap,
+      // which takes the oldest first — is named here.
+      const listed = ask(this.listed);
+      const found: PlanSince[] = [];
+      for (const id of ids) {
+        if (settled.has(id) || listed.has(id)) continue;
+        const row = this.store.row(id);
+        if (row === undefined) continue;
+        if (h.session !== null && row.origin_session === h.session && (row.created_at ?? 0) - after <= SINCE_SAME_ANSWER_MS) {
+          continue;
+        }
+        let doc: ProseDoc;
+        try {
+          doc = this.store.readProse(id);
+        } catch {
+          continue;
+        }
+        if (typeof doc.meta["episodeId"] === "string") continue;
+        const word = planWord(row.status ?? null, doc.meta["unresolved"] === true);
+        if (word === null) continue;
+        const title = flatten(doc.title ?? "");
+        const text = excerpt(title.length > 0 ? title : doc.body, SINCE_TITLE_BYTES);
+        if (text.length === 0) continue;
+        found.push({ id, title: text, word });
+      }
+      return { items: found.slice(0, SINCE_SHOWN), more: Math.max(0, found.length - SINCE_SHOWN) };
+    } catch {
+      return none;
+    }
   }
 
   /**
@@ -1411,7 +1610,7 @@ export class Handoffs {
    * the ROW's id and the lived day — never the directory, which is a path
    * (§5 G10).
    */
-  noteShown(h: Handoff, opts: { bytes: number; session?: string | null; day?: number; among?: number }): void {
+  noteShown(h: Handoff, opts: { bytes: number; session?: string | null; day?: number; among?: number; plans?: number }): void {
     if (this.observer) {
       this.emit("handoff.observer.standdown", undefined, { site: "noteShown" });
       return;
@@ -1432,6 +1631,9 @@ export class Handoffs {
           // How many live handoffs the directory held when this one was shown
           // (2026-09-30) — absent when it was the only one.
           ...(opts.among === undefined || opts.among <= 1 ? {} : { among: opts.among }),
+          // How many memories the "since" line named beside it (2026-10-09) —
+          // absent when it named none.
+          ...(opts.plans === undefined || opts.plans <= 0 ? {} : { plans: opts.plans }),
         },
       });
     } catch {

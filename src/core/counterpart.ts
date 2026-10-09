@@ -47,7 +47,7 @@ import { UNRESOLVED_META_KEY, mintProposal } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
-import { Prospective, DATE_LINEAGE_MAX, DATE_MOVED_TO_META, cueModeOf } from "./prospective/index.js";
+import { Prospective, DATE_LINEAGE_MAX, DATE_MOVED_TO_META, cueModeOf, recurrenceOf } from "./prospective/index.js";
 import type { PlainDue } from "./prospective/index.js";
 import {
   ASKED_KIND,
@@ -118,8 +118,15 @@ import type {
 import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import type { RevisionApplication } from "./revision.js";
-import { settle as settleContradiction, undo as undoContradiction, writeNeighbours } from "./contradictions.js";
-import type { Neighbour, SettleInput, SettleOutcome, UndoOutcome } from "./contradictions.js";
+import {
+  CONTRADICTION_HELD_EVENT,
+  heldView,
+  settle as settleContradiction,
+  undo as undoContradiction,
+  updateRelatedness,
+  writeNeighbours,
+} from "./contradictions.js";
+import type { HeldUpdate, Neighbour, SettleInput, SettleOutcome, UndoOutcome } from "./contradictions.js";
 import { Schemas } from "./schemas/index.js";
 import {
   HANDOFF_CLEARED_EVENT,
@@ -136,6 +143,7 @@ import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionSt
 import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
+import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
 import {
@@ -151,6 +159,7 @@ import {
   noteWakeBuild,
   noteWakeCaught,
   settledOver,
+  threadsShown,
   spliceBeforeSentinel,
   wakeBehind,
   wakeFromOtherBuild,
@@ -182,7 +191,7 @@ import type {
   WakeTrigger,
   WriterInput,
 } from "./self/index.js";
-import { cyclePartial, runCycle } from "./sleep/index.js";
+import { cyclePartial, ownerNames, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { CORE_ABOUT_MARKS, Store, assertSafeDataDir, hashText, indexTextOf, occurredOnOf, saidByOf, statusOf } from "./store/index.js";
 import type {
@@ -1103,6 +1112,14 @@ export interface DepositResult {
    */
   readonly revision?: RevisionApplication;
   /**
+   * The declared `updates:` this deposit HELD (2026-10-09, the update guard):
+   * a `changed` or `corrected` at a memory that looked unrelated to the new
+   * one, so the new memory landed unlinked and the old one was not settled
+   * (`Counterpart#guardUpdate`). The old memory's title and text ride out, so
+   * the writer can settle it itself if it meant to. Absent otherwise.
+   */
+  readonly held?: HeldUpdate;
+  /**
    * The open thread this deposit CLOSED (2026-10-01, lane 8): the memory it
    * revises was flagged `unresolved` and the author sent `unresolved` — false
    * (it is answered) or true (this memory carries it on). `closed` is false
@@ -1131,8 +1148,13 @@ export interface DepositReminder {
   /** The date the new memory carries, or null when the revision dropped it. */
   readonly eventDate: string | null;
   readonly remind: "plain" | "quiet" | null;
+  /** How often the carried date comes round (2026-10-09), or null: once. */
+  readonly recurring: Recurrence | null;
+  /** A repeat — sent or carried — that the new date cannot take (only a day
+   *  repeats), so it was dropped: said in the answer, never silently lost. */
+  readonly recurringDropped?: boolean;
   /** Which fields came from `from` because the author left them out. */
-  readonly inherited: readonly ("eventDate" | "remind")[];
+  readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
   readonly moved: boolean;
 }
@@ -1142,7 +1164,8 @@ interface ReminderCarryPlan {
   readonly proposal: Proposal;
   /** The dated memory being revised, or null when there is nothing to carry. */
   readonly from: string | null;
-  readonly inherited: readonly ("eventDate" | "remind")[];
+  readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
+  readonly recurringDropped?: boolean;
 }
 
 export interface SweepEntry {
@@ -1861,6 +1884,13 @@ export class Counterpart {
       observer: this.observer,
       onEvent: (e) => this.relay("handoff", e),
       now: this.nowFn,
+      // The "since" line beside the pointer (2026-10-09): a confidential
+      // memory named to the owner only, and nothing a later one settled over.
+      owner: this.owner,
+      settled: () => settledOver(this.store),
+      // …and nothing the published wake already lists under "Still open:"
+      // (review of #332): one place for an open question.
+      listed: () => threadsShown(this.store),
     });
     this.spans = new SpanBuffer({
       dir: this.store.dir,
@@ -2121,6 +2151,7 @@ export class Counterpart {
             bytes: i === 0 ? cost - others : own(i),
             session: here?.session ?? null,
             among: rung.live,
+            ...(i === 0 ? { plans: rung.plans.length } : {}),
           });
         });
       } else if (newest !== undefined) {
@@ -2132,7 +2163,11 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return this.withWorkHere(result, block, work, budget, scope);
+      // A memory the "since" line names is not named again in the work lines
+      // above it (2026-10-09).
+      const named = rung?.plans ?? [];
+      const lines = work.lines.filter((l) => !named.some((id) => l.endsWith(`(${id})`)));
+      return this.withWorkHere(result, block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
@@ -5523,7 +5558,12 @@ export class Counterpart {
       return { ...none(reason, result.gate), malformed: result.malformed };
     }
 
-    const carry = this.carryReminder(result.proposal);
+    // THE UPDATE GUARD (2026-10-09), before anything reads the address: a
+    // `changed` or `corrected` at a memory that looks unrelated is HELD. The
+    // proposal goes on without its `updates`, so nothing is linked, carried
+    // over, closed or settled; the hold is recorded and handed back.
+    const held = await this.guardUpdate(result.proposal, ctx);
+    const carry = this.carryReminder(held === null ? result.proposal : withoutUpdates(result.proposal));
     // v12: the writer's three fields, a revision's carried over where unsent.
     const facts = this.carryFacts(carry.proposal, ctx.facts);
     const proposal: Proposal = facts === null ? carry.proposal : { ...carry.proposal, facts: { ...(facts.occurredOn === null ? {} : { occurredOn: facts.occurredOn }), ...(facts.saidBy === null ? {} : { saidBy: facts.saidBy }), ...(facts.status === null ? {} : { status: facts.status }) } };
@@ -5561,6 +5601,7 @@ export class Counterpart {
     // settled at once, and the wake dropped what the deposit said was open.
     const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
     const revision = this.applyDeclaredRevision(keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
+    if (held !== null) this.recordHold(held, mint.id, source, ctx, proposal.day);
     return {
       deposited: true,
       reason: "minted",
@@ -5571,9 +5612,141 @@ export class Counterpart {
       covers: proposal.covers,
       ...(reminder === null ? {} : { reminder }),
       ...(revision === null ? {} : { revision }),
+      ...(held === null ? {} : { held }),
       ...(thread === null ? {} : { thread }),
       ...(facts === null ? {} : { facts }),
     };
+  }
+
+  /**
+   * THE UPDATE GUARD (2026-10-09): is the memory this write says it changes
+   * or corrects the one it is about? The engine fades or archives on the
+   * writer's word, and a weaker writer points at the wrong one (a 10-02
+   * benchmark read: a Haiku writer, about two thirds of 149 pairs; on the
+   * owner's store, Opus, all 10 checked were right). The pair is read by
+   * `contradictions.ts#updateRelatedness` — by meaning through the local
+   * embedder, by shared content words when there is none — and an unrelated
+   * one comes back as a hold. Null: the declaration goes on as written.
+   *
+   * Only where the write would move the old memory on its word alone:
+   *
+   *   - an AUTHOR's `how` of `changed` (said or defaulted) or `corrected` —
+   *     `open` moves nothing and stays as it was, and a sweep sends no `how`;
+   *   - at an address the author DECLARED and the store resolved — a content
+   *     match is the engine's own reading, already held to a score floor and a
+   *     margin (`remember/updates.ts`);
+   *   - and not a CLOSE or a REDATE (`closesOrRedates`), which acts on that
+   *     exact memory by id, usually right after recall showed it, and whose
+   *     words ("done") need not share anything with what they close.
+   *
+   * Every door that deposits reaches this, the write-up door and the nightly
+   * catch-up's included: a batch writer has nobody to read the reply, so a
+   * hold there stays a hold, which is the safe side. Never throws: a guard
+   * that cannot read the pair lets the declaration through, as before.
+   */
+  private async guardUpdate(p: Proposal, ctx: DepositContext): Promise<HeldUpdate | null> {
+    const how = p.how;
+    if (how !== "changed" && how !== "corrected") return null;
+    const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+    if (target === null) return null;
+    let row: MemoryRow | undefined;
+    try {
+      row = this.store.row(target);
+      if (row === undefined || this.closesOrRedates(p, target, row, ctx.facts)) return null;
+    } catch {
+      return null;
+    }
+    let overVec: number[] | null = null;
+    let textVec: number[] | null = null;
+    if (this.vectors !== undefined) {
+      try {
+        // The new memory's vector is the gate's, already in the cache; the old
+        // one's is computed here rather than read from box 3, which a backfill
+        // may not have reached and which may hold another model's vectors.
+        textVec = await this.vectors.vector(p.title, p.content);
+        overVec = await this.vectors.vector(row.title, row.body);
+      } catch {
+        textVec = null;
+        overVec = null;
+      }
+    }
+    let ignoreNames: string[] = [];
+    try {
+      // The owner's names: half the store says them, so sharing one says nothing.
+      ignoreNames = ownerNames(this.store);
+    } catch {
+      // No names to set aside: the words read as they are.
+    }
+    const read = updateRelatedness({
+      over: `${row.title ?? ""}\n${row.body}`,
+      text: `${p.title ?? ""}\n${p.content}`,
+      overVec,
+      textVec,
+      ignoreNames,
+    });
+    this.emit("counterpart.update.read", target, {
+      related: read.related,
+      by: read.by,
+      cosine: read.cosine,
+      shared: read.shared.length,
+      how,
+    });
+    if (read.related) return null;
+    const owner = ctx.owner === undefined ? this.owner : ctx.owner && !this.observer;
+    return { over: target, ...heldView(row, owner), how, by: read.by, cosine: read.cosine, shared: read.shared.length };
+  }
+
+  /**
+   * A CLOSE OR A REDATE goes straight through the update guard (2026-10-09):
+   * the write acts on something the memory it names HOLDS, so it is that
+   * memory the writer means.
+   *
+   *   - The memory is an OPEN THREAD. Both roads the tools document close one
+   *     — `unresolved: false`, or `how: changed` with the answer — and an
+   *     answer rarely repeats its question ("which cache?" / "Redis").
+   *   - The write sends a reminder field (`eventDate`, a date or null, or
+   *     `remind`) and the memory holds a date: a reschedule or a "done".
+   *   - The write sends a `status` and the memory has a different one
+   *     (planned, now done).
+   *
+   * A field the memory has nothing for — a date on an undated memory, a
+   * status where it had none — dates or describes the NEW memory, and the
+   * guard reads the pair as it would any other.
+   */
+  private closesOrRedates(p: Proposal, target: string, row: MemoryRow, sent: SentFacts | undefined): boolean {
+    try {
+      if (this.store.readProse(target).meta[UNRESOLVED_META_KEY] === true) return true;
+    } catch {
+      // Unreadable prose: no thread this can see.
+    }
+    const intent = p.dateIntent;
+    if (intent !== undefined && (intent.eventDate !== "absent" || intent.remind !== null) && this.reminderHolder(target) !== null) return true;
+    const now = sent?.status ?? null;
+    const was = statusOf(row.status ?? null);
+    return now !== null && was !== null && now !== was;
+  }
+
+  /** The hold's durable row and its in-process event. Telemetry never breaks the door. */
+  private recordHold(held: HeldUpdate, holds: string, source: ProposalSource, ctx: SessionEndDepositContext, day: number): void {
+    const payload = {
+      holds,
+      over: held.over,
+      how: held.how,
+      by: held.by,
+      cosine: held.cosine,
+      shared: held.shared,
+      source,
+      writeUp: ctx.writeUp !== undefined,
+      actor: "session",
+      actorId: ctx.session,
+      day,
+    };
+    this.emit("counterpart.update.held", holds, { over: held.over, how: held.how, by: held.by, cosine: held.cosine, shared: held.shared, source });
+    try {
+      this.store.appendEvent({ name: CONTRADICTION_HELD_EVENT, day, ref: holds, payload });
+    } catch (err) {
+      this.emit("counterpart.update.held.record.failed", holds, { error: errCode(err) });
+    }
   }
 
   /**
@@ -5695,18 +5868,34 @@ export class Counterpart {
     const priorDate = this.store.row(from)?.event_date ?? null;
     if (priorDate === null) return none;
     let priorMode: "plain" | "quiet" = "quiet";
+    let priorRule: Recurrence | null = null;
     try {
-      priorMode = cueModeOf(this.store.readProse(from));
+      const prior = this.store.readProse(from);
+      priorMode = cueModeOf(prior);
+      priorRule = recurrenceOf(prior);
     } catch {
-      // Unreadable prose: the date still carries, at the default mode.
+      // Unreadable prose: the date still carries, at the default mode, once.
     }
     const eventDate =
       intent.eventDate === "set" ? p.eventDate : intent.eventDate === "cleared" ? null : priorDate;
     const remind = eventDate === null ? null : intent.remind ?? priorMode;
-    const inherited: ("eventDate" | "remind")[] = [];
+    // HOW OFTEN, field by field like the rest (2026-10-09): what the author
+    // sent, `null` for "no longer repeats", else the revised memory's. Only a
+    // day repeats, so a revision that moves the date to a month or a range
+    // leaves it once — the same occurrence keys are what `lineage` counts.
+    const sentRule = intent.recurring ?? null;
+    const wanted = eventDate === null || sentRule === "cleared" ? null : sentRule ?? priorRule;
+    const recurring = wanted !== null && isDay(eventDate) ? wanted : null;
+    const inherited: ("eventDate" | "remind" | "recurring")[] = [];
     if (eventDate !== null && intent.eventDate === "absent") inherited.push("eventDate");
     if (eventDate !== null && intent.remind === null) inherited.push("remind");
-    return { proposal: { ...p, eventDate, remind, reminderFrom: from }, from, inherited };
+    if (recurring !== null && sentRule === null) inherited.push("recurring");
+    return {
+      proposal: { ...p, eventDate, remind, recurring, reminderFrom: from },
+      from,
+      inherited,
+      ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
+    };
   }
 
   /**
@@ -5763,12 +5952,15 @@ export class Counterpart {
       moved,
       eventDate: carry.proposal.eventDate,
       remind: carry.proposal.remind,
+      recurring: carry.proposal.recurring ?? null,
       inherited: carry.inherited.join(",") || null,
     });
     return {
       from,
       eventDate: carry.proposal.eventDate,
       remind: carry.proposal.remind,
+      recurring: carry.proposal.recurring ?? null,
+      ...(carry.recurringDropped === true ? { recurringDropped: true } : {}),
       inherited: carry.inherited,
       moved,
     };
@@ -6277,4 +6469,9 @@ function withoutHow(p: Proposal): Proposal {
   const { how: _how, ...rest } = p;
   void _how;
   return rest as Proposal;
+}
+
+/** A proposal without its `updates` (a held one, `Counterpart#guardUpdate`): a new memory, linked to nothing. */
+function withoutUpdates(p: Proposal): Proposal {
+  return { ...withoutHow(p), updates: null };
 }

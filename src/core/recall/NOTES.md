@@ -755,7 +755,11 @@ never says it.
   feelings for, so it ranks nothing. Wrong-core repairs kept the writer's word but not the
   core they named, and an alias kept the wheel word (`touched` → `moved`) — both answer
   through the alias table, not the original input. No stemming (a light one since §25).
-  Item 3 (a feeling's journey over time) is still open.
+  Item 3 (a feeling's journey over time) is still open. *(2026-10-09: item 3 is answered
+  by meaning mode, #322, merged 2026-10-03, in 0.3.12 — outside this module, at the MCP
+  layer (`mcp/meaning.ts`, mcp CONTRACT §6e): a person's, a project's or a feeling's
+  chapters in time order, each with its feelings by whose, and page 1 keeps the turns
+  where a feeling's valence changes sign.)*
 
 ## 23. The wheel v2 in recall — 2026-09-30
 

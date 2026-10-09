@@ -258,6 +258,136 @@ describe("the next session here is told who was last here", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe("what were we about to do? a plan written after the handoff is named beside it (2026-10-09)", () => {
+  const idOf = (r: { structuredContent?: unknown }): string => (r.structuredContent as Record<string, unknown>)["id"] as string;
+
+  /** C leaves a handoff at its Stop ask with one planned entry in the same
+   *  answer, works on, and later changes the plan in a note; A, in the same
+   *  directory, leaves an open question, a done memory and a plain fact. */
+  async function laterPlans(k: ReturnType<typeof afternoon>): Promise<{ changed: string; open: string; same: string; done: string }> {
+    k.talk(C, at(15, 10));
+    k.set(at(15, 19));
+    const ended = await k.server(C).call("session_end", {
+      session: C,
+      handoff: "The release is cut; the tarball is in the backups folder. Mike publishes.",
+      memories: [{ content: "Mike publishes 0.3.12 once he has looked at the tarball.", status: "planned" }],
+    });
+    expect(ended.isError).not.toBe(true);
+    const same = (((ended.structuredContent as Record<string, unknown>)["outcomes"] as Record<string, unknown>[])[0]?.["id"]) as string;
+    k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
+    k.talk(C, at(15, 40));
+    k.set(at(15, 55));
+    const changed = idOf(
+      await k.server(C).call("note", {
+        session: C,
+        title: "Publishing waits until Monday",
+        text: "Changed plan: Mike is ill, so publishing 0.3.12 waits until Monday; nothing else moves.",
+        status: "planned",
+      }),
+    );
+    k.talk(A, at(16, 5));
+    k.set(at(16, 10));
+    const open = idOf(
+      await k.server(A).call("note", { session: A, text: "Is the tarball in the backups folder signed, or only checksummed?", unresolved: true }),
+    );
+    k.set(at(16, 12));
+    const done = idOf(await k.server(A).call("note", { session: A, text: "The changelog for 0.3.12 is written and merged.", status: "done" }));
+    k.set(at(16, 14));
+    await k.server(A).call("note", { session: A, text: "The backups folder keeps one tarball per release, dated." });
+    k.set(at(16, 16));
+    await k.server(A, THERE).call("note", { session: A, text: "Elsewhere, the docs pass is planned for Tuesday.", status: "planned" });
+    k.set(at(16, 30));
+    return { changed, open, same, done };
+  }
+
+  test("the next session reads the changed plan and the open question under the handoff, newest first", async () => {
+    const k = afternoon();
+    const ids = await laterPlans(k);
+    const text = wake(k.c, B);
+    const lines = text.split("\n");
+    const since = lines.find((l) => l.startsWith("Since this handoff:"));
+    expect(since).toBe(
+      `Since this handoff: Is the tarball in the backups folder signed, or only… (open, ${ids.open}); Publishing waits until Monday (planned, ${ids.changed}).`,
+    );
+    // Under the pointer's two lines, inside the bundle.
+    const pointer = lines.findIndex((l) => l.startsWith("Where I left off in this directory"));
+    expect(lines.indexOf(since as string)).toBe(pointer + 2);
+    // What the same answer wrote, what is done, a plain fact and another
+    // directory's plan are not named.
+    expect(since).not.toContain(ids.same);
+    expect(since).not.toContain(ids.done);
+    expect(readSentinel(text).intact).toBe(true);
+    // Not named twice: the work lines above the pointer leave out what it names.
+    expect(lines.filter((l) => l.includes(ids.changed))).toHaveLength(1);
+    // Another directory has no handoff, so no line.
+    expect(wake(k.c, B, THERE)).not.toContain("Since this handoff");
+    // The shown row counts what the line named.
+    const shown = k.c.store.eventLog({ name: "handoff.shown", limit: 1, order: "desc" })[0];
+    expect(JSON.parse(shown?.payload ?? "{}")["plans"]).toBe(2);
+  });
+
+  test("a handoff rewritten after the note covers it, and a plan settled over by a later one is not named", async () => {
+    const k = afternoon();
+    const ids = await laterPlans(k);
+    // C revises its handoff after the note: the note is no longer since it.
+    k.set(at(16, 20));
+    k.c.writeHandoff("Publishing waits until Monday; the tarball is in the backups folder.", { scope: HERE, session: C });
+    k.set(at(16, 40));
+    const since = wake(k.c, B).split("\n").find((l) => l.startsWith("Since this handoff:"));
+    expect(since).toBeUndefined();
+    // A later question in the directory is, and so is a revision that holds.
+    k.talk(A, at(16, 45));
+    k.set(at(16, 50));
+    const s = k.server(A);
+    const first = idOf(await s.call("note", { session: A, text: "Ship the docs pass on Tuesday after the release.", status: "planned" }));
+    k.set(at(16, 52));
+    const second = idOf(
+      await s.call("note", { session: A, text: "Ship the docs pass on Wednesday instead; Tuesday is the release.", status: "planned", updates: first, how: "changed" }),
+    );
+    const line = wake(k.c, B).split("\n").find((l) => l.startsWith("Since this handoff:")) ?? "";
+    expect(line).toContain(second);
+    expect(line).not.toContain(first);
+    expect(line).not.toContain(ids.open);
+  });
+
+  test("an open question the wake already lists under 'Still open:' is not named again in the line (review of #332)", async () => {
+    const k = afternoon();
+    const ids = await laterPlans(k);
+    // A boundary after the question: the bundle now lists it as still open.
+    k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
+    const text = wake(k.c, B);
+    const lines = text.split("\n");
+    const open = lines.indexOf("Still open:");
+    expect(open).toBeGreaterThan(-1);
+    expect(lines.slice(open + 1).find((l) => l.includes("signed, or only checksummed"))).toBeDefined();
+    // The line names the changed plan alone; the question is said once.
+    const since = lines.find((l) => l.startsWith("Since this handoff:"));
+    expect(since).toBe(`Since this handoff: Publishing waits until Monday (planned, ${ids.changed}).`);
+    expect(lines.filter((l) => l.includes("signed, or only checksummed"))).toHaveLength(1);
+    expect(readSentinel(text).intact).toBe(true);
+  });
+
+  test("at a ceiling with no room for the line, the handoff is carried as it was", async () => {
+    const k = afternoon();
+    await laterPlans(k);
+    const full = k.c.wake(9_000, { date: "2026-09-30" }, { scope: HERE, session: B });
+    const since = full.text.split("\n").find((l) => l.startsWith("Since this handoff:")) as string;
+    expect(since).toBeDefined();
+    // The work lines give way to the handoff block, so they are out of the
+    // measure too: what is left is the bundle with the plain pointer alone.
+    const without = full.text
+      .split("\n")
+      .filter((l) => l !== since && l !== WORK_HERE_HEADING && !/^- .*\(mem_[0-9a-f]+\)$/.test(l))
+      .join("\n");
+    const tight = new TextEncoder().encode(without).length + 8;
+    const woke = k.c.wake(tight, { date: "2026-09-30" }, { scope: HERE, session: B });
+    expect(woke.text).not.toContain("Since this handoff");
+    expect(woke.text).toContain("Where I left off in this directory");
+    expect(woke.bytes).toBeLessThanOrEqual(tight);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 describe("its room in the wake", () => {
   function fill(c: Counterpart): void {
     for (let i = 0; i < 60; i++) {

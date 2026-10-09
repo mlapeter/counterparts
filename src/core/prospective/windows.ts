@@ -20,7 +20,8 @@
  * Pure: no ambient clock read anywhere in this file. The caller supplies `at`.
  * Every date is read by `core/time.ts#parseCalendarDate` (docs/time.md rule 1).
  */
-import { addDays, daysBetween, monthBounds, parseCalendarDate } from "../time.js";
+import { addDays, daysBetween, isDay, monthBounds, occurrenceOf, occurrenceOnOrAfter, parseCalendarDate } from "../time.js";
+import type { Recurrence } from "../time.js";
 import type { ProspectiveTunables } from "./tunables.js";
 
 /** As stated. `2026` / `2026-08` / `2026-08-25` / `2026-10-20..2026-10-31` —
@@ -55,6 +56,14 @@ export interface Window {
   readonly lastDay: string;
   /** Last calendar day the window is open (grace included). */
   readonly closesOn: string;
+  /**
+   * A RECURRING date's window (2026-10-09) is one occurrence of it: `eventDate`
+   * is that occurrence, and these two say what it is an occurrence OF — the
+   * day as stated and how often it comes round. Absent on a date that does
+   * not repeat.
+   */
+  readonly anchor?: string;
+  readonly recurring?: Recurrence;
 }
 
 /**
@@ -162,6 +171,68 @@ export function windowFor(
     lastDay: c.last,
     closesOn,
   };
+}
+
+/**
+ * THE ONE WINDOW A RECURRING DATE HAS OPEN ON `at` (2026-10-09, the owner's
+ * design, held lightly) — or, when none is open, the next one, pending.
+ *
+ * Each occurrence is its own day window, keyed by its own date (`d:2027-05-14`),
+ * so every brake that is per window — the fire cap, once per lived day, the
+ * plain latch per beat, referenced-stop, and what a revision carries through
+ * `lineage` — is per OCCURRENCE without a line of its own: the birthday is
+ * told once each May 14, never once ever and never twice.
+ *
+ * **Two occurrences are never open together.** Lead and grace are a week and
+ * a half wide; a weekly or a daily date would otherwise have two to eleven
+ * windows open at once, each with its own fire budget. So an occurrence's
+ * window is cut where its neighbours' begin: it opens no earlier than the day
+ * after the previous occurrence, and closes the day before the next one opens
+ * — the coming one's lead wins over the last one's grace. A daily date's
+ * window is its day; a weekly one opens three days before and keeps three days
+ * of grace; monthly and yearly are untouched.
+ *
+ * Only a DAY repeats (`time.ts#occurrenceOf`). Anything else is null, and the
+ * caller treats the date as stated, once.
+ */
+export function recurringWindowAt(
+  anchor: string,
+  rule: Recurrence,
+  at: string,
+  t: ProspectiveTunables,
+  salt = "",
+): Window | null {
+  if (!isDay(anchor) || !isDay(at)) return null;
+  const occ = (k: number): string | null => (k < 0 ? null : occurrenceOf(anchor, rule, k));
+  const opensOf = (k: number): string => {
+    const o = occ(k) as string;
+    const lead = addDays(o, -t.LEAD_DAYS);
+    const prev = occ(k - 1);
+    if (prev === null) return lead;
+    const after = addDays(prev, 1);
+    return lead > after ? lead : after;
+  };
+  const windowOf = (k: number): Window | null => {
+    const o = occ(k);
+    if (o === null) return null;
+    const w = windowFor(o, "day", t, salt);
+    if (w === null) return null;
+    const grace = addDays(o, t.GRACE_DAYS);
+    const nextOpens = addDays(opensOf(k + 1), -1);
+    return {
+      ...w,
+      opensOn: opensOf(k),
+      closesOn: grace < nextOpens ? grace : nextOpens,
+      anchor,
+      recurring: rule,
+    };
+  };
+  const next = occurrenceOnOrAfter(anchor, rule, at);
+  if (next === null) return null;
+  // Still in the last occurrence's grace, and the next one's lead not begun.
+  const last = windowOf(next.k - 1);
+  if (last !== null && at <= last.closesOn) return last;
+  return windowOf(next.k);
 }
 
 /** ISO day keys sort lexically, so the comparisons below are the calendar order. */

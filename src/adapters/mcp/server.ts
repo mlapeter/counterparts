@@ -56,9 +56,10 @@
  */
 import { CLAIM_NOTHING_NEW, claimUnwritten } from "../../core/coverage/index.js";
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT } from "../../core/counterpart.js";
-import { CONTRADICTION_TUNABLES, NEIGHBOURS_HINT } from "../../core/contradictions.js";
+import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT } from "../../core/contradictions.js";
 import type { Neighbour } from "../../core/contradictions.js";
-import { localDate, parseCalendarDate, todayIn } from "../../core/time.js";
+import { isRecurrence, localDate, occurrenceOnOrAfter, parseCalendarDate, readableRecurrence, todayIn } from "../../core/time.js";
+import type { Recurrence } from "../../core/time.js";
 import type { ChapterResult, Counterpart, DepositResult, SentFacts } from "../../core/counterpart.js";
 import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
@@ -1802,6 +1803,25 @@ export class McpServer {
    * declared.
    */
   private settledOf(deposit: DepositResult, sentHow: boolean): Record<string, unknown> {
+    // HELD (2026-10-09, the update guard): the memory named in `updates`
+    // looked unrelated, so nothing was settled or linked. Its own words come
+    // back with the ask the neighbours carry, and the two ids to settle with.
+    const h = deposit.held;
+    if (h !== undefined) {
+      return {
+        settled: {
+          ok: false,
+          held: true,
+          reason: "looks-unrelated",
+          how: h.how,
+          holds: deposit.memoryId,
+          over: h.over,
+          ...(h.title === null ? {} : { title: h.title }),
+          ...(h.text === null ? {} : { text: h.text }),
+          detail: HELD_HINT,
+        },
+      };
+    }
     const r = deposit.revision;
     if (r === undefined) return {};
     const o = r.settle;
@@ -1845,7 +1865,8 @@ export class McpServer {
     if (!deposit.deposited || deposit.memoryId === null || room <= 0) return [];
     // Not the memory it updates, and not a sibling written by the same call
     // (review of #284, M1): those are this writer's own words, not existing ones.
-    const exclude = [deposit.revision?.targetId, deposit.mint?.updates, ...siblings].filter((x): x is string => typeof x === "string");
+    // A held one (2026-10-09) is already shown whole, beside its own ask.
+    const exclude = [deposit.revision?.targetId, deposit.mint?.updates, deposit.held?.over, ...siblings].filter((x): x is string => typeof x === "string");
     return this.counterpart.writeNeighbours(deposit.memoryId, { exclude, owner: this.owner }).slice(0, room);
   }
 
@@ -4447,12 +4468,18 @@ type ReminderRead =
       /** `eventDate: null` is the explicit drop (a revision's cancel); `remind`
        *  rides only when it was SENT, so a revision can tell a left-out mode
        *  from a stated one (review N7). */
-      readonly fields: { eventDate?: string | null; remind?: "plain" | "quiet" };
+      readonly fields: { eventDate?: string | null; remind?: "plain" | "quiet"; recurring?: Recurrence | null };
       /** `remind` was sent with no `eventDate`: there is nothing for it to shape
        *  — unless the memory it revises carries a date (`DepositResult.reminder`). */
       readonly remindIgnored: boolean;
+      /** `recurring` was sent with no `eventDate` (2026-10-09): nothing to repeat
+       *  — unless the memory it revises carries a date. */
+      readonly recurringIgnored?: boolean;
     }
-  | { readonly refused: "event-date-unreadable" | "remind-unknown"; readonly detail: string };
+  | {
+      readonly refused: "event-date-unreadable" | "remind-unknown" | "recurring-unknown" | "recurring-needs-day";
+      readonly detail: string;
+    };
 
 const EVENT_DATE_SHAPES =
   'A day "2026-10-15", a month "2026-10", a year "2026", or a range of two days "2026-10-20..2026-10-31" (first day first). Convert "late October" or "before the 15th" into one of those yourself.';
@@ -4473,15 +4500,24 @@ const DATE_PASSED_NOTE = "That date has already passed — it won't come back as
 function readReminder(rec: Record<string, unknown>): ReminderRead {
   const rawDate = rec["eventDate"];
   const rawRemind = rec["remind"];
+  const rawRule = rec["recurring"];
   if (rawRemind !== undefined && rawRemind !== null && rawRemind !== "plain" && rawRemind !== "quiet") {
     return { refused: "remind-unknown", detail: '`remind` is "plain" or "quiet".' };
   }
-  const sent: { remind?: "plain" | "quiet" } =
-    rawRemind === "plain" || rawRemind === "quiet" ? { remind: rawRemind } : {};
+  // HOW OFTEN (2026-10-09): one of four words, refused by name like a date.
+  if (rawRule !== undefined && rawRule !== null && !isRecurrence(rawRule)) {
+    return { refused: "recurring-unknown", detail: RECURRING_WORDS };
+  }
+  const sent: { remind?: "plain" | "quiet"; recurring?: Recurrence | null } = {
+    ...(rawRemind === "plain" || rawRemind === "quiet" ? { remind: rawRemind } : {}),
+    // `null` rides as sent: a revision's "it no longer repeats".
+    ...(isRecurrence(rawRule) ? { recurring: rawRule } : rawRule === null ? { recurring: null } : {}),
+  };
   if (rawDate === undefined || rawDate === null) {
     return {
       fields: { ...(rawDate === null ? { eventDate: null } : {}), ...sent },
       remindIgnored: sent.remind !== undefined,
+      recurringIgnored: isRecurrence(sent.recurring),
     };
   }
   const read = typeof rawDate === "string" ? parseCalendarDate(rawDate) : null;
@@ -4491,13 +4527,33 @@ function readReminder(rec: Record<string, unknown>): ReminderRead {
       detail: `\`eventDate\` ${typeof rawDate === "string" ? `"${rawDate.slice(0, 64)}"` : "(not text)"} is not a date this can read. ${EVENT_DATE_SHAPES}`,
     };
   }
+  if (isRecurrence(sent.recurring) && read.precision !== "day") {
+    return { refused: "recurring-needs-day", detail: RECURRING_NEEDS_DAY };
+  }
   return { fields: { eventDate: read.text, ...sent }, remindIgnored: false };
 }
+
+const RECURRING_WORDS =
+  '`recurring` is "daily", "weekly", "monthly" or "yearly", anchored on eventDate. Every other week, "the first Monday" and the like are not kept: leave it out.';
+
+const RECURRING_NEEDS_DAY =
+  '`recurring` repeats one day, so eventDate must be a day: the first one ("1990-05-14" for a birthday, any Monday for "every Monday").';
+
+const RECURRING_IGNORED_NOTE = "`recurring` repeats a date; with no `eventDate` there was nothing to repeat.";
+
+const RECURRING_DROPPED_NOTE = "Not repeating any more: only a day repeats, and this date is not one, so it comes once.";
 
 /** What to say about a recorded date: that it has already passed (its last day
  *  is before the person's today — `time.ts#todayIn` in the store's zone), or
  *  that a year alone never comes back. One note, the passed one first. */
-function dateNote(eventDate: string, today: string): Record<string, unknown> {
+function dateNote(eventDate: string, today: string, recurring: Recurrence | null = null): Record<string, unknown> {
+  // A REPEATING date never "has passed" (2026-10-09): a birthday anchored in
+  // 1990 comes round every year. Said instead: how often, and when next.
+  if (recurring !== null) {
+    const every = readableRecurrence(eventDate, recurring);
+    const next = occurrenceOnOrAfter(eventDate, recurring, today);
+    return { ...(every === "" ? {} : { every }), ...(next === null ? {} : { next: next.date }) };
+  }
   const read = parseCalendarDate(eventDate);
   if (read === null) return {};
   if (read.last < today) return { note: DATE_PASSED_NOTE };
@@ -4522,20 +4578,33 @@ function reminderEcho(deposit: DepositResult, dated: ReminderRead, today: string
         },
       };
     }
+    // A repeat — sent or carried — that the new date cannot take (a month or a
+    // range does not repeat) is SAID, never silently lost.
+    const ruleDropped = carried.recurringDropped === true;
     return {
       reminder: {
         eventDate: carried.eventDate,
         remind: carried.remind ?? "quiet",
+        ...(carried.recurring === null ? {} : { recurring: carried.recurring }),
         from: carried.from,
         ...(carried.inherited.length > 0 ? { carriedOver: [...carried.inherited] } : {}),
         ...unmoved,
-        ...dateNote(carried.eventDate, today),
+        ...dateNote(carried.eventDate, today, carried.recurring),
+        ...(ruleDropped ? { note: RECURRING_DROPPED_NOTE } : {}),
       },
     };
   }
-  const { eventDate, remind } = dated.fields;
+  const { eventDate, remind, recurring } = dated.fields;
   if (typeof eventDate === "string") {
-    return { reminder: { eventDate, remind: remind ?? "quiet", ...dateNote(eventDate, today) } };
+    const rule = isRecurrence(recurring) ? recurring : null;
+    return {
+      reminder: {
+        eventDate,
+        remind: remind ?? "quiet",
+        ...(rule === null ? {} : { recurring: rule }),
+        ...dateNote(eventDate, today, rule),
+      },
+    };
   }
   // A cancel that found nothing to cancel is SAID (review of #247): silence
   // here read as success while a reminder the model meant to drop kept coming.
@@ -4547,9 +4616,12 @@ function reminderEcho(deposit: DepositResult, dated: ReminderRead, today: string
       },
     };
   }
-  return dated.remindIgnored
-    ? { reminder: { ignored: "remind", note: "`remind` shapes how a date comes back; with no `eventDate` there was nothing to shape." } }
-    : {};
+  const remindNote = "`remind` shapes how a date comes back; with no `eventDate` there was nothing to shape.";
+  if (dated.remindIgnored && dated.recurringIgnored === true) {
+    return { reminder: { ignored: "remind, recurring", note: `${remindNote} ${RECURRING_IGNORED_NOTE}` } };
+  }
+  if (dated.recurringIgnored === true) return { reminder: { ignored: "recurring", note: RECURRING_IGNORED_NOTE } };
+  return dated.remindIgnored ? { reminder: { ignored: "remind", note: remindNote } } : {};
 }
 
 // ── feelings on a tool call (schema v7) ─────────────────────────────────────

@@ -24,10 +24,13 @@ import {
   repairDates,
 } from "../src/adapters/cli/repair-dates.js";
 import { Store } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 
 /** The import ran on 2026-09-03, as it did live. */
 const IMPORT_AT = Date.UTC(2026, 8, 3, 12, 0, 0);
-const IMPORT_DAY = "2026-09-03";
+/** The day the seed's rows are dated: the store follows the machine's zone
+ *  here, so this is 2026-09-04 at UTC+14, not the UTC day. */
+const IMPORT_DAY = localDate(IMPORT_AT);
 
 /** An engram-era id that IS an epoch-ms instant: 2024-07-26. */
 const ID_MS = Date.UTC(2024, 6, 26, 9, 0, 0);

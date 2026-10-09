@@ -24,8 +24,9 @@
  */
 import type { Kind, Salience } from "../types.js";
 import { sal } from "../physics/index.js";
+import type { Recurrence } from "../time.js";
 import type { ProspectiveTunables } from "./tunables.js";
-import { phaseOf, precisionOf, windowFor } from "./windows.js";
+import { phaseOf, precisionOf, recurringWindowAt, windowFor } from "./windows.js";
 import type { Phase, Window } from "./windows.js";
 
 export type DeriveReason =
@@ -114,6 +115,12 @@ export interface DerivableMemory {
 /** A content-date the CALLER extracted. Its precision is its own shape (§12 G4). */
 export interface ExtractedDate {
   readonly date: string;
+  /**
+   * How often the date comes round (2026-10-09, `meta.recurring`), anchored on
+   * it. Read only on a DAY: the window derived is the one occurrence open on
+   * `at`, or the next (`windows.ts#recurringWindowAt`). Absent: once, as stated.
+   */
+  readonly recurring?: Recurrence;
 }
 
 export interface DerivedWindow extends Window {
@@ -188,7 +195,13 @@ export function derive(
       continue;
     }
     // The memory id salts a month's stagger (tune question a) and nothing else.
-    const w = windowFor(d.date, precision, t, memory.id);
+    // A recurring day derives ONE window: the occurrence open on `at`, or the
+    // next one — so the property still expires by itself, one occurrence at a
+    // time, and a repeating date never reads as `window-passed`.
+    const w =
+      d.recurring !== undefined && precision === "day"
+        ? recurringWindowAt(d.date, d.recurring, at, t, memory.id)
+        : windowFor(d.date, precision, t, memory.id);
     if (w === null) {
       rejectedDates.push({ date: d.date, reason: "malformed-date" });
       continue;

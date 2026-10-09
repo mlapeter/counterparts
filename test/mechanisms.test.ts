@@ -190,6 +190,35 @@ describe("counterparts mechanisms", () => {
     expect(plumbing).toContain("the background worker failed or was refused");
   });
 
+  test("a plain reminder due on a day a session ran and not said is never 'nothing due' (2026-10-09)", async () => {
+    let clock = at("2026-09-12");
+    const s = Store.open({ dir, now: () => clock });
+    try {
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: "Renew the parking permit — asked to be told on the day.",
+        learnedOn: "2026-09-12",
+        eventDate: "2026-09-15",
+        meta: { remind: "plain" },
+      });
+      clock = at("2026-09-15");
+      s.appendEvent({ name: "recall.decision", day: s.livedDay(), payload: { date: "2026-09-15", reason: "rendered" } });
+      s.appendEvent({ name: "physics.upgrade.census", day: s.livedDay(), payload: { date: "2026-09-02" } });
+    } finally {
+      s.close();
+    }
+    const short = await console_(["mechanisms"]);
+    const line = lineFor(short.out, "Prospective");
+    expect(line).toContain("1 plain reminder due on a day a session ran and not said");
+    expect(line).not.toContain("nothing due");
+    // The full report names it before the groups, and has the two new groups.
+    const all = (await console_(["mechanisms", "--all"])).out.join("\n");
+    expect(all).toContain("Its occasion came this week and it did not fire: a reminder marked plain");
+    expect(all).toContain("WAITING (");
+    expect(all).toContain("DONE (1)");
+  });
+
   test("`fired` is the same command under its older name", async () => {
     seed([["gate.deposit", TODAY], ["recall.decision", TODAY]]);
     const a = await console_(["mechanisms"]);
@@ -206,7 +235,9 @@ describe("counterparts mechanisms", () => {
     const s = Store.open({ dir, observer: true, now: () => at(TODAY) });
     let expected: string[];
     try {
-      expected = firedLines(firedReport(s, TODAY), true);
+      // The console reads on the person's day, the store's `today()` — not the
+      // UTC date TODAY spells, which is a day behind it at UTC+14.
+      expected = firedLines(firedReport(s, s.today()), true);
     } finally {
       s.close();
     }

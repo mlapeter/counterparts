@@ -24,8 +24,9 @@ the other memory physics. It is a counter, not a calendar, and nothing here chan
 
 1. **One module does every conversion: `src/core/time.ts`.** It turns a moment into a
    local date or a local clock string, parses and compares calendar dates and ranges, and
-   says what "today" is. Nothing else calls `toISOString().slice`, `getUTC*`, or builds a
-   date string by hand. A test checks this.
+   says what "today" is and where a local day begins (`startOfLocalDay`, for a window
+   over moments that means a person's days). Nothing else calls `toISOString().slice`,
+   `getUTC*`, or builds a date string by hand. A test checks this.
 2. **The zone follows the computer** by default, so a laptop that moves to New York
    shows New York time. An optional `timeZone` in the config (an IANA name like
    `America/Denver`) overrides it, e.g. on a server set to UTC. Install prints the zone
@@ -53,3 +54,10 @@ the other memory physics. It is a counter, not a calendar, and nothing here chan
 - **Daylight saving.** The zone is a name (`America/Denver`), not an offset, so the
   change in March and November is handled by the zone rules.
 - **A server on UTC.** Set `timeZone` in the config, and every local date follows it.
+- **Far from UTC.** Zones run from UTC−12 to UTC+14, a 26-hour spread, so no single
+  moment is the same date everywhere: noon UTC is already the next day from UTC+12
+  eastward (1 am in New Zealand in January, 2 am at UTC+14).
+  A test that stores a moment and expects a date takes the date from the same clock the
+  code reads (`localDate(at)` for a store with no zone set), or pins the store's zone when
+  that one zone is the point. On 2026-10-09 the suite passed under
+  `TZ=Pacific/Kiritimati` (UTC+14), `TZ=Etc/GMT+12` (UTC−12) and `TZ=UTC`.

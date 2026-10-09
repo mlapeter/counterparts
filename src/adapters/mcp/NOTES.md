@@ -1205,3 +1205,135 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
   the body — and lost them quietly, its tests fed by hand in the old shape; see the
   dashboard's NOTES of that day. `ask` takes `--mode meaning` now, and there `--voiced`
   decides whose "I" a question about feeling means.)
+
+## 2026-10-09 — meaning's subject is the card the question is about
+
+Meaning mode took the card with the most memories as the arc. On a real store that is
+usually the owner's own card, so "what has Ilya been to Mike" answered about Mike, with Ilya
+under "also named". The review of #333 found it on the dashboard and fixed that side by
+turning the owner's "I" into "you"; the `recall` tool picked the same way. Reproduced on the
+demo store through the tool: "what has Ilya Broadbent been to Rosalind Achebe" (6 memories
+against the owner's 10) answered about Rosalind, and "how has Ilya Broadbent changed since
+Nkechi Abernathy arrived" answered about Nkechi.
+
+- **Grammar first, then the order of the names, then counts** (`meaning.ts#subjectOf`). Each
+  name is read in place by the words just before it: asked about ("what has X been", "how
+  has X changed", "how did X", "about X", "my arc with X", "between X and Y"), an aside
+  ("been to Y", "meant for Y", "since Y", "after Y", "than Y"), or plain. A bare "to" is
+  not an aside: "what happened to X after Y left" is X's. A name joined to the one before it
+  ("X and Y", "X, Y") shares its place. The best place wins; within it the first named; a
+  longer name at the same spot, then more memories, then the name, break a tie.
+- **The owner leaves a place he shares.** Every memory in his store is his, so beside
+  another card in the same place the other says more ("Rosalind and Ilya" is Ilya's arc).
+  When the grammar puts him alone in the subject's place ("what has Rosalind been to Ilya")
+  he is the subject, and the person is the one-liner.
+- **Ambiguity is said, not hidden.** More than one card left in the best place: the arc
+  follows the first, and a note says "it asks about A and B alike: this follows A, named
+  first". "Also named" already offers the other's arc by name.
+- **The owner's "I", asked about, is his card again.** The pronoun that means the owner by
+  `feeling-ask.ts`'s rule ("you" when the counterpart asks, "I"/"me"/"myself" when the
+  owner does) counts as his card, read by the identity core's id rather than his name, only
+  where it sits in an asked-about place. So the dashboard's "what have I been like" (sent as
+  "what have you been like", voiced) finds his card, as it did before #333; "do you remember
+  the budget" names nothing and is read by its words; "my" and "your" own a topic and name
+  no one. Off for a question about feeling (the pronoun says whose feeling, so "how have you
+  felt lately" stays the feelings answer) and for "us".
+- **Facts mode is untouched.** `facts.ts` reads `subjectsIn` itself and imports nothing from
+  `meaning.ts`. The only code changed is `meaning.ts`; the `recall` description gained one
+  sentence in its meaning claim, so a benchmark pinned to facts answers the same.
+- **Not done:** an arc of two cards together (the memories naming both). "What has Rosalind
+  been to Ilya" is still one card's arc; the overlap would be the better answer, and a
+  bigger change.
+- **Review of #334: two seams, both regressions against master.** (1) The owner's pronoun
+  took the about place's full rank, so "what have I done on Driftwood", "how have I been
+  with Nkechi" and "what have you learned from Ilya" answered with his own card where
+  master answered with the card named. It now ranks under any card named in a plain or
+  about place and over an aside (`mentionRank`): "how have I been since Driftwood" and
+  "what have I been to Ilya" stay his; a name joined to the pronoun still takes the about
+  place. (2) The alias index matches a name in any case, so a card named with a common
+  word — Will, Hope, Bridge — is found in "how will Driftwood go" and "I hope Ilya is ok",
+  and "first named wins" made it the arc, with an "alike" note. A name typed in lower case
+  where its card writes a capital is now a step under the same place typed as written; a
+  question typed all in lower case loses the step on every name, so the grammar still
+  decides. The matching itself (and a Will card linking every "will" in the store's
+  memories at birth) is the alias index's, untouched here.
+
+## 2026-10-09 — `recurring` beside `eventDate` (the owner's design, held lightly)
+
+- **The field**: `recurring: "daily" | "weekly" | "monthly" | "yearly" | null` on `note`
+  and on each `session_end` entry, one sentence on the field (served whole; the tool
+  descriptions are cut at 2,048 characters, so the field is where the model reads it).
+  The plain/quiet privilege grew one short sentence — "A recurring date counts each time
+  it comes round as its own" — rather than a new privilege, so nothing the cut tests pin
+  moves.
+- **Refused by name, before anything is captured** (`readReminder`), as an unreadable
+  date is: an unknown word is `recurring-unknown` (the detail lists the four, and says
+  every other week and the like are not kept); a word beside a month, a range or a year
+  is `recurring-needs-day`. On `session_end` either refuses its own entry only. With no
+  `eventDate` it is dropped and said (`ignored: "recurring"`), unless a revision carries
+  a date for it.
+- **The answer**: `reminder` carries `recurring`, `every` ("every May 14") and `next`
+  (the next occurrence on or after today) — and never the "already passed" note, which
+  a birthday anchored in 1990 would otherwise get. A revision's `carriedOver` can name
+  `recurring`.
+- **Meaning recall** dates a repeating reminder by its next occurrence and says how
+  often: `dated 2026-10-12, every October 12`. Facts mode and an expansion show no
+  reminder date today, so they have nothing to add it beside.
+
+## 2026-10-09 — facts mode: "last Saturday", and a word in front of a date
+
+The LongMemEval run (counterparts-87, about 2,000 facts searches) found two misreadings in
+`recall/time-ask.ts`. "Last Saturday" was no time at all, so nothing was filtered. "Before
+7/22" filtered to 07-22 alone: only "since" was read in front of a date, and every other
+word was left in the question while the date stood as one exact day. "Two weeks ago" was
+right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
+
+- **What changed meaning, exactly.** (1) "last <weekday>" and "this past <weekday>", full
+  names only, any case, a possessive allowed ("last Saturday's"): was no window; now the
+  most recent such day strictly before today, exact (no stretch). Asked on a Saturday,
+  "last Saturday" is a week back. (2) "before" / "prior to" a date: was that one day; now
+  `OPEN_START`..the day before. (3) "after" a date: was that one day; now the day
+  after..`OPEN_END`. (4) "until", "till", "up to", "up until", "by" a date: was that one
+  day; now `OPEN_START`..the date. Each in every date shape the parser reads: ISO day and
+  month (`2026-07-22`, `2026-07`), `7/22` and `07-22` (month first, as before), "July 22",
+  "22 July", "July 22nd". A "the" between the word and the date is allowed ("after the 4th
+  of July"). (5) `7/22/2023` and "July 22, 2023" / "22 July 2023": the written year was
+  ignored (the date took `yearFor`'s year, and `/2023` stayed in the question's words);
+  now it is the year. (6) "since" + "last <weekday>" runs from that day to today, as
+  "since" + a date always did. "Since" + a date is unchanged, its month stretch included.
+- **The rule for "last <weekday>"** is the CONTRACT's (§6f). Exact, as "yesterday" and
+  "the day before yesterday" are: a named day. A day's stretch would not cover the other
+  reading people mean by it (the Saturday a week earlier) anyway. Not "the last Saturday"
+  (the last of something: "of June").
+- **An open end is a sentinel, not a null.** `OPEN_START = 0001-01-01`, `OPEN_END =
+  9999-12-31`, so `DayWindow` keeps its shape and `inWindow`'s string comparisons, the
+  chapter-date filter and the only-time pool work unchanged. The header and the dashboard's
+  Ask line read them as "through 07-21" and "07-23 onward"; `ask --json` shows the
+  sentinels as they are. `stretched` leaves an open end open.
+- *Choices:*
+  - "After" is open-ended, where "since" stops at today. "Since" means "from then until
+    now"; "after" does not, and a plan dated past today ("what is coming after 7/22") is
+    inside it.
+  - A bound does not stretch, even under a month ("before 2026-07" is through 06-30): the
+    person named the cutoff. "Since" keeps the stretch it had.
+  - "By" reads as "through" (a deadline). Only right in front of the date: "by the way on
+    7/22" is 07-22 alone.
+  - "The day after 7/22", "a week after 7/22", "the night before 7/22" read as the bound
+    ("after 7/22", "before 7/22"): wider than meant, but they cover the day meant. They
+    were 07-22 alone, which missed it.
+  - *Review of #338:* a date that names a thing on that day keeps that day under "before"
+    and "after". "What did I eat before the 7/22 flight" was through 07-21, and the meal
+    was on 07-22 (master's 07-22 alone found it; the bound hid it). "After the July 22
+    launch" was 07-23 on, hiding the launch day; 07-22 alone would hide the days after.
+    So: a "the" between the word and the date and a word after the date that is not the
+    question going on (`PHRASE_STOP`: "after the 4th of July we sailed" is still a cutoff),
+    or an 's on the date ("after July 22's standup", "after last Saturday's party"), and
+    the window is through the date / from the date on. Only the date leaves the question
+    ("what did I eat before the flight"), and the header says "before the 7/22". Wider by
+    one day than a cutoff, never narrower than either earlier reading.
+- **Not done:** a month NAME under a bound ("before September" is still no time;
+  "before September 2023" is still all of September, stretched), "between X and Y" and
+  "from X to Y" (still the first date alone), "this Saturday" and "on Saturday" (either can
+  be the coming one), "last weekend" (no time), a two-digit year (`7/22/23` is still 7/22
+  with `yearFor`'s year, `/23` left in), `2023/07/22`. The learned-date fallback for a row
+  with no `occurred_on` is the owner's decision and untouched.

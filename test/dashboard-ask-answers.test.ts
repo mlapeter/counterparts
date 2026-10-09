@@ -209,6 +209,19 @@ describe("facts: every match, counted and paged", () => {
     expect(seen(row)).not.toContain("lived day");
   });
 
+  test("a cutoff reads as one: \"before\" is through the day before, \"after\" from the day after on (2026-10-09)", async () => {
+    const before = (await ask<FactsResult>({ question: "zqrota before 2026-06-05", mode: "facts" })).answer;
+    expect(before.time?.cue).toBe("before 2026-06-05");
+    expect(before.memories.map((x) => x.id)).toContain(ids.said as string);
+    const words = page.timeWords(before.time);
+    expect(words).toContain(`through ${dates.dateOr("2026-06-04")}`);
+    expect(words).not.toContain("0001");
+    const after = (await ask<FactsResult>({ question: "zqrota after 2026-06-04", mode: "facts" })).answer;
+    expect(after.memories.map((x) => x.id)).not.toContain(ids.said as string);
+    expect(page.timeWords(after.time)).toContain(`${dates.dateOr("2026-06-05")} onward`);
+    expect(page.timeWords(after.time)).not.toContain("9999");
+  });
+
   test("nothing answers: said so, with what to try", async () => {
     const { answer } = await ask<FactsResult>({ question: "zqnothingholdsthis", mode: "facts" });
     expect(answer.matched).toBe(0);
@@ -316,6 +329,29 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     expect(answer.others.map((o) => o.name.toLowerCase())).not.toContain(ownerName?.toLowerCase());
     // His feelings are still his: in my voice "you" is the owner.
     expect(answer.whose.self).toBe("mine");
+  });
+
+  test('"what have I been like", by meaning, is the owner\'s own card again (2026-10-09)', async () => {
+    // #333 turned his "I" into "you" in meaning mode, which named no card, so
+    // the question was read by its words ("like"). In my voice "you" asked
+    // about is his card (`meaning.ts#subjectOf`).
+    const c = Counterpart.open({ dir, owner: true });
+    let ownerName: string | null;
+    try {
+      ownerName = ownerNames(c.store)[0] ?? null;
+    } finally {
+      c.close();
+    }
+    expect(ownerName).not.toBeNull();
+    for (const question of ["what have I been like", "how have I changed?"]) {
+      const r = await runAction("ask", { json: true, question, mode: "meaning" }, { dir, ownerName });
+      expect(r.body.exit).toBe(0);
+      expect(r.body.searched?.text).toContain("you");
+      const answer = JSON.parse((r.body.out ?? []).join("\n")) as MeaningResult;
+      expect(answer.lens?.kind).toBe("card");
+      expect(answer.lens?.name.toLowerCase()).toBe(ownerName as string);
+      expect(seen(page.meaningHead(answer))).toStartWith(answer.lens?.name as string);
+    }
   });
 
   test("nothing holds it: said so, with what to try", async () => {

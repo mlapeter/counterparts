@@ -218,9 +218,16 @@ export function channelWords(semantic) {
 /** The notes under a head line, quieter, or nothing. */
 const noteLine = (notes) => (notes.length > 0 ? '<span class="find-note">' + esc(notes.join(" · ")) + "</span>" : "");
 
-/** A window of days: "Sep 21st – Sep 27th", or one day. */
+/** The open ends of a window ("before 7/22", "after 7/22"): `recall/time-ask.ts`'s
+ *  `OPEN_START` and `OPEN_END` (2026-10-09). */
+const OPEN_START = "0001-01-01";
+const OPEN_END = "9999-12-31";
+
+/** A window of days: "Sep 21st – Sep 27th", one day, "through Jul 21st" or "Jul 23rd onward". */
 function span(w) {
   if (!w) return "";
+  if (w.from === OPEN_START) return "through " + dateOr(w.to);
+  if (w.to === OPEN_END) return dateOr(w.from) + " onward";
   return w.from === w.to ? dateOr(w.from) : dateOr(w.from) + " – " + dateOr(w.to);
 }
 

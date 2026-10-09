@@ -352,16 +352,22 @@ describe("the self tab, round 3", () => {
 
   beforeAll(() => {
     at = mkdtempSync(join(tmpdir(), "counterparts-self-r3-"));
-    // Noon UTC: the same calendar date from UTC-11 to UTC+11. 15:00Z was the
-    // next day already in Asia/Tokyo, where S4's dates read a day late.
-    const base = Date.parse("2026-09-01T12:00:00Z");
+    // Noon in the MACHINE's zone, the one this store dates in, so each moment
+    // falls on the date the fixture says it is in every zone. 15:00Z was the
+    // next day already in Asia/Tokyo, and noon UTC still was at UTC+14, where
+    // S4's dates read a day late (2026-10-09).
+    const noonHere = (date: string): number => {
+      const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+      return new Date(y, m - 1, d, 12).getTime();
+    };
+    const base = noonHere("2026-09-01");
     let offset = 0;
     const now = (): number => base + offset;
     Counterpart.open({ dir: at, owner: true, identity: { name: "Mike" }, now }).close();
     const c = Counterpart.open({ dir: at, owner: true, now });
     try {
       for (const [i, date] of dates.entries()) {
-        offset = Date.parse(`${date}T12:00:00Z`) - base;
+        offset = noonHere(date) - base;
         c.store.advanceClock(date);
         const d = c.store.livedDay();
         if (i === 0) {
