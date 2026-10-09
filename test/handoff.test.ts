@@ -1959,7 +1959,7 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
       more: SINCE_READ - SINCE_SHOWN,
     };
     const ladder = pointerLadder(hs, 999_999, { since, plans });
-    expect(Math.max(...ladder.map((r) => bytesOf(r.block)))).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
+    expect(Math.max(...ladder.map((r) => bytesOf(r.block)))).toBe(HANDOFF_RESERVE_MAX_BYTES);
     // What the line adds to a block, with its newline: at its widest, and in
     // the typical case — one plan with a short title.
     expect(bytesOf(sinceLine(plans, true) as string) + 1).toBe(317);
