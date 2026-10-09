@@ -15,6 +15,15 @@
   a memory in the middle of being corrected. It now counts `protected` and
   `in-live-revision-chain` only where that is what kept the memory, as it already did for
   `recurring`. Nothing is cleaned up differently.
+- **Tool descriptions put how to call each tool first.** Claude Code shows the model only
+  the first 2,048 characters of a tool's description when the tool is loaded up front:
+  with tool search off, behind a custom base URL or proxy, or on a model without tool
+  search. Seven of the nine descriptions are longer than that. Each tool's purpose, when
+  to call it and every "Do NOT" were already inside that first part. The cut fell in
+  the list of guarantees, so `note`, `recall`, `session_end` and `reflect` now lead
+  that list with the claims about how to call them: which fields are fields, that a
+  question needs a mode, that an empty `memories` is an answer. No wording changed, and
+  nothing behaves differently.
 - **The dashboard dates everything in the zone the hooks use.** With a `timeZone` in the
   configuration that differs from the computer's, the dashboard used the computer's zone
   and the browser's own, so one page could show two days for one moment: a memory's

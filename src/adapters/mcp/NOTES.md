@@ -1338,6 +1338,48 @@ right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
   with `yearFor`'s year, `/23` left in), `2023/07/22`. The learned-date fallback for a row
   with no `occurred_on` is the owner's decision and untouched.
 
+## 2026-10-09 — tool descriptions inside the host's 2,048-character cut
+
+The review of #328 read the 2.1.295 binary: Claude Code keeps each MCP tool description
+twice, cut at 2,048 and at 16,384 characters, and sends the long copy only to a tool
+loaded through tool search (on by default). A tool loaded up front gets the 2,048 copy
+and `… [truncated]`: with `ENABLE_TOOL_SEARCH=false`, behind a custom base URL or proxy,
+on a model without tool search, or for an always-loaded tool. Seven of the nine
+descriptions run past 2,048 (session_end 7,218, recall 6,176, note 5,091, self_page
+4,522, dream 3,785, reflect 2,815, chapter 2,097).
+
+- **What was cut, measured.** Not the "Do NOT" lines: `renderDescription` already puts
+  the summary, the When: line and every negative example before the guarantees list, and
+  on every tool they end before 2,048 (the longest, dream, at 1,782; wake at 1,229). What
+  a host cuts is the tail of the guarantees list.
+- **The field descriptions are not cut** (2.1.296: the schema goes through
+  `param_descriptions` overrides and two Chrome/computer-use injectors, none of which
+  shortens anything). The longest is session_end's `handoff`, 1,005 characters, served
+  whole. They already carry most of the how-to-call detail (`updates` is a field, the
+  date shapes, `[]` is an answer, `ifVersion`), which is why that detail was put there.
+- **The change: order only, no wording.** Each list leads with the claims that say how to
+  call the tool, then the ones about what the engine does with it:
+  - note: `updates` and `eventDate` are fields, the salience floor, the default floor,
+    the three dimensions, a stub is refused. Out of the cut: the same road, credentials
+    (a Do NOT already says it), the same content twice, the buffer span.
+    `DATE_PRIVILEGES` is split into `EVENT_DATE_FIELD_PRIVILEGE` and
+    `REMINDER_PRIVILEGES` for this; session_end renders them in the old order.
+  - recall: mode, handle, ids; "a search strengthens nothing" now starts at 1,823 and is cut.
+  - session_end: bound session, `updates`, both salience claims (still pinned by
+    `test/stop-ask-quiet.test.ts`), and the empty-`memories` answer. The id check, the
+    same road and the authorship record moved out. The settle claims stay last.
+  - reflect: `settle` moved up to third.
+  - chapter (only the observer line is cut), self_page (one claim fits), dream (none fits
+    whole in 179 characters; its `begin` prompt states the limits) and status, scope and
+    wake (served whole) are unchanged.
+- **`test/description-cut.test.ts`** holds the layout (summary, When:, each Do NOT whole
+  inside 2,048 and before the list, for both Claude Code's and Desktop's lists), the
+  leading claims per tool, and records each description's total and pre-list length in
+  one table. A change of length fails it until the table is updated, so the growth shows
+  in the diff.
+- The CONTRACT promises content (G2: every claim mechanized; G3: an admission test and
+  a negative example), not an order, so it is unchanged.
+
 ## 2026-10-09 — meaning mode: a name asked about that has no card
 
 0.3.13's release check, on a real store with one card (the owner's): "what has Han been
