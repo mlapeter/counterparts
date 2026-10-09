@@ -93,6 +93,8 @@ export type WorldOptions = {
   placed?: boolean;
   scopeMode?: string;
   store?: Record<string, unknown>;
+  /** What the person's permission settings say about the memory tools (`allow` unless given). */
+  permission?: 'allow' | 'ask' | 'deny';
 }
 
 export type World = {
@@ -146,6 +148,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     return { value: {} }
   })
   on('tool.list', () => ({ value: opts.tools ?? NPM_TOOLS }))
+  on('tool.check', () => ({ decision: opts.permission ?? 'allow' }))
   on('http.fetch', (_$, e) => {
     w.fetches.push(e.url)
     if (opts.down === true) return { deny: 'ECONNREFUSED: Unable to connect.' }

@@ -25,7 +25,7 @@ test('opens the sidebar at session start, 44 columns, and heads it with the day 
   await start($, w)
   expect(w.opens[0]).toEqual({ id: PANE, title: 'Counterparts', columns: 44 })
   expect(w.fetches.some(u => u.endsWith('/api/pulse'))).toBe(true)
-  expect(w.lastStatus()).toBe('◉ counterparts · day 18 · 776 memories')
+  expect(w.lastStatus()).toBe('◉ day 18 · 776 memories')
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect((await ui.find({ type: 'Text', text: 'day 18 · 776' }))?.text).toBe('day 18 · 776')
@@ -136,7 +136,7 @@ test('ACTIVITY: the dashboard’s rows, word over time; a press opens one with i
 test('with the dashboard down it says how to start it, and the status line says so', async ($, on) => {
   const w = world(on, { down: true })
   await start($, w)
-  expect(w.lastStatus()).toBe('◉ counterparts · dashboard not running')
+  expect(w.lastStatus()).toBe('◉ dashboard not running')
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect(await ui.find({ type: 'Text', text: 'counterparts dashboard' })).toBeDefined()
@@ -157,7 +157,7 @@ test('kept: a note the model writes shows as a kept row, a toast, and a count', 
   await $.tool.call({ tool: 'mcp__counterparts__recall', question: 'x', mode: 'facts' } as never)
   await w.clock.settle()
   expect(w.toasts).toEqual(['◆ kept  “Sidebar v0.1 is a PR”'])
-  expect(w.lastStatus()).toBe('◉ counterparts · day 18 · 776 memories · 1 kept')
+  expect(w.lastStatus()).toBe('◉ day 18 · 776 memories · 1 kept')
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const rows = (await ui.findAll({ type: 'Button' })).filter(b => /^row:.*:0$/.test(b.key ?? ''))
@@ -190,7 +190,7 @@ test('came to mind: the recall block the classic hook injects shows as a recalle
     },
   } as never)
   await w.clock.settle()
-  expect(w.lastStatus()).toBe('◉ counterparts · day 18 · 776 memories · 2 came to mind')
+  expect(w.lastStatus()).toBe('◉ day 18 · 776 memories · 2 came to mind')
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const row = await ui.find({ type: 'Button', key: `row:live:turn:${SESSION}:3:0` })
@@ -237,11 +237,11 @@ test('the Counterparts switch pauses this folder through scope; paused, the brai
     await ui.press({ key: 'toggle-cp' })
     expect(w.mcp.some(c => c.tool === 'scope' && c.args['mode'] === 'pause')).toBe(true)
     expect(await ui.find({ type: 'Text', text: 'PAUSED' })).toBeDefined()
-    expect(w.lastStatus()).toBe('◌ counterparts paused in this folder')
+    expect(w.lastStatus()).toBe('◌ paused in this folder')
     if (surface === 'terminal') {
       const cells = decodeCells(String((await ui.find({ type: 'Raster', key: 'brain' }))?.props['cells']))
       for (let i = 0; i < cells.length; i += 3) {
-        expect(cells[i + 2]).toBe(0x01000000)
+        expect(cells[i + 2]).toBe(0x05080c) // the sidebar's own black, no glow
         const fg = cells[i + 1] ?? 0
         if ((cells[i] ?? 0) === 0x20) continue
         const r = (fg >> 16) & 255, g = (fg >> 8) & 255, b = fg & 255
@@ -253,6 +253,25 @@ test('the Counterparts switch pauses this folder through scope; paused, the brai
     expect(await ui.find({ type: 'Text', text: 'ACTIVITY' })).toBeDefined()
     await ui.unmount()
   }
+})
+
+test('unasked, the switch reads this folder only when no permission dialog would open; a press asks', async ($, on) => {
+  const w = world(on, { permission: 'ask' })
+  await start($, w)
+  expect(w.mcp).toHaveLength(0) // nothing asked behind the person's back
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    if (surface === 'terminal') {
+      expect((await ui.find({ type: 'Button', key: 'toggle-cp' }))?.text).toContain('Counterparts')
+      await ui.press({ key: 'toggle-cp' }) // the first press learns where the folder stands
+      expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }])
+      expect(w.toasts.at(-1)).toBe('Counterparts is on in this folder. Press again to pause it.')
+    }
+    await ui.press({ key: 'toggle-cp' }) // each press after that is one call
+    expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: { mode: surface === 'terminal' ? 'pause' : 'resume' } })
+    await ui.unmount()
+  }
+  expect(w.mcp).toHaveLength(3)
 })
 
 test('‹ slides it to a rail of about 7 columns; a press on the rail slides it back', async ($, on) => {

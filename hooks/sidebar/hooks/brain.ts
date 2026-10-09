@@ -142,6 +142,12 @@ export type FrameOptions = {
   mono?: boolean;
   /** A small tag beside a region's anchor: a picked or firing mechanism's name. */
   tag?: { region: RegionKey; label: string; col: Rgb } | null;
+  /**
+   * The background the brain sits on, 0..255 a channel: empty cells take it and
+   * the glow is added to it. Absent, empty cells are the terminal's default and
+   * the glow is added to black, as the mockup drew it.
+   */
+  bg?: Rgb | null;
 };
 
 /** Scratch buffers for one frame size, reused frame to frame. */
@@ -356,12 +362,13 @@ export class Brain {
           if (a > th) bits |= (BRAILLE[dy] as number[])[dx] ?? 0;
           sw += a; swc += cwt[i] ?? 0; r += cr[i] ?? 0; g += cg[i] ?? 0; b += cb[i] ?? 0;
         }
-        let bg = DEFAULT_COLOR;
+        const base = opts.bg ?? null;
+        let bg = base === null ? DEFAULT_COLOR : pack(base[0], base[1], base[2]);
         if (!mono) {
           const ddx = (rx + 0.5) / cols - 0.5, ddy = ((ry + 0.5) / rows - 0.5) * 0.9;
           const rad = Math.max(0, 1 - Math.sqrt(ddx * ddx + ddy * ddy) / 0.62);
           const k = 0.75 * rad * rad; // one smooth round glow; a per-cell bloom reads blocky
-          if (k > 0.02) bg = pack(0, 30 * k, 44 * k);
+          if (k > 0.02) bg = base === null ? pack(0, 30 * k, 44 * k) : pack(base[0], base[1] + 30 * k, base[2] + 44 * k);
         }
         const o = (ry * cols + rx) * 3;
         if (!bits) { out[o] = 0x20; out[o + 1] = DEFAULT_COLOR; out[o + 2] = bg; continue; }

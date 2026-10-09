@@ -63,7 +63,15 @@ const DEFAULT_FPS = 10
 /** Past this many new events, a refetch by name beats reading them all. */
 const CATCH_UP_LIMIT = 400
 
+/**
+ * The sidebar paints its own background, the mockup's near-black: the dock's
+ * own fill is the theme's (a grey in the dark theme, light in a light one), and
+ * the hologram's glow and this palette are drawn for black.
+ */
+const BG: readonly [number, number, number] = [5, 8, 12]
+
 const C = {
+  bg: '#05080c',
   text: '#d7dde4',
   body: '#b7bcc2',
   dim: '#6b7682',
@@ -178,7 +186,7 @@ function frameCells(cols: number, rows: number, now: number): string {
     if (m !== undefined) brain.light(m.region, stageOf(m.id).col)
   }
   const t0 = performance.now()
-  const cells = encodeCells(brain.frame(cols, rows, now, { mono: look.mono, tag: tagFor() }))
+  const cells = encodeCells(brain.frame(cols, rows, now, { mono: look.mono, tag: tagFor(), bg: BG }))
   fps.frameMs.push(performance.now() - t0)
   if (fps.frameMs.length > 120) fps.frameMs.shift()
   return cells
@@ -202,15 +210,16 @@ function switchCells(on: boolean, caps: 'round' | 'block', dim: boolean): Cell[]
     : [{ t: l, fg: knob }, { t: r, fg: knob, bg: track }, { t: ' ', bg: track }, { t: r, fg: track }]
 }
 
+/** The status line's words; the engine heads a plugin's line with the plugin's name already. */
 function statusFor(mode: string, dash: string, pulse: { day: number; memories: number } | null, counts: { came: number; kept: number }): string {
-  if (isPaused(mode)) return '◌ counterparts paused in this folder'
-  const parts = ['◉ counterparts']
+  if (isPaused(mode)) return '◌ paused in this folder'
+  const parts: string[] = []
   if (pulse !== null) parts.push(`day ${String(pulse.day)}`, `${String(pulse.memories)} memories`)
   else if (dash === 'down') parts.push('dashboard not running')
   if (counts.came > 0) parts.push(`${String(counts.came)} came to mind`)
   if (counts.kept > 0) parts.push(`${String(counts.kept)} kept`)
   if (run.notPlaced) parts.push('/counterparts opens the sidebar')
-  return parts.join(' · ')
+  return `◉ ${parts.length === 0 ? 'on' : parts.join(' · ')}`
 }
 
 // ── the engine, through `$` ────────────────────────────────────────────────
@@ -318,31 +327,71 @@ async function coldFeed($: EngineInterface): Promise<void> {
   await addRows($, rows, false)
 }
 
+function scopeOf(payload: Record<string, unknown> | null, isError: boolean, before: string): SidebarScope {
+  const mode = typeof payload?.['mode'] === 'string' ? (payload['mode'] as string) : before
+  const error = isError ? String(payload?.['detail'] ?? payload?.['reason'] ?? 'refused') : null
+  return { mode, error, busy: false }
+}
+
+/**
+ * Whether the person's permission settings let this call run with no dialog.
+ * A plugin's `$.mcp.call` goes through the same check as the model's call
+ * (measured on 2.1.296), so a read nobody asked for is made only when nothing
+ * would be asked; a press may ask, since the person just asked for it.
+ */
+async function quietlyAllowed($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<boolean> {
+  const server = await memoryServer($)
+  if (server === null) return false
+  try {
+    const verdict = await $.tool.check({ tool: `mcp__${server}__${tool}`, input })
+    return verdict.decision === 'allow'
+  } catch {
+    return false
+  }
+}
+
 async function readScope($: EngineInterface): Promise<void> {
+  const before = (await read($, scopeA)).mode
   try {
     const { payload, isError } = await callMemory($, 'scope', {})
-    const mode = typeof payload?.['mode'] === 'string' ? (payload['mode'] as string) : 'unknown'
-    await update($, scopeA, () => ({ mode, error: isError ? String(payload?.['detail'] ?? payload?.['reason'] ?? 'refused') : null, busy: false }))
+    await update($, scopeA, () => scopeOf(payload, isError, before))
   } catch (err) {
-    await update($, scopeA, () => ({ mode: 'unknown', error: err instanceof Error ? err.message : String(err), busy: false }))
+    await update($, scopeA, () => ({ mode: before, error: err instanceof Error ? err.message : String(err), busy: false }))
   }
-  const scope = await read($, scopeA)
-  look.mono = isPaused(scope.mode)
+  look.mono = isPaused((await read($, scopeA)).mode)
   await refreshStatus($)
 }
 
+/** At start: where this folder stands, if asking needs no dialog. */
+async function readScopeQuietly($: EngineInterface): Promise<void> {
+  if (await quietlyAllowed($, 'scope', {})) await readScope($)
+}
+
+/** The switch: the first press learns where the folder stands; after that each press pauses or resumes. */
 async function toggleScope($: EngineInterface): Promise<void> {
   const scope = await read($, scopeA)
   if (scope.busy) return
-  const to = isPaused(scope.mode) ? 'resume' : 'pause'
   await update($, scopeA, () => ({ ...scope, busy: true }))
   try {
-    const { payload, isError } = await callMemory($, 'scope', { mode: to })
-    if (isError) $.ui.toast(`counterparts: ${String(payload?.['detail'] ?? payload?.['reason'] ?? 'the switch was refused')}`)
+    if (scope.mode === 'unknown') {
+      const { payload, isError } = await callMemory($, 'scope', {})
+      const now = scopeOf(payload, isError, 'unknown')
+      await update($, scopeA, () => now)
+      if (now.error !== null) $.ui.toast(`counterparts: ${now.error}`)
+      else if (now.mode !== 'unknown') $.ui.toast(isPaused(now.mode) ? 'Counterparts is paused in this folder. Press again to turn it on.' : 'Counterparts is on in this folder. Press again to pause it.')
+    } else {
+      const to = isPaused(scope.mode) ? 'resume' : 'pause'
+      const { payload, isError } = await callMemory($, 'scope', { mode: to })
+      const now = scopeOf(payload, isError, scope.mode)
+      await update($, scopeA, () => now)
+      if (now.error !== null) $.ui.toast(`counterparts: ${now.error}`)
+    }
   } catch (err) {
+    await update($, scopeA, () => ({ ...scope, busy: false, error: err instanceof Error ? err.message : String(err) }))
     $.ui.toast(`counterparts: ${err instanceof Error ? err.message : String(err)}`)
   }
-  await readScope($)
+  look.mono = isPaused((await read($, scopeA)).mode)
+  await refreshStatus($)
 }
 
 async function toggleClaudeMemory($: EngineInterface): Promise<void> {
@@ -437,7 +486,7 @@ function tick($: EngineInterface): void {
       }
       fps.blits.push(performance.now())
       if (fps.blits.length > 240) fps.blits.shift()
-      if (fps.shown && now - fps.statusAt > 1000) {
+      if (fps.shown && run.statusBase !== '' && now - fps.statusAt > 1000) {
         fps.statusAt = now
         $.ui.status(run.statusBase + fpsSuffix())
       }
@@ -487,11 +536,10 @@ export const register: Register = on => {
     run.notPlaced = run.interactive && !opened.isPlaced
     if (run.interactive) startBrain($)
     $.clock.every(POLL_MS, () => quiet(poll($)))
+    quiet(refreshStatus($))
     if (run.interactive) {
       quiet(poll($))
-      quiet(readScope($))
-    } else {
-      quiet(refreshStatus($))
+      quiet(readScopeQuietly($))
     }
     return next(e)
   })
@@ -530,7 +578,7 @@ export const register: Register = on => {
     run.notPlaced = false
     if (!run.interactive) run.drawn = true
     quiet(poll($))
-    quiet(readScope($))
+    quiet(readScopeQuietly($))
     return { text: opened.isPlaced ? 'Counterparts sidebar opened.' : 'Counterparts sidebar is open but this surface does not place panes.' }
   })
 
@@ -599,13 +647,14 @@ export const register: Register = on => {
     const firingNow = !paused && firing !== null && now - firing.at < FIRING_MS ? (firing.id as MechId) : null
     look.firing = firingNow
     const W = Math.max(e.props.bodyColumns, 1)
+    const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
 
     // ── the rail ──
     if (railed) {
       if (e.surface === 'terminal') raster.live = false
       const pulseCol = firingNow !== null ? hex(stageOf(firingNow as MechId).col) : paused ? C.dim : C.cyan
       return (
-        <Box flexDirection="column" paddingX={1}>
+        <Box flexDirection="column" paddingX={1} width={W} minHeight={fill} backgroundColor={C.bg}>
           <Button key="unfold" plain onPress={() => setRail($, false)}>
             <Text color={C.cyan} bold>›</Text>
           </Button>
@@ -745,13 +794,13 @@ export const register: Register = on => {
     rows.push(<Text key="gap5"> </Text>)
     rows.push(
       <Box key="search" flexDirection="row" width={w} borderStyle="round" borderColor={search.status === 'idle' ? C.faint : C.cyanDim} paddingX={1}>
+        <Text color={search.status === 'idle' ? C.dim : C.cyan}>⌕ </Text>
         <Box flexGrow={1}>
           {Input === null ? (
-            <Text color={C.faint}>⌕ search from the terminal or the desktop app</Text>
+            <Text color={C.faint}>search from the terminal or the desktop app</Text>
           ) : (
             <Input
               key="q"
-              label="⌕ "
               placeholder="search memories"
               value={run.draft}
               submitLabel="search"
@@ -877,7 +926,7 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" paddingX={1}>
+      <Box flexDirection="column" paddingX={1} width={W} minHeight={fill} backgroundColor={C.bg}>
         {rows}
       </Box>
     )
