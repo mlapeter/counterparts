@@ -8,7 +8,7 @@ import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
 import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, wrap } from '../hooks/feed'
 import { MECHS, STAGES } from '../hooks/mechanisms'
-import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, T0 } from './world'
+import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0 } from './world'
 
 describe('the brain', () => {
   test('a frame is cols x rows cells of braille or blank, every one a Raster may hold', () => {
@@ -78,13 +78,15 @@ describe('cells', () => {
 })
 
 describe('the feed', () => {
-  test('an event proves a mechanism or is left out', () => {
-    const rows = EVENTS.map(classify)
-    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: '“The sidebar draws the brain in braille”', keys: ['mem:mem_aaaa1111'] })
-    expect(rows[1]).toMatchObject({ mech: 'retrieval', word: '1 recalled', keys: ['turn:sess-older:7'] })
-    expect(rows[2]).toBeNull() // a quiet turn
-    expect(rows[3]).toMatchObject({ mech: 'dreaming', word: 'dreamed' })
-    expect(rows[4]).toBeNull() // a sleep check that faded nothing
+  test('an event proves a mechanism or is left out; this session’s in plain words, the night’s, and other sessions’ marked', () => {
+    const rows = EVENTS.map(e => classify(e, SESSION))
+    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: 'The sidebar draws the brain in braille', who: 'here', line: 'kept · The sidebar draws the brain in braille', keys: ['mem:mem_aaaa1111'] })
+    expect(rows[1]).toMatchObject({ mech: 'retrieval', word: 'recalled', text: '2 came to mind', who: 'here', more: ['· Release notes go out on Fridays', '· Publishing waits for a review'] })
+    expect(rows[2]).toMatchObject({ mech: 'retrieval', who: 'other', keys: ['turn:sess-older:7'] })
+    expect(rows[3]).toBeNull() // a quiet turn
+    expect(rows[4]).toMatchObject({ mech: 'dreaming', word: 'dreamed', who: 'night' })
+    expect(rows[5]).toBeNull() // a sleep check that faded nothing
+    expect(classify(EVENTS[0]!, 'another-session')?.who).toBe('other')
   })
 
   test('the twelve mechanisms, by the website’s names, schemas not built', () => {
@@ -109,8 +111,8 @@ describe('the feed', () => {
     const { header, hits } = parseFacts(FACTS_ANSWER)
     expect(header).toBe('2 match · showing 2')
     expect(hits).toEqual([
-      { id: 'mem_pub00001', title: 'Publishing waits for a test and a review', meta: 'you said · done · happened 10-09', excerpt: 'Publishing is mine once it is tested and reviewed.' },
-      { id: 'mem_pub00002', title: 'npm publish needs a one-time password', meta: 'I said · done · happened 09-24', excerpt: 'The publish step asks for a one-time password.' },
+      { id: 'mem_pub00001', title: 'Publishing waits for a test and a review', kind: 'memory', date: 'Oct 9', who: 'you said it', meta: 'memory · Oct 9 · you said it', excerpt: 'Publishing is mine once it is tested and reviewed.' },
+      { id: 'mem_pub00002', title: 'npm publish needs a one-time password', kind: 'memory', date: 'Sep 24', who: 'I said it', meta: 'memory · Sep 24 · I said it', excerpt: 'The publish step asks for a one-time password.' },
     ])
   })
 
@@ -132,6 +134,7 @@ describe('the feed', () => {
     ].join('\n')
     const { total, hits } = parseFacts(answer)
     expect(total).toBe(14)
+    expect(hits.map(h => h.meta)).toEqual(['memory · you said it', 'journal · Oct 8', 'memory · you said it'])
     expect(hits.map(h => [h.id, h.title])).toEqual([
       ['mem_bbbbbbbbbbbb', 'Sidebar · npm_install · trial notes'],
       ['ep_aaaaaaaaaaaa', 'The lighthouse conversation'],
@@ -141,8 +144,8 @@ describe('the feed', () => {
 
   test('kept: note, chapter and session_end under either server name; a refused note is not kept', () => {
     const note = keptRow('mcp__counterparts__note', { title: 'Sidebar shipped', text: 'long' }, '{"stored":true,"id":"mem_new00001"}', T0, 1)
-    expect(note).toMatchObject({ word: 'kept', text: '“Sidebar shipped”', keys: ['mem:mem_new00001'], live: true })
-    expect(keptRow('mcp__plugin_counterparts_counterparts__chapter', { title: 'Day 18' }, '{}', T0, 2)?.text).toBe('a chapter: “Day 18”')
+    expect(note).toMatchObject({ word: 'kept', text: 'Sidebar shipped', line: 'kept · Sidebar shipped', who: 'here', keys: ['mem:mem_new00001'], live: true })
+    expect(keptRow('mcp__plugin_counterparts_counterparts__chapter', { title: 'Day 18' }, '{}', T0, 2)?.text).toBe('a chapter: Day 18')
     expect(keptRow('mcp__counterparts__session_end', { memories: [{ text: 'a' }, { text: 'b' }] }, '{"deposited":2}', T0, 3)?.text).toBe('2 memories from this session')
     expect(keptRow('mcp__counterparts__note', { text: 'x' }, '{"stored":false,"reason":"duplicate"}', T0, 4)).toBeNull()
     expect(keptRow('mcp__counterparts__recall', { question: 'x' }, '{}', T0, 5)).toBeNull()
@@ -150,9 +153,9 @@ describe('the feed', () => {
   })
 
   test('a live row hides its dashboard twin; newest first', () => {
-    const dash = classify(EVENTS[0]!)!
+    const dash = classify(EVENTS[0]!, SESSION)!
     const live = keptRow('mcp__counterparts__note', { title: 'Same memory' }, '{"stored":true,"id":"mem_aaaa1111"}', T0 - 9 * 60000, 1)!
-    const merged = mergeRows([dash, live, classify(EVENTS[3]!)!], 10)
+    const merged = mergeRows([dash, live, classify(EVENTS[4]!, SESSION)!], 10)
     expect(merged.map(r => r.id)).toEqual([live.id, 'seq:400'])
   })
 

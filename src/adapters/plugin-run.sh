@@ -42,7 +42,14 @@ here="${0%/*}"
 case "$mode" in
   hook) entry="$here/claude-code/bin/hook.mjs" ;;
   mcp) entry="$here/mcp/bin/serve.mjs" ;;
-  cli) entry="$here/cli/bin/counterparts.mjs" ;;
+  cli)
+    entry="$here/cli/bin/counterparts.mjs"
+    # The console launched FROM THE PLUGIN says so: a Bash call (the plugin's
+    # /counterparts:doctor) carries no CLAUDE_PLUGIN_ROOT of its own, and doctor
+    # needs to know it is the plugin's copy (adapters/plugin.ts#pluginDoctorLine).
+    CLAUDE_PLUGIN_ROOT="$(cd "$here/../.." && pwd -P)"
+    export CLAUDE_PLUGIN_ROOT
+    ;;
   *)
     echo "counterparts plugin-run: usage: sh plugin-run.sh hook|mcp|cli [args]" >&2
     exit 2

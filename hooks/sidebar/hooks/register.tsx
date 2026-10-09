@@ -52,6 +52,8 @@ import {
 import type { DashEvent } from './feed'
 import { DASHBOARD, MECHS, MEMORIES_URL, hex, mechById, stageOf } from './mechanisms'
 import type { MechId } from './mechanisms'
+import type { ListNote, ListProps, ListRow } from './list'
+import type { SidebarHit } from '../types'
 
 // ── constants ───────────────────────────────────────────────────────────────
 
@@ -59,8 +61,8 @@ const PANE = 'counterparts'
 const TITLE = 'Counterparts'
 /** Body columns the full sidebar asks for: 46 with the engine's frame. */
 const OPEN_COLUMNS = 44
-/** Body columns the rail asks for: about 7 with the frame (the dock's floor is 24). */
-const RAIL_COLUMNS = 5
+/** Body columns the quiet view asks for: the dock's floor (24 with the frame) is what it gets. */
+const QUIET_COLUMNS = 22
 /** The dashboard is read only while the pane is drawn: this often while things happen… */
 const POLL_MS = 15000
 /** …and this often after four quiet reads in a row. */
@@ -97,7 +99,11 @@ const C = {
   trackOff: '#2c333c',
   knobOff: '#b2bac4',
 }
-/** Powerline's round caps (U+E0B6 left, U+E0B4 right), or half blocks for a font without them. */
+/**
+ * The switch's ends: half blocks by default (every font has them), or
+ * Powerline's round caps (U+E0B6, U+E0B4) for a terminal that draws them
+ * (`/counterparts caps`). iTerm2 without a Powerline font drew the caps as `?`.
+ */
 const CAPS = {
   round: { l: '', r: '' },
   block: { l: '▐', r: '▌' },
@@ -113,20 +119,19 @@ const feedA = atom({ plugin: 'counterparts', key: 'feed' } as const, [])
 const countsA = atom({ plugin: 'counterparts', key: 'counts' } as const, { came: 0, kept: 0 })
 const firingA = atom({ plugin: 'counterparts', key: 'firing' } as const, null)
 const selA = atom({ plugin: 'counterparts', key: 'sel' } as const, null)
-const openRowA = atom({ plugin: 'counterparts', key: 'openRow' } as const, null)
 const searchA = atom({ plugin: 'counterparts', key: 'search' } as const, IDLE_SEARCH)
 const scopeA = atom({ plugin: 'counterparts', key: 'scope' } as const, UNKNOWN_SCOPE)
 const memoryA = atom({ plugin: 'counterparts', key: 'claudeMemory' } as const, true)
-const railA = atom({ plugin: 'counterparts', key: 'rail' } as const, false)
-const capsA = atom({ plugin: 'counterparts', key: 'caps' } as const, 'round')
+const viewA = atom({ plugin: 'counterparts', key: 'view' } as const, 'full')
+const capsA = atom({ plugin: 'counterparts', key: 'caps' } as const, 'block')
 const noteA = atom({ plugin: 'counterparts', key: 'switchNote' } as const, null)
-const closedA = atom({ plugin: 'counterparts', key: 'closed' } as const, false)
+const flashA = atom({ plugin: 'counterparts', key: 'flash' } as const, null)
 
 // ── the module's own (a reload starts these over; the host keeps the state) ──
 
 const brain = new Brain()
 /** The Raster the terminal last mounted: a blit must match its size. */
-const raster = { cols: 0, rows: 0, live: false }
+const raster = { cols: 0, rows: 0, live: false, cells: '', look: '' }
 /** Mirrors of state the brain reads every frame, refreshed by each drawing. */
 const look = { mono: false, sel: null as MechId | null, firing: null as MechId | null }
 const fps = {
@@ -164,6 +169,8 @@ const run = {
   brainTimer: null as { cancel: () => void } | null,
   /** Which timer is the brain's now: a tick or a blit answer of an older one changes nothing. */
   brainGen: 0,
+  /** The command that opens a URL here, once found. */
+  opener: null as readonly string[] | null,
   /** Fresh drawings asked for after refused blits since the last blit that was taken. */
   redraws: 0,
 }
@@ -208,6 +215,11 @@ function statusText(): string | undefined {
   return rate === '' ? run.statusBase : `${run.statusBase} · ${rate}`
 }
 
+/** What the brain shows besides its turning: a frame drawn under another look is not reused. */
+function lookKey(): string {
+  return `${String(look.mono)}|${look.sel ?? ''}|${look.firing ?? ''}`
+}
+
 function tagFor(): FrameOptions['tag'] {
   const m = mechById(look.sel ?? look.firing ?? '')
   if (m === undefined) return null
@@ -244,9 +256,23 @@ function switchCells(on: boolean, caps: 'round' | 'block', dim: boolean, track: 
 }
 
 /** The status line's words; the engine heads a plugin's line with the plugin's name already. */
-function statusFor(scope: SidebarScope, pulse: { day: number; memories: number } | null, counts: { came: number; kept: number }, memoryOff: boolean): string {
+function statusFor(
+  scope: SidebarScope,
+  pulse: { day: number; memories: number } | null,
+  counts: { came: number; kept: number },
+  memoryOff: boolean,
+  view: 'full' | 'quiet' | 'hidden',
+): string {
   const parts: string[] = []
   let lead = '◉'
+  if (view === 'hidden' && !isPaused(scope.mode)) {
+    // One quiet line while the pane is closed: this session's counts and the way back.
+    if (counts.came > 0) parts.push(`${String(counts.came)} came to mind`)
+    if (counts.kept > 0) parts.push(`${String(counts.kept)} kept`)
+    if (memoryOff) parts.push('Claude memory off')
+    parts.push('/counterparts to open')
+    return `${lead} ${parts.join(' · ')}`
+  }
   if (scope.mode === 'paused') {
     lead = '◌'
     parts.push('paused in this folder')
@@ -294,6 +320,42 @@ function switchExplains(scope: SidebarScope): string | null {
   return null
 }
 
+/** An ACTIVITY row as the list module draws it: worded, coloured, wrapped. */
+function activityRow(r: SidebarRow, now: number, tw: number): ListRow {
+  const col = hex(stageOf(r.mech).col)
+  return {
+    kind: 'row',
+    id: r.id,
+    dot: col,
+    word: r.word,
+    wordColor: r.who === 'night' ? hex(stageOf(r.mech).col, 0.7) : col,
+    time: clock(r.at, now),
+    lines: wrap(r.text, tw),
+    more: r.more.flatMap(x => wrap(x, tw).map(t => ({ text: t, dim: true }))),
+    link: { url: r.url, label: r.label },
+    textColor: r.who === 'night' ? C.dim : C.body,
+    barColor: hex(stageOf(r.mech).col, 0.45),
+  }
+}
+
+/** A search result as the list module draws it: its kind over its date, its title; opened, who said it and the excerpt. */
+function hitRow(h: SidebarHit, tw: number): ListRow {
+  return {
+    kind: 'row',
+    id: `hit:${h.id}`,
+    dot: C.cyan,
+    word: h.kind,
+    wordColor: C.cyan,
+    time: h.date,
+    lines: wrap(h.title, tw),
+    more: [...(h.who === null ? [] : [{ text: h.who, dim: true }]), ...wrap(h.excerpt, tw).map(t => ({ text: t, dim: false }))],
+    // TODO(v0.2): open one memory by id; the Memories page until then.
+    link: { url: MEMORIES_URL, label: 'open on the dashboard' },
+    textColor: C.text,
+    barColor: C.cyanDim,
+  }
+}
+
 // ── the engine, through `$` ────────────────────────────────────────────────
 
 async function fetchJson($: EngineInterface, path: string): Promise<unknown> {
@@ -308,8 +370,8 @@ async function claudeMemoryOn($: EngineInterface): Promise<boolean> {
 }
 
 async function refreshStatus($: EngineInterface): Promise<void> {
-  const [scope, pulse, counts, memoryOn] = await Promise.all([read($, scopeA), read($, pulseA), read($, countsA), claudeMemoryOn($)])
-  run.statusBase = statusFor(scope, pulse, counts, !memoryOn)
+  const [scope, pulse, counts, memoryOn, view] = await Promise.all([read($, scopeA), read($, pulseA), read($, countsA), claudeMemoryOn($), read($, viewA)])
+  run.statusBase = statusFor(scope, pulse, counts, !memoryOn, view)
   $.ui.status(statusText())
 }
 
@@ -338,10 +400,10 @@ async function addRows($: EngineInterface, rows: readonly SidebarRow[], fresh: b
   if (rows.length === 0) return
   await update($, feedA, list => mergeRows([...rows, ...list], FEED_LIMIT))
   if (!fresh) return
-  const newest = [...rows].sort((a, b) => b.at - a.at)[0]
+  const newest = rows.filter(r => r.who !== 'other').sort((a, b) => b.at - a.at)[0]
   if (newest === undefined) return
   const now = await $.clock.now()
-  for (const r of rows) fireBrain(r.mech, Date.now())
+  for (const r of rows) if (r.who !== 'other') fireBrain(r.mech, Date.now())
   await update($, firingA, () => ({ id: newest.mech, at: now }))
   $.clock.after(FIRING_MS + 100, () => $.ui.invalidate('ui.render'))
 }
@@ -383,7 +445,7 @@ async function poll($: EngineInterface): Promise<boolean> {
     if ((await read($, dashA)) !== 'up') await update($, dashA, () => 'up')
     const events = (view.events ?? []).filter(e => e.seq > run.lastSeq)
     if (typeof view.lastSeq === 'number' && view.lastSeq > run.lastSeq) run.lastSeq = view.lastSeq
-    const rows = events.map(classify).filter((r): r is SidebarRow => r !== null)
+    const rows = events.map(e => classify(e, run.session)).filter((r): r is SidebarRow => r !== null)
     await addRows($, rows, true)
     const pulse = await read($, pulseA)
     const newDay = events.some(e => typeof e.day === 'number' && pulse !== null && e.day > pulse.day)
@@ -420,7 +482,7 @@ async function paneShown($: EngineInterface): Promise<boolean> {
 
 /** Reads the dashboard while the pane shows, faster while things happen; stops when it doesn't (a drawing starts it again). */
 async function pollLoop($: EngineInterface): Promise<void> {
-  if (!(await paneShown($))) {
+  if ((await read($, viewA)) !== 'full' || !(await paneShown($))) {
     run.pollArmed = false
     return
   }
@@ -446,7 +508,7 @@ async function coldFeed($: EngineInterface): Promise<void> {
   for (const a of answers) {
     const events = (a as { events?: DashEvent[] } | null)?.events ?? []
     for (const e of events) {
-      const r = classify(e)
+      const r = classify(e, run.session)
       if (r !== null) rows.push(r)
     }
   }
@@ -600,32 +662,47 @@ async function runSearch($: EngineInterface, raw: string): Promise<void> {
 }
 
 /**
- * Opens (or re-opens) the pane and asks for a fresh drawing of it. Measured
- * live: a pane closed by hand and opened again is drawn from the terminal's
- * settled evaluation ("reuses its settled evaluation"), so this module's render
- * hook never runs and the brain, stopped at the close, would stay frozen.
+ * Opens (or re-opens) the pane as the given view and asks for a fresh drawing
+ * of it. Measured live: a pane closed by hand and opened again is drawn from
+ * the terminal's settled evaluation ("reuses its settled evaluation"), so this
+ * module's render hook never runs and the brain, stopped at the close, would
+ * stay frozen.
  */
-async function openPane($: EngineInterface): Promise<{ isPlaced: boolean }> {
-  const railed = await read($, railA)
-  const opened = await $.ui.open({ id: PANE, title: TITLE, columns: railed ? RAIL_COLUMNS : OPEN_COLUMNS })
+async function openPane($: EngineInterface, view: 'full' | 'quiet'): Promise<{ isPlaced: boolean }> {
+  await setView($, view)
+  const opened = await $.ui.open({ id: PANE, title: TITLE, columns: view === 'quiet' ? QUIET_COLUMNS : OPEN_COLUMNS })
   $.ui.invalidate('ui.render')
   return { isPlaced: opened.isPlaced }
 }
 
-/** Opened without being asked: only where it docks as a sidebar, and never again after the person closed it. */
+/** The view, for this session and (in `$.store`) the next. */
+async function setView($: EngineInterface, view: 'full' | 'quiet' | 'hidden'): Promise<void> {
+  if ((await read($, viewA)) !== view) await update($, viewA, () => view)
+  await $.store.set('view', view)
+  if (view !== 'full') stopBrain()
+  await refreshStatus($)
+}
+
+/** Opened without being asked: only where it docks as a sidebar, and not when the person left it hidden. */
 async function openUnasked($: EngineInterface): Promise<void> {
-  if (await read($, closedA)) return
-  const opened = await openPane($)
+  const view = await read($, viewA)
+  if (view === 'hidden') return
+  const opened = await openPane($, view)
   if (!opened.isPlaced && run.interactive) {
     run.hint = true
     await refreshStatus($)
   }
 }
 
-async function setRail($: EngineInterface, on: boolean): Promise<void> {
-  await update($, railA, () => on)
-  await $.store.set('rail', on)
-  await openPane($)
+/** The quiet view's `◉` lights in the event's stage colour, and goes out by itself. */
+async function flash($: EngineInterface, mech: MechId): Promise<void> {
+  if ((await read($, viewA)) !== 'quiet') return
+  const now = await $.clock.now()
+  const mark = { id: mech, at: now }
+  await update($, flashA, () => mark)
+  $.clock.after(FIRING_MS, () => {
+    quiet(update($, flashA, f => (f !== null && f.at === mark.at ? null : f)))
+  })
 }
 
 async function pick($: EngineInterface, id: MechId): Promise<void> {
@@ -639,20 +716,6 @@ async function pick($: EngineInterface, id: MechId): Promise<void> {
   await update($, selA, () => mark)
   $.clock.after(AUTO_CLOSE_MS, () => {
     quiet(update($, selA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s)))
-  })
-}
-
-async function openRow($: EngineInterface, id: string): Promise<void> {
-  const now = await $.clock.now()
-  const cur = await read($, openRowA)
-  if (cur !== null && cur.id === id) {
-    await update($, openRowA, () => null)
-    return
-  }
-  const mark = { id, at: now }
-  await update($, openRowA, () => mark)
-  $.clock.after(AUTO_CLOSE_MS, () => {
-    quiet(update($, openRowA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s)))
   })
 }
 
@@ -689,6 +752,8 @@ function tick($: EngineInterface, gen: number): void {
   }
   if (fps.inFlight) return
   const cells = frameCells(raster.cols, raster.rows, now)
+  raster.cells = cells
+  raster.look = lookKey()
   fps.inFlight = true
   void $.ui.blit({ requestId: PANE, key: 'brain', cells, columns: raster.cols, rows: raster.rows }).then(
     r => {
@@ -726,24 +791,54 @@ function startBrain($: EngineInterface): void {
   run.brainTimer = $.clock.every(Math.max(16, Math.round(1000 / fps.target)), () => tick($, gen))
 }
 
-/** A drawing of the pane: the brain turns and the dashboard is read only from here on, until the pane stops showing. */
-function wake($: EngineInterface, hasRaster: boolean): void {
+/**
+ * A drawing of the pane. In the full view the brain turns and the dashboard is
+ * read from here on, until the pane stops showing; the quiet view starts
+ * neither (its list moves only with this session's own events).
+ */
+function wake($: EngineInterface, hasRaster: boolean, full: boolean): void {
+  if (run.hint) {
+    run.hint = false
+    quiet(refreshStatus($))
+  }
+  if (!full) return
   if (hasRaster && run.brainTimer === null) startBrain($)
   armPolling($, run.cold ? POLL_MS : 0)
   if (!run.woke) {
     run.woke = true
     quiet(readScopeQuietly($))
   }
-  if (run.hint) {
-    run.hint = false
-    quiet(refreshStatus($))
-  }
 }
 
 async function liveRow($: EngineInterface, row: SidebarRow, count: 'came' | 'kept', n: number): Promise<void> {
   await update($, countsA, c => ({ ...c, [count]: c[count] + n }))
   await addRows($, [row], true)
+  await flash($, row.mech)
   await refreshStatus($)
+}
+
+/** How this machine opens a URL, found once: `open` (macOS), `xdg-open` (Linux), `start` (Windows). */
+async function opener($: EngineInterface): Promise<readonly string[]> {
+  if (run.opener !== null) return run.opener
+  let os = ''
+  try {
+    os = (await $.process.run(['uname', '-s'], { timeoutMs: 3000 })).stdout.trim()
+  } catch {
+    os = 'Windows'
+  }
+  run.opener = os === 'Darwin' ? ['open'] : os === 'Windows' ? ['cmd', '/c', 'start', '""'] : ['xdg-open']
+  return run.opener
+}
+
+/** A plain click on a link opens it: an OSC 8 link opens only on ⌘-click in iTerm2. */
+async function openUrl($: EngineInterface, url: string): Promise<void> {
+  try {
+    const argv = await opener($)
+    const r = await $.process.run([...argv, url], { timeoutMs: 10000 })
+    if (r.exitCode !== 0) $.ui.toast(`counterparts: couldn't open ${url}`)
+  } catch {
+    $.ui.toast(`counterparts: couldn't open ${url}`)
+  }
 }
 
 // ── hooks ───────────────────────────────────────────────────────────────────
@@ -755,18 +850,18 @@ export const register: Register = on => {
     await $.command.register({
       name: 'counterparts',
       description: 'Counterparts sidebar: open it, slide it to the rail, or measure the brain',
-      argumentHint: '[rail | fps [n] | caps]',
+      argumentHint: '[quiet | hide | fps [n] | caps]',
     })
-    const [mem, railed, capsPref, fpsPref, fpsShown] = await Promise.all([
+    const [mem, viewPref, capsPref, fpsPref, fpsShown] = await Promise.all([
       $.store.get('claudeMemory'),
-      $.store.get('rail'),
+      $.store.get('view'),
       $.store.get('caps'),
       $.store.get('fps'),
       $.store.get('fpsShown'),
     ])
     await update($, memoryA, () => mem !== false)
-    await update($, railA, () => railed === true)
-    await update($, capsA, () => (capsPref === 'block' ? 'block' : 'round'))
+    await update($, viewA, () => (viewPref === 'quiet' || viewPref === 'hidden' ? viewPref : 'full'))
+    await update($, capsA, () => (capsPref === 'round' ? 'round' : 'block'))
     if (typeof fpsPref === 'number' && fpsPref >= 1 && fpsPref <= 30) fps.target = fpsPref
     fps.shown = fpsShown === true
     // Nothing is opened, read or drawn here. The pane opens unasked from the
@@ -794,23 +889,26 @@ export const register: Register = on => {
       $.ui.status(statusText())
       return { text: `${fpsReport()} The status line ${fps.shown ? 'now shows' : 'no longer shows'} it.` }
     }
-    if (verb === 'rail') {
-      const railed = !(await read($, railA))
-      await setRail($, railed)
-      return { text: railed ? 'Sidebar slid to the rail.' : 'Sidebar slid open.' }
+    if (verb === 'quiet' || verb === 'rail') {
+      await openPane($, 'quiet')
+      return { text: 'Sidebar quiet: narrow, nothing moving. `›` (or /counterparts) opens it full.' }
+    }
+    if (verb === 'hide') {
+      await setView($, 'hidden')
+      await $.ui.close({ id: PANE })
+      return { text: 'Sidebar hidden; the status line stays. /counterparts opens it.' }
     }
     if (verb === 'caps') {
       const nextCaps = (await read($, capsA)) === 'round' ? 'block' : 'round'
       await update($, capsA, () => nextCaps)
       await $.store.set('caps', nextCaps)
-      return { text: nextCaps === 'block' ? 'Switch ends drawn with half blocks.' : 'Switch ends drawn with Powerline half-discs.' }
+      return { text: nextCaps === 'block' ? 'Switch ends drawn with half blocks.' : 'Switch ends drawn with Powerline round caps.' }
     }
     if (verb !== '' && verb !== 'open') {
-      return { text: 'Usage: /counterparts [rail | fps [n] | caps]. With nothing after it, opens the sidebar.' }
+      return { text: 'Usage: /counterparts [quiet | hide | fps [n] | caps]. With nothing after it, opens the sidebar full.' }
     }
-    // Asked for: placed at any width, and a hand-close earlier this session no longer holds.
-    await update($, closedA, () => false)
-    const opened = await openPane($)
+    // Asked for: placed at any width, whatever view it was left in.
+    const opened = await openPane($, 'full')
     return { text: opened.isPlaced ? 'Counterparts sidebar opened.' : 'Counterparts sidebar is open but this surface does not place panes.' }
   })
 
@@ -861,14 +959,21 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // closed by hand: it stays closed this session, unless /counterparts asks for it again
+  // closed by hand: hidden, for this session and the next, until /counterparts opens it
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind === 'person') {
-      await update($, closedA, () => true)
       stopBrain()
+      await setView($, 'hidden')
     }
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  // a click on a list's `↗` line: open the dashboard in the browser
+  on('ui.message', async ($, e) => {
+    const data = e.data as { open?: unknown } | null
+    if (typeof data?.open === 'string' && data.open.startsWith(`${DASHBOARD}/`)) await openUrl($, data.open)
+    return {}
+  })
 
   // Claude Code's own memory: its MEMORY.md files and its section of the system prompt
   on('prompt.context', async ($, e, next) => {
@@ -897,13 +1002,14 @@ export const register: Register = on => {
   // ── the pane ──────────────────────────────────────────────────────────────
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
-    const { Box, Text, Button, Link } = els
+    const { Box, Text, Button } = els
     const Input = 'Input' in els ? els.Input : null
+    const Client = 'Client' in els ? els.Client : null
     const now = await $.clock.now()
     run.drawn = true
-    const [pulse, dash, feed, counts, firing, sel, opened, search, scope, railed, caps, note] = await Promise.all([
+    const [pulse, dash, feed, counts, firing, sel, search, scope, view, caps, note, flashMark] = await Promise.all([
       read($, pulseA), read($, dashA), read($, feedA), read($, countsA), read($, firingA), read($, selA),
-      read($, openRowA), read($, searchA), read($, scopeA), read($, railA), read($, capsA), read($, noteA),
+      read($, searchA), read($, scopeA), read($, viewA), read($, capsA), read($, noteA), read($, flashA),
     ])
     // The stored preference, not this session's copy: another session may have turned it.
     const memoryOn = await claudeMemoryOn($)
@@ -914,46 +1020,57 @@ export const register: Register = on => {
     look.firing = firingNow
     const W = Math.max(e.props.bodyColumns, 1)
     const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
+    const quietView = view === 'quiet'
+    const hasRaster = e.surface === 'terminal' && !quietView
+    if (e.surface === 'terminal' && quietView) stopBrain()
+    wake($, hasRaster, !quietView)
+    const w = Math.max(16, W - 2)
+    // This session's and the night's; another session's rows fold into one line.
+    const mine = feed.filter(r => r.who !== 'other')
+    const others = feed.length - mine.length
+    const otherLine = others === 0 ? null : `+${String(others)} from other sessions`
 
-    const hasRaster = e.surface === 'terminal' && !railed
-    if (e.surface === 'terminal' && railed) stopBrain()
-    wake($, hasRaster)
-
-    // ── the rail ──
-    if (railed) {
-      const pulseCol = firingNow !== null ? hex(stageOf(firingNow as MechId).col) : paused ? C.dim : C.cyan
-      return (
-        <Box flexDirection="column" paddingX={1} width={W} minHeight={fill} backgroundColor={C.bg}>
-          <Button key="unfold" plain onPress={() => setRail($, false)}>
+    // ── quiet: narrow, nothing moving ──
+    if (quietView) {
+      const lit = flashMark !== null && now - flashMark.at < FIRING_MS ? hex(stageOf(flashMark.id as MechId).col) : null
+      const rows: JSX.Element[] = []
+      rows.push(
+        <Box key="qhead" flexDirection="row">
+          <Button key="unfold" plain onPress={() => openPane($, 'full')}>
             <Text color={C.cyan} bold>›</Text>
           </Button>
           <Text> </Text>
-          <Text color={pulseCol}>◉</Text>
-          <Text> </Text>
-          {MECHS.map(m => {
-            const lit = firingNow === m.id
-            const col = paused ? C.faint : lit ? C.white : hex(stageOf(m.id).col, m.notBuilt ? 0.3 : 0.6)
-            return (
-              <Button key={`rail:${m.id}`} plain onPress={() => setRail($, false)}>
-                <Text color={col}>{m.notBuilt ? '○' : '●'}</Text>
-              </Button>
-            )
-          })}
-          <Text> </Text>
-          {!paused && counts.kept > 0 ? <Text color={C.cyan}>{`◆${String(counts.kept)}`}</Text> : null}
-          {!paused && counts.came > 0 ? <Text color={hex(stageOf('retrieval').col)}>{`↑${String(counts.came)}`}</Text> : null}
+          <Text color={lit ?? (paused ? C.dim : C.cyanDim)}>◉</Text>
+          <Text color={C.dim}>{` ${[counts.came > 0 ? `${String(counts.came)} came` : '', counts.kept > 0 ? `${String(counts.kept)} kept` : ''].filter(Boolean).join(' · ')}`}</Text>
+        </Box>,
+      )
+      rows.push(<Text key="qgap"> </Text>)
+      if (paused) rows.push(<Text key="qpaused" color={C.dim}>{scope.mode === 'off' ? '◌ off here' : '◌ paused here'}</Text>)
+      const room = Math.max(3, fill - 4)
+      mine.slice(0, room).forEach(r => {
+        rows.push(
+          <Box key={`q:${r.id}`} flexDirection="row">
+            <Text color={hex(stageOf(r.mech).col)}>● </Text>
+            <Text color={r.who === 'night' ? C.dim : C.body}>{ellipsize(r.line, w - 2)}</Text>
+          </Box>,
+        )
+      })
+      if (mine.length === 0) rows.push(<Text key="qnone" color={C.faint}>nothing yet</Text>)
+      if (otherLine !== null) rows.push(<Text key="qother" color={C.faint}>{ellipsize(otherLine, w)}</Text>)
+      return (
+        <Box flexDirection="column" paddingX={1} width={W} minHeight={fill} backgroundColor={C.bg}>
+          {rows}
         </Box>
       )
     }
 
-    const w = Math.max(20, W - 2)
     const rows: JSX.Element[] = []
 
     // ── header ──
     rows.push(
       <Box key="head" flexDirection="row" justifyContent="space-between" width={w}>
         <Box flexDirection="row">
-          <Button key="fold" plain onPress={() => setRail($, true)}>
+          <Button key="fold" plain onPress={() => openPane($, 'quiet')}>
             <Text color={C.cyan} bold>‹</Text>
           </Button>
           <Text> </Text>
@@ -1009,10 +1126,16 @@ export const register: Register = on => {
     const bh = inline ? Math.min(10, Math.max(6, Math.round(bw / 3))) : Math.max(6, Math.round(bw / 3))
     if (hasRaster) {
       const { Raster } = $.ui.resolve(e)
+      // The last frame the timer drew, when it fits: a drawing (a press, a
+      // poll, a keystroke's redraw) need not compute a brain of its own.
+      const reuse = raster.cols === bw && raster.rows === bh && raster.cells !== '' && raster.look === lookKey()
+      const cells = reuse ? raster.cells : frameCells(bw, bh, Date.now())
       raster.cols = bw
       raster.rows = bh
+      raster.cells = cells
+      raster.look = lookKey()
       raster.live = true
-      rows.push(<Raster key="brain" columns={bw} rows={bh} cells={frameCells(bw, bh, Date.now())} />)
+      rows.push(<Raster key="brain" columns={bw} rows={bh} cells={cells} />)
     } else {
       // TODO(v0.2): the desktop brain as an Svg; a Raster is the terminal's alone.
       rows.push(
@@ -1077,6 +1200,9 @@ export const register: Register = on => {
     }
 
     // ── search ──
+    // The field keeps its own text while it is typed in: no handler runs per
+    // keystroke (each `onInput` was a round trip to this module) and the hook
+    // never draws a value back into it. Enter searches.
     rows.push(<Text key="gap5"> </Text>)
     rows.push(
       <Box key="search" flexDirection="row" width={w} borderStyle="round" borderColor={search.status === 'idle' ? C.faint : C.cyanDim} paddingX={1}>
@@ -1085,16 +1211,7 @@ export const register: Register = on => {
           {Input === null ? (
             <Text color={C.faint}>search from the terminal or the desktop app</Text>
           ) : (
-            <Input
-              key="q"
-              placeholder="search memories"
-              value={run.draft}
-              submitLabel="search"
-              onInput={(value: string) => {
-                run.draft = value
-              }}
-              onSubmit={(value: string) => runSearch($, value)}
-            />
+            <Input key="q" placeholder="search memories" value="" submitLabel="search" onSubmit={(value: string) => runSearch($, value)} />
           )}
         </Box>
         {search.query !== '' ? (
@@ -1107,12 +1224,39 @@ export const register: Register = on => {
     rows.push(<Text key="gap6"> </Text>)
 
     // ── the list: paused, search results, or activity ──
-    const rule = (label: string, col: string) => (
+    const rule = (label: string, col: string, back = false) => (
       <Box key={`rule-${label}`} flexDirection="row" width={w}>
         <Text color={col} bold>{label}</Text>
-        <Text color={C.faint}>{` ${'─'.repeat(Math.max(0, w - label.length - 1))}`}</Text>
+        <Text color={C.faint}>{` ${'─'.repeat(Math.max(0, w - label.length - 1 - (back ? 12 : 0)))}`}</Text>
+        {back ? (
+          <Button key="back" plain onPress={() => runSearch($, '')}>
+            <Text color={C.cyan}>{' ← activity'}</Text>
+          </Button>
+        ) : null}
       </Box>
     )
+    const lw = 13
+    const tw = Math.max(8, w - lw)
+    const room = Math.max(4, fill - rows.length - 4)
+    const list = (key: string, items: (ListRow | ListNote)[]) =>
+      Client !== null ? (
+        <Client
+          key={key}
+          module="./list.tsx"
+          width={w}
+          props={{ items, lw, tw, linkColor: C.cyan, faintColor: C.faint } satisfies ListProps}
+        />
+      ) : (
+        <Box key={key} flexDirection="column">
+          {items.map(it =>
+            it.kind === 'note' ? (
+              <Text key={it.id} color={it.color}>{it.text}</Text>
+            ) : (
+              <Text key={it.id} color={it.textColor}>{`● ${it.word} · ${it.lines.join(' ')}`}</Text>
+            ),
+          )}
+        </Box>
+      )
     if (paused) {
       const off = scope.mode === 'off'
       rows.push(rule(off ? 'OFF' : 'PAUSED', C.dim))
@@ -1125,7 +1269,7 @@ export const register: Register = on => {
       }
     } else if (search.status !== 'idle') {
       const head = search.status === 'running' ? 'SEARCHING' : search.status === 'error' ? 'NOT SEARCHED' : `${String(search.total)} FOUND`
-      rows.push(rule(head, C.cyan))
+      rows.push(rule(head, C.cyan, true))
       const showing = search.status === 'done' && search.total > search.hits.length ? ` · the first ${String(search.hits.length)}` : ''
       rows.push(<Text key="for" color={C.dim}>{ellipsize(`for “${search.query}”${showing}`, w)}</Text>)
       rows.push(<Text key="weak" color={C.faint}>a search strengthens nothing</Text>)
@@ -1134,20 +1278,9 @@ export const register: Register = on => {
         for (const [i, l] of wrap(search.error ?? 'the search was refused', w).entries()) rows.push(<Text key={`err${String(i)}`} color={C.dim}>{l}</Text>)
       } else if (search.status === 'done' && search.hits.length === 0) {
         rows.push(<Text key="none" color={C.faint}>nothing matches yet</Text>)
-      }
-      search.hits.forEach((hit, i) => {
-        rows.push(
-          <Box key={`hit${String(i)}`} flexDirection="row">
-            <Text color={C.cyan}>● </Text>
-            <Text color={C.text}>{ellipsize(hit.title, w - 2)}</Text>
-          </Box>,
-        )
-        rows.push(<Text key={`hitm${String(i)}`} color={C.dim}>{`  ${ellipsize(hit.meta, w - 2)}`}</Text>)
-        rows.push(<Text key={`hitg${String(i)}`}> </Text>)
-      })
-      if (search.status === 'done' && search.hits.length > 0) {
+      } else if (search.hits.length > 0) {
         // TODO(v0.2): open one memory by id; the Memories page until then.
-        rows.push(<Link key="hits-link" href={MEMORIES_URL} label="↗ your memories on the dashboard" />)
+        rows.push(list('results', search.hits.slice(0, Math.max(1, Math.floor(room / 3))).map(h => hitRow(h, tw))))
       }
     } else {
       rows.push(rule('ACTIVITY', C.cyan))
@@ -1158,62 +1291,12 @@ export const register: Register = on => {
         rows.push(<Text key="down3" color={C.cyanDim}>counterparts dashboard</Text>)
         rows.push(<Text key="gap10"> </Text>)
       }
-      if (feed.length === 0 && dash !== 'down') {
-        rows.push(<Text key="empty" color={C.faint}>{dash === 'unknown' ? 'reading the dashboard…' : 'nothing yet'}</Text>)
+      const items: (ListRow | ListNote)[] = mine.slice(0, Math.max(1, Math.floor(room / 3))).map(r => activityRow(r, now, tw))
+      if (mine.length === 0 && dash !== 'down') {
+        items.push({ kind: 'note', id: 'empty', text: dash === 'unknown' ? 'reading the dashboard…' : 'nothing yet', color: C.faint })
       }
-      const lw = 13
-      const tw = Math.max(8, w - lw)
-      const room = Math.max(4, (e.props.scroll?.bodyRows ?? 60) - rows.length - 2)
-      let spent = 0
-      for (const r of feed) {
-        if (spent + 2 > room) break
-        const m = mechById(r.mech)
-        const col = hex(m === undefined ? [0, 0.9, 1] : stageOf(m.id).col)
-        const isOpen = opened?.id === r.id
-        const fresh = r.live === true && now - r.at < 1500
-        const all = wrap(r.text, tw)
-        const first = all[0] ?? ''
-        const second = isOpen ? (all[1] ?? '') : all.length > 2 ? ellipsize(`${all[1] ?? ''} ${all.slice(2).join(' ')}`, tw) : (all[1] ?? '')
-        const word = ellipsize(r.word, lw - 3).padEnd(lw - 2)
-        const time = clock(r.at, now).padEnd(lw - 2)
-        rows.push(
-          <Button key={`row:${r.id}:0`} plain onPress={() => openRow($, r.id)}>
-            <Text color={col}>● </Text>
-            <Text color={isOpen || fresh ? C.white : col} bold>{word}</Text>
-            <Text color={isOpen || fresh ? C.white : C.body}>{first}</Text>
-          </Button>,
-        )
-        rows.push(
-          <Button key={`row:${r.id}:1`} plain onPress={() => openRow($, r.id)}>
-            <Text color={C.faint}>{`  ${time}`}</Text>
-            <Text color={isOpen ? C.white : C.body}>{second}</Text>
-          </Button>,
-        )
-        spent += 2
-        if (isOpen) {
-          const extra = [
-            ...all.slice(2).map(l => ({ l, main: true })),
-            ...r.more.flatMap(x => wrap(x, tw).map(l => ({ l, main: false }))),
-          ]
-          extra.forEach((x, i) => {
-            rows.push(
-              <Box key={`row:${r.id}:x${String(i)}`} flexDirection="row">
-                <Text color={hex(m === undefined ? [0, 0.9, 1] : stageOf(m.id).col, 0.45)}>{'  │'.padEnd(lw)}</Text>
-                <Text color={x.main ? C.white : C.dim}>{x.l}</Text>
-              </Box>,
-            )
-          })
-          rows.push(
-            <Box key={`row:${r.id}:link`} flexDirection="row">
-              <Text>{' '.repeat(lw)}</Text>
-              <Link href={r.url} label={`↗ ${r.label}`} />
-            </Box>,
-          )
-          spent += extra.length + 1
-        }
-        rows.push(<Text key={`row:${r.id}:gap`}> </Text>)
-        spent += 1
-      }
+      if (otherLine !== null) items.push({ kind: 'note', id: 'others', text: otherLine, color: C.faint })
+      if (items.length > 0) rows.push(list('activity', items))
     }
 
     return (

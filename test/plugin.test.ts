@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -486,6 +487,30 @@ describe("ensureFirstRun", () => {
 // ── the launcher, end to end (no Claude Code; the plugin's processes as it runs them) ──
 
 describe("plugin-run.sh", () => {
+  test("/counterparts:doctor beside a live npm install says the plugin stands down, then runs the npm install's own doctor", () => {
+    writeSettings({ SessionStart: [liveHookCommand()] });
+    const npmBin = join(work, "npm-bin");
+    mkdirSync(npmBin, { recursive: true });
+    const fake = join(npmBin, "counterparts");
+    writeFileSync(fake, '#!/bin/sh\necho "npm doctor ran: $* (plugin root: ${CLAUDE_PLUGIN_ROOT:-none})"\n');
+    chmodSync(fake, 0o755);
+    const env = pluginEnv({ PATH: `${npmBin}:${emptyBin}` });
+    delete env["CLAUDE_PLUGIN_ROOT"]; // a Bash call from the command carries none; the launcher sets it
+    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env, timeout: 60_000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("is standing down: the npm install is the live one here (its hooks in ~/.claude/settings.json)");
+    expect(r.stdout).toContain("This plugin (running from "); // this checkout is a folder, not an install
+    expect(r.stdout).toContain("npm doctor ran: doctor (plugin root: none)");
+  });
+
+  test("/counterparts:doctor beside a live npm install with no `counterparts` on PATH says how to run it", () => {
+    writeSettings({ SessionStart: [liveHookCommand()] });
+    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env: pluginEnv(), timeout: 60_000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("is standing down");
+    expect(r.stdout).toContain("Run `counterparts doctor` in a terminal.");
+  });
+
   test("SessionStart on a machine with no install: first run, then the wake", () => {
     const r = launch("hook", payload("SessionStart"), pluginEnv());
     expect(r.code).toBe(0);

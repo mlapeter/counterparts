@@ -33,12 +33,32 @@ export type SidebarRow = {
   label: string;
   /** Seen live in this session rather than read from the dashboard. */
   live?: true;
+  /**
+   * Whose it is: this session's (`here`), the night's or the background's
+   * (`night`: dreams, fading, merging), or another session's (`other`, folded
+   * into one line, never shown as if it were this one's).
+   */
+  who: 'here' | 'night' | 'other';
+  /** The row in one short line, for the quiet view (`kept · <title>`, `3 came to mind`). */
+  line: string;
   /** Keys a live row and its later dashboard twin share (`mem:<id>`, `turn:<session>:<n>`). */
   keys?: string[];
 };
 
 /** One memory a search found. */
-export type SidebarHit = { id: string; title: string; meta: string; excerpt: string };
+export type SidebarHit = {
+  id: string;
+  title: string;
+  /** `memory` or `journal`. */
+  kind: string;
+  /** When it happened, else when it was learned, as `Oct 9`; empty when unknown. */
+  date: string;
+  /** Who said it, only when that is known (`you said it`, `I said it`, `inferred`). */
+  who: string | null;
+  /** `memory · Oct 9`, with who said it when known. */
+  meta: string;
+  excerpt: string;
+};
 
 export type SidebarSearch = {
   query: string;
@@ -85,20 +105,22 @@ declare module 'claude-code' {
       firing: SidebarMark | null;
       /** The mechanism the person picked in the legend. */
       sel: SidebarMark | null;
-      /** The ACTIVITY row the person opened. */
-      openRow: SidebarMark | null;
       search: SidebarSearch;
       scope: SidebarScope;
       /** Claude Code's own memory (MEMORY.md and its prompt section): on unless turned off. */
       claudeMemory: boolean;
-      /** Slid to the rail. */
-      rail: boolean;
+      /**
+       * Which of the three the sidebar is in: `full` (the brain, the
+       * mechanisms, search, activity), `quiet` (narrow, nothing moving, a
+       * compact list) or `hidden` (closed by hand; the status line stays).
+       */
+      view: 'full' | 'quiet' | 'hidden';
       /** The switch's ends: Powerline half-discs, or half blocks for a font without them. */
       caps: 'round' | 'block';
       /** What the Counterparts switch said about a press it would not act on. */
       switchNote: SidebarNote | null;
-      /** The person closed the pane by hand this session: it is not opened again unasked. */
-      closed: boolean;
+      /** The quiet view's `◉` lights in this stage colour for a moment after an event. */
+      flash: SidebarMark | null;
     };
   }
 }

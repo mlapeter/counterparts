@@ -199,6 +199,29 @@ export function mcpGate(
   };
 }
 
+/**
+ * `/counterparts:doctor` run from the plugin while the npm wiring is live
+ * here: the plugin is standing down, so its own copy's doctor would describe
+ * an install that is not the one keeping the memory (a different version, a
+ * development folder). The console then says so and runs the npm install's
+ * `counterparts doctor` instead (`cli/bin/counterparts.ts`). Null when nothing
+ * of the npm install's is live, and the plugin's doctor is the right one.
+ */
+export function pluginDoctorLine(wiring: NpmWiring, home: string, origin: PluginOrigin = INSTALLED): string | null {
+  const hook = wiring.hooks.find((h) => h.live);
+  const mcp = wiring.mcp.find((m) => m.live);
+  if (hook === undefined && mcp === undefined) return null;
+  const where =
+    hook !== undefined
+      ? `its hooks in ${tildeOf(hook.file, home)}`
+      : `its "counterparts" server (${mcp?.scope ?? "user"} scope, ${tildeOf(mcp?.file ?? "", home)})`;
+  const copy = origin.installed ? "This plugin" : `This plugin (running from ${tildeOf(origin.root, home)})`;
+  return (
+    `${copy} is standing down: the npm install is the live one here (${where}). ` +
+    "What follows is the npm install's own doctor (`counterparts doctor`), the one that knows your memory."
+  );
+}
+
 // ── first run ───────────────────────────────────────────────────────────────
 
 /**

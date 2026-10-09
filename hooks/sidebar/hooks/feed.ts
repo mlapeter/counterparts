@@ -76,12 +76,34 @@ export const RULES: readonly Rule[] = [
 /** The names worth asking the dashboard for one by one on a cold start. */
 export const RULE_NAMES: readonly string[] = [...new Set(RULES.map(r => r.name))];
 
-/** A dashboard event as an ACTIVITY row, or null when it proves no mechanism. */
-export function classify(e: DashEvent): FeedRow | null {
+/**
+ * The events that belong to no session: the night's sleep and dreams, and
+ * what they settle (fading, merging, promoting). Everything else carries the
+ * session it happened in (`detail.session`), or is a session's boundary work.
+ */
+const NIGHT = new Set([
+  'dream.journaled', 'dream.changed', 'band.transition', 'memory.pruned', 'memory.merged',
+  'band.promoted', 'sleep.cycle', 'contradiction.flagged', 'contradiction.settled', 'revision.pressure',
+]);
+
+/** The titles a recall narration quotes (“…”). */
+export function quotedTitles(text: string): string[] {
+  return [...text.matchAll(/“([^”]+)”/g)].map(m => m[1] ?? '').filter(t => t.length > 0);
+}
+
+/**
+ * A dashboard event as an ACTIVITY row, or null when it proves no mechanism.
+ * `session` is this session's id: its own events are said in the sidebar's
+ * plain words, the night's keep the narrator's, other sessions' are marked
+ * `other` (the list folds them into one line).
+ */
+export function classify(e: DashEvent, session = ''): FeedRow | null {
   const rule = RULES.find(r => r.name === e.name && (r.when === undefined || r.when(e)));
   if (rule === undefined) return null;
   const m = mechById(rule.mech);
   const short = m?.short ?? rule.mech;
+  const from = detail(e, 'session');
+  const who: FeedRow['who'] = NIGHT.has(e.name) ? 'night' : session !== '' && from === session ? 'here' : 'other';
   const base: FeedRow = {
     id: `seq:${String(e.seq)}`,
     mech: rule.mech,
@@ -91,28 +113,35 @@ export function classify(e: DashEvent): FeedRow | null {
     more: [],
     url: mechUrl(rule.mech),
     label: `${short} on the dashboard`,
+    who,
+    line: `${rule.word} · ${e.text}`,
   };
   if (rule.name === 'gate.deposit' || rule.name === 'gate.chunk') {
     const { title, id } = titled(detail(e, 'memoryId'));
     const kind = detail(e, 'kind');
     const accepted = num(e, 'accepted');
+    const text = title ?? (accepted > 1 ? `${String(accepted)} memories written down` : 'a memory');
     return {
       ...base,
-      text: title !== null ? `“${title}”` : accepted > 1 ? `${String(accepted)} memories written down` : e.text,
-      more: [e.text, ...(kind ? [`kept as a ${kind}`] : [])],
+      text,
+      more: kind ? [`kept as a ${kind}`] : [],
       url: MEMORIES_URL,
-      label: 'the memory on the dashboard',
+      label: 'open on the dashboard',
+      line: `kept · ${text}`,
       ...(id === null ? {} : { keys: [`mem:${id}`] }),
     };
   }
   if (rule.name === 'recall.decision') {
-    const session = detail(e, 'session');
     const turn = detail(e, 'turn');
     const n = num(e, 'surfacedCount') + num(e, 'footnoteCount');
+    const said = `${String(n)} came to mind`;
     return {
       ...base,
-      word: `${String(n)} recalled`,
-      ...(session !== undefined && turn !== undefined ? { keys: [`turn:${session}:${turn}`] } : {}),
+      word: 'recalled',
+      text: said,
+      more: quotedTitles(e.text).map(t => `· ${t}`),
+      line: said,
+      ...(from !== undefined && turn !== undefined ? { keys: [`turn:${from}:${turn}`] } : {}),
     };
   }
   return base;
@@ -159,13 +188,15 @@ export function cameRow(block: RecallBlock, session: string, at: number): FeedRo
   return {
     id: `live:turn:${session}:${String(block.turn)}`,
     mech: 'retrieval',
-    word: `${String(n)} recalled`,
+    word: 'recalled',
     at,
-    text: `${n === 1 ? '1 memory came' : `${String(n)} memories came`} to mind for this prompt`,
+    text: `${String(n)} came to mind`,
     more: all.map(t => `· ${t}`),
     url: mechUrl('retrieval'),
     label: 'Retrieval on the dashboard',
     live: true,
+    who: 'here',
+    line: `${String(n)} came to mind`,
     keys: [`turn:${session}:${String(block.turn)}`],
   };
 }
@@ -223,10 +254,10 @@ export function keptRow(tool: string, args: Record<string, unknown>, resultText:
   let text: string;
   let more: string[] = [];
   if (ours.tool === 'note') {
-    text = `“${firstLine(args['title']) ?? firstLine(args['text']) ?? 'a note'}”`;
+    text = firstLine(args['title']) ?? firstLine(args['text']) ?? 'a note';
     if (typeof args['kind'] === 'string') more = [`kept as a ${args['kind'] as string}`];
   } else if (ours.tool === 'chapter') {
-    text = `a chapter: “${firstLine(args['title']) ?? firstLine(args['text']) ?? 'untitled'}”`;
+    text = `a chapter: ${firstLine(args['title']) ?? firstLine(args['text']) ?? 'untitled'}`;
   } else {
     const list = Array.isArray(args['memories']) ? (args['memories'] as unknown[]) : [];
     const n = typeof p?.['deposited'] === 'number' ? (p['deposited'] as number) : list.length;
@@ -242,8 +273,10 @@ export function keptRow(tool: string, args: Record<string, unknown>, resultText:
     text,
     more,
     url: MEMORIES_URL,
-    label: 'the memory on the dashboard',
+    label: 'open on the dashboard',
     live: true,
+    who: 'here',
+    line: `kept · ${text}`,
     ...(id === null ? {} : { keys: [`mem:${id}`] }),
   };
 }
@@ -276,23 +309,54 @@ export function factsTotal(header: string): number {
   return m === null ? 0 : Number(m[1])
 }
 
+/** `10-09` or `2025-10-09` as `Oct 9` (with the year when one is given). */
+export function shortDay(s: string): string {
+  const m = /^(?:(\d{4})-)?(\d{2})-(\d{2})$/.exec(s.trim());
+  if (m === null) return '';
+  const month = MONTHS[Number(m[2]) - 1];
+  if (month === undefined) return '';
+  return `${month} ${String(Number(m[3]))}${m[1] === undefined ? '' : ` ${m[1]}`}`;
+}
+
+const SAID_BY: Readonly<Record<string, string>> = { 'you said': 'you said it', 'I said': 'I said it', inferred: 'inferred' };
+
+/**
+ * From a result's labeled lines: when (happened, else for, else learned or
+ * written) and who said it, only when that is known.
+ */
+function whenAndWho(journal: boolean, under: readonly string[]): { date: string; who: string | null } {
+  const first = under[0] ?? '';
+  if (journal) {
+    const w = /written (\d{4}-\d{2}-\d{2}|\d{2}-\d{2})/.exec(first);
+    return { date: w === null ? '' : shortDay(w[1] ?? ''), who: null };
+  }
+  const parts = first.split(' · ').map(p => p.trim());
+  const who = SAID_BY[parts[0] ?? ''] ?? null;
+  const happened = /(?:happened|for) (\d{4}-\d{2}-\d{2}|\d{2}-\d{2})/.exec(first);
+  const learned = /^learned (\d{4}-\d{2}-\d{2}|\d{2}-\d{2})/.exec(under[1] ?? '');
+  const day = happened?.[1] ?? learned?.[1] ?? '';
+  return { date: day === '' ? '' : shortDay(day), who };
+}
+
 export function parseFacts(answer: string): { header: string; total: number; hits: SearchHit[] } {
   const lines = answer.split('\n');
   const header = lines[0] ?? '';
   const hits: SearchHit[] = [];
-  let cur: { id: string; title: string; under: string[] } | null = null;
+  let cur: { id: string; title: string; journal: boolean; under: string[] } | null = null;
   const flush = (): void => {
     if (cur === null) return;
-    const meta = (cur.under[0] ?? '').replace(/\s+·\s+/g, ' · ');
     const excerpt = cur.under.length > 1 ? (cur.under[cur.under.length - 1] ?? '') : '';
-    hits.push({ id: cur.id, title: cur.title, meta, excerpt });
+    const { date, who } = whenAndWho(cur.journal, cur.under);
+    const kind = cur.journal ? 'journal' : 'memory';
+    const meta = [kind, date, who].filter((x): x is string => x !== null && x !== '').join(' · ');
+    hits.push({ id: cur.id, title: cur.title, kind, date, who, meta, excerpt });
     cur = null;
   };
   for (const line of lines.slice(1)) {
     const item = ITEM.exec(line);
     if (item !== null) {
       flush();
-      cur = { id: item[3] ?? '', title: item[2] ?? '', under: [] };
+      cur = { id: item[3] ?? '', title: item[2] ?? '', journal: /^\d+\.\s+\[journal\]/.test(line), under: [] };
       continue;
     }
     if (cur !== null && /^\s{2,}\S/.test(line)) cur.under.push(line.trim());

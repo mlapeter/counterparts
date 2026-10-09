@@ -10,12 +10,12 @@ import type { MockClock } from 'claude-code/testing'
 import type { On, RenderPropsOf, UiBlitArgs } from 'claude-code'
 
 export const PLUGIN = 'counterparts'
+export const SESSION = 'sess-0001'
 /** The folder the test session runs in. */
 export const HERE = '/work/project'
 export const PANE = 'counterparts'
 /** 2026-10-09, 1:35pm in whatever zone the test runs in. */
 export const T0 = new Date(2026, 9, 9, 13, 35, 0).getTime()
-export const SESSION = 'sess-0001'
 
 export const PANE_PROPS = {
   title: 'Counterparts',
@@ -56,9 +56,14 @@ export function ev(seq: number, name: string, text: string, minutesAgo: number, 
 
 /** One event of each kind the sidebar shows, and two it must leave out. */
 export const EVENTS: Ev[] = [
+  // this session's
   ev(490, 'gate.deposit', 'I wrote something down and every gate was clear.', 10, {
-    accepted: '1', kind: 'fact', memoryId: '"The sidebar draws the brain in braille" [mem_aaaa1111]',
+    session: SESSION, accepted: '1', kind: 'fact', memoryId: '"The sidebar draws the brain in braille" [mem_aaaa1111]',
   }),
+  ev(485, 'recall.decision', 'On turn 2 I kept “Release notes go out on Fridays” and “Publishing waits for a review” as footnotes — near enough to mention, not near enough to say out loud.', 15, {
+    session: SESSION, turn: '2', surfacedCount: '0', footnoteCount: '2',
+  }),
+  // another session's
   ev(480, 'recall.decision', 'On turn 7 I kept “Release notes go out on Fridays” as a footnote — near enough to mention, not near enough to say out loud.', 20, {
     session: 'sess-older', turn: '7', surfacedCount: '0', footnoteCount: '1',
   }),
@@ -127,6 +132,8 @@ export type World = {
   fetches: string[];
   mcp: { server: string; tool: string; args: Record<string, unknown> }[];
   invalidations: string[];
+  /** Commands the module ran (`$.process.run`): the URL opener. */
+  runs: string[][];
   scope: { mode: string; setBy: string | null; resumeTo: string };
   shown: boolean;
   /** Blits still to be answered late (600 ms on the mocked clock) with a refusal. */
@@ -148,6 +155,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     fetches: [],
     mcp: [],
     invalidations: [],
+    runs: [],
     scope: { mode: opts.scopeMode ?? 'on', setBy: opts.scopeSetBy === undefined ? HERE : opts.scopeSetBy, resumeTo: 'on' },
     shown: opts.shown ?? true,
     slowDeny: 0,
@@ -195,6 +203,11 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('tool.list', () => ({ value: opts.tools ?? NPM_TOOLS }))
   on('tool.check', () => ({ decision: opts.permission ?? 'allow' }))
+  on('process.run', (_$, e) => {
+    w.runs.push([...e.argv])
+    const out = e.argv[0] === 'uname' ? 'Darwin\n' : ''
+    return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('http.fetch', (_$, e) => {
     w.fetches.push(e.url)
     if (opts.down === true) return { deny: 'ECONNREFUSED: Unable to connect.' }
