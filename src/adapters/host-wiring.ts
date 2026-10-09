@@ -263,17 +263,28 @@ export function npmWiring(input: {
   readonly env: Record<string, string | undefined>;
   /** The session's project directory: `CLAUDE_PROJECT_DIR`, else the event's `cwd`. */
   readonly cwd: string | null;
+  /**
+   * Which half to read; both by default. The hook passes `{ mcp: false }`:
+   * it runs every turn and needs only the hooks, and `~/.claude.json` grows
+   * with every project's history, so parsing it per prompt is a cost for
+   * nothing. The server, once per session, passes `{ hooks: false }`.
+   */
+  readonly read?: { readonly hooks?: boolean; readonly mcp?: boolean };
 }): NpmWiring {
   const { settings, globalConfig } = claudeUserFiles(input.home, input.env);
-  const hooks: WiredHook[] = [...hooksIn(settings, readObject(settings), input.env)];
   const cwd = input.cwd === null || input.cwd.length === 0 ? null : resolve(input.cwd);
-  if (cwd !== null) {
-    for (const name of ["settings.json", "settings.local.json"]) {
-      const file = join(cwd, ".claude", name);
-      hooks.push(...hooksIn(file, readObject(file), input.env));
+  const hooks: WiredHook[] = [];
+  if (input.read?.hooks !== false) {
+    hooks.push(...hooksIn(settings, readObject(settings), input.env));
+    if (cwd !== null) {
+      for (const name of ["settings.json", "settings.local.json"]) {
+        const file = join(cwd, ".claude", name);
+        hooks.push(...hooksIn(file, readObject(file), input.env));
+      }
     }
   }
   const mcp: WiredMcp[] = [];
+  if (input.read?.mcp === false) return { hooks, mcp };
   const global = readObject(globalConfig);
   if (global !== null) {
     mcp.push(...mcpEntry(globalConfig, "user", global["mcpServers"], input.env));

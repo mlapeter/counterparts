@@ -330,7 +330,7 @@ async function main(): Promise<void> {
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
-    const gate = mcpGate(npmWiring({ home, env: process.env, cwd: projectDir }), home);
+    const gate = mcpGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }), home);
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin server stood down: the npm install's server is registered in this host\n");
       await serveStdio(stoodDownServer(gate.instructions ?? ""), process.stdin, {

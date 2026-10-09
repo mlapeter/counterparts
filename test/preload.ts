@@ -48,8 +48,9 @@
  * THE SPAWN SITES, kept current (2026-09-20): `test/parallel.test.ts` passes every
  * directory as an explicit flag; `test/remember.test.ts`, `test/old-floor-fixture.ts`
  * (two), `test/start-fresh.test.ts` (the `/bin/sh` runs of the printed rollback
- * lines) and `test/log.test.ts` (the four entry points, and two appenders at once)
- * all pass an explicit `env` with a fake `HOME`; `test/live/harness.ts` (the
+ * lines), `test/log.test.ts` (the four entry points, and two appenders at once) and
+ * `test/plugin.test.ts` (the plugin launcher, the first run's console, and one
+ * `/bin/sh` writer racing it) all pass an explicit `env` with a fake `HOME`; `test/live/harness.ts` (the
  * chromium probe and each live scenario's child `bun test`) passes an explicit `env`
  * copied from this process, temp `HOME` included. Add a site, do one of those two
  * things, and add it here.

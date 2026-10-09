@@ -284,6 +284,21 @@ describe("npmWiring and the two gates", () => {
     expect(gate.instructions).toContain("local scope");
   });
 
+  test("each process reads only its own half: the hook never parses ~/.claude.json", () => {
+    writeSettings({ Stop: [liveHookCommand()] });
+    // Both halves are wired, so each side's empty half is the option at work.
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { command: process.execPath, args: ["run", MCP_SCRIPT] } } }),
+    );
+    const hookSide = npmWiring({ home, env: {}, cwd: project, read: { mcp: false } });
+    expect(hookSide.hooks).toHaveLength(1);
+    expect(hookSide.mcp).toEqual([]);
+    const serverSide = npmWiring({ home, env: {}, cwd: project, read: { hooks: false } });
+    expect(serverSide.hooks).toEqual([]);
+    expect(serverSide.mcp).toHaveLength(1);
+  });
+
   test("a registration whose runtime is gone does not stand anybody down", () => {
     const entry = { type: "stdio", command: join(work, "gone", "bun"), args: ["run", MCP_SCRIPT] };
     writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: entry } }));
@@ -336,7 +351,9 @@ describe("ensureFirstRun", () => {
     // Another process "installs" while this one waits (the wait blocks this
     // thread, so the writer has to be a separate process).
     const config = defaultChoice().path;
-    const writer = spawn("/bin/sh", ["-c", `sleep 0.4; mkdir -p "${join(home, ".counterparts")}"; echo '{}' > "${config}"`]);
+    const writer = spawn("/bin/sh", ["-c", `sleep 0.4; mkdir -p "${join(home, ".counterparts")}"; echo '{}' > "${config}"`], {
+      env: { ...firstRunEnv(), PATH: "/bin:/usr/bin" } as NodeJS.ProcessEnv,
+    });
     const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), waitMs: 10_000 });
     await new Promise((done) => writer.on("exit", done));
     expect(r.state).toBe("joined");

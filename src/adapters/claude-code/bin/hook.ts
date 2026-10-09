@@ -573,7 +573,7 @@ async function main(): Promise<void> {
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? eventDirectory(payload);
-    const gate = hookGate(npmWiring({ home, env: process.env, cwd: projectDir }), home);
+    const gate = hookGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { mcp: false } }), home);
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin hook stood down: the npm install's hooks are live in this host\n");
       if (name === "session-start" && gate.line !== null) process.stdout.write(JSON.stringify({ systemMessage: gate.line }));
