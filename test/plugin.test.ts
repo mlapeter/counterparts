@@ -464,6 +464,134 @@ describe("plugin-run.sh", () => {
   });
 });
 
+// ── the npm install's own processes (review of #328) ────────────────────────
+//
+// The owner runs Counterparts from the npm install, and this PR's runtime code
+// ships in that same package. These run the hook and the server exactly as
+// `connect` wires them — `<runtime> run <script>`, no launcher, no guard (the
+// owner's host has none) — with the plugin ALSO recorded installed and enabled,
+// and once more with a `CLAUDE_PLUGIN_ROOT` inherited from somewhere, naming
+// another copy. Nothing of the plugin's may happen in any of them: no first
+// run, no stand-down, no line of its own, and the same bytes either way.
+
+describe("the npm install's hook and server never take themselves for the plugin", () => {
+  const OTHER_COPY = (): string => join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.12");
+
+  /** The npm wiring's environment: no plugin variables, no explicit-dir guard. */
+  function npmEnv(extra: Record<string, string> = {}): Record<string, string> {
+    return {
+      PATH: emptyBin,
+      HOME: home,
+      USERPROFILE: home,
+      TZ: "UTC",
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      CLAUDE_PROJECT_DIR: project,
+      ...extra,
+    };
+  }
+
+  function npmHook(event: string, env: Record<string, string>, session = "npm-test-1"): { code: number; stdout: string; stderr: string } {
+    const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT], { input: payload(event, session), encoding: "utf8", env, timeout: 60_000 });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  /** The owner's machine: an install, the npm hooks and server wired, and the
+   *  plugin recorded installed and enabled beside them. */
+  function bothInstalled(): void {
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, work) }).state).toBe("created");
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    const settings = readJson(join(home, ".claude", "settings.json"));
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ ...settings, enabledPlugins: { "counterparts@counterparts": true } }));
+    writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT] } } }));
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    mkdirSync(OTHER_COPY(), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "counterparts@counterparts": [{ scope: "user", installPath: OTHER_COPY(), version: "0.3.12" }] } }),
+    );
+  }
+
+  const PLUGIN_WORDS = /first run|installed twice|standing down|stood down|plugin/i;
+  /** The temp directory's own name says "plugin"; only what the process said counts. */
+  const said = (s: string): string => s.split(work).join("<work>");
+  /** The clock line is the only thing two runs a minute apart may disagree on. */
+  const steady = (s: string): string => s.replace(/Now: [^\n"\\]*/g, "Now: <now>");
+
+  test(
+    "no install: the npm hook makes nothing and says nothing of the plugin's, on any event",
+    () => {
+      for (const event of HOST_EVENTS) {
+        const r = npmHook(event, npmEnv());
+        expect(r.code).toBe(0);
+        expect(said(r.stdout + r.stderr)).not.toMatch(PLUGIN_WORDS);
+      }
+      // The first run's one mark. (The default store itself is master's to make or
+      // not: an unguarded hook with no configuration opens it, as it always has.)
+      expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(false);
+    },
+    120_000,
+  );
+
+  test(
+    "installed both ways: every event of the npm hook runs in full, and an inherited CLAUDE_PLUGIN_ROOT changes not a byte",
+    () => {
+      bothInstalled();
+      const plain: string[] = [];
+      for (const event of HOST_EVENTS) {
+        const r = npmHook(event, npmEnv(), "npm-test-plain");
+        expect(r.code).toBe(0);
+        expect(said(r.stdout + r.stderr)).not.toMatch(PLUGIN_WORDS);
+        plain.push(steady(JSON.stringify(r).replaceAll("npm-test-plain", "<session>")));
+      }
+      // The wake is the npm hook's own, delivered — not a stand-down.
+      expect(plain[0]).toContain("Now: <now>");
+      const inherited: string[] = [];
+      for (const event of HOST_EVENTS) {
+        const r = npmHook(event, npmEnv({ CLAUDE_PLUGIN_ROOT: OTHER_COPY(), CLAUDE_PLUGIN_DATA: join(home, "plugin-data") }), "npm-test-inherited");
+        inherited.push(steady(JSON.stringify(r).replaceAll("npm-test-inherited", "<session>")));
+      }
+      expect(inherited).toEqual(plain);
+    },
+    120_000,
+  );
+
+  test(
+    "installed both ways: the npm server offers every tool, with or without an inherited CLAUDE_PLUGIN_ROOT",
+    () => {
+      bothInstalled();
+      const handshake =
+        [
+          { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "test" } } },
+          { jsonrpc: "2.0", method: "notifications/initialized" },
+          { jsonrpc: "2.0", id: 2, method: "tools/list" },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n") + "\n";
+      const serve = (env: Record<string, string>): { init: Record<string, unknown>; tools: string[]; stderr: string } => {
+        const r = spawnSync(process.execPath, ["run", MCP_SCRIPT], { input: handshake, encoding: "utf8", env, timeout: 60_000 });
+        const lines = (r.stdout ?? "")
+          .split("\n")
+          .filter((l) => l.trim().length > 0)
+          .map((l) => JSON.parse(l) as Record<string, unknown>);
+        const init = (lines[0]?.["result"] ?? {}) as Record<string, unknown>;
+        const tools = ((lines[1]?.["result"] as { tools?: { name: string }[] } | undefined)?.tools ?? []).map((t) => t.name);
+        return { init, tools, stderr: r.stderr ?? "" };
+      };
+      const plain = serve(npmEnv());
+      expect(plain.tools.length).toBe(9);
+      expect(said(String(plain.init["instructions"] ?? ""))).not.toMatch(PLUGIN_WORDS);
+      expect(said(plain.stderr)).not.toMatch(PLUGIN_WORDS);
+      const inherited = serve(npmEnv({ CLAUDE_PLUGIN_ROOT: OTHER_COPY(), CLAUDE_PLUGIN_DATA: join(home, "plugin-data") }));
+      expect(inherited.tools).toEqual(plain.tools);
+      expect(inherited.init).toEqual(plain.init);
+      expect(inherited.stderr).toBe(plain.stderr);
+    },
+    120_000,
+  );
+});
+
 // ── doctor, for a plugin install ────────────────────────────────────────────
 
 describe("doctor's Claude Code line knows the plugin", () => {
@@ -535,6 +663,26 @@ describe("doctor's Claude Code line knows the plugin", () => {
     const f = hostFinding(readHost(home, project, {}));
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("no hook of ours is connected");
+  });
+
+  test("the npm wiring alone (the owner's machine): green, and not a word about a plugin", () => {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT] } } }),
+    );
+    // Another plugin installed changes nothing: only `counterparts@…` is ours.
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "design@knowledge-work": [{ scope: "user", installPath: join(home, "x"), version: "1.0.0" }] } }),
+    );
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("green");
+    expect(f.detail).not.toMatch(/plugin/i);
+    expect(f.fix).toBe("");
   });
 
   test("the plugin AND the npm wiring: amber, and both ways out", () => {
