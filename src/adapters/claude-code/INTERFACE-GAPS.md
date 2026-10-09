@@ -695,7 +695,7 @@ first blank-store trial, where it is a thing to notice rather than a thing to fi
 
 ## 14. A prompt typed while the model is working never reaches the transcript reader (2026-09-23, B1 review M3) — CLOSED for the reader 2026-09-24 by #213 (noted 2026-10-09)
 
-**Closed for the reader by #213** (`0df2efe`, merged 2026-09-24, in 0.3.0). `transcript.ts`
+**Closed for the reader by #213** (`0df2efe`, merged 2026-09-24, in 0.3.1). `transcript.ts`
 reads a `queued_command` attachment the person typed (`commandMode: "prompt"`,
 `origin.kind: "human"`) as a typed turn where it stands (`queuedPromptOf`); every other
 attachment is still skipped. The dedupe was measured before it was written: of 33 queued

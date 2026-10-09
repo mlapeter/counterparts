@@ -30,8 +30,10 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 ## U14 — The night run still can't open bundles over ~50 KB: the fix ships in 0.3.12 (2026-10-07)
 
 **Status 2026-10-09:** `built` (#315, merged 2026-10-02), **in 0.3.12** (published
-2026-10-08), and **verified on the first 0.3.12 night** (2026-10-09), as the day's
-coordinating session reported; what it read is not recorded here. Item 3, the
+2026-10-08), and **verified on the first 0.3.12 night** (2026-10-09, the day's
+coordinating session's morning check): the night's transcript had no "Output too large"
+on a dream or reflect call (its two hits were memories quoting the check), and doctor's
+Tool results line read green. Item 3, the
 night's own check for the host's cut, is #330 (merged 2026-10-09, `1936446`, not yet
 released). The rest of this entry is as written before.
 

@@ -69,7 +69,7 @@ moment two adapters open the store concurrently it is stale-cache territory.
 on write, or first-class `schema_element` columns. A `Store.listByMeta(key,
 value)` is the smallest useful shape.
 
-## 3. `recall/` should take its alias map from here — SEAMS §6 wiring
+## 3. `recall/` should take its alias map from here — SEAMS §6 wiring — CLOSED 2026-08-25 (noted 2026-10-09)
 
 **Owner:** the coordinator. **Do not edit `recall/`.**
 `recall/INTERFACE-GAPS.md` §2 records that `Turn.aliases?: ReadonlyMap<string,
