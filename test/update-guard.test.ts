@@ -351,4 +351,35 @@ describe.skipIf(WEIGHTS === null)("the real table (potion-base-8M)", () => {
     expect(p["by"]).toBe("meaning");
     expect(Number(p["cosine"])).toBeLessThan(CONTRADICTION_TUNABLES.UPDATE_COSINE);
   });
+
+  // Review of #340: the fake embedder above stands in for meaning; the real
+  // table must agree that a terse "done" is nowhere near its question (so the
+  // guard WOULD hold it) and that the thread closes anyway, through both doors.
+  test("review of #340: a terse \"done\" closes an open thread on the real table — through note and through session_end", async () => {
+    const table = openStaticEmbedder({ env: {} });
+    const s = server({ embed: table.embed });
+    const store = s.counterpart.store;
+    aged(store);
+    const QUESTION = "Open: should the nightly catch-up get its own budget, or share the dream's?";
+    // As terse as a write can be: the content floor refuses under 20 characters.
+    const DONE = "Done. Decided and shipped it.";
+    const DONE_AGAIN = "Done. Settled it this morning.";
+    for (const text of [DONE, DONE_AGAIN]) {
+      expect(updateRelatedness({ over: QUESTION, text, overVec: table.embed(QUESTION), textVec: table.embed(text) }).related).toBe(false);
+    }
+
+    const viaNote = String(payload(await s.call("note", { text: QUESTION, unresolved: true }))["id"]);
+    const closed = payload(await s.call("note", { text: DONE, updates: viaNote, unresolved: false }));
+    expect(closed["thread"]).toEqual({ closed: viaNote });
+    expect(store.readProse(viaNote).meta["unresolved"]).toBe(false);
+
+    const viaEnd = String(payload(await s.call("note", { text: QUESTION.replace("budget", "time limit"), unresolved: true }))["id"]);
+    const out = payload(await s.call("session_end", { session: SESSION, memories: [{ content: DONE_AGAIN, updates: viaEnd, unresolved: false }] }));
+    const outcome = (out["outcomes"] as Record<string, unknown>[])[0] ?? {};
+    expect(outcome["stored"]).toBe(true);
+    expect(outcome["thread"]).toEqual({ closed: viaEnd });
+    expect(store.readProse(viaEnd).meta["unresolved"]).toBe(false);
+
+    expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
+  });
 });
