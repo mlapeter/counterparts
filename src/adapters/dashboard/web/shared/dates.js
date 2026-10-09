@@ -7,7 +7,6 @@
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const ISO = /^(\d{4})-(\d{2})-(\d{2})/;
 
 /** 1 → "1st", 2 → "2nd", 11 → "11th", 23 → "23rd". */
 export function ordinal(n) {
@@ -38,18 +37,9 @@ export function dateOr(value, opts) {
   return dateWords(value, opts) || String(value || "");
 }
 
-/** A full timestamp (`2026-09-30T17:47:03.000Z`) → "Sep 30th, 2026, 17:47 UTC". */
-export function stampWords(isoStamp) {
-  const s = String(isoStamp || "");
-  const m = ISO.exec(s);
-  const day = m ? dateWords(m[0], { year: true }) : null;
-  const t = /T(\d{2}:\d{2})/.exec(s);
-  return day ? day + (t ? ", " + t[1] + " UTC" : "") : s;
-}
-
-/** A clock reading (ms) → the day it falls on HERE, as `YYYY-MM-DD`. */
-export function localIso(ms) {
-  const d = new Date(ms);
-  const two = (n) => String(n).padStart(2, "0");
-  return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate());
-}
+/* No moment is turned into a day in here (2026-10-09). `stampWords` (a UTC
+   minute) and `localIso` (the browser's calendar) were removed: the server
+   dates every moment in the person's zone, the one the hooks use
+   (`views/memory.ts#writtenWhen`, `views/health.ts`'s `cycle.on`), and the
+   page prints the day it is handed. A browser's own zone can differ from the
+   configured one, and one page then showed two days for one moment. */

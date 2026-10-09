@@ -46,6 +46,8 @@
 /* An answer's quieter notes, on their own line under its head (what it is
    about, a time it named, what it left out and why). */
 .find-note{display:block;color:var(--faint);font-size:12px;margin-top:2px}
+/* A name asked about with no card, said before the head (2026-10-09). */
+.find-lead{display:block;color:var(--text);margin-bottom:2px}
 
 /* ── the two small pictures: how well I remember, how it feels ── */
 .glance2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr));gap:0 20px;align-items:stretch}

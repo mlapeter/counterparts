@@ -747,19 +747,51 @@ export function heldView(row: Pick<MemoryRow, "title" | "body" | "confidential">
   return { title, text: excerptOf(row.body, CONTRADICTION_TUNABLES.HELD_TEXT_CHARS) };
 }
 
+/** One held `updates`, as its durable row recorded it (`CONTRADICTION_HELD_EVENT`). */
+export interface HeldPair {
+  readonly seq: number;
+  /** The lived day it was held. */
+  readonly day: number;
+  /** The new memory, which said it changed or corrected… */
+  readonly holds: string;
+  /** …this one, which looked unrelated and was left as it was. */
+  readonly over: string;
+  readonly how: string;
+  /** Which reading decided: `meaning` or `words`. */
+  readonly by: string;
+  /** Settled by hand afterwards (a `contradiction.settled` row naming the same two). */
+  readonly settledAfter: boolean;
+}
+
 /**
- * HOW OFTEN THE GUARD FIRED — a reader for doctor or the dashboard, which
- * neither calls yet (owed: `mcp/INTERFACE-GAPS.md`). Holds since `sinceDay`,
- * by which reading, and how many of them the writer settled by hand
- * afterwards (a `contradiction.settled` row naming the same two memories): a
- * hold later settled is most likely a related pair the guard got wrong; one
- * never settled is a wrong pointer caught, or a writer that had no one to
- * read its result (a write-up, the nightly catch-up).
+ * HOW OFTEN THE GUARD FIRED — doctor's Contradictions line reads it
+ * (2026-10-09). Holds since `sinceDay`, by which reading, and how many of them
+ * the writer settled by hand afterwards (a `contradiction.settled` row naming
+ * the same two memories): a hold later settled is most likely a related pair
+ * the guard got wrong; one never settled is a wrong pointer caught, or a
+ * writer that had no one to read its result (a write-up, the nightly
+ * catch-up). `settledAfter / held` is the number that says whether the bar
+ * (`UPDATE_COSINE`) holds back real corrections.
  */
 export function heldCorrections(
   store: Pick<Store, "eventLog">,
   opts: { sinceDay?: number } = {},
 ): { held: number; settledAfter: number; byMeaning: number; byWords: number } {
+  const holds = heldPairs(store, opts);
+  return {
+    held: holds.length,
+    settledAfter: holds.filter((h) => h.settledAfter).length,
+    byMeaning: holds.filter((h) => h.by === "meaning").length,
+    byWords: holds.filter((h) => h.by === "words").length,
+  };
+}
+
+/**
+ * Every hold since `sinceDay`, NEWEST first, each with whether it was settled
+ * by hand afterwards — what `counterparts settle` lists, so the owner can
+ * settle one the guard held and was meant (`--holds <new> --against <old>`).
+ */
+export function heldPairs(store: Pick<Store, "eventLog">, opts: { sinceDay?: number } = {}): HeldPair[] {
   const limit = CONTRADICTION_TUNABLES.HELD_READ_ROWS;
   const read = (raw: string | null): Record<string, unknown> => {
     try {
@@ -778,14 +810,14 @@ export function heldCorrections(
     holds.length === 0
       ? []
       : store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, sinceDay: from, limit }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
-  let settledAfter = 0;
-  for (const h of holds) {
-    if (settles.some((s) => s.seq > h.seq && s.p["holds"] === h.p["holds"] && s.p["over"] === h.p["over"])) settledAfter += 1;
-  }
-  return {
-    held: holds.length,
-    settledAfter,
-    byMeaning: holds.filter((h) => h.p["by"] === "meaning").length,
-    byWords: holds.filter((h) => h.p["by"] === "words").length,
-  };
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  return holds.map((h) => ({
+    seq: h.seq,
+    day: h.day,
+    holds: str(h.p["holds"]),
+    over: str(h.p["over"]),
+    how: str(h.p["how"]),
+    by: str(h.p["by"]),
+    settledAfter: settles.some((s) => s.seq > h.seq && s.p["holds"] === h.p["holds"] && s.p["over"] === h.p["over"]),
+  }));
 }

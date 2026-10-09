@@ -18,6 +18,7 @@ import { chapterDate, feelingsShown, isChapterMemory, liftDate, repeatsOf, strip
 import { readChapterLead } from "../../../../core/self/index.js";
 import type { FeelingShown } from "./memory-words.js";
 import { LOG_CEILING } from "./shared.js";
+import { isDay, localClockZone, localDate } from "../../../../core/time.js";
 
 /** One step in a memory's lineage, as the card's timeline draws it. */
 export interface TimelineStep {
@@ -203,6 +204,16 @@ export interface MemoryDetail {
   readonly model: string | null;
   readonly eventDate: string | null;
   readonly createdAt: number | null;
+  /**
+   * The day it was written, `YYYY-MM-DD`, in the person's zone (`store.zone()`:
+   * the configuration's `timeZone`, else the machine's) — the local date of
+   * `createdAt`, else the recorded calendar day. Dated HERE, not by the
+   * browser, so the card agrees with every other date the dashboard prints
+   * (review of #335, 2026-10-09). Null when nothing dates it.
+   */
+  readonly writtenOn: string | null;
+  /** The clock it was written at, in the same zone and named: `17:47 MDT`. Null without `createdAt`. */
+  readonly writtenClock: string | null;
   /** Why it was archived, in plain words; null while it is live. */
   readonly archivedWords: string | null;
   /** Its lineage, oldest first: what it replaced or corrects, its own rewrites, what it became. */
@@ -277,6 +288,8 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     model: null,
     eventDate: null,
     createdAt: null,
+    writtenOn: null,
+    writtenClock: null,
     archivedWords: null,
     timeline: [],
     shownText: "",
@@ -414,10 +427,23 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     model: row?.model ?? null,
     eventDate: row?.event_date ?? null,
     createdAt: row?.created_at ?? null,
+    ...writtenWhen(row?.created_at ?? null, doc.learnedOn, store.zone()),
     archivedWords: row?.archived === 1 ? archiveWords(row.archived_reason ?? null, row.superseded_by !== null) : null,
     timeline: timelineOf(src, headId, doc.meta["updates"]),
     ...cardWords(doc.body.trim(), chapter, g.confidential),
   };
+}
+
+/** The card's "Written" day and the details row's clock, both in `zone` (`MemoryDetail.writtenOn`). */
+export function writtenWhen(
+  createdAt: number | null,
+  learnedOn: string,
+  zone: string,
+): { writtenOn: string | null; writtenClock: string | null } {
+  if (createdAt !== null && createdAt > 0) {
+    return { writtenOn: localDate(createdAt, zone) || null, writtenClock: localClockZone(createdAt, zone) || null };
+  }
+  return { writtenOn: isDay(learnedOn) ? learnedOn : null, writtenClock: null };
 }
 
 /** The lived days the log shows this memory being credited for use (`recall.credit`'s `ids`). */

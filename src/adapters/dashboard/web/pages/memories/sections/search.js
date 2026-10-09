@@ -331,8 +331,15 @@ export function factsRows(r, q) {
   return rows + faded;
 }
 
-/** A meaning answer's head: what it is about, how much holds it, then the quieter notes. Markup. */
+/** A name asked about that has no card (`MeaningResult.noCard`), said first, on its own line. */
+const leadLine = (r) => (r.noCard ? '<span class="find-lead">' + esc(r.noCard) + ".</span>" : "");
+
+/** A meaning answer's head: a name with no card first, then what it is about, how much holds it, then the quieter notes. Markup. */
 export function meaningHead(r) {
+  return leadLine(r) + meaningHeadLine(r);
+}
+
+function meaningHeadLine(r) {
   if (r.lens === null) return esc("nothing came");
   const c = r.counts;
   const parts = [r.lens.name];

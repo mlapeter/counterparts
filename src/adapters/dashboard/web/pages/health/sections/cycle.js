@@ -1,19 +1,16 @@
 /* The last sleep cycle, as one line with a dot per step. */
-import { dateWords, localIso } from "../../../shared/dates.js";
+import { dateWords } from "../../../shared/dates.js";
 import { $, esc } from "../../../shared/dom.js";
 
 export const markup = `
     <div class="card pad hcy" id="h-cycle"></div>`;
 
-function sameLocalDay(ms) {
-  const a = new Date(ms);
-  const b = new Date();
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function when(c) {
-  if (c.at !== null && sameLocalDay(c.at)) return "today";
-  if (c.at !== null) return "on " + dateWords(localIso(c.at)) + " (lived day " + c.day + ")";
+/* The day comes dated from the server, in the person's zone (`views/health.ts`,
+   `cycle.on` and `cycle.today`), so it agrees with every other date on the
+   page; it read the browser's calendar until 2026-10-09. */
+export function when(c) {
+  if (c.today) return "today";
+  if (c.on) return "on " + (dateWords(c.on) || c.on) + " (lived day " + c.day + ")";
   return "on lived day " + c.day;
 }
 

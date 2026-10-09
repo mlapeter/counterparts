@@ -1380,6 +1380,76 @@ descriptions run past 2,048 (session_end 7,218, recall 6,176, note 5,091, self_p
 - The CONTRACT promises content (G2: every claim mechanized; G3: an admission test and
   a negative example), not an order, so it is unchanged.
 
+## 2026-10-09 — meaning mode: a name asked about that has no card
+
+0.3.13's release check, on a real store with one card (the owner's): "what has Han been
+to Mike?" came back as Mike's arc with nothing about Han, because Han had no card.
+`subjectOf` only ever ranked cards, so the one card in the question won from an aside.
+
+- **A name with no card is read in place like a card's.** The asker's capitalised
+  mid-sentence words (`feeling-ask.ts#askedNames`) that no card with memories covers,
+  two in a row joined ("Han Seo"), not the owner's name, not a month or a weekday
+  (`uncardedNames`). In an aside it is passed over ("what has Mike been to Han" is Mike's,
+  and says nothing). It takes part in the joined rule, so "how have Han and Oskar been"
+  asks about both.
+- **Above every card, or level with the owner's alone, the name leads.** The answer is a
+  `words` lens on the name as typed (`holdByWords`, "Han" not "han"), and its first line
+  is `MeaningResult.noCard`: "No card for Han yet; here is what mentions Han" (nothing
+  mentions it: "…, and nothing in memory mentions Han"). The cards it named are
+  one-liners under "also named". The question's vector is not used here: it carries the
+  other names too, and brought "Mike" back.
+- **Level with another card, the card leads** (it has an arc to show) and the first line
+  is "No card for Han yet; this follows Oskar".
+- **A question about feeling** keeps its own path: with the name leading, no card is
+  chosen, and the feeling branch's topic words (which include the name) find the felt
+  moments, under its existing note `no card names "Han"`.
+- `renderMeaning` prints `noCard` first, and so does the dashboard's `meaningHead`
+  (`find-lead`), so the tool, `counterparts ask --mode meaning` and the page agree.
+- *Choices:* a lower-case name ("what has han been to mike") is not detected: nothing
+  says it is a name. A card that exists but holds nothing the asker may see reads as no
+  card ("No card for Han yet"): saying it has one would tell a non-owner something about
+  confidential memories.
+- **Review of #347, on the demo store** (cards under full names: Marguerite Solberg,
+  Teodoro Whitlock, Nkechi Abernathy, Ilya Broadbent; master's answers compared
+  question by question). Three ways the rule over-fired, fixed:
+  - *A first name of a card's longer name* ("what has Marguerite been like") said "No
+    card for Marguerite yet" while Marguerite Solberg has one (`subjectsIn` reads only
+    a registered name or alias). Such a word is not a name with no card (`cardWord`,
+    only cards with something the asker may see, as above): the question goes as it
+    did on master. Leading with that card instead would be better, and is the alias
+    index's business, not this rule's.
+  - *A question that names no card* went to a `words` lens on the capitalised word
+    alone, dropping the rest of the question and its meaning: "how has the Q3 roadmap
+    gone" lost the 2 chapters "roadmap" had found and said "nothing in memory mentions
+    Q3"; "what did I learn about Postgres indexing" lost "indexing"; "Hey Claude, what
+    do you remember about the pilot" answered about Claude. With no card named nothing
+    is answered in the name's place, so the rule now needs a card mention (`kept`);
+    otherwise master's words-and-meaning answer stands, with its "no card names it"
+    note. "What has Han been to me" is one of these now.
+  - *Acronyms, digits, Title Case*: "API", "Q3", "OKRs" (a capital second letter or a
+    digit) are labels, not names; a question with a capitalised function word
+    mid-sentence ("What Has Changed Since Monday", `TITLE_CASE_TELLS`) names nobody,
+    as `askedNames` already reads an all-capitals question.
+  - *Beside a card asked about or named plainly*, a capitalised thing in an about place
+    still led: "what did Teodoro Whitlock say about Postgres" answered "No card for
+    Postgres yet, and nothing in memory mentions Postgres" where master gave Teodoro's
+    arc, and "how did I feel about Han at Driftwood" left Driftwood's arc for every felt
+    moment. No word-level rule tells Postgres from Han, but the card's place does: the
+    motivating question had its one card in an aside ("been to Mike"). So the name with
+    no card now leads only when EVERY card named sits in an aside ("been to Mike",
+    "since Y", "after Y"). Otherwise the card leads as on master, and the first line
+    says the name has none ("No card for Postgres yet; this follows Teodoro Whitlock")
+    for each such name asked about as high as that card, or higher. This replaces
+    "above every card, or level with the owner's alone" and "level with another card"
+    above: "how have Mike and Han been" is now Mike's, with "No card for Han yet; this
+    follows Mike". With the name leading in a question about feeling, the feeling
+    branch's topic is that name alone (`nameTopic`), so its note says `no card names
+    "Han"` and not the card it outranked.
+  - Sentence-initial words were never read as names (`askedNames` skips them); every
+    probe whose first word is capitalised ("What has changed since Monday", "How has
+    Driftwood gone", "Tell me about Rosalind", "When did I feel proud", "What happened
+    in October") answers exactly as on master.
+
 ## 2026-10-09 — facts mode: amounts, fractions, and a day not yet come
 
 Three of #338's reviewer's findings predated it (items 3 and 4 of that review), all in

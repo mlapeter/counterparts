@@ -33,7 +33,7 @@ export async function render() {
     "<table><thead><tr><th>what it does</th><th class='num'>last fired</th><th class='num'>7 days</th></tr></thead><tbody>" +
     rows.join("") + "</tbody></table>";
   $("h-fired-foot").textContent =
-    d.from + "→" + d.today + " (UTC), against " + d.previousFrom + "→" + d.previousTo + ". " +
+    d.from + "→" + d.today + (d.zone ? " (" + d.zone + ")" : "") + ", against " + d.previousFrom + "→" + d.previousTo + ". " +
     (d.missedOccasion && d.missedOccasion.length ? "Its occasion came this week and it did not fire: " + d.missedOccasion.join("; ") + ". " : "") +
     (d.wentQuiet.length ? "Fired last week and not once this week: " + d.wentQuiet.join("; ") + ". "
                         : "Nothing that fired last week has fallen silent this week. ") +
