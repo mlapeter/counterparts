@@ -273,6 +273,34 @@ describe("time in a question (time-ask.ts)", () => {
       // An ordinary word after a date leaves it a date.
       expect(readTimeAsk("what happened on 7/8 at the lake", at)?.window).toEqual({ from: "2026-07-08", to: "2026-07-08" });
       expect(readTimeAsk("09-28 gym", at)?.window).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+      // A leading zero is a date, whatever follows it (review of #345).
+      const minutes = readTimeAsk("what did the 09-28 minutes say", at);
+      expect(minutes?.window).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+      expect(minutes?.rest).toBe("what did the minutes say");
+      expect(readTimeAsk("7/08 hours", at)?.window).toEqual({ from: "2026-07-08", to: "2026-07-08" });
+      // With a comma the date stands; without one a unit after it is an amount (no window, which hides nothing).
+      expect(readTimeAsk("on 5/6, days later we shipped", at)?.window).toEqual({ from: "2026-05-06", to: "2026-05-06" });
+      expect(readTimeAsk("what happened 7/8 hours before the launch", at)).toBeNull();
+    }
+  });
+
+  test("a range of days or weeks ago covers both ends, not the far one alone (review of #345; Denver, Kiritimati)", () => {
+    for (const [, at] of zones) {
+      // Asked on Saturday 10-03: two weeks back is 09-14..09-20, three weeks back 09-07..09-13.
+      for (const q of ["what happened 2-3 weeks ago", "2/3 weeks ago", "two or three weeks ago", "2 to 3 weeks ago"]) {
+        const a = readTimeAsk(q, at);
+        expect({ q, said: a?.said, stretch: a?.stretch }).toEqual({ q, said: { from: "2026-09-07", to: "2026-09-20" }, stretch: 2 });
+      }
+      expect(readTimeAsk("what happened 2-3 weeks ago", at)?.rest).toBe("what happened");
+      for (const q of ["what happened 3-4 days ago", "notes from 3/4 days ago", "3 or 4 days ago", "three or four days ago"]) {
+        const a = readTimeAsk(q, at);
+        expect({ q, said: a?.said, stretch: a?.stretch }).toEqual({ q, said: { from: "2026-09-29", to: "2026-09-30" }, stretch: 1 });
+      }
+      expect(readTimeAsk("notes from 3/4 days ago", at)?.rest).toBe("notes");
+      // One count alone, as before.
+      expect(readTimeAsk("3 weeks ago", at)?.said).toEqual({ from: "2026-09-07", to: "2026-09-13" });
+      expect(readTimeAsk("4 days ago", at)?.said).toEqual({ from: "2026-09-29", to: "2026-09-29" });
+      expect(readTimeAsk("a few days ago", at)?.said).toEqual({ from: "2026-09-28", to: "2026-10-01" });
     }
   });
 

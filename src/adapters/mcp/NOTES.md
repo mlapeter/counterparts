@@ -1379,3 +1379,15 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
   hours"), a score ("rated it 8/10" is still August 10), a later MONTH under "by" or
   "until" (still last year's by `yearFor`, as before), and a number range with "to"
   ("7 to 8 hours" was never a date).
+- *Review of #345:* two follow-ons of the amount rule. (1) Passing "2-3" over as an amount
+  left "3 weeks ago" to be read alone: the week three back, which hid the week two back
+  (and "3-4 days ago" left "3-" in the question). A range in front of the count ("2-3",
+  "2/3", "two or three", "2 to 3") now covers both ends: "2-3 weeks ago" asked on 10-03
+  is 09-07..09-20 before the stretch, "3-4 days ago" 09-29..09-30. "3 or 4 days ago" was
+  the same misreading on master. (2) A zero-padded month or day ("the 09-28 minutes",
+  "7/08 hours") is a date: no amount is written that way, and this owner writes his dates
+  so. Probed and left as they are: a date followed with no comma by a unit or counting
+  noun ("on 7/8 hours were cut", "on 9/12 people came", "the 9/28 minutes") is no time,
+  because "on 7-8 hours of sleep" is an amount after the same "on" and no time hides
+  nothing; with a comma ("on 5/6, days later") it is a date. "7/8 hours before the
+  launch" is no time (an amount, and the launch is not resolved).

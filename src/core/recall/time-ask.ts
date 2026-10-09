@@ -11,13 +11,14 @@
  * What it reads (a working default, held lightly; the revisit may widen it):
  *
  *   - **days**: "today", "yesterday", "this morning", a clock time
- *     (`recency-ask.ts`'s reading, reused), "N days ago", "a few days ago",
+ *     (`recency-ask.ts`'s reading, reused), "N days ago" (and "3-4 days ago",
+ *     "3 or 4 days ago": both ends; review of #345), "a few days ago",
  *     "the other day", "past N days", "recently", "last Saturday" (and "this
  *     past Saturday": the most recent Saturday BEFORE today, so asked on a
  *     Saturday it is a week ago; 2026-10-09). "This Saturday" and "on
  *     Saturday" are not read: either can be the coming one;
- *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago",
- *     "the past week";
+ *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago"
+ *     (and "2-3 weeks ago": both weeks), "the past week";
  *   - **months**: "last month", "this month", "in September", "early / mid /
  *     late October", "the end of August";
  *   - **dates**: `2026-09-21`, `2026-09`, `09-21`, `9/21` (month first),
@@ -34,7 +35,8 @@
  *     has not come yet this year is last year's ("since 10/25" asked on
  *     10-03). An amount is not a date: "7-8 hours", "3/4 cup", "$5-10", and a
  *     fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
- *     still January 2) (2026-10-09);
+ *     still January 2) (2026-10-09); a leading zero ("09-28 minutes") keeps
+ *     it a date (review of #345);
  *   - **anchors**: an event ("around the cut-over", "during the release") or
  *     the last session ("where did we leave off", "last session"). This file
  *     only names them; the caller resolves them against the store, because a
@@ -160,6 +162,13 @@ const NUMBER_WORDS: Readonly<Record<string, number>> = {
   eleven: 11, twelve: 12, couple: 2, "a couple": 2, "a couple of": 2, few: 3, "a few": 3,
 };
 const NUMBER_ALT = "\\d{1,3}|a couple of|a couple|a few|couple|few|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|an|a";
+/**
+ * The near end of a range in front of a count: the "2-" of "2-3 weeks ago",
+ * the "3 or " of "3 or 4 days ago". The amount rule passes "2-3" over, so
+ * without it the count alone was read ("3 weeks ago", hiding the week two
+ * back; review of #345).
+ */
+const RANGE_FROM = "(?:(\\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\\s*(?:-|–|/|\\sor\\s|\\sto\\s)\\s*)?";
 
 /** Words that end an event phrase: what follows is the question, not the event. */
 const PHRASE_STOP = new Set([
@@ -328,9 +337,12 @@ function lastCome(day: string, today: string): string {
  * number with a unit after it ("7-8 hours", "3/4 cup", "1/2 of it"), or a
  * common fraction after a word of quantity ("cut it by 1/2", "reduced to
  * 1/3": a slash, no year, smaller over at most 10). Otherwise a date, so
- * "finish by 1/2" is still January 2 (review of #338, 2026-10-09).
+ * "finish by 1/2" is still January 2 (review of #338, 2026-10-09). A number
+ * written with a leading zero ("09-28 minutes", "7/08 people") is a date:
+ * no amount is written that way (review of #345).
  */
 function isQuantity(text: string, m: RegExpExecArray): boolean {
+  if (/^0\d$/.test(m[1] as string) || /^0\d$/.test(m[2] as string)) return false;
   const before = text.slice(0, m.index);
   if (/[$£€]$/.test(before)) return true;
   if (QUANTITY_AFTER.test(text.slice(m.index + m[0].length))) return true;
@@ -509,11 +521,14 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   if (pastWeek !== null) {
     return ask(pastWeek[0], { from: addDays(today, -6), to: today }, 0, without(text, pastWeek[0]));
   }
-  const weeksAgo = new RegExp(`\\b(${NUMBER_ALT})\\s+weeks?\\s+ago\\b`, "i").exec(text);
+  const weeksAgo = new RegExp(`\\b${RANGE_FROM}(${NUMBER_ALT})\\s+weeks?\\s+ago\\b`, "i").exec(text);
   if (weeksAgo !== null) {
-    const n = numberOf(weeksAgo[1] as string) ?? 1;
-    const monday = addDays(mondayOf(today), -7 * n);
-    return ask(weeksAgo[0], { from: monday, to: addDays(monday, 6) }, FUZZY_STRETCH_DAYS, without(text, weeksAgo[0]));
+    const n = numberOf(weeksAgo[2] as string) ?? 1;
+    // "2-3 weeks ago": from the Monday of the further week to the Sunday of the nearer.
+    const near = weeksAgo[1] === undefined ? n : Math.min(n, numberOf(weeksAgo[1]) ?? n);
+    const far = weeksAgo[1] === undefined ? n : Math.max(n, numberOf(weeksAgo[1]) ?? n);
+    const monday = addDays(mondayOf(today), -7 * far);
+    return ask(weeksAgo[0], { from: monday, to: addDays(mondayOf(today), -7 * near + 6) }, FUZZY_STRETCH_DAYS, without(text, weeksAgo[0]));
   }
   const fewWeeks = /\b(the\s+)?(past|last)\s+(few|couple of|two|three)\s+weeks\b/i.exec(text);
   if (fewWeeks !== null) {
@@ -537,15 +552,17 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
     const day = addDays(today, -2);
     return ask(dayBefore[0], { from: day, to: day }, 0, without(text, dayBefore[0]));
   }
-  const daysAgo = new RegExp(`\\b(${NUMBER_ALT})\\s+days?\\s+ago\\b`, "i").exec(text);
+  const daysAgo = new RegExp(`\\b${RANGE_FROM}(${NUMBER_ALT})\\s+days?\\s+ago\\b`, "i").exec(text);
   if (daysAgo !== null) {
-    const word = (daysAgo[1] as string).toLowerCase();
+    const word = (daysAgo[2] as string).toLowerCase();
     if (word === "few" || word === "a few" || word === "couple" || word === "a couple" || word === "a couple of") {
       return ask(daysAgo[0], { from: addDays(today, -5), to: addDays(today, -2) }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
     }
     const n = numberOf(word) ?? 1;
-    const day = addDays(today, -n);
-    return ask(daysAgo[0], { from: day, to: day }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
+    // "3-4 days ago": every day from the further to the nearer.
+    const near = daysAgo[1] === undefined ? n : Math.min(n, numberOf(daysAgo[1]) ?? n);
+    const far = daysAgo[1] === undefined ? n : Math.max(n, numberOf(daysAgo[1]) ?? n);
+    return ask(daysAgo[0], { from: addDays(today, -far), to: addDays(today, -near) }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
   }
   if (/\bthe other day\b/i.test(text)) {
     return ask("the other day", { from: addDays(today, -5), to: addDays(today, -2) }, NEAR_STRETCH_DAYS, without(text, "the other day"));
