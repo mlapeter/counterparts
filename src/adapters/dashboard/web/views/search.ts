@@ -1,5 +1,7 @@
 /**
- * `/api/search`, and `/api/chapters` (the chapter an Ask answer came from).
+ * `/api/search`. (`/api/chapters`, the chapter an Ask answer came from, left
+ * with the "from chapter" link on 2026-10-09: facts mode folds a chapter and
+ * the memory drawn from it into one answer itself.)
  *
  * Split out of `web/views.ts`, which re-exports every public name from here;
  * the four rules in that file's header apply to every line below.
@@ -9,7 +11,7 @@ import { isJournal } from "../../../../core/sleep/index.js";
 import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
 import type { DashboardSource } from "../../source.js";
-import { reveal, revealHere } from "../reveal.js";
+import { reveal } from "../reveal.js";
 import { feelingsShown, isChapterMemory, shownOf } from "./memory-words.js";
 import type { DateFrom, FeelingShown } from "./memory-words.js";
 
@@ -48,49 +50,6 @@ export interface Hit {
   protected: boolean;
   journal: boolean;
   feelings: FeelingShown[];
-}
-
-/** How many ids one `/api/chapters` call looks at — an Ask answer is a handful. */
-export const CHAPTER_LINKS_MAX = 50;
-
-/** A journal-chapter memory's chapter: the journal entry it was minted from. */
-export interface ChapterLink {
-  readonly episodeId: string;
-  /** The journal entry's title, or null when it has none (or is withheld). */
-  readonly label: string | null;
-}
-
-/**
- * `/api/chapters?ids=…` — for each id that is a JOURNAL-CHAPTER MEMORY
- * (`isChapterMemory`: minted from a chapter, `meta.episodeId`), the journal
- * entry it came from. Ask (the console's `ask --json`) can return a chapter
- * and the memory drawn from it side by side with the same words; the page
- * folds the pair into one answer with a "from chapter …" link (2026-09-27).
- *
- * Read-only and quiet: `row()` only, never `read()` (a read is an event).
- * Ids that are not chapter memories, or whose journal entry is gone, are left
- * out.
- */
-export function chapterLinks(src: DashboardSource, ids: readonly string[]): { links: Record<string, ChapterLink> } {
-  const store = src.store;
-  const links: Record<string, ChapterLink> = {};
-  for (const id of ids.slice(0, CHAPTER_LINKS_MAX)) {
-    const row = store.row(id);
-    if (row === undefined || !isChapterMemory(row)) continue;
-    let episodeId: unknown;
-    try {
-      episodeId = (JSON.parse(row.meta) as Record<string, unknown>)["episodeId"];
-    } catch {
-      continue;
-    }
-    if (typeof episodeId !== "string" || episodeId === id) continue;
-    const episode = store.row(episodeId);
-    if (episode === undefined) continue;
-    const r = revealHere(store, episodeId, 80);
-    const title = episode.title?.trim() ?? "";
-    links[id] = { episodeId, label: r.confidential || !r.present || title === "" ? null : title };
-  }
-  return { links };
 }
 
 export function searchView(src: DashboardSource, q: string, limit = 25): SearchView {

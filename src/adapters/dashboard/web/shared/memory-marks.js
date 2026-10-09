@@ -82,3 +82,36 @@ export function badges(r) {
 
 const LOCK = '<svg class="kic" viewBox="0 0 16 16" aria-label="protected"><rect x="3.5" y="7" width="9" height="7" rx="1.3"/>' +
   '<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+
+/**
+ * A memory's own id written inside words — "(mem_cb6eea7a6b9f)", a dream's
+ * "replaces mem_…", a chapter's address "epi_…#2" (2026-10-09). The store's
+ * three families (`store/prose.ts#ID_PREFIX`), twelve hex digits from
+ * `randomBytes(6)` (sixteen allowed, as `recall/reference.ts#MEMORY_ID`).
+ */
+export const ID_IN_WORDS = /\b(?:mem|epi|sch)_[0-9a-f]{12,16}(?:#\d+)?\b/;
+
+/** What an id in the words is called, by its family, instead of its digits. */
+const ID_WORDS = { mem: "memory", epi: "journal", sch: "card" };
+
+/**
+ * An id inside words, drawn as what it is rather than its digits: a small
+ * link that opens it (`data-open`, which the memories list routes to
+ * `openMemory`, `row.js#wireRows`), the id itself on hover. A chapter's
+ * address opens its journal and says which chapter. `quiet` draws the same
+ * word with no link — for words already inside something clickable, where a
+ * link cannot nest. Display only: the memory keeps its words.
+ */
+export function idMark(ref, quiet) {
+  const [id, chapter] = String(ref).split("#");
+  const word = (ID_WORDS[id.slice(0, 3)] || "memory") + (chapter ? " chapter " + chapter : "");
+  return quiet
+    ? '<span class="idref quiet" title="' + esc(ref) + '">' + esc(word) + "</span>"
+    : '<button type="button" class="idref" data-open="' + esc(id) + '" title="open ' + esc(ref) + '">' + esc(word) + " ↗</button>";
+}
+
+/** `text`, escaped, with every id in it drawn by `idMark`. */
+export function withIdMarks(text, quiet) {
+  const parts = String(text || "").split(new RegExp("(" + ID_IN_WORDS.source + ")"));
+  return parts.map((p, i) => (i % 2 === 1 ? idMark(p, quiet) : esc(p))).join("");
+}

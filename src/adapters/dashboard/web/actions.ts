@@ -353,6 +353,20 @@ function argvFor(name: ActionName, body: Body, ctx: ActionContext): Built {
       // The answers as data, so the page can list them and open each one.
       if (flag(body, "json")) argv.push("--json");
       if (id !== undefined) return { argv: [...argv, "--id", id] };
+      // THE MODE (2026-10-09): facts is the console's default and adds
+      // nothing; meaning is asked for by name. And which page of the answer.
+      const mode = body["mode"];
+      if (mode !== undefined && mode !== null && mode !== "facts" && mode !== "meaning") {
+        throw new Invalid("mode is facts or meaning");
+      }
+      if (mode === "meaning") argv.push("--mode", "meaning");
+      const page = body["page"];
+      if (page !== undefined && page !== null) {
+        if (typeof page !== "number" || !Number.isInteger(page) || page < 1 || page > 10_000) {
+          throw new Invalid("page is a whole number from 1");
+        }
+        argv.push("--page", String(page));
+      }
       // THE OWNER'S VOICE, TURNED INTO MINE (memories round 3b): "what have you
       // learned about yourself?" searches as "what have I learned about
       // myself?". The page shows what was searched and can ask again with
