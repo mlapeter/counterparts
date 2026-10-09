@@ -8,7 +8,11 @@
   "plugins": [
     {
       "name": "counterparts",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "mlapeter/counterparts",
+        "ref": "v0.3.13"
+      },
       "description": "Memory that turns Claude into a counterpart. Local-first; everything stays on your computer.",
       "category": "memory"
     }

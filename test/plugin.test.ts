@@ -156,11 +156,47 @@ describe("the plugin's files", () => {
     }
   });
 
-  test("marketplace.json lists the repository root as the plugin", () => {
+  test("marketplace.json pins the plugin to a release tag — never a branch, HEAD, or the checkout itself", () => {
+    // A `./` source, a branch, or no `ref` at all would hand a stranger
+    // whatever master holds. The pin names a release tag, and each release
+    // moves it (docs/plugin.md, "Releasing"). Until the first release that
+    // carries the plugin's files, it names that release, whose tag doesn't
+    // exist yet, so an install fails rather than fetch unreleased code: 0.3.12
+    // and earlier have no plugin to install. If #328 misses 0.3.13, raise
+    // FIRST_PLUGIN_RELEASE (and the pin) to the release it ships in.
+    const FIRST_PLUGIN_RELEASE = "0.3.13";
     const market = readJson(join(ROOT, ".claude-plugin", "marketplace.json"));
     expect(market["name"]).toBe("counterparts");
-    const plugins = market["plugins"] as { name: string; source: string }[];
-    expect(plugins.map((p) => [p.name, p.source])).toEqual([["counterparts", "./"]]);
+    const plugins = market["plugins"] as { name: string; source: unknown; version?: unknown }[];
+    expect(plugins.map((p) => p.name)).toEqual(["counterparts"]);
+    const entry = plugins[0]!;
+    // plugin.json's version is the one Claude Code uses; one in the entry too
+    // would only be a second number to keep in step.
+    expect(entry.version).toBeUndefined();
+    const source = entry.source as Record<string, unknown>;
+    expect(typeof source).toBe("object");
+    expect(source["source"]).toBe("github");
+    expect(source["repo"]).toBe("mlapeter/counterparts");
+    const ref = String(source["ref"] ?? "");
+    // A tag shaped like a release: not main, master, HEAD, refs/…, or a sha.
+    expect(ref).toMatch(/^v\d+\.\d+\.\d+$/);
+    if (source["sha"] !== undefined) expect(String(source["sha"])).toMatch(/^[0-9a-f]{40}$/);
+    expect(Object.keys(source).sort()).toEqual(source["sha"] === undefined ? ["ref", "repo", "source"] : ["ref", "repo", "sha", "source"]);
+
+    const semver = (v: string): number[] => v.replace(/^v/, "").split(".").map(Number);
+    const below = (a: string, b: string): boolean => {
+      const [x, y] = [semver(a), semver(b)];
+      for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] ?? 0) < (y[i] ?? 0);
+      return false;
+    };
+    const version = String(pkg["version"]);
+    const expected = below(version, FIRST_PLUGIN_RELEASE) ? `v${FIRST_PLUGIN_RELEASE}` : `v${version}`;
+    if (ref !== expected) {
+      throw new Error(
+        `package.json is ${version} and marketplace.json pins ${ref}; the pin must be ${expected}. ` +
+          `Move the pin in the release commit: docs/plugin.md, "Releasing".`,
+      );
+    }
   });
 
   test("the npm tarball is untouched: none of the plugin's own files is in `files`", () => {
