@@ -200,6 +200,26 @@ export interface SelfEvent {
 export const BRIEFING_KEY = "self.briefing";
 
 /**
+ * THE IDS THE PUBLISHED BUNDLE LISTS UNDER "Still open:" (review of #332,
+ * 2026-10-09): a JSON array, written beside `BRIEFING_KEY` at each publish,
+ * so a line the delivery adds — the handoff's "since" line — can leave out
+ * what the wake already says is open rather than name it twice. Kept, not
+ * ranked, as the identity rotation's ids are.
+ */
+export const THREADS_SHOWN_KEY = "self.threads.shown";
+
+/** The ids the published bundle lists under "Still open:" — none when the
+ *  key is absent (a bundle published before it) or unreadable. Never throws. */
+export function threadsShown(store: Pick<Store, "getMeta">): Set<string> {
+  try {
+    const raw: unknown = JSON.parse(store.getMeta(THREADS_SHOWN_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * The honest bootstrap line, and the ONLY case that may be shown in place of a
  * bundle: no bundle has ever been published. A present-but-damaged bundle is an
  * error with its own reason — never this line.
@@ -1388,6 +1408,10 @@ export class Self {
     }
 
     this.store.setMeta(BRIEFING_KEY, briefing.text);
+    // What this bundle lists as still open, so the delivery's "since" line
+    // does not name it again (review of #332). Written at every publish, an
+    // empty lane included, so it never describes an older bundle.
+    this.store.setMeta(THREADS_SHOWN_KEY, JSON.stringify(briefing.kept.threads));
     // The rotation's memory: the identity ids this bundle KEPT, stamped with
     // the day. Kept, not ranked — an element the budget trimmed did not render
     // and keeps its place at the front of the next rotation.

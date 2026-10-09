@@ -350,6 +350,23 @@ describe("what were we about to do? a plan written after the handoff is named be
     expect(line).not.toContain(ids.open);
   });
 
+  test("an open question the wake already lists under 'Still open:' is not named again in the line (review of #332)", async () => {
+    const k = afternoon();
+    const ids = await laterPlans(k);
+    // A boundary after the question: the bundle now lists it as still open.
+    k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
+    const text = wake(k.c, B);
+    const lines = text.split("\n");
+    const open = lines.indexOf("Still open:");
+    expect(open).toBeGreaterThan(-1);
+    expect(lines.slice(open + 1).find((l) => l.includes("signed, or only checksummed"))).toBeDefined();
+    // The line names the changed plan alone; the question is said once.
+    const since = lines.find((l) => l.startsWith("Since this handoff:"));
+    expect(since).toBe(`Since this handoff: Publishing waits until Monday (planned, ${ids.changed}).`);
+    expect(lines.filter((l) => l.includes("signed, or only checksummed"))).toHaveLength(1);
+    expect(readSentinel(text).intact).toBe(true);
+  });
+
   test("at a ceiling with no room for the line, the handoff is carried as it was", async () => {
     const k = afternoon();
     await laterPlans(k);

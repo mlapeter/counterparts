@@ -16,12 +16,14 @@
   only the handoff. The handoff now has a "Since this handoff:" line under it naming up to
   three such memories by title and id, newest first, from any session working in that
   directory, including the one that wrote the handoff. Memories written in the same answer
-  as the handoff are left out, and a memory named there is not repeated in "Work here". When
-  the wake has no room for the line, the handoff is shown as before.
+  as the handoff are left out, and a memory named there is not repeated in "Work here"; an
+  open question the wake already lists under "Still open:" is left to that list. When the
+  wake has no room for the line, the handoff is shown as before.
 - **The self page no longer prints "Last revised" twice.** A page that carried its own
   "(Last revised …)" line showed it under the wake's own date line. The wake now leaves the
   page's line out, and so does writing the page, so a stored page loses it the next time it
-  is revised.
+  is revised. Only a line that is a date goes: prose, a list entry, a quote, a code block or
+  a page's own history that begins with the same words stays.
 
 ## 0.3.12 — 2026-10-08
 

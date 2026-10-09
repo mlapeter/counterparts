@@ -148,6 +148,7 @@ import {
   noteWakeBuild,
   noteWakeCaught,
   settledOver,
+  threadsShown,
   spliceBeforeSentinel,
   wakeBehind,
   wakeFromOtherBuild,
@@ -1818,6 +1819,9 @@ export class Counterpart {
       // memory named to the owner only, and nothing a later one settled over.
       owner: this.owner,
       settled: () => settledOver(this.store),
+      // …and nothing the published wake already lists under "Still open:"
+      // (review of #332): one place for an open question.
+      listed: () => threadsShown(this.store),
     });
     this.spans = new SpanBuffer({
       dir: this.store.dir,

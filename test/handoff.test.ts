@@ -2010,6 +2010,13 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
     expect(owner.more).toBe(1);
     // What a later memory settled over is not named.
     expect(named(new Handoffs({ store: s, gate: episodeGate(), settled: () => new Set([open]) }))).toEqual([other, later]);
+    // Nor what the published wake already lists under "Still open:" (review of #332),
+    // and a listing that cannot be read leaves out nothing.
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: () => new Set([open]) }))).toEqual([other, later]);
+    const unreadable = (): ReadonlySet<string> => {
+      throw new Error("no meta");
+    };
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: unreadable }))).toEqual([open, other, later]);
   });
 
   test("a store with nothing planned names nothing, and one that cannot answer names nothing rather than failing", () => {

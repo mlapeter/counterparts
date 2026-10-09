@@ -1135,6 +1135,13 @@ export interface HandoffsOptions {
    * by the root, because `handoff/` depends on `store/` and nothing else.
    */
   readonly settled?: () => ReadonlySet<string>;
+  /**
+   * The memories the published wake already lists under "Still open:"
+   * (`self/index.ts#threadsShown`), which the "since" line leaves to that
+   * lane rather than name twice (review of #332). Asked only when there is
+   * something to name; passed in by the root, as `settled` is.
+   */
+  readonly listed?: () => ReadonlySet<string>;
 }
 
 export interface WriteInput {
@@ -1157,6 +1164,7 @@ export class Handoffs {
   private readonly nowFn: () => number;
   private readonly owner: boolean;
   private readonly settled: (() => ReadonlySet<string>) | undefined;
+  private readonly listed: (() => ReadonlySet<string>) | undefined;
 
   constructor(opts: HandoffsOptions) {
     this.store = opts.store;
@@ -1166,6 +1174,7 @@ export class Handoffs {
     this.nowFn = opts.now ?? Date.now;
     this.owner = opts.owner === true;
     this.settled = opts.settled;
+    this.listed = opts.listed;
   }
 
   private emit(
@@ -1510,8 +1519,9 @@ export class Handoffs {
    *
    * Its own session's memories count, except what it wrote within
    * `SINCE_SAME_ANSWER_MS` of the handoff, which is the same answer. Left
-   * out: what a later memory settled over, a journal chapter's copy, and a
-   * confidential memory unless the owner's (`HandoffsOptions.owner`). The
+   * out: what a later memory settled over, what the published wake already
+   * lists under "Still open:" (`HandoffsOptions.listed`), a journal chapter's
+   * copy, and a confidential memory unless the owner's (`HandoffsOptions.owner`). The
    * columns are read first (`Store#planCandidates`), then the prose of what
    * comes back. Never throws: a store that will not answer names nothing.
    */
@@ -1528,15 +1538,22 @@ export class Handoffs {
         confidential: this.owner,
       });
       if (ids.length === 0) return none;
-      let settled: ReadonlySet<string>;
-      try {
-        settled = this.settled?.() ?? new Set();
-      } catch {
-        settled = new Set();
-      }
+      const ask = (f: (() => ReadonlySet<string>) | undefined): ReadonlySet<string> => {
+        try {
+          return f?.() ?? new Set();
+        } catch {
+          return new Set();
+        }
+      };
+      const settled = ask(this.settled);
+      // ONE PLACE FOR AN OPEN QUESTION (review of #332): one the published
+      // wake already lists under "Still open:" is left to that lane. One it
+      // does not — opened since the last boundary, or past the lane's cap,
+      // which takes the oldest first — is named here.
+      const listed = ask(this.listed);
       const found: PlanSince[] = [];
       for (const id of ids) {
-        if (settled.has(id)) continue;
+        if (settled.has(id) || listed.has(id)) continue;
         const row = this.store.row(id);
         if (row === undefined) continue;
         if (h.session !== null && row.origin_session === h.session && (row.created_at ?? 0) - after <= SINCE_SAME_ANSWER_MS) {

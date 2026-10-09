@@ -447,9 +447,13 @@ not fire: they look for a chapter by ANOTHER session, or a newer install. What w
   carries exactly what it carried before.
 - **Not named twice.** A planned note written in a project is usually a work memory too
   (an unmarked fact with a directory), so the work lines above the pointer leave out the
-  ids the chosen rung's line names. The "Still open:" lane is in the published bundle and
-  is not filtered: an `unresolved` memory can appear there and here. Left as it is; the
-  line says why it matters beside the handoff, and the lane is store-wide and capped.
+  ids the chosen rung's line names. And the line leaves out what the published wake
+  already lists under "Still open:" (review of #332): the bundle cannot be filtered at
+  delivery, so the lane keeps it and the line gives way. Its ids are written beside the
+  bundle at each publish (`self/index.ts#THREADS_SHOWN_KEY`, a JSON array) and handed in as
+  `listed`, as `settled` is. An open question the lane does not list — opened since the
+  last boundary, or past its cap of the oldest — is still named here, which is when the
+  line is the only place it shows.
 - **Sized to the line that exists, at the boundary** (`liveBlockBytesByScope` asks
   `plansSince` as delivery does). A `note` does not mark the wake behind, so a plan written
   after the last boundary is carried only where the bundle has room until the next one;
@@ -459,4 +463,11 @@ not fire: they look for a chapter by ANOTHER session, or a newer install. What w
   boundary (no index on `origin_scope`, as `workCandidates`), and prose reads only for
   what it returns; `settledOver` only when there is something to name. Timed against the
   continuity suite's busiest ladder test with the read switched off: no difference above
-  the noise.
+  the noise. Measured in review (#332) on a synthetic store: the SQL read is 0.2 ms at 800
+  memories and 1 ms at 5,000; `plansSince` whole, with its 30 prose reads, 5–9 ms per
+  directory.
+- **The reserve's ceiling moved, so the widest no-plan block's margin is no longer
+  clamped** (review of #332). At 1,646 the ceiling ate the 48-byte margin of a 1,646-byte
+  block; at 1,963 it does not. Below a 13,168-byte budget nothing changes (that block fails
+  the share rule either way); between 13,168 and 13,552 the reserve takes a narrower rung
+  than it did; above, it is up to 48 bytes larger. The owner's hosts report 9,000.

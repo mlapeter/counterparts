@@ -224,7 +224,9 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     handoff, which is the same answer (the `session_end` call writes its handoff first
     and its memories straight after). Never named: a `done` or unmarked memory, another
     directory's, a dream's or a sweep's (`source = 'authored'` only), one a later memory
-    settled over, a journal copy, a confidential one outside the owner's session. Read
+    settled over, one the published wake already lists under "Still open:" (one place for
+    an open question; `self/index.ts#threadsShown`, review of #332), a journal copy, a
+    confidential one outside the owner's session. Read
     at delivery and at the boundary from the columns (`Store#planCandidates`), then the
     prose of what came back; a store that will not answer names nothing. Every rung of
     the ladder is tried WITH the line before the rungs WITHOUT it, which are the blocks as
@@ -288,7 +290,9 @@ true:
   and the share rule still takes the widest that passes. It adds 79 bytes for one plan
   with a 29-byte title, and at most 306 (317 beside several handoffs: three titles at the
   cap, the widest word, a count). With no plan written here since the newest handoff the
-  rungs, the reserve and the block are what they were. A plan written after the boundary
+  rungs and the block are what they were, and so is the reserve below a 13,168-byte
+  budget (above it the raised ceiling no longer clamps the widest block's margin; NOTES
+  §11). A plan written after the boundary
   that composed the bundle waits for the next one to be reserved for (`session_end`
   marks the wake behind; a lone `note` does not), and until then is carried only where
   the bundle has the room.
