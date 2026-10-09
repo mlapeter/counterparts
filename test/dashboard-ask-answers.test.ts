@@ -281,6 +281,26 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     expect(drawn).toContain(`${answer.whose.owner}: ${felt.feelings.owner.map((f) => f.word).join(", ")}`);
   });
 
+  test("a name asked about with no card is said first, above the head, and the answer is what mentions it (2026-10-09)", async () => {
+    const c = Counterpart.open({ dir, owner: true });
+    let said: string;
+    try {
+      said = c.store.put({ type: "memory", kind: "fact", body: "Zqhan sent the photos from the climb, the good ones." });
+    } finally {
+      c.close();
+    }
+    const { answer } = await ask<MeaningResult>({ question: "what has Zqhan been to me", mode: "meaning" });
+    expect(answer.noCard).toBe("No card for Zqhan yet; here is what mentions Zqhan");
+    const head = seen(page.meaningHead(answer));
+    expect(head).toStartWith(`No card for Zqhan yet; here is what mentions Zqhan."Zqhan" · `);
+    expect(page.meaningHead(answer)).toStartWith('<span class="find-lead">');
+    expect(answer.arc.flatMap((l) => (l.fold ? [] : l.entry.moments.map((m) => m.id)))).toContain(said);
+    // A card's answer has no such line.
+    const { answer: carded } = await ask<MeaningResult>({ question: "what has Halfmoon been to me", mode: "meaning" });
+    expect(carded.noCard).toBeNull();
+    expect(page.meaningHead(carded)).not.toContain("find-lead");
+  });
+
   test("a long arc pages: the pager asks the same question for the next page", async () => {
     const q = "what has Nkechi Abernathy been to me";
     const { answer: one } = await ask<MeaningResult>({ question: q, mode: "meaning" });

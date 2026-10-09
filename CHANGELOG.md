@@ -31,6 +31,13 @@
   related to the memory they named, 1 settled by hand since; if the other was meant,
   settle it with counterparts settle, which lists it"). It stays green. `counterparts
   settle` lists the ones still held, each with the command that settles it.
+- **Meaning recall says when the person you asked about has no card.** "What has Han
+  been to Mike?" on a store where only Mike has a card used to come back as Mike's story
+  with no word about Han. Now the answer opens with "No card for Han yet; here is what
+  mentions Han", follows the memories that name Han, and lists Mike's card as one to ask
+  about. If nothing mentions Han, it says that instead. When the question asks about a
+  name with no card alongside one that has a card ("how have Han and Oskar been?"), it
+  follows the card and says Han has none. The dashboard's Ask shows the same first line.
 
 ## 0.3.13 — 2026-10-09
 

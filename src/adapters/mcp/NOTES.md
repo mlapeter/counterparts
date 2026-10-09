@@ -1337,3 +1337,33 @@ right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
   be the coming one), "last weekend" (no time), a two-digit year (`7/22/23` is still 7/22
   with `yearFor`'s year, `/23` left in), `2023/07/22`. The learned-date fallback for a row
   with no `occurred_on` is the owner's decision and untouched.
+
+## 2026-10-09 — meaning mode: a name asked about that has no card
+
+0.3.13's release check, on a real store with one card (the owner's): "what has Han been
+to Mike?" came back as Mike's arc with nothing about Han, because Han had no card.
+`subjectOf` only ever ranked cards, so the one card in the question won from an aside.
+
+- **A name with no card is read in place like a card's.** The asker's capitalised
+  mid-sentence words (`feeling-ask.ts#askedNames`) that no card with memories covers,
+  two in a row joined ("Han Seo"), not the owner's name, not a month or a weekday
+  (`uncardedNames`). In an aside it is passed over ("what has Mike been to Han" is Mike's,
+  and says nothing). It takes part in the joined rule, so "how have Han and Oskar been"
+  asks about both.
+- **Above every card, or level with the owner's alone, the name leads.** The answer is a
+  `words` lens on the name as typed (`holdByWords`, "Han" not "han"), and its first line
+  is `MeaningResult.noCard`: "No card for Han yet; here is what mentions Han" (nothing
+  mentions it: "…, and nothing in memory mentions Han"). The cards it named are
+  one-liners under "also named". The question's vector is not used here: it carries the
+  other names too, and brought "Mike" back.
+- **Level with another card, the card leads** (it has an arc to show) and the first line
+  is "No card for Han yet; this follows Oskar".
+- **A question about feeling** keeps its own path: with the name leading, no card is
+  chosen, and the feeling branch's topic words (which include the name) find the felt
+  moments, under its existing note `no card names "Han"`.
+- `renderMeaning` prints `noCard` first, and so does the dashboard's `meaningHead`
+  (`find-lead`), so the tool, `counterparts ask --mode meaning` and the page agree.
+- *Choices:* a lower-case name ("what has han been to mike") is not detected: nothing
+  says it is a name. A card that exists but holds nothing the asker may see reads as no
+  card ("No card for Han yet"): saying it has one would tell a non-owner something about
+  confidential memories.
