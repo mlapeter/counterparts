@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **"Still open" lists open items beside a long self page, and never prints a heading over
+  a count.** The page was cut to leave room for the wake's own furniture and nothing else,
+  so with the Yesterday line and the Arriving lines taking the rest, a 9,000-byte wake
+  could print "Still open:" with only "(20 more still open; recall ids …)" under it. A
+  long page now leaves room for the Yesterday line, Arriving and the first open items (up
+  to 768 bytes, about two), and is never cut below half the wake for them. A lane that
+  still has room for nothing says so in one line: "Still open: 20 — no room to list them
+  in this wake; recall ids …".
+- **An Arriving reminder past its date says it was due.** A one-off reminder stays under
+  "Arriving:" for a week after its date, and the wake written the evening before is read
+  the next morning, so "(due 2026-10-08)" was read on the 9th as if still to come. The
+  line now reads "(was due yesterday, 2026-10-08)" the morning after and "(was due
+  2026-10-05)" later. A reminder due on the day it was noted now reads "due 2026-10-08"
+  rather than the date alone.
+- **A plain reminder said on its day leaves "Arriving:" at the next turn.** When the
+  day's wake was written before the reminder was said (a session running past midnight),
+  it stayed under "Arriving:" all day and into the next morning.
 - **The dashboard no longer says a repeating reminder is about to be put away.** A memory
   whose date still repeats is kept for its next time however faint it has grown, so the
   memories list no longer marks it "fading" and its card names no day it would be put

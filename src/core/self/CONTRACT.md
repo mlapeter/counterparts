@@ -183,7 +183,14 @@ proposals and their archive; render and delivery telemetry.
    only while the whole still fits the budget, lanes that trim last first; one that does
    not fit is left out and the trim's count stays in telemetry. Identity says nothing
    while the page replaces the list, and Nearby says nothing at all since 2026-10-01: what
-   it leaves out is the rest of the warm store, which recall finds by asking.
+   it leaves out is the rest of the warm store, which recall finds by asking. **A lane that
+   kept no element is one line, its heading inside it** (2026-10-09,
+   `briefing.ts#collapsedLine`): `Still open: 20 — no room to list them in this wake;
+   recall ids …`, never a heading over a count. **A long page leaves room for the lines
+   beside it** (2026-10-09, a working default): the page is furniture cut to size before
+   the lanes compose, and it leaves the Yesterday line, Arriving and the first
+   `THREADS_FLOOR_BYTES` of "Still open" their room (`besidePageBytes`), but is never cut
+   below the identity share of the budget for them.
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the
@@ -233,8 +240,13 @@ proposals and their archive; render and delivery telemetry.
    `- YYYY-MM-DD (of YYYY-MM-DD) · statement` when the content date differs (neutral,
    because the horizon lane's dates are in the future), `- YYYY-MM-DD (due YYYY-MM-DD) ·
    statement` for an arriving occasion (2026-10-01) — `(due YYYY-MM-DD, every May 14)`
-   when its date repeats (2026-10-09) — and no prefix when the statement
-   already opens with that same date. Leading, not trailing: the age is
+   when its date repeats (2026-10-09), `- due YYYY-MM-DD · statement` when it is due on
+   the day it was learned, and `was due` for a date already behind the day the wake was
+   composed for (2026-10-09) — and no prefix when the statement
+   already opens with that same date. **The delivery puts an Arriving date in the past
+   tense** (2026-10-09, `briefing.ts#arrivingTense`): it alone knows the reading day, so a
+   line due before it reads `(was due YYYY-MM-DD)`, `(was due yesterday, YYYY-MM-DD)` the
+   day after — inside the preface's reserve, and only the date prefix of an Arriving line. Leading, not trailing: the age is
    read before the claim, the element's own text still ends the line, and it costs 14 bytes
    at day precision against 21 for a trailing form — counted in the composed budget and in
    the identity share, on the same line the sentinel counts. The element text itself is
@@ -494,6 +506,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WORK_HERE_POOL` | 8 | Work lines ranked for the day's rotation to choose `WORK_HERE_MAX` from (2026-10-02): the newest stays first, the others take turns by lived day (`work.ts#rotateWork`). |
 | `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
 | `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
+| `THREADS_FLOOR_BYTES` | 768 | The room a long page leaves "Still open" (2026-10-09): its heading, first lines and "more" line, up to this many bytes, beside the Yesterday line and Arriving (`briefing.ts#besidePageBytes`). Never below the identity share. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |
 | `HINT_RECOVERY_DAYS` | 3 | Lived days for that load to fall to 1/e once the memory stops being shown. |

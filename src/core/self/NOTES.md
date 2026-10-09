@@ -1598,3 +1598,51 @@ a one-off date, the parenthesis stays when the occurrence falls on the learned d
 "every May 14" is news even then. One change to what the lane selects (review of #339): a
 DAILY repeat takes no line (`prospective/` NOTES §15) — rendered the evening before, it
 would read as due yesterday.
+
+## 2026-10-09 — "Still open" over nothing, and an Arriving line a day late
+
+The owner's wake that morning read `Still open:` and, under it, only `(20 more still open;
+recall ids (the first 5): …)`; and an Arriving reminder due 10-08 read `(due 2026-10-08)`.
+
+- **Why no item fit.** Not the lane's items alone and not a lane share — the lane had no
+  share at all. The page is furniture the trim cannot pop, so `Self#pageBlock` cuts it
+  before the lanes compose, to `min(PAGE_WAKE_BYTES, budget − PAGE_FLOOR_RESERVE_BYTES)`:
+  room for the wake's own furniture and nothing else. The delivery reserves (preface,
+  handoff, work lines) bring a 9,000-byte host to a compose budget near 7 KB, the page
+  takes ~6 KB of it, the Yesterday line (furniture) rides whole, and Arriving trims AFTER
+  "Still open". Reproduced with 25 open items (~276-byte lines), a 7 KB page, a 300-byte
+  Yesterday line and two Arriving lines: at compose budgets 7,100–7,250 the page showed
+  5,961 bytes and "Still open:" printed over `(25 more still open; …)` — the room left
+  (~150–290 bytes) held the 150-byte "more" line but not one item and its heading.
+- **The floor.** `besidePageBytes` measures the lines beside the page — the Yesterday
+  line, the Arriving lane, and "Still open" up to `THREADS_FLOOR_BYTES` (768: its heading,
+  two ~300-byte lines and its "more" line) — and the page leaves them that room, never
+  going below the identity share of the budget for it (the part the identity list was
+  always kept), and not at all when the page is shorter than what is left. Not in the trim
+  loop: `TRIM_ORDER` stays as declared, and the zero case only arises beside furniture.
+  Same scenario after: compose 7,200 → page 5,109 bytes, three items and `(22 more …)`;
+  6,590 → page 4,683, two items; at the owner's measured 7,786 → page 5,535, four items.
+  Without a page the identity share already leaves the lane its room (5 of 25 listed).
+- **The backstop.** A lane (not identity) that keeps no element and has something to say
+  about what it left out is ONE line with its heading in it (`collapsedLine`): `Still
+  open: 25 — no room to list them in this wake; recall ids (the first 5): …`. No "more":
+  more than none is not a count. The dashboard's splitters read the lane off the line
+  (`collapsedLane`). Seen in the same scenario at a 2,000-byte compose budget.
+- **The Arriving line, by design and now said truly.** A quiet one-off stays in the
+  horizon lane through its grace days (`prospective/` GRACE_DAYS, 7), and the wake is
+  composed at a boundary and read later — the 10-08 evening's render read on the 9th.
+  `(due 2026-10-08)` was a true date under a heading that reads as "still to come". The
+  render now says `(was due …)` for a date already behind the day it was composed for
+  (`HorizonItem.past`, set by `core/briefing.ts#selfRenderer` from its `at`), and the
+  delivery — which alone knows the morning — says `(was due yesterday, 2026-10-08)` the
+  day after and `(was due 2026-10-05)` later (`arrivingTense`, beside the preface, with
+  the same date). It touches only the date prefix of an Arriving `- ` line, in what the
+  preface's reserve leaves: "was " on every such line fits even beside the widest preface
+  at `HORIZON_MAX` lines (tested); "yesterday, " is added while room is left. A due date
+  equal to the learned date is now printed as `due YYYY-MM-DD ·` rather than the learned
+  date alone, so the line says when and the delivery has a date to turn.
+- **A plain reminder told on its day was still there the next morning** — reproduced:
+  when the day's first render runs before the telling (a late session's turn ending after
+  midnight), nothing re-rendered after it, so the told reminder stayed under "Arriving:"
+  through the day and into the next morning. The claim now marks the wake behind
+  (`told`, `behind.ts`), and the next turn-end worker re-renders it.

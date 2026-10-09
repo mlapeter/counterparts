@@ -41,6 +41,7 @@
 import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
 import type { SelfTunables } from "./tunables.js";
+import { addDays, isDay } from "../time.js";
 
 /**
  * Composed order — behavioral-spec §1's, minus the two riders the Rulings drop
@@ -142,9 +143,41 @@ const MORE_ORDER: readonly LaneName[] = [
 
 /** `(3 more still open; recall ids: mem_…, mem_…, mem_…)` */
 export function moreLine(lane: LaneName, ids: readonly string[]): string {
+  return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${recallIds(ids)})`;
+}
+
+function recallIds(ids: readonly string[]): string {
   const shown = ids.slice(0, MORE_LINE_IDS);
   const which = ids.length > shown.length ? `recall ids (the first ${String(shown.length)})` : "recall ids";
-  return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${which}: ${shown.join(", ")})`;
+  return `${which}: ${shown.join(", ")}`;
+}
+
+/**
+ * A LANE WITH NOTHING LISTED SAYS SO IN ONE LINE, NOT A HEADING OVER A COUNT
+ * (2026-10-09). The owner's wake that morning read "Still open:" and, under
+ * it, "(20 more still open; recall ids …)" with no item between — a heading
+ * over nothing reads like a broken page, and "more" than none is not a count.
+ * When a lane keeps no element and has something to say about what it left
+ * out, the heading and the count are one line: `Still open: 20 — no room to
+ * list them in this wake; recall ids (the first 5): mem_…`. Furniture, like
+ * the "more" line it replaces; the identity lane keeps its heading, which has
+ * the page or the day-0 line under it. The dashboard reads the lane off the
+ * line's own heading (`collapsedLane`).
+ */
+export const COLLAPSED_WORDS = "no room to list them in this wake";
+
+export function collapsedLine(lane: LaneName, ids: readonly string[]): string {
+  return `${laneHeading(lane)} ${String(ids.length)} — ${COLLAPSED_WORDS}; ${recallIds(ids)}`;
+}
+
+/** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
+export function collapsedLane(line: string): LaneName | null {
+  for (const lane of LANE_ORDER) {
+    const heading = laneHeading(lane);
+    if (!line.startsWith(`${heading} `)) continue;
+    if (new RegExp(`^ \\d+ — ${COLLAPSED_WORDS}; recall ids`).test(line.slice(heading.length))) return lane;
+  }
+  return null;
 }
 
 /**
@@ -278,6 +311,12 @@ export interface Resolved {
    * Only a horizon item that repeats carries one.
    */
   readonly every?: string;
+  /**
+   * True when `due` was already BEHIND the day the wake was composed for
+   * (`HorizonItem.past`, 2026-10-09) — a one-off in its grace days — so the
+   * line says `(was due …)` rather than reading as still to come.
+   */
+  readonly duePast?: boolean;
   /**
    * True when the encode date is only an UPPER BOUND — the element was known BY
    * then, not learned then. Set for migrated elements, whose `learned_on` is
@@ -469,6 +508,9 @@ export function flatten(text: string): string {
  */
 export const DATE_SEP = " · ";
 export const DATE_BOUND = "by ";
+/** How an arriving line names its date, ahead of it and once it has passed. */
+export const DUE_WORD = "due";
+export const DUE_PAST_WORD = "was due";
 
 export function datePrefix(r: Resolved): string {
   const learned = (r.learnedOn ?? "").trim();
@@ -481,8 +523,15 @@ export function datePrefix(r: Resolved): string {
     // due on the day it was learned, since "every May 14" is news there too.
     const every = (r.every ?? "").trim();
     const often = every === "" ? "" : `, ${every}`;
-    if (learned === "") return `due ${due}${often}${DATE_SEP}`;
-    if (due !== learned || often !== "") return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (due ${due}${often})${DATE_SEP}`;
+    // PAST ITS DATE, IT SAYS SO (2026-10-09): a one-off stays under
+    // "Arriving:" for its grace days (`prospective/` GRACE_DAYS), and
+    // "(due 2026-10-08)" read on the 9th reads as still to come.
+    const word = r.duePast === true ? DUE_PAST_WORD : DUE_WORD;
+    // DUE ON THE DAY IT WAS LEARNED: the one date, stated once — as the DUE
+    // date (2026-10-09), so the line still says when, and the delivery can
+    // put it in the past tense the morning after (`arrivingTense`).
+    if (learned === "" || (due === learned && often === "")) return `${word} ${due}${often}${DATE_SEP}`;
+    return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (${word} ${due}${often})${DATE_SEP}`;
   }
   if (learned === "") return "";
   const happened = (r.happenedOn ?? "").trim();
@@ -594,6 +643,12 @@ export function compose(
       }
       const tail = more[lane];
       if (items.length === 0 && tail === undefined) continue;
+      // Nothing listed: the tail is the lane's one collapsed line, heading
+      // included (`collapsedLine`), never a heading over a count.
+      if (items.length === 0 && tail !== undefined) {
+        lines.push("", tail);
+        continue;
+      }
       lines.push("", laneHeading(lane));
       for (const item of items) lines.push(elementLine(item, resolve));
       if (tail !== undefined) lines.push(tail);
@@ -625,6 +680,48 @@ function elementBytes(item: Ranked, resolve: Resolve): number {
 /** The identity lane's ceiling in bytes while other lanes are competing for it. */
 export function identityShareBytes(budgetBytes: number, t: SelfTunables): number {
   return Math.floor(budgetBytes * t.IDENTITY_SHARE);
+}
+
+/**
+ * WHAT A LONG PAGE LEAVES ROOM FOR (2026-10-09), in bytes: the lines the wake
+ * carries beside it that the page would otherwise starve.
+ *
+ * The page is furniture — the trim loop cannot pop it — so it is cut to size
+ * BEFORE the lanes compose (`Self#pageBlock`), and it was cut to leave room for
+ * the wake's other furniture (`PAGE_FLOOR_RESERVE_BYTES`) and nothing else. On
+ * the owner's store that morning the page took ~6 KB of a compose budget the
+ * delivery reserves had already brought to ~7 KB; the Yesterday line (furniture
+ * too) and the Arriving lines (trimmed after "Still open") took most of the
+ * rest, and what was left held no open item but did hold the lane's "N more"
+ * line — so "Still open:" printed over a count and nothing else.
+ *
+ * Three things, each only when it is there: the Yesterday line, whole; the
+ * Arriving lane, whole (its heading and lines — it trims after "Still open", so
+ * room left for open items alone would go to it first); and "Still open" up to
+ * `THREADS_FLOOR_BYTES` — its heading, its first lines and its "more" line. Not
+ * Nearby, which trims first and has recall behind it. Measured on the lines the
+ * render will write, through the same `elementLine`.
+ */
+export function besidePageBytes(
+  lanes: {
+    readonly threads: readonly Ranked[];
+    readonly horizon: readonly Ranked[];
+    readonly overflow?: Partial<Record<LaneName, readonly string[]>>;
+  },
+  resolve: Resolve,
+  t: SelfTunables,
+  yesterday?: string,
+): number {
+  const block = (lane: LaneName, items: readonly Ranked[]): number =>
+    byteLength(`\n${laneHeading(lane)}\n`) + items.reduce((n, item) => n + elementBytes(item, resolve), 0);
+  let bytes = yesterday === undefined || yesterday.length === 0 ? 0 : byteLength(`${flatten(yesterday)}\n`);
+  if (lanes.horizon.length > 0) bytes += block("horizon", lanes.horizon);
+  if (lanes.threads.length > 0) {
+    const past = lanes.overflow?.threads ?? [];
+    const more = past.length === 0 ? 0 : byteLength(`${moreLine("threads", past)}\n`);
+    bytes += Math.min(t.THREADS_FLOOR_BYTES, block("threads", lanes.threads) + more);
+  }
+  return bytes;
 }
 
 /**
@@ -741,7 +838,9 @@ function withMoreLines(
   for (const lane of MORE_ORDER) {
     const ids = ctx.lost[lane];
     if (ids === undefined || ids.length === 0) continue;
-    lines[lane] = moreLine(lane, ids);
+    // A lane that kept nothing gets the one collapsed line instead: "N more"
+    // over no item is neither a list nor a count (2026-10-09).
+    lines[lane] = lane !== "identity" && ctx.kept[lane].length === 0 ? collapsedLine(lane, ids) : moreLine(lane, ids);
     const candidate = compose(ctx.kept, ctx.req.day, ctx.resolve, ctx.coreName, ctx.identity, lines, ctx.yesterday);
     if (candidate.bytes > ctx.req.budgetBytes) {
       delete lines[lane];
@@ -1073,6 +1172,65 @@ export function prefaceLine(f: PrefaceFacts): string {
     `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories of ` +
     `${groupDigits(f.liveRows)} live rows — composed at the last boundary.`
   );
+}
+
+/**
+ * THE TENSE ONLY THE DELIVERY KNOWS (2026-10-09).
+ *
+ * The owner's wake on 10-09 carried "Arriving: - … (due 2026-10-08) · …". By
+ * design: a one-off stays in the horizon lane for its grace days, and the wake
+ * is composed at a boundary — the evening one, the day before — and read the
+ * next morning. The DATE was true; the lane's heading made it read as still to
+ * come. A render can put a date it is already past into the past tense
+ * (`Resolved.duePast`), but on the evening of the 8th the 8th is today, and only
+ * the delivery knows the morning is the 9th.
+ *
+ * So, where the preface is composed and with the same date (`WakeDelivery
+ * .date`, the person's day): an Arriving line whose due date is before today
+ * reads `(was due 2026-10-05)`, and `(was due yesterday, 2026-10-08)` the day
+ * after. Only the date prefix of a `- ` line in the Arriving lane is touched —
+ * never a statement, never another lane — and only as far as `room` allows:
+ * "was " on every such line first, then "yesterday, " while room remains, so a
+ * line that would not fit keeps the date it was composed with, which is still
+ * true. The caller passes what the preface reserve has left
+ * (`PREFACE_RESERVE_BYTES`), so the delivered bundle stays inside it.
+ */
+export function arrivingTense(text: string, today: string, room: number): string {
+  if (!isDay(today) || room <= 0) return text;
+  const lines = text.split("\n");
+  // The LAST such heading: the lane is last, and a page above it is printed as
+  // written, so a line of the page that happens to read "Arriving:" is not it.
+  const start = lines.lastIndexOf(FRAMING.horizon);
+  if (start < 0) return text;
+  const prior = addDays(today, -1);
+  const shape = /^(- (?:(?:by )?\d{4}-\d{2}-\d{2} \()?)(was )?due (\d{4}-\d{2}-\d{2})(?=[,)]| · )/;
+  const was = `${DUE_PAST_WORD} `;
+  const words = { was: byteLength(was) - byteLength(`${DUE_WORD} `), yesterday: byteLength("yesterday, ") };
+  const past: { i: number; head: string; already: boolean; date: string; rest: string; was: boolean; yesterday: boolean }[] = [];
+  for (let i = start + 1; i < lines.length && lines[i] !== ""; i++) {
+    const line = lines[i] ?? "";
+    const m = shape.exec(line);
+    const date = m?.[3];
+    if (m === null || date === undefined || date >= today) continue;
+    const already = m[2] !== undefined;
+    past.push({ i, head: m[1] ?? "- ", already, date, rest: line.slice(m[0].length), was: already, yesterday: false });
+  }
+  let left = room;
+  for (const p of past) {
+    if (p.was || left < words.was) continue;
+    p.was = true;
+    left -= words.was;
+  }
+  for (const p of past) {
+    if (!p.was || p.date !== prior || left < words.yesterday) continue;
+    p.yesterday = true;
+    left -= words.yesterday;
+  }
+  for (const p of past) {
+    if (!p.was || (p.already && !p.yesterday)) continue;
+    lines[p.i] = `${p.head}${was}${p.yesterday ? "yesterday, " : ""}${p.date}${p.rest}`;
+  }
+  return lines.join("\n");
 }
 
 export interface PrefacedBundle {

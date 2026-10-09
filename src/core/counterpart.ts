@@ -2864,6 +2864,14 @@ export class Counterpart {
       const first = this.prospective.occurrenceUndelivered(reminder.memoryId, reminder.windowKey);
       const claimed = this.prospective.claimPlain(reminder, { at: input.at, day });
       if (claimed && first) this.creditOccurrence(reminder.memoryId, reminder.windowKey, day, "plain");
+      // TOLD ON ITS DAY, IT LEAVES "ARRIVING:" (2026-09-29) — and the wake
+      // published before the telling still lists it, until something
+      // re-renders. A day's first render can come before the day's first tell
+      // (a late session's turn ending after midnight), and on 2026-10-09 a
+      // reminder said outright on the 8th was still under "Arriving:" the next
+      // morning. So the telling marks the wake behind, and the next turn-end
+      // worker re-renders it (`refreshWake`).
+      if (claimed && reminder.beat !== "opens") markWakeBehind(this.store, "told");
       return claimed;
     } catch (err) {
       this.emit("counterpart.prospective.plain.failed", reminder.memoryId, { code: errCode(err) });

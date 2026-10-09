@@ -74,11 +74,15 @@ import {
   TRIM_ORDER,
   WAKE_SYSTEM,
   applyPreface,
+  arrivingTense,
+  besidePageBytes,
   flatten,
+  identityShareBytes,
   PAGE_FLOOR_RESERVE_BYTES,
   PAGE_MIN_RENDER_BYTES,
   pageDateline,
   pageTooLargeLine,
+  PREFACE_RESERVE_BYTES,
   prefaceLine,
   readSentinel,
   render,
@@ -268,6 +272,13 @@ export interface HorizonItem {
    * May 14)`. Absent: a date that happens once.
    */
   readonly every?: string;
+  /**
+   * True when `due` is already behind the day the wake is composed for — a
+   * one-off in its grace days (2026-10-09). The line then says `(was due …)`.
+   * The caller knows that day (`core/briefing.ts#selfRenderer`); absent: not
+   * past, as far as the caller said.
+   */
+  readonly past?: boolean;
 }
 
 export interface BoundaryRequest extends BriefingRequest {
@@ -591,11 +602,17 @@ export class Self {
     const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
     // An arriving occasion's due date, beside its learned one (2026-10-01).
     // A repeating one says how often, beside it (2026-10-09).
-    const dues = new Map<string, { due: string; every?: string }>();
+    // One already behind the day the wake is composed for says it WAS due
+    // (2026-10-09).
+    const dues = new Map<string, { due: string; every?: string; duePast?: boolean }>();
     for (const h of req.horizon ?? []) {
       if (h.due === undefined || h.due.trim() === "") continue;
       const every = h.every?.trim() ?? "";
-      dues.set(h.id, every === "" ? { due: h.due.trim() } : { due: h.due.trim(), every });
+      dues.set(h.id, {
+        due: h.due.trim(),
+        ...(every === "" ? {} : { every }),
+        ...(h.past === true ? { duePast: true } : {}),
+      });
     }
     const resolve: Resolve =
       dues.size === 0
@@ -635,10 +652,16 @@ export class Self {
     // §15 item 3). Turn it off and a filtering composition gets no page and
     // falls back to the identity list `omit` left standing, which is what that
     // composition carried before the page existed.
+    //
+    // **AND IT LEAVES ROOM FOR THE LINES BESIDE IT** (2026-10-09): the
+    // Yesterday line, Arriving, and the first of "Still open"
+    // (`besidePageBytes`), measured on the lines this render will write. The
+    // owner's wake that morning printed "Still open:" over no item at all.
+    const yesterday = req.omit === undefined ? req.yesterday : undefined;
     const block =
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
         ? null
-        : this.pageBlock(req.budgetBytes);
+        : this.pageBlock(req.budgetBytes, besidePageBytes(lanes, resolve, this.tunables, yesterday));
     // A page that will not FIT is not a page that does not EXIST: the renderer
     // is told `pageExists` so the still-forming line stays off a store that has
     // one, whatever the ceiling did (MINOR-D).
@@ -654,7 +677,7 @@ export class Self {
         ...(page === null ? {} : { page }),
         // The "Yesterday" line (2026-10-01): the owner's wake only — a
         // composition that filters (`omit`) is bound elsewhere.
-        ...(req.yesterday === undefined || req.omit !== undefined ? {} : { yesterday: req.yesterday }),
+        ...(yesterday === undefined ? {} : { yesterday }),
       },
       resolve,
       this.tunables,
@@ -1298,7 +1321,7 @@ export class Self {
    * page exists and does not fit, in one line — the one thing that is both true
    * and short enough to say.
    */
-  private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
+  private pageBlock(budgetBytes: number, beside = 0): PageBlock | typeof NO_ROOM | null {
     const page = this.page();
     if (page === null) return null;
     const dateline = pageDateline(
@@ -1325,7 +1348,13 @@ export class Self {
     // "no page has been written here yet" — the class of lie PR #71's rule
     // forbids, moved from identity to the page (adversarial review MINOR-D).
     if (room <= 0) return NO_ROOM;
-    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
+    // THE LINES BESIDE IT (2026-10-09, `besidePageBytes`): a long page leaves
+    // them their room — but never below the identity share of this budget, the
+    // part the identity list was always kept while other lanes competed, so a
+    // small ceiling still carries the page rather than a line saying it did not
+    // fit. A page shorter than what is left is not cut at all.
+    const share = Math.min(room, identityShareBytes(budgetBytes, this.tunables));
+    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, Math.max(room - beside, share));
     if (cap < PAGE_MIN_RENDER_BYTES && bodyBytes > cap) {
       return {
         text: pageTooLargeLine(bodyBytes),
@@ -1566,7 +1595,15 @@ export class Self {
             // `storeSize` there cannot mean two things.
             liveRows: this.store.countMemories({ archived: false }),
           });
-    const delivered = preface === null ? null : applyPreface(raw, preface);
+    // THE TENSE, at the same moment and from the same date (2026-10-09): an
+    // Arriving line whose date is behind the person's today says it WAS due —
+    // in what the preface's reserve leaves: the line itself, its newline, and
+    // one more digit in each of the two byte counts the splice re-solves.
+    const body =
+      preface === null || delivery?.date === undefined
+        ? raw
+        : arrivingTense(raw, delivery.date, PREFACE_RESERVE_BYTES - byteLength(preface) - 1 - 2);
+    const delivered = preface === null ? null : applyPreface(body, preface);
     this.emit("self.wake", undefined, {
       ok: reason === "delivered",
       reason,

@@ -10,6 +10,7 @@ import { isConfidential } from "../../../../core/recall/index.js";
 import {
   FRAMING,
   LANE_ORDER,
+  collapsedLane,
   SELF_PAGE_REVISED_EVENT,
   chapterModels,
   dayBefore,
@@ -1125,6 +1126,14 @@ export function wakeParts(text: string, hasPage: boolean): WakePart[] {
       add("furniture", n);
       return;
     }
+    // A lane that listed nothing is ONE line, its heading inside it
+    // (`self/briefing.ts#collapsedLine`, 2026-10-09): it is that lane's.
+    const collapsed = collapsedLane(line);
+    if (collapsed !== null) {
+      current = collapsed;
+      add(collapsed, n);
+      return;
+    }
     if (line.startsWith("<!--") || line === FRAMING.context) {
       add("furniture", n);
       return;
@@ -1435,6 +1444,14 @@ export function wakeLanes(text: string): WakeLane[] {
     if (line.startsWith("<!--")) continue;
     if (line.length === 0) continue;
     const lane = headings.get(line);
+    // A lane that listed nothing is one line with its heading inside it
+    // (`self/briefing.ts#collapsedLine`, 2026-10-09): that lane, that one item.
+    const collapsed = collapsedLane(line);
+    if (collapsed !== null) {
+      if (current.items.length > 0) lanes.push(current);
+      current = { heading: FRAMING[collapsed], lane: collapsed, items: [line.slice(FRAMING[collapsed].length).trim()] };
+      continue;
+    }
     // A markdown heading counts too, so a future briefing that uses one still
     // splits rather than collapsing into a single block.
     const mdHeading = /^#{1,6}\s+(.*)$/.exec(line);

@@ -20,7 +20,7 @@
  *     are already built; only the source was borrowed).
  */
 import type { RenderFn } from "./sleep/index.js";
-import { readableRecurrence } from "./time.js";
+import { isDay, readableRecurrence } from "./time.js";
 import type { Recurrence } from "./time.js";
 
 /** Structurally `Self`, so this file imports no class. */
@@ -65,11 +65,20 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
         : opts.prospective
             .horizon({ at: opts.at, day: ctx.day })
             // The date it is due rides along, so the line can say it (2026-10-01),
-            // and how often it comes round when it repeats (2026-10-09).
+            // how often it comes round when it repeats (2026-10-09), and whether
+            // that date is already behind the day asked about — a one-off in its
+            // grace days says it WAS due (2026-10-09). Both are `YYYY-MM-DD`
+            // here, so the strings compare as the dates do.
             .items.map((i) => {
               if (i.eventDate === undefined) return { id: i.memoryId };
               const every = i.anchor === undefined || i.recurring === undefined ? "" : readableRecurrence(i.anchor, i.recurring);
-              return every === "" ? { id: i.memoryId, due: i.eventDate } : { id: i.memoryId, due: i.eventDate, every };
+              const at = opts.at ?? "";
+              return {
+                id: i.memoryId,
+                due: i.eventDate,
+                ...(every === "" ? {} : { every }),
+                ...(isDay(i.eventDate) && isDay(at) && i.eventDate < at ? { past: true } : {}),
+              };
             });
     const result = self.boundary({
       day: ctx.day,
