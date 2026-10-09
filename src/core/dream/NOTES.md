@@ -546,3 +546,13 @@ anything" stands alone there.
   the final message, and the finish call is writing.
 
 Untested against a model: whether this is enough. Doctor's line is the measure.
+
+## 2026-10-09 — `previewAsk` removed
+
+`Dreams.previewAsk` (and its `DreamPreview` type) was made for the dashboard's Tonight box
+(2026-09-27, #262/#263); Home round 4 took the box out the next day (#273), and since then
+only its own tests called it. It is gone, with `DashboardSource.dreams`, the one wire that
+carried it to the dashboard, and `test/dream-preview.test.ts`. The gate is unchanged:
+`status`, `askLine` and `offer` ask it as before, and the private `gate` keeps its stance
+arguments. The entries above that name `previewAsk` (2026-09-27, and the guest-bundle notes
+of 2026-10-02) are history.
