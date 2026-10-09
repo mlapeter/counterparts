@@ -177,7 +177,16 @@ export function nightMaxTurns(config: AdapterConfig): number {
  * scope from it before its own directory) and the markers that say "inside a
  * Claude Code session" (a host may refuse to start a session inside another).
  */
-export const HOST_SESSION_ENV = ["CLAUDE_PROJECT_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"] as const;
+export const HOST_SESSION_ENV = [
+  "CLAUDE_PROJECT_DIR",
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  // The plugin's own two (2026-10-09, `adapters/plugin.ts`): a hook the plugin
+  // launched carries them, and the child's hooks and server must learn whether
+  // THEY are the plugin's from the child's host, never from this one.
+  "CLAUDE_PLUGIN_ROOT",
+  "CLAUDE_PLUGIN_DATA",
+] as const;
 
 export type NightKind = { readonly kind: "night" } | { readonly kind: "reflection"; readonly dream: string };
 

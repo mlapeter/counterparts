@@ -22,7 +22,9 @@ export interface StdioOptions {
 }
 
 export async function serveStdio(
-  server: McpServer,
+  // Only `handle` is used, so a stand-in that answers the protocol and nothing
+  // else (`stood-down.ts`) is served by the same pump.
+  server: Pick<McpServer, "handle">,
   input: AsyncIterable<string | Uint8Array>,
   opts: StdioOptions,
 ): Promise<void> {
