@@ -162,6 +162,10 @@ const run = {
   statusBase: '',
   draft: '',
   brainTimer: null as { cancel: () => void } | null,
+  /** Which timer is the brain's now: a tick or a blit answer of an older one changes nothing. */
+  brainGen: 0,
+  /** Fresh drawings asked for after refused blits since the last blit that was taken. */
+  redraws: 0,
 }
 
 // ── pure helpers ────────────────────────────────────────────────────────────
@@ -275,8 +279,8 @@ function switchExplains(scope: SidebarScope): string | null {
   const here = scope.dir ?? 'this folder'
   if (scope.mode === 'off') {
     return scope.own || scope.setBy === null
-      ? `This folder is set off: nothing is remembered here and nothing comes to mind. The switch won't turn it back on; \`counterparts scope ${here} --resume\` does.`
-      : `This folder is off because ${scope.setBy} is set off. The switch won't turn it back on; \`counterparts scope ${scope.setBy} --resume\` does.`
+      ? `This folder is set off: nothing is remembered here and nothing comes to mind. The switch won't turn it back on; \`counterparts scope ${here} --on\` does.`
+      : `This folder is off because ${scope.setBy} is set off. The switch won't turn it back on; \`counterparts scope ${scope.setBy} --on\` does.`
   }
   if (scope.mode === 'paused' && !scope.own) {
     return `Paused because ${scope.setBy ?? 'a folder above this one'} is paused. Resume it there: \`counterparts scope ${scope.setBy ?? '<that folder>'} --resume\`.`
@@ -595,9 +599,16 @@ async function runSearch($: EngineInterface, raw: string): Promise<void> {
   }
 }
 
+/**
+ * Opens (or re-opens) the pane and asks for a fresh drawing of it. Measured
+ * live: a pane closed by hand and opened again is drawn from the terminal's
+ * settled evaluation ("reuses its settled evaluation"), so this module's render
+ * hook never runs and the brain, stopped at the close, would stay frozen.
+ */
 async function openPane($: EngineInterface): Promise<{ isPlaced: boolean }> {
   const railed = await read($, railA)
   const opened = await $.ui.open({ id: PANE, title: TITLE, columns: railed ? RAIL_COLUMNS : OPEN_COLUMNS })
+  $.ui.invalidate('ui.render')
   return { isPlaced: opened.isPlaced }
 }
 
@@ -614,7 +625,7 @@ async function openUnasked($: EngineInterface): Promise<void> {
 async function setRail($: EngineInterface, on: boolean): Promise<void> {
   await update($, railA, () => on)
   await $.store.set('rail', on)
-  await $.ui.open({ id: PANE, title: TITLE, columns: on ? RAIL_COLUMNS : OPEN_COLUMNS })
+  await openPane($)
 }
 
 async function pick($: EngineInterface, id: MechId): Promise<void> {
@@ -646,13 +657,28 @@ async function openRow($: EngineInterface, id: string): Promise<void> {
 }
 
 function stopBrain(): void {
+  run.brainGen += 1
   run.brainTimer?.cancel()
   run.brainTimer = null
   raster.live = false
+  fps.inFlight = false
 }
 
-/** One frame of the brain onto the mounted Raster; the blit's time is the measurement. A refused blit stops the timer. */
-function tick($: EngineInterface): void {
+/**
+ * A refused blit is a Raster gone (rail, hidden, closed) or one not mounted
+ * yet (a pane just reopened). Ask for a fresh drawing, a few times at most
+ * until a blit is taken again: a drawing that mounts the Raster starts the
+ * brain again (`wake`), one that doesn't leaves it stopped.
+ */
+function redrawAfterRefusal($: EngineInterface): void {
+  if (run.redraws >= 3) return
+  run.redraws += 1
+  $.ui.invalidate('ui.render')
+}
+
+/** One frame of the brain onto the mounted Raster; the blit's time is the measurement. */
+function tick($: EngineInterface, gen: number): void {
+  if (gen !== run.brainGen) return
   const now = Date.now()
   const dt = fps.lastTick === 0 ? 0 : Math.min(250, now - fps.lastTick)
   fps.lastTick = now
@@ -666,11 +692,16 @@ function tick($: EngineInterface): void {
   fps.inFlight = true
   void $.ui.blit({ requestId: PANE, key: 'brain', cells, columns: raster.cols, rows: raster.rows }).then(
     r => {
+      // An answer to a blit of a timer since stopped or replaced (a close, the
+      // rail, a reopen) must not stop the brain that runs now.
+      if (gen !== run.brainGen) return
       fps.inFlight = false
       if (r.deny !== undefined) {
         stopBrain()
+        redrawAfterRefusal($)
         return
       }
+      run.redraws = 0
       fps.blits.push(performance.now())
       if (fps.blits.length > 240) fps.blits.shift()
       if (fps.shown && now - fps.statusAt > 1000) {
@@ -679,16 +710,20 @@ function tick($: EngineInterface): void {
       }
     },
     () => {
-      fps.inFlight = false
+      if (gen !== run.brainGen) return
       stopBrain()
+      redrawAfterRefusal($)
     },
   )
 }
 
 function startBrain($: EngineInterface): void {
   run.brainTimer?.cancel()
+  run.brainGen += 1
+  const gen = run.brainGen
+  fps.inFlight = false
   fps.lastTick = 0
-  run.brainTimer = $.clock.every(Math.max(16, Math.round(1000 / fps.target)), () => tick($))
+  run.brainTimer = $.clock.every(Math.max(16, Math.round(1000 / fps.target)), () => tick($, gen))
 }
 
 /** A drawing of the pane: the brain turns and the dashboard is read only from here on, until the pane stops showing. */
@@ -966,8 +1001,12 @@ export const register: Register = on => {
     rows.push(<Text key="gap2"> </Text>)
 
     // ── the brain ──
-    const bw = Math.min(w, 80)
-    const bh = Math.max(6, Math.round(bw / 3))
+    // Docked, the brain takes the sidebar's width. Inline above the prompt (the
+    // main screen, or a terminal under 110 columns) the body is the terminal's
+    // whole width, so the brain stays small there.
+    const inline = e.props.placement === 'inline'
+    const bw = inline ? Math.min(w, 30) : Math.min(w, 80)
+    const bh = inline ? Math.min(10, Math.max(6, Math.round(bw / 3))) : Math.max(6, Math.round(bw / 3))
     if (hasRaster) {
       const { Raster } = $.ui.resolve(e)
       raster.cols = bw

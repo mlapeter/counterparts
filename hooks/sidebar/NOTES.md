@@ -7,11 +7,22 @@ approved design is the 10-09 mockup ("Sidebar v2", `drawD` in
 `~/counterparts-notes/mockups/2026-10-09-mod/`). This file records what the
 build learned. Everything here is a working default.
 
-**Try it** (the whole plugin; its classic hooks and server stand down beside
-an npm install, so only the mod runs; the start-up line then says that is
-expected and asks for nothing):
+**Try it from a frozen copy**, not from a working tree. A `--plugin-dir` folder
+hot-reloads on every edit, and an agent's worktree is deleted at merge. So
+export one commit, install its dependencies (the plugin's server, which stands
+down beside an npm install, still loads its code), and point Claude Code at
+that:
 
-    claude --plugin-dir /Users/mlapeter/counterparts/.claude/worktrees/mod-sidebar
+    git -C ~/counterparts fetch -q origin
+    sha=$(git -C ~/counterparts rev-parse --short origin/feat/mod-sidebar)
+    dir=~/counterparts-trials/sidebar-v01-$sha
+    mkdir -p "$dir" && git -C ~/counterparts archive "$sha" | tar -x -C "$dir"
+    (cd "$dir" && bun install --frozen-lockfile)
+    claude --plugin-dir "$dir"
+
+That loads the whole plugin. Beside the npm install, its classic hooks and its
+server stand down, so only the mod runs; the one start-up line says this is
+expected and asks for nothing.
 
 It opens by itself only where the terminal docks a pane beside the transcript
 (the fullscreen layout). Elsewhere, and after closing it by hand,
@@ -19,7 +30,7 @@ It opens by itself only where the terminal docks a pane beside the transcript
 `/counterparts rail` slides it, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (42 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (46 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -89,6 +100,18 @@ Found on the way (each **verified** unless marked):
   itself, and the main screen did not.
 - A pane closed by hand (`ui.close`, origin `person`) stays closed for the
   session, across a hot reload too (live). The test kit can't raise that event.
+- **A pane opened again is drawn from the terminal's settled evaluation**
+  (debug log: "terminal reuses its settled evaluation"). The module's render
+  hook doesn't run, so the brain stopped at the close stayed frozen after
+  `/counterparts`, until a width change (the rail and back) forced a drawing.
+  Every open now asks for a fresh drawing (`$.ui.invalidate('ui.render')`).
+  The brain's timer is also generation-guarded: a late answer to a blit from a
+  timer since replaced can't stop the current one. A refused blit asks for a
+  fresh drawing, up to three times until a blit is taken again. Live: close
+  and reopen twice, and the brain kept turning.
+- Inline above the prompt (the main screen, or a dock under 110 columns), the
+  pane's body is the terminal's full width, so the brain is held to 30 x 10
+  there. The review measured 7.5% CPU inline before this.
 - **The plugin beside npm, from a folder** (`src/adapters/plugin.ts`,
   `pluginOrigin`). Under `--plugin-dir`, the stand-down line used to say "run
   `counterparts disconnect`". That would have left the live memory wired to a
@@ -164,7 +187,8 @@ Mike's first real run is the real measurement.
     remembers which), and it resumes only its own pause. One call per press.
   - **What it refuses, and says so** in a line under the switches, with the
     console command that would do it:
-    - an `off` folder (no `resume` is ever sent to one);
+    - an `off` folder (no `resume` is ever sent to one; the line names
+      `counterparts scope <dir> --on`);
     - an `unset` folder;
     - a folder that inherits its mode from a parent;
     - a folder paused by a parent.

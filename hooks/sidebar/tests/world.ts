@@ -109,6 +109,8 @@ export type WorldOptions = {
   shown?: boolean;
   /** Every blit is refused (the Raster is no longer mounted). */
   blitDeny?: boolean;
+  /** The first N blits are refused (a Raster not mounted yet), the rest taken. */
+  blitDenyFirst?: number;
   /** The answer a `recall` gets. */
   factsAnswer?: string;
   store?: Record<string, unknown>;
@@ -127,6 +129,9 @@ export type World = {
   invalidations: string[];
   scope: { mode: string; setBy: string | null; resumeTo: string };
   shown: boolean;
+  /** Blits still to be answered late (600 ms on the mocked clock) with a refusal. */
+  slowDeny: number;
+  denied: number;
   lastStatus: () => string;
 }
 
@@ -145,6 +150,8 @@ export function world(on: On, opts: WorldOptions = {}): World {
     invalidations: [],
     scope: { mode: opts.scopeMode ?? 'on', setBy: opts.scopeSetBy === undefined ? HERE : opts.scopeSetBy, resumeTo: 'on' },
     shown: opts.shown ?? true,
+    slowDeny: 0,
+    denied: 0,
     lastStatus: () => w.statuses.filter((s): s is string => typeof s === 'string').at(-1) ?? '',
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -164,9 +171,19 @@ export function world(on: On, opts: WorldOptions = {}): World {
     w.toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.blit', (_$, e) => {
+  on('ui.blit', async (_$, e) => {
+    if (w.slowDeny > 0) {
+      w.slowDeny -= 1
+      await clock.sleep(600)
+      w.denied += 1
+      return { value: { deny: 'not mounted' } }
+    }
+    if (opts.blitDeny === true || w.denied < (opts.blitDenyFirst ?? 0)) {
+      w.denied += 1
+      return { value: { deny: 'not mounted' } }
+    }
     w.blits.push(e)
-    return opts.blitDeny === true ? { value: { deny: 'not mounted' } } : { value: {} }
+    return { value: {} }
   })
   on('ui.panes', () => ({ value: [{ id: PANE, title: 'Counterparts', isShown: w.shown, isFocused: false, isPlaced: w.shown }] }))
   on('ui.close', () => ({ value: undefined }))

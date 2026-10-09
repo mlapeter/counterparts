@@ -147,12 +147,77 @@ test('the brain is a Raster the terminal can hold, repainted by blits; /counterp
   await ui.unmount()
 })
 
-test('the brain stops when its Raster is no longer mounted: a refused blit cancels the timer', async ($, on) => {
+test('the brain stops when its Raster is gone: refused blits stop the timer after a few fresh drawings', async ($, on) => {
   const w = world(on, { blitDeny: true })
   await start($, w)
   const ui = await mount($, w, 'terminal')
+  for (let i = 0; i < 6; i++) {
+    await w.clock.advance(1000)
+    await ui.drawn() // a fresh drawing the module asked for is drawn before a read
+  }
+  expect(w.blits).toHaveLength(0)
+  expect(w.denied).toBeLessThanOrEqual(4) // the first refusal and three redraws, then it stays stopped
+  const n = w.denied
+  await w.clock.advance(3000)
+  await ui.drawn()
+  expect(w.denied).toBe(n)
+  await ui.unmount()
+})
+
+test('a blit refused because the Raster is not mounted yet: a fresh drawing starts the brain again', async ($, on) => {
+  const w = world(on, { blitDenyFirst: 1 })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(500)
+  await ui.drawn()
   await w.clock.advance(2000)
-  expect(w.blits).toHaveLength(1)
+  expect(w.denied).toBe(1)
+  expect(w.blits.length).toBeGreaterThanOrEqual(8)
+  await ui.unmount()
+})
+
+test('closed and opened again (here: to the rail and back), a late refusal of an old blit does not freeze the brain', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(500)
+  w.slowDeny = 1 // the next blit is answered 600 ms late, refused: the pane it was for is gone
+  await w.clock.advance(200)
+  await ui.press({ key: 'fold' })
+  await ui.press({ key: 'rail:dreaming' })
+  const before = w.blits.length
+  await w.clock.advance(1000) // the stale refusal lands in here
+  await ui.drawn()
+  await w.clock.advance(2000)
+  expect(w.denied).toBe(1)
+  expect(w.blits.length - before).toBeGreaterThanOrEqual(10)
+  await ui.unmount()
+})
+
+test('/counterparts asks for a fresh drawing: a pane reopened after a hand-close is not left on its settled drawing', async ($, on) => {
+  const w = world(on)
+  on('ui.invalidate', (_$, e) => {
+    w.invalidations.push(e.event)
+    return { value: undefined }
+  })
+  await start($, w)
+  const out = await $.command.run({ command: 'counterparts', args: '' } as never)
+  expect(out.text).toBe('Counterparts sidebar opened.')
+  expect(w.invalidations).toContain('ui.render')
+})
+
+test('inline above the prompt the brain stays small', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await $.ui.mount({
+    plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE,
+    props: { ...PANE_PROPS, bodyColumns: 120, placement: 'inline' } as typeof PANE_PROPS,
+    viewport: { columns: 120, rows: 40, isFullscreen: false },
+  })
+  await settle(w)
+  const r = await ui.find({ type: 'Raster', key: 'brain' })
+  expect(r?.props['columns']).toBe(30)
+  expect(r?.props['rows']).toBe(10)
   await ui.unmount()
 })
 
@@ -376,7 +441,7 @@ test('a folder set off shows off, and the switch explains rather than turning it
     const said = (await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')
     expect(said).toContain('This folder is set off')
     expect(said).toContain(`counterparts scope ${HERE}`)
-    expect(said).toContain('--resume` does.')
+    expect(said).toContain('--on` does.')
     await ui.unmount()
   }
 })
