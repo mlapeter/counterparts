@@ -241,7 +241,8 @@ proposals and their archive; render and delivery telemetry.
    because the horizon lane's dates are in the future), `- YYYY-MM-DD (due YYYY-MM-DD) ·
    statement` for an arriving occasion (2026-10-01) — `(due YYYY-MM-DD, every May 14)`
    when its date repeats (2026-10-09), `- due YYYY-MM-DD · statement` when it is due on
-   the day it was learned, and `was due` for a date already behind the day the wake was
+   the day it was learned (a migrated row's `by` bound is not printed there: the due date
+   is the line's claim), and `was due` for a date already behind the day the wake was
    composed for (2026-10-09) — and no prefix when the statement
    already opens with that same date. **The delivery puts an Arriving date in the past
    tense** (2026-10-09, `briefing.ts#arrivingTense`): it alone knows the reading day, so a
