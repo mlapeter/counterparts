@@ -602,7 +602,7 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "A time in the question filters: \"last week\", \"in September\", \"early October\", \"3 days ago\", a date, \"since 09-20\", \"this morning\" — only memories inside the window come back, by when the thing happened or, with no event date, when it was learned, and the header counts the matches outside it. A week or a month stretches two days each side; a date stays exact. \"Around the cut-over\" resolves the event to the date of the memory that best names it, shown in the header as \"cut-over → 09-21\"; \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, and its own rows come first.",
+        "A time in the question filters: \"last week\", \"in September\", \"early October\", \"3 days ago\", \"last Saturday\", a date, \"since 09-20\", \"before 09-20\", \"this morning\" — only memories inside the window come back, by when the thing happened or, with no event date, when it was learned, and the header counts the matches outside it. A week or a month stretches two days each side; a date stays exact; \"before\" a date is every day before it, \"after\" every day after, \"until\" or \"by\" every day through it. \"Around the cut-over\" resolves the event to the date of the memory that best names it, shown in the header as \"cut-over → 09-21\"; \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, and its own rows come first.",
       mechanizedBy: "src/core/recall/time-ask.ts#readTimeAsk + src/adapters/mcp/facts.ts#factsRecall (inWindow, lastSession)",
     },
     {

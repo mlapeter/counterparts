@@ -1257,3 +1257,61 @@ Nkechi Abernathy arrived" answered about Nkechi.
   question typed all in lower case loses the step on every name, so the grammar still
   decides. The matching itself (and a Will card linking every "will" in the store's
   memories at birth) is the alias index's, untouched here.
+
+## 2026-10-09 — facts mode: "last Saturday", and a word in front of a date
+
+The LongMemEval run (counterparts-87, about 2,000 facts searches) found two misreadings in
+`recall/time-ask.ts`. "Last Saturday" was no time at all, so nothing was filtered. "Before
+7/22" filtered to 07-22 alone: only "since" was read in front of a date, and every other
+word was left in the question while the date stood as one exact day. "Two weeks ago" was
+right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
+
+- **What changed meaning, exactly.** (1) "last <weekday>" and "this past <weekday>", full
+  names only, any case, a possessive allowed ("last Saturday's"): was no window; now the
+  most recent such day strictly before today, exact (no stretch). Asked on a Saturday,
+  "last Saturday" is a week back. (2) "before" / "prior to" a date: was that one day; now
+  `OPEN_START`..the day before. (3) "after" a date: was that one day; now the day
+  after..`OPEN_END`. (4) "until", "till", "up to", "up until", "by" a date: was that one
+  day; now `OPEN_START`..the date. Each in every date shape the parser reads: ISO day and
+  month (`2026-07-22`, `2026-07`), `7/22` and `07-22` (month first, as before), "July 22",
+  "22 July", "July 22nd". A "the" between the word and the date is allowed ("after the 4th
+  of July"). (5) `7/22/2023` and "July 22, 2023" / "22 July 2023": the written year was
+  ignored (the date took `yearFor`'s year, and `/2023` stayed in the question's words);
+  now it is the year. (6) "since" + "last <weekday>" runs from that day to today, as
+  "since" + a date always did. "Since" + a date is unchanged, its month stretch included.
+- **The rule for "last <weekday>"** is the CONTRACT's (§6f). Exact, as "yesterday" and
+  "the day before yesterday" are: a named day. A day's stretch would not cover the other
+  reading people mean by it (the Saturday a week earlier) anyway. Not "the last Saturday"
+  (the last of something: "of June").
+- **An open end is a sentinel, not a null.** `OPEN_START = 0001-01-01`, `OPEN_END =
+  9999-12-31`, so `DayWindow` keeps its shape and `inWindow`'s string comparisons, the
+  chapter-date filter and the only-time pool work unchanged. The header and the dashboard's
+  Ask line read them as "through 07-21" and "07-23 onward"; `ask --json` shows the
+  sentinels as they are. `stretched` leaves an open end open.
+- *Choices:*
+  - "After" is open-ended, where "since" stops at today. "Since" means "from then until
+    now"; "after" does not, and a plan dated past today ("what is coming after 7/22") is
+    inside it.
+  - A bound does not stretch, even under a month ("before 2026-07" is through 06-30): the
+    person named the cutoff. "Since" keeps the stretch it had.
+  - "By" reads as "through" (a deadline). Only right in front of the date: "by the way on
+    7/22" is 07-22 alone.
+  - "The day after 7/22", "a week after 7/22", "the night before 7/22" read as the bound
+    ("after 7/22", "before 7/22"): wider than meant, but they cover the day meant. They
+    were 07-22 alone, which missed it.
+  - *Review of #338:* a date that names a thing on that day keeps that day under "before"
+    and "after". "What did I eat before the 7/22 flight" was through 07-21, and the meal
+    was on 07-22 (master's 07-22 alone found it; the bound hid it). "After the July 22
+    launch" was 07-23 on, hiding the launch day; 07-22 alone would hide the days after.
+    So: a "the" between the word and the date and a word after the date that is not the
+    question going on (`PHRASE_STOP`: "after the 4th of July we sailed" is still a cutoff),
+    or an 's on the date ("after July 22's standup", "after last Saturday's party"), and
+    the window is through the date / from the date on. Only the date leaves the question
+    ("what did I eat before the flight"), and the header says "before the 7/22". Wider by
+    one day than a cutoff, never narrower than either earlier reading.
+- **Not done:** a month NAME under a bound ("before September" is still no time;
+  "before September 2023" is still all of September, stretched), "between X and Y" and
+  "from X to Y" (still the first date alone), "this Saturday" and "on Saturday" (either can
+  be the coming one), "last weekend" (no time), a two-digit year (`7/22/23` is still 7/22
+  with `yearFor`'s year, `/23` left in), `2023/07/22`. The learned-date fallback for a row
+  with no `occurred_on` is the owner's decision and untouched.

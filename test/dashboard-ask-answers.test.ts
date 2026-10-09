@@ -209,6 +209,19 @@ describe("facts: every match, counted and paged", () => {
     expect(seen(row)).not.toContain("lived day");
   });
 
+  test("a cutoff reads as one: \"before\" is through the day before, \"after\" from the day after on (2026-10-09)", async () => {
+    const before = (await ask<FactsResult>({ question: "zqrota before 2026-06-05", mode: "facts" })).answer;
+    expect(before.time?.cue).toBe("before 2026-06-05");
+    expect(before.memories.map((x) => x.id)).toContain(ids.said as string);
+    const words = page.timeWords(before.time);
+    expect(words).toContain(`through ${dates.dateOr("2026-06-04")}`);
+    expect(words).not.toContain("0001");
+    const after = (await ask<FactsResult>({ question: "zqrota after 2026-06-04", mode: "facts" })).answer;
+    expect(after.memories.map((x) => x.id)).not.toContain(ids.said as string);
+    expect(page.timeWords(after.time)).toContain(`${dates.dateOr("2026-06-05")} onward`);
+    expect(page.timeWords(after.time)).not.toContain("9999");
+  });
+
   test("nothing answers: said so, with what to try", async () => {
     const { answer } = await ask<FactsResult>({ question: "zqnothingholdsthis", mode: "facts" });
     expect(answer.matched).toBe(0);
