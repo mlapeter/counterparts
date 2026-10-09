@@ -600,3 +600,6 @@ hand, in the old shape.
   card, usually the biggest, won, and the person asked about went under "also
   named". The answer tests ran the action with no owner name, as the server never
   does. Facts still gets his name, where words are what match.
+  (2026-10-09: meaning now takes the card the question is about, and in my voice
+  "you" asked about is the owner's card, so "what have I been like" finds his card
+  again with no change here; see mcp NOTES of that day.)

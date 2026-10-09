@@ -318,6 +318,29 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     expect(answer.whose.self).toBe("mine");
   });
 
+  test('"what have I been like", by meaning, is the owner\'s own card again (2026-10-09)', async () => {
+    // #333 turned his "I" into "you" in meaning mode, which named no card, so
+    // the question was read by its words ("like"). In my voice "you" asked
+    // about is his card (`meaning.ts#subjectOf`).
+    const c = Counterpart.open({ dir, owner: true });
+    let ownerName: string | null;
+    try {
+      ownerName = ownerNames(c.store)[0] ?? null;
+    } finally {
+      c.close();
+    }
+    expect(ownerName).not.toBeNull();
+    for (const question of ["what have I been like", "how have I changed?"]) {
+      const r = await runAction("ask", { json: true, question, mode: "meaning" }, { dir, ownerName });
+      expect(r.body.exit).toBe(0);
+      expect(r.body.searched?.text).toContain("you");
+      const answer = JSON.parse((r.body.out ?? []).join("\n")) as MeaningResult;
+      expect(answer.lens?.kind).toBe("card");
+      expect(answer.lens?.name.toLowerCase()).toBe(ownerName as string);
+      expect(seen(page.meaningHead(answer))).toStartWith(answer.lens?.name as string);
+    }
+  });
+
   test("nothing holds it: said so, with what to try", async () => {
     const { answer } = await ask<MeaningResult>({ question: "zqnothingholdsthis", mode: "meaning" });
     expect(answer.reason).toBe("nothing-came");
