@@ -2,3 +2,7 @@
 # Redirects `homedir()` to a fresh temp dir for the whole run, so no test can
 # reach the owner's live `~/.counterparts`. See test/preload.ts for the wound.
 preload = ["./test/preload.ts"]
+# The repository's tests live under test/. The sidebar mod's own tests
+# (hooks/sidebar/tests) import 'claude-code/testing' and run under
+# `claude plugin test hooks/sidebar` instead, never under bun.
+root = "./test"
