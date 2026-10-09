@@ -1556,7 +1556,9 @@ export type PruneReason =
   | "dwell-too-short"
   | "band-not-episodic"
   | "protected"
-  | "in-live-revision-chain";
+  | "in-live-revision-chain"
+  /** Its reminder date still repeats (`meta.recurring`, 2026-10-09): see `pruneVerdict`. */
+  | "recurring";
 
 /** Counts, kind, dates. NEVER a body and NEVER a content hash (scar §2.20). */
 export interface PruneRecord {
@@ -1573,7 +1575,8 @@ export interface PruneRecord {
 export interface PruneVerdict {
   prune: boolean;
   reason: PruneReason;
-  /** Every failing gate, not just the first — all five are named. */
+  /** Every failing gate, not just the first — all six are named; `recurring`
+   *  only where the floor alone would have let the memory go. */
   blockedBy: PruneReason[];
   strength: number;
   band: Band;
@@ -1582,15 +1585,26 @@ export interface PruneVerdict {
 }
 
 /**
- * The ONLY physics-driven removal (§5.8), gated on all five conditions. No
+ * The ONLY physics-driven removal (§5.8), gated on all six conditions. No
  * model, on any path, holds delete power — this returns a verdict and a record;
  * it deletes nothing itself. Everything else merely fades: a low-strength memory
  * is still present and still retrievable by a strong enough cue.
+ *
+ * `ctx.recurring` (2026-10-09, the owner's decision, held lightly): the memory's
+ * reminder date still repeats. Each occurrence it is told or surfaced on counts
+ * as a use (`Counterpart#creditOccurrence`), which carries a daily, weekly or
+ * monthly repeat; a yearly one is used once a year, and no single use outlasts
+ * 365 lived days at an ordinary salience. So a live repeat is refused here by
+ * name, as `protected` is — but only where the floor would otherwise have let
+ * it go, since it is an exemption from the floor and not a standing rule (review
+ * of #341). Only the prune: it still fades, its band and strength read as
+ * before. Prospective does not refuse a live repeat `faded` (review of #341,
+ * `prospective/derive.ts`), so each occurrence is still delivered.
  */
 export function pruneVerdict(
   m: MemoryPhysics,
   d: number,
-  ctx: { inLiveRevisionChain: boolean },
+  ctx: { inLiveRevisionChain: boolean; recurring?: boolean },
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): PruneVerdict {
   const s = strength(m, d, shape);
@@ -1600,8 +1614,16 @@ export function pruneVerdict(
   if (s >= TUNABLES.PHI_PRUNE) blockedBy.push("above-floor");
   if (dwellDays < TUNABLES.D_FLOOR_DAYS) blockedBy.push("dwell-too-short");
   if (b !== "episodic") blockedBy.push("band-not-episodic");
+  // The three floor conditions above are arithmetic ("not yet"); the rest are
+  // named rules.
+  const floorLetsGo = blockedBy.length === 0;
   if (m.protected) blockedBy.push("protected");
   if (ctx.inLiveRevisionChain) blockedBy.push("in-live-revision-chain");
+  // An exemption FROM THE FLOOR, so named only where the floor would have let
+  // the memory go (review of #341): a repeat well above it is held by
+  // `above-floor` and nothing else, and naming `recurring` on every live repeat
+  // every night read as a refusal in the fired view's prune row.
+  if (ctx.recurring === true && floorLetsGo) blockedBy.push("recurring");
   const prune = blockedBy.length === 0;
   return {
     prune,

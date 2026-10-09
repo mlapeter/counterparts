@@ -1,7 +1,8 @@
-# Counterparts as a Claude Code plugin (prototype, 2026-10-09)
+# Counterparts as a Claude Code plugin (2026-10-09)
 
-Status: a prototype on a branch, for review. Nothing here is submitted or
-published; that is the owner's call.
+Status: ships in 0.3.13. It installs from this repository's marketplace once the
+`v0.3.13` tag is pushed (below, "Releasing: move the pin"). It is not submitted to
+the plugin directory; that is the owner's call.
 
 ## What it is
 

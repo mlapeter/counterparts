@@ -50,6 +50,17 @@ clothes. **Hold debts, lose deadlines.**
   window is its day and a weekly one runs from three days before to three days after.
   A daily one takes no wake line (review of #339): it is every day, not arriving, and a
   wake rendered the evening before would date it yesterday. Only a DAY repeats; a month, a range or a year with `recurring` is refused at the door.
+  **A repeat is kept alive by coming round** (owner decision 2026-10-09, held lightly):
+  the first DELIVERY of each occurrence — a quiet fire the gate admitted, or a plain line
+  the host claimed — counts as one use of the memory (`surfaced`, no return), credited by
+  the composition root through the store's reinforce seam; this module answers only
+  whether the occurrence is still undelivered (`occurrenceUndelivered`). Never for a
+  one-off date or a dropped repeat. And physics' prune refuses a live repeat by name
+  (`recurring`), because one use a year does not outlast a yearly gap. Fading is
+  unchanged for recall and display, but **a live repeat is not refused `faded`** (review
+  of #341, the one carve-out from G10 below): a quiet yearly at the default salience has
+  faded by its second date, and "so they stay alive" means each occurrence is delivered by
+  its own remind rules (NOTES §16).
   Two calendar rules, counted from the anchor every time so nothing drifts: **monthly on
   the 29th, 30th or 31st falls on the last day of a month too short to have it** (Jan 31
   → Feb 28, or 29 → Mar 31 → Apr 30), and **yearly on Feb 29 falls on Feb 28 in a common
@@ -70,8 +81,8 @@ clothes. **Hold debts, lose deadlines.**
   **An explicit date is its own importance signal** (owner decision 2026-09-26, a working
   default): a memory whose author wrote its `eventDate` is exempt from the salience floor,
   which now gates only a date a caller extracted. Decay is not exempted — a dated memory
-  faded to `FADED_STRENGTH` refuses as `faded` (G10) — and archived, skill and journal
-  still refuse.
+  faded to `FADED_STRENGTH` refuses as `faded` (G10), unless its date still repeats (§3) —
+  and archived, skill and journal still refuse.
 - **Precision is carried by the date's own format**, never rounded, and the ramp differs by
   precision — a stated month *means* early month more than the 29th. [v1] §12 G4. Since
   2026-09-26 there are four shapes (`core/time.ts`): a day, a month, a year (no window), and
@@ -95,7 +106,9 @@ clothes. **Hold debts, lose deadlines.**
   nothing to the old one's spent budget. [v1] §12 G9.
 - **No decay exemption before arrival.** [v1] §12 G10 — a future-dated memory that decays
   into insignificance before its window was an occasion that didn't matter; forgetting it
-  is memory working.
+  is memory working. One carve-out (review of #341, 2026-10-09): a date that still
+  REPEATS is not refused `faded` — the author asked for it to come round, and the owner
+  decided repeats stay alive (§3).
 - **Firing state is not canonical memory**, and the write budget is set by that cost:
   losing it risks one extra polite mention, never a memory, so contended writers skip the
   update loudly rather than stall a host-facing path. [v1] §12 G12.
@@ -135,7 +148,9 @@ session's affect summary; the observer predicate.
 tasks"* (day-dated items only, since 2026-09-26), and/or a temporal cue fed into the
 ordinary turn-time pass; for a PLAIN item, a claimed record the host turns into one line on
 its day (§3's named exception) — records, never words; firing-state transitions;
-telemetry by reference.
+telemetry by reference; and for a repeating date, whether an occurrence is still
+undelivered, which the caller turns into one credited use (§3) — this module writes no
+physics.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 

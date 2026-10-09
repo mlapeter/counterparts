@@ -324,7 +324,17 @@ PRUNE(m,d) iff strength(m,d) < φ = 0.02                            # TUNABLE
            and (d − last_used_day(m)) ≥ D_floor = 90                # TUNABLE, lived days
            and band(m) == episodic  and not protected(m)
            and m is neither successor nor predecessor in a live revision chain
+           and m's reminder date does not still repeat                # 2026-10-09
 ```
+
+The sixth gate (`recurring`, the owner's decision of 2026-10-09, held lightly): a memory
+whose `event_date` repeats (`meta.recurring`, prospective §3) is refused by name, as a
+protected one is. Each delivered occurrence counts as a use, which carries a daily,
+weekly or monthly repeat; a yearly one is used once a year, and no single use outlasts
+365 lived days at an ordinary salience. Only the prune: it still decays, its band and
+strength read as before. The caller supplies it (`sleep/prune.ts`, from the row's meta).
+It is an exemption from the floor, so the verdict names it only where the first three
+conditions hold (review of #341); a repeat above the floor is refused `above-floor` alone.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
 §2.20) — and is the only physics-driven removal. Everything else merely fades: a
@@ -355,7 +365,7 @@ low-strength memory is still present and still retrievable by a strong enough cu
     store fact the caller supplies, the refusal is named
     (`revision-successor-never-merged`), and it is checked before hash and cosine.
 9. **[M]** Superseded versions stay resolvable for `H` lived days; nothing here deletes one.
-10. **[M]** Prune is gated on all five conditions and is recorded; no model-reachable caller
+10. **[M]** Prune is gated on all six conditions and is recorded; no model-reachable caller
     can invoke it.
 11. **[A]** The per-kind tables are v1's calibration, not law. They ship with a recorded
     calibration and a fixture-bounded window, or disabled (scar §2.8).

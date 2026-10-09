@@ -417,9 +417,68 @@ simulated day:
 - **A quiet weekly spends both fires in its lead** when it is surfaced every day: Friday
   and Saturday, and nothing on the Monday itself. That is the one-off rule (a day window
   holds no fire back for its day); a repeat just shows it every week.
-- **Decay still holds, and a repeat has to outlive it** (named, not fixed — the owner's
-  call). A memory noted at the default salience fades below `FADED_STRENGTH` and becomes
+- **Decay still holds, and a repeat has to outlive it** (named here; the owner's answer
+  is the next section). A memory noted at the default salience fades below `FADED_STRENGTH` and becomes
   prunable at about 152 lived days unless it is used: `derive` then refuses it as
   `faded`, and once prune archives it `recurringMemories()` no longer finds it, so even a
   plain repeat stops. A one-off dated that far out has the same fate; a birthday or a
   daily pill is meant to last for good.
+
+## 16. A repeat is kept alive by coming round (2026-10-09, the owner's decision, held lightly)
+
+The answer to §15's last bullet. **Each occurrence that is actually delivered counts as a
+use of the memory**, the way rehearsal keeps a memory alive, and the prune refuses a live
+repeat by name. What the build chose:
+
+- **Delivered, not computed.** The two points where an occurrence certainly reached
+  someone: a quiet fire (`fire()`, which `Counterpart#spendArrivals` calls only for an
+  arrival the gate put in the turn's surfaced or footnoted set) and a plain line the
+  host claimed (`claimPlain()`, which the hooks call only for a line their envelope
+  carries). The wake's horizon lane is not one: it is rendered at the boundary and read
+  later, and a weekly or longer repeat in it also cues recall, which fires.
+- **Credited by the composition root, not here.** `Counterpart#creditOccurrence` calls
+  `store.reinforce(id, day, "surfaced")` — the seam recall's credit ends in, so physics'
+  own refusals (birth day, already credited today) hold. This module only answers the
+  read `occurrenceUndelivered(memoryId, windowKey)`, asked BEFORE the fire or the claim:
+  the memory still repeats (`recurrenceOf`, read now) and nothing has delivered this key
+  yet — no fire row with a fire spent, no plain beat told, on the memory or one its
+  reminder moved from (`firingRowsFor`, `plainTold`). Firing state stays firing state; no
+  new durable row and no new event name, because the two latches already there are the
+  record of a delivery.
+- **Once per occurrence.** A quiet weekly fired on two lived days is credited on the
+  first; a plain weekly fired quietly in its lead and told on its Monday is one
+  occurrence, credited at the lead fire. A daily one is credited each day it is said.
+- **`surfaced`, not `referenced`.** It was shown; nothing says the reply used it. And a
+  surfaced credit earns no return (`creditReturn` refuses `not-referenced`), so a daily
+  reminder about myself cannot reach the core's slow lane on the calendar alone.
+- **Not a one-off, and not a dropped repeat.** `recurrenceOf` is read at the moment of
+  credit, so a one-off date (its key `d:2027-05-14` looks the same) is never credited,
+  and a repeat revised with `recurring: null` stops being credited from that revision on.
+- **The prune's sixth gate** (physics NOTES, 2026-10-09). One credit a year does not
+  carry a yearly repeat across 365 lived days at the default salience; measured through
+  the hooks, the test's birthday was let go 263 lived days after its first May 14
+  without the gate. `pruneVerdict` refuses `recurring`, as it refuses `protected` — but
+  only where the floor would otherwise have let it go (review of #341): a repeat above
+  the floor is held by `above-floor` alone. Named on every live repeat every night, it
+  read in the fired view as a refusal and turned the prune row BLOCKED on any store with
+  a pill reminder and nothing pruned that week.
+
+**A live repeat is not refused `faded`** (review of #341, 2026-10-09). The build first
+kept the `faded` refusal and named the gap: between its dates a default-salience yearly
+falls under `FADED_STRENGTH`, so `derive` refused a QUIET one at its next occurrence —
+alive, unpruned, and silent that year, which is not "so they stay alive". So `derive`
+skips `faded` for a memory whose date still repeats (`DerivableMemory.recurring`, set by
+`load` from `recurrenceOf`, read now), the one carve-out from G10; the occurrence is
+delivered by its own remind rules and credited as above. Fading itself is unchanged: the
+strength recall and the views read still decays between dates, and an arrival's
+`strength` still orders it among the day's arrivals. A one-off date, or a repeat whose
+`recurring` was dropped, is refused `faded` as before. Measured through the hooks: a
+quiet yearly `fact` at the default salience, under `PHI_PRUNE` before its 2nd and 3rd
+dates, fires on both and is credited each time (`test/recurring-reinforce.test.ts`).
+
+Named, not fixed — **the same-day stronger credit.** If the reply also quotes a repeat
+that recall surfaced loud on the turn its occurrence fired, the boundary's `referenced`
+credit for it is refused `already-credited-today` (physics' one credit a lived day): that
+day counts at 0.25 instead of 1, with no return. Only a repeat, only on the day its
+occurrence is first delivered, and only when it was loud; a temporal cue alone is
+footnoted and earns no boundary credit anyway.
