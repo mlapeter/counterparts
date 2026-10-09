@@ -40,6 +40,7 @@ import {
   firstRunLockPath,
   hookGate,
   mcpGate,
+  pluginOrigin,
   runningAsPlugin,
 } from "../src/adapters/plugin.js";
 import type { ConfigChoice } from "../src/adapters/config-path.js";
@@ -272,18 +273,57 @@ describe("npmWiring and the two gates", () => {
     expect(mcpGate(w, home)).toEqual({ standDown: false, instructions: null });
   });
 
-  test("live npm hooks: the plugin's hooks stand down, and say how to move", () => {
+  test("live npm hooks, an installed plugin: its hooks stand down, and moving is offered as optional", () => {
     writeSettings({ SessionStart: [liveHookCommand()], Stop: [liveHookCommand()] });
     const w = npmWiring({ home, env: {}, cwd: project });
     expect(w.hooks.map((h) => [h.event, h.live])).toEqual([
       ["SessionStart", true],
       ["Stop", true],
     ]);
-    const gate = hookGate(w, home);
+    const gate = hookGate(w, home, { installed: true, root: join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13") });
     expect(gate.standDown).toBe(true);
     expect(gate.line).toContain("installed twice");
     expect(gate.line).toContain("~/.claude/settings.json");
-    expect(gate.line).toContain("counterparts disconnect");
+    expect(gate.line).toContain("nothing needs to change");
+    expect(gate.line).toContain("Optional, only if you want the plugin alone: `counterparts disconnect`");
+  });
+
+  test("live npm wiring, the plugin run from a folder (--plugin-dir): expected, and nothing is suggested", () => {
+    writeSettings({ SessionStart: [liveHookCommand()] });
+    const dev = { installed: false, root: join(home, "src", "counterparts") };
+    const gate = hookGate(npmWiring({ home, env: {}, cwd: project }), home, dev);
+    expect(gate.standDown).toBe(true);
+    expect(gate.line).toContain("running from a folder (~/src/counterparts)");
+    expect(gate.line).toContain("Nothing to do.");
+    expect(gate.line).not.toContain("disconnect");
+    const entry = { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT], env: {} };
+    writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: entry } }));
+    const server = mcpGate(npmWiring({ home, env: {}, cwd: project }), home, dev);
+    expect(server.standDown).toBe(true);
+    expect(server.instructions).toContain("Nothing needs to change");
+    expect(server.instructions).not.toContain("`counterparts disconnect`");
+    // An install's server says moving is the person's choice, never one to make for them.
+    expect(mcpGate(npmWiring({ home, env: {}, cwd: project }), home).instructions).toContain("never one to make for them");
+  });
+
+  test("pluginOrigin: under Claude Code's plugins directory, or the recorded install path, is an install; anything else is a folder", () => {
+    const cached = join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13");
+    mkdirSync(cached, { recursive: true });
+    expect(pluginOrigin({ home, env: {}, root: cached }).installed).toBe(true);
+    const dev = join(work, "checkout");
+    mkdirSync(dev, { recursive: true });
+    expect(pluginOrigin({ home, env: {}, root: dev })).toEqual({ installed: false, root: dev });
+    // A folder marketplace is read in place: the recorded installPath is an install too.
+    writeFileSync(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "counterparts@local": [{ scope: "user", installPath: dev, version: "0.3.13" }] } }),
+    );
+    expect(pluginOrigin({ home, env: {}, root: dev }).installed).toBe(true);
+    // CLAUDE_CODE_PLUGIN_CACHE_DIR moves the plugins directory.
+    const moved = join(work, "plugin-cache");
+    mkdirSync(join(moved, "cache", "x"), { recursive: true });
+    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") }).installed).toBe(true);
+    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
   });
 
   test("a dead npm entry runs nothing, so the plugin carries on and names it", () => {
@@ -462,7 +502,10 @@ describe("plugin-run.sh", () => {
     writeSettings({ SessionStart: [liveHookCommand()], UserPromptSubmit: [liveHookCommand()] });
     const start = launch("hook", payload("SessionStart"), pluginEnv());
     expect(start.code).toBe(0);
-    expect(systemMessage(start.stdout)).toContain("installed twice");
+    // Launched from this checkout, not from Claude Code's plugins directory: a
+    // folder beside the npm install, which is expected and needs nothing done.
+    expect(systemMessage(start.stdout)).toContain("running from a folder");
+    expect(systemMessage(start.stdout)).not.toContain("disconnect");
     expect(start.stdout).not.toContain("additionalContext");
     const prompt = launch("hook", payload("UserPromptSubmit"), pluginEnv());
     expect(prompt.stdout).toBe("");

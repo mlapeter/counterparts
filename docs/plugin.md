@@ -71,8 +71,13 @@ side by side. It drops a plugin's MCP server as a duplicate only when the comman
 identical, and ours never is. So when the npm wiring is live, the plugin stands down:
 
 - Hooks: if a live hook of ours is in user, project or local settings, the plugin's
-  hooks exit at once. At SessionStart the person sees one line about it:
-  "installed twice … run `counterparts disconnect` …".
+  hooks exit at once. At SessionStart the person sees one line about it. For a real
+  install (under Claude Code's plugins directory, or the path `installed_plugins.json`
+  records): "installed twice … nothing needs to change. Optional, only if you want
+  the plugin alone: `counterparts disconnect` …". For a plugin run from a folder
+  (`claude --plugin-dir <checkout>`): "running from a folder … as expected. Nothing to
+  do." It never suggests `disconnect` there: that would leave the live memory wired to
+  a development copy, and every session started without `--plugin-dir` memoryless.
 - Server: if a live `counterparts` server is registered in user or local scope, the
   plugin's server answers the protocol with no tools. It puts the reason in
   `instructions`, so `/mcp` shows connected, not failed.
@@ -224,7 +229,8 @@ not the real one. Then:
 - Tell it something specific. Then `/counterparts:doctor` and `/mcp`: the server is
   connected, with nine tools.
 - Quit, start again, and ask what it remembers.
-- With the npm install also wired there, see one wake and the "installed twice" line.
+- With the npm install also wired there, see one wake and the "installed twice" line
+  (from a `--plugin-dir` checkout, the "running from a folder" line instead).
 
 B. **Claude Desktop, Code tab.** Same plugin, installed with `/plugin` in the Code
 tab or in the terminal on the same machine. This is the one to watch: a Desktop
