@@ -1920,3 +1920,12 @@ words only and prints nothing about it — doctor and the backfill name a missin
   column, and run from inside Claude Code (`hosts.ts#claudeCodeEnvMarker`), the line says
   it cannot tell which one is this session's rather than guess. Claude Desktop's server, if
   it is running, is counted as an open session, as before.
+- **Review of #331.** The night files are decided in two passes, so a reflection whose
+  dream was left out says so instead of naming a path that is not in the tree (and the
+  other way round). `ps` is asked `-axwwo`: procps on Linux cuts `command` at `$COLUMNS`
+  when that is exported, even into a pipe, and the cut can fall before the
+  `mcp/bin/serve` segment `processMark` reads; master had the same exposure. A server
+  whose record went stale is "no current record", not "no record". The one way a
+  journal can still carry a confidential memory's words past the id rule — an in-session
+  dream on the owner's server, using `recall` freely — is upstream of the export (the
+  dashboard shows that journal too), and is left as a question for the owner.

@@ -810,7 +810,7 @@ describe("wire", () => {
     const c2 = consoleWith();
     const lister2: ProcessLister = () => ({ looked: true, processes: [server(201, 900), server(204, 903)] });
     sessionsNote(ui(c2.io, ENV), lister2, { dataDir: store(), installed: NEW, selfPid: 5 });
-    expect(text(c2.out)).toContain("(1 more memory server is running that this store holds no record of");
+    expect(text(c2.out)).toContain("(1 more memory server is running that this store holds no current record of");
     expect(text(c2.out)).toContain("so which version it runs is not known here.)");
   });
 
@@ -856,7 +856,7 @@ describe("wire", () => {
     const lister: ProcessLister = () => ({ looked: true, processes: [server(301, 900), server(302, 901)] });
     sessionsNote(ui(c.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5 });
     const said = text(c.out);
-    expect(said).toContain("(2 memory servers are running that this store holds no record of");
+    expect(said).toContain("(2 memory servers are running that this store holds no current record of");
     expect(said).toContain("so which version they run is not known here.)");
     expect(said).not.toContain("restart them");
 
@@ -865,7 +865,7 @@ describe("wire", () => {
     recorded(301, 900, OLD);
     const c2 = consoleWith();
     sessionsNote(ui(c2.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5, now: Date.now() + 60 * 60_000 });
-    expect(text(c2.out)).toContain("(2 memory servers are running that this store holds no record of");
+    expect(text(c2.out)).toContain("(2 memory servers are running that this store holds no current record of");
   });
 
   test("run from inside Claude Code with no parent column, it says it cannot tell which session is this one", () => {

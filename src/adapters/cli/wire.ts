@@ -1062,9 +1062,13 @@ export function processMark(command: string): string | null {
 }
 
 /**
- * `ps -axo pid=,ppid=,command=`, filtered here rather than by `pgrep -f`. The
+ * `ps -axwwo pid=,ppid=,command=`, filtered here rather than by `pgrep -f`. The
  * parent column (2026-10-09) is kept for every line, ours or not, so a caller
  * can walk from this process up to its host (`ProcessSighting.parents`).
+ *
+ * `ww` (review of #331): procps on Linux cuts `command` at `$COLUMNS` when that
+ * is set, even into a pipe, and the cut can fall before the path segment
+ * `processMark` needs. Unlimited width on both procps and macOS.
  *
  * **It never throws and it never fails the caller.** A machine with no `ps`, a
  * `ps` that times out, a sandbox that refuses process listing — every one of
@@ -1074,7 +1078,7 @@ export function processMark(command: string): string | null {
 export function realProcessLister(env: Record<string, string | undefined>): ProcessLister {
   return () => {
     try {
-      const res = spawnSync("ps", ["-axo", "pid=,ppid=,command="], {
+      const res = spawnSync("ps", ["-axwwo", "pid=,ppid=,command="], {
         encoding: "utf8",
         timeout: 4000,
         windowsHide: true,
@@ -1533,7 +1537,7 @@ export function sessionsNote(
     const n = census.unplaced;
     const more = census.other + census.current > 0 ? " more" : "";
     u.hint(
-      `(${String(n)}${more} memory server${n === 1 ? " is" : "s are"} running that this store holds no record of — ` +
+      `(${String(n)}${more} memory server${n === 1 ? " is" : "s are"} running that this store holds no current record of — ` +
         "another store's, one in a directory where memory is off, or a build from before servers recorded themselves — " +
         `so which version ${n === 1 ? "it runs" : "they run"} is not known here${census.mine === "unplaced" ? `; ${here} is ${n === 1 ? "that one" : "one of them"}` : ""}.)`,
     );
