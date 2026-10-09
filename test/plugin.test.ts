@@ -346,6 +346,17 @@ describe("ensureFirstRun", () => {
     expect(again).toEqual({ state: "existed", line: null });
   });
 
+  test("a memory parked beside it is named in the first-run line, and left where it is", () => {
+    const parked = join(home, ".counterparts.parked-2026-10-01");
+    mkdirSync(join(parked, "store"), { recursive: true });
+    mkdirSync(join(home, ".counterparts.parked-someday"), { recursive: true });
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn() });
+    expect(r.state).toBe("created");
+    expect(r.line).toContain("A memory set aside earlier is still at ~/.counterparts.parked-2026-10-01, untouched");
+    expect(r.line).not.toContain("someday");
+    expect(existsSync(join(parked, "store"))).toBe(true);
+  });
+
   test("a concurrent first run is waited for, and joined", async () => {
     mkdirSync(lockIn());
     // Another process "installs" while this one waits (the wait blocks this

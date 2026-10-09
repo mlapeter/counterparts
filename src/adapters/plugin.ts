@@ -38,9 +38,9 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { implicitConfigRefusal } from "./config-path.js";
@@ -185,6 +185,29 @@ export function firstRunLockPath(configPath: string, tmp: string = tmpdir()): st
   return join(tmp, `counterparts-first-run-${key}.lock`);
 }
 
+/**
+ * A MEMORY SET ASIDE BESIDE THE ONE ABOUT TO BE MADE (review of #328).
+ * `counterparts uninstall --park` leaves `<base>.parked-<date>[-N]` next to
+ * where the configuration lives (`cli/install.ts#parkedNameParts`, which also
+ * checks the date is a real day; the shape is enough here). A non-interactive
+ * install walks past one and makes a blank store beside it, and says so on
+ * stdout (review M4: "a second store the person does not know about") — but
+ * the first run drops that stdout, so the line it hands the wake has to say it
+ * instead. Named only: nothing here opens, moves or counts it.
+ */
+export function parkedBeside(base: string): string[] {
+  const dir = dirname(resolve(base));
+  const prefix = `${basename(resolve(base))}.parked-`;
+  try {
+    return readdirSync(dir)
+      .filter((n) => n.startsWith(prefix) && /^\d{4}-\d{2}-\d{2}(-\d+)?$/.test(n.slice(prefix.length)))
+      .sort()
+      .map((n) => join(dir, n));
+  } catch {
+    return [];
+  }
+}
+
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -228,11 +251,16 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
   const waitMs = input.waitMs ?? FIRST_RUN_WAIT_MS;
   const staleMs = input.staleMs ?? FIRST_RUN_STALE_MS;
   const base = dirname(choice.path);
+  const parked = parkedBeside(base);
   const created: FirstRun = {
     state: "created",
     line:
       `Counterparts: first run — a new memory was set up at ${tildeOf(base, input.home)}. ` +
-      "It stays on this computer.",
+      "It stays on this computer." +
+      (parked.length === 0
+        ? ""
+        : ` A memory set aside earlier is still at ${parked.map((p) => tildeOf(p, input.home)).join(", ")}, untouched; ` +
+          "the new one does not include it."),
   };
 
   const take = (): boolean => {
