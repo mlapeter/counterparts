@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { contradictionFindings } from "../src/adapters/claude-code/doctor.js";
 import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
@@ -157,6 +158,8 @@ describe("an unrelated pair is held", () => {
     expect(Number(p["cosine"])).toBeLessThan(CONTRADICTION_TUNABLES.UPDATE_COSINE);
     expect(JSON.stringify(p)).not.toContain("passport arrived");
     expect(heldCorrections(store)).toEqual({ held: 1, settledAfter: 0, byMeaning: 1, byWords: 0 });
+    // Doctor reads it (mcp INTERFACE-GAPS §12, closed 2026-10-09).
+    expect(contradictionFindings(store)[0]?.detail).toContain("1 correction held because it didn't look related to the memory it named");
   });
 
   test("the default how (changed) is held too, and with no embedder the words decide", async () => {

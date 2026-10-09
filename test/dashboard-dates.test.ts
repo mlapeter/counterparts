@@ -8,7 +8,9 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 // @ts-expect-error — a plain browser module, no declarations
-import { dateOr, dateWords, localIso, ordinal, stampWords } from "../src/adapters/dashboard/web/shared/dates.js";
+import { dateOr, dateWords, ordinal } from "../src/adapters/dashboard/web/shared/dates.js";
+import { writtenWhen } from "../src/adapters/dashboard/web/views/memory.js";
+import { startOfLocalDay } from "../src/core/time.js";
 
 const WEB = join(import.meta.dir, "..", "src", "adapters", "dashboard", "web");
 /** The memory card touches `window` at load (`window.openMemory = …`); give it one. */
@@ -48,10 +50,16 @@ describe("the dashboard's dates", () => {
     expect(dateOr("2026-09-30", { year: true })).toBe("Sep 30th, 2026");
   });
 
-  test("a timestamp keeps its minute and says which clock", () => {
-    expect(stampWords("2026-09-30T17:47:03.000Z")).toBe("Sep 30th, 2026, 17:47 UTC");
-    expect(stampWords("not a stamp")).toBe("not a stamp");
-    expect(localIso(new Date(2026, 8, 5, 12).getTime())).toBe("2026-09-05");
+  test("a moment is dated by the server, in the zone it is handed, with its clock named", () => {
+    // The browser no longer turns a moment into a day (2026-10-09): the server
+    // does, in the person's zone, and the page prints what it is handed.
+    const at = Date.UTC(2026, 8, 30, 17, 47, 3);
+    expect(writtenWhen(at, "2026-09-30", "America/Denver")).toEqual({ writtenOn: "2026-09-30", writtenClock: "11:47 MDT" });
+    expect(writtenWhen(at, "2026-09-30", "UTC")).toEqual({ writtenOn: "2026-09-30", writtenClock: "17:47 UTC" });
+    expect(writtenWhen(at, "2026-10-01", "Pacific/Kiritimati")).toEqual({ writtenOn: "2026-10-01", writtenClock: "07:47 GMT+14" });
+    // No moment: the recorded day as written, and no clock.
+    expect(writtenWhen(null, "2026-09-27", "UTC")).toEqual({ writtenOn: "2026-09-27", writtenClock: null });
+    expect(writtenWhen(null, "—", "UTC")).toEqual({ writtenOn: null, writtenClock: null });
   });
 
   test("the memory card prints its dates in words, never as 2026-09-30", async () => {
@@ -61,19 +69,21 @@ describe("the dashboard's dates", () => {
       id: "mem_1", kind: "fact", title: "A title", text: "Some words.", shownText: "Some words.", confidential: false,
       archived: null, journal: false, chapter: false, curve: null, curveNote: null,
       salience: { relevance: 0, emotional: 0, predictive: 0, novelty: 0, combined: 0, claimed: null },
-      createdAt, learnedOn: "2026-09-28", happenedOn: "2026-09-27", eventDate: "2026-10-02",
+      createdAt, writtenOn: "2026-09-28", writtenClock: "11:47 MDT",
+      learnedOn: "2026-09-28", happenedOn: "2026-09-27", eventDate: "2026-10-02",
       writtenDate: "2026-09-26", prospective: [{ date: "2026-10-02", state: "waiting" }],
       uses: 0, useDays: [], bornDay: 3, day: 5, lastUsedDay: 3, reinforcedDays: 0, promotion: null, promoted: false, protected: false,
       pressure: 0, bar: null, feelings: [], intensity: 0, points: [], edges: [], timeline: [], revision: 1, contentHash: "h",
       band: "episodic", recordedBand: "episodic", strength: 0.5, repetition: 0, consolidated: false, removal: [],
     });
-    // Written on this computer's calendar: Sep 28th in most of the world, the 29th at UTC+14.
-    expect(html).toContain(`Written ${dateWords(localIso(createdAt), { year: true })}`);
+    // Written on the day the server dated, in the person's zone: never re-dated here.
+    expect(html).toContain("Written Sep 28th, 2026");
     expect(html).toContain("about Oct 2nd, 2026");
     expect(html).toContain("happened Sep 27th, 2026");
     expect(html).toContain("recorded Sep 28th, 2026");
     expect(html).toContain("reminder Oct 2nd, 2026 · waiting");
-    expect(html).toContain("Sep 28th, 2026, 17:47 UTC");
+    expect(html).toContain("Sep 28th, 2026, 11:47 MDT");
+    expect(html).not.toContain("UTC");
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
@@ -81,10 +91,20 @@ describe("the dashboard's dates", () => {
     // The UTC day it used to read put a Denver evening's memory on tomorrow, and a
     // Tokyo morning's on yesterday. Half past midnight and half past eleven, both
     // local, are the 28th in every zone; only under UTC can the old reading pass.
+    // Dated by the server in the zone it is handed (2026-10-09), in four zones.
     const { writtenOn } = (await import(join(WEB, "shared/memory-modal.js"))) as { writtenOn(d: Record<string, unknown>): string | null };
-    expect(writtenOn({ createdAt: new Date(2026, 8, 28, 0, 30).getTime() })).toBe("2026-09-28");
-    expect(writtenOn({ createdAt: new Date(2026, 8, 28, 23, 30).getTime() })).toBe("2026-09-28");
+    for (const zone of ["America/Denver", "Asia/Tokyo", "Pacific/Kiritimati", "Etc/GMT+12"]) {
+      const midnight = startOfLocalDay("2026-09-28", zone);
+      for (const minutes of [30, 23 * 60 + 30]) {
+        const at = midnight + minutes * 60_000;
+        const served = writtenWhen(at, "2026-09-27", zone);
+        expect(served.writtenOn).toBe("2026-09-28");
+        expect(writtenOn({ createdAt: at, ...served })).toBe("2026-09-28");
+      }
+    }
     // No moment: the recorded day, as it was written.
-    expect(writtenOn({ createdAt: null, learnedOn: "2026-09-27" })).toBe("2026-09-27");
+    expect(writtenOn({ createdAt: null, ...writtenWhen(null, "2026-09-27", "UTC") })).toBe("2026-09-27");
+    // The page never dates a moment itself: a payload without the served day says nothing.
+    expect(writtenOn({ createdAt: Date.UTC(2026, 8, 28, 12) })).toBeNull();
   });
 });

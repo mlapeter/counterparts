@@ -11,13 +11,14 @@
  * What it reads (a working default, held lightly; the revisit may widen it):
  *
  *   - **days**: "today", "yesterday", "this morning", a clock time
- *     (`recency-ask.ts`'s reading, reused), "N days ago", "a few days ago",
+ *     (`recency-ask.ts`'s reading, reused), "N days ago" (and "3-4 days ago",
+ *     "3 or 4 days ago": both ends; review of #345), "a few days ago",
  *     "the other day", "past N days", "recently", "last Saturday" (and "this
  *     past Saturday": the most recent Saturday BEFORE today, so asked on a
  *     Saturday it is a week ago; 2026-10-09). "This Saturday" and "on
  *     Saturday" are not read: either can be the coming one;
- *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago",
- *     "the past week";
+ *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago"
+ *     (and "2-3 weeks ago": both weeks), "the past week";
  *   - **months**: "last month", "this month", "in September", "early / mid /
  *     late October", "the end of August";
  *   - **dates**: `2026-09-21`, `2026-09`, `09-21`, `9/21` (month first),
@@ -30,7 +31,12 @@
  *     that names a thing on it ("before the 7/22 flight", "after July 22's
  *     standup") keeps its own day under "before" and "after" (review of #338).
  *     An open end is `OPEN_START` / `OPEN_END`, and a bounded window never
- *     stretches;
+ *     stretches. A month and day with no year under "since" or "after" that
+ *     has not come yet this year is last year's ("since 10/25" asked on
+ *     10-03). An amount is not a date: "7-8 hours", "3/4 cup", "$5-10", and a
+ *     fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
+ *     still January 2) (2026-10-09); a leading zero ("09-28 minutes") keeps
+ *     it a date (review of #345);
  *   - **anchors**: an event ("around the cut-over", "during the release") or
  *     the last session ("where did we leave off", "last session"). This file
  *     only names them; the caller resolves them against the store, because a
@@ -44,7 +50,7 @@
  * Deliberate only, and facts only. NO MODEL CALL: fixed lists and the store's
  * clock. Pure: `now` and `zone` come in.
  */
-import { addDays, daysBetween, localDate, parseCalendarDate } from "../time.js";
+import { addDays, daysBetween, isDay, localDate, parseCalendarDate } from "../time.js";
 import { readRecencyAsk } from "./recency-ask.js";
 
 /** Days a fuzzy window (a week, a month, part of a month) widens on each side. */
@@ -109,11 +115,60 @@ const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "
 const BOUND_ALT = "prior to|up until|up to|before|after|since|until|till|by";
 type Bound = "before" | "after" | "since" | "through";
 
+/**
+ * A `7-8` or a `1/2` with one of these right after it is an amount, not a
+ * date: "7-8 hours", "3-4pm", "5-10%", "3/4 cup", "1/2 of the budget" (review
+ * of #338, 2026-10-09). Units and a few counting nouns; a decimal tail
+ * ("7-8.5 hours") is allowed in front of it.
+ */
+const QUANTITY_AFTER = new RegExp(
+  "^(?:\\.\\d+)?\\s*(?:%|(?:" +
+    [
+      "seconds?", "secs?", "minutes?", "mins?", "hours?", "hrs?", "hr", "days?", "nights?", "weeks?", "wks?",
+      "months?", "mos", "years?", "yrs?", "decades?",
+      "a\\.?m\\.?", "p\\.?m\\.?", "o['’]clock",
+      "percent", "pct", "times", "x", "reps", "sets", "laps", "pages?", "words", "steps",
+      "people", "persons?", "kids", "items", "points?", "pts",
+      "km", "kms", "kilomet(?:er|re)s?", "miles?", "mi", "met(?:er|re)s?", "ft", "feet", "foot", "inch(?:es)?",
+      "cm", "mm", "yards?", "yds?", "kg", "kgs", "kilos?", "grams?", "lbs?", "pounds?", "oz", "ounces?",
+      "cups?", "tbsp", "tsp", "teaspoons?", "tablespoons?", "lit(?:er|re)s?", "ml", "gallons?", "gal", "pints?",
+      "quarts?", "servings?", "slices?", "pieces?", "dollars?", "bucks", "cents?", "euros?", "k",
+      "mph", "kph", "bpm", "rpm", "mg", "of",
+    ].join("|") +
+    ")(?![a-z]))",
+  "i",
+);
+
+/**
+ * A word of quantity a few words before "by" or "to": what follows it is a
+ * fraction ("cut it by 1/2", "reduced the dose to 1/3"), where "finish by
+ * 1/2" is January 2 (review of #338, 2026-10-09).
+ */
+const FRACTION_BEFORE = new RegExp(
+  "\\b(?:" +
+    [
+      "cut", "cuts", "cutting", "halve[sd]?", "halving", "reduc(?:e|es|ed|ing)", "increas(?:e|es|ed|ing)",
+      "decreas(?:e|es|ed|ing)", "divid(?:e|es|ed|ing)", "multipl(?:y|ies|ied|ying)", "grow", "grows", "grew",
+      "grown", "growing", "shr(?:ink|inks|ank|unk|inking)", "rais(?:e|es|ed|ing)", "lower(?:s|ed|ing)?",
+      "trim(?:s|med|ming)?", "slash(?:es|ed|ing)?", "boost(?:s|ed|ing)?", "scal(?:e|es|ed|ing)",
+      "drop(?:s|ped|ping)?", "fall", "falls", "fell", "fallen", "falling", "rise", "rises", "rose", "risen", "rising",
+    ].join("|") +
+    ")\\b(?:\\s+[a-z'’]+){0,3}\\s+(?:by|to)\\s*$",
+  "i",
+);
+
 const NUMBER_WORDS: Readonly<Record<string, number>> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, couple: 2, "a couple": 2, "a couple of": 2, few: 3, "a few": 3,
 };
 const NUMBER_ALT = "\\d{1,3}|a couple of|a couple|a few|couple|few|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|an|a";
+/**
+ * The near end of a range in front of a count: the "2-" of "2-3 weeks ago",
+ * the "3 or " of "3 or 4 days ago". The amount rule passes "2-3" over, so
+ * without it the count alone was read ("3 weeks ago", hiding the week two
+ * back; review of #345).
+ */
+const RANGE_FROM = "(?:(\\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\\s*(?:-|–|/|\\sor\\s|\\sto\\s)\\s*)?";
 
 /** Words that end an event phrase: what follows is the question, not the event. */
 const PHRASE_STOP = new Set([
@@ -216,10 +271,28 @@ function boundOf(text: string, found: string): { bound: Bound; word: string; phr
  * A date read off the question — its first and last day, and its stretch
  * standing alone — asked as a whole or bounded by the word in front of it.
  * `cue` is how the header names it, when that is not the text as found.
+ * `yearless`: a month and day written without a year, whose year `yearFor`
+ * picked by the month alone.
  */
-function dated(text: string, found: string, first: string, last: string, stretch: number, today: string, cue = found): TimeAsk {
+function dated(
+  text: string,
+  found: string,
+  firstDay: string,
+  lastDay: string,
+  stretch: number,
+  today: string,
+  opts: { cue?: string; yearless?: boolean } = {},
+): TimeAsk {
+  const cue = opts.cue ?? found;
   const b = boundOf(text, found);
-  if (b === null) return ask(cue, { from: first, to: last }, stretch, without(text, found));
+  if (b === null) return ask(cue, { from: firstDay, to: lastDay }, stretch, without(text, found));
+  // "Since 10/25" asked on 10-03 is last year's 10/25: this year's has not
+  // come, so "since" would be empty and "after" only the future. "Before",
+  // "until" and "by" keep this year's, which hides nothing that has happened
+  // (review of #338, 2026-10-09).
+  const roll = opts.yearless === true && (b.bound === "since" || b.bound === "after") && firstDay > today;
+  const first = roll ? lastCome(firstDay, today) : firstDay;
+  const last = roll ? first : lastDay;
   if (b.event !== null) {
     // The date names a thing on that day ("before the 7/22 flight"): the bound
     // keeps that day, where the thing happened, and only the date leaves the
@@ -244,6 +317,47 @@ function dated(text: string, found: string, first: string, last: string, stretch
 function yearFor(month: number, today: string): number {
   const [y, m] = today.split("-").map(Number) as [number, number];
   return month <= m ? y : y - 1;
+}
+
+/**
+ * The most recent time the month and day of `day` came round, on or before
+ * `today`: a year back, or further for a Feb 29 (a year with none is skipped).
+ */
+function lastCome(day: string, today: string): string {
+  const monthDay = day.slice(4);
+  for (let y = Number(day.slice(0, 4)) - 1; y >= 1; y--) {
+    const back = `${String(y).padStart(4, "0")}${monthDay}`;
+    if (back <= today && isDay(back)) return back;
+  }
+  return day;
+}
+
+/**
+ * Is this `M-D` or `M/D` an amount rather than a date? A price ("$5-10"), a
+ * number with a unit after it ("7-8 hours", "3/4 cup", "1/2 of it"), or a
+ * common fraction after a word of quantity ("cut it by 1/2", "reduced to
+ * 1/3": a slash, no year, smaller over at most 10). Otherwise a date, so
+ * "finish by 1/2" is still January 2 (review of #338, 2026-10-09). A number
+ * written with a leading zero ("09-28 minutes", "7/08 people") is a date:
+ * no amount is written that way (review of #345).
+ */
+function isQuantity(text: string, m: RegExpExecArray): boolean {
+  if (/^0\d$/.test(m[1] as string) || /^0\d$/.test(m[2] as string)) return false;
+  const before = text.slice(0, m.index);
+  if (/[$£€]$/.test(before)) return true;
+  if (QUANTITY_AFTER.test(text.slice(m.index + m[0].length))) return true;
+  const over = Number(m[1]);
+  const under = Number(m[2]);
+  return m[3] === undefined && m[0].includes("/") && over < under && under <= 10 && FRACTION_BEFORE.test(before);
+}
+
+/** The first `M-D` / `M/D` (a `/YYYY` after it allowed) in `text` that is not an amount. */
+function firstShortDate(text: string): RegExpExecArray | null {
+  const re = /\b(\d{1,2})[-/](\d{1,2})(?:[-/](\d{4}))?\b/g;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (!isQuantity(text, m)) return m;
+  }
+  return null;
 }
 
 /** Remove `found` (and a preposition just before it) from `text`, once. */
@@ -320,14 +434,15 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
     }
   }
   // Month first, as a US writer puts it; a year after it is the year meant.
-  const short = /\b(\d{1,2})[-/](\d{1,2})(?:[-/](\d{4}))?\b/.exec(text);
+  // An amount is passed over ("7-8 hours", "cut it by 1/2").
+  const short = firstShortDate(text);
   if (short !== null) {
     const m = Number(short[1]);
     const d = Number(short[2]);
     const y = short[3] !== undefined ? Number(short[3]) : m >= 1 && m <= 12 ? yearFor(m, today) : 0;
     const day = m >= 1 && m <= 12 ? `${String(y).padStart(4, "0")}-${pad(m)}-${pad(d)}` : null;
     if (day !== null && parseCalendarDate(day)?.precision === "day") {
-      return dated(text, short[0], day, day, 0, today);
+      return dated(text, short[0], day, day, 0, today, { yearless: short[3] === undefined });
     }
   }
   const named = new RegExp(
@@ -341,7 +456,7 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
     if (month !== null) {
       const day = `${String(year !== undefined ? Number(year) : yearFor(month, today)).padStart(4, "0")}-${pad(month)}-${pad(d)}`;
       if (parseCalendarDate(day)?.precision === "day") {
-        return dated(text, named[0], day, day, 0, today);
+        return dated(text, named[0], day, day, 0, today, { yearless: year === undefined });
       }
     }
   }
@@ -406,11 +521,14 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   if (pastWeek !== null) {
     return ask(pastWeek[0], { from: addDays(today, -6), to: today }, 0, without(text, pastWeek[0]));
   }
-  const weeksAgo = new RegExp(`\\b(${NUMBER_ALT})\\s+weeks?\\s+ago\\b`, "i").exec(text);
+  const weeksAgo = new RegExp(`\\b${RANGE_FROM}(${NUMBER_ALT})\\s+weeks?\\s+ago\\b`, "i").exec(text);
   if (weeksAgo !== null) {
-    const n = numberOf(weeksAgo[1] as string) ?? 1;
-    const monday = addDays(mondayOf(today), -7 * n);
-    return ask(weeksAgo[0], { from: monday, to: addDays(monday, 6) }, FUZZY_STRETCH_DAYS, without(text, weeksAgo[0]));
+    const n = numberOf(weeksAgo[2] as string) ?? 1;
+    // "2-3 weeks ago": from the Monday of the further week to the Sunday of the nearer.
+    const near = weeksAgo[1] === undefined ? n : Math.min(n, numberOf(weeksAgo[1]) ?? n);
+    const far = weeksAgo[1] === undefined ? n : Math.max(n, numberOf(weeksAgo[1]) ?? n);
+    const monday = addDays(mondayOf(today), -7 * far);
+    return ask(weeksAgo[0], { from: monday, to: addDays(mondayOf(today), -7 * near + 6) }, FUZZY_STRETCH_DAYS, without(text, weeksAgo[0]));
   }
   const fewWeeks = /\b(the\s+)?(past|last)\s+(few|couple of|two|three)\s+weeks\b/i.exec(text);
   if (fewWeeks !== null) {
@@ -426,7 +544,7 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   const weekday = new RegExp(`(?<!\\bthe\\s)\\b(?:last|this past)\\s+(${WEEKDAY_NAMES.join("|")})\\b(?:['’]s\\b)?`, "i").exec(text);
   if (weekday !== null) {
     const day = lastWeekday(today, WEEKDAY_NAMES.indexOf((weekday[1] as string).toLowerCase() as (typeof WEEKDAY_NAMES)[number]));
-    return dated(text, weekday[0], day, day, 0, today, weekday[0].replace(/['’]s$/i, ""));
+    return dated(text, weekday[0], day, day, 0, today, { cue: weekday[0].replace(/['’]s$/i, "") });
   }
   // Before "yesterday" is read on its own (review of #323).
   const dayBefore = /\bthe day before yesterday\b/i.exec(text);
@@ -434,15 +552,17 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
     const day = addDays(today, -2);
     return ask(dayBefore[0], { from: day, to: day }, 0, without(text, dayBefore[0]));
   }
-  const daysAgo = new RegExp(`\\b(${NUMBER_ALT})\\s+days?\\s+ago\\b`, "i").exec(text);
+  const daysAgo = new RegExp(`\\b${RANGE_FROM}(${NUMBER_ALT})\\s+days?\\s+ago\\b`, "i").exec(text);
   if (daysAgo !== null) {
-    const word = (daysAgo[1] as string).toLowerCase();
+    const word = (daysAgo[2] as string).toLowerCase();
     if (word === "few" || word === "a few" || word === "couple" || word === "a couple" || word === "a couple of") {
       return ask(daysAgo[0], { from: addDays(today, -5), to: addDays(today, -2) }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
     }
     const n = numberOf(word) ?? 1;
-    const day = addDays(today, -n);
-    return ask(daysAgo[0], { from: day, to: day }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
+    // "3-4 days ago": every day from the further to the nearer.
+    const near = daysAgo[1] === undefined ? n : Math.min(n, numberOf(daysAgo[1]) ?? n);
+    const far = daysAgo[1] === undefined ? n : Math.max(n, numberOf(daysAgo[1]) ?? n);
+    return ask(daysAgo[0], { from: addDays(today, -far), to: addDays(today, -near) }, NEAR_STRETCH_DAYS, without(text, daysAgo[0]));
   }
   if (/\bthe other day\b/i.test(text)) {
     return ask("the other day", { from: addDays(today, -5), to: addDays(today, -2) }, NEAR_STRETCH_DAYS, without(text, "the other day"));

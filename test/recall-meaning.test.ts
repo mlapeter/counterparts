@@ -387,6 +387,185 @@ describe("other lenses", () => {
   });
 });
 
+// The 0.3.13 release check, on a real store whose one card was the owner's:
+// "what has Han been to Mike?" came back as Mike's arc, with no word about
+// Han, because Han had no card (2026-10-09).
+describe("a name asked about that has no card", () => {
+  /**
+   * The owner's card in the alias index, as on a real store: the identity core
+   * is indexed when the store is next opened, and a memory naming Mike is his.
+   */
+  function ownerBrain(): Counterpart {
+    brain().close();
+    return brain();
+  }
+
+  /** A store whose ONE card is the owner's (Mike), and memories that mention Han by name. */
+  function oneCard(c: Counterpart, hanToo = true): { mikeOnly: string[]; han: string[] } {
+    const mikeOnly = [
+      moment(c, "sess_m", "Mike fixed the bike chain before the ride."),
+      moment(c, "sess_m", "Mike booked the dentist for Thursday."),
+      moment(c, "sess_m", "Mike finished the tax forms early this year."),
+    ];
+    const han = hanToo
+      ? [
+          moment(c, "sess_h", "Han and Mike went climbing at Eldorado Canyon."),
+          moment(c, "sess_h", "Han sent the photos from the climb, the good ones."),
+        ]
+      : [];
+    return { mikeOnly, han };
+  }
+
+  test("asked about above every card: what mentions the name, said first, and the card a one-liner", () => {
+    const c = ownerBrain();
+    const { mikeOnly, han } = oneCard(c);
+    // The store reaches the bug: the question names one card, and it is Mike's.
+    expect(c.schemas.subjectsIn("what has Han been to Mike?").map((id) => c.schemas.entity(id)?.name)).toEqual(["Mike"]);
+    const r = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(r.noCard).toBe("No card for Han yet; here is what mentions Han");
+    expect(r.lens).toEqual({ kind: "words", name: '"Han"' });
+    expect(r.reason).toBe("answered");
+    const ids = entries(r).flatMap((e) => e.moments.map((m) => m.id));
+    expect(ids.sort()).toEqual([...han].sort());
+    for (const id of mikeOnly) expect(ids).not.toContain(id);
+    expect(r.others.map((o) => o.name)).toEqual(["Mike"]);
+    // Said FIRST, before the header, on every surface that prints the answer.
+    const lines = renderMeaning(r).split("\n");
+    expect(lines[0]).toBe("No card for Han yet; here is what mentions Han.");
+    expect(lines[1]?.startsWith('"Han" · ')).toBe(true);
+    expect(renderMeaning(r)).toContain("also named: Mike");
+  });
+
+  test("the owner asking, his own card asked about alongside: the card leads, and says the name has none", () => {
+    const c = ownerBrain();
+    oneCard(c);
+    const r = meaningRecall(ctx(c, { asker: "owner" }), "how have Mike and Han been lately?");
+    // Review of #347: a name with no card leads only when every card sits in an aside.
+    expect(r.lens).toMatchObject({ kind: "card", name: "Mike" });
+    expect(r.noCard).toBe("No card for Han yet; this follows Mike");
+  });
+
+  // Review of #347: the card asked about, or named plainly, leads as it did
+  // before; only a card in an aside gives way to a name with no card.
+  test("a card asked about or named plainly leads as before; only a card in an aside gives way", () => {
+    const c = ownerBrain();
+    card(c, "Oskar");
+    card(c, "Driftwood");
+    const { han } = oneCard(c);
+    moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
+    moment(c, "sess_d", "Driftwood shipped the new solver on Friday.");
+
+    const aside = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(aside.lens).toEqual({ kind: "words", name: '"Han"' });
+    expect(aside.noCard).toBe("No card for Han yet; here is what mentions Han");
+    expect(entries(aside).flatMap((e) => e.moments.map((m) => m.id)).sort()).toEqual([...han].sort());
+
+    const said = meaningRecall(ctx(c), "what did Oskar say about Postgres?");
+    expect(said.lens).toMatchObject({ kind: "card", name: "Oskar" });
+    expect(said.noCard).toBe("No card for Postgres yet; this follows Oskar");
+
+    const felt = meaningRecall(ctx(c), "how did I feel about Han at Driftwood?");
+    expect(felt.lens).toMatchObject({ kind: "card", name: "Driftwood" });
+    expect(felt.noCard).toBe("No card for Han yet; this follows Driftwood");
+  });
+
+  test("in an aside the name is passed over: the card asked about leads, nothing is said", () => {
+    const c = ownerBrain();
+    oneCard(c);
+    const r = meaningRecall(ctx(c), "what has Mike been to Han?");
+    expect(r.noCard).toBeNull();
+    expect(r.lens).toMatchObject({ kind: "card", name: "Mike" });
+    expect(renderMeaning(r).split("\n")[0]?.startsWith("Mike")).toBe(true);
+  });
+
+  test("asked about alongside another card: the card leads, and the answer says the name has none", () => {
+    const c = ownerBrain();
+    card(c, "Oskar");
+    oneCard(c);
+    moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
+    const r = meaningRecall(ctx(c), "how have Han and Oskar been?");
+    expect(r.lens).toMatchObject({ kind: "card", name: "Oskar" });
+    expect(r.noCard).toBe("No card for Han yet; this follows Oskar");
+    expect(renderMeaning(r).split("\n")[0]).toBe("No card for Han yet; this follows Oskar.");
+  });
+
+  test("nothing mentions it: said so, and nothing else is answered in its place", () => {
+    const c = ownerBrain();
+    oneCard(c, false);
+    const r = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(r.noCard).toBe("No card for Han yet, and nothing in memory mentions Han");
+    expect(r.reason).toBe("nothing-came");
+    expect(r.shown).toEqual([]);
+    const text = renderMeaning(r);
+    expect(text.split("\n")[0]).toBe("No card for Han yet, and nothing in memory mentions Han.");
+    expect(text).toContain("Nothing holds it yet.");
+  });
+
+  test("with a card of its own, nothing changes: the card is the arc and no line is added", () => {
+    const c = ownerBrain();
+    card(c, "Han");
+    oneCard(c);
+    const r = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(r.noCard).toBeNull();
+    expect(r.lens).toMatchObject({ kind: "card", name: "Han" });
+  });
+
+  test("a month, a weekday, or the owner's own name is never a name with no card", () => {
+    const c = ownerBrain();
+    oneCard(c);
+    expect(meaningRecall(ctx(c), "how have things been since March?").noCard).toBeNull();
+    expect(meaningRecall(ctx(c), "what happened on Thursday at the dentist?").noCard).toBeNull();
+    expect(meaningRecall(ctx(c), "what has Mike been like?").noCard).toBeNull();
+  });
+
+  // Review of #347, on the demo store: "No card for Marguerite yet" where
+  // Marguerite Solberg has one, and "No card for Q3 yet" for "how has the Q3
+  // roadmap gone", which then lost the two chapters its words had found.
+  test("a word of a card's longer name is not a name with no card: there is a card", () => {
+    const c = ownerBrain();
+    card(c, "Han Seo");
+    oneCard(c);
+    moment(c, "sess_s", "Han Seo moved to Boulder in the spring.");
+    const r = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(r.noCard).toBeNull();
+  });
+
+  test("with no card named, nothing is answered in a name's place: no line, and the words and meaning answer as before", () => {
+    const c = ownerBrain();
+    const { han } = oneCard(c);
+    const r = meaningRecall(ctx(c), "what has Han been up to?");
+    expect(r.noCard).toBeNull();
+    expect(r.lens?.kind).toBe("words");
+    expect(entries(r).flatMap((e) => e.moments.map((m) => m.id))).toEqual(expect.arrayContaining(han));
+    // The sentence's first word is capitalised too, and is nobody.
+    for (const q of ["What has changed since Monday?", "How has the Q3 roadmap gone?", "What did we decide about the API?", "When did I feel proud?"]) {
+      expect(meaningRecall(ctx(c), q).noCard).toBeNull();
+    }
+  });
+
+  test("a question about feeling led by a name with no card: the note names that name, not the card it outranked", () => {
+    const c = ownerBrain();
+    card(c, "Oskar");
+    oneCard(c);
+    moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
+    const r = meaningRecall(ctx(c), "how did I feel about Han after Oskar left?");
+    expect(r.lens?.kind).toBe("feeling");
+    const notes = r.notes.join(" ");
+    expect(notes).toContain('no card names "Han"');
+    expect(notes).not.toContain("Oskar");
+  });
+
+  test("an acronym, a word with a digit, or a question in Title Case names nobody, even beside a card", () => {
+    const c = ownerBrain();
+    oneCard(c);
+    expect(meaningRecall(ctx(c), "what has the API been to Mike?").noCard).toBeNull();
+    expect(meaningRecall(ctx(c), "how has Q3 been for Mike?").noCard).toBeNull();
+    const titled = meaningRecall(ctx(c), "What Has Changed For Mike Since Monday?");
+    expect(titled.noCard).toBeNull();
+    expect(titled.lens).toMatchObject({ kind: "card", name: "Mike" });
+  });
+});
+
 describe("a long arc", () => {
   /** Twelve sessions, one chapter each, every one naming Ada; feelings flip at the seventh. */
   function longArc(c: Counterpart, n = 12, words = 1): { address: string }[] {

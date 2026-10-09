@@ -74,6 +74,7 @@ import {
   preMigrationDir,
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
+import { heldCorrections } from "../../core/contradictions.js";
 import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
 import { acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
@@ -2782,6 +2783,25 @@ export function recognitionLaneFindings(store: Store): Finding[] {
 export const CONTRADICTION_WINDOW_DAYS = 7;
 
 /**
+ * The Contradictions line's held part, plainly: "; 2 corrections held because
+ * they didn't look related to the memory they named; if any were meant,
+ * settle them with counterparts settle, which lists them". Empty when nothing
+ * was held. Those settled by hand since are counted, and the pointer is only
+ * for the ones still held — most are a wrong pointer caught, which needs nothing.
+ */
+export function heldLine(held: number, settledAfter: number): string {
+  if (held <= 0) return "";
+  const one = held === 1;
+  const left = held - settledAfter;
+  const head = `; ${String(held)} ${one ? "correction" : "corrections"} held because ${one ? "it" : "they"} didn't look related to the memory ${one ? "it" : "they"} named`;
+  if (left <= 0) return `${head}, ${one ? "settled" : "all settled"} by hand since`;
+  const since = settledAfter > 0 ? `, ${String(settledAfter)} settled by hand since` : "";
+  const them = left === 1 ? "it" : "them";
+  const was = left > 1 ? "any were" : one ? "it was" : held === 2 ? "the other was" : "the one left was";
+  return `${head}${since}; if ${was} meant, settle ${them} with counterparts settle, which lists ${them}`;
+}
+
+/**
  * CONTRADICTIONS, informational (2026-09-29): over the last
  * `CONTRADICTION_WINDOW_DAYS` lived days, how many pairs were flagged, how
  * many settled and how (changed, corrected, open), how many undone, and who
@@ -2826,14 +2846,28 @@ export function contradictionFindings(store: Store): Finding[] {
     .sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${k === "owner" ? "you" : k} ${String(n)}`)
     .join(", ");
+  // HELD CORRECTIONS (mcp INTERFACE-GAPS §12, closed 2026-10-09): a write that
+  // said it changed or corrected a memory that looked unrelated was held, so
+  // nothing was settled. Informational, like the rest of this line: a hold is
+  // the guard working. Unreadable, the line goes on without it.
+  let heldWords = "";
+  let heldData: Record<string, number> = { held: 0, heldSettledAfter: 0, heldByMeaning: 0, heldByWords: 0 };
+  try {
+    const h = heldCorrections(store, { sinceDay: since });
+    heldData = { held: h.held, heldSettledAfter: h.settledAfter, heldByMeaning: h.byMeaning, heldByWords: h.byWords };
+    heldWords = heldLine(h.held, h.settledAfter);
+  } catch {
+    // An event log this cannot read: the held count is left out, not guessed.
+  }
   return [
     finding(
       "contradictions",
       "green",
       "Contradictions",
-      `last ${String(CONTRADICTION_WINDOW_DAYS)} lived days: ${String(flagged)} flagged, ${String(kept.length)} settled (${kinds})${kept.length > 0 ? ` by ${whoWords}` : ""}${undone > 0 ? `, ${String(undone)} undone` : ""}; standing: ${String(open)} open, ${String(unsettled)} unsettled${unsettled > 0 ? " (counterparts settle lists them)" : ""}`,
+      `last ${String(CONTRADICTION_WINDOW_DAYS)} lived days: ${String(flagged)} flagged, ${String(kept.length)} settled (${kinds})${kept.length > 0 ? ` by ${whoWords}` : ""}${undone > 0 ? `, ${String(undone)} undone` : ""}; standing: ${String(open)} open, ${String(unsettled)} unsettled${unsettled > 0 ? " (counterparts settle lists them)" : ""}${heldWords}`,
       "",
       {
+        ...heldData,
         flagged,
         settled: kept.length,
         changed: how["changed"] ?? 0,

@@ -347,7 +347,21 @@ writes through `self_page`, which takes no settle; if it settles through `note`,
 trail says the launching session. A `settle` on `self_page`, or a page-writer claim on
 `note`, would close it — neither is built until the writer is seen wanting one.
 
-## 12. Nobody reads how often the update guard fires — OPEN 2026-10-09
+## 12. Nobody reads how often the update guard fires — CLOSED 2026-10-09
+
+**Closed the same day.** Doctor's Contradictions line reads `heldCorrections` over its
+seven lived days and says it plainly: "2 corrections held because they didn't look
+related to the memory they named, 1 settled by hand since; if the other was meant, settle
+it with counterparts settle, which lists it". The finding's data carries `held`,
+`heldSettledAfter`, `heldByMeaning` and `heldByWords`, so `settledAfter / held` can be
+watched from `doctor --json`. It stays green: a hold is the guard working.
+`counterparts settle` lists the week's holds nobody settled since (`heldPairs`, the same
+read, newest first), each with its two ids and the `--holds <new> --against <old>` command,
+because a hold writes no pair for `--pair` to name. Proof: `test/contradictions.test.ts`
+"doctor's Contradictions line counts the week's held corrections" and
+`test/update-guard.test.ts`, through a real held `note`.
+
+The gap as it was filed:
 
 A held `updates` (`schemas/CONTRACT.md` §5 1b) leaves one durable `contradiction.held`
 row: the two ids, the `how`, which reading decided (`meaning` or `words`), the cosine and

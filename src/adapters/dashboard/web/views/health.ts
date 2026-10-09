@@ -11,6 +11,7 @@ import { MARKER_UNSET, MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON, readMarker } 
 import { cadenceFor, markerDue } from "../../../../core/sleep/markers.js";
 import type { Phase } from "../../../../core/sleep/types.js";
 import type { Kind } from "../../../../core/types.js";
+import { localDate } from "../../../../core/time.js";
 import { NEVER, NONE } from "../../layout.js";
 import { CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../../registries.js";
 import type { DurableEventName } from "../../registries.js";
@@ -64,6 +65,13 @@ export interface HealthView {
   readonly cycle: {
     readonly day: number | null;
     readonly at: number | null;
+    /**
+     * `at`'s calendar day in the person's zone (`store.zone()`), and whether it
+     * is today there — dated by the server, so the line agrees with every
+     * other date on the page (review of #335, 2026-10-09). Null with `at`.
+     */
+    readonly on: string | null;
+    readonly today: boolean;
     readonly ran: number;
     /** Phases that did not run because their cadence had not come round: not a problem. */
     readonly waiting: number;
@@ -388,9 +396,12 @@ export function healthView(src: DashboardSource): HealthView {
     const nextInDays = state === "waiting" && p.day !== null ? Math.max(0, p.day + cadence - day) : null;
     return { phase: p.phase, gloss: PHASE_GLOSS[p.phase] ?? p.phase, state, day: p.day, nextInDays };
   });
+  const cycleOn = lastCycleRow === undefined ? null : localDate(lastCycleRow.at, store.zone()) || null;
   const cycle = {
     day: newest,
     at: lastCycleRow === undefined ? null : lastCycleRow.at,
+    on: cycleOn,
+    today: cycleOn !== null && cycleOn === store.today(),
     ran: cyclePhases.filter((p) => p.state === "ran").length,
     waiting: cyclePhases.filter((p) => p.state === "waiting").length,
     total: cyclePhases.length,

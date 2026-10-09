@@ -626,3 +626,26 @@ How it got through: `test/time.test.ts` scans `src/` for hand-built dates, but
 only `.ts` files, so the browser modules here are not scanned at all. Widening
 the scan to `.js` would also catch `dates.js` and `cycle.js`, which build dates
 on purpose, so it needs its own allow-list decisions; left as a follow-up.
+
+## 2026-10-09 (later) — the dashboard reads the configured zone
+
+Done, the same day. `Dashboard.open` takes a `timeZone`, and with none given it
+reads the configuration beside a named `dir` (`config.ts#zoneBeside`, moved there
+from `cli/commands.ts` so the dashboard need not import the console);
+`startDashboard` reads the named configuration's first (`zoneOfConfig`). The store
+then opens in that zone, so every server view that dates through `store.zone()`
+follows it with no change of its own.
+
+The browser no longer turns a moment into a day. `/api/memory` carries `writtenOn`
+and `writtenClock` (`views/memory.ts#writtenWhen`; the clock is `core/time.ts#localClockZone`,
+"11:47 MDT"), `/api/health`'s cycle carries `on` and `today`, `/api/fired` carries
+its `zone` for the footer (which still said "(UTC)" after the reading went local).
+`dates.js` lost `localIso` and `stampWords`. What the browser still reads off its
+own clock: `dateWords` leaving out "this year" (wrong only in the hours a New Year
+falls on one side of the zones and not the other), and the Health checklist's
+"checked 14:05", the moment the browser ran doctor. Both are left as they are.
+One edge left too: the page's `ask` runs the console, which dates in the zone beside the
+store (`cli/commands.ts#openCounterpart`), not a named configuration kept somewhere else.
+On an install the configuration is beside the store, and the two agree.
+Test: `test/dashboard-zone.test.ts`, on a store configured to a zone 20 hours or
+more from the machine's.

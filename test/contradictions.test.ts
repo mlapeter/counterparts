@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { contradictionFindings, upgradeV10Findings } from "../src/adapters/claude-code/doctor.js";
+import { contradictionFindings, heldLine, upgradeV10Findings } from "../src/adapters/claude-code/doctor.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { mechanismEvidence } from "../src/adapters/mechanism-evidence.js";
@@ -23,6 +23,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { Recall, render } from "../src/core/recall/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import {
+  CONTRADICTION_HELD_EVENT,
   CONTRADICTION_SETTLED_EVENT,
   CORRECTED_REASON,
   NEIGHBOURS_HINT,
@@ -718,6 +719,68 @@ describe("visible: the owner's settle, doctor's line, the mechanism's evidence",
     expect(line?.detail).toContain("standing: 1 open, 1 unsettled");
     expect(line?.data["byOwner"]).toBe(1);
     expect(line?.data["bySession"]).toBe(1);
+  });
+
+  test("doctor's Contradictions line counts the week's held corrections plainly, stays green, and points at counterparts settle, which lists the ones still held (mcp §12)", async () => {
+    const w = Store.open({ dir });
+    const today = aged(w);
+    for (const d of ["2026-09-05", "2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11"]) w.advanceClock(d);
+    const now = w.livedDay();
+    expect(now).toBeGreaterThan(today);
+    const quiet = contradictionFindings(w)[0];
+    expect(quiet?.detail).not.toContain("held");
+    expect(quiet?.data["held"]).toBe(0);
+    const mole = put(w, "Had the mole on my back looked at; the dermatologist says it is nothing.");
+    const passport = put(w, "Passport name change went through; the new passport arrived in May.");
+    const rota = put(w, "The ward rota is published on Fridays.");
+    const lunch = put(w, "Lunch is catered on Mondays.");
+    const hold = (holds: string, over: string, how: string, by: string, day: number): void => {
+      w.appendEvent({ name: CONTRADICTION_HELD_EVENT, day, ref: holds, payload: { holds, over, how, by, cosine: 0.1, shared: 0, source: "jot", writeUp: false, actor: "session", actorId: SESSION, day } });
+    };
+    hold(mole, passport, "corrected", "meaning", now);
+    hold(rota, lunch, "changed", "words", now - 1);
+    // Older than the line's seven lived days: not counted, not listed.
+    hold(lunch, rota, "corrected", "words", now - 7);
+    // The writer meant one of them, and settled it by hand afterwards.
+    expect(settle(w, { holds: rota, over: lunch, how: "changed", actor: "session", actorId: SESSION }).ok).toBe(true);
+
+    const [line] = contradictionFindings(w);
+    expect(line?.severity).toBe("green");
+    expect(line?.detail).toContain(
+      "2 corrections held because they didn't look related to the memory they named, 1 settled by hand since; if the other was meant, settle it with counterparts settle, which lists it",
+    );
+    expect(line?.data).toMatchObject({ held: 2, heldSettledAfter: 1, heldByMeaning: 1, heldByWords: 1 });
+    w.close();
+
+    // The list names the one still held, by its two ids, with the command that settles it.
+    const list = io();
+    expect(await run(["settle", "--dir", dir], { io: list.io })).toBe(0);
+    const text = list.out.join("\n");
+    expect(text).toContain("Held (1, last 7 lived days)");
+    expect(text).toContain(`${mole} said it corrects ${passport}`);
+    expect(text).toContain("the new passport arrived in May");
+    expect(text).toContain(`counterparts settle --holds ${mole} --against ${passport} --how corrected --why "..."`);
+    expect(text).not.toContain(`--holds ${rota}`);
+    expect(text).not.toContain(`--holds ${lunch}`);
+
+    // Settled as the owner, it leaves the list, and the line says they all were.
+    const done = io();
+    expect(await run(["settle", "--holds", mole, "--against", passport, "--how", "corrected", "--why", "it was meant", "--dir", dir], { io: done.io })).toBe(0);
+    const again = io();
+    expect(await run(["settle", "--dir", dir], { io: again.io })).toBe(0);
+    expect(again.out.join("\n")).not.toContain("Held (");
+    const r = Store.open({ dir, observer: true });
+    open.push(r);
+    expect(contradictionFindings(r)[0]?.detail).toContain("2 corrections held because they didn't look related to the memory they named, all settled by hand since");
+  });
+
+  test("the held part of the line, in its few shapes", () => {
+    expect(heldLine(0, 0)).toBe("");
+    expect(heldLine(1, 0)).toBe("; 1 correction held because it didn't look related to the memory it named; if it was meant, settle it with counterparts settle, which lists it");
+    expect(heldLine(1, 1)).toBe("; 1 correction held because it didn't look related to the memory it named, settled by hand since");
+    expect(heldLine(3, 0)).toBe("; 3 corrections held because they didn't look related to the memory they named; if any were meant, settle them with counterparts settle, which lists them");
+    expect(heldLine(3, 1)).toContain(", 1 settled by hand since; if any were meant, settle them");
+    expect(heldLine(3, 2)).toContain(", 2 settled by hand since; if the one left was meant, settle it with counterparts settle, which lists it");
   });
 
   test("doctor's Upgrade line says what v10 carried, and is silent on a store born at v10", () => {

@@ -23,7 +23,8 @@
  * And one from observer-mode G5: an unreadable configuration resolves to
  * OBSERVER, never to "encode anyway". `loadConfig` never throws.
  */
-import { isAbsolute } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 import { isZone } from "../core/time.js";
 
@@ -846,4 +847,31 @@ export function resolveEmbedder(
 export function withEmbedderDefault(config: AdapterConfig): AdapterConfig {
   const { block, source } = resolveEmbedder(config);
   return source === "explicit" || block === undefined ? config : { ...config, embedder: block };
+}
+
+/**
+ * `timeZone` from the host configuration at `path` (docs/time.md, 2026-09-25):
+ * the zone the hooks and the MCP server date the person's days in. Absent,
+ * unreadable or unset: undefined, and the caller follows the machine's zone.
+ * Never throws — a reader that cannot find the zone shows the machine's day,
+ * which is what doctor's line names when they differ.
+ */
+export function zoneOfConfig(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    return loadConfig(JSON.parse(readFileSync(path, "utf8"))).config.timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `timeZone` from the host configuration BESIDE a store (`<dir>/../claude-code.json`,
+ * the file `install` writes), for a reader handed only the store's directory —
+ * the console's commands and the dashboard (moved here from `cli/commands.ts`
+ * on 2026-10-09, so the dashboard reads the zone the hooks use without
+ * importing the console).
+ */
+export function zoneBeside(dir: string): string | undefined {
+  return zoneOfConfig(join(dir, "..", "claude-code.json"));
 }

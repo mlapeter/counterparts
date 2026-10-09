@@ -65,6 +65,7 @@ import { fileURLToPath } from "node:url";
 
 import { ownerNames } from "../../../core/sleep/index.js";
 import { dataDir, isStoreError } from "../../../core/store/index.js";
+import { zoneBeside, zoneOfConfig } from "../../config.js";
 import { Dashboard } from "../index.js";
 import { upgradePending, upgradePendingSentence } from "../upgrade.js";
 import type { DashboardSource } from "../source.js";
@@ -384,7 +385,16 @@ function resolvePort(opts: ServeOptions): number {
  * for 0 — and closing it closes the store.
  */
 export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboard> {
-  const openOpts = opts.dir === undefined ? {} : { dir: opts.dir };
+  // THE ZONE THE HOOKS USE (review of #335, 2026-10-09): the named
+  // configuration's `timeZone`, else the one beside the store, else the
+  // machine's. Every date the server sends is read in it, already local.
+  const timeZone =
+    (opts.config === undefined ? undefined : zoneOfConfig(opts.config)) ??
+    (opts.dir === undefined ? undefined : zoneBeside(opts.dir));
+  const openOpts = {
+    ...(opts.dir === undefined ? {} : { dir: opts.dir }),
+    ...(timeZone === undefined ? {} : { timeZone }),
+  };
   // A store waiting for its upgrade is not an error to the owner: the server
   // still starts, says so on every page, and tries the store again on each
   // request, so a reload after a session has upgraded it shows the dashboard.

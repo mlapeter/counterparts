@@ -155,7 +155,7 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { loadConfig, withEmbedderDefault } from "../config.js";
+import { loadConfig, withEmbedderDefault, zoneBeside } from "../config.js";
 // The one answer to "is there an embedder", shared with the hook, the worker and
 // the MCP server's entry point — `ask` embeds its question with it.
 import { openEmbedder } from "../claude-code/embed-client.js";
@@ -817,7 +817,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   core:
     "The core — the memories about me, about us and about the owner that do not fade. With no flags (or --list), what it holds and which lane carried each one there, what dreams have nominated, and what you sent back; --demote <id> --reason \"...\" sends one back to ordinary fading from today, records why, and keeps the lanes from promoting it again; --reflected-feeling on|off opens or closes the core to reflection alone. On (the default): a feeling a reflection records later and a reflection citing a memory both count toward the fast lane, and a reflection may re-label what a memory is about either way — each re-label is recorded with its reason, and one into me, us or the owner is told in the next morning share. Off: nothing reaches the core on a reflection alone — the fast lane needs a feeling felt at the time (not one a reflection recorded later) and an ordinary use after a gap (not a reflection citing it), and a reflection may only move what a memory is about toward work or world. Reading works under observer; the two changes refuse there.",
   settle:
-    "Two memories that disagree. With no flags (or --list), the pairs nobody has settled — a dream flags them — and the ones settled lately: how, which holds, who settled it and why. --pair <id> --holds <memory id> --how changed|corrected|open --why \"...\" settles one as you (or --holds <id> --against <id> for two memories no dream flagged): changed — both were true at their time, the older fades once and is shown as earlier; corrected — the older was wrong, it leaves recall and stays readable by its id; open — a real disagreement, both kept and shown together. No memory is rewritten. --undo <pair> reverses a settle: the strength comes back, a corrected memory comes back into recall, and the pair is unsettled again. Reading works under observer; the two changes refuse there.",
+    "Two memories that disagree. With no flags (or --list), the pairs nobody has settled — a dream flags them — and the ones settled lately: how, which holds, who settled it and why; and the corrections held in the last 7 lived days (a memory said it changes or corrects one that didn't look related, so nothing was settled) that nobody has settled since, each with the command that settles it. --pair <id> --holds <memory id> --how changed|corrected|open --why \"...\" settles one as you (or --holds <id> --against <id> for two memories no dream flagged): changed — both were true at their time, the older fades once and is shown as earlier; corrected — the older was wrong, it leaves recall and stays readable by its id; open — a real disagreement, both kept and shown together. No memory is rewritten. --undo <pair> reverses a settle: the strength comes back, a corrected memory comes back into recall, and the pair is unsettled again. Reading works under observer; the two changes refuse there.",
   coverage:
     "What is written up, and what is not yet, for one date (default today): each session that captured something that day, how much of it is written up, and what is not yet written up — how many pieces, over how long, since when — and whether that is owed (the next session in its project is asked to write it up), lapsed (nobody did in two days of use; nothing is deleted), under the floor, or still at work. Read-only.",
   dashboard:
@@ -8737,26 +8737,13 @@ export function openCounterpart(
 }
 
 /**
- * `snapshots.dir` from the host configuration beside the store
- * (`<base>/claude-code.json`, the file `install` writes), so a migration the
- * console runs puts its copy where the worker's rotation and doctor look.
- * Absent, unreadable or unset: undefined, and the store's default applies.
- */
-/**
  * `timeZone` from the host configuration beside the store — the same file
  * `snapshotsDirBeside` reads — so a console command names the person's day in
- * the zone the hooks use (docs/time.md, 2026-09-25). Absent or unreadable:
- * undefined, and the store follows the machine's zone.
+ * the zone the hooks use (docs/time.md, 2026-09-25). It lives in `config.ts`
+ * since 2026-10-09, where the dashboard reads it too; re-exported here for the
+ * console's callers.
  */
-export function zoneBeside(dir: string): string | undefined {
-  const beside = join(dir, "..", "claude-code.json");
-  if (!existsSync(beside)) return undefined;
-  try {
-    return loadConfig(JSON.parse(readFileSync(beside, "utf8"))).config.timeZone;
-  } catch {
-    return undefined;
-  }
-}
+export { zoneBeside };
 
 /** `Store.open` for the console: the config's zone beside the store rides along. */
 function openStoreAt(opts: { dir: string; observer?: boolean }): Store {
@@ -8764,6 +8751,12 @@ function openStoreAt(opts: { dir: string; observer?: boolean }): Store {
   return Store.open({ ...opts, ...(timeZone === undefined ? {} : { timeZone }) });
 }
 
+/**
+ * `snapshots.dir` from the host configuration beside the store
+ * (`<base>/claude-code.json`, the file `install` writes), so a migration the
+ * console runs puts its copy where the worker's rotation and doctor look.
+ * Absent, unreadable or unset: undefined, and the store's default applies.
+ */
 export function snapshotsDirBeside(dir: string): string | undefined {
   const beside = join(dir, "..", "claude-code.json");
   if (!existsSync(beside)) return undefined;

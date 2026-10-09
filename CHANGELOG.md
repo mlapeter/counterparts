@@ -24,13 +24,54 @@
   that list with the claims about how to call them: which fields are fields, that a
   question needs a mode, that an empty `memories` is an answer. No wording changed, and
   nothing behaves differently.
+- **The dashboard dates everything in the zone the hooks use.** With a `timeZone` in the
+  configuration that differs from the computer's, the dashboard used the computer's zone
+  and the browser's own, so one page could show two days for one moment: a memory's
+  "recorded" chip on one, its "Written" line on the next. The dashboard now reads the
+  configuration's `timeZone` (the named one, else the one beside the store), every view
+  dates in it, and the card's "Written" day and the Health cycle line come from the
+  server already dated. The card's details row names that zone ("Sep 28th, 2026, 11:47
+  MDT") instead of printing UTC, and the Flow page's fired footer names it instead of a
+  stale "(UTC)". Without a `timeZone` set, nothing changes.
+- **Doctor counts held corrections.** When a new memory says it changes or corrects one
+  that doesn't look related, the old one is left alone and the hold is recorded (0.3.13).
+  Doctor's Contradictions line now says how many were held in the last 7 lived days and
+  how many were settled by hand since ("2 corrections held because they didn't look
+  related to the memory they named, 1 settled by hand since; if the other was meant,
+  settle it with counterparts settle, which lists it"). It stays green. `counterparts
+  settle` lists the ones still held, each with the command that settles it.
+- **Meaning recall says when the person you asked about has no card.** "What has Han
+  been to Mike?" on a store where only Mike has a card used to come back as Mike's story
+  with no word about Han. Now the answer opens with "No card for Han yet; here is what
+  mentions Han", follows the memories that name Han, and lists Mike's card as one to ask
+  about. If nothing mentions Han, it says that instead. The name leads only when every
+  card the question names is mentioned in passing ("been to Mike", "since Driftwood").
+  When a card is asked about or named plainly ("how have Han and Oskar been?", "what did
+  Oskar say about Han?"), the answer follows that card as before and opens by saying Han
+  has none. The dashboard's Ask shows the same first line.
+  A question that names no card at all ("what has Han been up to?") is answered as
+  before, by its words and meaning. A first name of a card's longer name ("Marguerite"
+  for Marguerite Solberg), an acronym ("API", "Q3") and a question typed in Title Case
+  are never taken for a name with no card.
+- **Facts recall no longer reads an amount as a date, or "since 10/25" as an empty
+  window.** "7-8 hours", "3/4 cup", "5-10%" and "$5-10" were read as dates (July 8, March
+  4, May 10) and filtered the answer to them; they are amounts now, and a date later in
+  the question is still read. "Cut it by 1/2" or "reduced to 1/3" is a fraction, not a
+  deadline of January 2; "finish by 1/2" still is one. And "since 10/25" or "after 10/25"
+  asked before the 25th of this month means last year's 10/25, where it gave nothing (or
+  only what is still to come). "Before", "until" and "by" a coming day keep this year's.
+  "2-3 weeks ago" and "3 or 4 days ago" cover both ends, where only the far one was read,
+  and a zero-padded "09-28" stays a date whatever word follows it.
+  Questions with no time in them answer exactly as before.
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
   layout, a pane beside the transcript shows the brain turning in braille, the twelve
-  mechanisms, search, and what was kept and came to mind (from the dashboard and this
-  session). It also has two switches: pause Counterparts in this folder, and turn Claude
-  Code's own memory off. `/counterparts` opens it anywhere. Beside an npm install, a plugin
-  run from a folder (`claude --plugin-dir`) now says that is expected, instead of suggesting
-  `counterparts disconnect`.
+  mechanisms, search, and what this session kept and recalled (with the night's dreams and
+  fading, and other sessions folded into one line). It also has two switches: pause
+  Counterparts in this folder, and turn Claude Code's own memory off. `‹` makes it quiet
+  (narrow, nothing moving); its `✕` hides it to one status line; `/counterparts` opens it
+  anywhere. Beside an npm install, a plugin run from a folder (`claude --plugin-dir`) now
+  says that is expected, instead of suggesting `counterparts disconnect`, and the plugin's
+  `/counterparts:doctor` shows the npm install's own doctor.
 
 ## 0.3.13 — 2026-10-09
 

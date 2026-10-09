@@ -1379,3 +1379,127 @@ descriptions run past 2,048 (session_end 7,218, recall 6,176, note 5,091, self_p
   in the diff.
 - The CONTRACT promises content (G2: every claim mechanized; G3: an admission test and
   a negative example), not an order, so it is unchanged.
+
+## 2026-10-09 — meaning mode: a name asked about that has no card
+
+0.3.13's release check, on a real store with one card (the owner's): "what has Han been
+to Mike?" came back as Mike's arc with nothing about Han, because Han had no card.
+`subjectOf` only ever ranked cards, so the one card in the question won from an aside.
+
+- **A name with no card is read in place like a card's.** The asker's capitalised
+  mid-sentence words (`feeling-ask.ts#askedNames`) that no card with memories covers,
+  two in a row joined ("Han Seo"), not the owner's name, not a month or a weekday
+  (`uncardedNames`). In an aside it is passed over ("what has Mike been to Han" is Mike's,
+  and says nothing). It takes part in the joined rule, so "how have Han and Oskar been"
+  asks about both.
+- **Above every card, or level with the owner's alone, the name leads.** The answer is a
+  `words` lens on the name as typed (`holdByWords`, "Han" not "han"), and its first line
+  is `MeaningResult.noCard`: "No card for Han yet; here is what mentions Han" (nothing
+  mentions it: "…, and nothing in memory mentions Han"). The cards it named are
+  one-liners under "also named". The question's vector is not used here: it carries the
+  other names too, and brought "Mike" back.
+- **Level with another card, the card leads** (it has an arc to show) and the first line
+  is "No card for Han yet; this follows Oskar".
+- **A question about feeling** keeps its own path: with the name leading, no card is
+  chosen, and the feeling branch's topic words (which include the name) find the felt
+  moments, under its existing note `no card names "Han"`.
+- `renderMeaning` prints `noCard` first, and so does the dashboard's `meaningHead`
+  (`find-lead`), so the tool, `counterparts ask --mode meaning` and the page agree.
+- *Choices:* a lower-case name ("what has han been to mike") is not detected: nothing
+  says it is a name. A card that exists but holds nothing the asker may see reads as no
+  card ("No card for Han yet"): saying it has one would tell a non-owner something about
+  confidential memories.
+- **Review of #347, on the demo store** (cards under full names: Marguerite Solberg,
+  Teodoro Whitlock, Nkechi Abernathy, Ilya Broadbent; master's answers compared
+  question by question). Three ways the rule over-fired, fixed:
+  - *A first name of a card's longer name* ("what has Marguerite been like") said "No
+    card for Marguerite yet" while Marguerite Solberg has one (`subjectsIn` reads only
+    a registered name or alias). Such a word is not a name with no card (`cardWord`,
+    only cards with something the asker may see, as above): the question goes as it
+    did on master. Leading with that card instead would be better, and is the alias
+    index's business, not this rule's.
+  - *A question that names no card* went to a `words` lens on the capitalised word
+    alone, dropping the rest of the question and its meaning: "how has the Q3 roadmap
+    gone" lost the 2 chapters "roadmap" had found and said "nothing in memory mentions
+    Q3"; "what did I learn about Postgres indexing" lost "indexing"; "Hey Claude, what
+    do you remember about the pilot" answered about Claude. With no card named nothing
+    is answered in the name's place, so the rule now needs a card mention (`kept`);
+    otherwise master's words-and-meaning answer stands, with its "no card names it"
+    note. "What has Han been to me" is one of these now.
+  - *Acronyms, digits, Title Case*: "API", "Q3", "OKRs" (a capital second letter or a
+    digit) are labels, not names; a question with a capitalised function word
+    mid-sentence ("What Has Changed Since Monday", `TITLE_CASE_TELLS`) names nobody,
+    as `askedNames` already reads an all-capitals question.
+  - *Beside a card asked about or named plainly*, a capitalised thing in an about place
+    still led: "what did Teodoro Whitlock say about Postgres" answered "No card for
+    Postgres yet, and nothing in memory mentions Postgres" where master gave Teodoro's
+    arc, and "how did I feel about Han at Driftwood" left Driftwood's arc for every felt
+    moment. No word-level rule tells Postgres from Han, but the card's place does: the
+    motivating question had its one card in an aside ("been to Mike"). So the name with
+    no card now leads only when EVERY card named sits in an aside ("been to Mike",
+    "since Y", "after Y"). Otherwise the card leads as on master, and the first line
+    says the name has none ("No card for Postgres yet; this follows Teodoro Whitlock")
+    for each such name asked about as high as that card, or higher. This replaces
+    "above every card, or level with the owner's alone" and "level with another card"
+    above: "how have Mike and Han been" is now Mike's, with "No card for Han yet; this
+    follows Mike". With the name leading in a question about feeling, the feeling
+    branch's topic is that name alone (`nameTopic`), so its note says `no card names
+    "Han"` and not the card it outranked.
+  - Sentence-initial words were never read as names (`askedNames` skips them); every
+    probe whose first word is capitalised ("What has changed since Monday", "How has
+    Driftwood gone", "Tell me about Rosalind", "When did I feel proud", "What happened
+    in October") answers exactly as on master.
+
+## 2026-10-09 — facts mode: amounts, fractions, and a day not yet come
+
+Three of #338's reviewer's findings predated it (items 3 and 4 of that review), all in
+`recall/time-ask.ts`; this is them.
+
+- **What changed meaning, exactly.** (1) A `M-D` or `M/D` with a unit or counting noun
+  right after it is an amount, not a date: "7-8 hours", "3-4pm", "5-10%", "3/4 cup", "1/2
+  of the budget", "lost 5-10 lbs" (a decimal tail too: "7-8.5 hours"). A price is one too:
+  "$5-10". They were dates ("7-8 hours" July 8, and under "up to" through 07-08; "$5-10"
+  May 10). The scan goes on past an
+  amount, so "slept 7-8 hours before 9/21" is through 09-20; anything else stops it where
+  it stopped before. (2) "Cut it by 1/2", "reduced the dose to 1/3": a fraction after a
+  word of quantity is no date. It was through 01-02 (master before #338: 01-02 alone).
+  (3) "Since" and "after" a month and day with no year that has not come yet this year
+  (a later day of this month, the only case `yearFor` left in the future) now mean last
+  year's. "Since 10/25" asked on 10-03 was empty (10-25..10-03); now it is
+  2025-10-25..10-03. "After 10/25" was only what is still to come; now it is 2025-10-26
+  onward, which holds that too. The event form follows ("after the 10/25 launch" is
+  2025-10-25 onward). A Feb 29 not yet come reaches back to the last Feb 29 there was.
+- *Choices:*
+  - The fraction rule is narrow on purpose: a slash, no year written, the number above
+    smaller than the one below and the one below at most 10 (halves to tenths), and a
+    word of quantity (cut, reduce, increase, decrease, divide, multiply, grow, shrink,
+    raise, lower, halve, trim, slash, boost, scale, drop, fall, rise, in their forms) at
+    most three words before the "by" or "to". Anything else stays a date: "finish by
+    1/2" is through 01-02, "cut costs by 3/15" is a March deadline. When it guesses
+    wrong the other way ("drop it off by 1/2"), nothing is filtered, which hides nothing.
+  - The year moves only under "since" and "after". Under "before", "until", "by" and a
+    day alone this year's coming day is kept: "before 10/25" asked on 10-03 is through
+    this year's 10-24, which holds everything that has happened plus the plans before
+    it, where last year's would hide a year; "by 10/25" is a deadline ahead; "on 10/25"
+    can be a plan. So the CONTRACT's "before 1/5" asked on 01-03 (through this year's
+    01-04) stands.
+  - "Today" is the person's own day (the store's zone), as everywhere here: at 04:00 UTC
+    on 10-04, "since 10/4" is last year's in Denver (still 10-03) and today on Kiritimati.
+  - The event-day rule of #338 ("before the 7/22 flight" keeps 07-22) is unchanged and
+    now tested in Denver and on Kiritimati.
+- **Not done:** an amount written with words between the number and the unit ("7-8 full
+  hours"), a score ("rated it 8/10" is still August 10), a later MONTH under "by" or
+  "until" (still last year's by `yearFor`, as before), and a number range with "to"
+  ("7 to 8 hours" was never a date).
+- *Review of #345:* two follow-ons of the amount rule. (1) Passing "2-3" over as an amount
+  left "3 weeks ago" to be read alone: the week three back, which hid the week two back
+  (and "3-4 days ago" left "3-" in the question). A range in front of the count ("2-3",
+  "2/3", "two or three", "2 to 3") now covers both ends: "2-3 weeks ago" asked on 10-03
+  is 09-07..09-20 before the stretch, "3-4 days ago" 09-29..09-30. "3 or 4 days ago" was
+  the same misreading on master. (2) A zero-padded month or day ("the 09-28 minutes",
+  "7/08 hours") is a date: no amount is written that way, and this owner writes his dates
+  so. Probed and left as they are: a date followed with no comma by a unit or counting
+  noun ("on 7/8 hours were cut", "on 9/12 people came", "the 9/28 minutes") is no time,
+  because "on 7-8 hours of sleep" is an amount after the same "on" and no time hides
+  nothing; with a comma ("on 5/6, days later") it is a date. "7/8 hours before the
+  launch" is no time (an amount, and the launch is not resolved).

@@ -21,11 +21,19 @@ export interface FiredPanel extends FiredReport {
   /** The state vocabulary, in the order the panel draws its groups, with the
    *  one line each one means. On the payload so the page never restates it. */
   readonly vocabulary: { state: string; meaning: string }[];
+  /**
+   * The zone the window's days are read in (`store.zone()`: the
+   * configuration's `timeZone`, else the machine's), so the footer names the
+   * calendar it counts by. It said "(UTC)" until 2026-10-09, after the
+   * reading itself had moved to the local day.
+   */
+  readonly zone: string;
 }
 
 export function firedPanel(src: DashboardSource, today: string): FiredPanel {
   return {
     ...firedReport(src.store, today),
     vocabulary: STATE_ORDER.map((state) => ({ state, meaning: STATE_MEANING[state] })),
+    zone: src.store.zone(),
   };
 }
