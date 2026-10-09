@@ -238,6 +238,22 @@ test('/counterparts asks for a fresh drawing: a pane reopened after a hand-close
   expect(w.invalidations).toContain('ui.render')
 })
 
+test('while the pane holds the keyboard (typing a search) the brain holds still; given back, it turns again', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await $.ui.mount({
+    plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE,
+    props: { ...PANE_PROPS, isFocused: true } as typeof PANE_PROPS, viewport: VIEWPORT,
+  })
+  await settle(w)
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.redraw({ ...PANE_PROPS, isFocused: false } as typeof PANE_PROPS)
+  await w.clock.advance(2000)
+  expect(w.blits.length).toBeGreaterThanOrEqual(8)
+  await ui.unmount()
+})
+
 test('inline above the prompt the brain stays small', async ($, on) => {
   const w = world(on)
   await start($, w)

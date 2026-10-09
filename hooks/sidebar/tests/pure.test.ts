@@ -87,6 +87,11 @@ describe('the feed', () => {
     expect(rows[4]).toMatchObject({ mech: 'dreaming', word: 'dreamed', who: 'night' })
     expect(rows[5]).toBeNull() // a sleep check that faded nothing
     expect(classify(EVENTS[0]!, 'another-session')?.who).toBe('other')
+    // a contradiction a session settled is that session's, not the night's
+    const settled = (actorId: string) => ({ seq: 1, at: T0, name: 'contradiction.settled', text: 'A session settled a contradiction.', detail: [{ key: 'actor', value: 'session' }, { key: 'actorId', value: actorId }] })
+    expect(classify(settled(SESSION), SESSION)?.who).toBe('here')
+    expect(classify(settled('sess-else'), SESSION)?.who).toBe('other')
+    expect(classify({ ...settled('x'), detail: [{ key: 'actor', value: 'dream' }] }, SESSION)?.who).toBe('night')
   })
 
   test('the twelve mechanisms, by the website’s names, schemas not built', () => {

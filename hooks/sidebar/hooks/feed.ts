@@ -102,8 +102,10 @@ export function classify(e: DashEvent, session = ''): FeedRow | null {
   if (rule === undefined) return null;
   const m = mechById(rule.mech);
   const short = m?.short ?? rule.mech;
-  const from = detail(e, 'session');
-  const who: FeedRow['who'] = NIGHT.has(e.name) ? 'night' : session !== '' && from === session ? 'here' : 'other';
+  // A settle or a revision a session made names it as its actor, not as `session`.
+  const bySession = detail(e, 'actor') === 'session';
+  const from = detail(e, 'session') ?? (bySession ? detail(e, 'actorId') : undefined);
+  const who: FeedRow['who'] = NIGHT.has(e.name) && !bySession ? 'night' : session !== '' && from === session ? 'here' : 'other';
   const base: FeedRow = {
     id: `seq:${String(e.seq)}`,
     mech: rule.mech,

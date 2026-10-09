@@ -1022,8 +1022,11 @@ export const register: Register = on => {
     const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
     const quietView = view === 'quiet'
     const hasRaster = e.surface === 'terminal' && !quietView
-    if (e.surface === 'terminal' && quietView) stopBrain()
-    wake($, hasRaster, !quietView)
+    // While the pane holds the keyboard (typing a search) the brain holds still:
+    // no frames to compute, no blits to paint between keystrokes.
+    const holding = e.props.isFocused === true
+    if (e.surface === 'terminal' && (quietView || holding)) stopBrain()
+    wake($, hasRaster && !holding, !quietView)
     const w = Math.max(16, W - 2)
     // This session's and the night's; another session's rows fold into one line.
     const mine = feed.filter(r => r.who !== 'other')

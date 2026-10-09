@@ -27,10 +27,11 @@ expected and asks for nothing.
 It opens by itself only where the terminal docks a pane beside the transcript
 (the fullscreen layout). Elsewhere, and after closing it by hand,
 `/counterparts` opens it. `/counterparts fps` shows the brain's frame rate,
-`/counterparts rail` slides it, `/counterparts caps` swaps the switch ends.
+`/counterparts quiet` makes it quiet (as `‹` does), `/counterparts hide`
+hides it (as its `✕` does), `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (46 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (51 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -56,8 +57,8 @@ It opens by itself only where the terminal docks a pane beside the transcript
 | # | Question | Answer | How |
 |---|---|---|---|
 | 1 | `hooks.json` holds both `"hooks"` and `"modules"`; validate is clean; the classic hooks are still listed | **verified** | `claude plugin validate` passes. Its one warning (CLAUDE.md at the plugin root) is on master too. A `-p` load of the whole plugin registered the five command hooks, ran SessionStart's `plugin-run.sh`, and loaded the module with its seven hooks. |
-| 2 | Raster refusal: braille, background colours, Powerline caps U+E0B6/U+E0B4 | **verified**: all three pass; a wide character (U+4E00) is refused and the refused tree draws nothing | `claude plugin test` with mounted Rasters. Whether a terminal *paints* the caps as half-discs depends on the font, and that part is **assumed**. If they look like boxes, `/counterparts caps` switches to `▐ ▌`. |
-| 3 | How the switches become clickable | **verified**: a `plain` Button whose children are Text cells carrying `backgroundColor` validates on terminal and desktop, and a press reaches it. Mechanisms and activity rows are Buttons too, one per line. | The test kit, plus a real click (an SGR mouse sequence in a tmux-hosted session) that opened a mechanism. |
+| 2 | Raster refusal: braille, background colours, Powerline caps U+E0B6/U+E0B4 | **verified**: all three pass; a wide character (U+4E00) is refused and the refused tree draws nothing | `claude plugin test` with mounted Rasters. **Painting** is the font's: Mike's iTerm2 drew the caps as `?` boxes, so the switch ends are half blocks (`▐ ▌`) by default, and `/counterparts caps` turns on the round caps for a terminal that draws them. |
+| 3 | How the switches become clickable | **verified**: a `plain` Button whose children are Text cells carrying `backgroundColor` validates on terminal and desktop, and a press reaches it. But the engine inverts a Button under the pointer, which lit row after row as Mike moved the mouse. So the ACTIVITY list and the search results are a `Client` surface module (`hooks/list.tsx`) that reads its own clicks (`onPointer`) and has no hover look. The switches and the legend stay Buttons. | The test kit, plus live in tmux: a mouse move over a row leaves it as drawn, while a move over a legend Button inverts it. |
 | 4 | `$.http.fetch('http://localhost:4747/api/...')` from a mod | **verified**: 200 for `localhost` and `127.0.0.1`, so the Host allowlist passes. A dead port rejects (`ECONNREFUSED`), and the sidebar then says to start `counterparts dashboard`. | A probe mod under `-p`, then the real pane in a tmux-hosted session showing live day, count and activity. |
 | 5 | `$.mcp.call` target | **verified, each side apart**: the npm server's tools are `mcp__counterparts__*` and are called as `counterparts`; the plugin's are `mcp__plugin_counterparts_counterparts__*` and are called as `plugin_counterparts_counterparts` (`plugin:counterparts:counterparts` works too). `$.mcp.connect('counterparts')` answers with the plugin's server even when it has stood down with no tools, so the target is read off `$.tool.list()`, npm first. **Assumed**: both connected at once, Mike's case (a unit test covers the choice). | Probe mods with a fake MCP server, one name at a time. |
 | 6 | Re-opening the pane with fewer `columns` narrows the dock | **verified, with a floor**: at 200 columns, `columns: 44` gives a dock 45 wide, and re-opening with `columns: 5` narrows it to **24**, not 7. Opening at 44 again restores 45. **Assumed** from the docs: a width the person dragged wins. | Real session in tmux. |
@@ -120,6 +121,13 @@ Found on the way (each **verified** unless marked):
   `installPath`, now says it is expected beside the npm install, with nothing
   to do. The stood-down server tells the model the same, and not to suggest
   disconnecting. A real install keeps the advice, marked optional.
+- **`/counterparts:doctor` beside the npm install.** Run from the plugin while
+  the npm wiring is live, it used to show the plugin copy's doctor: a different
+  version, or a development folder. Now `plugin-run.sh cli` marks the console
+  as the plugin's, and `doctor` first says the plugin is standing down. It then
+  runs the npm install's own `counterparts doctor` from PATH, or says to run it
+  in a terminal when it isn't on PATH. Tests in `test/plugin.test.ts` run this
+  through the launcher with a stand-in `counterparts`.
 
 ## The frame rate and the load, measured
 
@@ -143,13 +151,16 @@ CPU of the `claude` process, idle, from `top` over 10 s:
 | State | CPU | Before the fix round |
 |---|---|---|
 | Pane drawn, 6 fps | **3.5%** | 6.1% at 10 fps (the review's measure) |
-| Slid to the rail | 0.5–0.8% | 1.6% (timer ticking with nothing drawn) |
-| Closed by hand | 0.6% | — |
+| Quiet (`‹`) | 0.6–0.8% | 1.6% on the old rail (timer ticking with nothing drawn) |
+| Hidden (`✕`) | 0.7% | — |
 | No plugin | — | 0.6% (the review's measure) |
 
 Nothing runs until the pane draws. The brain's timer stops when a blit is
-refused (the Raster is gone: rail, hidden, closed), and the next drawing starts
-it again.
+refused (the Raster is gone: quiet, hidden, another pane shown) and while the
+pane holds the keyboard (typing a search), and the next drawing starts it again.
+The quiet and hidden views run no timer and read nothing: their list and counts
+move only with this session's own events. The quiet view's `◉` lighting up is a
+one-shot after an event.
 
 The dashboard is read only while the pane is placed and shown (`$.ui.panes()`):
 
@@ -174,6 +185,31 @@ Mike's first real run is the real measurement.
 - **Search runs on Enter, not on every keystroke.** Each `recall` writes a count
   row (it counts under Retrieval's "deliberate look-ups") and the "shown this
   session" bookkeeping. Typing "publish" would have made seven.
+- **Typing in the search field is light.** Mike found it janky. What a
+  keystroke cost, measured from the debug log:
+  - **Before:** one `ui.input` round trip to this module for the field's
+    `onInput` (3–4 ms). Any drawing in between (a poll, a press) also drew the
+    module's copy of the text back into the field, and computed a brain frame.
+  - **Now:** the field has no `onInput` and is never handed a value back. A
+    drawing reuses the last brain frame when nothing it shows has changed. The
+    brain holds still while the pane holds the keyboard. The engine still
+    dispatches `ui.input` per keystroke (2.3 ms), with nothing of ours to run.
+- **Results read like activity:** kind over date (`memory`, `Oct 9`), the
+  title beside them. Who said it shows only when it is known. There is no more
+  "speaker unknown · status unknown". A click opens one: who said it, the
+  excerpt, and `↗ open on the dashboard` (`#memories`: there's no open-by-id
+  route yet). `← activity` sits on the results' header, and `✕` in the field.
+- **Links open on a plain click.** A `Link` is OSC 8, which iTerm2 opens only on
+  ⌘-click. The list's `↗` line posts the URL to this module, which runs `open`
+  (macOS), `xdg-open` (Linux) or `start` (Windows), found once with `uname`.
+  Verified live: `$.process.run` asks no permission.
+- **ACTIVITY speaks for this session.** This session's events are in the
+  sidebar's words ("kept · <title>", "3 came to mind" with the titles under
+  it). The night's (dreamed, faded, merged, settled by a dream) keep the
+  narrator's. Other sessions' fold into one dim line ("+29 from other
+  sessions"). Whose an event is comes from its `session` detail (or `actorId`
+  for a settle a session made). An event with neither, like a link flush at a
+  session's end, counts as another session's.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
@@ -199,7 +235,17 @@ Mike's first real run is the real measurement.
     The switch won't write that `on`, so for unset folders it explains instead.
     What fixes it: `pause` of an unset folder records `resumeTo: unset`, and
     `resume` deletes the entry.
-- **The rail is 24 columns wide, not 7**: that is the dock's floor (#6).
+- **The rail is gone: quiet and hidden instead.**
+  - **Quiet** (`‹`): the dock's floor (24 columns), no brain, no reads. It
+    shows a compact list ("● kept · Publishing…", "● 3 came to mind"), the
+    counts, and a still `◉` that lights in the event's stage colour for a
+    moment. `›` opens it full.
+  - **Hidden** (the pane's `✕`, or `/counterparts hide`): the pane is closed,
+    and the status line keeps `◉ 3 came to mind · 1 kept · /counterparts to
+    open`. The engine already heads the line with `⚠ counterparts:`, so the
+    name isn't said twice.
+  - The view is kept for the session and in `$.store`, so the next session
+    opens quiet, full, or not at all.
 - **No slide animations.** The mechanism line and an opened row appear and
   close at once (still on a second press or after 30 s).
 - The activity word column is 13 wide, because a recall row's word carries its
