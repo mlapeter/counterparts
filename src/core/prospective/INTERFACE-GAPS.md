@@ -124,6 +124,10 @@ Neither is urgent: losing this costs analytics, never a brake.
 
 ## 6. The observer predicate lives in `store/`
 
+**Closed 2026-08-25 (noted 2026-10-09)** — the predicate lives in `src/core/observer.ts`
+(hoisted in the wave-3 seam pass, `d88f957`); the store uses it, and this module still
+reads `store.observer`, as below. Associate §8 closed the same way.
+
 Not a defect, and recorded so nobody "fixes" it: `Prospective.observer` reads
 `store.observer` and never re-derives the predicate (`docs/observer-mode.md` G7, and
 `recall/`'s INTERFACE-GAPS #4 says the same). If the predicate moves to

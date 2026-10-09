@@ -195,9 +195,11 @@ assistant's text is never reclassified by a marker, and `classifyBlock` — the 
 roles share — is unchanged. The two refusals (`foreign`, `ritual`) come before the
 metadata, so hook feedback on an `isMeta` entry is still refused, not merely unpaced. An
 assistant line the host synthesised (`isApiErrorMessage`, `model: "<synthetic>"`) is
-`injected` as well; the assistant's real replies pace, as they always have. **Known gap**
-(`INTERFACE-GAPS.md` §14): a prompt the person types while the model is working is
-written as an `attachment` (`queued_command`), which this reader does not read.
+`injected` as well; the assistant's real replies pace, as they always have. A prompt the
+person types while the model is working is written as an `attachment` (`queued_command`);
+since 2026-09-24 (#213) this reader reads it as a typed turn where it stands
+(`INTERFACE-GAPS.md` §14, which keeps one ask open: a capture cursor that survives
+inserted turns).
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
 execution ceiling, socket lifetime); delivery and stand-down telemetry. (A `credential`

@@ -872,6 +872,39 @@ else
 $OUT"
 fi
 
+step "what were we about to do? a plan written after the handoff is named beside it"
+# 2026-10-09: one session leaves a handoff in the project, another changes the
+# plan there in a note and leaves the handoff as it was. The next session's wake
+# carries the note under the pointer ("Since this handoff: …"), so the newer
+# plan is not quiet. Two sessions, because what the handoff's own session writes
+# within five minutes of it is the same answer (`handoff/index.ts`,
+# SINCE_SAME_ANSWER_MS), and this loop runs in seconds.
+PLAN_SESSION="install-loop-plan-$$"
+NEXT_SESSION="install-loop-next-$$"
+INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
+INITED='{"jsonrpc":"2.0","method":"notifications/initialized"}'
+HANDOFF_CALL=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"session_end","arguments":{"session":"%s","memories":[],"handoff":"%s"}}}' \
+  "$SESSION" "The install loop left the release half cut: the tarball is packed and not published.")
+PLAN_CALL=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"note","arguments":{"session":"%s","title":"%s","text":"%s","status":"planned"}}}' \
+  "$PLAN_SESSION" "Publish only after the docs pass" "Changed plan: the tarball is published only after the docs pass lands.")
+HANDED=$(printf '%s\n' "$INIT" "$INITED" "$HANDOFF_CALL" |
+  COUNTERPARTS_DATA_DIR="$STORE" COUNTERPARTS_SCOPE="$HOME/project" counterparts-mcp 2>"$WORK/mcp-handoff.err" | grep '"id":2' || true)
+payload SessionStart "$PLAN_SESSION" | counterparts-hook >/dev/null 2>"$WORK/hook-plan.err"
+PLANNED=$(printf '%s\n' "$INIT" "$INITED" "$PLAN_CALL" |
+  COUNTERPARTS_DATA_DIR="$STORE" COUNTERPARTS_SCOPE="$HOME/project" counterparts-mcp 2>"$WORK/mcp-plan.err" | grep '"id":2' || true)
+OUT=$(payload SessionStart "$NEXT_SESSION" | counterparts-hook 2>"$WORK/hook-next.err")
+if grep -q '"isError":true' <<<"$HANDED$PLANNED"; then
+  no "the handoff or the note was refused" "$HANDED
+$PLANNED"
+elif grep -q "Where I left off in this directory" <<<"$OUT" &&
+     grep -q "Since this handoff: Publish only after the docs pass (planned, mem_[0-9a-f]\{12\})" <<<"$OUT"; then
+  ok
+else
+  no "the next wake did not name the plan under the handoff" "$(cat "$WORK/hook-next.err")
+note: $PLANNED
+$OUT"
+fi
+
 step "the dashboard opens the same store"
 CMD='counterparts-dashboard status --dir "$HOME/.counterparts/store"'
 if true; then

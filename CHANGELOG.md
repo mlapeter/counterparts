@@ -42,6 +42,14 @@
   learned, and what it was before it changed) and **by meaning** (the chapters that hold a
   person, a project or a feeling, in time order, with their moments and whose feelings
   they were). The match-strength words are gone, as recall has none now.
+- **Recall by meaning answers about the person you asked about.** A question naming two
+  people, or you and someone else, was answered about whichever had more memories, which
+  is usually you: "what has Ilya been to Mike" through the `recall` tool came back as
+  Mike's story, with Ilya listed underneath. It now goes by how the question is worded and
+  the order of the names ("what has Ilya been to Mike" is Ilya's; "how has Ilya changed
+  since Nkechi arrived" is Ilya's). When two are asked about alike ("tell me about Ilya and
+  Nkechi") it follows the first and says so. And "what have I been like" or "how have I
+  changed", asked by meaning on the dashboard, finds your own card again.
 - **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
   `mode: "meaning"` does; facts stays the default. `--page` pages either.
 - **A memory id written inside a memory's words is a link.** On the Memories page,
@@ -64,6 +72,20 @@
   …" used the UTC date, so in Denver anything written in the evening showed the next day, and
   east of UTC anything written early in the morning showed the day before. It now uses this
   computer's date, the same day as the card's "recorded" line.
+- **A plan changed after a handoff is shown with it.** When a session left a handoff and
+  later wrote a note or a `session_end` memory that changed the plan (status `planned`,
+  `proposed` or `asked`, or marked `unresolved`), the next session in that directory saw
+  only the handoff. The handoff now has a "Since this handoff:" line under it naming up to
+  three such memories by title and id, newest first, from any session working in that
+  directory, including the one that wrote the handoff. Memories written in the same answer
+  as the handoff are left out, and a memory named there is not repeated in "Work here"; an
+  open question the wake already lists under "Still open:" is left to that list. When the
+  wake has no room for the line, the handoff is shown as before.
+- **The self page no longer prints "Last revised" twice.** A page that carried its own
+  "(Last revised …)" line showed it under the wake's own date line. The wake now leaves the
+  page's line out, and so does writing the page, so a stored page loses it the next time it
+  is revised. Only a line that is a date goes: prose, a list entry, a quote, a code block or
+  a page's own history that begins with the same words stays.
 
 ## 0.3.12 — 2026-10-08
 

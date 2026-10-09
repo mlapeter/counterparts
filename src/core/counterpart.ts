@@ -151,6 +151,7 @@ import {
   noteWakeBuild,
   noteWakeCaught,
   settledOver,
+  threadsShown,
   spliceBeforeSentinel,
   wakeBehind,
   wakeFromOtherBuild,
@@ -1861,6 +1862,13 @@ export class Counterpart {
       observer: this.observer,
       onEvent: (e) => this.relay("handoff", e),
       now: this.nowFn,
+      // The "since" line beside the pointer (2026-10-09): a confidential
+      // memory named to the owner only, and nothing a later one settled over.
+      owner: this.owner,
+      settled: () => settledOver(this.store),
+      // …and nothing the published wake already lists under "Still open:"
+      // (review of #332): one place for an open question.
+      listed: () => threadsShown(this.store),
     });
     this.spans = new SpanBuffer({
       dir: this.store.dir,
@@ -2121,6 +2129,7 @@ export class Counterpart {
             bytes: i === 0 ? cost - others : own(i),
             session: here?.session ?? null,
             among: rung.live,
+            ...(i === 0 ? { plans: rung.plans.length } : {}),
           });
         });
       } else if (newest !== undefined) {
@@ -2132,7 +2141,11 @@ export class Counterpart {
         // The handoff was carried and the line above it was not.
         this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
       }
-      return this.withWorkHere(result, block, work, budget, scope);
+      // A memory the "since" line names is not named again in the work lines
+      // above it (2026-10-09).
+      const named = rung?.plans ?? [];
+      const lines = work.lines.filter((l) => !named.some((id) => l.endsWith(`(${id})`)));
+      return this.withWorkHere(result, block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
     }
     if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
     if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });

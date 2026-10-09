@@ -106,6 +106,7 @@ import {
   findSelfPage,
   readSelfPage,
   renderPage,
+  stripRevisedLines,
 } from "./page.js";
 import type { SelfPage, SelfPageAuthor } from "./page.js";
 import {
@@ -197,6 +198,26 @@ export interface SelfEvent {
  * INTERFACE-GAPS #4 records the store-owned render file this should become.
  */
 export const BRIEFING_KEY = "self.briefing";
+
+/**
+ * THE IDS THE PUBLISHED BUNDLE LISTS UNDER "Still open:" (review of #332,
+ * 2026-10-09): a JSON array, written beside `BRIEFING_KEY` at each publish,
+ * so a line the delivery adds — the handoff's "since" line — can leave out
+ * what the wake already says is open rather than name it twice. Kept, not
+ * ranked, as the identity rotation's ids are.
+ */
+export const THREADS_SHOWN_KEY = "self.threads.shown";
+
+/** The ids the published bundle lists under "Still open:" — none when the
+ *  key is absent (a bundle published before it) or unreadable. Never throws. */
+export function threadsShown(store: Pick<Store, "getMeta">): Set<string> {
+  try {
+    const raw: unknown = JSON.parse(store.getMeta(THREADS_SHOWN_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
 
 /**
  * The honest bootstrap line, and the ONLY case that may be shown in place of a
@@ -826,7 +847,12 @@ export class Self {
    */
   revisePage(body: string, opts: PageWriteOptions): PageRevision {
     const day = opts.day ?? this.store.livedDay();
-    const draft = body.replace(/\r\n/g, "\n").trim();
+    // THE PAGE'S OWN "LAST REVISED" LINE IS LEFT OUT (2026-10-09), before the
+    // caps and the gate see it: the wake dates the page, and a stored page that
+    // carried one printed two. The revision row counts what went
+    // (`datelines`), so a hand-written page edited here says so.
+    const own = stripRevisedLines(body.replace(/\r\n/g, "\n").trim());
+    const draft = own.body;
     let bytes = byteLength(draft);
     const session = opts.session ?? null;
     const none = {
@@ -993,6 +1019,7 @@ export class Self {
         created: existing === null,
         wakeCap: this.tunables.PAGE_WAKE_BYTES,
         ...(warning === null ? {} : { warning }),
+        ...(own.stripped === 0 ? {} : { datelines: own.stripped }),
       },
     });
     this.emit("self.page.revised", id, {
@@ -1268,6 +1295,12 @@ export class Self {
       this.pageStale(page),
       this.tunables.PAGE_STALE_DAYS,
     );
+    // THE PAGE'S OWN "LAST REVISED" LINE IS NOT PRINTED (2026-10-09): the
+    // dateline above is the wake's, and a page that carried one of its own
+    // printed two. A page that is nothing else is printed as it is.
+    const own = stripRevisedLines(page.body);
+    const body = own.body.length === 0 ? page.body : own.body;
+    const bodyBytes = byteLength(body);
     const room = budgetBytes - PAGE_FLOOR_RESERVE_BYTES;
     // A ceiling with no room for the wake's OWN furniture has none for a line
     // about the page either, so "Who I am" carries nothing at all rather than a
@@ -1282,15 +1315,15 @@ export class Self {
     // forbids, moved from identity to the page (adversarial review MINOR-D).
     if (room <= 0) return NO_ROOM;
     const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
-    if (cap < PAGE_MIN_RENDER_BYTES && page.bytes > cap) {
+    if (cap < PAGE_MIN_RENDER_BYTES && bodyBytes > cap) {
       return {
-        text: pageTooLargeLine(page.bytes),
+        text: pageTooLargeLine(bodyBytes),
         dateline: null,
         truncated: true,
-        wholeBytes: page.bytes,
+        wholeBytes: bodyBytes,
       };
     }
-    const rendered = renderPage(page.body, cap);
+    const rendered = renderPage(body, cap);
     return {
       text: rendered.text,
       dateline,
@@ -1384,6 +1417,10 @@ export class Self {
     }
 
     this.store.setMeta(BRIEFING_KEY, briefing.text);
+    // What this bundle lists as still open, so the delivery's "since" line
+    // does not name it again (review of #332). Written at every publish, an
+    // empty lane included, so it never describes an older bundle.
+    this.store.setMeta(THREADS_SHOWN_KEY, JSON.stringify(briefing.kept.threads));
     // The rotation's memory: the identity ids this bundle KEPT, stamped with
     // the day. Kept, not ranked — an element the budget trimmed did not render
     // and keeps its place at the front of the next rotation.

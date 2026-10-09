@@ -1205,3 +1205,55 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
   the body — and lost them quietly, its tests fed by hand in the old shape; see the
   dashboard's NOTES of that day. `ask` takes `--mode meaning` now, and there `--voiced`
   decides whose "I" a question about feeling means.)
+
+## 2026-10-09 — meaning's subject is the card the question is about
+
+Meaning mode took the card with the most memories as the arc. On a real store that is
+usually the owner's own card, so "what has Ilya been to Mike" answered about Mike, with Ilya
+under "also named". The review of #333 found it on the dashboard and fixed that side by
+turning the owner's "I" into "you"; the `recall` tool picked the same way. Reproduced on the
+demo store through the tool: "what has Ilya Broadbent been to Rosalind Achebe" (6 memories
+against the owner's 10) answered about Rosalind, and "how has Ilya Broadbent changed since
+Nkechi Abernathy arrived" answered about Nkechi.
+
+- **Grammar first, then the order of the names, then counts** (`meaning.ts#subjectOf`). Each
+  name is read in place by the words just before it: asked about ("what has X been", "how
+  has X changed", "how did X", "about X", "my arc with X", "between X and Y"), an aside
+  ("been to Y", "meant for Y", "since Y", "after Y", "than Y"), or plain. A bare "to" is
+  not an aside: "what happened to X after Y left" is X's. A name joined to the one before it
+  ("X and Y", "X, Y") shares its place. The best place wins; within it the first named; a
+  longer name at the same spot, then more memories, then the name, break a tie.
+- **The owner leaves a place he shares.** Every memory in his store is his, so beside
+  another card in the same place the other says more ("Rosalind and Ilya" is Ilya's arc).
+  When the grammar puts him alone in the subject's place ("what has Rosalind been to Ilya")
+  he is the subject, and the person is the one-liner.
+- **Ambiguity is said, not hidden.** More than one card left in the best place: the arc
+  follows the first, and a note says "it asks about A and B alike: this follows A, named
+  first". "Also named" already offers the other's arc by name.
+- **The owner's "I", asked about, is his card again.** The pronoun that means the owner by
+  `feeling-ask.ts`'s rule ("you" when the counterpart asks, "I"/"me"/"myself" when the
+  owner does) counts as his card, read by the identity core's id rather than his name, only
+  where it sits in an asked-about place. So the dashboard's "what have I been like" (sent as
+  "what have you been like", voiced) finds his card, as it did before #333; "do you remember
+  the budget" names nothing and is read by its words; "my" and "your" own a topic and name
+  no one. Off for a question about feeling (the pronoun says whose feeling, so "how have you
+  felt lately" stays the feelings answer) and for "us".
+- **Facts mode is untouched.** `facts.ts` reads `subjectsIn` itself and imports nothing from
+  `meaning.ts`. The only code changed is `meaning.ts`; the `recall` description gained one
+  sentence in its meaning claim, so a benchmark pinned to facts answers the same.
+- **Not done:** an arc of two cards together (the memories naming both). "What has Rosalind
+  been to Ilya" is still one card's arc; the overlap would be the better answer, and a
+  bigger change.
+- **Review of #334: two seams, both regressions against master.** (1) The owner's pronoun
+  took the about place's full rank, so "what have I done on Driftwood", "how have I been
+  with Nkechi" and "what have you learned from Ilya" answered with his own card where
+  master answered with the card named. It now ranks under any card named in a plain or
+  about place and over an aside (`mentionRank`): "how have I been since Driftwood" and
+  "what have I been to Ilya" stay his; a name joined to the pronoun still takes the about
+  place. (2) The alias index matches a name in any case, so a card named with a common
+  word — Will, Hope, Bridge — is found in "how will Driftwood go" and "I hope Ilya is ok",
+  and "first named wins" made it the arc, with an "alike" note. A name typed in lower case
+  where its card writes a capital is now a step under the same place typed as written; a
+  question typed all in lower case loses the step on every name, so the grammar still
+  decides. The matching itself (and a Will card linking every "will" in the store's
+  memories at birth) is the alias index's, untouched here.

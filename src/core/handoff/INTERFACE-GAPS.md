@@ -16,6 +16,11 @@ rows about places, which is a handful in any store anyone has.
 rows. Until then: do not put this call on a hot path. It runs at a boundary
 (`liveBlockBytes`, one walk), at a wake (`pointer`) and at a write, and nowhere else.
 
+The "since" line (2026-10-09) meets the same gap for `unresolved`, which lives in the
+meta and not in a column: `Store#planCandidates` matches the meta's text loosely
+(`"unresolved":true`) beside the `status` column, and `Handoffs#plansSince` confirms each
+on the prose it reads anyway.
+
 ## 2. `expandHandle` has no scope filter
 
 **Owner:** `mcp/deliberate.ts`.
@@ -171,6 +176,11 @@ path is built now: it would be machinery bought against a state no store this pr
 is in, and `rebuildCache` already reaches it.
 
 ## 8. No host but Claude Code passes a scope at wake
+
+*(Noted 2026-10-09: no longer true. Since 2026-09-30 the host-neutral
+`adapters/lifecycle.ts#composeWake` passes the session's scope to `wake` (#292), and
+Claude Desktop chat's `wake` tool calls it with the server's scope (#294). The ask stands
+for the next host. Kept as written.)*
 
 **Owner:** whoever writes the next adapter.
 **Needed:** `Counterpart.wake(budget, delivery, here)`'s third argument.

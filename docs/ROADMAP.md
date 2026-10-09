@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-08. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-09. A plan for now, not a rule. Change it when it stops fitting.*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -13,7 +13,7 @@ each mechanism is working. It should run in whatever AI host people use.
 | | |
 |---|---|
 | **On npm** | 0.3.12 (Oct 8) |
-| **On master, not released** | nothing yet |
+| **On master, not released** | the wake check waits for the transcript (#325); a chapter's copy keeps its links, and recall records what it showed that no reply used (#329); the nightly run notices Claude Code's cut, and a reflection reads every part first (#330); export carries dreams and reflections, and `connect` says which version each session runs (#331); "Since this handoff:" and one "Last revised" in the wake (#332); the dashboard's Ask reads facts and meaning (#333); meaning mode picks the card the question is about, not the biggest one (#334); plus an install-loop fix (#326) and the write-up plan measured (#327) |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11). Not Windows. |
 
@@ -81,6 +81,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Recently done
 
+- **10-08**: 0.3.12 on npm: recall's two modes, facts and meaning, and what a memory records (#321–#323, store v12); with 10-02's work below
 - **10-02**: on master: one measured ceiling for tool results (#315); feelings round 3 (#317); follow-ups after 0.3.11 (#318); the Desktop app's Code tab verified live
 - **10-01**: 0.3.11 on npm: the morning catch-up and "Yesterday" line; "Work here" vs Nearby; Node 22.15+ and Linux; the Code tab files under its own session; recall by feeling, round 2; dashboard Health fixes (#306)
 - **10-01**: 0.3.10 on npm: the feelings wheel v2 (seven cores, store v11); handoffs per session; the "Last here" line; recall by time (a question about time leads with this directory's last session)
