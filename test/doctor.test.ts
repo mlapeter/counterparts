@@ -2442,8 +2442,10 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
       payload: { reason: "ran", ran: 1, scopes: 1, date: "2025-09-12" },
     });
     const f = by(doctorFindings(input({ store: s })), "authorship");
-    expect(f.detail.startsWith("2026-09-12→2026-09-14: ")).toBe(true);
-    expect(f.data["shownFrom"]).toBe("2026-09-12");
+    // The row's day in the person's zone (the machine's, here): 2026-09-12 in
+    // most of the world, already the 13th at UTC+14.
+    expect(f.detail.startsWith(`${localDate(clock)}→2026-09-14: `)).toBe(true);
+    expect(f.data["shownFrom"]).toBe(localDate(clock));
     // The READING is untouched, as for `store.created`.
     expect(f.data["from"]).toBe("2026-09-08");
   });
@@ -2465,7 +2467,7 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
     s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran" } });
     expect(s.eventLog({ limit: 1 })[0]?.at).toBe(later);
     const f = by(doctorFindings(input({ store: s })), "authorship");
-    expect(f.detail.startsWith("2026-09-10→2026-09-14: ")).toBe(true);
+    expect(f.detail.startsWith(`${localDate(earlier)}→2026-09-14: `)).toBe(true);
   });
 
   /** Make the database file's change time later than its birth, as any store
@@ -2557,13 +2559,16 @@ describe("a store younger than the window it is graded over (findings 8, 9)", ()
 
   test("a fresh store stamps the day it was made, on the provenance clock", () => {
     const made = join(root, "made-on-a-known-day");
-    const c = Counterpart.open({ dir: made, now: () => Date.parse("2026-03-04T10:00:00Z") });
+    // Made in a zone pinned far from UTC, so the date written down is a literal
+    // on every machine: 10:00 UTC on Mar 4th is already Mar 5th at UTC+14.
+    const c = Counterpart.open({ dir: made, now: () => Date.parse("2026-03-04T10:00:00Z"), timeZone: "Pacific/Kiritimati" });
     c.close();
     // A SECOND open, on a different day, must not restamp it: a store that was
     // already there is never given a beginning it did not have.
     const again = Store.open({ dir: made, now: () => Date.parse("2026-05-06T10:00:00Z") });
     try {
-      expect(again.getMeta(STORE_CREATED_KEY)).toBe("2026-03-04");
+      // The person's day in the store's zone, not the UTC day (2026-03-04).
+      expect(again.getMeta(STORE_CREATED_KEY)).toBe("2026-03-05");
     } finally {
       again.close();
     }

@@ -13,7 +13,7 @@
  * is the test's and never the machine's.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -810,6 +810,10 @@ describe("counterparts mechanisms --all (the full fired report)", () => {
   }
 
   async function fired(): Promise<{ code: number; text: string; err: string }> {
+    // The console reads the person's zone from the config beside the store, as
+    // the hooks do (`cli/commands.ts#zoneBeside`). Pinned to the UTC the helpers
+    // above write in, so the console's today is the fixture's on any machine.
+    writeFileSync(join(root, "claude-code.json"), JSON.stringify({ timeZone: "UTC" }));
     const c = consoleWith();
     const code = await run(["mechanisms", "--all", "--dir", dir], { io: c.io, now: () => at(TODAY) });
     return { code, text: c.out.join("\n"), err: c.err.join("\n") };
@@ -825,6 +829,8 @@ describe("counterparts mechanisms --all (the full fired report)", () => {
 
     const { code, text } = await fired();
     expect(code).toBe(0);
+    // The console's today is the person's day in the config's zone, UTC here:
+    // the same week at UTC+14 and UTC−12 as in Denver.
     expect(text).toContain("what has fired — 2026-09-11→2026-09-17, against");
     // The group that says something changed leads the page.
     expect(text).toContain("Fired last week and not once this week:");

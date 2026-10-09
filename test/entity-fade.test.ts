@@ -19,6 +19,7 @@ import { Store } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import { Schemas, TUNABLES } from "../src/core/schemas/index.js";
+import { localDate } from "../src/core/time.js";
 import {
   PHASES,
   TUNABLES as SLEEP,
@@ -31,8 +32,10 @@ import type { FadeFn, PhaseCtx } from "../src/core/sleep/index.js";
 import type { BirthKind } from "../src/core/schemas/index.js";
 import type { Kind } from "../src/core/types.js";
 
-const BORN_ON = "2026-01-01";
-const NOW = Date.parse(`${BORN_ON}T12:00:00Z`);
+const NOW = Date.parse("2026-01-01T12:00:00Z");
+/** The day a card born at `NOW` is dated: the store follows the machine's
+ *  zone here, so this is 2026-01-02 under UTC+14, not the UTC day. */
+const BORN_ON = localDate(NOW);
 
 let dir: string;
 const opened: { close(): void }[] = [];
