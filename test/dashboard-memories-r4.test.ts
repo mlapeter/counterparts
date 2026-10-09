@@ -397,7 +397,10 @@ describe("M7 the card", () => {
   test("chart, one plain sentence, why it mattered, written once; the rest under details", async () => {
     const { memoryCard, rememberLine } = (await import(join(WEB, "shared/memory-modal.js"))) as {
       memoryCard(d: unknown): string;
-      rememberLine(now: number, c: { archiveDay: number | null; archiveLine: number; to: number; day: number; repeats?: string | null }): string;
+      rememberLine(
+        now: number,
+        c: { archiveDay: number | null; archiveLine: number; to: number; day: number; repeats?: string | null; protected?: boolean },
+      ): string;
     };
     expect(rememberLine(0.41, { archiveDay: 67, archiveLine: 0.1, to: 90, day: 30 })).toBe("I remember this at 41%. If nobody uses it, I'll put it away around day 67.");
     expect(rememberLine(0.85, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30 })).toBe("I remember this at 85%. Even if nobody uses it, I'll keep it for at least the next 60 days.");
@@ -406,6 +409,14 @@ describe("M7 the card", () => {
     expect(rememberLine(0.01, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30, repeats: "every May 14" })).toBe(
       "I remember this at 1%. It comes round every May 14, so I'll keep it while it does.",
     );
+    // A protected memory is never put away (review of #343): no day, not "soon",
+    // and above "while it does" — protection does not end with the repeat.
+    expect(rememberLine(0.01, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30, protected: true })).toBe(
+      "I remember this at 1%. It's protected, so I'll keep it even if nobody uses it.",
+    );
+    expect(
+      rememberLine(0.01, { archiveDay: null, archiveLine: 0.1, to: 90, day: 30, protected: true, repeats: "every May 14" }),
+    ).toBe("I remember this at 1%. It's protected, so I'll keep it even if nobody uses it.");
     withSrc((src) => {
       const d = get(src, `/api/memory?id=${ids.felt[0]}`);
       const html = memoryCard(d);

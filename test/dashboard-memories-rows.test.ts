@@ -98,6 +98,16 @@ beforeAll(async () => {
       source: "authored",
     });
     s.updatePhysics(ids.repeatSecret, { birthDay: day - 400, lastUsedDay: day - 400 });
+    // The same faded physics, protected (review of #343): the prune never lets it go.
+    ids.lockedFaded = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "A small thing I was told to keep, though nobody has needed it in months.",
+      salience: { relevance: 0.05, emotional: 0, predictive: 0 },
+      physics: { protected: true },
+      source: "authored",
+    });
+    s.updatePhysics(ids.lockedFaded, { birthDay: day - 400, lastUsedDay: day - 400 });
 
     ids.secret = s.put({
       type: "memory",
@@ -327,6 +337,25 @@ describe("a date that still repeats is kept, so it is never fading (2026-10-09)"
       const oneOff = memoryDetail(src, ids.fading as string);
       expect(oneOff.curve?.archiveDay).not.toBeNull();
       expect(oneOff.curve?.repeats).toBeNull();
+      expect(oneOff.curve?.protected).toBe(false);
+    });
+  });
+
+  test("a protected memory's card names no let-go day either (review of #343)", () => {
+    withSrc((src) => {
+      const id = ids.lockedFaded as string;
+      const p = src.store.physicsOf(id);
+      expect(p.protected).toBe(true);
+      const card = memoryDetail(src, id);
+      // Not vacuous: the maths alone puts it below the archive line tomorrow…
+      expect(fadeCurve(p, card.day).archiveDay).not.toBeNull();
+      // …but the prune never lets a protected memory go, so the card names no day.
+      expect(letGoDay(p, card.day, 400)).toBeNull();
+      expect(card.curve?.archiveDay).toBeNull();
+      expect(card.curve?.protected).toBe(true);
+      expect(card.curve?.repeats).toBeNull();
+      // And the list agrees: it is firm, never fading.
+      expect(allRows(src).find((r) => r.id === id)?.hold).toBe("firm");
     });
   });
 });
