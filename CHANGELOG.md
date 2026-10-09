@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Facts recall reads "last Saturday" and "before 7/22" the way you mean them.** "Last
+  Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
+  the most recent Saturday before today, so asked on a Saturday it is the one a week ago.
+  "Before 7/22" kept only 07-22 itself; now it keeps every day before it, "after 7/22"
+  every day after it, and "until 7/22" or "by 7/22" every day through it. "Since 7/22" is
+  unchanged: from that day to today. The same goes for `2023-07-22`, `7/22`, "July 22" and
+  `7/22/2023`, and a year written with the date (`7/22/2023`, "July 22, 2023") is now the
+  year used; it was ignored before. "This Saturday" and "on Saturday" are still not read,
+  since either can mean the coming one.
 - **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
   about 09-25 Claude Code writes a session's transcript only after the first prompt, which
   is when the check read it, so nearly every session said its wake was "not found in the

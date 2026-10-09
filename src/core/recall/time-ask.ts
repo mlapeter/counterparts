@@ -12,14 +12,22 @@
  *
  *   - **days**: "today", "yesterday", "this morning", a clock time
  *     (`recency-ask.ts`'s reading, reused), "N days ago", "a few days ago",
- *     "the other day", "past N days", "recently";
+ *     "the other day", "past N days", "recently", "last Saturday" (and "this
+ *     past Saturday": the most recent Saturday BEFORE today, so asked on a
+ *     Saturday it is a week ago; 2026-10-09). "This Saturday" and "on
+ *     Saturday" are not read: either can be the coming one;
  *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago",
  *     "the past week";
  *   - **months**: "last month", "this month", "in September", "early / mid /
  *     late October", "the end of August";
- *   - **dates**: `2026-09-21`, `2026-09`, `09-21`, `9/21`, "Sep 21",
- *     "September 21st", "21 September" — and "since" in front of a date or a
- *     month, up to today;
+ *   - **dates**: `2026-09-21`, `2026-09`, `09-21`, `9/21` (month first),
+ *     `9/21/2026`, "Sep 21", "September 21st", "21 September", "September 21,
+ *     2026" — a year written with the date is the year meant; without one,
+ *     `yearFor` picks it. A word in front of a date bounds it (2026-10-09):
+ *     "since" runs from the date to today (a month too); "before" / "prior to"
+ *     is every day before it, "after" every day after it, open-ended; "until",
+ *     "till", "up to", "up until" and "by" every day through it. An open end is
+ *     `OPEN_START` / `OPEN_END`, and a bounded window never stretches;
  *   - **anchors**: an event ("around the cut-over", "during the release") or
  *     the last session ("where did we leave off", "last session"). This file
  *     only names them; the caller resolves them against the store, because a
@@ -40,6 +48,11 @@ import { readRecencyAsk } from "./recency-ask.js";
 export const FUZZY_STRETCH_DAYS = 2;
 /** Days a near window ("3 days ago", "the other day") widens on each side. */
 export const NEAR_STRETCH_DAYS = 1;
+
+/** The first day of a window with no start ("before 7/22"): earlier than any date a row holds. */
+export const OPEN_START = "0001-01-01";
+/** The last day of a window with no end ("after 7/22"): later than any date a row holds. */
+export const OPEN_END = "9999-12-31";
 
 /** A stretch of calendar days, `YYYY-MM-DD`, inclusive. */
 export interface DayWindow {
@@ -85,6 +98,13 @@ const MONTH_NAMES = [
 ] as const;
 
 const MONTH_ALT = MONTH_NAMES.flat().sort((a, b) => b.length - a.length).join("|");
+
+/** Sunday first, as `daysBetween("1970-01-04", day) % 7` counts (that day was a Sunday). */
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
+/** The words that bound a date in front of it, longest first ("up until" before "until"). */
+const BOUND_ALT = "prior to|up until|up to|before|after|since|until|till|by";
+type Bound = "before" | "after" | "since" | "through";
 
 const NUMBER_WORDS: Readonly<Record<string, number>> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -149,8 +169,54 @@ function mondayOf(ymd: string): string {
   return addDays(ymd, -(((since % 7) + 7) % 7));
 }
 
+/** The most recent `weekday` (0 = Sunday) strictly before `today`: a week back when today is one. */
+function lastWeekday(today: string, weekday: number): string {
+  const todays = ((daysBetween("1970-01-04", today) % 7) + 7) % 7;
+  const back = (todays - weekday + 7) % 7;
+  return addDays(today, -(back === 0 ? 7 : back));
+}
+
 function stretched(said: DayWindow, days: number): DayWindow {
-  return days <= 0 ? said : { from: addDays(said.from, -days), to: addDays(said.to, days) };
+  if (days <= 0) return said;
+  // An open end stays open: there is nothing past "every day before" to widen into.
+  return {
+    from: said.from === OPEN_START ? OPEN_START : addDays(said.from, -days),
+    to: said.to === OPEN_END ? OPEN_END : addDays(said.to, days),
+  };
+}
+
+/**
+ * The word in front of a date that bounds it — "before 7/22", "since the
+ * 2026-09" — and the phrase through the date as written, to take out of the
+ * question whole. Null when the date stands alone ("on 7/22", "7/22").
+ */
+function boundOf(text: string, found: string): { bound: Bound; word: string; phrase: string } | null {
+  const m = new RegExp(`\\b(${BOUND_ALT})\\s+(?:the\\s+)?${escape(found)}`, "i").exec(text);
+  if (m === null) return null;
+  const word = (m[1] as string).toLowerCase().replace(/\s+/g, " ");
+  const bound: Bound =
+    word === "before" || word === "prior to" ? "before" : word === "after" ? "after" : word === "since" ? "since" : "through";
+  return { bound, word, phrase: m[0] };
+}
+
+/**
+ * A date read off the question — its first and last day, and its stretch
+ * standing alone — asked as a whole or bounded by the word in front of it.
+ * `cue` is how the header names it, when that is not the text as found.
+ */
+function dated(text: string, found: string, first: string, last: string, stretch: number, today: string, cue = found): TimeAsk {
+  const b = boundOf(text, found);
+  if (b === null) return ask(cue, { from: first, to: last }, stretch, without(text, found));
+  const said: DayWindow =
+    b.bound === "since"
+      ? { from: first, to: today }
+      : b.bound === "before"
+        ? { from: OPEN_START, to: addDays(first, -1) }
+        : b.bound === "after"
+          ? { from: addDays(last, 1), to: OPEN_END }
+          : { from: OPEN_START, to: last };
+  // "since" keeps the stretch it always had; a cutoff the person named is exact.
+  return ask(`${b.word} ${cue}`, said, b.bound === "since" ? stretch : 0, without(text, b.phrase));
 }
 
 /** A month named without a year: this year's when it has begun, else last year's. */
@@ -224,35 +290,37 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   }
 
   // ── explicit dates ───────────────────────────────────────────────────────
-  const since = (found: string): boolean => new RegExp(`\\bsince\\s+${escape(found)}`, "i").test(text);
   const iso = /\b(\d{4})-(\d{2})(?:-(\d{2}))?\b/.exec(text);
   if (iso !== null) {
     const found = iso[0];
     const parsed = parseCalendarDate(found);
     if (parsed !== null) {
-      const said = since(found) ? { from: parsed.first, to: today } : { from: parsed.first, to: parsed.last };
-      return ask(since(found) ? `since ${found}` : found, said, parsed.precision === "day" ? 0 : FUZZY_STRETCH_DAYS, without(text, found));
+      return dated(text, found, parsed.first, parsed.last, parsed.precision === "day" ? 0 : FUZZY_STRETCH_DAYS, today);
     }
   }
-  const short = /\b(\d{1,2})[-/](\d{1,2})\b/.exec(text);
+  // Month first, as a US writer puts it; a year after it is the year meant.
+  const short = /\b(\d{1,2})[-/](\d{1,2})(?:[-/](\d{4}))?\b/.exec(text);
   if (short !== null) {
     const m = Number(short[1]);
     const d = Number(short[2]);
-    const day = m >= 1 && m <= 12 ? `${String(yearFor(m, today))}-${pad(m)}-${pad(d)}` : null;
+    const y = short[3] !== undefined ? Number(short[3]) : m >= 1 && m <= 12 ? yearFor(m, today) : 0;
+    const day = m >= 1 && m <= 12 ? `${String(y).padStart(4, "0")}-${pad(m)}-${pad(d)}` : null;
     if (day !== null && parseCalendarDate(day)?.precision === "day") {
-      const found = short[0];
-      return ask(since(found) ? `since ${found}` : found, since(found) ? { from: day, to: today } : { from: day, to: day }, 0, without(text, found));
+      return dated(text, short[0], day, day, 0, today);
     }
   }
-  const named = new RegExp(`\\b(${MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b|\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_ALT})\\b`, "i").exec(text);
+  const named = new RegExp(
+    `\\b(${MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4})\\b)?|\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_ALT})\\b(?:,?\\s+(\\d{4})\\b)?`,
+    "i",
+  ).exec(text);
   if (named !== null) {
-    const month = monthOf((named[1] ?? named[4]) as string);
-    const d = Number(named[2] ?? named[3]);
+    const month = monthOf((named[1] ?? named[5]) as string);
+    const d = Number(named[2] ?? named[4]);
+    const year = named[3] ?? named[6];
     if (month !== null) {
-      const day = `${String(yearFor(month, today))}-${pad(month)}-${pad(d)}`;
+      const day = `${String(year !== undefined ? Number(year) : yearFor(month, today)).padStart(4, "0")}-${pad(month)}-${pad(d)}`;
       if (parseCalendarDate(day)?.precision === "day") {
-        const found = named[0];
-        return ask(since(found) ? `since ${found}` : found, since(found) ? { from: day, to: today } : { from: day, to: day }, 0, without(text, found));
+        return dated(text, named[0], day, day, 0, today);
       }
     }
   }
@@ -330,6 +398,15 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   }
 
   // ── days ─────────────────────────────────────────────────────────────────
+  // "Last Saturday": the most recent one before today — a week back when
+  // today is a Saturday — and exact, as a named day is; a word in front bounds
+  // it as it bounds a date ("since last Saturday"). Not "the last Saturday",
+  // which is the last of something else ("of June") (2026-10-09).
+  const weekday = new RegExp(`(?<!\\bthe\\s)\\b(?:last|this past)\\s+(${WEEKDAY_NAMES.join("|")})\\b(?:['’]s\\b)?`, "i").exec(text);
+  if (weekday !== null) {
+    const day = lastWeekday(today, WEEKDAY_NAMES.indexOf((weekday[1] as string).toLowerCase() as (typeof WEEKDAY_NAMES)[number]));
+    return dated(text, weekday[0], day, day, 0, today, weekday[0].replace(/['’]s$/i, ""));
+  }
   // Before "yesterday" is read on its own (review of #323).
   const dayBefore = /\bthe day before yesterday\b/i.exec(text);
   if (dayBefore !== null) {
