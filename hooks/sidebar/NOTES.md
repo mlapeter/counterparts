@@ -8,16 +8,18 @@ approved design is the 10-09 mockup ("Sidebar v2", `drawD` in
 build learned. Everything here is a working default.
 
 **Try it** (the whole plugin; its classic hooks and server stand down beside
-an npm install, so only the mod runs):
+an npm install, so only the mod runs; the start-up line then says that is
+expected and asks for nothing):
 
     claude --plugin-dir /Users/mlapeter/counterparts/.claude/worktrees/mod-sidebar
 
-`/counterparts` opens it if the terminal was too narrow, `/counterparts fps`
-shows the brain's frame rate, `/counterparts rail` slides it, `/counterparts caps`
-swaps the switch ends.
+It opens by itself only where the terminal docks a pane beside the transcript
+(the fullscreen layout). Elsewhere, and after closing it by hand,
+`/counterparts` opens it. `/counterparts fps` shows the brain's frame rate,
+`/counterparts rail` slides it, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (32 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (42 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -56,10 +58,13 @@ Found on the way (each **verified** unless marked):
   `$.mcp.call` → `$.tool.call` → permission. The 2.1.295 and 2.1.296 doc
   comments both say "No permission prompt". So the sidebar never calls the
   server unasked unless `$.tool.check` says `allow`. A press may ask, because
-  the person just asked. The dialog offered only Yes or No; an allow rule for
-  `mcp__counterparts__recall` / `__scope` in settings ends the asking. (Mike runs
+  the person just asked. The dialog offered only Yes or No. An allow rule for
+  `mcp__counterparts__recall` ends the asking for search. **Not for `scope`**:
+  with that rule the model could pause or turn off folders unasked. (Mike runs
   in auto mode; whether its classifier passes these quietly is **assumed**,
-  not measured.)
+  not measured.) The quiet read happens once, at the pane's first drawing (and
+  again after a hot reload), and each one is one `mcp.scope.read` line in the
+  event log.
 - The recall block arrives at `session.append` as door `hook-context`, name
   `hook_additional_context`, origin `{ kind: 'hook', event: 'UserPromptSubmit' }`,
   inside a system reminder (a `-p` run with a settings hook printing a block).
@@ -75,19 +80,68 @@ Found on the way (each **verified** unless marked):
 - A `--plugin-dir` folder hot-reloads in an interactive session. On a reload
   `session.start` runs again, the timers start over, and `$.state` survives.
 - An unasked pane waits undrawn below 144 columns (**assumed** from the docs).
-  The status line then says `/counterparts opens the sidebar`.
+  The status line then says `/counterparts opens the sidebar` until the pane
+  draws.
+- Whether a surface docks a pane is known only to a drawing (`e.viewport
+  .isFullscreen`), never at `session.start`. So the module hooks the band above
+  the prompt, draws nothing there, and opens the pane from that band's first
+  drawing, only when it docks. Live in tmux, the fullscreen layout opened it by
+  itself, and the main screen did not.
+- A pane closed by hand (`ui.close`, origin `person`) stays closed for the
+  session, across a hot reload too (live). The test kit can't raise that event.
+- **The plugin beside npm, from a folder** (`src/adapters/plugin.ts`,
+  `pluginOrigin`). Under `--plugin-dir`, the stand-down line used to say "run
+  `counterparts disconnect`". That would have left the live memory wired to a
+  development copy, and every session without `--plugin-dir` memoryless. A
+  plugin root outside Claude Code's plugins directory, and not the recorded
+  `installPath`, now says it is expected beside the npm install, with nothing
+  to do. The stood-down server tells the model the same, and not to suggest
+  disconnecting. A real install keeps the advice, marked optional.
 
-## The frame rate, measured
+## The frame rate and the load, measured
 
 The brain repaints on `$.clock.every(1000 / target)` with `$.ui.blit`. Each
 blit's completion time and each frame's compute time are recorded.
 `/counterparts fps` reports them and toggles a ` · N fps` suffix on the status
-line. In a tmux-hosted session (200 x 60, 256 colours) it read **9.1 fps
-achieved at a target of 10 (6.2 ms a frame), and 13.7 fps at a target of 15
-(2.6 ms a frame)**. `/counterparts fps <1-30>` sets the target, which is kept.
-That restarts the timer from the command's own `$`, which works live, as do the
-30 s auto-closes started from a press. Mike's first real run is the real
-measurement.
+line. In a tmux-hosted session (200 x 60, 256 colours):
+
+| Target | Achieved | Frame compute |
+|---|---|---|
+| 10 | 9.1 fps | 6.2 ms |
+| 15 | 13.7 fps | 2.6 ms |
+| 6 (default) | 5.5 fps | 3–8 ms |
+
+`/counterparts fps <1-30>` sets the target, which is kept. That restarts the
+timer from the command's own `$`, which works live, as do the 30 s auto-closes
+started from a press.
+
+CPU of the `claude` process, idle, from `top` over 10 s:
+
+| State | CPU | Before the fix round |
+|---|---|---|
+| Pane drawn, 6 fps | **3.5%** | 6.1% at 10 fps (the review's measure) |
+| Slid to the rail | 0.5–0.8% | 1.6% (timer ticking with nothing drawn) |
+| Closed by hand | 0.6% | — |
+| No plugin | — | 0.6% (the review's measure) |
+
+Nothing runs until the pane draws. The brain's timer stops when a blit is
+refused (the Raster is gone: rail, hidden, closed), and the next drawing starts
+it again.
+
+The dashboard is read only while the pane is placed and shown (`$.ui.panes()`):
+
+- **Cold** (first drawing, or after a 10-minute gap): `/api/pulse` (about 130 ms
+  of the dashboard's time; it reads up to 20,000 log rows and counts memories),
+  then `/api/activity?name=` for each of the 18 events that prove a mechanism
+  (about 20 ms each).
+- **Warm**: `/api/activity?sinceSeq=` (about 23 ms) every 15 s, or every 30 s
+  after four quiet reads. The pulse is read again only when a new event changed
+  the count or the day.
+
+A follow-up for the dashboard: a cheap `lastSeq`-and-count read. Today every
+activity reply also carries the 15 KB event vocabulary.
+
+Mike's first real run is the real measurement.
 
 ## Where the design changed, and why
 
@@ -100,10 +154,27 @@ measurement.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
-- **The Counterparts switch starts dim when the folder's state isn't known.**
-  Asking at start would open a permission dialog (above). The first press
-  learns the state (and toasts it). After that, each press pauses or resumes,
-  one call each.
+- **The Counterparts switch shows four folder states, not two, and acts on only
+  some of them.**
+  - **States:** `on` and `unset` (on by default) draw on. `observer` draws
+    "Reads only" on a darker track. `paused` and `off` draw off, and the list
+    says PAUSED or OFF. Before the first read it is dim.
+  - **What a press does:** the first press learns the state. After that it
+    pauses only a folder whose **own** entry is `on` or `observer` (the pause
+    remembers which), and it resumes only its own pause. One call per press.
+  - **What it refuses, and says so** in a line under the switches, with the
+    console command that would do it:
+    - an `off` folder (no `resume` is ever sent to one);
+    - an `unset` folder;
+    - a folder that inherits its mode from a parent;
+    - a folder paused by a parent.
+  - **Core ask:** the `scope` tool (and the console) can set on, observer, off,
+    pause and resume, but can't put a folder back to **unset**. Pausing an
+    unset folder records `resumeTo: on`, and resuming then writes an explicit
+    `on`, which silences the wake's "nothing is set here" question for good.
+    The switch won't write that `on`, so for unset folders it explains instead.
+    What fixes it: `pause` of an unset folder records `resumeTo: unset`, and
+    `resume` deletes the entry.
 - **The rail is 24 columns wide, not 7**: that is the dock's floor (#6).
 - **No slide animations.** The mechanism line and an opened row appear and
   close at once (still on a second press or after 30 s).
@@ -111,8 +182,19 @@ measurement.
   count ("3 recalled").
 - On a cold start, ACTIVITY asks `/api/activity?name=` once for each event that
   proves a mechanism (18 small reads). One `?limit=300` read was 290 KB and
-  covered 40 minutes of mostly flow noise. After that, `/api/pulse` every 5 s,
-  and `?sinceSeq=` only when `lastSeq` moves.
+  covered 40 minutes of mostly flow noise. Polling is above (the load).
+- **Opened unasked only where it docks.** Inline above the prompt it would take
+  the room, so on the main screen nothing opens and nothing is said
+  (`/counterparts` is in the typeahead).
+- **The status line names no dashboard trouble.** "Not running" is said inside
+  the pane only. The line shows the day and count, this session's counts,
+  paused/off/reads-only, and `Claude memory off` whenever that is off.
+- **The Claude memory switch is one sticky preference** (`$.store`, every
+  session). Each drawing reads the stored value, so a switch turned in another
+  session never shows stale. A session with the pane drawn follows such a
+  change within a poll (its prompt caches are rebuilt then).
+- **The brain runs at 6 fps by default.** At 0.175 rad a second that stays
+  smooth, for well under half the CPU of 10.
 
 ## Known gaps (v0.1)
 
@@ -131,8 +213,11 @@ measurement.
   A mechanism added there shows here only once this copy learns it.
 - A came-to-mind row is matched to its dashboard twin by session id and turn.
   That assumes the store's session id is Claude Code's (true in today's feed).
-- The brain timer keeps ticking (one dispatch per frame) while the pane is
-  hidden. It computes nothing until the pane draws again.
+- A session without the pane drawn follows a Claude-memory change made in
+  another session only when it next draws or restarts (its cached prompt
+  answers stand until then).
+- A `/clear` starts this session's counts over. Rows already in ACTIVITY stay;
+  they happened.
 - After an Enter in the live run, the engine emptied the search field while the
   module still holds the query (`run.draft`, drawn back as the field's `value`).
   Nothing visible went wrong, but a later redraw may put the query back in the
