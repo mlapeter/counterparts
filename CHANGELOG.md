@@ -44,9 +44,11 @@
   been to Mike?" on a store where only Mike has a card used to come back as Mike's story
   with no word about Han. Now the answer opens with "No card for Han yet; here is what
   mentions Han", follows the memories that name Han, and lists Mike's card as one to ask
-  about. If nothing mentions Han, it says that instead. When the question asks about a
-  name with no card alongside one that has a card ("how have Han and Oskar been?"), it
-  follows the card and says Han has none. The dashboard's Ask shows the same first line.
+  about. If nothing mentions Han, it says that instead. The name leads only when every
+  card the question names is mentioned in passing ("been to Mike", "since Driftwood").
+  When a card is asked about or named plainly ("how have Han and Oskar been?", "what did
+  Oskar say about Han?"), the answer follows that card as before and opens by saying Han
+  has none. The dashboard's Ask shows the same first line.
   A question that names no card at all ("what has Han been up to?") is answered as
   before, by its words and meaning. A first name of a card's longer name ("Marguerite"
   for Marguerite Solberg), an acronym ("API", "Q3") and a question typed in Title Case

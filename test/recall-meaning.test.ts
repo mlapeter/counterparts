@@ -436,13 +436,37 @@ describe("a name asked about that has no card", () => {
     expect(renderMeaning(r)).toContain("also named: Mike");
   });
 
-  test("the owner asking, and his own card named alongside: the same", () => {
+  test("the owner asking, his own card asked about alongside: the card leads, and says the name has none", () => {
     const c = ownerBrain();
-    const { han } = oneCard(c);
+    oneCard(c);
     const r = meaningRecall(ctx(c, { asker: "owner" }), "how have Mike and Han been lately?");
-    // Level with the owner's card only, the name with no card leads: every memory here is his.
-    expect(r.noCard).toBe("No card for Han yet; here is what mentions Han");
-    expect(entries(r).flatMap((e) => e.moments.map((m) => m.id)).sort()).toEqual([...han].sort());
+    // Review of #347: a name with no card leads only when every card sits in an aside.
+    expect(r.lens).toMatchObject({ kind: "card", name: "Mike" });
+    expect(r.noCard).toBe("No card for Han yet; this follows Mike");
+  });
+
+  // Review of #347: the card asked about, or named plainly, leads as it did
+  // before; only a card in an aside gives way to a name with no card.
+  test("a card asked about or named plainly leads as before; only a card in an aside gives way", () => {
+    const c = ownerBrain();
+    card(c, "Oskar");
+    card(c, "Driftwood");
+    const { han } = oneCard(c);
+    moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
+    moment(c, "sess_d", "Driftwood shipped the new solver on Friday.");
+
+    const aside = meaningRecall(ctx(c), "what has Han been to Mike?");
+    expect(aside.lens).toEqual({ kind: "words", name: '"Han"' });
+    expect(aside.noCard).toBe("No card for Han yet; here is what mentions Han");
+    expect(entries(aside).flatMap((e) => e.moments.map((m) => m.id)).sort()).toEqual([...han].sort());
+
+    const said = meaningRecall(ctx(c), "what did Oskar say about Postgres?");
+    expect(said.lens).toMatchObject({ kind: "card", name: "Oskar" });
+    expect(said.noCard).toBe("No card for Postgres yet; this follows Oskar");
+
+    const felt = meaningRecall(ctx(c), "how did I feel about Han at Driftwood?");
+    expect(felt.lens).toMatchObject({ kind: "card", name: "Driftwood" });
+    expect(felt.noCard).toBe("No card for Han yet; this follows Driftwood");
   });
 
   test("in an aside the name is passed over: the card asked about leads, nothing is said", () => {
@@ -524,7 +548,7 @@ describe("a name asked about that has no card", () => {
     card(c, "Oskar");
     oneCard(c);
     moment(c, "sess_o", "Oskar reviewed the release checklist with Mike.");
-    const r = meaningRecall(ctx(c), "how did I feel about Han with Oskar?");
+    const r = meaningRecall(ctx(c), "how did I feel about Han after Oskar left?");
     expect(r.lens?.kind).toBe("feeling");
     const notes = r.notes.join(" ");
     expect(notes).toContain('no card names "Han"');

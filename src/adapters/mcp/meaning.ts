@@ -38,13 +38,13 @@
  * 2026-10-09; it was the card holding the most) — and the rest are
  * one-liners. The owner's "I" asked about ("what have you been like", in the
  * counterpart's voice) is his own card. A name asked about that has NO card
- * (2026-10-09) is never passed over in silence for another card: above every
- * card the question names, the answer is the moments that mention it, as
- * typed (naming no card, the question's words and meaning answer it, as
- * before), and its first line
- * says so ("No card for Han yet; here is what mentions Han"); asked about
- * alongside a card, the card leads and the first line says the name has
- * none (`MeaningResult.noCard`). "us"
+ * (2026-10-09) is never passed over in silence for another card: when every
+ * card the question names sits in an aside ("what has Han been to Mike"),
+ * the answer is the moments that mention it, as typed, and its first line
+ * says so ("No card for Han yet; here is what mentions Han"); beside a card
+ * asked about or named plainly, the card leads as before and the first line
+ * says the name has none (`MeaningResult.noCard`). Naming no card, the
+ * question's words and meaning answer it, as before. "us"
  * is the memories marked `about: us`. A question about feeling
  * (`recall/feeling-ask.ts#readFeelingAsk`, ranked) with no card is answered
  * by the stamps that match it — word, core, whose — and, when it names a
@@ -1411,10 +1411,13 @@ function mentionRank(m: { readonly slot: Slot; readonly pronoun: boolean; readon
  * read in place like a card's, typed as written, when the question names a
  * card too (with none named, nothing is answered in its place, and the
  * question's words and meaning follow it as before). In
- * an aside it is passed over. Outranking every card, or level with only the
- * owner's (which leaves a field it shares), it is `bare`: the answer is what
- * mentions it, said so first. Level with another card, the card leads and
- * `bareAlike` names it, so the answer can say it has no card.
+ * an aside it is passed over. When EVERY card the question names sits in an
+ * aside ("been to Mike", "since Driftwood"), it is `bare`: the answer is what
+ * mentions it, said so first. A card asked about or named plainly leads, as
+ * it did before (review of #347: "what did Teodoro say about Postgres" is
+ * Teodoro's, "how did I feel about Han at Driftwood" is Driftwood's), and
+ * `bareAlike` names each such name ranked as high as that card, so the
+ * answer can say it has no card.
  */
 function subjectOf(
   question: string,
@@ -1498,8 +1501,10 @@ function subjectOf(
   const placeOf = (x: NamedCard) => place.get(x.id) ?? { rank: -1, at: Number.POSITIVE_INFINITY, length: 0 };
   const best = Math.max(...live.map((x) => placeOf(x).rank));
   let field = live.filter((x) => placeOf(x).rank === best);
-  // A name with no card above every card, or level with the owner's alone.
-  if (bareFirst !== null && (bareBest > best || (bareBest === best && field.every((x) => x.id === o.ownerCard)))) {
+  // A name with no card leads only when every card named sits in an aside
+  // ("what has Han been to Mike"). A card asked about or named plainly leads
+  // as before, and the name is said to have none (review of #347).
+  if (bareFirst !== null && kept.every((m) => m.slot === "aside")) {
     return { card: null, alike: [], bare: bareFirst, bareAlike: [] };
   }
   if (field.length > 1 && o.ownerCard !== null) field = field.filter((x) => x.id !== o.ownerCard);
@@ -1513,7 +1518,8 @@ function subjectOf(
     card: card ?? null,
     alike: rest.map((x) => x.name),
     bare: null,
-    bareAlike: bareBest === best ? bare.filter((b) => b.rank === best).map((b) => b.name) : [],
+    // Each name with no card asked about as high as the card that leads, or higher.
+    bareAlike: bare.filter((b) => b.rank >= best).map((b) => b.name),
   };
 }
 

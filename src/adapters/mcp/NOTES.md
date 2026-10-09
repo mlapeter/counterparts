@@ -1430,11 +1430,22 @@ to Mike?" came back as Mike's arc with nothing about Han, because Han had no car
     digit) are labels, not names; a question with a capitalised function word
     mid-sentence ("What Has Changed Since Monday", `TITLE_CASE_TELLS`) names nobody,
     as `askedNames` already reads an all-capitals question.
-  - Left as it is: beside a card, a capitalised thing in an about place still leads
-    ("what did Teodoro Whitlock say about Postgres" → "No card for Postgres yet, and
-    nothing in memory mentions Postgres", where master gave Teodoro's whole arc). No
-    word-level rule tells Postgres from Han. Sentence-initial words were never read as
-    names (`askedNames` skips them); every probe whose first word is capitalised
-    ("What has changed since Monday", "How has Driftwood gone", "Tell me about
-    Rosalind", "When did I feel proud", "What happened in October") answers exactly as
-    on master.
+  - *Beside a card asked about or named plainly*, a capitalised thing in an about place
+    still led: "what did Teodoro Whitlock say about Postgres" answered "No card for
+    Postgres yet, and nothing in memory mentions Postgres" where master gave Teodoro's
+    arc, and "how did I feel about Han at Driftwood" left Driftwood's arc for every felt
+    moment. No word-level rule tells Postgres from Han, but the card's place does: the
+    motivating question had its one card in an aside ("been to Mike"). So the name with
+    no card now leads only when EVERY card named sits in an aside ("been to Mike",
+    "since Y", "after Y"). Otherwise the card leads as on master, and the first line
+    says the name has none ("No card for Postgres yet; this follows Teodoro Whitlock")
+    for each such name asked about as high as that card, or higher. This replaces
+    "above every card, or level with the owner's alone" and "level with another card"
+    above: "how have Mike and Han been" is now Mike's, with "No card for Han yet; this
+    follows Mike". With the name leading in a question about feeling, the feeling
+    branch's topic is that name alone (`nameTopic`), so its note says `no card names
+    "Han"` and not the card it outranked.
+  - Sentence-initial words were never read as names (`askedNames` skips them); every
+    probe whose first word is capitalised ("What has changed since Monday", "How has
+    Driftwood gone", "Tell me about Rosalind", "When did I feel proud", "What happened
+    in October") answers exactly as on master.
