@@ -2053,6 +2053,8 @@ INTERFACE-GAPS §15.
   that list as on `wentQuiet` and `wentBlocked`, with a fix that says the occasion came.
   The beat rule is `Prospective#plainDue`'s restated as a read, because that method
   refuses an observer: if `prospective/` changes its beats, this copy has to follow.
+  It reads memories, so `firedReport(…, { probes: false })` skips it with the probes and
+  the row reads `waiting` (no caller in `src/` turns the probes off today).
 - **What the owner's line says now (by reasoning, not run against his store).** Census
   `done`, plain `waiting` (nothing plain was due 10-03..10-08), so `wentQuiet` is empty
   and the line is green. "13 have never fired" drops by however many of those thirteen
