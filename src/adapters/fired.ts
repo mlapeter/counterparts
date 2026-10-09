@@ -479,6 +479,10 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "a tool answer too long for the host to show was cut to fit, with a note saying so, instead of vanishing into a file",
     module: "mcp/server.ts (withinCeiling)",
     evidence: { kind: "event", names: ["mcp.result.oversize"] },
+    // The same mechanism's failure, seen from the host's side (2026-10-09): a
+    // result under the ceiling that the host saved to a file anyway, read from
+    // the nightly run's own transcript (`claude-code/night-run.ts`).
+    covers: ["mcp.result.spilled"],
     since: "2026-10-02",
   },
   {

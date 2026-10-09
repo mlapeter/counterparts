@@ -12,12 +12,13 @@ import type { Counterpart } from "../../core/counterpart.js";
 import { nightPartsWords, nightRunWords } from "../../core/dream/index.js";
 import type { DreamingSetting, NightRun } from "../../core/dream/index.js";
 import { acceptsReflectedFeeling } from "../../core/sleep/index.js";
-import type { ReflectionRow } from "../../core/store/index.js";
+import type { DreamChangeRow, ReflectionRow, Store } from "../../core/store/index.js";
 
-/** How a memory id reads in a list: its first line, or why it is not shown. */
-export function memoryWords(counterpart: Counterpart, id: string | null, max = 80): string {
+/** How a memory id reads in a list: its first line, or why it is not shown.
+ *  Only the store is read, so `export --markdown` asks it too. */
+export function memoryWords(source: { readonly store: Store }, id: string | null, max = 80): string {
   if (id === null) return "(removed by the owner)";
-  const row = counterpart.store.row(id);
+  const row = source.store.row(id);
   if (row === undefined) return "(no such memory)";
   if (row.confidential === 1) return "[confidential]";
   if (row.body === "") return "(removed by the owner)";
@@ -97,7 +98,7 @@ export function dreamListLines(counterpart: Counterpart, limit: number | "all" =
   return out;
 }
 
-function parseIdList(json: string): string[] {
+export function parseIdList(json: string): string[] {
   try {
     const v: unknown = JSON.parse(json);
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -106,16 +107,61 @@ function parseIdList(json: string): string[] {
   }
 }
 
+/** What became of a morning share, in the words `dream --show` and the export both use. */
+export const SHARE_STATE_WORDS: Readonly<Record<string, string>> = {
+  none: "no share",
+  offered: "share not told yet",
+  carried: "share carried to a later session",
+  told: "share told",
+};
+
 /** One line: after which dream, what it did, and what became of the share. */
-function reflectionSummary(r: ReflectionRow): string {
+export function reflectionSummary(r: ReflectionRow): string {
   const parts: string[] = [];
   parts.push(r.dream_id === null ? "on its own" : `after ${r.dream_id}`);
   if (r.state !== "reflected") return `${parts.join(", ")} — begun, not finished`;
   if (r.entry_id === null) parts.push("nothing much");
   if (r.page_version !== null) parts.push("rewrote the page");
-  const share: Record<string, string> = { none: "no share", offered: "share not told yet", carried: "share carried to a later session", told: "share told" };
-  parts.push(share[r.share_state] ?? r.share_state);
+  parts.push(SHARE_STATE_WORDS[r.share_state] ?? r.share_state);
   return parts.join(", ");
+}
+
+/**
+ * ONE CHANGE A DREAM MADE, in words: its line, then any lines under it (a
+ * merge's originals, each "from …"). No mark and no indent: `dream --show`
+ * puts its own in front, and `export --markdown` makes a list of it.
+ */
+export function dreamChangeWords(source: { readonly store: Store }, c: DreamChangeRow): [string, ...string[]] {
+  const words = (x: string | null): string => (x === null ? "(removed by the owner)" : `${x} "${memoryWords(source, x)}"`);
+  const a = c.ref;
+  const b = c.ref2;
+  switch (c.action) {
+    case "link":
+    case "contradiction":
+      return [`${c.action}: ${words(a)}  ↔  ${words(b)}`];
+    case "settle": {
+      let how = "settled";
+      try {
+        const d = JSON.parse(c.detail) as { how?: unknown };
+        if (typeof d.how === "string") how = d.how;
+      } catch {
+        how = "settled";
+      }
+      return [`settle (${how}): ${words(a)} holds over ${words(b)}`];
+    }
+    case "merge": {
+      let from: string[] = [];
+      try {
+        const d = JSON.parse(c.detail) as { from?: unknown };
+        if (Array.isArray(d.from)) from = d.from.filter((x): x is string => typeof x === "string");
+      } catch {
+        from = [];
+      }
+      return [`merge into ${words(a)}`, ...from.map((f) => `from ${words(f)}`)];
+    }
+    default:
+      return [`${c.action}: ${words(a)}`];
+  }
 }
 
 /** `counterparts dream --show <rfl_…>`: one reflection, whole. */
@@ -168,40 +214,9 @@ export function dreamShowLines(counterpart: Counterpart, id: string): string[] |
   out.push("", changes.length === 0 ? "Changes: none." : `Changes (${String(changes.length)}):`);
   for (const c of changes) {
     const mark = c.undone === 1 ? "  [undone] " : "  ";
-    const a = c.ref === null ? null : c.ref;
-    const b = c.ref2;
-    const words = (x: string | null): string => (x === null ? "(removed by the owner)" : `${x} "${memoryWords(counterpart, x)}"`);
-    switch (c.action) {
-      case "link":
-      case "contradiction":
-        out.push(`${mark}${c.action}: ${words(a)}  ↔  ${words(b)}`);
-        break;
-      case "settle": {
-        let how = "settled";
-        try {
-          const d = JSON.parse(c.detail) as { how?: unknown };
-          if (typeof d.how === "string") how = d.how;
-        } catch {
-          how = "settled";
-        }
-        out.push(`${mark}settle (${how}): ${words(a)} holds over ${words(b)}`);
-        break;
-      }
-      case "merge": {
-        let from: string[] = [];
-        try {
-          const d = JSON.parse(c.detail) as { from?: unknown };
-          if (Array.isArray(d.from)) from = d.from.filter((x): x is string => typeof x === "string");
-        } catch {
-          from = [];
-        }
-        out.push(`${mark}merge into ${words(a)}`);
-        for (const f of from) out.push(`${mark}  from ${words(f)}`);
-        break;
-      }
-      default:
-        out.push(`${mark}${c.action}: ${words(a)}`);
-    }
+    const [head, ...under] = dreamChangeWords(counterpart, c);
+    out.push(`${mark}${head}`);
+    for (const line of under) out.push(`${mark}  ${line}`);
   }
   if (dream.state !== "undone") out.push("", `Reverse all of it: counterparts dream --undo ${dream.id}`);
   // What the waking self made of it — lived, so an undo of the dream leaves it.

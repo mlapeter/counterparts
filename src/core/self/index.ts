@@ -235,6 +235,13 @@ export interface SelfOptions {
   /** Told about each memory an episode ingestion mints, so the composition can
    *  credit the cards it names (schemas NOTES §15). */
   onMemoryMinted?: (m: { id: string; title: string | null; body: string; day: number }) => void;
+  /**
+   * `associate.retargetOnSupersede`, so a regrown copy inherits the links its
+   * archived copy had learned (2026-10-09) — the same callback `schemas/` and
+   * `dream/` are handed, injected because `self/` may not import `associate/`.
+   * Absent: the new copy starts with no links (the behaviour before).
+   */
+  retarget?: (oldId: string, newId: string, day: number) => void;
   now?: () => number;
   /**
    * The IANA zone the CALENDAR day is taken in — the ask cap's day and the page
@@ -510,6 +517,7 @@ export class Self {
   private readonly gate: EpisodeGate;
   private readonly onEvent: ((e: SelfEvent) => void) | undefined;
   private readonly onMemoryMinted: SelfOptions["onMemoryMinted"];
+  private readonly retarget: SelfOptions["retarget"];
   private readonly now: () => number;
   private readonly zone: string | undefined;
   private readonly ring: SelfEvent[] = [];
@@ -524,6 +532,7 @@ export class Self {
     this.gate = opts.gate ?? NO_GATE;
     this.onEvent = opts.onEvent;
     this.onMemoryMinted = opts.onMemoryMinted;
+    this.retarget = opts.retarget;
     this.now = opts.now ?? (() => Date.now());
     this.zone = opts.zone;
   }
@@ -2123,6 +2132,23 @@ export class Self {
       if (stale === memoryId) continue;
       this.store.archive(stale, "episode-regrown");
       archived.push(stale);
+    }
+    // THE LINKS GO WITH THE WORDS (2026-10-09). An archived copy stops
+    // conducting, so every link it had learned (the session's contiguity, a
+    // co-use, a dream's tie) was stranded on it: 260 of a live store's 1,200
+    // edge rows on 10-02. The new copy inherits them the way a dream merge's
+    // memory inherits its originals' — after the archive, so one stale copy's
+    // tie to another is not carried. A failure costs the links, never the copy.
+    let relinkFailed = 0;
+    for (const stale of archived) {
+      try {
+        this.retarget?.(stale, memoryId, d);
+      } catch {
+        relinkFailed += 1;
+      }
+    }
+    if (relinkFailed > 0) {
+      this.emit("self.episode.relink.failed", state.episodeId, { memory: memoryId, failed: relinkFailed });
     }
 
     this.persistState(

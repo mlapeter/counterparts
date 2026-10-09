@@ -213,7 +213,10 @@ export function fit(candidates: readonly FitCandidate[], opts: FitOptions): FitO
  * `wireChars` (a non-ASCII character as three) under it reaches the model
  * whole. RESIDUAL RISK: the host can lower either line by a remote flag
  * (`tengu_velvet_ibis`); the nightly run pins the token line with the env var
- * (`night-run.ts`), and nothing pins the char line. CAL.
+ * (`night-run.ts`), and nothing pins the char line. What it does instead
+ * (2026-10-09): the nightly run reads its child's transcript for the host's
+ * marker on our results (`claude-code/transcript.ts#readToolSpills`), so a
+ * lowered line shows up in doctor and in the morning, not in nothing. CAL.
  */
 export const TOOL_RESULT_CEILING = {
   HOST_CHARS: 50_000,

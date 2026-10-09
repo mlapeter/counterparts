@@ -695,6 +695,7 @@ titled chapter against an untitled copy can fall under `NEAR_DUPLICATE` anyway.
 - **The dashboard**: its ask view had folded the pair the other way since round 3 (the
   memory, with a "from chapter …" link). It now receives the chapter alone and shows it as
   a journal row; `pages/memories/fold.js` still links a copy whose chapter was not shown.
+  (2026-10-09: `fold.js` and `/api/chapters` are gone; facts mode folds the pair itself.)
 
 ## 22. Recall by feeling, deliberate only — 2026-09-30 (U13 items 1 and 2)
 
@@ -999,3 +1000,54 @@ session.
 ## Confidentiality, frozen (2026-10-02, owner)
 
 The confidential class (`store/index.ts#confidentialByMeta`, CONTRACT §9) has no way in. No tool or entrance marks a memory confidential. Only a dream or reflection inheriting it from a source that is already confidential sets it. The owner's live store held 0 of 823 on 2026-10-02. The owner's ruling: freeze it. Keep the gates as they are, add no new plumbing for it, and don't treat it as a reason to block a review. The plan is to review it and remove it later. Privacy that matters is handled elsewhere today: directories opted out of Counterparts entirely, and the gate battery's credential redaction.
+
+## 28. Shown, and not used (2026-10-09)
+
+Recall predicts on every turn that what it shows will help the reply, and a miss left no
+record per memory: the `recall.credit` row named what was credited (`ids`) and expanded
+(`expandedIds`), not what was quoted but refused, or shown and ignored. The association
+diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `expanded`
+62 over the store's whole life), but not for which memories or which lane.
+
+- **What is scored.** `Counterpart#creditReferences` takes every memory the session's gate
+  state records as shown (loud, footnoted, or footnoted as a quiet pointer) after the
+  session's `judged` mark. One is used when a reply this boundary expanded or quoted it:
+  the resolver's uses before any refusal, because the prediction is "this will help",
+  not "this will earn credit". The rest are shown and not used. The mark then moves to the
+  session's newest recall turn, so each showing is scored once.
+- **The mark** is its own gate kind (`judged`, ref `credit`, `session.ts`), written only by
+  the credit pass. `setGateRecords` upserts row by row, so recall's save, which names its
+  own rows, cannot drop it; `loadGateState` skips it as it skips `asked`. Not written
+  under observer.
+- **The row** carries `shownLoud`, `shownFootnotes`, `shownPointers`, `unusedLoud`,
+  `unusedFootnotes`, `unusedPointers`, `shownNotUsed` (up to 64 ids, oldest showing first),
+  `shownNotUsedTotal` and `judgedThrough`. Footnotes are the cued ones; a pointer counts
+  as a pointer only. `probe-oq4` sums the lanes into a hit rate over the rows that carry
+  them. A per-memory read (`shownNotUsed` joined to the session's `recall.decision` rows,
+  which carry each showing's lane and turn) is left for a later reader; doctor does not
+  read any of it yet.
+- **Measurement only.** No strength, threshold or ranking reads it.
+- *Choices and residuals:*
+  - A showing is scored at the first boundary after it. One opened at a later boundary is
+    counted once as not used (its own) and once as used (the later row's `expandedIds`):
+    the score is of the reply it was shown for.
+  - A boundary whose slice holds no reply and no expansion scores nothing and leaves the
+    mark (review of #329): a capture that failed or found nothing new is not a reply
+    that ignored what it was shown. Its showings wait for the next boundary that read a
+    reply.
+  - A session already open when this build arrived has no mark, so its first boundary
+    scores everything that session showed (at most `MAX_SESSION_RECORDS`, at most 64 ids
+    on the row). One over-count, toward more misses.
+  - A mark that cannot be read scores from the session's start; one that cannot be
+    written is scored again next time. Both over-count misses, never under-count.
+  - On a `budget-exceeded` row a quote may have gone unchecked; a reader should leave
+    those rows out.
+  - After a gate reset (`recall.gate.reset`, an unreadable scalar row) the session's turn
+    count starts again at 1 while the mark may sit higher, so its showings go unscored
+    until the turns pass the mark: left out of the rate, not counted as hits. Rare, and
+    the reset is evented.
+  - A footnote can be used only by an expansion: it showed a title, and a title is not
+    quotable (§9.2). The lane split keeps that from reading as a worse prediction.
+  - Ambient recall only. A deliberate answer's memories (`asked`) are not in the gate
+    state's `surfaced`, and are not scored.
+  - Recorded only where the credit pass runs (INTERFACE-GAPS §9).

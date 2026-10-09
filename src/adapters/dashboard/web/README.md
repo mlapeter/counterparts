@@ -15,7 +15,7 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 | `ask-voice.ts` | `toMyVoice(question, ownerName)`: Ask is the owner talking to me, so `ask` turns his question into my voice before it searches ("do you remember what I said" → "do I remember what Mike said"; his I → "you" when the store knows no name). Pure; the rules are in its header and `test/dashboard-ask-voice.test.ts`. The server reads the name (`sleep#ownerNames`) and hands `actions.ts` the string |
 | `static.ts` | `resolveStatic()`: which URL paths are static files and where they live (pure; no fs) |
 | `views.ts` | the index of `views/`: re-exports every view, so callers import from here |
-| `views/<name>.ts` | one module per `/api` view: `meta`, `overview` (the home tab's; its "Today" lines are `today`), `memories` (`/api/memories` + `/api/memories/list`), `memory`, `search` (`/api/search` + `/api/chapters`), `mind` (the self tab's; its trait bars are `traits`), `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse`, `mechanisms`, `mechanism-panel` (`/api/mechanism?id=`) |
+| `views/<name>.ts` | one module per `/api` view: `meta`, `overview` (the home tab's; its "Today" lines are `today`), `memories` (`/api/memories` + `/api/memories/list`), `memory`, `search` (`/api/search`), `mind` (the self tab's; its trait bars are `traits`), `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse`, `mechanisms`, `mechanism-panel` (`/api/mechanism?id=`) |
 | `views/archive-words.ts` | why a memory was archived, in plain words: one table (`ARCHIVE_WORDS`, a group phrase and a single-row phrase per reason) and one fallback for a reason nobody mapped; health's bar, the memories list and home's archived count read it |
 | `views/mechanisms.ts` | `/api/mechanisms`: each mechanism's light (grey = not built, green = fired in the last 7 lived days, waiting = built and not due — a scheduled run ahead, or nothing to act on — amber = built and quiet), its `build` (built / partly / not: the pill's "partly built" tag), one evidence line, the newest backing event `seq`s. Which rows count as a firing is `adapters/mechanism-evidence.ts` — ONE judgement shared with `counterparts mechanisms` (`cli/mechanisms.ts`), which keeps its own words and its calendar window; this file owns the lived-day window and the dashboard's words |
 | `views/shared.ts` | the census and small counters every view leans on |
@@ -178,19 +178,24 @@ which Home draws too; an axis clicked filters the list), `list.js` (every
 memory, newest or oldest first, twenty a page, two rows of chips with a few
 words each on hover, paged on the server by `/api/memories/list` in
 `views/memories.ts`, which also groups several put-away versions of one memory
-into one row), `search.js` (ONE box with a "by word | by meaning" switch
-beside it, `state.js#find.mode`, 2026-09-30: by word finds as you type,
-`/api/search`, and Enter only runs it at once; by meaning asks on Enter via
-`act("ask", {json:true})`; the switch never flips by itself; when the words
-find fewer than `CLOSE_BELOW`, `views/search.ts#closeMatches` adds "close
-matches", a typo or two away over titles and words, the dashboard's own pass
-with `store.search` untouched; the answers take the
-list's place and "×" gives it back; the search's words are marked where they
-appear in an answer (`row.js#marked`, whole words as the word index splits
-them, escaped first; for Ask, the question's longer words); a journal chapter and the memory drawn from
-it are folded into one answer by `fold.js`, with a "from chapter …" link, from
-`/api/chapters` in `views/search.ts`; the question is turned into my voice
-server side by `ask-voice.ts`), and `tools.js` (add a memory, and the
+into one row), `search.js` (ONE box with a "by word | facts | by meaning" switch
+beside it, `state.js#find.mode`, 2026-09-30, three ways since 2026-10-09: by
+word finds as you type, `/api/search`, and Enter only runs it at once; facts
+and by meaning ask on Enter via `act("ask", {json:true, mode, page})`, the
+console's `ask --json --mode`, and draw the answer it returned — facts every
+match, counted and paged, with who said it, when and what it was before; by
+meaning the arc, chapters in time order with their moments and feelings —
+through pure functions (`factsRows`, `meaningRows`, …) that
+`test/dashboard-ask-answers.test.ts` feeds real answers; the switch never flips
+by itself; when the words find fewer than `CLOSE_BELOW`,
+`views/search.ts#closeMatches` adds "close matches", a typo or two away over
+titles and words, the dashboard's own pass with `store.search` untouched; the
+answers take the list's place and "×" gives it back; the search's words are
+marked where they appear in an answer (`row.js#marked`, whole words as the
+word index splits them, escaped first; for Ask, the question's longer words),
+and a memory id written in a row's words is a small link to it
+(`memory-marks.js#idMark`); the question is turned into my voice server side
+by `ask-voice.ts`), and `tools.js` (add a memory, and the
 back-up/export folder dialog). `views/memory-words.ts` says how a row's words
 are shown (a date at their front lifted off, a journal chapter's heading lifted
 off, feelings in words); archive reasons come from `views/archive-words.ts`.

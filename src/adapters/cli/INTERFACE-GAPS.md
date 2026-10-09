@@ -408,6 +408,7 @@ on every turn.
   and a journal is not a memory (it lives in the `dreams` table). An owner who wants a
   journal gone has `dream --undo`, which keeps it marked undone. A `dream --forget <id>`
   would need a store write that blanks the journal text; not built.
-- **`export --markdown` does not carry the dreams table** (the journals, the change
-  logs): it walks memories. The database export and `backup` copy the whole file, so
-  they do.
+- ~~**`export --markdown` does not carry the dreams table**~~ — CLOSED 2026-10-09: it
+  writes `dreams/` (each journal and its change log) and `reflections/` (each entry and
+  morning share) beside the memories. What a dream was shown and what undoing it needs
+  stay in the database, which the database export and `backup` copy whole.

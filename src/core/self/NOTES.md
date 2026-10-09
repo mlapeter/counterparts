@@ -1550,6 +1550,19 @@ and is not a cost.
   hundreds of a subject's memories under their chapters without a `resolveChapter` (and its
   per-memory prose reads) for each; a test holds the two to the same answer.
 
+## 2026-10-09 — a regrown copy keeps its links
+
+- When a chapter grows, `ingestEpisode` mints the new copy and archives the old one
+  (`episode-regrown`). The old copy's links (the session's contiguity, a co-use, a dream's
+  tie) stayed on the archived row, which conducts nothing: on 10-02 that was 260 of a live
+  store's 1,200 edge rows. `SelfOptions.retarget` now hands each archived copy's links to
+  the new copy, after the archive. It is `associate.retargetOnSupersede`, injected by the
+  composition root as for `schemas/` and `dream/`; absent, nothing is carried, as before.
+- A retarget that throws costs the links, never the copy: counted on
+  `self.episode.relink.failed`, and the ingestion reports what it always did.
+- The links stranded before this are carried once at open, in `counterpart.ts`
+  (associate NOTES §15).
+
 ## 2026-10-09 — the page's own "Last revised" line is taken out
 
 The 10-01 guidance (`PAGE_WRITING_RULE`, above) told both writers to add no revised-on

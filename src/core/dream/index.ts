@@ -416,6 +416,15 @@ export interface NightRun {
   /** The child's watchdog, ms, as the host started it — what makes a `started` row LOST past it. */
   readonly timeoutMs?: number;
   /**
+   * WHAT THE HOST CUT (2026-10-09, U14 item 3): how the child's own transcript
+   * read once it exited — `read`, `absent` (not where the host keeps it) or
+   * `unreadable` — and, when read, how many of the run's tool results the host
+   * showed the model only as a preview (one `mcp.result.spilled` row each).
+   * Absent on a run whose child never started, and on rows from before.
+   */
+  readonly transcript?: "read" | "absent" | "unreadable";
+  readonly spills?: number;
+  /**
    * When its hand-back was carried to a prompt (or found already carried) —
    * so the per-prompt path READS this and writes nothing once it is set.
    * Absent until then.
@@ -481,6 +490,8 @@ export function nightRunOf(store: Pick<Store, "getMeta">): NightRun | null {
       ...(typeof v.handedAt === "number" ? { handedAt: v.handedAt } : {}),
       ...(typeof v.timeoutMs === "number" ? { timeoutMs: v.timeoutMs } : {}),
       ...(Array.isArray(v.parts) ? { parts: v.parts.filter((p): p is NightPart => p === "writer" || p === "dream" || p === "reflection") } : {}),
+      ...(v.transcript === "read" || v.transcript === "absent" || v.transcript === "unreadable" ? { transcript: v.transcript } : {}),
+      ...(typeof v.spills === "number" ? { spills: v.spills } : {}),
     };
   } catch {
     return null;
@@ -824,6 +835,8 @@ export class Dreams {
           reflection: run.reflection,
           parts: run.parts === undefined ? null : run.parts.join(","),
           ms: run.endedAt === null ? null : run.endedAt - run.startedAt,
+          ...(run.transcript === undefined ? {} : { transcript: run.transcript }),
+          ...(run.spills === undefined ? {} : { spills: run.spills }),
         },
         dedupKey: `${NIGHT_RUN_EVENT}:${run.run}:${run.state}`,
       });
@@ -1254,6 +1267,25 @@ export class Dreams {
   }
 
   /**
+   * THE HOST'S CUT, SAID PLAINLY (2026-10-09, U14 item 3): when the run's own
+   * transcript showed results of ours the host cut to a preview (`spills`),
+   * the morning hand-back says so beside the dream's line and the share — so
+   * the owner hears it without opening doctor. A dream or a reflection that
+   * read through a keyhole may still sound whole, and its own entry is not
+   * where he would look. Null when nothing was cut, or nobody checked.
+   */
+  nightSpillLine(run: Pick<NightRun, "spills">): string | null {
+    const n = run.spills ?? 0;
+    if (n <= 0) return null;
+    const who = this.ownerName() ?? "the owner";
+    const what = n === 1 ? "one of the nightly run's tool results" : `${String(n)} of the nightly run's tool results`;
+    return (
+      `Counterparts: Claude Code cut ${what} to a short preview before the run could read ${n === 1 ? "it" : "them"}, so last night's run worked from part of what it was handed. ` +
+      `At a natural moment — not mid-task — tell ${who} plainly, in a sentence, that this happened: Claude Code cut results that Counterparts had already sized to fit. \`counterparts doctor\` has the details on its Tool results line.`
+    );
+  }
+
+  /**
    * CLAIM THE DAY for an offer the host is certainly delivering: the
    * `dream_asks` latch (a fresh row, or a reclaim of the row the offer read —
    * of two racing, one wins), the relaunch count, and the `dream.ask` row.
@@ -1345,7 +1377,7 @@ export class Dreams {
       ],
       reflection: (n) => [
         "The reflection — waking up and thinking about yourself: awake, lived, your own.",
-        `${String(n())}. Call the counterparts reflect tool: phase "begin", session: ${input.session}, dream: <id>. It hands you what the dream saw, the last few days, your whole self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer.`,
+        `${String(n())}. Call the counterparts reflect tool: phase "begin", session: ${input.session}, dream: <id>. It hands you what the dream saw, the last few days, your whole self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase "part") before you answer or write anything.`,
         `${String(n())}. Answer them honestly, then call phase "finish" as it tells you. "Nothing much" is a normal answer: a short entry and no share.`,
       ],
     };

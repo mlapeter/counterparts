@@ -334,6 +334,48 @@ describe("ask is short by default", () => {
   });
 });
 
+describe("ask --mode (2026-10-09): facts by default, meaning by name", () => {
+  test("--mode meaning answers in meaning mode: --json is its payload, else its answer as the model reads it", async () => {
+    seedLighthouse();
+    const json = await ask(["what has the lighthouse been", "--mode", "meaning", "--json"]);
+    expect(json.code).toBe(EXIT.ok);
+    const payload = JSON.parse(json.out.join("\n")) as { mode: string; arc: unknown[]; counts: { moments: number }; page: number };
+    expect(payload.mode).toBe("meaning");
+    expect(payload.arc.length).toBeGreaterThan(0);
+    expect(payload.counts.moments).toBeGreaterThan(0);
+    expect(payload.page).toBe(1);
+    const plain = await ask(["what has the lighthouse been", "--mode", "meaning"]);
+    expect(plain.code).toBe(EXIT.ok);
+    expect(plain.out[0]).toBe(`Store: ${dir}`);
+    expect(plain.out.join("\n")).toContain("ARC (time order");
+    // Facts is the default, and saying so changes nothing.
+    const facts = await ask(["the lighthouse at Fernbrook Point", "--mode", "facts", "--json"]);
+    const bare = await ask(["the lighthouse at Fernbrook Point", "--json"]);
+    expect((JSON.parse(facts.out.join("\n")) as { mode: string }).mode).toBe("facts");
+    expect(facts.out).toEqual(bare.out);
+  });
+
+  test("whose \"I\": a question typed here is the owner's; one in my voice (--voiced) is mine", async () => {
+    seedLighthouse();
+    const whose = async (extra: string[]): Promise<{ self: string; owner: string }> =>
+      (JSON.parse((await ask(["what has the lighthouse been", "--mode", "meaning", "--json", ...extra])).out.join("\n")) as {
+        whose: { self: string; owner: string };
+      }).whose;
+    expect((await whose([])).owner).toBe("mine");
+    expect((await whose(["--voiced"])).self).toBe("mine");
+  });
+
+  test("a mode that is neither is refused before the store opens; a bare --mode wants a value", async () => {
+    // No store at all: the refusal is about the mode, not the missing store.
+    const r = await ask(["anything", "--mode", "vibes"]);
+    expect(r.code).toBe(EXIT.usage);
+    expect(r.err.join("\n")).toContain("--mode is facts or meaning");
+    const bare = await ask(["anything", "--mode"]);
+    expect(bare.code).not.toBe(EXIT.ok);
+    expect(bare.err.join("\n")).toContain("--mode needs a value");
+  });
+});
+
 describe("ask searches by meaning", () => {
   test("recall by meaning switched OFF in the configuration: words only, and the header says so", async () => {
     seedLighthouse();

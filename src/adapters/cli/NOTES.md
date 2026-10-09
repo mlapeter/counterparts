@@ -1886,3 +1886,57 @@ words only and prints nothing about it — doctor and the backfill name a missin
   `counterparts mechanisms` (no mechanism line of its own: traits feed nothing), so it
   shows in the plumbing count and in `mechanisms --all`. No doctor line: nothing there
   fits without forcing it.
+
+## 2026-10-09 — dreams and reflections in `export --markdown`; `connect`'s count
+
+- **The readable tree carries the nights** (dream INTERFACE-GAPS §4 and §7). One file per
+  dream under `dreams/<year>/<date>-<id>.md` and per reflection under `reflections/…`, the
+  journal's own layout. A dream's file is its journal, then its changes in `dream --show`'s
+  words (`dream-core.ts#dreamChangeWords`, now shared), then the reflections after it; a
+  reflection's is what it was asked, its entry, what that rests on, and its morning share
+  with what became of it. The front matter has the memory files' fence and `key: value`
+  lines but **no `payload:` line** — that line is how a future importer reads a memory
+  back, and a dream's journal is kept out of `memories` so it is never taken for something
+  lived. The database export needed nothing: it already carries both tables whole. There is
+  no JSON export.
+- **A night that rests on a confidential memory is left out unless
+  `--include-confidential`**, counted apart from memory rows (terminal, manifest, and the
+  `store.export` row's `omittedDreams` / `omittedReflections`). "Rests on" is: shown it,
+  changed it, cites it, or its entry is it — asked of the memories as they are now. Since
+  #318 a dream's bundle is read as a guest (`BUNDLE_OWNER`), so a night is not shown a
+  confidential memory in the first place; what this catches is a memory marked
+  confidential after the night that saw it. A removed memory does not count: the removal
+  already redacted every night that was shown it. Expected to fire rarely.
+- **`connect`'s count said "N sessions are running the previous version's memory server"
+  over every memory server in the process table**, comparing nothing — the 0.3.12 release
+  run got 11, the owner's own open sessions and the one it was typed into among them. Each
+  server leaves `sessions/mcp-server@<pid>.json` in its store with its build and its
+  parent (`sessions.ts#recordServerLaunch`), so the count now sorts them
+  (`wire.ts#serverCensus`): another build (its version named), this build, or no record in
+  this store (another store's, a directory where memory is off, or a build from before
+  servers recorded themselves — "not known here"). `ps` now also gives the parent column,
+  so the session the command was typed into is the one whose server's parent is one of
+  this process's ancestors, and it is named in whichever group it is in. Without that
+  column, and run from inside Claude Code (`hosts.ts#claudeCodeEnvMarker`), the line says
+  it cannot tell which one is this session's rather than guess. Claude Desktop's server, if
+  it is running, is counted as an open session, as before.
+- **Review of #331.** The night files are decided in two passes, so a reflection whose
+  dream was left out says so instead of naming a path that is not in the tree (and the
+  other way round). `ps` is asked `-axwwo`: procps on Linux cuts `command` at `$COLUMNS`
+  when that is exported, even into a pipe, and the cut can fall before the
+  `mcp/bin/serve` segment `processMark` reads; master had the same exposure. A server
+  whose record went stale is "no current record", not "no record". The one way a
+  journal can still carry a confidential memory's words past the id rule — an in-session
+  dream on the owner's server, using `recall` freely — is upstream of the export (the
+  dashboard shows that journal too), and is left as a question for the owner.
+
+## 2026-10-09 — `ask --mode meaning`
+
+The dashboard's "by meaning" went through `ask`, and `ask` answered every question in
+facts mode, so there was no door to meaning mode from the console at all. `--mode`
+takes `facts` (the default; saying it changes nothing) or `meaning`, the MCP tool's two
+words. Meaning has no short list: its rendering is already short, so without `--json`
+the console prints `renderMeaning` under the `Store:` line. A mode that is neither is
+refused before the store opens. `--voiced` is read again here: a question typed at the
+console is the owner's, so its "I" is his (`asker: "owner"`); one the dashboard turned
+into my voice is mine.

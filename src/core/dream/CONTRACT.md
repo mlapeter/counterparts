@@ -124,13 +124,16 @@ dreamer is the model (a background agent the session launches), outside this pro
   `timed-out` | `could-not-start`, reason, exit code, its watchdog, the PARTS that ran —
   writer, dream, reflection — and the dream and reflection it produced), each state
   on the `dream.night` event log latched by run and state. Ids, codes and times only.
-  Doctor's Nightly run line reads it; the dashboard can later.
+  Doctor's Nightly run line reads it; the dashboard can later. Since 2026-10-09 the host
+  adds what the child's transcript said: `transcript` (`read` | `absent` | `unreadable`)
+  and, when read, `spills` — results the host cut to a preview.
 - **The hand-back of a headless run** — the dream's own line (`handBackOf`) and the
   morning share — has no agent to return to a session, so once the run has ended the
   next prompt anywhere, the launching session included, carries both, once ever (a
   latched `dream.night.handed` event, then `handedAt` on the row so later prompts only
   read; the share through `Reflections.carryLine`). A partial run's line says it was
-  partial; a reflection-alone run hands back its share only.
+  partial; a reflection-alone run hands back its share only. A run with `spills` adds one
+  plain line (`nightSpillLine`, 2026-10-09) — handed back even when it journaled nothing.
 - **A run left behind does not use up the day.** A dream begun, never journaled and
   quiet for `ABANDONED_AFTER_MS` (30 minutes: its session closed and the background
   agent went with it), today's or yesterday's, makes the line due again once the line
