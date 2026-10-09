@@ -411,3 +411,40 @@ referenced × surfaced pair conducts on its first meeting — "shown beside" lin
 accumulate across boundaries; the credit pass passes no surfaced member in any case, and
 one loud slot a turn means surfaced × surfaced cannot occur in one reply. The fixture
 contract §4 asks for is `association-build2.test.ts` › "6.".
+
+## 15. Regrown chapter copies carry their links (2026-10-09)
+
+The association diagnosis of 10-02 (measured on a copy of the owner's store) found 324
+of 1,200 edge rows with an archived endpoint: 260 on chapter copies archived
+`episode-regrown`, 54 on dream-merge originals, 10 on corrected memories. Read against the
+code:
+
+- **Regrown copies were the gap.** `Self#ingestEpisode` mints a new copy when its chapter
+  grows and archives the old one, and nothing handed the old copy's links on. Now `Self`
+  takes a `retarget` callback (SEAMS E, the way `schemas/` and `dream/` do; `self/` may
+  not import this module) and calls it per archived copy, after the archive, so one stale
+  copy's tie to another is not carried. The composition root wires it to
+  `retargetOnSupersede`, the merge rule unchanged: the old copy's live outgoing weights as
+  they stand on the day, `max` with what the new copy has, both directions, capped. A
+  throw costs the links, never the copy (`self.episode.relink.failed`).
+- **Dream merges and corrections were not.** Both already go through
+  `retargetOnSupersede` (`dream/index.ts`, `revision.ts`). Their 64 rows are the
+  originals' own, left in place by design (this module has no delete); the merged or
+  corrected memory holds the carried copies.
+- **The links already stranded are carried once.** `Counterpart#relinkRegrownCopies` runs
+  at open, latched in meta (`REGROWN_RELINK_META`) like the v12 subject backfill: it reads
+  the edge table (not the store), finds each source archived `episode-regrown`, and hands
+  its links to the chapter's live copy (`origin_ref`), or counts it `noLiveCopy` when the
+  chapter has none. A link that has faded below the floor since carries nothing. Writer
+  only; fail-open, tried again next open; idempotent if cut short. A carry whose write
+  failed (the edge module answers `failed` rather than throwing) leaves the pass
+  unlatched, so a store that keeps failing re-reads its edge table at every open until
+  one pass lands, as the v12 backfill would.
+- *Known limits, the merge rule's own:* only the old copy's outgoing rows are read, so a
+  row written one way into it would not carry (co-use, contiguity and a dream's links all
+  write both ways today), and contiguity's forward-over-back difference becomes the
+  stronger outgoing weight both ways. The carry writes through `linkMany`, not the flush,
+  so the per-node cap applies at the next flush that touches the copy, not at the carry.
+  The archived copy's rows stay until they decay to the floor and a flush sweeps them, so
+  a re-run of the 10-02 count will still find them for a while; count what the live copy
+  holds, not what the archived one still has.

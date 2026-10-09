@@ -98,7 +98,7 @@ the store seam. Deciding which memories the reply actually used — assistant tu
 no model, no file reads, precision over recall — is §9.2's rule and was not implemented
 anywhere. **Closed:** `recall/reference.ts` decides (pure; expansions from recall tool
 calls, verbatim eight-word windows against what surfaced loud), `Counterpart.creditReferences`
-applies it through `resolveUses`, and `adapters/claude-code/hooks.ts#creditAtBoundary` calls
+applies it through `resolveUses`, and `adapters/lifecycle.ts#creditAtBoundary` calls
 it on the slice capture just took, at every session-ending hook. Measured before the close
 (IMPROVEMENTS U10): 1,374 memories minted since launch, all at `uses = 0`. Proof:
 `test/lifecycle.test.ts` — the lifecycle through the adapter, the two fixtures (ids named
@@ -271,6 +271,10 @@ log only through the Claude Code hook's `recall.credit` row. A host without that
 pass shows pointers and never says whether they were used. Also: a pointer the model
 reads by title (a handle) counts only if the handle log translated it (G50), as for any
 expansion.
+
+Since 2026-10-09 the same row scores every ambient showing, used or not, by lane (NOTES
+§28), so recall's hit rate has the same reach: recorded where the credit pass runs, and
+nowhere else.
 
 ## 10. Standing labels reach recall and ask, not the wake's lanes — CLOSED 2026-09-29
 

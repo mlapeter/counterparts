@@ -125,7 +125,8 @@ for `recall/`; telemetry by reference.
 writers) · **E7** (observers train nothing) · **E8** (base-level decay on lived days) ·
 **§2.1** (multi-writer structured state needs a transaction) · **§2.2** (a removed id must
 stop conducting; supersede retargets edges too — v1's `gist.merge` set `merged_into` and
-nothing re-pointed the edges, so successors started cold) · **§2.4** (no success telemetry
+nothing re-pointed the edges, so successors started cold. So do a dream merge and, since
+2026-10-09, a regrown chapter copy, NOTES §15) · **§2.4** (no success telemetry
 for a publish that did not land) · **§2.8** (credit weights ship measured or disabled) ·
 **§2.17** (edges have an exit path — eviction — and its count is reported).
 

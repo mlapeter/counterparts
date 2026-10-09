@@ -10,6 +10,19 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **A chapter's memory keeps its links when the chapter grows.** Each journal chapter is
+  also kept as an ordinary memory, and when the chapter grows that memory is rebuilt and
+  the old one archived. The links the old one had learned (to what was written beside it,
+  what was used with it, what a dream tied it to) stayed on the archived row, where they do
+  nothing: about a quarter of the links in one real store. The rebuilt memory now inherits
+  them, the way a dream's merged memory inherits its originals'. Links already left behind
+  are carried over once, the first time the store is opened after the update.
+- **Recall now records what it showed that no reply used.** At the end of each answer, the
+  credit check now also notes which of the memories recall showed since the last check the
+  reply neither opened nor quoted, by kind of showing (shown in full, a footnote, a pointer
+  reached through links). Each showing is counted once. `counterparts probe-oq4` prints the
+  resulting hit rate. This only measures: nothing is strengthened, weakened or ranked
+  differently because of it.
 
 ## 0.3.12 — 2026-10-08
 
