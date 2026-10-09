@@ -139,6 +139,7 @@ import {
   writeUpPlan,
 } from "../sessions.js";
 import { DESKTOP_HOST } from "../hosts.js";
+import type { PluginInstallRead } from "../host-wiring.js";
 import { localStamp } from "../../core/time.js";
 import { catchUpOf, catchUpWords } from "./night-catch-up.js";
 import type { AdapterConfig } from "../config.js";
@@ -4183,6 +4184,9 @@ export interface HostReading {
   }[];
   /** The runtime this console is running under (`runtime.ts#runtimeLabel`). */
   readonly consoleRuntime?: string;
+  /** The Counterparts Claude Code plugin, when Claude Code records it
+   *  installed (`host-wiring.ts#pluginInstall`); absent or null when not. */
+  readonly plugin?: PluginInstallRead | null;
 }
 
 /**
@@ -4346,6 +4350,33 @@ function hostFindings(reading: HostReading): Finding[] {
     mcp: reading.mcp,
     mcpFile: reading.mcpFile,
   };
+  // THE PLUGIN (prototype, 2026-10-09). A plugin install wires nothing in
+  // these files — Claude Code loads its hooks and server from the plugin — so
+  // without this the line told a plugin user "no hook of ours is connected,
+  // run counterparts connect", which would wire the host twice. Enabled and
+  // alone: connected. Enabled beside live npm wiring: the plugin stands down
+  // (`adapters/plugin.ts`), which works, and is said, with both ways out.
+  const plugin = reading.plugin !== undefined && reading.plugin !== null && reading.plugin.enabled ? reading.plugin : null;
+  data["plugin"] = plugin === null ? null : plugin.id;
+  const npmAny = reading.events.length > 0 || reading.mcp;
+  if (plugin !== null && !npmAny) {
+    return [
+      finding(
+        "host",
+        "green",
+        "Claude Code",
+        `connected as the Claude Code plugin (${plugin.id}${plugin.version === null ? "" : ` ${plugin.version}`}): its ${String(total)} hooks and the memory tools load from the plugin`,
+        "",
+        data,
+      ),
+    ];
+  }
+  const twiceClause =
+    plugin === null ? "" : `ALSO installed as the Claude Code plugin (${plugin.id}), which stands down while this wiring is live`;
+  const twiceFix =
+    plugin === null
+      ? ""
+      : `Installed twice: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only this install, run \`claude plugin uninstall ${plugin.id}\`. Same memory either way.`;
   const mcpClause = reading.mcp
     ? `the MCP server is registered in ${reading.mcpFile}`
     : reading.mcpUnreadable
@@ -4353,6 +4384,9 @@ function hostFindings(reading: HostReading): Finding[] {
       : `no MCP server named "${reading.mcpName}" in ${reading.mcpFile}`;
 
   if (missing.length === 0 && stale.length === 0 && reading.mcp) {
+    if (plugin !== null) {
+      return [finding("host", "amber", "Claude Code", `connected: ${String(total)} hooks and the memory tools; ${twiceClause}`, twiceFix, data)];
+    }
     // THE ONE LINE THE PERSON CAME FOR: is my assistant joined up to this
     // memory? It says `connected` because that is the verb the command has
     // (`counterparts connect`), and it names the two halves — the hooks and the
@@ -4424,11 +4458,11 @@ function hostFindings(reading: HostReading): Finding[] {
       : missing.length > 0
         ? `connected on ${reading.events.join(", ")} but NOT on ${missing.join(", ")}`
         : `all ${String(total)} hook events are connected`;
-  const detail = [staleClause, connected, `(${where})`, mcpClause]
+  const detail = [staleClause, connected, `(${where})`, mcpClause, twiceClause]
     .filter((s) => s.length > 0)
     .join("; ")
     .replace("; (", " (");
-  return [finding("host", "amber", "Claude Code", detail, fixes.join(" "), data)];
+  return [finding("host", "amber", "Claude Code", detail, [...fixes, ...(twiceFix.length === 0 ? [] : [twiceFix])].join(" "), data)];
 }
 
 // ── the reading ─────────────────────────────────────────────────────────────

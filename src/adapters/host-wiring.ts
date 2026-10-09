@@ -198,6 +198,59 @@ function mcpEntry(
   return [{ file, scope, command: [command, ...args].join(" "), live }];
 }
 
+/** The Counterparts plugin as Claude Code records it, for `doctor`. */
+export interface PluginInstallRead {
+  /** `counterparts@<marketplace>`. */
+  readonly id: string;
+  readonly installPath: string | null;
+  readonly version: string | null;
+  /** `enabledPlugins[id]` from user, project and local settings, the last one
+   *  that says anything winning (Claude Code's precedence); unset is enabled. */
+  readonly enabled: boolean;
+}
+
+/**
+ * Is the plugin installed, and on? Read from `installed_plugins.json` under
+ * Claude Code's plugins root (`CLAUDE_CODE_PLUGIN_CACHE_DIR`, else
+ * `<config dir>/plugins`) and `enabledPlugins` in the settings files — the
+ * shapes measured on 2.1.295 (`{"version":2,"plugins":{"<id>":[{"scope",
+ * "installPath","version",…}]}}`; `enabledPlugins: {"<id>": true|false}`).
+ * READ-ONLY. Null when no `counterparts@…` install is recorded.
+ */
+export function pluginInstall(input: {
+  readonly home: string;
+  readonly env: Record<string, string | undefined>;
+  readonly cwd: string | null;
+}): PluginInstallRead | null {
+  const moved = (input.env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const configDir = moved.length > 0 ? moved : join(input.home, ".claude");
+  const cacheRoot = (input.env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
+  const pluginsRoot = cacheRoot.length > 0 ? cacheRoot : join(configDir, "plugins");
+  const installed = readObject(join(pluginsRoot, "installed_plugins.json"));
+  const plugins = installed === null ? null : installed["plugins"];
+  if (!isRecord(plugins)) return null;
+  const id = Object.keys(plugins).find((k) => k.startsWith(`${NPM_MCP_NAME}@`));
+  if (id === undefined) return null;
+  const records = plugins[id];
+  const first = Array.isArray(records) ? (records as unknown[]).find(isRecord) : isRecord(records) ? records : undefined;
+  const files = [claudeUserFiles(input.home, input.env).settings];
+  if (input.cwd !== null && input.cwd.length > 0) {
+    files.push(join(resolve(input.cwd), ".claude", "settings.json"), join(resolve(input.cwd), ".claude", "settings.local.json"));
+  }
+  let enabled = true;
+  for (const file of files) {
+    const settings = readObject(file);
+    const on = settings === null ? undefined : settings["enabledPlugins"];
+    if (isRecord(on) && typeof on[id] === "boolean") enabled = on[id] as boolean;
+  }
+  return {
+    id,
+    installPath: first !== undefined && typeof first["installPath"] === "string" ? first["installPath"] : null,
+    version: first !== undefined && typeof first["version"] === "string" ? first["version"] : null,
+    enabled,
+  };
+}
+
 /**
  * The npm install's wiring as Claude Code will see it for a session in `cwd`:
  * our hook entries in the user, project and local settings files, and a

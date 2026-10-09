@@ -25,10 +25,14 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { HOOK_SCRIPT, HOST_EVENTS, MCP_SCRIPT, MCP_SERVER_NAME } from "../src/adapters/cli/install.js";
+import { HOOK_SCRIPT, HOST_EVENTS, MCP_SCRIPT, MCP_SERVER_NAME, readHost } from "../src/adapters/cli/install.js";
+import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
+import type { Finding, HostReading } from "../src/adapters/claude-code/doctor.js";
+import { Counterpart } from "../src/core/counterpart.js";
+import { Store } from "../src/core/store/index.js";
 import { isOurHookCommand as wireIsOurs } from "../src/adapters/cli/wire.js";
 import { HOST_SESSION_ENV } from "../src/adapters/claude-code/night-run.js";
-import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring } from "../src/adapters/host-wiring.js";
+import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall } from "../src/adapters/host-wiring.js";
 import {
   PACKAGE_ROOT,
   ensureFirstRun,
@@ -440,5 +444,95 @@ describe("plugin-run.sh", () => {
     expect(tools).toContain("recall");
     expect(tools).toContain("note");
     expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
+  });
+});
+
+// ── doctor, for a plugin install ────────────────────────────────────────────
+
+describe("doctor's Claude Code line knows the plugin", () => {
+  const ID = "counterparts@counterparts";
+
+  function recordPlugin(enabled?: boolean, file = join(home, ".claude", "settings.json")): void {
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { [ID]: [{ scope: "user", installPath: join(home, "cache", "0.3.12"), version: "0.3.12" }] },
+      }),
+    );
+    if (enabled !== undefined) {
+      mkdirSync(join(file, ".."), { recursive: true });
+      const was = existsSync(file) ? readJson(file) : {};
+      writeFileSync(file, JSON.stringify({ ...was, enabledPlugins: { [ID]: enabled } }));
+    }
+  }
+
+  function hostFinding(host: HostReading): Finding {
+    const dir = join(work, "store");
+    Counterpart.open({ dir }).close();
+    const store = Store.open({ dir });
+    try {
+      const found = doctorFindings({
+        configPath: join(work, "claude-code.json"),
+        configReason: "loaded",
+        config: { dataDir: dir },
+        dir,
+        store,
+        today: "2026-10-09",
+        refusals: {},
+        host,
+      }).find((f) => f.key === "host");
+      if (found === undefined) throw new Error("no host finding");
+      return found;
+    } finally {
+      store.close();
+    }
+  }
+
+  test("pluginInstall reads Claude Code's record and the enabled switch, local settings last", () => {
+    expect(pluginInstall({ home, env: {}, cwd: project })).toBeNull();
+    recordPlugin();
+    expect(pluginInstall({ home, env: {}, cwd: project })).toEqual({
+      id: ID,
+      installPath: join(home, "cache", "0.3.12"),
+      version: "0.3.12",
+      enabled: true,
+    });
+    recordPlugin(false);
+    expect(pluginInstall({ home, env: {}, cwd: project })?.enabled).toBe(false);
+    recordPlugin(true, join(project, ".claude", "settings.local.json"));
+    expect(pluginInstall({ home, env: {}, cwd: project })?.enabled).toBe(true);
+  });
+
+  test("the plugin alone is connected — not \"run counterparts connect\"", () => {
+    recordPlugin();
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("connected as the Claude Code plugin (counterparts@counterparts 0.3.12)");
+    expect(f.fix).toBe("");
+  });
+
+  test("a disabled plugin is no install: the line is what it always was", () => {
+    recordPlugin(false);
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("no hook of ours is connected");
+  });
+
+  test("the plugin AND the npm wiring: amber, and both ways out", () => {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT] } } }),
+    );
+    recordPlugin(true);
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("ALSO installed as the Claude Code plugin");
+    expect(f.fix).toContain("counterparts disconnect");
+    expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
   });
 });

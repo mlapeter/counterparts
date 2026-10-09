@@ -81,6 +81,13 @@ a backup) and restart Claude Code. Same store, same memories.
 install`. Once its wiring is live, the plugin stands down by itself; uninstall the
 plugin to tidy up.
 
+**doctor knows the plugin.** `/counterparts:doctor` (or `counterparts doctor`) reads
+Claude Code's own record of installed plugins (`installed_plugins.json` and
+`enabledPlugins`). With the plugin alone, its Claude Code line is green: "connected as
+the Claude Code plugin". With both installs, the line is amber and names both ways out.
+Without this, a plugin user was told "no hook of ours is connected — run `counterparts
+connect`", which would have wired the host twice.
+
 **Tool names change.** Plugin tools are `mcp__plugin_counterparts_counterparts__<tool>`,
 not `mcp__counterparts__<tool>`. Permission rules a person wrote for the old names
 won't match. The nightly run is unaffected: it starts its own server under the old
