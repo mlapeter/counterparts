@@ -33,7 +33,9 @@
  *     An open end is `OPEN_START` / `OPEN_END`, and a bounded window never
  *     stretches. A month and day with no year under "since" or "after" that
  *     has not come yet this year is last year's ("since 10/25" asked on
- *     10-03). An amount is not a date: "7-8 hours", "3/4 cup", "$5-10", and a
+ *     10-03); under "before", "until" or "by" one whose month has not begun
+ *     is this year's when that is nearer than last year's ("by 12/20" asked
+ *     on 10-09; "until Dec 30" asked on Jan 3 is still last year's). An amount is not a date: "7-8 hours", "3/4 cup", "$5-10", and a
  *     fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
  *     still January 2) (2026-10-09); a leading zero ("09-28 minutes") keeps
  *     it a date (review of #345);
@@ -291,8 +293,21 @@ function dated(
   // "until" and "by" keep this year's, which hides nothing that has happened
   // (review of #338, 2026-10-09).
   const roll = opts.yearless === true && (b.bound === "since" || b.bound === "after") && firstDay > today;
-  const first = roll ? lastCome(firstDay, today) : firstDay;
-  const last = roll ? first : lastDay;
+  // And the other way (review of #345): "by 12/20" asked on 10-09 is THIS
+  // year's 12/20, though its month has not begun. `yearFor` put it last year,
+  // which cut the window at 2025-12-20 and hid the ten months since; a cutoff
+  // still ahead hides nothing. Only when this year's is the nearer of the two,
+  // so "until Dec 30" asked on Jan 3 is still the one four days back. A Feb 29
+  // this year lacks stays where it was.
+  const thisYears = `${today.slice(0, 4)}${firstDay.slice(4)}`;
+  const ahead =
+    opts.yearless === true &&
+    (b.bound === "before" || b.bound === "through") &&
+    firstDay.slice(0, 4) < today.slice(0, 4) &&
+    isDay(thisYears) &&
+    daysBetween(today, thisYears) <= daysBetween(firstDay, today);
+  const first = roll ? lastCome(firstDay, today) : ahead ? thisYears : firstDay;
+  const last = roll || ahead ? first : lastDay;
   if (b.event !== null) {
     // The date names a thing on that day ("before the 7/22 flight"): the bound
     // keeps that day, where the thing happened, and only the date leaves the

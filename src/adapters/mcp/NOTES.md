@@ -1489,7 +1489,8 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
     now tested in Denver and on Kiritimati.
 - **Not done:** an amount written with words between the number and the unit ("7-8 full
   hours"), a score ("rated it 8/10" is still August 10), a later MONTH under "by" or
-  "until" (still last year's by `yearFor`, as before), and a number range with "to"
+  "until" (still last year's by `yearFor`, as before; *done* the same day, the next
+  section but one), and a number range with "to"
   ("7 to 8 hours" was never a date).
 - *Review of #345:* two follow-ons of the amount rule. (1) Passing "2-3" over as an amount
   left "3 weeks ago" to be read alone: the week three back, which hid the week two back
@@ -1549,3 +1550,33 @@ guard makes that rarer, but older stores already hold some.
   corrected it directly: when that one was later `changed` and folds under its successor,
   the corrected one is not listed under the successor (nor counted there, as before).
   Opening the earlier one by id shows it ("corrects mem_…").
+
+## 2026-10-09 — facts mode: "by 12/20" asked in October (review of #345, item 2)
+
+`yearFor` picks a yearless month's year by the month alone: this year's once it has begun,
+else last year's. Under "since" and "after" that is right (the roll of the section before
+last covers a later day of this month). Under "before", "until", "up to" and "by" a month
+not yet begun went to last year: "what's due by 12/20" asked on 10-09 was `OPEN_START` to
+2025-12-20, which hid 2025-12-21 to today, about ten months. Now `dated` moves such a date
+to this year's when this year's is the nearer of the two: through 2026-12-20, which hides
+nothing that has happened.
+
+- *Choices:*
+  - The nearer, not "this year's" outright (the reviewer's wording). The new-year test
+    already pins "until Dec 30" asked on Jan 3 as the one four days back; this year's
+    would have been 361 days ahead and no filter at all. Asked on 05-01, "by 12/20" is
+    last year's (132 days back against 233 ahead), as before. On a tie this year's wins
+    (it hides less).
+  - Scoped to a month not yet begun, where `yearFor` went back a year. A month already
+    begun keeps its year: "before 9/30" asked on 10-09 is through this year's 09-29, and
+    "by 1/5" asked in October is through this year's 01-05, as before. The event form
+    follows ("before the 12/20 flight" keeps this year's 12-20); a date alone ("on
+    12/20") and a written year are not moved. A Feb 29 this year lacks keeps its year.
+  - Tested in Denver and on Kiritimati, at 10-09 and across the 12-01 edge (11-30 in
+    Denver, 12-01 on Kiritimati: both now read this year's 12-20, where Denver read last
+    year's).
+- **Not done:** the year-end mirror. "By 1/5" asked on 12-28 is through this year's 01-05,
+  nearly a year back, where the person likely means the coming one; moving it would also
+  move "finish by 1/2" asked in October, which the amount tests pin as this year's. "By
+  the end of December" and "through December" asked in October are read as a month
+  (`yearFor`, last year's), not as a bound; unchanged.
