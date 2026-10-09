@@ -24,6 +24,13 @@
   server already dated. The card's details row names that zone ("Sep 28th, 2026, 11:47
   MDT") instead of printing UTC, and the Flow page's fired footer names it instead of a
   stale "(UTC)". Without a `timeZone` set, nothing changes.
+- **Doctor counts held corrections.** When a new memory says it changes or corrects one
+  that doesn't look related, the old one is left alone and the hold is recorded (0.3.13).
+  Doctor's Contradictions line now says how many were held in the last 7 lived days and
+  how many were settled by hand since ("2 corrections held because they didn't look
+  related to the memory they named, 1 settled by hand since; if the other was meant,
+  settle it with counterparts settle, which lists it"). It stays green. `counterparts
+  settle` lists the ones still held, each with the command that settles it.
 
 ## 0.3.13 — 2026-10-09
 
