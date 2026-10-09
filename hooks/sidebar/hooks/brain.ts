@@ -293,7 +293,7 @@ export class Brain {
     if (this.lastActive < 0 || this.poked) { this.lastActive = now; this.poked = false; }
     const awake = now - this.lastActive < this.restAfter ? 1 : 0;
     this.motion += (awake - this.motion) * Math.min(1, dt / 2500);
-    if (this.motion < 0.004) this.motion = awake;
+    if (awake === 0 && this.motion < 0.004) this.motion = 0; // settled: rest exactly
     if (this.spin !== 0 && this.motion > 0) {
       this.phase += this.spin * dt * this.motion;
       this.rotY = this.yawCentre + this.yawSwing * Math.sin(this.phase);
