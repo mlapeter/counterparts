@@ -2055,6 +2055,15 @@ INTERFACE-GAPS §15.
   refuses an observer: if `prospective/` changes its beats, this copy has to follow.
   It reads memories, so `firedReport(…, { probes: false })` skips it with the probes and
   the row reads `waiting` (no caller in `src/` turns the probes off today).
+- **"A session ran" means one a person could be told something in** (review of #337).
+  The headless nightly run, `claude -p` and Agent SDK sessions write a briefing row and
+  turns too, but are never handed a plain reminder (`isInteractive`, `nightRun`), so
+  counting them read every day the night run came as a day a reminder went unsaid. The
+  briefing row (`adapter.wake.injected`) now carries `interactive`, the same test that
+  decides plain delivery; a row from before the field is asked of the session registry's
+  `entrypoint`, and a session nothing is known about reads as a person's. Desktop's
+  `wake` tool writes no briefing row, so a Desktop-only day is never counted (it can
+  hide a miss there, never invent one).
 - **What the owner's line says now (by reasoning, not run against his store).** Census
   `done`, plain `waiting` (nothing plain was due 10-03..10-08), so `wentQuiet` is empty
   and the line is green. "13 have never fired" drops by however many of those thirteen

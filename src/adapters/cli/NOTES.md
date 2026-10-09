@@ -1987,7 +1987,13 @@ into my voice is mine.
   `wire.ts#userSettingsPath`, and `install`'s "is Claude Code here" check
   (`commands.ts#claudeCodeHere`, which looked for a `.claude` inside the variable) all ask
   it. The MCP file is unchanged (`$CLAUDE_CONFIG_DIR/.claude.json` under the variable):
-  `~/.claude.json` is not a `~/.claude` path, so the docs' sentence does not move it, and
-  nothing read today says it lives anywhere else — but that was not confirmed against the
-  host either. Not changed: `uninstall`'s guard against parking the host's own directory
-  names `~/.claude` only.
+  `~/.claude.json` is not a `~/.claude` path, so the docs' sentence does not move it.
+  Confirmed against the 2.1.295 binary in review: the global config file is
+  `join(process.env.CLAUDE_CONFIG_DIR || homedir(), ".claude.json")`, unless a legacy
+  `.config.json` exists inside the configuration directory, which then wins (not handled
+  here, before or after this change); user settings are `join(<configuration directory>,
+  "settings.json")`, the directory being `CLAUDE_CONFIG_DIR` or `~/.claude`.
+- **`uninstall`'s guard against parking the host's own directory** named `~/.claude`
+  only; in review it learned `hostSettingsDir` too, so with
+  `CLAUDE_CONFIG_DIR=~/.claude-work` an `--config` inside that directory is refused the
+  same way (`configDirRefusal`'s optional `env`, passed through `planUninstall`).
