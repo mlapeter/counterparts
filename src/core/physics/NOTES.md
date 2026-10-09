@@ -518,8 +518,15 @@ arithmetic reason — and so is the entity-card fade's verdict (`schemas/` filte
 list; a card above the floor is held by `above-floor`). Measured through the hooks
 (`test/recurring-reinforce.test.ts`): a protected memory and the self page over seven
 nights count no `protected`, and the fired view's prune row is not BLOCKED.
-`in-live-revision-chain` is still named wherever it holds, floor or not; it is the one
-named gate left that can count on a memory the arithmetic was keeping anyway.
+
+`in-live-revision-chain` followed in the review of #343, on the same terms. A superseded
+row is archived by `supersede`, so the prune never reaches it; what the gate holds on a
+live row is challenge pressure standing against it (`pressureAt > 0`) or a version that
+still points at a successor within H lived days — and either one was counted on every
+night it lasted, however strong the row. Now all three named rules count only where they
+are what kept the memory. Measured through the hooks (`test/recurring-reinforce.test.ts`):
+a row under pressure, still in its live chain each night, counts no
+`in-live-revision-chain` over seven nights, and the fired view's prune row is not BLOCKED.
 
 The memories view's `letGoDay` passes the row's recurrence (`store#recurrenceOfRow`) as
 `ctx.recurring`, so the dashboard asks physics the exact question the prune asks: a

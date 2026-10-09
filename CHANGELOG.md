@@ -43,9 +43,10 @@
   card says "It comes round every May 14, so I'll keep it while it does."
 - **Doctor's prune line no longer reads BLOCKED over protected memories it was keeping
   anyway.** The nightly cleanup counted every protected memory (the self page is one) as
-  a refusal every night, even when it was nowhere near being let go. It now counts
-  `protected` only where that is what kept the memory, as it already did for `recurring`.
-  Nothing is cleaned up differently.
+  a refusal every night, even when it was nowhere near being let go, and did the same for
+  a memory in the middle of being corrected. It now counts `protected` and
+  `in-live-revision-chain` only where that is what kept the memory, as it already did for
+  `recurring`. Nothing is cleaned up differently.
 - **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
   do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
   export or un-merge a memory, or something fails. One, the check after the v8 upgrade,

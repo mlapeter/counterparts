@@ -337,7 +337,10 @@ It is an exemption from the floor, so the verdict names it only where the first 
 conditions hold (review of #341); a repeat above the floor is refused `above-floor` alone.
 `protected` is named on the same terms (2026-10-09): it is the owner's exemption from the
 floor, so a protected memory the arithmetic is still keeping is refused by the arithmetic
-alone. Neither changes an outcome — where the floor holds, the verdict is already a refusal.
+alone. So is `in-live-revision-chain` (review of #343): the chain holds back a row the floor
+would otherwise have let go, and a row it holds above the floor is refused by the arithmetic
+alone. None of the three changes an outcome — where the floor holds, the verdict is already
+a refusal.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
 §2.20) — and is the only physics-driven removal. Everything else merely fades: a

@@ -28,6 +28,7 @@ import { join } from "node:path";
 import type { PlainReminder } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS, pruneVerdict, strength } from "../src/core/physics/index.js";
 import { CUE_MODE_META, RECURRING_META } from "../src/core/prospective/index.js";
+import { inLiveRevisionChain } from "../src/core/sleep/index.js";
 import type { CycleReport } from "../src/core/sleep/index.js";
 import { recurrenceOfRow } from "../src/core/store/index.js";
 import type { Store } from "../src/core/store/index.js";
@@ -416,6 +417,42 @@ describe("the prune's named refusals are counted only where they held a memory b
     // Kept all the same: the outcome never depended on the name.
     expect(s.row(kept)?.archived).toBe(0);
     expect(s.row(page)?.archived).toBe(0);
+    const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
+    expect(prune?.refusedInWindow).toBe(0);
+    expect(prune?.state).not.toBe("blocked");
+  });
+
+  test("a memory under challenge pressure on a young store: `in-live-revision-chain` is not counted, and the prune row is not BLOCKED", async () => {
+    // The same rule for the chain (review of #343): a row with challenge
+    // pressure standing against it is in a live revision chain on every night
+    // the pressure lasts, and was counted as a refusal on each of them while
+    // the arithmetic alone was keeping it.
+    const a = hooks();
+    const s = a.counterpart.store;
+    await evening(a, "2026-10-09");
+    const challenged = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "the deploy runs on Fridays",
+      body: "The deploy runs on Fridays, though a correction is arguing otherwise.",
+      learnedOn: "2026-10-09",
+      salience: DEFAULTED,
+      physics: { pressure: 0.5, lastChallengedDay: s.livedDay() },
+    });
+    let date = "2026-10-09";
+    for (let i = 0; i < 7; i++) {
+      date = addDays(date, 1);
+      morning(a, date);
+      const cycle = await evening(a, date);
+      // Not vacuous: the prune asked, and the chain was live that night.
+      const row = s.row(challenged);
+      expect(row).toBeDefined();
+      expect(inLiveRevisionChain(s, challenged, row!, rowToPhysics(row!), cycle.day)).toBe(true);
+      expect(blocked(cycle, "in-live-revision-chain")).toBe(0);
+      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+    }
+    // Kept all the same: the outcome never depended on the name.
+    expect(s.row(challenged)?.archived).toBe(0);
     const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
     expect(prune?.refusedInWindow).toBe(0);
     expect(prune?.state).not.toBe("blocked");

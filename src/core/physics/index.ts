@@ -1575,8 +1575,9 @@ export interface PruneRecord {
 export interface PruneVerdict {
   prune: boolean;
   reason: PruneReason;
-  /** Every failing gate, not just the first — all six are named; `protected`
-   *  and `recurring` only where the floor alone would have let the memory go. */
+  /** Every failing gate, not just the first — all six are named; the three
+   *  named rules (`protected`, `in-live-revision-chain`, `recurring`) only
+   *  where the floor alone would have let the memory go. */
   blockedBy: PruneReason[];
   strength: number;
   band: Band;
@@ -1597,7 +1598,9 @@ export interface PruneVerdict {
  * 365 lived days at an ordinary salience. So a live repeat is refused here by
  * name, as `protected` is — and, like `protected`, only where the floor would
  * otherwise have let it go, since both are exemptions from the floor and not
- * standing rules (review of #341; `protected` on the same terms, 2026-10-09).
+ * standing rules (review of #341; `protected` on the same terms, 2026-10-09,
+ * and `in-live-revision-chain` too, review of #343). No outcome turns on it:
+ * where the floor holds, the verdict is already a refusal.
  * Only the prune: it still fades, its band and strength read as
  * before. Prospective does not refuse a live repeat `faded` (review of #341,
  * `prospective/derive.ts`), so each occurrence is still delivered.
@@ -1626,7 +1629,11 @@ export function pruneVerdict(
   // floor. Outcomes are unchanged: where the floor holds, `blockedBy` is
   // already non-empty.
   if (m.protected && floorLetsGo) blockedBy.push("protected");
-  if (ctx.inLiveRevisionChain) blockedBy.push("in-live-revision-chain");
+  // A live revision chain holds back a row the floor would otherwise have let
+  // go — and is named on the same terms (review of #343): a row under
+  // challenge pressure, or one whose version still names a successor within H
+  // lived days, was counted on every night it stayed so, however strong it was.
+  if (ctx.inLiveRevisionChain && floorLetsGo) blockedBy.push("in-live-revision-chain");
   // An exemption FROM THE FLOOR, so named only where the floor would have let
   // the memory go (review of #341): a repeat well above it is held by
   // `above-floor` and nothing else, and naming `recurring` on every live repeat

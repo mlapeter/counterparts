@@ -923,4 +923,7 @@ otherwise have let it go (review of #341), so a repeat above the floor counts un
 why the gate exists is physics NOTES 2026-10-09 and prospective NOTES §16.
 `blocked:protected` is counted on the same terms now (physics NOTES, the follow-up of the
 same day): only on a night the floor would otherwise have let the protected row go. Before,
-the self page alone put one on every cycle.
+the self page alone put one on every cycle. `blocked:in-live-revision-chain` too (review of
+#343): `inLiveRevisionChain` is still asked of every examined row, but physics names it only
+on a night the floor would otherwise have let the row go, so a strong row under challenge
+pressure no longer counts on every night the pressure stands.
