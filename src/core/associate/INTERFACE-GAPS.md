@@ -123,6 +123,10 @@ counts and ids sitting in `sessions/association/claims/`.
 ## 4. Nobody calls `retargetOnSupersede` — supersede does not know about edges
 
 **Closed 2026-09-24** — `counterpart.ts` injects `retargetOnSupersede` into both `supersede` callers (`Schemas.open`'s `retarget`, and `applyRevision` in `core/revision.ts`).
+The same callback reaches a dream merge (`Dreams`' `retarget`, 2026-09-26) and, since
+2026-10-09, a regrown chapter copy (`Self`'s `retarget`; the copies archived before then
+are carried once at open, NOTES §15). A bare `Store.supersede` or `Store.archive` still
+carries nothing.
 
 **Owner:** `store/` and whoever owns revision (scar §2.2: "supersede retargets edges
 too — v1's `gist.merge` set `merged_into` and nothing re-pointed the edges, so

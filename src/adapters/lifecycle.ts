@@ -1165,6 +1165,20 @@ export class Lifecycle implements HostLifecycle {
         /** Of the expanded, how many this session had seen as a QUIET POINTER
          *  (reached only through links, 2026-09-28) — whether pointers are used. */
         pointersExpanded: summary.pointersExpanded,
+        /** RECALL'S HIT RATE (2026-10-09, measurement only): what recall showed
+         *  this session since the last boundary that judged, by lane, and how
+         *  many of those the replies neither expanded nor quoted — with their
+         *  ids. Footnotes are the cued ones; a quiet pointer counts as a pointer.
+         *  On a `budget-exceeded` row a quote may have gone unchecked. */
+        shownLoud: summary.shown.loud,
+        shownFootnotes: summary.shown.footnotes,
+        shownPointers: summary.shown.pointers,
+        unusedLoud: summary.unused.loud,
+        unusedFootnotes: summary.unused.footnotes,
+        unusedPointers: summary.unused.pointers,
+        shownNotUsed: summary.shownNotUsed.slice(0, 64),
+        shownNotUsedTotal: summary.shownNotUsed.length,
+        judgedThrough: summary.judgedThrough,
         elapsedMs: this.nowFn() - started,
       });
     } catch (err) {
