@@ -1475,6 +1475,20 @@ describe("install, at a terminal", () => {
     expect(said).not.toContain("Restart Claude Code");
   });
 
+  test("a CLAUDE_CONFIG_DIR that exists IS Claude Code's directory: install connects there, with no `claude` on PATH (2026-10-09)", async () => {
+    // The host's own directory moved and nothing on PATH: the old check looked
+    // for a `.claude` INSIDE the variable, found none, and said Claude Code was
+    // not on this machine.
+    const moved = join(home, "claude-work");
+    mkdirSync(moved, { recursive: true });
+    const c = await install([], ["Ada"], spawnerThat(() => MISSING).spawner, { ...tableEnv(true), CLAUDE_CONFIG_DIR: moved });
+    const said = text(c.out);
+    expect(said).not.toContain("Claude Code is not on this machine");
+    expect(said).toContain("Connecting Claude Code…");
+    expect(existsSync(join(moved, "settings.json"))).toBe(true);
+    expect(existsSync(join(moved, ".claude"))).toBe(false);
+  });
+
   test("--name and --yes ask nothing at all — no key questions are left to ask", async () => {
     const c = await install(["--yes", "--name", "Ada"], [], spawnerThat(() => OK).spawner);
     expect(c.asked).toEqual([]);
@@ -1549,9 +1563,25 @@ describe("the small helpers", () => {
 
   test("userSettingsPath follows CLAUDE_CONFIG_DIR, exactly as doctor's reading does", () => {
     expect(userSettingsPath(home, {})).toBe(join(home, ".claude", "settings.json"));
-    expect(userSettingsPath(home, { CLAUDE_CONFIG_DIR: "/moved" })).toBe(
-      join("/moved", ".claude", "settings.json"),
-    );
+    // The variable IS the host's directory, not a home with a `.claude` in it
+    // (2026-10-09): the host reads `$CLAUDE_CONFIG_DIR/settings.json`.
+    expect(userSettingsPath(home, { CLAUDE_CONFIG_DIR: "/moved" })).toBe(join("/moved", "settings.json"));
+    expect(userSettingsPath(home, { CLAUDE_CONFIG_DIR: "  " })).toBe(join(home, ".claude", "settings.json"));
+  });
+
+  test("under a throwaway CLAUDE_CONFIG_DIR, wire writes the file the host reads, and doctor's reading finds it there", async () => {
+    const moved = join(home, "claude-work");
+    const env = { ...ENV, CLAUDE_CONFIG_DIR: moved };
+    const result = await wire(input({ io: consoleWith().io, env }));
+    expect(result.outcome).toBe("ok");
+    expect(result.hooks).toBe("wired");
+    expect(existsSync(join(moved, "settings.json"))).toBe(true);
+    // Not the file the host never opens, and not the home's own either.
+    expect(existsSync(join(moved, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(settingsFile())).toBe(false);
+    const read = readHost(home, join(home, "project"), env);
+    expect([...read.events].sort()).toEqual([...HOST_EVENTS].sort());
+    expect(read.settingsRead).toEqual([join(moved, "settings.json")]);
   });
 });
 

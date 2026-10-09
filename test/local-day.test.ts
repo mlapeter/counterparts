@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import { pageWriterFindings } from "../src/adapters/claude-code/index.js";
+import { addDays, startOfLocalDay } from "../src/core/time.js";
 import {
   Self,
   calendarDate,
@@ -98,6 +99,23 @@ describe("the helper", () => {
     const at = Date.parse("2026-09-19T12:00:00Z");
     expect(calendarDate(at, "Not/AZone")).toBe(calendarDate(at));
     expect(calendarDate(Number.NaN)).toBe("");
+  });
+
+  test("startOfLocalDay: a day begins at LOCAL midnight, west and east of UTC alike (2026-10-09)", () => {
+    expect(new Date(startOfLocalDay("2026-09-08", "UTC")).toISOString()).toBe("2026-09-08T00:00:00.000Z");
+    // Denver in September is UTC−6: its day starts six hours after UTC's.
+    expect(new Date(startOfLocalDay("2026-09-08", "America/Denver")).toISOString()).toBe("2026-09-08T06:00:00.000Z");
+    // Kiritimati is UTC+14: its day starts fourteen hours before UTC's.
+    expect(new Date(startOfLocalDay("2026-09-08", "Pacific/Kiritimati")).toISOString()).toBe("2026-09-07T10:00:00.000Z");
+    // A day a clock change starts at 01:00 (Santiago, first Sunday of
+    // September) still starts at its own first moment: the instant is that
+    // day, and the minute before it is the day before.
+    for (const [ymd, zone] of [["2026-09-06", "America/Santiago"], ["2026-11-01", "America/Denver"], ["2026-03-29", "Europe/London"]] as const) {
+      const start = startOfLocalDay(ymd, zone);
+      expect(calendarDate(start, zone)).toBe(ymd);
+      expect(calendarDate(start - 60_000, zone)).toBe(addDays(ymd, -1));
+    }
+    expect(() => startOfLocalDay("2026-9-8", "UTC")).toThrow();
   });
 
   test("a Counterpart built with no zone decides its days on the machine's clock, off the STORE's instant", () => {

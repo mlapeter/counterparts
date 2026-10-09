@@ -234,15 +234,21 @@ export const MEMORY_MECHANISMS: readonly MemoryMechanism[] = [
       const quiet = part(v, "quiet");
       const plain = part(v, "plain");
       const held = `${plural(dated, "dated memory", "dated memories")} held`;
+      // A PLAIN REMINDER DUE AND NOT SAID (2026-10-09): the `fired` report's
+      // occasion check, so "nothing due this week" is never said of a week
+      // when something was due and went unsaid.
+      const missed = rows("prospective-plain")?.occasionMissed ?? 0;
+      const unsaid = missed > 0 ? `; ${plural(missed, "plain reminder")} due on a day a session ran and not said` : "";
       if (v.fired) {
         const parts: string[] = [];
         if (plain > 0) parts.push(`${String(plain)} said plainly`);
         if (quiet > 0) parts.push(`${String(quiet)} as quiet footnotes`);
         return {
           light: LIGHT.working,
-          says: `${plural(quiet + plain, "reminder")} came back (${parts.join(", ")}); ${held}`,
+          says: `${plural(quiet + plain, "reminder")} came back (${parts.join(", ")}); ${held}${unsaid}`,
         };
       }
+      if (missed > 0) return { light: LIGHT.idle, says: `built, but not firing: ${held}${unsaid}` };
       return dated > 0
         ? { light: LIGHT.idle, says: `built, nothing due this week: ${held}` }
         : { light: LIGHT.idle, says: "built, nothing dated yet: a note with a date comes back around that day" };

@@ -2032,3 +2032,39 @@ every end. Even then, the usual flow (end one session, open the next) rescans an
 missed bump hides a debt until the next date. The numbers, the design and the cheaper
 alternative (the ledger's date formatting and its second read of the span files) are in
 INTERFACE-GAPS §15.
+
+## 2026-10-09 — the Fired line: one-time and occasion-driven rows; the Reflection week is local
+
+- **The false amber.** On the owner's store (2026-10-09) the Fired line was amber on "2
+  have gone quiet": `prospective.plain` (last 09-28, total 2) and
+  `physics.upgrade.census` (total 1). The first fires only when a plain reminder falls
+  due, and none did that week; the second runs once by design. Neither is a wiring
+  fault, and the fix text said one was likely. The registry learned two kinds
+  (`fired.ts#Cadence`): a one-time job that ran is `done`, and an occasion-driven row
+  whose occasion has not come is `waiting`. Neither can be `quiet`, so neither reaches
+  `wentQuiet`. The roll-call now counts both. The never-fired count never fed the
+  colour, only the words; the owner-action and failure rows have moved from it to
+  `waiting`. The classification is listed in `cli/NOTES.md` (same date).
+- **The one occasion the store can see stays a finding.** For a plain reminder,
+  `fired.ts#plainDueReading` asks whether one fell due this week on a day a session ran
+  (a briefing handed over or a turn decided, after the memory existed; today left out
+  because its sessions may still say it) and was not said. If so, the row keeps
+  `quiet`/`never`, is named in `FiredReport.missedOccasion`, and doctor grades amber on
+  that list as on `wentQuiet` and `wentBlocked`, with a fix that says the occasion came.
+  The beat rule is `Prospective#plainDue`'s restated as a read, because that method
+  refuses an observer: if `prospective/` changes its beats, this copy has to follow.
+- **What the owner's line says now (by reasoning, not run against his store).** Census
+  `done`, plain `waiting` (nothing plain was due 10-03..10-08), so `wentQuiet` is empty
+  and the line is green. "13 have never fired" drops by however many of those thirteen
+  are now occasion rows (export, removal record, unmerge, snapshot failure, worker
+  trouble, core demotion, declared replacement, dedup, and any of protection, revision,
+  contradictions, result cut, quiet reminder fire); they read as waiting instead.
+- **The Reflection line's week started at UTC midnight** (`Date.parse(today +
+  "T00:00:00Z") - 6 days`). It now starts at local midnight six days back in the
+  reading's zone (`time.ts#startOfLocalDay`, new). In Denver the old window counted a
+  return from the evening before the week; in Kiritimati it missed the week's first
+  fourteen hours. Both are tested through the config's `timeZone`, so they fail on the
+  old line on any machine. Two other `T00:00:00Z` parses in this file were left: the
+  page writer's `calendarDaysSince` subtracts two such instants, which is date arithmetic
+  and zone-free, and `futureNamesIn` compares snapshot folder names, which are UTC by
+  design (`snapshots.ts`).

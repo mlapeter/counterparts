@@ -686,8 +686,9 @@ describe("refusals are read from each payload shape that carries one", () => {
     expect(snap.lastFired).toBe(TODAY);
     expect(snap.evidence).toBe("snapshot.taken");
     // A copy that could not be made is NOT a copy: it is its own row, so a store
-    // with no backup at all cannot read as covered.
-    expect(pick(r, "snapshot-trouble").state).toBe("new");
+    // with no backup at all cannot read as covered. Its silence is a failure
+    // that has not happened — an occasion not come (2026-10-09).
+    expect(pick(r, "snapshot-trouble").state).toBe("waiting");
   });
 
   test("a snapshot failure names its reason in the refusal column", () => {
@@ -780,7 +781,11 @@ describe("the tables that stand in for a mechanism with no event", () => {
 
   test("an empty table is `never`, and says nothing more than that", () => {
     const s = store();
-    expect(pick(report(s), "removal").state).toBe("never");
+    expect(pick(report(s), "journal-chapter").state).toBe("never");
+    expect(pick(report(s), "journal-chapter").total).toBe(0);
+    // The removal record is empty too, and its silence is the owner never
+    // having erased anything: an occasion not come, not a fault (2026-10-09).
+    expect(pick(report(s), "removal").state).toBe("waiting");
     expect(pick(report(s), "removal").total).toBe(0);
     // `prospective-fired` LEFT this describe block on 2026-09-20: it reads two
     // durable rows now, not `last_fired_day`. Its empty-store state is `new`,
@@ -796,6 +801,178 @@ describe("the tables that stand in for a mechanism with no event", () => {
     expect(r.rows.some((x) => x.id === "protection")).toBe(false);
     // Everything with an event of its own is still read.
     expect(r.rows.some((x) => x.id === "capture")).toBe(true);
+  });
+});
+
+// ── one-time and occasion-driven mechanisms (2026-10-09) ─────────────────────
+
+/**
+ * NOT EVERY SILENCE IS ONE. On the owner's store doctor went amber on two rows
+ * that had "gone quiet": a plain reminder that had simply not fallen due, and
+ * the v8 census, which runs once. These pin the two honest kinds the registry
+ * learned — `done` and `waiting` — and the one occasion the store can SEE, a
+ * plain reminder due on a day a session ran, which must stay a finding.
+ */
+describe("one-time and occasion-driven mechanisms", () => {
+  /** A store on a clock this test moves, so "written before" and "a session
+   *  after" are real orderings rather than one shared instant. */
+  function clocked(start: number): { s: Store; set: (ms: number) => void } {
+    let clock = start;
+    const s = Store.open({ dir, now: () => clock, timeZone: "UTC" });
+    stores.push(s);
+    return { s, set: (ms) => (clock = ms) };
+  }
+
+  let plainN = 0;
+  /** A live memory with a reminder date, marked plain. */
+  function plainReminder(s: Store, eventDate: string, meta: Record<string, string> = {}): string {
+    plainN += 1;
+    return s.put({
+      type: "memory",
+      kind: "fact",
+      body: `Plain reminder number ${String(plainN)}, for ${eventDate}, with words enough to be a memory.`,
+      learnedOn: "2026-09-01",
+      eventDate,
+      meta: { remind: "plain", ...meta },
+    });
+  }
+
+  /** A session was there: a turn decided what came to mind, on that date. */
+  function aTurn(s: Store, date: string): void {
+    s.appendEvent({ name: "recall.decision", day: s.livedDay(), payload: { date, reason: "rendered" } });
+  }
+
+  /** The latch a told beat leaves (`Prospective#claimPlain`). */
+  function told(s: Store, id: string, window: string, beat: string, date: string): void {
+    s.appendEvent({
+      name: "prospective.plain",
+      day: s.livedDay(),
+      ref: id,
+      payload: { window, beat, date, mode: "plain" },
+      dedupKey: `prospective.plain:${id}:${window}:${beat}`,
+    });
+  }
+
+  test("the owner's store: a census that ran once is DONE and a plain reminder with nothing due is WAITING — neither went quiet", () => {
+    const { s, set } = clocked(at("2026-09-05"));
+    // Last week: the upgrade's census ran, and a plain reminder was said.
+    row(s, "physics.upgrade.census", "2026-09-06", { checked: 120, bandDown: 0 });
+    const id = plainReminder(s, "2026-09-07");
+    set(at("2026-09-07"));
+    told(s, id, "d:2026-09-07", "day", "2026-09-07");
+    // This week: sessions every day, and nothing plain falls due.
+    set(at(TODAY));
+    for (const date of ["2026-09-12", "2026-09-14", "2026-09-16"]) aTurn(s, date);
+    const r = report(s);
+    const census = pick(r, "upgrade-census");
+    expect(census.state).toBe("done");
+    expect(census.cadence).toBe("one-time");
+    expect(census.note).toContain("one-time job");
+    const plain = pick(r, "prospective-plain");
+    expect(plain.state).toBe("waiting");
+    expect(plain.cadence).toBe("occasion");
+    expect(plain.occasionMissed).toBe(0);
+    expect(plain.note).toContain("none fell due this week");
+    // The two lists doctor grades on say nothing about either.
+    expect(r.wentQuiet.join(" ")).not.toContain("plain");
+    expect(r.wentQuiet.join(" ")).not.toContain("v8 upgrade");
+    expect(r.missedOccasion).toEqual([]);
+    expect(r.counts.done).toBe(1);
+  });
+
+  test("a one-time job a store never needed is WAITING, not NEVER", () => {
+    expect(pick(report(store()), "upgrade-census").state).toBe("waiting");
+    expect(pick(report(store()), "upgrade-census").note).toContain("has not needed it");
+  });
+
+  test("owner actions and failures that have never happened wait for their occasion instead of reading NEVER", () => {
+    const r = report(store());
+    for (const id of ["export", "removal", "unmerge", "core-demote", "accommodation", "worker-trouble", "snapshot-trouble", "dedup"]) {
+      expect(`${id}: ${pick(r, id).state}`).toBe(`${id}: waiting`);
+    }
+    // A row with no cadence keeps the old answer: the classification is opt-in.
+    expect(pick(r, "journal-chapter").state).toBe("never");
+  });
+
+  test("a failure row that fired last week and not this week is good news, not a quiet mechanism", () => {
+    const s = store();
+    row(s, "snapshot.failed", "2026-09-08", { step: "copy", reason: "ENOSPC" });
+    const r = report(s);
+    expect(pick(r, "snapshot-trouble").state).toBe("waiting");
+    expect(r.wentQuiet).toEqual([]);
+  });
+
+  test("a plain reminder DUE on a day a session ran and NOT SAID is a finding, named in its own list", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    plainReminder(s, "2026-09-14");
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    const r = report(s);
+    const plain = pick(r, "prospective-plain");
+    // Not `new` and not `waiting`: the occasion came and was not answered.
+    expect(plain.state).toBe("never");
+    expect(plain.occasionMissed).toBe(1);
+    expect(plain.note).toContain("1 plain reminder was due on a day a session ran and not said");
+    expect(r.missedOccasion).toHaveLength(1);
+    expect(r.missedOccasion[0]).toContain("a reminder marked plain was said plainly on its day");
+  });
+
+  test("the same reminder SAID on its day is firing, and nothing is missed", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    const id = plainReminder(s, "2026-09-14");
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    told(s, id, "d:2026-09-14", "day", "2026-09-14");
+    const r = report(s);
+    expect(pick(r, "prospective-plain").state).toBe("firing");
+    expect(r.missedOccasion).toEqual([]);
+  });
+
+  test("a day nobody came, a reminder due TODAY, and one written after the day's last turn are not missed", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    plainReminder(s, "2026-09-13"); // no session on the 13th
+    plainReminder(s, TODAY); // today's sessions may still say it
+    set(at("2026-09-15", "T09:00:00Z"));
+    aTurn(s, "2026-09-15");
+    aTurn(s, TODAY);
+    set(at("2026-09-15", "T20:00:00Z"));
+    plainReminder(s, "2026-09-15"); // written after the 15th's only turn
+    const r = report(s);
+    expect(pick(r, "prospective-plain").state).toBe("waiting");
+    expect(r.missedOccasion).toEqual([]);
+  });
+
+  test("a beat told on the memory the reminder MOVED FROM counts as told (the lineage `plainTold` walks)", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    const before = plainReminder(s, "2026-09-14");
+    plainReminder(s, "2026-09-14", { reminderFrom: before });
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    told(s, before, "d:2026-09-14", "day", "2026-09-14");
+    expect(report(s).missedOccasion).toEqual([]);
+  });
+
+  test("a MONTH reminder seen on several days and never opened is one reminder missed, not one per day", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    plainReminder(s, "2026-09");
+    set(at(TODAY));
+    for (const date of ["2026-09-12", "2026-09-13", "2026-09-15"]) aTurn(s, date);
+    const plain = pick(report(s), "prospective-plain");
+    expect(plain.occasionMissed).toBe(1);
+  });
+
+  test("a quiet reminder due and unsurfaced is not a plain one missed", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "A quiet reminder, which only ever comes back as a footnote.",
+      learnedOn: "2026-09-01",
+      eventDate: "2026-09-14",
+    });
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    expect(report(s).missedOccasion).toEqual([]);
   });
 });
 

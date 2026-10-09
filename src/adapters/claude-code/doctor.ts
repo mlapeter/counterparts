@@ -32,7 +32,7 @@
  *      nobody needed).
  */
 import { spawnSync } from "node:child_process";
-import { addDays, isDay, localDate, resolveZone } from "../../core/time.js";
+import { addDays, isDay, localDate, resolveZone, startOfLocalDay } from "../../core/time.js";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1896,6 +1896,15 @@ function authorshipFindings(input: DoctorInput, store: Store, owedReading: OwedS
  * a standing fact about the build, and ambering on it every morning would train
  * its reader to ignore the line that matters.
  *
+ * NOT EVERY SILENCE IS ONE (2026-10-09). A one-time job that ran is `done` and
+ * an occasion-driven one whose occasion has not come is `waiting`
+ * (`fired.ts#Cadence`); neither can go quiet, so neither turns this line amber —
+ * the owner's store went amber on a plain reminder that had not fallen due and
+ * on the v8 census, which runs once. The `never` count never fed the colour,
+ * only the words, and the owner-action and failure rows have left it for
+ * `waiting`. The one occasion the store can SEE — a plain reminder due on a day
+ * a session ran — is graded instead: due and not said is amber.
+ *
  * THE SESSION-START READING DOES NOT TAKE IT. This is the only group here whose
  * SQL is not bounded by a lived day — the roll-call is a question about the
  * whole log, and the five table probes cost a query per memory on top — and a
@@ -1934,6 +1943,8 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     `${shown === report.from ? "this week" : "in that time"}${blocked}, ` +
     `${String(c.quiet)} ${c.quiet === 1 ? "has" : "have"} gone quiet, ` +
     `${String(c.never)} ${c.never === 1 ? "has" : "have"} never fired, ` +
+    `${String(c.waiting)} ${c.waiting === 1 ? "is" : "are"} waiting for an occasion (an owner's action, a failure, a reminder falling due), ` +
+    `${String(c.done)} one-time ${c.done === 1 ? "job is" : "jobs are"} done, ` +
     `${String(c.new)} ${c.new === 1 ? "is" : "are"} too new to grade, ` +
     `${String(c.blind)} ${c.blind === 1 ? "records" : "record"} nothing durable at all` +
     `${c.disabled + c.retired === 0 ? "" : ` (${String(c.disabled)} stood down, ${String(c.retired)} retired)`}` +
@@ -1947,6 +1958,8 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     quiet: c.quiet,
     never: c.never,
     new: c.new,
+    waiting: c.waiting,
+    done: c.done,
     blind: c.blind,
     disabled: c.disabled,
     retired: c.retired,
@@ -1954,6 +1967,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     truncated: report.truncated,
     wentQuiet: report.wentQuiet.join("; "),
     wentBlocked: report.wentBlocked.join("; "),
+    missedOccasion: report.missedOccasion.join("; "),
     young: report.young,
     livedDay: report.livedDay,
   };
@@ -1981,7 +1995,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
   // leaves `wentQuiet` — and without `wentBlocked` this finding would have gone
   // GREEN for it. A state that says MORE must never make a diagnostic read
   // safer than it did before that state existed.
-  if (report.wentQuiet.length === 0 && report.wentBlocked.length === 0) {
+  if (report.wentQuiet.length === 0 && report.wentBlocked.length === 0 && report.missedOccasion.length === 0) {
     return [
       finding(
         "fired",
@@ -1997,6 +2011,9 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     report.wentBlocked.length === 0
       ? ""
       : `Fired last week and STOPPED this week: ${report.wentBlocked.join("; ")}`,
+    report.missedOccasion.length === 0
+      ? ""
+      : `Its occasion came this week and it did not fire: ${report.missedOccasion.join("; ")}`,
     report.wentQuiet.length === 0
       ? ""
       : `Fired last week and not once this week: ${report.wentQuiet.join("; ")}`,
@@ -2009,7 +2026,9 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       `${roll}. ${changed.join(". ")}`,
       report.wentBlocked.length > 0
         ? `Run: counterparts mechanisms --all — ${STATE_MEANING.blocked}, and the reason on the row names what to fix.`
-        : `Run: counterparts mechanisms --all — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
+        : report.missedOccasion.length > 0
+          ? "Run: counterparts mechanisms --all — the row says what was due and not said; its occasion came, so this silence is the mechanism failing, not resting."
+          : `Run: counterparts mechanisms --all — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
       data,
     ),
   ];
@@ -2867,7 +2886,11 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   try {
     awake = awakeFeelingCounts(store);
     last = store.reflections({ limit: 5 }).find((r) => r.state === "reflected");
-    returns = store.returnCounts({ sinceAt: Date.parse(`${input.today}T00:00:00Z`) - 6 * 86_400_000 });
+    // THE PERSON'S WEEK, not the UTC one (2026-10-09): today and the six local
+    // days before it, from local midnight in the reading's zone. It began at
+    // UTC midnight, so in Denver a return from the evening before the week
+    // counted and in Kiritimati the week's first fourteen hours did not.
+    returns = store.returnCounts({ sinceAt: startOfLocalDay(addDays(input.today, -6), readingZone) });
     // Newest first with a named ceiling. The default read was the OLDEST 500
     // promotions, so the newest were the ones never counted; a read that comes
     // back full has not seen them all, and then the two counts are unknown

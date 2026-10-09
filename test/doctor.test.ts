@@ -1203,6 +1203,71 @@ describe("doctor — the reading", () => {
       expect(anyRed(findings)).toBe(false);
     });
 
+    /**
+     * THE OWNER'S FALSE AMBER (2026-10-09): "2 have gone quiet" were a plain
+     * reminder with nothing due this week and the v8 census, which runs once.
+     * Neither is a wiring fault, and the line now says what each one is.
+     */
+    test("a one-time job that ran and a plain reminder with nothing due keep the line GREEN", () => {
+      mintStore();
+      writeConfig();
+      let clock = Date.parse("2026-09-02T12:00:00Z");
+      const s = Store.open({ dir, now: () => clock });
+      stores.push(s);
+      livedAWeek(s);
+      // Last week's told beat — the latch row is the evidence; the memory it
+      // names is not needed for it (and a memory dated last week would make a
+      // different row, the dated-memories count, go quiet in its own right).
+      const id = "mem_lastweek0001";
+      clock = Date.parse("2026-09-03T12:00:00Z");
+      s.appendEvent({ name: "physics.upgrade.census", day: s.livedDay(), payload: { date: "2026-09-03", checked: 40 } });
+      s.appendEvent({
+        name: "prospective.plain",
+        day: s.livedDay(),
+        ref: id,
+        payload: { window: "d:2026-09-03", beat: "day", date: "2026-09-03", mode: "plain" },
+        dedupKey: `prospective.plain:${id}:d:2026-09-03:day`,
+      });
+      clock = Date.parse("2026-09-14T12:00:00Z");
+      for (const date of ["2026-09-10", "2026-09-12", "2026-09-14"]) {
+        s.appendEvent({ name: "recall.decision", day: s.livedDay(), payload: { date, reason: "rendered" } });
+      }
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.data["wentQuiet"]).toBe("");
+      expect(f.severity).toBe("green");
+      expect(f.data["missedOccasion"]).toBe("");
+      expect(f.data["done"]).toBe(1);
+      expect(Number(f.data["waiting"])).toBeGreaterThan(0);
+      expect(f.detail).toContain("waiting for an occasion");
+      expect(f.detail).toContain("1 one-time job is done");
+      expect(f.detail).toContain("Nothing that fired last week has fallen silent this week.");
+    });
+
+    test("a plain reminder due on a day a session ran and NOT SAID is amber, and the fix says so", () => {
+      mintStore();
+      writeConfig();
+      let clock = Date.parse("2026-09-09T12:00:00Z");
+      const s = Store.open({ dir, now: () => clock });
+      stores.push(s);
+      livedAWeek(s);
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: "Call the clinic back about the results — the owner asked to be told on the day.",
+        learnedOn: "2026-09-09",
+        eventDate: "2026-09-12",
+        meta: { remind: "plain" },
+      });
+      clock = Date.parse("2026-09-12T16:00:00Z");
+      s.appendEvent({ name: "recall.decision", day: s.livedDay(), payload: { date: "2026-09-12", reason: "rendered" } });
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("Its occasion came this week and it did not fire: a reminder marked plain was said plainly on its day");
+      expect(f.detail).toContain("1 plain reminder was due on a day a session ran and not said");
+      expect(f.fix).toContain("what was due and not said");
+      expect(f.fix).not.toContain("wiring fault");
+    });
+
     test("a mechanism that has simply never fired does not raise the amber", () => {
       mintStore();
       writeConfig();
@@ -1432,24 +1497,46 @@ describe("the Host line reads the host's own files", () => {
     expect(host.settingsRead).toEqual([join(project, ".claude", "settings.local.json")]);
   });
 
+  /**
+   * CLAUDE_CONFIG_DIR IS THE HOST'S DIRECTORY (2026-10-09). The host's docs:
+   * it overrides the configuration directory whose default is `~/.claude`, and
+   * every `~/.claude` path lives under it instead — so user settings are
+   * `$CLAUDE_CONFIG_DIR/settings.json`. This test used to pin
+   * `$CLAUDE_CONFIG_DIR/.claude/settings.json`, a file the host never opens.
+   */
   test("CLAUDE_CONFIG_DIR moves both files, and is honoured", () => {
     mintStore();
     const moved = join(root, "elsewhere");
     mkdirSync(join(moved, ".claude"), { recursive: true });
-    writeFileSync(
-      join(moved, ".claude", "settings.json"),
-      JSON.stringify({
-        hooks: { Stop: [{ hooks: [{ type: "command", command: "counterparts-hook stop" }] }] },
-      }),
-    );
+    const hook = (event: string): string =>
+      JSON.stringify({ hooks: { [event]: [{ hooks: [{ type: "command", command: "counterparts-hook x" }] }] } });
+    writeFileSync(join(moved, "settings.json"), hook("Stop"));
+    // A block one level down is NOT where the host looks, so it is not read.
+    writeFileSync(join(moved, ".claude", "settings.json"), hook("SessionStart"));
     writeFileSync(
       join(moved, ".claude.json"),
       JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: {} } }),
     );
     const host = readHost(root, root, { CLAUDE_CONFIG_DIR: moved });
     expect(host.events).toEqual(["Stop"]);
+    expect(host.settingsRead).toEqual([join(moved, "settings.json")]);
     expect(host.mcp).toBe(true);
     expect(host.mcpFile).toBe(join(moved, ".claude.json"));
+  });
+
+  test("with no CLAUDE_CONFIG_DIR, the user settings are still ~/.claude/settings.json", () => {
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "counterparts-hook stop" }] }] } }),
+    );
+    for (const env of [{}, { CLAUDE_CONFIG_DIR: "" }, { CLAUDE_CONFIG_DIR: "   " }]) {
+      const host = readHost(root, join(root, "project"), env);
+      expect(host.events).toEqual(["Stop"]);
+      expect(host.settingsRead).toEqual([join(root, ".claude", "settings.json")]);
+      expect(host.mcpFile).toBe(join(root, ".claude.json"));
+    }
   });
 
   test("a settings file that is not JSON is not read, and is not counted as absent either", () => {
@@ -2898,4 +2985,38 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
     expect(f.detail).toContain("its morning share carried to a later session 4 days ago and never told");
     expect(f.data["carriedDays"]).toBe(4);
   });
+
+  /**
+   * THE WEEK'S RETURNS ARE THE PERSON'S WEEK (2026-10-09). The window began at
+   * UTC midnight six days back, so in Denver an evening return from the day
+   * before the week counted, and in Kiritimati the week's first fourteen hours
+   * did not. Two reflection returns each, one either side of the LOCAL start;
+   * the zone is the config's, so this reads the same on any machine.
+   */
+  for (const [zone, outside, inside] of [
+    // Denver (UTC−6): the week opens 2026-09-08T06:00Z. 03:00Z is the 7th's evening there.
+    ["America/Denver", "2026-09-08T03:00:00Z", "2026-09-08T07:00:00Z"],
+    // Kiritimati (UTC+14): the week opens 2026-09-07T10:00Z. 12:00Z is already the 8th there.
+    ["Pacific/Kiritimati", "2026-09-07T08:00:00Z", "2026-09-07T12:00:00Z"],
+  ] as const) {
+    test(`Reflection: the week's returns start at local midnight in ${zone}, not UTC's`, () => {
+      let clock = Date.parse("2026-09-01T12:00:00Z");
+      const s = Store.open({ dir, now: () => clock, timeZone: zone });
+      stores.push(s);
+      const put = (body: string): string =>
+        s.put({ type: "memory", kind: "fact", body, physics: { birthDay: 0, lastUsedDay: 0 } });
+      const early = put("A memory a reflection cites on the evening before the week.");
+      const late = put("A memory a reflection cites inside the week.");
+      clock = Date.parse(outside);
+      expect(s.reflectReturn(early, 5).counted).toBe(true);
+      clock = Date.parse(inside);
+      expect(s.reflectReturn(late, 6).counted).toBe(true);
+      const f = by(
+        doctorFindings(input({ store: s, config: { dataDir: dir, embedder: { enabled: true }, timeZone: zone } })),
+        "reflection",
+      );
+      expect(f.data["returnsReflection"]).toBe(1);
+      expect(f.detail).toContain("reflection 1");
+    });
+  }
 });

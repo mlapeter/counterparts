@@ -1940,3 +1940,54 @@ the console prints `renderMeaning` under the `Store:` line. A mode that is neith
 refused before the store opens. `--voiced` is read again here: a question typed at the
 console is the owner's, so its "I" is his (`asker: "owner"`); one the dashboard turned
 into my voice is mine.
+
+## 2026-10-09 — `waiting` and `done` in `mechanisms --all`; the host's directory under `CLAUDE_CONFIG_DIR`
+
+- **Two new states in the `fired` report** (`adapters/fired.ts#Cadence`), printed by
+  `mechanisms --all` and the dashboard's what-fired panel without change to either
+  (both iterate `STATE_ORDER`): `waiting`, for a row that fires only on an occasion that
+  has not come, and `done`, for a one-time job that ran. They sort after `new`, with
+  the states that are not silence. Classified only where the row's own description
+  makes it obvious:
+  - **one-time:** `upgrade-census`.
+  - **occasion, the owner's action:** `export`, `removal`, `unmerge`, `core-demote`,
+    `protection` (blind anyway once a memory is protected), `accommodation`.
+  - **occasion, a failure:** `worker-trouble`, `snapshot-trouble`. A failure that fired
+    last week and not this week used to count as "went quiet", amber on good news.
+  - **occasion, something that happens to memories:** `prospective-plain` (checked:
+    `plain-due`), `prospective-fired`, `revision`, `contradictions`, `result-cut`,
+    `dedup`.
+  - **Left alone on purpose:** the rare-but-arithmetic rows (`promotion`, `prune`,
+    `fade`, `gist`) and the ones whose occasion is not plain from the label
+    (`sweep-wake`, `chunk-gate`: both fire only when the crash fallback reads a
+    transcript, and `sweep.gate`'s `SWEPT` count could become their check; also
+    `prospective-dated`, `embed`). Each is a one-line `cadence` away.
+- **`memory.merged` has never fired on the owner's store, and the wiring is sound.** The
+  night's dedup runs every cycle, but no similarity source is handed to it
+  (`counterpart.ts` calls `runCycle` without `candidates`), so it only merges
+  byte-identical bodies, and the door already refuses an identical deposit in the same
+  directory (`DUPLICATE_CONTENT`). Reproduced on the seeded demo store: 30 cycles ran the
+  phase (29 `ran-nothing-found`, 1 `ran`, merging the seed's planted copy). A second
+  deposit of the same words was refused from the same directory, landed from another
+  one, and was merged that night (`identical-content-hash`). The dream's merges of near
+  copies are `dream.changed` rows, read by `dream-changes` and by the short view's
+  Consolidation line; folding them into `dedup` would count one merge twice. So `dedup`
+  is an occasion row now, with the label "an exact copy of a memory is merged into the
+  one it copies, overnight". Handing the night a cosine source is a separate decision
+  (the "ambiguous near-duplicates are left alone" ruling in `sleep/dedup.ts`).
+- **The short view's Prospective line** reads `occasionMissed` from the `prospective-plain`
+  row, so a week with a plain reminder due and not said never reads "nothing due".
+- **`CLAUDE_CONFIG_DIR` is the host's directory, not a home.** The user settings file was
+  `hostConfigBase` + `.claude/settings.json`, which is `$CLAUDE_CONFIG_DIR/.claude/settings.json`
+  when the variable is set. The host's documentation (env-vars, settings, the
+  `.claude` directory page, read 2026-10-09) says the variable replaces `~/.claude`, so
+  its settings are `$CLAUDE_CONFIG_DIR/settings.json`. `connect` wrote the wrong file,
+  doctor read the same wrong file and went green, and the host ran nothing.
+  `install.ts#hostSettingsDir` is the one place that knows now: `readHost`,
+  `wire.ts#userSettingsPath`, and `install`'s "is Claude Code here" check
+  (`commands.ts#claudeCodeHere`, which looked for a `.claude` inside the variable) all ask
+  it. The MCP file is unchanged (`$CLAUDE_CONFIG_DIR/.claude.json` under the variable):
+  `~/.claude.json` is not a `~/.claude` path, so the docs' sentence does not move it, and
+  nothing read today says it lives anywhere else — but that was not confirmed against the
+  host either. Not changed: `uninstall`'s guard against parking the host's own directory
+  names `~/.claude` only.

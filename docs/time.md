@@ -24,8 +24,9 @@ the other memory physics. It is a counter, not a calendar, and nothing here chan
 
 1. **One module does every conversion: `src/core/time.ts`.** It turns a moment into a
    local date or a local clock string, parses and compares calendar dates and ranges, and
-   says what "today" is. Nothing else calls `toISOString().slice`, `getUTC*`, or builds a
-   date string by hand. A test checks this.
+   says what "today" is and where a local day begins (`startOfLocalDay`, for a window
+   over moments that means a person's days). Nothing else calls `toISOString().slice`,
+   `getUTC*`, or builds a date string by hand. A test checks this.
 2. **The zone follows the computer** by default, so a laptop that moves to New York
    shows New York time. An optional `timeZone` in the config (an IANA name like
    `America/Denver`) overrides it, e.g. on a server set to UTC. Install prints the zone

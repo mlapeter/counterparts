@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
+  do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
+  export or un-merge a memory, or something fails. One, the check after the v8 upgrade,
+  runs only once. `counterparts mechanisms --all` now lists the first kind as **waiting**
+  and a one-time job that ran as **done**, instead of "gone quiet" or "never fired", and
+  doctor counts them the same way. One silence is still a fault: a reminder you marked
+  plain that fell due on a day you used Claude Code and was not said. That turns the line
+  amber, and the short `counterparts mechanisms` view says so on its Prospective line.
+- **Doctor's Reflection line counts "returns this week" from your local midnight**, not
+  UTC's. West of UTC it counted returns from the evening before the week; far to the east
+  it missed the first hours of the week.
+- **With `CLAUDE_CONFIG_DIR` set, `connect`, `install` and doctor use the settings file
+  Claude Code actually reads**, `$CLAUDE_CONFIG_DIR/settings.json`. They used
+  `$CLAUDE_CONFIG_DIR/.claude/settings.json`, which Claude Code never opens, so the hooks
+  never ran while doctor, reading the same file, said they were connected. `install` also
+  now recognises Claude Code from that directory. Nothing changes if you don't set the
+  variable. If you do and ran `connect` before, run it again; the stray
+  `.claude/settings.json` inside that directory can be deleted.
 - **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
   about 09-25 Claude Code writes a session's transcript only after the first prompt, which
   is when the check read it, so nearly every session said its wake was "not found in the
