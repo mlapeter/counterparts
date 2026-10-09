@@ -74,7 +74,7 @@ import {
   preMigrationDir,
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
-import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
+import { CLI_SCRIPT, NODE_HOOKS, bundledModelDir } from "../runtime.js";
 import { acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -1227,7 +1227,8 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
-  const found = resolveStaticWeights();
+  const bundled = bundledModelDir();
+  const found = resolveStaticWeights(bundled === undefined ? {} : { packageDir: bundled });
   // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
   // naming an empty or wrong folder is found by name and holds nothing, and a
   // green here would last until the first worker row said NO_WEIGHTS.

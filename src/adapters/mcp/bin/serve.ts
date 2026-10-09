@@ -65,7 +65,7 @@ import { stoodDownServer } from "../stood-down.js";
 import { npmWiring } from "../../host-wiring.js";
 import { ensureFirstRun, mcpGate, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
-import { scriptArgs } from "../../runtime.js";
+import { isCompiled, scriptArgs } from "../../runtime.js";
 import {
   OBSERVER_ENV,
   OWNER_ENV,
@@ -503,11 +503,13 @@ async function main(): Promise<void> {
 /** True only when this file is the process entry point — so a test may import
  *  `launchOptions` without the server starting itself on stdin. */
 export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+  if (argv1 === undefined || isCompiled()) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Run the server until stdin closes — what this file does as a script, and
+ *  what the single binary's `mcp` mode calls. */
+export function start(): void {
   void main().then(
     // `process.exitCode` is 1 when the launch refused a named configuration it
     // could not honour; every other path ends 0.
@@ -528,3 +530,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();

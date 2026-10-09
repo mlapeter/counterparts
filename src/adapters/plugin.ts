@@ -46,7 +46,7 @@ import { fileURLToPath } from "node:url";
 import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
 import type { NpmWiring } from "./host-wiring.js";
-import { CLI_SCRIPT, scriptArgs } from "./runtime.js";
+import { CLI_SCRIPT, isCompiled, scriptArgs } from "./runtime.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
 export const PLUGIN_ROOT_ENV = "CLAUDE_PLUGIN_ROOT";
@@ -84,6 +84,15 @@ export function runningAsPlugin(
 ): boolean {
   const named = (env[PLUGIN_ROOT_ENV] ?? "").trim();
   if (named.length === 0) return false;
+  // THE SINGLE BINARY (spike): it has no package root on disk — `plugin-run.sh`
+  // downloads it into the plugin's own data directory — so "this very copy" is
+  // the binary sitting under CLAUDE_PLUGIN_DATA, which Claude Code sets only on
+  // the plugin's processes and their children.
+  if (isCompiled() && packageRoot === PACKAGE_ROOT) {
+    const data = (env[PLUGIN_DATA_ENV] ?? "").trim();
+    if (data.length === 0) return false;
+    return realOrResolved(process.execPath).startsWith(`${realOrResolved(data)}/`);
+  }
   return realOrResolved(named) === realOrResolved(packageRoot);
 }
 

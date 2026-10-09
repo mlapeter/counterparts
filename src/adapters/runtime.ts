@@ -18,9 +18,56 @@
  * every command written before Node support said.
  */
 import { existsSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type RuntimeKind = "bun" | "node";
+
+// ── the single binary (spike, 2026-10-09: docs/notes/single-binary-spike.md) ──
+//
+// `bun build --compile` (tools/single-binary/) packs every module into one
+// executable. Inside it, EVERY module's `import.meta.url` is the binary's own
+// virtual file (`file:///$bunfs/root/<name>`; `B:/~BUN/root/<name>` on
+// Windows), so a path computed from `import.meta.url` no longer says where a
+// module lives, and the files the build embedded sit under that virtual root
+// at their repository-relative paths (`--root <repo> --asset-naming
+// '[dir]/[name].[ext]'`).
+const SELF = fileURLToPath(import.meta.url);
+
+/** The virtual root of a compiled binary, or null when running from source. */
+export const COMPILED_ROOT: string | null = /[\\/]\$bunfs[\\/]|[\\/]~BUN[\\/]/.test(SELF) ? dirname(SELF) : null;
+
+/** Is this process the single compiled binary? */
+export function isCompiled(): boolean {
+  return COMPILED_ROOT !== null;
+}
+
+/** A file of this package by its path from the package root — on disk from
+ *  source, in the binary's embedded files when compiled. */
+export function packagePath(rel: string): string {
+  if (COMPILED_ROOT === null) return fileURLToPath(new URL(`../../${rel}`, import.meta.url));
+  // Bun names an embedded file at the top of the build root `./<name>` (its
+  // `[dir]` is "."), and the virtual filesystem matches names exactly
+  // (measured on 1.3.10; the build's `selfcheck` mode holds this).
+  return rel.includes("/") ? join(COMPILED_ROOT, rel) : `${COMPILED_ROOT}/./${rel}`;
+}
+
+/** The model table's directory inside the binary; undefined from source,
+ *  where `core/embed/static.ts` resolves the installed package itself. */
+export function bundledModelDir(): string | undefined {
+  return COMPILED_ROOT === null ? undefined : packagePath("node_modules/counterparts-model-potion");
+}
+
+/** The binary's first argument for each entry script (by file name, which
+ *  survives the virtual paths): what `scriptArgs` hands the binary to run it. */
+export const COMPILED_MODES: Readonly<Record<string, string>> = {
+  "hook.ts": "hook",
+  "serve.ts": "mcp",
+  "counterparts.ts": "cli",
+  "dashboard.ts": "dashboard",
+  "runner.ts": "runner",
+  "nightly.ts": "nightly",
+};
 
 /** The module Node loads before a script (`--import`). Absolute, from this file. */
 export const NODE_HOOKS = fileURLToPath(new URL("./node-hooks.mjs", import.meta.url));
@@ -52,6 +99,9 @@ export function runtimeOf(exe: string): RuntimeKind {
 /** The arguments that make `exe` run `script`: `run <script>` for Bun,
  *  `--import <node-hooks.mjs> <script>` for Node. */
 export function scriptArgs(script: string, exe: string = process.execPath): string[] {
+  // The compiled binary runs ITSELF in another mode: `<binary> runner`.
+  const mode = COMPILED_ROOT !== null && exe === process.execPath ? COMPILED_MODES[basename(script)] : undefined;
+  if (mode !== undefined) return [mode];
   return runtimeOf(exe) === "node" ? ["--import", NODE_HOOKS, script] : ["run", script];
 }
 

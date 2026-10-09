@@ -12,3 +12,7 @@ credentials.env
 
 # The session-to-session handoff note is written locally and stays out of the public repo (2026-10-02)
 docs/HANDOFF.md
+
+# The single binary (spike): the generated embed manifest and the build output
+tools/single-binary/assets.gen.ts
+dist/

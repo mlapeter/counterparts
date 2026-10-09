@@ -22,6 +22,7 @@ import type { ViewArgs, ViewName } from "../index.js";
 import { terminalWantsColour } from "../ansi.js";
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal, isStoreError } from "../../../core/store/index.js";
 import { upgradePending, upgradePendingSentence } from "../upgrade.js";
+import { isCompiled } from "../../runtime.js";
 import type { StoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 
@@ -468,11 +469,13 @@ export function run(argv: readonly string[]): string {
  *  `run` and `parseArgv` without the script printing itself (the same guard
  *  `adapters/claude-code/bin/` uses). */
 export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+  if (argv1 === undefined || isCompiled()) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Print a view, or `serve` the web page — what this file does as a script,
+ *  and what the single binary's `dashboard` mode calls. */
+export async function start(): Promise<void> {
   const argv = process.argv.slice(2);
   // Help first, and before `serve` too: `serve --help` would otherwise bind a
   // socket against the default store.
@@ -498,3 +501,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     process.exit(0);
   }
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) await start();

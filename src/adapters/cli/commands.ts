@@ -31,7 +31,6 @@ import { isDay, localDate, localTime, resolveZone, todayIn } from "../../core/ti
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -239,7 +238,7 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
 import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
-import { runtimeLabel } from "../runtime.js";
+import { bundledModelDir, packagePath, runtimeLabel } from "../runtime.js";
 import { DESKTOP_ALWAYS_ALLOW, DESKTOP_HOST, upgradeWords } from "../hosts.js";
 import { hostsSeen, installedVersion } from "../sessions.js";
 import type {
@@ -544,7 +543,7 @@ let readVersion: string | null = null;
 export function packageVersion(): string {
   if (readVersion !== null) return readVersion;
   try {
-    const raw = readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf8");
+    const raw = readFileSync(packagePath("package.json"), "utf8");
     const said = (JSON.parse(raw) as Record<string, unknown>)["version"];
     readVersion = typeof said === "string" && said.length > 0 ? said : VERSION_UNKNOWN;
   } catch {
@@ -3848,7 +3847,8 @@ async function installConversation(
   // Looked for the way the hooks will look (`resolveStaticWeights`: the
   // environment variable, then the installed package), and then for the table
   // FILE in what that found — a variable naming an empty folder is not a table.
-  const table = resolveStaticWeights({ env });
+  const bundled = bundledModelDir();
+  const table = resolveStaticWeights({ env, ...(bundled === undefined ? {} : { packageDir: bundled }) });
   const tableOn = config.embedder?.enabled === true;
   const tableMissing = tableOn && (table === null || !existsSync(join(table.dir, MODEL_FILE)));
   if (tableOn && !tableMissing) {

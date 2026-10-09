@@ -57,7 +57,7 @@ import {
 } from "../standdown.js";
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
-import { scriptArgs } from "../../runtime.js";
+import { isCompiled, scriptArgs } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { ensureFirstRun, hookGate, runningAsPlugin } from "../../plugin.js";
 
@@ -1225,11 +1225,13 @@ export function hostDelivery(
 /** True only when this file is the process entry point — so a test may import
  *  `toHookInput` and `hostConfig` without the script running itself. */
 export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+  if (argv1 === undefined || isCompiled()) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Run the hook and exit — what this file does as a script, and what the
+ *  single binary's `hook` mode calls. */
+export function start(): void {
   void main().then(
     () => process.exit(process.exitCode === 2 ? 2 : 0),
     (err: unknown) => {
@@ -1249,3 +1251,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();

@@ -74,7 +74,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { wireChars } from "../core/fit/index.js";
 
@@ -95,6 +94,7 @@ import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../core/store/index.js";
 import type { Store } from "../core/store/index.js";
 
 import { DEFAULT_HOST, isHostName, isPseudoScope, wordingFor } from "./hosts.js";
+import { packagePath } from "./runtime.js";
 
 /** The one directory name. Classified in `store/paths.ts` LAYOUT. */
 export const SESSIONS_DIR = "sessions";
@@ -963,7 +963,7 @@ export function installedVersion(): string | null {
  */
 export function manifestVersionOnDisk(): string | null {
   try {
-    const raw = readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8");
+    const raw = readFileSync(packagePath("package.json"), "utf8");
     const said = (JSON.parse(raw) as Record<string, unknown>)["version"];
     return typeof said === "string" && said.length > 0 ? said : null;
   } catch {
