@@ -169,6 +169,8 @@ const run = {
   brainTimer: null as { cancel: () => void } | null,
   /** Which timer is the brain's now: a tick or a blit answer of an older one changes nothing. */
   brainGen: 0,
+  /** When this session began: an event naming no session, from after it, is taken as this session's. */
+  startedAt: 0,
   /** The command that opens a URL here, once found. */
   opener: null as readonly string[] | null,
   /** Fresh drawings asked for after refused blits since the last blit that was taken. */
@@ -445,7 +447,7 @@ async function poll($: EngineInterface): Promise<boolean> {
     if ((await read($, dashA)) !== 'up') await update($, dashA, () => 'up')
     const events = (view.events ?? []).filter(e => e.seq > run.lastSeq)
     if (typeof view.lastSeq === 'number' && view.lastSeq > run.lastSeq) run.lastSeq = view.lastSeq
-    const rows = events.map(e => classify(e, run.session)).filter((r): r is SidebarRow => r !== null)
+    const rows = events.map(e => classify(e, run.session, run.startedAt)).filter((r): r is SidebarRow => r !== null)
     await addRows($, rows, true)
     const pulse = await read($, pulseA)
     const newDay = events.some(e => typeof e.day === 'number' && pulse !== null && e.day > pulse.day)
@@ -508,7 +510,7 @@ async function coldFeed($: EngineInterface): Promise<void> {
   for (const a of answers) {
     const events = (a as { events?: DashEvent[] } | null)?.events ?? []
     for (const e of events) {
-      const r = classify(e, run.session)
+      const r = classify(e, run.session, run.startedAt)
       if (r !== null) rows.push(r)
     }
   }
@@ -683,10 +685,21 @@ async function setView($: EngineInterface, view: 'full' | 'quiet' | 'hidden'): P
   await refreshStatus($)
 }
 
-/** Opened without being asked: only where it docks as a sidebar, and not when the person left it hidden. */
+/**
+ * Opened without being asked: only where it docks as a sidebar, and not when
+ * the person left it hidden. Measured live: the band draws BEFORE
+ * `session.start` has read the stored view, so the view is read from the
+ * store here; reading this session's copy then got its default (`full`),
+ * opened full, and wrote `full` back over the person's choice.
+ */
 async function openUnasked($: EngineInterface): Promise<void> {
-  const view = await read($, viewA)
-  if (view === 'hidden') return
+  const stored = await $.store.get('view')
+  const view = stored === 'quiet' || stored === 'hidden' ? stored : 'full'
+  if ((await read($, viewA)) !== view) await update($, viewA, () => view)
+  if (view === 'hidden') {
+    await refreshStatus($)
+    return
+  }
   const opened = await openPane($, view)
   if (!opened.isPlaced && run.interactive) {
     run.hint = true
@@ -826,12 +839,17 @@ async function opener($: EngineInterface): Promise<readonly string[]> {
   } catch {
     os = 'Windows'
   }
-  run.opener = os === 'Darwin' ? ['open'] : os === 'Windows' ? ['cmd', '/c', 'start', '""'] : ['xdg-open']
+  // Never `cmd /c start`: cmd would read & | ^ % in a URL as its own.
+  run.opener = os === 'Darwin' ? ['open'] : os === 'Windows' ? ['rundll32', 'url.dll,FileProtocolHandler'] : ['xdg-open']
   return run.opener
 }
 
+/** The only links the sidebar opens: the dashboard's, in a strict character set. */
+const SAFE_URL = /^http:\/\/localhost:4747\/[A-Za-z0-9#?=/_.~-]*$/
+
 /** A plain click on a link opens it: an OSC 8 link opens only on ⌘-click in iTerm2. */
 async function openUrl($: EngineInterface, url: string): Promise<void> {
+  if (!SAFE_URL.test(url)) return
   try {
     const argv = await opener($)
     const r = await $.process.run([...argv, url], { timeoutMs: 10000 })
@@ -847,6 +865,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     run.interactive = e.isInteractive
     run.session = await $.session.id()
+    if (run.startedAt === 0) run.startedAt = await $.clock.now()
     await $.command.register({
       name: 'counterparts',
       description: 'Counterparts sidebar: open it, slide it to the rail, or measure the brain',
@@ -953,6 +972,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear' || e.reason === 'resume') {
       run.session = ''
+      run.startedAt = await $.clock.now()
       await update($, countsA, () => ({ came: 0, kept: 0 }))
       await refreshStatus($)
     }
@@ -971,7 +991,7 @@ export const register: Register = on => {
   // a click on a list's `↗` line: open the dashboard in the browser
   on('ui.message', async ($, e) => {
     const data = e.data as { open?: unknown } | null
-    if (typeof data?.open === 'string' && data.open.startsWith(`${DASHBOARD}/`)) await openUrl($, data.open)
+    if (typeof data?.open === 'string' && SAFE_URL.test(data.open)) await openUrl($, data.open)
     return {}
   })
 

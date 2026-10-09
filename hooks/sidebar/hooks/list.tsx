@@ -14,6 +14,8 @@
  */
 import type { ClientModule, ClientSurface } from 'claude-code'
 
+import { ellipsizeCells as ellipsize, padCells } from './width'
+
 export type ListRow = {
   kind: 'row'
   id: string
@@ -48,10 +50,6 @@ type State = { open: string | null; ticks: number }
 
 /** Closes an open row after this many one-second ticks. */
 const CLOSE_TICKS = 30
-
-function ellipsize(s: string, w: number): string {
-  return s.length <= w ? s : `${s.slice(0, Math.max(0, w - 1))}…`
-}
 
 /** Where each item sits: its first row, its height, and an open row's link line. */
 export function layout(props: ListProps, open: string | null): { id: string; y: number; h: number; linkY: number | null; url: string | null }[] {
@@ -113,17 +111,17 @@ const List: ClientModule<ListProps, State> = (props, surface: ClientSurface<Stat
       : item.lines.length > 2
         ? ellipsize(`${item.lines[1] ?? ''} ${item.lines.slice(2).join(' ')}`, props.tw)
         : (item.lines[1] ?? '')
-    const word = ellipsize(item.word, props.lw - 3).padEnd(props.lw - 2)
+    const word = padCells(ellipsize(item.word, props.lw - 3), props.lw - 2)
     rows.push(
       <Box key={`r:${item.id}:0`} flexDirection="row">
         <Text color={item.dot}>● </Text>
         <Text color={isOpen ? '#ffffff' : item.wordColor} bold>{word}</Text>
-        <Text color={isOpen ? '#ffffff' : item.textColor}>{first}</Text>
+        <Text color={isOpen ? '#ffffff' : item.textColor}>{ellipsize(first, props.tw)}</Text>
       </Box>,
     )
     rows.push(
       <Box key={`r:${item.id}:1`} flexDirection="row">
-        <Text color={props.faintColor}>{`  ${item.time.padEnd(props.lw - 2)}`}</Text>
+        <Text color={props.faintColor}>{`  ${padCells(item.time, props.lw - 2)}`}</Text>
         <Text color={isOpen ? '#ffffff' : item.textColor}>{second}</Text>
       </Box>,
     )

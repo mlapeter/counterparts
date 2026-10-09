@@ -31,7 +31,7 @@ It opens by itself only where the terminal docks a pane beside the transcript
 hides it (as its `✕` does), `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (51 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (56 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -125,9 +125,13 @@ Found on the way (each **verified** unless marked):
   the npm wiring is live, it used to show the plugin copy's doctor: a different
   version, or a development folder. Now `plugin-run.sh cli` marks the console
   as the plugin's, and `doctor` first says the plugin is standing down. It then
-  runs the npm install's own `counterparts doctor` from PATH, or says to run it
-  in a terminal when it isn't on PATH. Tests in `test/plugin.test.ts` run this
-  through the launcher with a stand-in `counterparts`.
+  runs the wired install's own doctor: the runtime and the install of the live
+  hook (else the live server) in settings, with `cli/bin/counterparts.ts` beside
+  that entry, and its `--config`. PATH's `counterparts` is used only when the
+  wiring can't be read that way, since PATH may find a different install.
+  Failing both, it says to run `counterparts doctor` in a terminal.
+  `test/plugin.test.ts` runs this through the launcher with a stand-in
+  install.
 
 ## The frame rate and the load, measured
 
@@ -201,15 +205,33 @@ Mike's first real run is the real measurement.
   route yet). `← activity` sits on the results' header, and `✕` in the field.
 - **Links open on a plain click.** A `Link` is OSC 8, which iTerm2 opens only on
   ⌘-click. The list's `↗` line posts the URL to this module, which runs `open`
-  (macOS), `xdg-open` (Linux) or `start` (Windows), found once with `uname`.
-  Verified live: `$.process.run` asks no permission.
+  (macOS) or `xdg-open` (Linux), found once with `uname`. On Windows (no
+  `uname`) it runs `rundll32 url.dll,FileProtocolHandler`, never `cmd /c start`,
+  which would read `& | ^ %` in a URL as its own. Only the dashboard's URLs open,
+  and only in a strict character set (`[A-Za-z0-9#?=/_.~-]`), so the v0.2
+  `?id=` links stay safe. Verified live: `$.process.run` asks no permission.
+- **Widths are terminal cells** (`hooks/width.ts`). Wrapping, cutting and
+  padding count a CJK character or an emoji as two cells and a combining mark
+  as none. Before, a title with wide characters wrapped on screen and shifted
+  every clickable row under it.
+- **The search field keeps its text across a redraw** (live in tmux). It held
+  "publish" through a Pane redraw from a mechanism press, and again through
+  the 30 s auto-close.
 - **ACTIVITY speaks for this session.** This session's events are in the
   sidebar's words ("kept · <title>", "3 came to mind" with the titles under
   it). The night's (dreamed, faded, merged, settled by a dream) keep the
   narrator's. Other sessions' fold into one dim line ("+29 from other
-  sessions"). Whose an event is comes from its `session` detail (or `actorId`
-  for a settle a session made). An event with neither, like a link flush at a
-  session's end, counts as another session's.
+  sessions"). Whose an event is comes from:
+  - its `session` detail;
+  - `actorId`, for a settle a session made;
+  - for a link flush, its `sessions` list.
+
+  A look-up (`mcp.recall`, the sidebar's own searches included) and a
+  reminder (`prospective.plain` / `.fire`) carry no session yet. One of those
+  from after this session began counts as this session's; one from before, as
+  another's. With two sessions running at once, the other's look-ups can show
+  here. **Core follow-up:** add `session` to the `mcp.recall`, `prospective.*`
+  and `associate.flush` payloads, and the sidebar can stop guessing.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
@@ -246,6 +268,12 @@ Mike's first real run is the real measurement.
     name isn't said twice.
   - The view is kept for the session and in `$.store`, so the next session
     opens quiet, full, or not at all.
+  - **The band draws before `session.start`** has read the stored view
+    (measured live: band 14.636 s, `session.start` settles 14.784 s). The
+    unasked open used to read this session's default (`full`), open full, and
+    write `full` over the stored choice. It now reads the store itself. Two
+    tests draw the band before `session.start`, and they fail with the old
+    read. Checked live: quiet, and hidden, each survived a restart.
 - **No slide animations.** The mechanism line and an opened row appear and
   close at once (still on a second press or after 30 s).
 - The activity word column is 13 wide, because a recall row's word carries its

@@ -41,6 +41,7 @@ import {
   firstRunLockPath,
   hookGate,
   mcpGate,
+  npmDoctorCommand,
   pluginOrigin,
   runningAsPlugin,
 } from "../src/adapters/plugin.js";
@@ -487,28 +488,64 @@ describe("ensureFirstRun", () => {
 // ── the launcher, end to end (no Claude Code; the plugin's processes as it runs them) ──
 
 describe("plugin-run.sh", () => {
-  test("/counterparts:doctor beside a live npm install says the plugin stands down, then runs the npm install's own doctor", () => {
-    writeSettings({ SessionStart: [liveHookCommand()] });
-    const npmBin = join(work, "npm-bin");
-    mkdirSync(npmBin, { recursive: true });
-    const fake = join(npmBin, "counterparts");
-    writeFileSync(fake, '#!/bin/sh\necho "npm doctor ran: $* (plugin root: ${CLAUDE_PLUGIN_ROOT:-none})"\n');
-    chmodSync(fake, 0o755);
-    const env = pluginEnv({ PATH: `${npmBin}:${emptyBin}` });
-    delete env["CLAUDE_PLUGIN_ROOT"]; // a Bash call from the command carries none; the launcher sets it
-    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env, timeout: 60_000 });
+  /** An npm install's layout in the work dir: its hook script and, unless told not to, its console printing what it was asked. */
+  function fakeInstall(withCli = true): string {
+    const root = join(work, "npm-install");
+    mkdirSync(join(root, "src", "adapters", "claude-code", "bin"), { recursive: true });
+    writeFileSync(join(root, "src", "adapters", "claude-code", "bin", "hook.ts"), "// a stand-in hook\n");
+    if (withCli) {
+      mkdirSync(join(root, "src", "adapters", "cli", "bin"), { recursive: true });
+      writeFileSync(
+        join(root, "src", "adapters", "cli", "bin", "counterparts.ts"),
+        'console.log(`wired doctor ran: ${process.argv.slice(2).join(" ")} (plugin root: ${process.env.CLAUDE_PLUGIN_ROOT ?? "none"})`);\n',
+      );
+    }
+    writeSettings({ SessionStart: [`"${process.execPath}" run "${join(root, "src", "adapters", "claude-code", "bin", "hook.ts")}" --config "${join(work, "claude-code.json")}"`] });
+    return root;
+  }
+
+  function pathCounterparts(): string {
+    const bin = join(work, "path-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "counterparts"), '#!/bin/sh\necho "PATH doctor ran: $*"\n');
+    chmodSync(join(bin, "counterparts"), 0o755);
+    return bin;
+  }
+
+  function doctor(env: Record<string, string>): { status: number | null; stdout: string } {
+    const e = { ...env };
+    delete e["CLAUDE_PLUGIN_ROOT"]; // a Bash call from the command carries none; the launcher sets it
+    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env: e, timeout: 60_000 });
+    return { status: r.status, stdout: r.stdout ?? "" };
+  }
+
+  test("/counterparts:doctor beside a live npm install: says the plugin stands down, then runs THAT install's doctor with its runtime and config", () => {
+    fakeInstall();
+    const r = doctor(pluginEnv({ PATH: `${pathCounterparts()}:${emptyBin}` }));
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("is standing down: the npm install is the live one here (its hooks in ~/.claude/settings.json)");
     expect(r.stdout).toContain("This plugin (running from "); // this checkout is a folder, not an install
-    expect(r.stdout).toContain("npm doctor ran: doctor (plugin root: none)");
+    expect(r.stdout).toContain(`wired doctor ran: doctor --config ${join(work, "claude-code.json")} (plugin root: none)`);
+    expect(r.stdout).not.toContain("PATH doctor"); // PATH's `counterparts` might be another install
   });
 
-  test("/counterparts:doctor beside a live npm install with no `counterparts` on PATH says how to run it", () => {
-    writeSettings({ SessionStart: [liveHookCommand()] });
-    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env: pluginEnv(), timeout: 60_000 });
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("is standing down");
-    expect(r.stdout).toContain("Run `counterparts doctor` in a terminal.");
+  test("/counterparts:doctor: the wired install's console can't be found, so PATH's `counterparts`; neither, so how to run it", () => {
+    fakeInstall(false);
+    expect(doctor(pluginEnv({ PATH: `${pathCounterparts()}:${emptyBin}` })).stdout).toContain("PATH doctor ran: doctor");
+    const none = doctor(pluginEnv());
+    expect(none.status).toBe(0);
+    expect(none.stdout).toContain("is standing down");
+    expect(none.stdout).toContain("Run `counterparts doctor` in a terminal.");
+  });
+
+  test("npmDoctorCommand reads a node-wired entry too, and skips one it can't read", () => {
+    const root = fakeInstall();
+    const hook = join(root, "src", "adapters", "claude-code", "bin", "hook.ts");
+    const hooksMjs = join(root, "src", "adapters", "node-hooks.mjs");
+    expect(
+      npmDoctorCommand({ hooks: [{ file: "f", event: "Stop", command: `"/usr/bin/node" --import "${hooksMjs}" "${hook}"`, live: true }], mcp: [] }),
+    ).toEqual({ exe: "/usr/bin/node", args: ["--import", hooksMjs, join(root, "src", "adapters", "cli", "bin", "counterparts.ts"), "doctor"] });
+    expect(npmDoctorCommand({ hooks: [{ file: "f", event: "Stop", command: "~/bin/wrapper.sh", live: true }], mcp: [] })).toBeNull();
   });
 
   test("SessionStart on a machine with no install: first run, then the wake", () => {

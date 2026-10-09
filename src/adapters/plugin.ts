@@ -51,7 +51,7 @@ import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
 import { pluginInstall } from "./host-wiring.js";
 import type { NpmWiring } from "./host-wiring.js";
-import { CLI_SCRIPT, scriptArgs } from "./runtime.js";
+import { CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
 export const PLUGIN_ROOT_ENV = "CLAUDE_PLUGIN_ROOT";
@@ -218,8 +218,33 @@ export function pluginDoctorLine(wiring: NpmWiring, home: string, origin: Plugin
   const copy = origin.installed ? "This plugin" : `This plugin (running from ${tildeOf(origin.root, home)})`;
   return (
     `${copy} is standing down: the npm install is the live one here (${where}). ` +
-    "What follows is the npm install's own doctor (`counterparts doctor`), the one that knows your memory."
+    "What follows is the wired npm install's own doctor (`counterparts doctor`), the one that knows your memory."
   );
+}
+
+/**
+ * The npm install's own `counterparts doctor`, as the live wiring names it:
+ * the runtime and the install of the live hook (else the live server), with
+ * `cli/bin/counterparts.ts` beside that entry, and the `--config` the wiring
+ * passes. Null when no live entry can be read that way (then PATH's
+ * `counterparts` is the fallback). PATH alone could find another install than
+ * the one actually wired (a second global, a stale checkout).
+ */
+export function npmDoctorCommand(wiring: NpmWiring): { readonly exe: string; readonly args: readonly string[] } | null {
+  const entries = [...wiring.hooks.filter((h) => h.live), ...wiring.mcp.filter((m) => m.live)];
+  for (const entry of entries) {
+    const tokens = shellTokens(entry.command);
+    const call = parseScriptInvocation(tokens);
+    if (call === null) continue;
+    // `<root>/src/adapters/claude-code/bin/hook.ts` or `<root>/src/adapters/mcp/bin/serve.ts`.
+    const cli = join(dirname(call.script), "..", "..", "cli", "bin", "counterparts.ts");
+    if (!existsSync(cli)) continue;
+    const prefix = call.runtime === "node" ? tokens.slice(1, 3) : ["run"];
+    const at = call.rest.indexOf("--config");
+    const config = at >= 0 && call.rest[at + 1] !== undefined ? ["--config", call.rest[at + 1] as string] : [];
+    return { exe: call.exe, args: [...prefix, resolve(cli), "doctor", ...config] };
+  }
+  return null;
 }
 
 // ── first run ───────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@
 import type { SidebarHit, SidebarRow } from '../types';
 import { MEMORIES_URL, mechById, mechUrl } from './mechanisms';
 import type { MechId } from './mechanisms';
+import { cells, ellipsizeCells, headCells } from './width';
 
 /** One row of the ACTIVITY list (the contract's SidebarRow). */
 export type FeedRow = SidebarRow;
@@ -96,8 +97,14 @@ export function quotedTitles(text: string): string[] {
  * `session` is this session's id: its own events are said in the sidebar's
  * plain words, the night's keep the narrator's, other sessions' are marked
  * `other` (the list folds them into one line).
+ *
+ * WHOSE IT IS. An event's `session` (or, for a settle a session made, its
+ * `actorId`) names it. A link flush names its `sessions`. A look-up
+ * (`mcp.recall`) and a reminder (`prospective.*`) name none yet (a core
+ * follow-up): one of those from after this session began (`since`) is taken
+ * as this session's, one from before as another's.
  */
-export function classify(e: DashEvent, session = ''): FeedRow | null {
+export function classify(e: DashEvent, session = '', since = 0): FeedRow | null {
   const rule = RULES.find(r => r.name === e.name && (r.when === undefined || r.when(e)));
   if (rule === undefined) return null;
   const m = mechById(rule.mech);
@@ -105,7 +112,16 @@ export function classify(e: DashEvent, session = ''): FeedRow | null {
   // A settle or a revision a session made names it as its actor, not as `session`.
   const bySession = detail(e, 'actor') === 'session';
   const from = detail(e, 'session') ?? (bySession ? detail(e, 'actorId') : undefined);
-  const who: FeedRow['who'] = NIGHT.has(e.name) && !bySession ? 'night' : session !== '' && from === session ? 'here' : 'other';
+  const sessions = detail(e, 'sessions');
+  const mine = session !== '';
+  const who: FeedRow['who'] =
+    NIGHT.has(e.name) && !bySession
+      ? 'night'
+      : from !== undefined
+        ? mine && from === session ? 'here' : 'other'
+        : sessions !== undefined
+          ? mine && sessions.includes(session) ? 'here' : 'other'
+          : e.at >= since ? 'here' : 'other';
   const base: FeedRow = {
     id: `seq:${String(e.seq)}`,
     mech: rule.mech,
@@ -372,26 +388,29 @@ export function parseFacts(answer: string): { header: string; total: number; hit
 // ── words and times ────────────────────────────────────────────────────────
 
 /** Word-wrap `text` into lines of at most `w` columns (a long word is cut). */
+/** Word-wrap into lines of at most `w` terminal cells (a wide character counts two; a word longer than a line is cut). */
 export function wrap(text: string, w: number): string[] {
   const out: string[] = [];
   let line = '';
   for (const word0 of text.split(/\s+/).filter(Boolean)) {
     let word = word0;
-    while (word.length > w) {
+    while (cells(word) > w) {
       if (line) { out.push(line); line = ''; }
-      out.push(word.slice(0, w));
-      word = word.slice(w);
+      const head = headCells(word, w) || (Array.from(word)[0] ?? '');
+      out.push(head);
+      word = word.slice(head.length);
     }
     if (!word) continue;
-    if ((line ? line.length + 1 : 0) + word.length > w) { out.push(line); line = word; }
+    if ((line ? cells(line) + 1 : 0) + cells(word) > w) { out.push(line); line = word; }
     else line = line ? `${line} ${word}` : word;
   }
   if (line) out.push(line);
   return out;
 }
 
+/** `s` cut to `w` terminal cells, with an ellipsis. */
 export function ellipsize(s: string, w: number): string {
-  return s.length <= w ? s : `${s.slice(0, Math.max(0, w - 1))}…`;
+  return ellipsizeCells(s, w);
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

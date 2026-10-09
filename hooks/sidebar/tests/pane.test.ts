@@ -635,6 +635,41 @@ test('hidden: the pane closes, the status line keeps one quiet line, nothing tic
   expect(w.opens.at(-1)?.columns).toBe(44)
 })
 
+test('the band can draw before session.start has read the stored view: quiet stays quiet, hidden stays hidden, neither is overwritten', async ($, on) => {
+  const w = world(on, { store: { view: 'quiet' } })
+  await band($, w, true) // before session.start, as measured live
+  expect(w.opens).toEqual([{ id: PANE, title: 'Counterparts', columns: 22 }])
+  await start($, w)
+  expect(w.store['view']).toBe('quiet')
+  const ui = await mount($, w, 'terminal')
+  expect(await ui.find({ type: 'Button', key: 'unfold' })).toBeDefined() // drawn quiet
+  await ui.unmount()
+  expect(w.store['view']).toBe('quiet')
+})
+
+test('hidden, and the band draws before session.start: nothing opens and the choice stands', async ($, on) => {
+  const w = world(on, { store: { view: 'hidden' } })
+  await band($, w, true)
+  await start($, w)
+  expect(w.opens).toHaveLength(0)
+  expect(w.store['view']).toBe('hidden')
+  expect(w.lastStatus()).toBe('◉ /counterparts to open')
+})
+
+test('a link opens only if it is the dashboard’s, in a strict character set; on Windows through rundll32, never cmd', async ($, on) => {
+  const w = world(on, { windows: true })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await ui.post({ open: 'http://localhost:4747/#memories' }, { in: 'activity' })
+  expect(w.runs.at(-1)).toEqual(['rundll32', 'url.dll,FileProtocolHandler', 'http://localhost:4747/#memories'])
+  const n = w.runs.length
+  await ui.post({ open: 'http://localhost:4747/#x&calc.exe' }, { in: 'activity' })
+  await ui.post({ open: 'https://example.com/' }, { in: 'activity' })
+  await ui.post({ open: 'http://localhost:4747/%20' }, { in: 'activity' })
+  expect(w.runs.length).toBe(n)
+  await ui.unmount()
+})
+
 test('left hidden in an earlier session: a docking surface does not open it unasked', async ($, on) => {
   const w = world(on, { store: { view: 'hidden' } })
   await start($, w)

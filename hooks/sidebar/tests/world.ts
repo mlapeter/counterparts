@@ -119,6 +119,8 @@ export type WorldOptions = {
   /** The answer a `recall` gets. */
   factsAnswer?: string;
   store?: Record<string, unknown>;
+  /** `uname -s` fails, as it does on Windows. */
+  windows?: boolean;
   /** What the person's permission settings say about the memory tools (`allow` unless given). */
   permission?: 'allow' | 'ask' | 'deny';
 }
@@ -134,6 +136,8 @@ export type World = {
   invalidations: string[];
   /** Commands the module ran (`$.process.run`): the URL opener. */
   runs: string[][];
+  /** The plugin's store as it stands. */
+  store: Record<string, unknown>;
   scope: { mode: string; setBy: string | null; resumeTo: string };
   shown: boolean;
   /** Blits still to be answered late (600 ms on the mocked clock) with a refusal. */
@@ -145,7 +149,18 @@ export type World = {
 /** Registers the test's answers beneath the plugin; call before the first `$` call. */
 export function world(on: On, opts: WorldOptions = {}): World {
   const clock = mock.clock(on, { now: T0 })
-  mock.store(on, opts.store ?? {})
+  // The plugin's own store, kept here so a test can read what was written.
+  const store: Record<string, unknown> = { ...(opts.store ?? {}) }
+  on('store.get', (_$, e) => ({ value: store[e.key] }))
+  on('store.set', (_$, e) => {
+    store[e.key] = e.value
+    return { value: undefined }
+  })
+  on('store.delete', (_$, e) => {
+    delete store[e.key]
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: Object.keys(store) }))
   const w: World = {
     clock,
     opens: [],
@@ -156,6 +171,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     mcp: [],
     invalidations: [],
     runs: [],
+    store,
     scope: { mode: opts.scopeMode ?? 'on', setBy: opts.scopeSetBy === undefined ? HERE : opts.scopeSetBy, resumeTo: 'on' },
     shown: opts.shown ?? true,
     slowDeny: 0,
@@ -205,6 +221,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('tool.check', () => ({ decision: opts.permission ?? 'allow' }))
   on('process.run', (_$, e) => {
     w.runs.push([...e.argv])
+    if (opts.windows === true && e.argv[0] === 'uname') return { deny: 'not found: uname' }
     const out = e.argv[0] === 'uname' ? 'Darwin\n' : ''
     return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })

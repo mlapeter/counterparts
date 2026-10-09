@@ -7,6 +7,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
 import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, wrap } from '../hooks/feed'
+import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { MECHS, STAGES } from '../hooks/mechanisms'
 import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0 } from './world'
 
@@ -174,6 +175,28 @@ describe('the feed', () => {
     expect(clock(T0, T0)).toBe('1:35pm')
     expect(clock(new Date(2026, 9, 9, 0, 5).getTime(), T0)).toBe('12:05am')
     expect(clock(new Date(2026, 9, 8, 22, 0).getTime(), T0)).toBe('Oct 8')
+  })
+
+  test('events naming no session: from after this session began, this session’s; a link flush by its sessions list', () => {
+    const at = (minutesAgo: number) => T0 - minutesAgo * 60000
+    const lookup = (minutesAgo: number) => ({ seq: 9, at: at(minutesAgo), name: 'mcp.recall', text: 'A deliberate look-up.', detail: [] })
+    expect(classify(lookup(5), SESSION, at(30))?.who).toBe('here')
+    expect(classify(lookup(60), SESSION, at(30))?.who).toBe('other')
+    const reminder = { seq: 10, at: at(1), name: 'prospective.plain', text: 'A reminder was said.', detail: [] }
+    expect(classify(reminder, SESSION, at(30))?.who).toBe('here')
+    const flush = (sessions: string) => ({ seq: 11, at: at(1), name: 'associate.flush', text: '2 pairs got more connected.', detail: [{ key: 'rows', value: '4' }, { key: 'sessions', value: sessions }] })
+    expect(classify(flush(`["${SESSION}","sess-x"]`), SESSION, at(30))?.who).toBe('here')
+    expect(classify(flush('["sess-x"]'), SESSION, at(30))?.who).toBe('other')
+  })
+
+  test('widths are terminal cells: a wide character takes two, so wrapping and padding never overrun', () => {
+    expect(cells('abc')).toBe(3)
+    expect(cells('記憶')).toBe(4)
+    expect(cells('🧠 brain')).toBe(8)
+    expect(cells('e\u0301')).toBe(1) // e and a combining accent: one cell
+    for (const line of wrap('記憶の窓 memory window 記憶記憶記憶記憶記憶', 10)) expect(cells(line)).toBeLessThanOrEqual(10)
+    expect(cells(ellipsizeCells('記憶記憶記憶', 7))).toBeLessThanOrEqual(7)
+    expect(cells(padCells('記憶', 6))).toBe(6)
   })
 
   test('wrap keeps words whole and cuts only a word longer than the line', () => {
