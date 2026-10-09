@@ -229,3 +229,15 @@ window naming what breaks on each side. Two carry a **standing warning**:
 `WORD_CHAR` class the whole-word matcher uses. It is a prefilter's index and never a match:
 `schemas/aliases.ts#AliasIndex.scanner` tries only the terms whose first word is among
 them and confirms each with the one rule, so a second definition of a word cannot drift in.
+
+## 2026-10-09 — `PredictionCheck` removed
+
+`ChunkInput.predictionChecks`, `EncodeResult.predictionChecks`, the `prediction.check`
+`DurableEffect` and the `droppedPredictionChecks` count on `encode.fullyGated` are gone. No
+caller ever fed the field: `encodeChunk` is reached only from the fallback sweep
+(`bridge.ts#gateSweepChunk`), whose intake has no `checks` (replay INTERFACE-GAPS §1a), and
+nothing applied the effect. A channel nobody writes is not a guarantee, only code to keep in step. Scar §7b
+stands by construction now: a fully gated chunk returns no effects, and there is no second
+list to leak through. The surprise-in-time idea (a memory checking what a schema predicted)
+can revive it from git history (`git log -S predictionChecks`) once something produces the
+checks.

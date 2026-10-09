@@ -8,7 +8,7 @@
  *
  *   1. CHUNK-LEVEL GATED-MEANS-GATED: fallback-sweep chunks route through
  *      `encodeChunk`, whose all-rejected rule already returns zero durable
- *      effects (including prediction checks). The bridge adds no second
+ *      effects. The bridge adds no second
  *      implementation — it routes.
  *   2. THE EMOTION EXEMPTION IS ENGINE-SET HERE, from the proposal's source: a
  *      session-end dump or an in-the-moment jot IS the experiencer writing, so

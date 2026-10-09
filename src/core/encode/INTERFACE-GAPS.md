@@ -33,7 +33,8 @@ mentions, and warmth updates from a chunk whose proposals were all refused.
 A per-proposal gate cannot express it. Either:
 
 - **preferred** — `remember/` calls `encodeChunk()` once per chunk and honors
-  `result.effects` / `result.predictionChecks` (both empty when `fullyGated`); or
+  `result.effects` / `result.predictionChecks` (both empty when `fullyGated`;
+  `predictionChecks` was removed 2026-10-09, never fed — NOTES); or
 - `remember/` keeps `GateFn` for the per-proposal battery **and** takes on the
   all-rejected rule itself, in which case that rule needs its own test on
   `remember/`'s side and the scar is now guarded in two places.

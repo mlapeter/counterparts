@@ -48,7 +48,9 @@ slices and the same memoized chunk vector to `gateSweepChunk` — so
 mechanism. The prompt/gate agreement is pinned by test (card ids == the
 durable record's shown ids). PREDICTION CHECKS remain a named gap: the sweep
 intake accepts no `checks` field yet, so `ChunkInput.predictionChecks` stays
-unfed on the fallback path — filed here rather than left silent.
+unfed on the fallback path — filed here rather than left silent. *(Moot
+2026-10-09: nothing ever fed the field, and it was removed from encode — encode
+NOTES.)*
 `EncodeResult.effects` is still dropped at the same site, same reason as
 before: the fallback path mints through `mintProposal` and applies no
 `DurableEffect`.

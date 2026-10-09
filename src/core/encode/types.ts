@@ -250,19 +250,7 @@ export type DurableEffect =
   | { effect: "entity.mention"; schemaId: string; ref: string }
   /** `targetId` is the DECLARATION as written — encode resolves nothing. Its
    *  applier is `core/revision.ts`, one apply per effect (see `chunk.ts`). */
-  | { effect: "revision.challenge"; targetId: string; ref: string }
-  | { effect: "prediction.check"; schemaId: string; ref: string; outcome: string };
-
-/**
- * A prediction check the author made against a shown schema. Carried through only
- * when the chunk was not fully gated — the exact leak scar §7(b) records.
- */
-export interface PredictionCheck {
-  schemaId: string;
-  /** The proposal that made the check; null for a chunk-level check. */
-  ref: string | null;
-  outcome: "confirmed" | "contradicted" | "unmentioned";
-}
+  | { effect: "revision.challenge"; targetId: string; ref: string };
 
 // ---------------------------------------------------------------------------
 // Events — content-by-reference, always (§5 G10)
