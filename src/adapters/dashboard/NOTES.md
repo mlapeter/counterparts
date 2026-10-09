@@ -610,6 +610,15 @@ It now reads `shared/dates.js#localIso`, the browser's calendar, as the Health
 cycle line already did. The "written" row under the card's details still prints
 its UTC minute and says "UTC", so it was left alone.
 
+The browser's zone is the dashboard's zone for now (review of #335):
+`Dashboard.open` passes no `timeZone`, so the server views (`mind.ts`,
+`traits.ts`, `activity.ts`) also read the machine's zone, which is the browser's
+on a local dashboard. The hooks do read the config's `timeZone`, so with one set
+that differs from the machine's, `learnedOn` ("recorded") follows the config while
+everything the dashboard dates itself follows the machine. If the dashboard learns
+the config's zone (`cli/commands.ts#zoneBeside`), this day and the Health cycle
+line should come from the server too.
+
 How it got through: `test/time.test.ts` scans `src/` for hand-built dates, but
 only `.ts` files, so the browser modules here are not scanned at all. Widening
 the scan to `.js` would also catch `dates.js` and `cycle.js`, which build dates
