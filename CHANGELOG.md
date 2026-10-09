@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
+  layout, a pane beside the transcript shows the brain turning in braille, the twelve
+  mechanisms, search, and what was kept and came to mind (from the dashboard and this
+  session). It also has two switches: pause Counterparts in this folder, and turn Claude
+  Code's own memory off. `/counterparts` opens it anywhere. Beside an npm install, a plugin
+  run from a folder (`claude --plugin-dir`) now says that is expected, instead of suggesting
+  `counterparts disconnect`.
+
 ## 0.3.13 — 2026-10-09
 
 A dated memory can now repeat (daily, weekly, monthly or yearly), and a reminder that
