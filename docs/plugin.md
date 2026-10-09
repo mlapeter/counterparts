@@ -11,7 +11,7 @@ The repository root is the plugin. Claude Code reads four things from it:
 | :- | :- |
 | `.claude-plugin/plugin.json` | The manifest: name `counterparts`, version (kept equal to `package.json`), and the MCP server, declared inline |
 | `.claude-plugin/marketplace.json` | A one-plugin marketplace, so `mlapeter/counterparts` can be added as a marketplace. Its entry names this repository on GitHub at a release tag, not master (below, "Releases only") |
-| `hooks/hooks.json` | The five events `counterparts install` wires: SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact |
+| `hooks/hooks.json` | The five events `counterparts install` wires: SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact; and, under `"modules"`, the sidebar mod (`hooks/sidebar/`, see its `NOTES.md`) |
 | `commands/doctor.md` | `/counterparts:doctor`, because a plugin install puts no `counterparts` on PATH |
 
 Every hook and the server run `sh ${CLAUDE_PLUGIN_ROOT}/src/adapters/plugin-run.sh hook|mcp`.
@@ -35,10 +35,13 @@ Why the root, and why it leaves npm alone:
   `plugin.json` instead.
 - There is no top-level `bin/`. Claude Code puts a plugin's `bin/` on PATH, but chat
   and Cowork refuse to install a plugin that has one.
-- A mod would go in the same `hooks/hooks.json`, as `"modules": ["./<file>.ts"]`
-  beside `"hooks"`. `claude plugin validate` accepts both together. In a throwaway
-  probe (2.1.295, `--init-only`), the classic SessionStart hook ran and the mod
-  loaded and registered beside it.
+- The sidebar mod is in the same `hooks/hooks.json`, as
+  `"modules": ["./sidebar/hooks/register.tsx"]` beside `"hooks"`, and the manifest
+  names its state contract (`"types"`). `claude plugin validate` accepts both
+  together. A `-p` load registers the five command hooks and the module side by
+  side. The mod draws even when the classic hooks and the server stand down for
+  an npm install. Its checks are `sh hooks/sidebar/check.sh`; `bun test` skips
+  its tests (`bunfig.toml`, `root = "./test"`).
 
 ## How it behaves
 

@@ -19,6 +19,12 @@
  * The engine lets `$` pass only to functions declared at the top of this
  * file, so everything that touches the engine lives here; the brain, the
  * cells, the feed parsing and the mechanism table are pure modules beside it.
+ *
+ * Not in v0.1 (../NOTES.md has the rest):
+ * TODO(v0.2): the desktop's brain as an Svg (a Raster is the terminal's alone).
+ * TODO(v0.2): the install-bun card, for a plugin user with no runtime yet.
+ * TODO(v0.2): open one memory by id on the dashboard (links land on #memories).
+ * TODO(v0.2): fork write-ups.
  */
 
 import { atom, read, update } from 'claude-code'
