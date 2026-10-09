@@ -209,6 +209,21 @@ export function localStamp(at: number, zone?: string): string {
 }
 
 /**
+ * The time of day with the zone's short name: `17:47 MDT` — a 24-hour clock
+ * in `zone`, and the name of the clock it is on (`MDT`, or `GMT+14` where the
+ * runtime has no abbreviation). For a line whose date is printed beside it in
+ * the reader's own style (the dashboard card's "written" row, 2026-10-09,
+ * which said "17:47 UTC" until then). Empty for a moment that is not a number.
+ */
+export function localClockZone(at: number, zone?: string): string {
+  const z = zone === undefined || !isZoneCached(zone) ? machineZone() : zone;
+  const p = partsOf(at, z, "stamp");
+  const q = partsOf(at, z, "clock");
+  if (p === null) return "";
+  return `${p.hour}:${p.minute}${q === null || q.timeZoneName === "" ? "" : ` ${q.timeZoneName}`}`;
+}
+
+/**
  * The same stamp, shortened to the clock (`13:02`) when the moment falls on
  * the same date as `after` in `zone` — a time in a run of times that already
  * named its day (the handoff pointer's "work here 13:02–15:41", 2026-09-30).

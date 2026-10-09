@@ -15,6 +15,15 @@
   a memory in the middle of being corrected. It now counts `protected` and
   `in-live-revision-chain` only where that is what kept the memory, as it already did for
   `recurring`. Nothing is cleaned up differently.
+- **The dashboard dates everything in the zone the hooks use.** With a `timeZone` in the
+  configuration that differs from the computer's, the dashboard used the computer's zone
+  and the browser's own, so one page could show two days for one moment: a memory's
+  "recorded" chip on one, its "Written" line on the next. The dashboard now reads the
+  configuration's `timeZone` (the named one, else the one beside the store), every view
+  dates in it, and the card's "Written" day and the Health cycle line come from the
+  server already dated. The card's details row names that zone ("Sep 28th, 2026, 11:47
+  MDT") instead of printing UTC, and the Flow page's fired footer names it instead of a
+  stale "(UTC)". Without a `timeZone` set, nothing changes.
 
 ## 0.3.13 — 2026-10-09
 

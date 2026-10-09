@@ -42,6 +42,7 @@
  * functions knows it: they return strings.
  */
 import { Counterpart } from "../../core/counterpart.js";
+import { zoneBeside } from "../config.js";
 import { PLAIN, style as makeStyle } from "./ansi.js";
 import type { Style } from "./ansi.js";
 import { DEFAULT_WIDTH } from "./layout.js";
@@ -104,6 +105,15 @@ export interface DashboardOptions {
   /** Escapes off unless asked. Views are byte-stable without one. */
   readonly colour?: boolean;
   readonly width?: number;
+  /**
+   * The person's zone, an IANA name: the host configuration's `timeZone`, the
+   * one the hooks and the MCP server date days in (docs/time.md). Left out,
+   * the configuration beside `dir` is read for it (`config.ts#zoneBeside`);
+   * none there, the machine's zone. Every date a view prints is read in it
+   * (`store.zone()`), so one page never shows two days for one moment
+   * (review of #335, 2026-10-09).
+   */
+  readonly timeZone?: string;
 }
 
 export class Dashboard {
@@ -113,8 +123,12 @@ export class Dashboard {
   readonly width: number;
 
   private constructor(opts: DashboardOptions) {
+    // Read beside a NAMED dir only: resolving the default here would be a
+    // second place that can refuse before the store's own refusal says why.
+    const timeZone = opts.timeZone ?? (opts.dir === undefined ? undefined : zoneBeside(opts.dir));
     this.counterpart = Counterpart.open({
       ...(opts.dir === undefined ? {} : { dir: opts.dir }),
+      ...(timeZone === undefined ? {} : { timeZone }),
       // NOT spread from the caller, and NOT defaulted: set here, unconditionally.
       observer: true,
     });

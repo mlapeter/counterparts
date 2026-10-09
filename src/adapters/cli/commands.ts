@@ -155,7 +155,7 @@ import {
   SPAWN_START_COUNT_KEY,
   SPAWN_START_DATE_KEY,
 } from "../claude-code/hooks.js";
-import { loadConfig, withEmbedderDefault } from "../config.js";
+import { loadConfig, withEmbedderDefault, zoneBeside } from "../config.js";
 // The one answer to "is there an embedder", shared with the hook, the worker and
 // the MCP server's entry point — `ask` embeds its question with it.
 import { openEmbedder } from "../claude-code/embed-client.js";
@@ -8737,26 +8737,13 @@ export function openCounterpart(
 }
 
 /**
- * `snapshots.dir` from the host configuration beside the store
- * (`<base>/claude-code.json`, the file `install` writes), so a migration the
- * console runs puts its copy where the worker's rotation and doctor look.
- * Absent, unreadable or unset: undefined, and the store's default applies.
- */
-/**
  * `timeZone` from the host configuration beside the store — the same file
  * `snapshotsDirBeside` reads — so a console command names the person's day in
- * the zone the hooks use (docs/time.md, 2026-09-25). Absent or unreadable:
- * undefined, and the store follows the machine's zone.
+ * the zone the hooks use (docs/time.md, 2026-09-25). It lives in `config.ts`
+ * since 2026-10-09, where the dashboard reads it too; re-exported here for the
+ * console's callers.
  */
-export function zoneBeside(dir: string): string | undefined {
-  const beside = join(dir, "..", "claude-code.json");
-  if (!existsSync(beside)) return undefined;
-  try {
-    return loadConfig(JSON.parse(readFileSync(beside, "utf8"))).config.timeZone;
-  } catch {
-    return undefined;
-  }
-}
+export { zoneBeside };
 
 /** `Store.open` for the console: the config's zone beside the store rides along. */
 function openStoreAt(opts: { dir: string; observer?: boolean }): Store {
@@ -8764,6 +8751,12 @@ function openStoreAt(opts: { dir: string; observer?: boolean }): Store {
   return Store.open({ ...opts, ...(timeZone === undefined ? {} : { timeZone }) });
 }
 
+/**
+ * `snapshots.dir` from the host configuration beside the store
+ * (`<base>/claude-code.json`, the file `install` writes), so a migration the
+ * console runs puts its copy where the worker's rotation and doctor look.
+ * Absent, unreadable or unset: undefined, and the store's default applies.
+ */
 export function snapshotsDirBeside(dir: string): string | undefined {
   const beside = join(dir, "..", "claude-code.json");
   if (!existsSync(beside)) return undefined;
