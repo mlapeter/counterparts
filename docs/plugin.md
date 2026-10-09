@@ -22,8 +22,14 @@ Why the root, and why it leaves npm alone:
 - Claude Code copies only the plugin folder, and every path a plugin runs must be
   inside it. At the root, the sources are already inside it.
 - None of `.claude-plugin/`, `hooks/` or `commands/` is in `package.json#files`, so
-  the npm tarball is unchanged. `src/adapters/plugin-run.sh` ships in the tarball
-  (it is under `src/`), where it does nothing unless something runs it.
+  none of the plugin's own files reaches the npm tarball. Its runtime code does,
+  because it is under `src/`: `adapters/plugin.ts`, `adapters/host-wiring.ts`,
+  `adapters/mcp/stood-down.ts` and the launcher `adapters/plugin-run.sh`, and the npm
+  hook and server import the first two. On the npm path that costs one check (is
+  `CLAUDE_PLUGIN_ROOT` this very package? Without the variable, no file is read) and
+  about a millisecond of module load. `test/plugin.test.ts` runs the npm-wired hook
+  and server with the plugin also installed, and with an inherited
+  `CLAUDE_PLUGIN_ROOT`, and holds their output unchanged.
 - There is no root `.mcp.json`. One would also be project-scope MCP config for every
   Claude Code session opened in this repository. The server is declared inline in
   `plugin.json` instead.
