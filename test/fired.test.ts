@@ -28,6 +28,7 @@ import {
   firedReport,
 } from "../src/adapters/fired.js";
 import type { FiredReport, FiredRow } from "../src/adapters/fired.js";
+import { recordSession } from "../src/adapters/sessions.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 
@@ -964,6 +965,54 @@ describe("one-time and occasion-driven mechanisms", () => {
     for (const date of ["2026-09-12", "2026-09-13", "2026-09-15"]) aTurn(s, date);
     const plain = pick(report(s), "prospective-plain");
     expect(plain.occasionMissed).toBe(1);
+  });
+
+  test("a day only an UNATTENDED session came — the night run, `claude -p` — is not a day a reminder could have been said (review of #337)", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    plainReminder(s, "2026-09-14");
+    set(at("2026-09-14", "T15:00:00Z"));
+    // The headless run's briefing says nobody attends it, and its turn is the
+    // same session's: neither is an occasion.
+    s.appendEvent({
+      name: "adapter.wake.injected",
+      day: s.livedDay(),
+      payload: { date: "2026-09-14", session: "night-1", interactive: false },
+    });
+    s.appendEvent({ name: "recall.decision", day: s.livedDay(), ref: "night-1", payload: { date: "2026-09-14" } });
+    // A row written before the flag existed is asked of the session registry:
+    // `sdk-cli` is `claude -p`.
+    recordSession(dir, { sessionId: "sdk-1", scope: "/tmp/elsewhere", phase: "start", entrypoint: "sdk-cli" });
+    s.appendEvent({ name: "adapter.wake.injected", day: s.livedDay(), payload: { date: "2026-09-14", session: "sdk-1" } });
+    expect(report(s).missedOccasion).toEqual([]);
+    expect(pick(report(s), "prospective-plain").state).toBe("waiting");
+    // The same day with a person's session in it is the finding again.
+    s.appendEvent({
+      name: "adapter.wake.injected",
+      day: s.livedDay(),
+      payload: { date: "2026-09-14", session: "cli-1", interactive: true },
+    });
+    expect(pick(report(s), "prospective-plain").occasionMissed).toBe(1);
+  });
+
+  test("one unreadable memory does not blind the check to a miss on another", () => {
+    const { s, set } = clocked(at("2026-09-10"));
+    plainReminder(s, "2026-09-14");
+    const broken = plainReminder(s, "2026-09-14");
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    const patched = new Proxy(s, {
+      get(target, prop) {
+        if (prop === "read") {
+          return (id: string) => {
+            if (id === broken) throw new Error("unreadable");
+            return target.read(id);
+          };
+        }
+        const v: unknown = Reflect.get(target, prop, target);
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    expect(pick(firedReport(patched, TODAY), "prospective-plain").occasionMissed).toBe(1);
   });
 
   test("a quiet reminder due and unsurfaced is not a plain one missed", () => {

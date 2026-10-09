@@ -73,6 +73,7 @@ import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
 import { rowToPhysics } from "../core/store/index.js";
 import { emotionalIntensity } from "../core/physics/index.js";
 import type { DurableEventName } from "./dashboard/registries.js";
+import { NON_INTERACTIVE_ENTRYPOINTS, readSession } from "./sessions.js";
 
 /** The window every count on this page is measured over. Seven CALENDAR days,
  *  inclusive of today — today and the six before it. */
@@ -1651,17 +1652,36 @@ interface LogRead {
    *  A truncated read is the oldest rows, so this stays right when it happens. */
   readonly oldestDate: string | null;
   /**
-   * The days of THIS window a session was there to be told something, each
-   * with the newest such moment (2026-10-09): a session start handed its
-   * briefing, or a turn decided what came to mind — the two moments a plain
-   * reminder is said (`claude-code/hooks.ts`). An occasion check reads it; a
-   * reminder due on a day nobody came is not one a session could have said.
+   * The rows of THIS window that say a session was there (2026-10-09): a
+   * session start handed its briefing, or a turn decided what came to mind —
+   * the two moments a plain reminder is said (`claude-code/hooks.ts`).
+   * `presentDays` keeps the ones a person could have been told something in;
+   * an occasion check reads that, because a reminder due on a day nobody came
+   * is not one a session could have said.
    */
-  readonly present: ReadonlyMap<string, number>;
+  readonly presence: readonly PresenceRow[];
+  /**
+   * What each session's briefing row said about whether anybody could be told
+   * anything in it (`interactive` on `adapter.wake.injected`, review of #337),
+   * by session id, from every briefing this pass read. Absent: the row did not
+   * say, or this pass did not see it.
+   */
+  readonly attended: ReadonlyMap<string, boolean>;
 }
 
+/** One row of the window that says a session was there (`PRESENCE_EVENTS`). */
+interface PresenceRow {
+  readonly date: string;
+  readonly at: number;
+  /** The session it belongs to, or null when the row names none. */
+  readonly session: string | null;
+}
+
+/** The briefing row: the one that says whether its session is attended. */
+const WAKE_EVENT = "adapter.wake.injected";
+
 /** The rows that say a session was there: a briefing handed over, a turn decided. */
-const PRESENCE_EVENTS: ReadonlySet<string> = new Set(["adapter.wake.injected", "recall.decision"]);
+const PRESENCE_EVENTS: ReadonlySet<string> = new Set([WAKE_EVENT, "recall.decision"]);
 
 /**
  * The tally key for a name read through a `positive` filter. A character no
@@ -1712,11 +1732,11 @@ function emptyTally(): NameTally {
  */
 function readLog(store: ReadOnlyStore, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
-  const age = { oldest: null as string | null, present: new Map<string, number>() };
+  const age: PassState = { oldest: null, presence: [], attended: new Map() };
   const first = store.eventLog({ limit: EVENT_CEILING });
   for (const row of first) tallyRow(byName, row, w, age);
   if (first.length < EVENT_CEILING) {
-    return { byName, truncated: false, oldestDate: age.oldest, present: age.present };
+    return { byName, truncated: false, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
   }
   const lastSeq = first[first.length - 1]?.seq ?? 0;
   // A lived day is never longer than a calendar day, so `livedDay - 14` cannot
@@ -1729,21 +1749,29 @@ function readLog(store: ReadOnlyStore, w: Window): LogRead {
     if (row.seq <= lastSeq) continue;
     tallyRow(byName, row, w, age);
   }
-  return { byName, truncated: true, oldestDate: age.oldest, present: age.present };
+  return { byName, truncated: true, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
 }
 
-function tallyRow(
-  byName: Map<string, NameTally>,
-  row: EventRow,
-  w: Window,
-  age: { oldest: string | null; present: Map<string, number> },
-): void {
+/** What one pass over the log gathers beside the tallies. */
+interface PassState {
+  oldest: string | null;
+  presence: PresenceRow[];
+  attended: Map<string, boolean>;
+}
+
+function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window, age: PassState): void {
   const payload = payloadOf(row);
   const date = rowDate(row, payload, w.zone);
   if (age.oldest === null || date < age.oldest) age.oldest = date;
-  if (PRESENCE_EVENTS.has(row.name) && date >= w.from && date <= w.to) {
-    const was = age.present.get(date);
-    if (was === undefined || row.at > was) age.present.set(date, row.at);
+  if (PRESENCE_EVENTS.has(row.name)) {
+    const session = str(payload, "session") ?? (row.ref !== null && row.ref.length > 0 ? row.ref : null);
+    const said = payload["interactive"];
+    // Any briefing that says nobody attends marks the session; a later one
+    // saying otherwise does not unmark it (a compaction re-fires the start).
+    if (row.name === WAKE_EVENT && session !== null && typeof said === "boolean" && age.attended.get(session) !== false) {
+      age.attended.set(session, said);
+    }
+    if (date >= w.from && date <= w.to) age.presence.push({ date, at: row.at, session });
   }
   const t = countInto(byName, row.name, date, w);
   // THE FILTERED TALLIES, in the same pass (`Evidence.positive`). They count
@@ -1976,29 +2004,42 @@ function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Windo
  * moved from — the same lineage `plainTold` walks.
  *
  * A beat counts as DUE only on a day of the window, today excluded, on which a
- * session was there AFTER the memory existed (`LogRead.present`): a reminder is
- * said at a session start or a turn, so a day nobody came, or a reminder written
- * at the day's last turn, is not one a session could have said. Today is left
- * out because its sessions may still say it.
+ * session a person could be told something in was there AFTER the memory
+ * existed (`presentDays`): a reminder is said at a session start or a turn, so
+ * a day nobody came, a day only the headless run or `claude -p` came, or a
+ * reminder written at the day's last turn, is not one a session could have
+ * said. Today is left out because its sessions may still say it.
+ *
+ * A memory that cannot be read is skipped, as `plainDue` skips it, rather than
+ * failing the whole reading: one unreadable row must not turn a real miss on
+ * another into "cannot tell" (review of #337).
  */
 function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): OccasionReading {
   const lastDay = daysBefore(w.to, 1);
   const none: OccasionReading = { missed: 0, says: "none fell due this week on a day a session ran" };
   if (lastDay < w.from) return none;
   const denied = new Set(store.deniedIds());
+  // Read only once a plain reminder is in the window: most weeks there is none.
+  let present: ReadonlyMap<string, number> | null = null;
   let due = 0;
   let missed = 0;
   for (const dated of store.datedMemories(w.from, lastDay)) {
     if (denied.has(dated.id)) continue;
     const row = store.row(dated.id);
     if (row === undefined || row.archived === 1 || row.superseded_by !== null) continue;
-    const doc = store.read(dated.id).doc;
+    let doc;
+    try {
+      doc = store.read(dated.id).doc;
+    } catch {
+      continue;
+    }
     if (doc.type === "episode" || cueModeOf(doc) !== "plain") continue;
     const span = parseCalendarDate(dated.eventDate);
     if (span === null || span.text !== dated.eventDate || span.precision === "year") continue;
+    present ??= presentDays(store, log);
     const beats = new Set<string>();
     for (let day = span.first > w.from ? span.first : w.from; day <= lastDay && day <= span.last; day = addDays(day, 1)) {
-      const seen = log.present.get(day);
+      const seen = present.get(day);
       // An older row with no birth moment is read as existing all along.
       if (seen === undefined || seen <= (row.created_at ?? 0)) continue;
       beats.add(span.precision === "day" ? "day" : day === span.last ? "last-day" : "opens");
@@ -2027,6 +2068,43 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): Occasio
     missed,
     says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said`,
   };
+}
+
+/**
+ * THE DAYS A PERSON COULD HAVE BEEN TOLD SOMETHING, each with its newest such
+ * moment (review of #337). A session nobody attends — the headless nightly
+ * run, `claude -p`, an Agent SDK one — still writes a briefing row and turns,
+ * but is never handed a plain reminder (`hooks.ts#isInteractive`,
+ * `SessionInput.nightRun`), so its rows are not an occasion: counted, every
+ * day the night run came read as a day a reminder went unsaid.
+ *
+ * Its briefing row says so (`interactive`). A row written before that field,
+ * or a session whose briefing this pass did not see, is asked of the session's
+ * registry record — its `entrypoint`, as `sessions.ts#pointable` asks — and a
+ * session nothing is known about reads as a person's, the direction that keeps
+ * the finding rather than hiding it.
+ */
+function presentDays(store: ReadOnlyStore, log: LogRead): Map<string, number> {
+  const asked = new Map<string, boolean>();
+  const unattended = (session: string | null): boolean => {
+    if (session === null) return false;
+    const said = log.attended.get(session);
+    if (said !== undefined) return !said;
+    let known = asked.get(session);
+    if (known === undefined) {
+      const entrypoint = readSession(store.dir, session)?.entrypoint;
+      known = entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(entrypoint);
+      asked.set(session, known);
+    }
+    return known;
+  };
+  const out = new Map<string, number>();
+  for (const p of log.presence) {
+    if (unattended(p.session)) continue;
+    const was = out.get(p.date);
+    if (was === undefined || p.at > was) out.set(p.date, p.at);
+  }
+  return out;
 }
 
 /** The memory, then each one its reminder moved from — `Prospective`'s private
