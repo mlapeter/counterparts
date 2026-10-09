@@ -56,6 +56,7 @@ import {
   mergeHooks,
   processMark,
   readMcp,
+  serverCensus,
   sessionsNote,
   settingsBytes,
   sightSettings,
@@ -69,6 +70,8 @@ import {
 } from "../src/adapters/cli/wire.js";
 import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adapters/cli/wire.js";
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
+import { recordServerLaunch } from "../src/adapters/sessions.js";
+import type { BuildStamp } from "../src/adapters/sessions.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -765,21 +768,126 @@ describe("wire", () => {
     expect(text(quiet.out)).not.toContain("Hooks start with your next turn");
 
     const said = consoleWith();
-    sessionsNote(ui(said.io, ENV), noProcesses);
+    sessionsNote(ui(said.io, ENV), noProcesses, { dataDir: store() });
     expect(text(said.out)).toContain("Hooks start with your next turn");
     expect(text(said.out)).toContain("restart Claude Code");
-    expect(text(said.out)).not.toContain("sessions are running");
+    expect(text(said.out)).not.toContain("open session");
+    expect(text(said.out)).not.toContain("memory server");
+  });
 
-    const busy = consoleWith();
-    const lister: ProcessLister = () => ({
-      looked: true,
-      processes: [
-        { pid: 11, what: "an MCP server", command: "bun run serve.ts" },
-        { pid: 12, what: "an MCP server", command: "bun run serve.ts" },
-      ],
-    });
-    sessionsNote(ui(busy.io, ENV), lister);
-    expect(text(busy.out)).toContain("2 sessions are running the previous version's memory server");
+  // ── the count says what it knows (2026-10-09) ──────────────────────────────
+
+  const OLD: BuildStamp = { version: "0.3.11", storeSchema: 11, cacheSchema: 1 };
+  const NEW: BuildStamp = { version: "0.3.12", storeSchema: 12, cacheSchema: 1 };
+  /** A server's launch record in the temp store, as the server writes it. */
+  const recorded = (pid: number, hostPid: number, build: BuildStamp): void => {
+    recordServerLaunch(store(), { scope: home, build, pid, hostPid });
+  };
+  const server = (pid: number, ppid: number): { pid: number; what: string; command: string; ppid: number } => ({
+    pid,
+    what: "an MCP server",
+    command: "bun /x/src/adapters/mcp/bin/serve.mjs",
+    ppid,
+  });
+
+  test("an OLDER server is counted as older, a CURRENT one as current — never all of them as 'the previous version'", () => {
+    // The 0.3.12 release run printed "11 sessions are running the previous
+    // version's memory server" over the owner's own open sessions: the line
+    // compared nothing. Each server's own record says which build it runs.
+    recorded(201, 900, OLD);
+    recorded(202, 901, OLD);
+    recorded(203, 902, NEW);
+    const c = consoleWith();
+    const lister: ProcessLister = () => ({ looked: true, processes: [server(201, 900), server(202, 901), server(203, 902)] });
+    sessionsNote(ui(c.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5 });
+    const said = text(c.out);
+    expect(said).toContain("(2 open sessions still run memory server 0.3.11, not this install's 0.3.12: restart them, or run /mcp and Reconnect in each.)");
+    expect(said).toContain("(1 open session already runs this version.)");
+    expect(said).not.toContain("previous version");
+    expect(said).not.toContain("no record");
+
+    // One more with no record here is said apart — "more", after the others.
+    const c2 = consoleWith();
+    const lister2: ProcessLister = () => ({ looked: true, processes: [server(201, 900), server(204, 903)] });
+    sessionsNote(ui(c2.io, ENV), lister2, { dataDir: store(), installed: NEW, selfPid: 5 });
+    expect(text(c2.out)).toContain("(1 more memory server is running that this store holds no record of");
+    expect(text(c2.out)).toContain("so which version it runs is not known here.)");
+  });
+
+  test("the session it was run FROM is named, in whichever group it is in", () => {
+    // Run from Claude Code's shell: this process → the shell → the `claude`
+    // process (pid 900) that started server 201. That server is this session's.
+    recorded(201, 900, OLD);
+    recorded(202, 901, OLD);
+    const parents = new Map<number, number>([
+      [5, 6], // this process → its shell
+      [6, 900], // the shell → claude
+      [900, 1],
+      [201, 900],
+      [202, 901],
+      [901, 1],
+    ]);
+    const lister: ProcessLister = () => ({ looked: true, processes: [server(201, 900), server(202, 901)], parents });
+    const c = consoleWith();
+    sessionsNote(ui(c.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5 });
+    expect(text(c.out)).toContain("not this install's 0.3.12 — the session you ran this from is one of them: restart them");
+
+    // Its server already on this version: said there, and not among the old.
+    recorded(203, 900, NEW);
+    const c2 = consoleWith();
+    const lister2: ProcessLister = () => ({ looked: true, processes: [server(203, 900), server(202, 901)], parents });
+    sessionsNote(ui(c2.io, ENV), lister2, { dataDir: store(), installed: NEW, selfPid: 5 });
+    expect(text(c2.out)).toContain("(1 open session still runs memory server 0.3.11, not this install's 0.3.12: restart it, or run /mcp and Reconnect in it.)");
+    expect(text(c2.out)).toContain("(1 open session already runs this version, the session you ran this from included.)");
+
+    // Run from a terminal: no ancestor started any server, so nobody is named.
+    // Pid 1 is never an ancestor for this — an orphaned server's parent is 1.
+    const c3 = consoleWith();
+    const lister3: ProcessLister = () => ({ looked: true, processes: [server(201, 1)], parents: new Map([[5, 1]]) });
+    sessionsNote(ui(c3.io, ENV), lister3, { dataDir: store(), installed: NEW, selfPid: 5 });
+    expect(text(c3.out)).not.toContain("the session you ran this from");
+  });
+
+  test("a server this store has NO RECORD of is said as unknown, not as old", () => {
+    // Another store's server (the release run's case: a temp store, and the
+    // owner's real sessions in the process table), a directory where memory is
+    // off, or a build from before servers recorded themselves.
+    const c = consoleWith();
+    const lister: ProcessLister = () => ({ looked: true, processes: [server(301, 900), server(302, 901)] });
+    sessionsNote(ui(c.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5 });
+    const said = text(c.out);
+    expect(said).toContain("(2 memory servers are running that this store holds no record of");
+    expect(said).toContain("so which version they run is not known here.)");
+    expect(said).not.toContain("restart them");
+
+    // A record whose heartbeat went stale is not believed: the pid may be
+    // somebody else's by now.
+    recorded(301, 900, OLD);
+    const c2 = consoleWith();
+    sessionsNote(ui(c2.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5, now: Date.now() + 60 * 60_000 });
+    expect(text(c2.out)).toContain("(2 memory servers are running that this store holds no record of");
+  });
+
+  test("run from inside Claude Code with no parent column, it says it cannot tell which session is this one", () => {
+    recorded(201, 900, OLD);
+    const lister: ProcessLister = () => ({ looked: true, processes: [server(201, 900)] });
+    const inside = consoleWith();
+    sessionsNote(ui(inside.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5, env: { ...ENV, CLAUDECODE: "1" } });
+    expect(text(inside.out)).toContain("which one it is could not be told from here.");
+    // …and says nothing of the kind from a plain terminal.
+    const outside = consoleWith();
+    sessionsNote(ui(outside.io, ENV), lister, { dataDir: store(), installed: NEW, selfPid: 5, env: ENV });
+    expect(text(outside.out)).not.toContain("could not be told");
+  });
+
+  test("serverCensus: the parents of the chain, never pid 1, and a cycle does not hang", () => {
+    recorded(201, 900, OLD);
+    const looped = new Map<number, number>([
+      [5, 6],
+      [6, 5],
+    ]);
+    const census = serverCensus([server(201, 900)], { dataDir: store(), installed: NEW, parents: looped, selfPid: 5 });
+    expect(census).toEqual({ other: 1, otherVersions: ["0.3.11"], current: 0, unplaced: 0, mine: null, knowsMine: true });
   });
 
   test("a lister that THROWS never fails the wiring", async () => {

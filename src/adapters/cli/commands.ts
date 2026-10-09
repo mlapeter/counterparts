@@ -4227,7 +4227,7 @@ async function hostWiringCommand(
     result.outcome === "ok" &&
     (result.hooks !== "already" || result.mcp !== "already")
   ) {
-    sessionsNote(ui(io, env), lister);
+    sessionsNote(ui(io, env), lister, { dataDir: store, env });
   }
   return exitFor(result.outcome);
 }
@@ -7081,6 +7081,12 @@ function exportCommand(
             omittedConfidential: report.omittedConfidential,
             versions: flags["with-versions"] === true,
             notRendered: report.notRendered.length,
+            // The nights, counted apart from `rows` (2026-10-09): the
+            // dashboard reads `rows` as memories.
+            dreams: report.dreams,
+            reflections: report.reflections,
+            omittedDreams: report.omittedDreams,
+            omittedReflections: report.omittedReflections,
           },
         });
       } catch {

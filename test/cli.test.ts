@@ -1103,6 +1103,107 @@ describe("export", () => {
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("1 of them is ARCHIVED");
   });
 
+  test("DREAMS and REFLECTIONS are in the tree: dated, what each said, its morning share (dream INTERFACE-GAPS §4, §7)", async () => {
+    // They live in their own tables, never as memories, so the memory walk
+    // went straight past them and the readable copy said nothing about the
+    // nights at all.
+    const s = store();
+    const a = s.put({ type: "memory", kind: "fact", title: "Garden", body: "ZQGARDEN — the tomatoes came in." });
+    const b = s.put({ type: "memory", kind: "fact", title: "Kitchen", body: "ZQKITCHEN — the sauce was the point." });
+    const later = s.put({ type: "memory", kind: "person", body: "ZQLATERSECRET — marked confidential after the night." });
+    s.openDream({ id: "drm_one", day: 3, date: "2026-10-08", model: "test-model", shown: [a, b] });
+    s.recordDreamChange("drm_one", { action: "link", ref: a, ref2: b });
+    const undone = s.recordDreamChange("drm_one", { action: "link", ref: b, ref2: a });
+    s.markDreamChangeUndone("drm_one", undone);
+    s.updateDream("drm_one", { state: "journaled", title: "The garden and the kitchen", journal: "ZQJOURNAL — I walked from the garden to the kitchen." });
+    s.openReflection({ id: "rfl_one", dreamId: "drm_one", day: 3, date: "2026-10-08", questions: ["What stayed with you?"], shown: [a] });
+    s.updateReflection("rfl_one", {
+      state: "reflected",
+      entry: "ZQENTRY — the sauce mattered more than I said.",
+      cites: [a],
+      share: "ZQSHARE — I keep thinking about the garden.",
+      shareCites: [a],
+      shareState: "offered",
+    });
+    // A second night, shown a memory that became confidential afterwards: it
+    // is left out unless asked for, and counted.
+    s.openDream({ id: "drm_two", day: 4, date: "2026-10-09", shown: [later] });
+    s.updateDream("drm_two", { state: "journaled", title: "Later", journal: "ZQSECONDJOURNAL — a night about someone." });
+    s.close();
+    const marked = store();
+    marked.revise(later, { meta: { confidential: true } });
+    marked.close();
+
+    const target = join(outside, "nights");
+    const c = consoleWith();
+    expect(await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+
+    // The journal's layout, the id as the file name.
+    const dream = readFileSync(join(target, "dreams", "2026", "2026-10-08-drm_one.md"), "utf8");
+    expect(dream).toContain("type: dream");
+    expect(dream).toContain("date: 2026-10-08");
+    expect(dream).toContain("title: The garden and the kitchen");
+    expect(dream).toContain("ZQJOURNAL — I walked from the garden to the kitchen.");
+    // Every change in `dream --show`'s words, the undone one marked.
+    expect(dream).toContain(`- link: ${a} "Garden"  ↔  ${b} "Kitchen"`);
+    expect(dream).toContain(`- [undone] link: ${b} "Kitchen"  ↔  ${a} "Garden"`);
+    expect(dream).toContain("rfl_one — `reflections/2026/2026-10-08-rfl_one.md`");
+    // NOT a memory file: no payload line a future importer could read one back by.
+    expect(dream).not.toContain("payload:");
+
+    const reflection = readFileSync(join(target, "reflections", "2026", "2026-10-08-rfl_one.md"), "utf8");
+    expect(reflection).toContain("type: reflection");
+    expect(reflection).toContain("after: drm_one");
+    expect(reflection).toContain("- What stayed with you?");
+    expect(reflection).toContain("ZQENTRY — the sauce mattered more than I said.");
+    expect(reflection).toContain(`- ${a} "Garden"`);
+    expect(reflection).toContain("## Morning share\n\nZQSHARE — I keep thinking about the garden.\n\nShare not told yet.");
+
+    // The night that rests on a now-confidential memory: not one byte of it.
+    expect(treeFiles(target).some((p) => p.includes("drm_two"))).toBe(false);
+    for (const path of treeFiles(target)) {
+      expect(readFileSync(join(target, path), "utf8").includes("ZQSECONDJOURNAL")).toBe(false);
+    }
+    // Counted apart from the memory rows, on the terminal and in the manifest.
+    expect(text(c.out)).toContain("1 confidential row was left out");
+    expect(text(c.out)).toContain("1 dream that rests on a confidential memory was left out too.");
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("and 1 dream and 1 reflection.");
+    expect(readme).toContain("`dreams/<year>/<date>-<id>.md` — 1 dream, one file each");
+    expect(readme).toContain("`reflections/<year>/<date>-<id>.md` — 1 reflection, one file each");
+    expect(readme).toContain("**1** dream, **0** reflections.");
+
+    // …and the durable row counts them, apart from `rows` (which the
+    // dashboard reads as memories).
+    const rows = store({ observer: true }).eventLog({ name: STORE_EXPORT_EVENT });
+    const payload = JSON.parse((rows[0] as { payload: string | null }).payload as string) as Record<string, unknown>;
+    expect(payload["dreams"]).toBe(1);
+    expect(payload["reflections"]).toBe(1);
+    expect(payload["omittedDreams"]).toBe(1);
+    expect(payload["omittedReflections"]).toBe(0);
+
+    // The opt-in takes the second night too.
+    const opened = join(outside, "nights-opened");
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], { io: c2.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(opened, "dreams", "2026", "2026-10-09-drm_two.md"), "utf8")).toContain("ZQSECONDJOURNAL");
+  });
+
+  test("a store that never dreamed says so in the manifest, and writes no dreams/ or reflections/", async () => {
+    store().put({ type: "memory", kind: "fact", body: "ZQAWAKE — nothing dreamed yet." });
+    const target = join(outside, "no-nights");
+    const c = consoleWith();
+    expect(await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(existsSync(join(target, "dreams"))).toBe(false);
+    expect(existsSync(join(target, "reflections"))).toBe(false);
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("`dreams/` — none: this store has no dream to export.");
+    expect(readme).toContain("`reflections/` — none: this store has no reflection to export.");
+    expect(text(c.out)).toContain("No confidential rows were left out (there were none).");
+  });
+
   test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {
     const { secret } = furnished();
     const target = join(outside, "omitted");

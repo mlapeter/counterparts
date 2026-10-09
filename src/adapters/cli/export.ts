@@ -46,9 +46,10 @@ import {
   renderMarkdown,
   rowTombstoned,
 } from "../../core/store/index.js";
-import type { MemoryRow, ProseDoc, Store } from "../../core/store/index.js";
+import type { DreamRow, MemoryRow, ProseDoc, ReflectionRow, Store } from "../../core/store/index.js";
 import { isSelfPageRow } from "../../core/self/page.js";
-import { journalRelativePath } from "../../core/self/journal-file.js";
+import { UNDATED, journalRelativePath } from "../../core/self/journal-file.js";
+import { SHARE_STATE_WORDS, dreamChangeWords, memoryWords, parseIdList } from "./dream-core.js";
 import { assertSafeTarget, vacuumInto } from "./snapshot.js";
 
 /** The KDF's cost parameters travel WITH the blob: a hardcoded N is a format
@@ -64,8 +65,9 @@ export type ExportMode = "plaintext" | "encrypted";
  * WHAT KIND OF COPY. `database` is the whole store as one SQLite file — exact,
  * complete, and openable by anything that speaks SQLite. `markdown` is the
  * readable tree: one `.md` per memory, the journal as it stands, the self page
- * as its own file. They are different promises and neither replaces the other,
- * which is why the report names which one ran.
+ * as its own file, and one per dream and per reflection (2026-10-09). They are
+ * different promises and neither replaces the other, which is why the report
+ * names which one ran.
  */
 export type ExportKind = "database" | "markdown";
 
@@ -106,6 +108,14 @@ export interface ExportReport {
   readonly omittedConfidential: number;
   /** Ids whose markdown could not be rendered — named, never silently absent. */
   readonly notRendered: readonly string[];
+  /** Dreams and reflections written (markdown only; zero for a database
+   *  export, which carries both tables whole). Never counted in `rows`. */
+  readonly dreams: number;
+  readonly reflections: number;
+  /** …and left out because they rest on a confidential memory, counted apart
+   *  from `omittedConfidential` (which is memories). */
+  readonly omittedDreams: number;
+  readonly omittedReflections: number;
 }
 
 /** path (relative, portable) -> file bytes. */
@@ -153,6 +163,12 @@ interface MarkdownCensus {
   /** Live rows that are ARCHIVED — faded, superseded or merged. Exported, and
    *  counted so the manifest can say so. */
   readonly archived: number;
+  /** Dreams and reflections written, and left out as resting on a
+   *  confidential memory — a third unit, said apart from both above. */
+  readonly dreams: number;
+  readonly reflections: number;
+  readonly omittedDreams: number;
+  readonly omittedReflections: number;
 }
 
 /**
@@ -192,6 +208,12 @@ interface MarkdownCensus {
  * `renderMarkdown`'s, which carries the payload the row holds and not its
  * physics, and that renderer is shared with the journal copy. A count in the
  * manifest is the honest version of what this export knows.
+ *
+ * **DREAMS AND REFLECTIONS ARE IN IT TOO** (2026-10-09), one file each under
+ * `dreams/` and `reflections/`, laid out like the journal. They are not
+ * memories — a dream's journal is kept out of `memories` on purpose, so it is
+ * never mistaken for something lived — so they are rendered here, not by
+ * `renderMarkdown`, and their front matter carries no `payload:` line.
  */
 function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; census: MarkdownCensus } {
   const bundle: Bundle = new Map();
@@ -205,6 +227,10 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     pageOmitted: false,
     omittedVersions: 0,
     archived: 0,
+    dreams: 0,
+    reflections: 0,
+    omittedDreams: 0,
+    omittedReflections: 0,
   };
   const counts = census as {
     rows: number;
@@ -216,6 +242,10 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     pageOmitted: boolean;
     omittedVersions: number;
     archived: number;
+    dreams: number;
+    reflections: number;
+    omittedDreams: number;
+    omittedReflections: number;
   };
   const denied = new Set(store.deniedIds());
 
@@ -294,6 +324,44 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     }
   }
 
+  // THE NIGHTS (dream INTERFACE-GAPS §4 and §7, closed 2026-10-09). A dream's
+  // journal and a reflection's entry and morning share live in their own
+  // tables, never as memories, so the loop above walked past them and the
+  // readable copy said nothing about the nights at all. Reflections first, so
+  // a dream's file can say which of them is in the tree.
+  const reflectionFiles = new Map<string, string>();
+  for (const r of store.reflections({ limit: Math.max(1, store.reflectionCount()) })) {
+    const path = nightPath("reflections", r.id, r.date);
+    if (path === null) {
+      counts.notRendered.push(r.id);
+      continue;
+    }
+    const rests = [...parseIdList(r.shown), ...parseIdList(r.cites), ...parseIdList(r.share_cites), r.entry_id];
+    if (opts.includeConfidential !== true && restsOnConfidential(store, rests)) {
+      counts.omittedReflections += 1;
+      continue;
+    }
+    put(path, reflectionMarkdown(store, r));
+    reflectionFiles.set(r.id, path);
+    counts.reflections += 1;
+  }
+  for (const dream of store.dreams({ limit: Math.max(1, store.dreamCount()) })) {
+    const path = nightPath("dreams", dream.id, dream.date);
+    if (path === null) {
+      counts.notRendered.push(dream.id);
+      continue;
+    }
+    const changes = store.dreamChanges(dream.id);
+    const rests = [...parseIdList(dream.shown), ...changes.flatMap((c) => [c.ref, c.ref2])];
+    if (opts.includeConfidential !== true && restsOnConfidential(store, rests)) {
+      counts.omittedDreams += 1;
+      continue;
+    }
+    const after = store.reflections({ dreamId: dream.id }).map((r) => ({ id: r.id, path: reflectionFiles.get(r.id) ?? null }));
+    put(path, dreamMarkdown(store, dream, after));
+    counts.dreams += 1;
+  }
+
   put("README.md", markdownReadme(census, opts));
   return { bundle, census };
 }
@@ -344,6 +412,155 @@ function pathFor(store: Store, row: MemoryRow, doc: ProseDoc): string {
     return isSelfPageRow(store, row.id) ? "self-page.md" : `schemas/${row.id}.md`;
   }
   return `memories/${row.kind}/${row.id}.md`;
+}
+
+/**
+ * Where a dream's or a reflection's file goes: `dreams/<year>/<date>-<id>.md`,
+ * the journal's own layout, `undated` the same way. Ids only, never a title.
+ * Null for an id that is not one plain path segment — none of ours is ever
+ * anything else, and a row that is would be named, not written somewhere odd.
+ */
+function nightPath(dir: "dreams" | "reflections", id: string, date: string | null): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return null;
+  const day = date !== null && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : UNDATED;
+  return `${dir}/${day === UNDATED ? UNDATED : day.slice(0, 4)}/${day}-${id}.md`;
+}
+
+/**
+ * DOES A DREAM OR A REFLECTION REST ON A CONFIDENTIAL MEMORY — was it shown
+ * one, did it change one, does it cite one, is its entry one? Asked of the
+ * memories as they are NOW. A night's words carry no confidentiality mark of
+ * their own, and since #318 a dream's bundle is read as a guest
+ * (`dream/tunables.ts#BUNDLE_OWNER`), so a night is not shown a confidential
+ * memory in the first place; this catches the one left — a memory marked
+ * confidential after the night that was shown it. Such a night is left out
+ * unless `--include-confidential`, and counted, like a confidential memory.
+ * A REMOVED memory does not count: the removal has already redacted every
+ * night that was shown it (`store/owner-op-seam.ts#redactDreamJournals`).
+ */
+function restsOnConfidential(store: Store, ids: readonly (string | null)[]): boolean {
+  for (const id of ids) {
+    if (id === null) continue;
+    const row = store.row(id);
+    if (row === undefined || rowTombstoned(row)) continue;
+    if (row.confidential === 1) return true;
+  }
+  return false;
+}
+
+/** The front matter both kinds of night share: the memory files' fence and
+ *  one `key: value` line each, and no `payload:` line — that line is how a
+ *  future importer reads a MEMORY back, and a night is not one. */
+function nightFrontMatter(lines: readonly (readonly [string, string | number | null])[]): string {
+  const kept = lines.filter(([, v]) => v !== null).map(([k, v]) => `${k}: ${String(v).replace(/\r?\n/g, " ")}`);
+  return `---\n${kept.join("\n")}\n---\n`;
+}
+
+/**
+ * ONE DREAM, readable: its journal as the dream wrote it, then every change it
+ * made in the words `dream --show` uses (`dream-core.ts#dreamChangeWords`),
+ * undone ones marked, then the reflections after it. A journal the owner's
+ * removal redacted is exported as the line it now holds.
+ */
+function dreamMarkdown(
+  store: Store,
+  dream: DreamRow,
+  after: readonly { readonly id: string; readonly path: string | null }[],
+): string {
+  const out = [
+    nightFrontMatter([
+      ["id", dream.id],
+      ["type", "dream"],
+      ["title", dream.title === null || dream.title.length === 0 ? null : dream.title],
+      ["date", dream.date],
+      ["livedDay", dream.day],
+      ["state", dream.state],
+      ["model", dream.model],
+      ["session", dream.session],
+    ]),
+  ];
+  if (dream.state === "undone") {
+    out.push("This dream was undone: its changes were reversed, and its journal is kept.\n\n");
+  }
+  out.push(
+    dream.journal !== null && dream.journal.length > 0
+      ? dream.journal
+      : dream.state === "begun"
+        ? "(No journal: this dream was begun and never finished.)"
+        : "(No journal was written.)",
+  );
+  const changes = store.dreamChanges(dream.id);
+  out.push("\n\n## Changes\n\n");
+  if (changes.length === 0) out.push("None.\n");
+  for (const c of changes) {
+    const [head, ...under] = dreamChangeWords({ store }, c);
+    out.push(`- ${c.undone === 1 ? "[undone] " : ""}${head}\n`);
+    for (const line of under) out.push(`  - ${line}\n`);
+  }
+  if (after.length > 0) {
+    out.push("\n## Reflected on afterwards\n\n");
+    for (const r of after) {
+      out.push(r.path === null ? `- ${r.id} (left out of this copy: it rests on a confidential memory)\n` : `- ${r.id} — \`${r.path}\`\n`);
+    }
+  }
+  return out.join("");
+}
+
+/**
+ * ONE REFLECTION, readable: what it was asked, its entry, what the entry rests
+ * on, its morning share and what became of it (`dream-core.ts#SHARE_STATE_WORDS`),
+ * and the page version it wrote. An entry that cited anything is also a memory
+ * of source `reflection`, and is in `memories/` as well; this file says which.
+ */
+function reflectionMarkdown(store: Store, r: ReflectionRow): string {
+  const dream = r.dream_id === null ? undefined : store.dream(r.dream_id);
+  const out = [
+    nightFrontMatter([
+      ["id", r.id],
+      ["type", "reflection"],
+      ["date", r.date],
+      ["livedDay", r.day],
+      ["state", r.state],
+      ["after", r.dream_id ?? "none (it reflected on its own)"],
+      ["model", r.model],
+      ["session", r.session],
+    ]),
+  ];
+  if (dream !== undefined) {
+    const path = nightPath("dreams", dream.id, dream.date);
+    out.push(`After dream ${dream.id}${path === null ? "" : ` — \`${path}\``}.\n\n`);
+  }
+  const questions = parseIdList(r.questions);
+  out.push("## Asked\n\n");
+  out.push(questions.length === 0 ? "(Nothing recorded.)\n" : questions.map((q) => `- ${q.replace(/\r?\n/g, " ")}\n`).join(""));
+  out.push("\n## Entry\n\n");
+  out.push(
+    r.entry !== null && r.entry.length > 0
+      ? `${r.entry}\n`
+      : r.state === "reflected"
+        ? "(No entry was written.)\n"
+        : "(No entry: this reflection was begun and never finished.)\n",
+  );
+  if (r.entry_id !== null) out.push(`\nKept as memory ${r.entry_id}.\n`);
+  const cites = parseIdList(r.cites);
+  if (cites.length > 0) {
+    out.push("\n## It rests on\n\n");
+    for (const c of cites) out.push(`- ${c} "${memoryWords({ store }, c)}"\n`);
+  }
+  out.push("\n## Morning share\n\n");
+  if (r.share === null || r.share.length === 0) {
+    out.push("None.\n");
+  } else {
+    out.push(`${r.share}\n\n${capitalise(SHARE_STATE_WORDS[r.share_state] ?? r.share_state)}.\n`);
+  }
+  if (r.page_version !== null) {
+    out.push(`\n## Self page\n\nIt rewrote the self page: version ${String(r.page_version)} (\`self-page.md\` is the page as it stands now).\n`);
+  }
+  return out.join("");
+}
+
+function capitalise(s: string): string {
+  return s.length === 0 ? s : `${s[0]?.toUpperCase() ?? ""}${s.slice(1)}`;
 }
 
 /**
@@ -444,6 +661,10 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     rows: 0,
     omittedConfidential: 0,
     notRendered: [],
+    dreams: 0,
+    reflections: 0,
+    omittedDreams: 0,
+    omittedReflections: 0,
   });
 
   const encrypting = typeof opts.passphrase === "string" && opts.passphrase.length > 0;
@@ -535,6 +756,10 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     omittedConfidential: census?.omittedConfidential ?? 0,
     omittedVersions: census?.omittedVersions ?? 0,
     notRendered: census?.notRendered ?? [],
+    dreams: census?.dreams ?? 0,
+    reflections: census?.reflections ?? 0,
+    omittedDreams: census?.omittedDreams ?? 0,
+    omittedReflections: census?.omittedReflections ?? 0,
   };
 
   if (!encrypting) {
@@ -576,7 +801,7 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
         (kind === "markdown"
           ? "Unencrypted, at the owner's explicit request. Every file is plain markdown."
           : "Unencrypted, at the owner's explicit request. The database is readable by any SQLite.") +
-        confidentialNote(counted.omittedConfidential, counted.omittedVersions, opts) +
+        confidentialNote(counted, opts) +
         notRenderedNote(counted.notRendered) +
         replacedNote(collisions) +
         sweptNote(sweptScratch),
@@ -596,7 +821,7 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     bytes,
     reason:
       `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.` +
-      confidentialNote(counted.omittedConfidential, counted.omittedVersions, opts) +
+      confidentialNote(counted, opts) +
       notRenderedNote(counted.notRendered) +
       sweptNote(sweptScratch),
     ...counted,
@@ -609,25 +834,57 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
  * Ruling 4 says the export "says how many it omitted", and a line that appears
  * only when something was left out is one whose absence means two different
  * things: nothing was confidential, or nobody checked.
+ *
+ * Dreams and reflections that rest on a confidential memory are a sentence of
+ * their own, said only when there are some: they are not rows, and folding
+ * them into the row count would make "1 confidential row" mean two things.
  */
-function confidentialNote(omitted: number, omittedVersions: number, opts: ExportOptions): string {
+function confidentialNote(
+  counted: {
+    readonly omittedConfidential: number;
+    readonly omittedVersions: number;
+    readonly omittedDreams: number;
+    readonly omittedReflections: number;
+  },
+  opts: ExportOptions,
+): string {
   if (opts.markdown !== true) return "";
   if (opts.includeConfidential === true) {
     return " Confidential rows are INCLUDED, because --include-confidential was passed.";
   }
-  if (omitted === 0 && omittedVersions === 0) {
+  const omitted = counted.omittedConfidential;
+  const omittedVersions = counted.omittedVersions;
+  const nights = nightsWords(counted.omittedDreams, counted.omittedReflections);
+  if (omitted === 0 && omittedVersions === 0 && nights === null) {
     return " No confidential rows were left out (there were none).";
   }
-  const versions =
-    omittedVersions === 0
-      ? ""
-      : ` and ${String(omittedVersions)} confidential earlier wording${omittedVersions === 1 ? "" : "s"}`;
-  const one = omitted === 1 && versions === "";
-  return (
-    ` ${String(omitted)} confidential row${omitted === 1 ? "" : "s"}${versions}` +
-    `${one ? " was" : " were"} left out;` +
-    ` pass --include-confidential to take ${one ? "it" : "them"} too.`
-  );
+  let said = "";
+  if (omitted > 0 || omittedVersions > 0) {
+    const versions =
+      omittedVersions === 0
+        ? ""
+        : ` and ${String(omittedVersions)} confidential earlier wording${omittedVersions === 1 ? "" : "s"}`;
+    const one = omitted === 1 && versions === "";
+    said +=
+      ` ${String(omitted)} confidential row${omitted === 1 ? "" : "s"}${versions}` +
+      `${one ? " was" : " were"} left out;` +
+      ` pass --include-confidential to take ${one ? "it" : "them"} too.`;
+  }
+  if (nights !== null) {
+    said +=
+      ` ${nights.words} that rest${nights.one ? "s" : ""} on a confidential memory ${nights.one ? "was" : "were"} left out` +
+      (omitted > 0 || omittedVersions > 0 ? " too." : `; pass --include-confidential to take ${nights.one ? "it" : "them"} too.`);
+  }
+  return said;
+}
+
+/** "1 dream", "2 dreams and 1 reflection", or null when both are zero. */
+function nightsWords(dreams: number, reflections: number): { words: string; one: boolean } | null {
+  const parts: string[] = [];
+  if (dreams > 0) parts.push(`${String(dreams)} dream${dreams === 1 ? "" : "s"}`);
+  if (reflections > 0) parts.push(`${String(reflections)} reflection${reflections === 1 ? "" : "s"}`);
+  if (parts.length === 0) return null;
+  return { words: parts.join(" and "), one: dreams + reflections === 1 };
 }
 
 /** WHICH files this export replaced, when the owner said to. The flag whose
@@ -743,10 +1000,23 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
             ? `, and **${String(census.omittedVersions)}** confidential earlier wording${census.omittedVersions === 1 ? "" : "s"} of memories that are otherwise here.`
             : ". (Earlier wordings were not being exported; `--with-versions` writes them, confidential ones excepted.)") +
           " They are still in your store; re-run with `--include-confidential` to take them too.";
+  // A THIRD UNIT, said apart again: a night is neither a row nor a wording.
+  // Only when confidential ones were being left out at all.
+  const nightsOmitted =
+    opts.includeConfidential === true
+      ? []
+      : [
+          `- Dreams and reflections that rest on a confidential memory (were shown one, changed one or cite one): ` +
+            `**${String(census.omittedDreams)}** dream${census.omittedDreams === 1 ? "" : "s"}, ` +
+            `**${String(census.omittedReflections)}** reflection${census.omittedReflections === 1 ? "" : "s"}.` +
+            (census.omittedDreams + census.omittedReflections > 0 ? " `--include-confidential` takes them too." : ""),
+        ];
   return [
     "# Counterparts export (markdown)",
     "",
-    `${census.rows} rows, readable in any editor — memories, the journal, and the self page.`,
+    `${census.rows} rows, readable in any editor — memories, the journal, and the self page — ` +
+      `and ${String(census.dreams)} dream${census.dreams === 1 ? "" : "s"} and ` +
+      `${String(census.reflections)} reflection${census.reflections === 1 ? "" : "s"}.`,
     "Rendered from the database; this is a COPY, and the store itself is still where the",
     "memories live.",
     "",
@@ -772,15 +1042,27 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
     census.versions > 0
       ? `- \`versions/<id>/<seq>.md\` — ${String(census.versions)} earlier wording${census.versions === 1 ? "" : "s"}, oldest first (\`--with-versions\`).`
       : "- `versions/` — not included. Pass `--with-versions` to export every earlier wording too.",
+    census.dreams === 0
+      ? "- `dreams/` — none: this store has no dream to export."
+      : `- \`dreams/<year>/<date>-<id>.md\` — ${String(census.dreams)} dream${census.dreams === 1 ? "" : "s"}, one file each:` +
+        " its journal as it was written, every change it made (undone ones marked), and the" +
+        " reflections after it. A dream's journal is not a memory, so it is here and not in `memories/`.",
+    census.reflections === 0
+      ? "- `reflections/` — none: this store has no reflection to export."
+      : `- \`reflections/<year>/<date>-<id>.md\` — ${String(census.reflections)} reflection${census.reflections === 1 ? "" : "s"}, one file each:` +
+        " what it was asked, its entry, what that entry rests on, and its morning share and what" +
+        " became of it. An entry that cited a memory was also kept as a memory, so it is in `memories/` too.",
     "",
     "## What is NOT here",
     "",
     omitted,
+    ...nightsOmitted,
     "- Removed memories. A removal is permanent; a tombstoned row has no words left to export.",
     census.notRendered.length === 0
-      ? "- Nothing else. Every live row this export could reach is in it."
+      ? "- Nothing else. Every live row, dream and reflection this export could reach is in it."
       : `- ${String(census.notRendered.length)} row(s) whose markdown could not be rendered: ${census.notRendered.join(", ")}.`,
-    "- The structured physics — strengths, edges, the association graph, the event log.",
+    "- The structured physics — strengths, edges, the association graph, the event log, and",
+    "  the records a dream keeps beside its journal (what it was shown, what undoing it needs).",
     "  Those are in the database, and `counterparts export --out <dir> --plaintext` (without",
     "  `--markdown`) copies the whole thing as one SQLite file.",
     "",

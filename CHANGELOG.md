@@ -10,6 +10,19 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **`counterparts export --markdown` now includes your dreams and reflections.** Each dream
+  is a file under `dreams/`, by date: its journal and every change it made, undone ones
+  marked. Each reflection is a file under `reflections/`: what it was asked, what it wrote,
+  and its morning share and whether it was told. The README at the top of the export
+  counts both. A dream or reflection that touched a memory you have since marked
+  confidential is left out unless you pass `--include-confidential`, and the export says
+  how many.
+- **`connect` no longer calls every running memory server "the previous version".** It used
+  to count every one on the machine as out of date, including your own sessions on the
+  version you just installed and the session you typed the command into. Now it checks the
+  version each server recorded. It says how many still run an older version (and which),
+  how many already run this one, and how many it can't place, for example a server for
+  another store. When it can tell, it names the session you ran it from.
 
 ## 0.3.12 — 2026-10-08
 
