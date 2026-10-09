@@ -10,7 +10,7 @@ The repository root is the plugin. Claude Code reads four things from it:
 | File | What it does |
 | :- | :- |
 | `.claude-plugin/plugin.json` | The manifest: name `counterparts`, version (kept equal to `package.json`), and the MCP server, declared inline |
-| `.claude-plugin/marketplace.json` | A one-plugin marketplace (`source: "./"`), so `mlapeter/counterparts` can be added as a marketplace |
+| `.claude-plugin/marketplace.json` | A one-plugin marketplace, so `mlapeter/counterparts` can be added as a marketplace. Its entry names this repository on GitHub at a release tag, not master (below, "Releases only") |
 | `hooks/hooks.json` | The five events `counterparts install` wires: SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact |
 | `commands/doctor.md` | `/counterparts:doctor`, because a plugin install puts no `counterparts` on PATH |
 
@@ -99,6 +99,76 @@ not `mcp__counterparts__<tool>`. Permission rules a person wrote for the old nam
 won't match. The nightly run is unaffected: it starts its own server under the old
 name with `--strict-mcp-config`.
 
+## Releases only: the marketplace pins a tag
+
+Anyone can add `mlapeter/counterparts` as a marketplace once `marketplace.json` is on
+master. Claude Code reads the catalog from the default branch, so with a `./` source
+an install would get whatever master holds that day. The entry names a release tag
+instead:
+
+```json
+"source": { "source": "github", "repo": "mlapeter/counterparts", "ref": "v0.3.13" }
+```
+
+Claude Code clones the repository at that tag, so a plugin install only ever gets a
+released version, and each release moves the pin (below).
+
+**Why v0.3.13 and not v0.3.12.** 0.3.12 has no plugin files: no
+`.claude-plugin/plugin.json`, no `hooks/hooks.json`, no launcher. The pin names the
+first release that carries them, which is the one this change ships in. That tag
+doesn't exist yet. Until it does, `/plugin install counterparts@counterparts` fails
+at the clone ("Remote branch v0.3.13 not found"; the loop checks this) and installs
+nothing. That is the intended state: nothing untested installs. If this change
+misses 0.3.13, the pin and `FIRST_PLUGIN_RELEASE` in `test/plugin.test.ts` move to
+the release it ships in.
+
+**Between a release merging and its tag going up**, master names a tag that isn't
+there. A new install fails as above. An existing install that runs `/plugin update`
+gets the same clone error and keeps its copy, which stays enabled and still wakes
+(measured on 2.1.295 in a throwaway home).
+
+**No `sha`.** The entry could also name the commit, which would survive a tag being
+moved or deleted. The release commit can't contain its own sha, so that would mean a
+second commit after every release. Tags are not moved here, so the tag alone is
+enough for now.
+
+**No `version` in the entry.** `plugin.json`'s `version` is the one Claude Code uses
+to decide that an update exists. Setting it in the entry too would only add a third
+number to keep in step.
+
+**Developing.** `/plugin marketplace add <checkout>` reads the catalog from the
+checkout but still fetches the plugin from GitHub at the tag. To run the working
+tree as a plugin, use `claude --plugin-dir <checkout>` in a throwaway home, or the
+loop below, which installs the working tree under the pin's name.
+
+**The directory listing** (if submitted) tracks a branch or tag of its own, set in
+the portal. Point it at the same release tag and update it at each release, or it
+becomes a second way to get master.
+
+## Releasing: move the pin
+
+The release process itself lives outside this repository (each release's brief and
+PUBLISH sheet). For the plugin it adds one edit and one tag:
+
+1. **In the release commit**, next to `package.json`'s version: set `"version"` in
+   `.claude-plugin/plugin.json` to the same version, and the entry's `"ref"` in
+   `.claude-plugin/marketplace.json` to `v<version>`. `test/plugin.test.ts` fails
+   until all three agree, and its message names this section.
+2. **At publish, on the owner's word**, after `npm publish`: tag the commit the tarball
+   was packed from (the release folder's `COMMIT` file) and push the tag.
+
+   ```sh
+   git tag -a v<version> <commit> -m "counterparts <version>"
+   git push origin v<version>
+   ```
+
+   Until the tag is pushed, master's pin names a tag that isn't there (above). Tag the
+   packed commit, not the merge commit, unless the two trees are identical.
+3. **Check**, from a throwaway home (both `HOME` and `CLAUDE_CONFIG_DIR` set to a new
+   directory): `claude plugin marketplace add mlapeter/counterparts`, then
+   `claude plugin install counterparts@counterparts`; `claude plugin list` shows the
+   new version.
+
 ## The automated loop
 
 `tools/plugin-loop/run.sh [workdir]` runs everything below in a throwaway HOME and
@@ -109,22 +179,31 @@ at. Then it:
 
 1. snapshots the working tree into a git repository and validates it
    (`claude plugin validate`);
-2. adds the repository's own `marketplace.json` from its path;
-3. installs through a git source, the same path a GitHub source takes: clone, copy
-   into `~/.claude/plugins/cache`, dependency install from `bun.lock`;
-4. checks the cached copy has no `.git`, and that `counterparts-model-potion` was
-   installed;
-5. runs `claude --init-only`, which fires the plugin's SessionStart for real: first
+2. reads the pin from the repository's `marketplace.json` (GitHub at a release tag),
+   tags the snapshot with it inside its own throwaway clone, and adds one commit past
+   the tag;
+3. adds the repository's own `marketplace.json` from its path;
+4. points an entry at a tag that doesn't exist and checks the install fails and
+   installs nothing (master before the first plugin release);
+5. installs through a git source at the pin, the same path a GitHub source takes:
+   clone at the tag, copy into `~/.claude/plugins/cache`, dependency install from
+   `bun.lock`. It checks the install is the tagged working tree and not the commit
+   past the tag, that the cached copy has no `.git`, and that
+   `counterparts-model-potion` was installed;
+6. runs `claude --init-only`, which fires the plugin's SessionStart for real: first
    run, store created, wake delivered;
-6. runs `claude mcp list`, where Claude Code starts the plugin's server from the
+7. runs `claude mcp list`, where Claude Code starts the plugin's server from the
    plugin root and it connects;
-7. writes a note and recalls it through the plugin's server, finds it again with the
+8. writes a note and recalls it through the plugin's server, finds it again with the
    console, and captures a turn through the plugin's hook command into the store's
    buffer;
-8. runs doctor the way `/counterparts:doctor` does: the plugin install reads as connected;
-9. wires the npm hooks as well and checks there's one wake plus the stand-down line;
-   removes them and checks the plugin wakes on the same store;
-10. uninstalls the plugin and checks `~/.counterparts` is intact.
+9. runs doctor the way `/counterparts:doctor` does: the plugin install reads as connected;
+10. wires the npm hooks as well and checks there's one wake plus the stand-down line;
+    removes them and checks the plugin wakes on the same store;
+11. uninstalls the plugin and checks `~/.counterparts` is intact.
+
+So the loop tests the working tree, never the release the pin names. Last run: 20/20
+on 2.1.295.
 
 It never logs in. A model turn needs a login, and the loop copies no credential.
 
@@ -134,8 +213,10 @@ A. **A real session in a throwaway home.** Set both `HOME` and `CLAUDE_CONFIG_DI
 to a new directory before `claude`, so the login lands in the throwaway config and
 not the real one. Then:
 
-- `/plugin marketplace add mlapeter/counterparts` (or a local checkout path), then
-  `/plugin install counterparts@counterparts`, then restart.
+- `/plugin marketplace add mlapeter/counterparts`, then
+  `/plugin install counterparts@counterparts`, then restart. This installs the
+  pinned release; it fails until the first plugin release is tagged. To try the
+  working tree instead, start `claude --plugin-dir <checkout>`.
 - The first prompt shows the "first run" line, and the reply shows the wake was read.
 - Tell it something specific. Then `/counterparts:doctor` and `/mcp`: the server is
   connected, with nine tools.
