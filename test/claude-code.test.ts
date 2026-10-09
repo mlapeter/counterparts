@@ -2105,6 +2105,24 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     );
   });
 
+  test("the briefing row says whether anybody could be told anything in its session (review of #337)", () => {
+    // The `fired` report's plain-due check reads it: a session nobody attends
+    // is never handed a plain reminder, so its day is not one a reminder could
+    // have been said on.
+    const { a } = adapter();
+    a.sessionStart(input({ sessionId: "person", entrypoint: "cli" }));
+    a.sessionStart(input({ sessionId: "headless", entrypoint: "sdk-cli" }));
+    a.sessionStart(input({ sessionId: "night", nightRun: true }));
+    a.sessionStart(input({ sessionId: "watched-sdk", entrypoint: "sdk-ts", attended: true }));
+    const said = Object.fromEntries(
+      a.counterpart.store.eventLog({ name: "adapter.wake.injected", limit: 10 }).map((r) => {
+        const p = JSON.parse(r.payload ?? "{}") as Record<string, unknown>;
+        return [String(p["session"]), p["interactive"]];
+      }),
+    );
+    expect(said).toEqual({ person: true, headless: false, night: false, "watched-sdk": true });
+  });
+
   test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {
     // On any day v2 is the muted side — day 0, or a reverted day — a v2
     // delivery event IS the

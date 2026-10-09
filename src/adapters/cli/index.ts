@@ -89,6 +89,7 @@ export {
   readHost,
   hostMcpFile,
   hostSettingsFiles,
+  hostSettingsDir,
   hostConfigBase,
   runCommand,
   settingsBlock,
