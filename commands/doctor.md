@@ -1,9 +1,9 @@
 ---
 description: Check Counterparts' health, for an install that came as this plugin
-allowed-tools: Bash(sh:*)
+allowed-tools: Bash(sh "${CLAUDE_PLUGIN_ROOT}/src/adapters/plugin-run.sh" cli doctor)
 ---
 
-Run this one command with the Bash tool and show the person its output as it is, without summarizing it away:
+Run this one command with the Bash tool, exactly as written, and show the person its output as it is, without summarizing it away:
 
 ```
 sh "${CLAUDE_PLUGIN_ROOT}/src/adapters/plugin-run.sh" cli doctor

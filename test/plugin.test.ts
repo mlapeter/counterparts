@@ -15,6 +15,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -166,6 +167,24 @@ describe("the plugin's files", () => {
     const files = pkg["files"] as string[];
     for (const f of [".claude-plugin", ".claude-plugin/", "hooks", "hooks/", "commands", "commands/"]) {
       expect(files).not.toContain(f);
+    }
+  });
+
+  test("/counterparts:doctor grants exactly the one command it runs, and no plugin command grants more", () => {
+    // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} in a plugin command's
+    // `allowed-tools` (2.1.295), so the rule is the launcher's absolute path,
+    // `cli doctor`, and nothing else — not `Bash(sh:*)`, which let any `sh …`
+    // run unprompted while the command ran.
+    const text = readFileSync(join(ROOT, "commands", "doctor.md"), "utf8");
+    const grant = /^allowed-tools:\s*(.+)$/m.exec(text)?.[1]?.trim();
+    const run = `sh "${LAUNCHER_ARG}" cli doctor`;
+    expect(grant).toBe(`Bash(${run})`);
+    expect(text).toContain(`\n${run}\n`);
+    for (const name of readdirSync(join(ROOT, "commands"))) {
+      const body = readFileSync(join(ROOT, "commands", name), "utf8");
+      for (const m of body.matchAll(/^allowed-tools:\s*(.+)$/gm)) {
+        expect(m[1] ?? "").not.toMatch(/:\*|\*|^Bash\s*(,|$)|Bash\(\s*\)/);
+      }
     }
   });
 
