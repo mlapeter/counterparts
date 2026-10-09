@@ -466,8 +466,15 @@ the reader interprets (`meaning.ts`). Working defaults, held lightly; the revisi
 them.
 
 - **[M]** The subject is read from the question: the cards its names reach
-  (`Schemas#subjectsIn` → `memory_subjects`), the best of them the arc and the rest
-  one-liners; "us" (the words *us*, *ourselves*, *together*) is the memories marked
+  (`Schemas#subjectsIn` → `memory_subjects`), the one it is about the arc and the rest
+  one-liners (`meaning.ts#subjectOf`, 2026-10-09). A name the words before it ask about
+  ("what has X been", "how has X changed", "about X", "my arc with X") ranks over a plain
+  mention, and that over an aside ("to Y", "for Y", "since Y"); a name joined to the one
+  before it ("X and Y") shares its place; the owner's own card leaves a place it shares;
+  then the first named wins, memory counts only break a tie, and the answer says when
+  more than one were asked about alike. The owner's "I" ("you" in the counterpart's
+  voice) asked about is his card, except in a question about feeling or about "us".
+  "us" (the words *us*, *ourselves*, *together*) is the memories marked
   `about: us`; a ranked question about feeling (`feeling-ask.ts`) with no card is the
   stamps that match it by word, core and whose — narrowed, when it names a topic no card
   holds, to the stamped moments the topic's words reach (none reached: all of them, and

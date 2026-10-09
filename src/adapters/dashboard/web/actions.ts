@@ -374,11 +374,12 @@ function argvFor(name: ActionName, body: Body, ctx: ActionContext): Built {
       const typed = words(question as string, "question");
       const exact = flag(body, "exact");
       // In MEANING mode his "I" becomes "you", never his name (review of #333):
-      // meaning takes the card with the most memories as its subject, and the
-      // owner's own card is usually the biggest, so "what has Ilya been to me"
-      // turned into "… to Rosalind" answered about Rosalind, with Ilya under
-      // "also named". In my voice "you" is the owner to meaning (`--voiced`),
-      // so his feelings stay his.
+      // meaning then took the card with the most memories as its subject, so
+      // "what has Ilya been to me" turned into "… to Rosalind" answered about
+      // Rosalind. Since 2026-10-09 meaning picks the card the question is
+      // about (`meaning.ts#subjectOf`), and in my voice (`--voiced`) "you" is
+      // the owner to it: his feelings stay his, and "what have you been like"
+      // is his own card.
       const owner = mode === "meaning" ? null : ctx.ownerName ?? null;
       const voiced = exact ? { text: typed, changed: false } : toMyVoice(typed, owner);
       // In MY voice, "I" is me: a question about feeling asks about the

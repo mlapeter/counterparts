@@ -1205,3 +1205,41 @@ reason (the function is synchronous, so the embedder is not in it). What the bui
   the body — and lost them quietly, its tests fed by hand in the old shape; see the
   dashboard's NOTES of that day. `ask` takes `--mode meaning` now, and there `--voiced`
   decides whose "I" a question about feeling means.)
+
+## 2026-10-09 — meaning's subject is the card the question is about
+
+Meaning mode took the card with the most memories as the arc. On a real store that is
+usually the owner's own card, so "what has Ilya been to Mike" answered about Mike, with Ilya
+under "also named". The review of #333 found it on the dashboard and fixed that side by
+turning the owner's "I" into "you"; the `recall` tool picked the same way. Reproduced on the
+demo store through the tool: "what has Ilya Broadbent been to Rosalind Achebe" (6 memories
+against the owner's 10) answered about Rosalind, and "how has Ilya Broadbent changed since
+Nkechi Abernathy arrived" answered about Nkechi.
+
+- **Grammar first, then the order of the names, then counts** (`meaning.ts#subjectOf`). Each
+  name is read in place by the words just before it: asked about ("what has X been", "how
+  has X changed", "how did X", "about X", "my arc with X", "between X and Y"), an aside ("to
+  Y", "for Y", "since Y", "than Y"), or plain. A name joined to the one before it ("X and Y",
+  "X, Y") shares its place. The best place wins; within it the first named; a longer name at
+  the same spot, then more memories, then the name, break a tie.
+- **The owner leaves a place he shares.** Every memory in his store is his, so beside
+  another card in the same place the other says more ("Rosalind and Ilya" is Ilya's arc).
+  When the grammar puts him alone in the subject's place ("what has Rosalind been to Ilya")
+  he is the subject, and the person is the one-liner.
+- **Ambiguity is said, not hidden.** More than one card left in the best place: the arc
+  follows the first, and a note says "it asks about A and B alike: this follows A, named
+  first". "Also named" already offers the other's arc by name.
+- **The owner's "I", asked about, is his card again.** The pronoun that means the owner by
+  `feeling-ask.ts`'s rule ("you" when the counterpart asks, "I"/"me"/"myself" when the
+  owner does) counts as his card, read by the identity core's id rather than his name, only
+  where it sits in an asked-about place. So the dashboard's "what have I been like" (sent as
+  "what have you been like", voiced) finds his card, as it did before #333; "do you remember
+  the budget" names nothing and is read by its words; "my" and "your" own a topic and name
+  no one. Off for a question about feeling (the pronoun says whose feeling, so "how have you
+  felt lately" stays the feelings answer) and for "us".
+- **Facts mode is untouched.** `facts.ts` reads `subjectsIn` itself and imports nothing from
+  `meaning.ts`. The only code changed is `meaning.ts`; the `recall` description gained one
+  sentence in its meaning claim, so a benchmark pinned to facts answers the same.
+- **Not done:** an arc of two cards together (the memories naming both). "What has Rosalind
+  been to Ilya" is still one card's arc; the overlap would be the better answer, and a
+  bigger change.

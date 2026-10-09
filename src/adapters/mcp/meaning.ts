@@ -33,7 +33,11 @@
  *
  * **The subject.** The question's names, read through the alias index
  * (`Schemas#subjectsIn`), reach their cards' memories (`memory_subjects`,
- * v12); the card holding the most is the arc, the rest are one-liners. "us"
+ * v12); the card the question is ABOUT is the arc — read off its grammar and
+ * the order of its names, counts only breaking a tie (`subjectOf`, since
+ * 2026-10-09; it was the card holding the most) — and the rest are
+ * one-liners. The owner's "I" asked about ("what have you been like", in the
+ * counterpart's voice) is his own card. "us"
  * is the memories marked `about: us`. A question about feeling
  * (`recall/feeling-ask.ts#readFeelingAsk`, ranked) with no card is answered
  * by the stamps that match it — word, core, whose — and, when it names a
@@ -65,7 +69,7 @@ import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
-import { chapterAddress, chapterAt, chapterTimesOf, identityCoreName } from "../../core/self/index.js";
+import { chapterAddress, chapterAt, chapterTimesOf, findIdentityCore, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
 import { feelingValence, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
@@ -279,6 +283,35 @@ const FEELING_FRAME_MORE = new Set([
 /** Words that make "us" the subject: the two of them together. Not "we" or "our", which a question uses for joint work. */
 const US_WORDS = new Set(["us", "ourselves", "together"]);
 
+/**
+ * Just before a name, words that make it what the question is ABOUT: "what has
+ * X been", "how has X changed", "who was X", "how did X take it", "tell me
+ * about X", "my arc with X", "between X and Y" (and "between you and X").
+ */
+const ABOUT_BEFORE: readonly RegExp[] = [
+  /\b(?:what|who|how)\s+(?:has|have|had|is|are|was|were)\s+$/i,
+  /\bhow\s+did\s+$/i,
+  /\babout\s+$/i,
+  /\b(?:my|our|your)\s+(?:arc|history|story|relationship|time|work|things)\s+with\s+$/i,
+  /\bbetween\s+$/i,
+  /\bbetween\s+(?:you|me|him|her|them)\s+and\s+$/i,
+];
+/** Just before a name, words that make it an ASIDE: who the subject matters to, or since when ("been to Y", "since Y arrived"). */
+const ASIDE_BEFORE = /\b(?:to|for|since|than)\s+$/i;
+/** What lies between two names asked about alike: "X and Y", "X, Y", "X or Y". */
+const JOINED = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|&)\s+)$/i;
+/** The owner's "I" when the asker is the counterpart (`asker: "self"`): "you". Not "your", which owns a topic ("your garden plan"). */
+const OWNER_AS_YOU = /\b(?:you|yourself)\b(?!['’])/gi;
+/** The owner's "I" when the asker is the owner. Not "my", for the same reason. */
+const OWNER_AS_I = /\b(?:i|me|myself)\b(?!['’])/gi;
+
+/** A card the question names, and its memories the asker may see. */
+interface NamedCard {
+  readonly id: string;
+  readonly name: string;
+  readonly ids: readonly string[];
+}
+
 interface Held {
   readonly row: MemoryRow;
   /** How strongly this memory holds the subject (1 for a card's; a stamp's value; a word/meaning score). */
@@ -384,13 +417,14 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     });
   }
 
+  const cardOf = (id: string): NamedCard | null => {
+    const name = safe(() => c.schemas.entity(id)?.name ?? null, null);
+    if (name === null) return null;
+    return { id, name, ids: safe(() => store.memoriesNaming(id), [] as string[]).filter((m) => usable(m) !== null) };
+  };
   const cards = safe(() => c.schemas.subjectsIn(question), [] as string[])
-    .map((id) => {
-      const name = safe(() => c.schemas.entity(id)?.name ?? null, null);
-      const ids = safe(() => store.memoriesNaming(id), [] as string[]).filter((m) => usable(m) !== null);
-      return { id, name, ids };
-    })
-    .filter((x): x is { id: string; name: string; ids: string[] } => x.name !== null)
+    .map(cardOf)
+    .filter((x): x is NamedCard => x !== null)
     .sort((a, b) => b.ids.length - a.ids.length || a.name.localeCompare(b.name));
   const usAsked = tokenize(question).some((w) => US_WORDS.has(w)) || /\bbetween\s+(you\s+and\s+me|me\s+and\s+you)\b/i.test(question);
   const usIds = usAsked
@@ -414,7 +448,23 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
   let lineMatch: readonly RegExp[] = [];
   const others: { name: string; memories: number }[] = [];
   const notes: string[] = [];
-  const bestCard = cards.find((x) => x.ids.length > 0) ?? null;
+  // THE SUBJECT IS THE CARD THE QUESTION IS ABOUT (2026-10-09), read off its
+  // grammar and the order of its names; memory counts only break a tie. The
+  // owner's "I" — "you" in my voice — asked about is his own card
+  // (`subjectOf`). It was the card with the most memories, which on a real
+  // store is usually the owner's: "what has Ilya been to Mike" answered
+  // about Mike.
+  const ownerCard = safe(() => findIdentityCore(store), null);
+  const subject = subjectOf(question, cards, {
+    terms: (id) => cardTerms(c, id),
+    ownerCard,
+    ownerPronoun: feelingAsked || usAsked ? null : asker === "self" ? OWNER_AS_YOU : OWNER_AS_I,
+    ownerCardOf: () => (ownerCard === null ? null : cardOf(ownerCard)),
+  });
+  const bestCard = subject.card;
+  if (bestCard !== null && subject.alike.length > 0) {
+    notes.push(`it asks about ${andList([bestCard.name, ...subject.alike])} alike: this follows ${bestCard.name}, named first`);
+  }
 
   if (bestCard !== null) {
     lens = { kind: "card", id: bestCard.id, name: bestCard.name };
@@ -430,7 +480,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
         return Math.min(n, 4) * 0.5;
       };
     }
-    for (const x of cards) if (x !== bestCard) others.push({ name: x.name, memories: x.ids.length });
+    for (const x of cards) if (x.id !== bestCard.id) others.push({ name: x.name, memories: x.ids.length });
     if (usIds.length > 0) others.push({ name: usName, memories: usIds.length });
   } else if (usIds.length > 0) {
     lens = { kind: "us", name: usName };
@@ -1219,6 +1269,104 @@ function cardTerms(c: Counterpart, id: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** Where a name sits in the question: what it is about, a plain mention, or an aside. */
+type Slot = "about" | "plain" | "aside";
+const SLOT_RANK: Readonly<Record<Slot, number>> = { about: 2, plain: 1, aside: 0 };
+
+/**
+ * WHICH CARD THE QUESTION IS ABOUT (2026-10-09). Deterministic; no model.
+ *
+ *   1. Each name the question gives a card is read in place: ABOUT when the
+ *      words just before it ask about it ("what has X been", "how has X
+ *      changed", "about X", `ABOUT_BEFORE`), an ASIDE when they say who it
+ *      matters to or since when ("been to Y", "since Y arrived"), plain
+ *      otherwise. A name joined to the one before it ("X and Y", "X, Y")
+ *      takes that one's place. A card's place is its best mention's.
+ *   2. Of the cards with memories, those in the best place are the field. The
+ *      owner's own card leaves a field it shares — every memory here is his,
+ *      so the other one says more ("Rosalind's arc with Ilya").
+ *   3. The first named wins the field; a longer name at the same spot, then
+ *      more memories, then the name, break a tie. More than one left in the
+ *      field is asked about alike, and `alike` names the rest so the answer
+ *      can say so.
+ *
+ * The owner's "I" — "you" in the counterpart's voice, as `feeling-ask.ts`
+ * reads whose — names his card (by its id, not his name) where it sits in an
+ * about place: "what have you been like", "how have I changed", "how have you
+ * and Ilya been". Anywhere else a pronoun names nothing, so "do you remember
+ * the budget" is still read by its words. Off (`ownerPronoun` null) for a
+ * question about feeling, where the pronoun says whose feeling, and for "us".
+ */
+function subjectOf(
+  question: string,
+  cards: readonly NamedCard[],
+  o: {
+    readonly terms: (id: string) => readonly string[];
+    readonly ownerCard: string | null;
+    readonly ownerPronoun: RegExp | null;
+    readonly ownerCardOf: () => NamedCard | null;
+  },
+): { card: NamedCard | null; alike: readonly string[] } {
+  const live = cards.filter((x) => x.ids.length > 0);
+  // Every mention of every card, in the order they are named.
+  const mentions: { card: NamedCard; at: number; end: number; slot: Slot }[] = [];
+  for (const card of live) {
+    for (const term of o.terms(card.id)) {
+      for (const m of question.matchAll(nameRegex(term, "giu"))) {
+        mentions.push({ card, at: m.index, end: m.index + m[0].length, slot: slotAt(question, m.index) });
+      }
+    }
+  }
+  if (o.ownerCard !== null && o.ownerPronoun !== null) {
+    const asked = [...question.matchAll(o.ownerPronoun)].filter((m) => slotAt(question, m.index) === "about");
+    const own = asked.length === 0 ? null : (live.find((x) => x.id === o.ownerCard) ?? o.ownerCardOf());
+    if (own !== null && own.ids.length > 0) {
+      if (!live.includes(own)) live.push(own);
+      for (const m of asked) mentions.push({ card: own, at: m.index, end: m.index + m[0].length, slot: "about" });
+    }
+  }
+  if (live.length === 0) return { card: null, alike: [] };
+  mentions.sort((a, b) => a.at - b.at || b.end - a.end);
+  const kept: typeof mentions = [];
+  for (const m of mentions) {
+    const prev = kept[kept.length - 1];
+    // A name inside a longer one ("Han" in "Han Seo") is not a mention of its own.
+    if (prev !== undefined && m.at < prev.end) continue;
+    if (prev !== undefined && JOINED.test(question.slice(prev.end, m.at))) m.slot = prev.slot;
+    kept.push(m);
+  }
+  const place = new Map<string, { slot: Slot; at: number; length: number }>();
+  for (const m of kept) {
+    const had = place.get(m.card.id);
+    if (had === undefined || SLOT_RANK[m.slot] > SLOT_RANK[had.slot]) place.set(m.card.id, { slot: m.slot, at: m.at, length: m.end - m.at });
+  }
+  // A card named only inside another's longer name: the least of them.
+  const placeOf = (x: NamedCard) => place.get(x.id) ?? { slot: "aside" as Slot, at: Number.POSITIVE_INFINITY, length: 0 };
+  const best = Math.max(...live.map((x) => SLOT_RANK[placeOf(x).slot]));
+  let field = live.filter((x) => SLOT_RANK[placeOf(x).slot] === best);
+  if (field.length > 1 && o.ownerCard !== null) field = field.filter((x) => x.id !== o.ownerCard);
+  field.sort((a, b) => {
+    const pa = placeOf(a);
+    const pb = placeOf(b);
+    return pa.at - pb.at || pb.length - pa.length || b.ids.length - a.ids.length || a.name.localeCompare(b.name);
+  });
+  const [card, ...rest] = field;
+  return { card: card ?? null, alike: rest.map((x) => x.name) };
+}
+
+/** The place a name at `index` sits in: about, aside, or plain. */
+function slotAt(question: string, index: number): Slot {
+  const before = question.slice(0, index);
+  if (ABOUT_BEFORE.some((re) => re.test(before))) return "about";
+  return ASIDE_BEFORE.test(before) ? "aside" : "plain";
+}
+
+/** "A", "A and B", "A, B and C". */
+function andList(names: readonly string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] as string}`;
 }
 
 /**
