@@ -1,20 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.3.13 — 2026-10-09
 
-- **A memory can no longer fade or retire an unrelated one by mistake.** When a new memory
-  says it changes or corrects an older one (`updates` with `how: changed` or `corrected`),
-  Counterparts now checks the two are about the same thing first: by meaning, through the
-  local embeddings, or by shared words when there are none. If they look unrelated, the
-  new memory is stored but the old one is left as it was and the two are not linked. The
-  reply shows the old memory's title and text and asks the model to settle it itself with
-  `note` if it really meant the correction. In a benchmark with a smaller model, about two
-  thirds of these pointers named the wrong memory (one about a mole removal retired a
-  passport name change); on Opus they were right. Closing an open thread, moving or
-  dropping a reminder's date, and changing a status still go straight through, however
-  short the note. A write-up or the nightly catch-up has nobody to read the reply, so
-  there the old memory simply stays. Each hold is recorded; the dashboard's flow shows
-  them.
+A dated memory can now repeat (daily, weekly, monthly or yearly), and a reminder that
+repeats stays alive by coming round. A memory that says it corrects an unrelated one is held
+instead of fading it. Facts recall reads "last Saturday" and "before 7/22" as meant, meaning
+recall answers about the person you asked about, and the dashboard's Ask speaks both modes.
+Doctor stops raising false alarms: the Fired line knows mechanisms that only wait or run
+once, the Wake line no longer counts unchecked wakes as lost, and the nightly run now reads
+its own transcript for Claude Code's cut. Counterparts can also be installed as a Claude Code
+plugin. **No change to the store's format (still v12):** going back to 0.3.12 is a plain
+reinstall, and there a repeating date reads as a one-off date that has passed.
+
+Dates that repeat, and corrections that are held (#339, #340, #341).
+
 - **Dates can repeat.** A dated memory can now say `recurring`: `daily`, `weekly`,
   `monthly` or `yearly`, counted from its date. A birthday saved as 1990-05-14 with
   `yearly` comes back every May 14 — a plain one is said on the day each year, once, and
@@ -36,24 +35,22 @@
   repeats comes round on its date even when it has faded: a quiet yearly one is still
   surfaced, and a plain one is still said. One-off dates are unchanged, and a reminder
   whose repeat you drop fades and is cleaned up like any other memory.
-- **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
-  do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
-  export or un-merge a memory, or something fails. One, the check after the v8 upgrade,
-  runs only once. `counterparts mechanisms --all` now lists the first kind as **waiting**
-  and a one-time job that ran as **done**, instead of "gone quiet" or "never fired", and
-  doctor counts them the same way. One silence is still a fault: a reminder you marked
-  plain that fell due on a day you used Claude Code and was not said. That turns the line
-  amber, and the short `counterparts mechanisms` view says so on its Prospective line.
-- **Doctor's Reflection line counts "returns this week" from your local midnight**, not
-  UTC's. West of UTC it counted returns from the evening before the week; far to the east
-  it missed the first hours of the week.
-- **With `CLAUDE_CONFIG_DIR` set, `connect`, `install` and doctor use the settings file
-  Claude Code actually reads**, `$CLAUDE_CONFIG_DIR/settings.json`. They used
-  `$CLAUDE_CONFIG_DIR/.claude/settings.json`, which Claude Code never opens, so the hooks
-  never ran while doctor, reading the same file, said they were connected. `install` also
-  now recognises Claude Code from that directory. Nothing changes if you don't set the
-  variable. If you do and ran `connect` before, run it again; the stray
-  `.claude/settings.json` inside that directory can be deleted.
+- **A memory can no longer fade or retire an unrelated one by mistake.** When a new memory
+  says it changes or corrects an older one (`updates` with `how: changed` or `corrected`),
+  Counterparts now checks the two are about the same thing first: by meaning, through the
+  local embeddings, or by shared words when there are none. If they look unrelated, the
+  new memory is stored but the old one is left as it was and the two are not linked. The
+  reply shows the old memory's title and text and asks the model to settle it itself with
+  `note` if it really meant the correction. In a benchmark with a smaller model, about two
+  thirds of these pointers named the wrong memory (one about a mole removal retired a
+  passport name change); on Opus they were right. Closing an open thread, moving or
+  dropping a reminder's date, and changing a status still go straight through, however
+  short the note. A write-up or the nightly catch-up has nobody to read the reply, so
+  there the old memory simply stays. Each hold is recorded; the dashboard's flow shows
+  them.
+
+Recall and the dashboard's Ask (#329, #333, #334, #335, #338).
+
 - **Facts recall reads "last Saturday" and "before 7/22" the way you mean them.** "Last
   Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
   the most recent Saturday before today, so asked on a Saturday it is the one a week ago.
@@ -64,46 +61,6 @@
   `7/22/2023`, and a year written with the date (`7/22/2023`, "July 22, 2023") is now the
   year used; it was ignored before. "This Saturday" and "on Saturday" are still not read,
   since either can mean the coming one.
-- **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
-  about 09-25 Claude Code writes a session's transcript only after the first prompt, which
-  is when the check read it, so nearly every session said its wake was "not found in the
-  transcript". The check now waits: if the file is not there yet it reads again at the next
-  prompt or when the first answer ends. Rows already in the store from before say "not
-  checked (no transcript to read)" and are left out of "N of M arrived whole", and the
-  dashboard no longer shows them in orange. A transcript still missing when the first answer
-  ends, or one that could not be read, is named on its own.
-- **The nightly run notices if Claude Code cut what it was handed.** Counterparts keeps every
-  tool result under 40,000 characters, under Claude Code's limit of 50,000 — but Claude Code
-  can lower that limit on its own, and a result past it reaches the model as a short preview.
-  After each nightly run, Counterparts now reads that run's own transcript for Claude Code's
-  marker on its tool results. If it finds one, doctor's Tool results line turns amber and
-  says which result and how large, and the next morning your session tells you plainly that
-  last night's run read only part of what it was handed. Memories that merely quote the
-  marker are not counted. Doctor's green line also says whether the last night's transcript
-  was found and read.
-- **A reflection handed its bundle in parts is told, first thing, to read every part before
-  it writes.** One finished without its second part during the 0.3.12 release check.
-- **`counterparts export --markdown` now includes your dreams and reflections.** Each dream
-  is a file under `dreams/`, by date: its journal and every change it made, undone ones
-  marked. Each reflection is a file under `reflections/`: what it was asked, what it wrote,
-  and its morning share and whether it was told. The README at the top of the export
-  counts both. A dream or reflection that touched a memory you have since marked
-  confidential is left out unless you pass `--include-confidential`, and the export says
-  how many.
-- **`connect` no longer calls every running memory server "the previous version".** It used
-  to count every one on the machine as out of date, including your own sessions on the
-  version you just installed and the session you typed the command into. Now it checks the
-  version each server recorded. It says how many still run an older version (and which),
-  how many already run this one, and how many it can't place, for example a server for
-  another store. When it can tell, it names the session you ran it from.
-- **The dashboard's Ask reads 0.3.12's answers.** After recall took a mode, the Memories
-  page kept reading the old answer, so most dates, the "strong match" words and the "from
-  chapter" links vanished, and "by meaning" got a facts answer. The switch beside the box
-  now has three ways: **by word** (as you type, as before), **facts** (every memory that
-  answers the question, counted and paged, each saying who said it, when it happened or was
-  learned, and what it was before it changed) and **by meaning** (the chapters that hold a
-  person, a project or a feeling, in time order, with their moments and whose feelings
-  they were). The match-strength words are gone, as recall has none now.
 - **Recall by meaning answers about the person you asked about.** A question naming two
   people, or you and someone else, was answered about whichever had more memories, which
   is usually you: "what has Ilya been to Mike" through the `recall` tool came back as
@@ -112,6 +69,14 @@
   since Nkechi arrived" is Ilya's). When two are asked about alike ("tell me about Ilya and
   Nkechi") it follows the first and says so. And "what have I been like" or "how have I
   changed", asked by meaning on the dashboard, finds your own card again.
+- **The dashboard's Ask reads 0.3.12's answers.** After recall took a mode, the Memories
+  page kept reading the old answer, so most dates, the "strong match" words and the "from
+  chapter" links vanished, and "by meaning" got a facts answer. The switch beside the box
+  now has three ways: **by word** (as you type, as before), **facts** (every memory that
+  answers the question, counted and paged, each saying who said it, when it happened or was
+  learned, and what it was before it changed) and **by meaning** (the chapters that hold a
+  person, a project or a feeling, in time order, with their moments and whose feelings
+  they were). The match-strength words are gone, as recall has none now.
 - **`counterparts ask --mode meaning`** answers in meaning mode, as the `recall` tool's
   `mode: "meaning"` does; facts stays the default. `--page` pages either.
 - **A memory id written inside a memory's words is a link.** On the Memories page,
@@ -134,6 +99,49 @@
   …" used the UTC date, so in Denver anything written in the evening showed the next day, and
   east of UTC anything written early in the morning showed the day before. It now uses this
   computer's date, the same day as the card's "recorded" line.
+
+Doctor, and the nightly run (#325, #330, #337).
+
+- **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
+  do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
+  export or un-merge a memory, or something fails. One, the check after the v8 upgrade,
+  runs only once. `counterparts mechanisms --all` now lists the first kind as **waiting**
+  and a one-time job that ran as **done**, instead of "gone quiet" or "never fired", and
+  doctor counts them the same way. One silence is still a fault: a reminder you marked
+  plain that fell due on a day you used Claude Code and was not said. That turns the line
+  amber, and the short `counterparts mechanisms` view says so on its Prospective line.
+- **Doctor's Wake line no longer reports wakes as lost that were never checked.** Since
+  about 09-25 Claude Code writes a session's transcript only after the first prompt, which
+  is when the check read it, so nearly every session said its wake was "not found in the
+  transcript". The check now waits: if the file is not there yet it reads again at the next
+  prompt or when the first answer ends. Rows already in the store from before say "not
+  checked (no transcript to read)" and are left out of "N of M arrived whole", and the
+  dashboard no longer shows them in orange. A transcript still missing when the first answer
+  ends, or one that could not be read, is named on its own.
+- **The nightly run notices if Claude Code cut what it was handed.** Counterparts keeps every
+  tool result under 40,000 characters, under Claude Code's limit of 50,000 — but Claude Code
+  can lower that limit on its own, and a result past it reaches the model as a short preview.
+  After each nightly run, Counterparts now reads that run's own transcript for Claude Code's
+  marker on its tool results. If it finds one, doctor's Tool results line turns amber and
+  says which result and how large, and the next morning your session tells you plainly that
+  last night's run read only part of what it was handed. Memories that merely quote the
+  marker are not counted. Doctor's green line also says whether the last night's transcript
+  was found and read.
+- **A reflection handed its bundle in parts is told, first thing, to read every part before
+  it writes.** One finished without its second part during the 0.3.12 release check.
+- **Doctor's Reflection line counts "returns this week" from your local midnight**, not
+  UTC's. West of UTC it counted returns from the evening before the week; far to the east
+  it missed the first hours of the week.
+- **With `CLAUDE_CONFIG_DIR` set, `connect`, `install` and doctor use the settings file
+  Claude Code actually reads**, `$CLAUDE_CONFIG_DIR/settings.json`. They used
+  `$CLAUDE_CONFIG_DIR/.claude/settings.json`, which Claude Code never opens, so the hooks
+  never ran while doctor, reading the same file, said they were connected. `install` also
+  now recognises Claude Code from that directory. Nothing changes if you don't set the
+  variable. If you do and ran `connect` before, run it again; the stray
+  `.claude/settings.json` inside that directory can be deleted.
+
+The wake, export and connect (#331, #332).
+
 - **A plan changed after a handoff is shown with it.** When a session left a handoff and
   later wrote a note or a `session_end` memory that changed the plan (status `planned`,
   `proposed` or `asked`, or marked `unresolved`), the next session in that directory saw
@@ -148,6 +156,33 @@
   page's line out, and so does writing the page, so a stored page loses it the next time it
   is revised. Only a line that is a date goes: prose, a list entry, a quote, a code block or
   a page's own history that begins with the same words stays.
+- **`counterparts export --markdown` now includes your dreams and reflections.** Each dream
+  is a file under `dreams/`, by date: its journal and every change it made, undone ones
+  marked. Each reflection is a file under `reflections/`: what it was asked, what it wrote,
+  and its morning share and whether it was told. The README at the top of the export
+  counts both. A dream or reflection that touched a memory you have since marked
+  confidential is left out unless you pass `--include-confidential`, and the export says
+  how many.
+- **`connect` no longer calls every running memory server "the previous version".** It used
+  to count every one on the machine as out of date, including your own sessions on the
+  version you just installed and the session you typed the command into. Now it checks the
+  version each server recorded. It says how many still run an older version (and which),
+  how many already run this one, and how many it can't place, for example a server for
+  another store. When it can tell, it names the session you ran it from.
+
+The Claude Code plugin (#328).
+
+- **Counterparts can be installed as a Claude Code plugin.** `/plugin marketplace add
+  mlapeter/counterparts`, then `/plugin install counterparts@counterparts`. The first session
+  sets up the memory in `~/.counterparts`, where the npm install keeps it, with no terminal
+  step and no edit to `settings.json`; `/counterparts:doctor` runs doctor. It needs Bun 1.3+
+  or Node 22.15+ on the computer. The marketplace names this release's tag, so a plugin
+  install only ever gets a released version. If the npm install's hooks or server are wired
+  too, the plugin stands down and says so once: `counterparts disconnect` moves you to the
+  plugin, `counterparts install` moves you back, and the memories are the same either way.
+  Doctor recognises the plugin. The plugin's tools are named
+  `mcp__plugin_counterparts_counterparts__…`, so a permission rule written for
+  `mcp__counterparts__…` doesn't match them. Nothing changes for an npm install.
 
 ## 0.3.12 — 2026-10-08
 
