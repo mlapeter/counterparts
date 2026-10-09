@@ -23,7 +23,8 @@ import { SETTLE_HOWS } from "../types.js";
 import type { Kind, Salience, SettleHow } from "../types.js";
 import { hashText } from "../store/prose.js";
 import type { WriteFacts } from "../store/index.js";
-import { parseCalendarDate } from "../time.js";
+import { isDay, isRecurrence, parseCalendarDate } from "../time.js";
+import type { Recurrence } from "../time.js";
 import { randomBytes } from "node:crypto";
 
 // TYPE-ONLY, and the only edge this module has to `encode/`. The gate itself
@@ -82,6 +83,13 @@ export interface ProposalDraft {
   /** Plain or quiet (`prospective/` `CUE_MODE_META`). Only meaningful beside an
    *  `eventDate`; without one it is dropped and counted. Default quiet. */
   remind?: "plain" | "quiet";
+  /**
+   * How often the date comes round, anchored on it (2026-10-09, `meta.recurring`):
+   * `daily | weekly | monthly | yearly`. Only a DAY repeats — beside a month,
+   * a range or a year it is malformed (`RECURRING_NEEDS_DAY`); without a date
+   * it is dropped and counted, as `remind` is.
+   */
+  recurring?: Recurrence;
 }
 
 export type ProposalSource = "session-end" | "jot";
@@ -93,6 +101,10 @@ export interface DateIntent {
   readonly eventDate: "set" | "cleared" | "absent";
   /** The `remind` the author sent, or null when none was (the draft's quiet is a default). */
   readonly remind: "plain" | "quiet" | null;
+  /** The `recurring` the author sent (2026-10-09); `cleared` when it sent
+   *  `recurring: null` (a revision's "it no longer repeats"); null when it
+   *  sent nothing. */
+  readonly recurring: Recurrence | "cleared" | null;
 }
 
 /** What the engine mints. Memory objects only — no operations, by construction. */
@@ -120,6 +132,9 @@ export interface Proposal {
   eventDate: string | null;
   /** Plain or quiet — null exactly when `eventDate` is. */
   remind: "plain" | "quiet" | null;
+  /** How often the date comes round (2026-10-09). Absent or null: once. Never
+   *  set without a DAY `eventDate`. */
+  recurring?: Recurrence | null;
   /**
    * What the author SAID about the date, as opposed to what defaulted — read
    * only when this proposal revises a memory (`updates:`), where a date the
@@ -178,6 +193,10 @@ export type MalformedReason =
   | "EVENT_DATE_UNREADABLE"
   /** `remind` is not `plain` or `quiet`. */
   | "REMIND_UNKNOWN"
+  /** `recurring` is not `daily`, `weekly`, `monthly` or `yearly` (2026-10-09). */
+  | "RECURRING_UNKNOWN"
+  /** `recurring` beside an `eventDate` that is not one day: only a day repeats. */
+  | "RECURRING_NEEDS_DAY"
   /** `how` is not `changed`, `corrected` or `open`. */
   | "HOW_UNKNOWN";
 
@@ -209,6 +228,7 @@ export const DRAFT_FIELDS = [
   "unresolved",
   "eventDate",
   "remind",
+  "recurring",
 ] as const;
 
 export type IntakeResult =
@@ -308,15 +328,26 @@ export function intake(raw: unknown): IntakeResult {
   if (rec["remind"] !== undefined && rec["remind"] !== null) {
     if (rec["remind"] !== "plain" && rec["remind"] !== "quiet") return bad("REMIND_UNKNOWN");
   }
+  // HOW OFTEN IT COMES ROUND (2026-10-09): one of four words, and only beside
+  // a DAY — a month, a range or a year has no one day to come round on.
+  let recurring: Recurrence | undefined;
+  if (rec["recurring"] !== undefined && rec["recurring"] !== null) {
+    if (!isRecurrence(rec["recurring"])) return bad("RECURRING_UNKNOWN");
+    if (eventDate !== undefined && !isDay(eventDate)) return bad("RECURRING_NEEDS_DAY");
+    recurring = rec["recurring"];
+  }
 
   const draft: ProposalDraft = { content: rec["content"] as string };
   if (eventDate !== undefined) {
     draft.eventDate = eventDate;
     draft.remind = rec["remind"] === "plain" ? "plain" : "quiet";
-  } else if (rec["remind"] !== undefined && rec["remind"] !== null) {
-    // Plain or quiet says HOW a date comes back; with no date there is nothing
-    // to come back, so it is dropped and counted like any field with nowhere to go.
-    dropped.push("remind");
+    if (recurring !== undefined) draft.recurring = recurring;
+  } else {
+    // Plain or quiet says HOW a date comes back, and `recurring` how often;
+    // with no date there is nothing to come back, so each is dropped and
+    // counted like any field with nowhere to go.
+    if (rec["remind"] !== undefined && rec["remind"] !== null) dropped.push("remind");
+    if (recurring !== undefined) dropped.push("recurring");
   }
   if (rec["kind"] !== undefined) draft.kind = rec["kind"] as Kind;
   if (typeof rec["title"] === "string") draft.title = rec["title"];
@@ -340,6 +371,7 @@ export function intake(raw: unknown): IntakeResult {
   const dateIntent: DateIntent = {
     eventDate: eventDate !== undefined ? "set" : rec["eventDate"] === null ? "cleared" : "absent",
     remind: rec["remind"] === "plain" || rec["remind"] === "quiet" ? rec["remind"] : null,
+    recurring: recurring ?? (rec["recurring"] === null ? "cleared" : null),
   };
   const threadSaid = typeof rec["unresolved"] === "boolean";
   return { ok: true, draft: draft as Required<Pick<ProposalDraft, "content">> & ProposalDraft, dropped, dateIntent, threadSaid };
@@ -658,6 +690,7 @@ export async function submitProposal(
     unresolved: draft.unresolved === true,
     eventDate: draft.eventDate ?? null,
     remind: draft.eventDate === undefined ? null : draft.remind ?? "quiet",
+    recurring: draft.eventDate === undefined ? null : draft.recurring ?? null,
     dateIntent: parsed.dateIntent,
     ...(parsed.threadSaid ? { threadSaid: true } : {}),
     at: buffer.now(),

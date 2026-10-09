@@ -49,9 +49,9 @@
  * resolution, upstream, and this file does not write a second one.
  */
 import { TUNABLES as PHYSICS, clampSalienceAtSeam } from "./physics/index.js";
-import { CUE_MODE_META, DATE_FROM_META } from "./prospective/index.js";
+import { CUE_MODE_META, DATE_FROM_META, RECURRING_META } from "./prospective/index.js";
 import type { Proposal } from "./remember/index.js";
-import { localDate } from "./time.js";
+import { isDay, isRecurrence, localDate } from "./time.js";
 import type { Store } from "./store/index.js";
 import { SECOND_HAND_META_KEY, WRITTEN_UP_BY_META_KEY } from "./types.js";
 import type { Band, Salience } from "./types.js";
@@ -196,6 +196,12 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // PLAIN OR QUIET rides the meta bag beside its date (2026-09-26, no schema
   // bump), under the key its one reader owns.
   if (proposal.eventDate !== null && proposal.remind !== null) meta[CUE_MODE_META] = proposal.remind;
+  // HOW OFTEN IT COMES ROUND (2026-10-09), in the same bag for the same
+  // reason: no schema bump. Only beside a day — intake refuses it on anything
+  // else, and a carried one that no longer fits was dropped by the carry.
+  if (proposal.eventDate !== null && isDay(proposal.eventDate) && isRecurrence(proposal.recurring)) {
+    meta[RECURRING_META] = proposal.recurring;
+  }
   // The memory a revision took its reminder from (`Counterpart#carryReminder`):
   // an id, so what was already said for the same window still counts.
   if (proposal.reminderFrom !== undefined) meta[DATE_FROM_META] = proposal.reminderFrom;

@@ -20,6 +20,8 @@
  *     are already built; only the source was borrowed).
  */
 import type { RenderFn } from "./sleep/index.js";
+import { readableRecurrence } from "./time.js";
+import type { Recurrence } from "./time.js";
 
 /** Structurally `Self`, so this file imports no class. */
 export interface BriefingRenderer {
@@ -33,7 +35,9 @@ export interface BriefingRenderer {
 
 /** Structurally `Prospective.horizon()`. */
 export interface HorizonSource {
-  horizon(input: { at: string; day?: number }): { items: readonly { memoryId: string; eventDate?: string }[] };
+  horizon(input: { at: string; day?: number }): {
+    items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence }[];
+  };
 }
 
 export interface RendererOptions {
@@ -60,8 +64,13 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
         ? undefined
         : opts.prospective
             .horizon({ at: opts.at, day: ctx.day })
-            // The date it is due rides along, so the line can say it (2026-10-01).
-            .items.map((i) => (i.eventDate === undefined ? { id: i.memoryId } : { id: i.memoryId, due: i.eventDate }));
+            // The date it is due rides along, so the line can say it (2026-10-01),
+            // and how often it comes round when it repeats (2026-10-09).
+            .items.map((i) => {
+              if (i.eventDate === undefined) return { id: i.memoryId };
+              const every = i.anchor === undefined || i.recurring === undefined ? "" : readableRecurrence(i.anchor, i.recurring);
+              return every === "" ? { id: i.memoryId, due: i.eventDate } : { id: i.memoryId, due: i.eventDate, every };
+            });
     const result = self.boundary({
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,

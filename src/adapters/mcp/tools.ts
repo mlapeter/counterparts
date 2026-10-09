@@ -58,6 +58,7 @@
 import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE } from "./facts.js";
+import { RECURRENCES } from "../../core/time.js";
 
 /**
  * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
@@ -316,7 +317,19 @@ const TRAITS_PROPERTY = {
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date and remind carry over unless you send new ones; send null to drop the date (done, cancelled).',
+    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled).',
+} as const;
+
+/**
+ * `recurring` beside `eventDate` (2026-10-09, the owner's design, held
+ * lightly): how often a DAY comes round, anchored on it, in `meta.recurring`.
+ * One sentence on the field, which the host serves whole.
+ */
+const RECURRING_PROPERTY = {
+  type: ["string", "null"],
+  enum: [...RECURRENCES, null],
+  description:
+    'Optional, with a day eventDate: "daily", "weekly", "monthly" or "yearly" — it then comes back every time, counted from that day (a birthday: its date, "yearly"); null on a revision stops it repeating.',
 } as const;
 
 /**
@@ -370,9 +383,9 @@ const DATE_PRIVILEGES: readonly Privilege[] = [
   },
   {
     claim:
-      'A "plain" reminder is said at most once per beat — on its day, or on the first and the last day of a month or range — and never under observer stance; a "quiet" one is only ever a cue, capped at the footnote tier and spent at most twice per window.',
+      'A "plain" reminder is said at most once per beat — on its day, or on the first and the last day of a month or range — and never under observer stance; a "quiet" one is only ever a cue, capped at the footnote tier and spent at most twice per window. A recurring date counts each time it comes round as its own.',
     mechanizedBy:
-      "src/core/prospective/index.ts#Prospective.plainDue + claimPlain (dedupKey latch) + fire (FIRES_PER_WINDOW) -> src/core/counterpart.ts#recallForTurn",
+      "src/core/prospective/index.ts#Prospective.plainDue + claimPlain (dedupKey latch) + fire (FIRES_PER_WINDOW) -> src/core/counterpart.ts#recallForTurn; src/core/prospective/windows.ts#recurringWindowAt (one window key per occurrence)",
   },
   {
     claim:
@@ -548,6 +561,7 @@ const NOTE: ToolSpec = {
       title: { type: "string", description: TITLE_TEXT },
       eventDate: EVENT_DATE_PROPERTY,
       remind: REMIND_PROPERTY,
+      recurring: RECURRING_PROPERTY,
       occurredOn: OCCURRED_ON_PROPERTY,
       saidBy: SAID_BY_PROPERTY,
       status: STATUS_PROPERTY,
@@ -905,6 +919,7 @@ const SESSION_END: ToolSpec = {
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,
             remind: REMIND_PROPERTY,
+            recurring: RECURRING_PROPERTY,
             occurredOn: OCCURRED_ON_PROPERTY,
             saidBy: SAID_BY_PROPERTY,
             status: STATUS_PROPERTY,
