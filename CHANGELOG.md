@@ -26,6 +26,16 @@
   every other week and "the first Monday" aren't supported. Revising the memory keeps
   the repeat unless you say otherwise, and never repeats a reminder already given that
   day. No change to the store's format.
+- **A repeating reminder is no longer lost between its dates.** Each time a repeat
+  comes due and is actually said or surfaced counts as a use of the memory, once per
+  date, the way going over something keeps it fresh. A daily pill reminder or a weekly
+  one now stays as strong as it was. A yearly one is used only once a year, which isn't
+  enough to stay above the floor, so the nightly cleanup no longer lets go of a memory
+  whose date still repeats (it is listed as `recurring` beside `protected` when that is
+  what kept it). It may still fade in between, as before, but a reminder that still
+  repeats comes round on its date even when it has faded: a quiet yearly one is still
+  surfaced, and a plain one is still said. One-off dates are unchanged, and a reminder
+  whose repeat you drop fades and is cleaned up like any other memory.
 - **Doctor's Fired line no longer turns amber over a mechanism that simply had nothing to
   do.** Some mechanisms fire only when something happens: a reminder falls due, you erase,
   export or un-merge a memory, or something fails. One, the check after the v8 upgrade,

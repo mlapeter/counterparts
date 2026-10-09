@@ -910,3 +910,14 @@ cursor the way `consolidate` does (`markers.ts`): start strictly after it, wrap,
 under `apply`. `dedup` (pairs, rebuilt each run) and `fade` (`schemas/`' own sweep) are
 unchanged; `log` needs none.
 
+
+## 2026-10-09 — the prune passes physics one more fact: a repeating date
+
+`runPrune` now tells `pruneVerdict` whether the row's reminder date still repeats
+(`recurring: store#recurrenceOfRow(row) !== null` — a day `event_date` and a recurrence
+word in its meta, the predicate `recurringMemories` reads), beside `inLiveRevisionChain`.
+Physics refuses such a row by name (`blocked:recurring` on the cycle row, counted by the
+fired view as a real refusal beside `protected`) — only on a night the floor would
+otherwise have let it go (review of #341), so a repeat above the floor counts under
+`above-floor` alone. The phase adds no criterion of its own;
+why the gate exists is physics NOTES 2026-10-09 and prospective NOTES §16.

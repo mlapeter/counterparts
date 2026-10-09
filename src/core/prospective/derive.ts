@@ -10,7 +10,8 @@
  *   - there is no second source of truth to drift from the memory;
  *   - decay has nothing to special-case (§12 G10: no decay exemption before
  *     arrival — a future-dated memory that faded before its window was an
- *     occasion that didn't matter).
+ *     occasion that didn't matter) — save one carve-out: a date that still
+ *     REPEATS is not refused `faded` (review of #341, 2026-10-09).
  *
  * The dates come from the CALLER. This module does no NLP: it reads the shape of
  * a date string and nothing else (`windows.ts`). Whoever extracted "September"
@@ -52,7 +53,9 @@ export type DeriveReason =
   | "below-salience-floor"
   /** Decayed to physics' prune floor (`FADED_STRENGTH`) — §12 G10, no decay
    *  exemption before arrival: an occasion that faded before its window did
-   *  not matter. Holds for an explicitly dated memory too (2026-09-26). */
+   *  not matter. Holds for an explicitly dated memory too (2026-09-26), but
+   *  not for one whose date still REPEATS (`DerivableMemory.recurring`, review
+   *  of #341, 2026-10-09). */
   | "faded"
   /** Every derived window is behind us — the property expiring by itself. */
   | "window-passed";
@@ -110,6 +113,16 @@ export interface DerivableMemory {
    * pure predicate. Absent: not checked.
    */
   readonly faded?: boolean;
+  /**
+   * Its reminder date still REPEATS (`meta.recurring` on a day `event_date`,
+   * `index.ts#recurrenceOf`). Such a memory is exempt from the `faded`
+   * refusal (owner decision 2026-10-09, review of #341): "so they stay
+   * alive" means each occurrence is delivered by its own remind rules, and a
+   * quiet yearly at the default salience has faded by its second date. Its
+   * strength still decays for recall and display; only this refusal is
+   * waived. Absent or false: `faded` refuses as before.
+   */
+  readonly recurring?: boolean;
 }
 
 /** A content-date the CALLER extracted. Its precision is its own shape (§12 G4). */
@@ -175,7 +188,9 @@ export function derive(
   if (memory.journal) blockedBy.push("journal");
   if (EXCLUDED_KINDS.includes(memory.kind)) blockedBy.push("excluded-kind");
   if (!encodeDateOk(memory.learnedOn)) blockedBy.push("missing-encode-date");
-  if (memory.faded === true) blockedBy.push("faded");
+  // A live repeat is exempt (review of #341): its occurrence is a new arrival
+  // of something the author asked to come round, not a decayed occasion.
+  if (memory.faded === true && memory.recurring !== true) blockedBy.push("faded");
   // The floor gates UNASKED surfacing of a date somebody else read out of the
   // memory. An explicit `eventDate` was asked for, so it is exempt (owner
   // decision 2026-09-26); decay (`faded`, above) and archival still hold.

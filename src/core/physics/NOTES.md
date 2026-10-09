@@ -471,3 +471,33 @@ and every other reader go through `strength()` and see it without change.
   (`dream/reflect.ts`), and doctor counts the memories on this lane ("Recognition"). Not built:
   anything reading recognition for the self page (arcs from uneasy to calm, moments of
   recognition) — that is the page's design note, not a mechanism yet.
+
+## 2026-10-09 — a repeating date is not pruned (the sixth gate)
+
+The owner's decision on #339's review, held lightly: each occurrence of a repeating
+reminder that is actually said or surfaced counts as a use (`Counterpart#creditOccurrence`
+→ `store.reinforce`, the `surfaced` tier, once per occurrence), and if that cannot carry a
+yearly one across its gap, the prune refuses a live repeat by name. It cannot: one
+surfaced use multiplies S by `1 + 0.5 ln 1.25` ≈ 1.11, so a default-claim memory is back
+under `PHI_PRUNE` in about 170 lived days (a fact) to 270 (a person, with the emotion
+lift), and past the 90-day dwell by then. Measured through the hooks: without the gate,
+`test/recurring-reinforce.test.ts`'s yearly birthday was let go 263 lived days after its
+first May 14. So `pruneVerdict` takes `ctx.recurring` and blocks with `recurring`, the
+way `protected` blocks; `sleep/prune.ts` reads it off the row (`store#recurrenceOfRow`,
+the predicate `recurringMemories` uses). Nothing else moves here: decay, band and strength
+are unchanged, so the memories view still shows a repeat as fading between its dates.
+(Prospective, in the review of #341, stopped refusing a live repeat `faded`, so a QUIET
+yearly that faded by its next date is still cued on it — prospective NOTES §16.) The
+entity-card fade (`schemas/`) and the memories view's `letGoDay` never pass it, so the
+view's "fading" and let-go day for a repeat are what the floor alone would do.
+`fired.ts` counts it with `protected` and `in-live-revision-chain` as a real refusal —
+and so `pruneVerdict` names it only where the floor would otherwise have let the memory
+go (review of #341). It is an exemption from the floor, not a standing rule: named on
+every live repeat every night, a strong daily pill reminder read as a refusal and turned
+the fired view's prune row BLOCKED on a store where nothing was wrong.
+
+Why `surfaced` and not `referenced`: an occurrence delivered is a showing, and nothing
+says the reply used it; and `creditReturn` refuses `not-referenced`, so a schedule earns
+no return and a daily `self` reminder cannot walk the slow core lane on the calendar
+alone. The rep arm still climbs where the kind has one (`uses` +0.25 a day: a daily
+`fact` sits at the 0.5 cap after about 17 days) — rehearsal working, not a side effect.

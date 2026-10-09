@@ -256,7 +256,8 @@ export interface Arrival {
   readonly lastFiredDay: number | null;
   /** Decayed strength on `day`, for ORDERING only. No decay exemption before
    *  arrival (§12 G10): a future-dated memory that faded before its window was
-   *  an occasion that didn't matter. */
+   *  an occasion that didn't matter — save a live repeat, which arrives faded
+   *  or not (review of #341, `derive.ts`). */
   readonly strength: number;
   /** Plain or quiet, as the author said (`CUE_MODE_META`). Carried so the fire
    *  row can count the two apart; it changes nothing about the cue itself. */
@@ -808,6 +809,29 @@ export class Prospective {
     }
   }
 
+  /**
+   * IS THIS THE FIRST TIME THIS OCCURRENCE REACHES ANYONE? (2026-10-09.) True
+   * only for a memory whose date still REPEATS (`recurrenceOf`, read now — a
+   * one-off, or a repeat whose `recurring` was dropped, is always false) and
+   * whose `windowKey` nothing has delivered yet: no quiet fire spent on it and
+   * no plain beat told, on this memory or one its reminder moved from (the
+   * rows the brakes read, so a revision does not count the same occurrence
+   * twice). The caller asks BEFORE its `fire` or `claimPlain`, and counts the
+   * occurrence as a use of the memory only when that delivery lands
+   * (`Counterpart#creditOccurrence`). A read; firing state stays what it is,
+   * not canonical memory, and the physics write is the caller's.
+   */
+  occurrenceUndelivered(memoryId: string, windowKey: string): boolean {
+    if (this.observer) return false;
+    try {
+      if (recurrenceOf(this.store.read(memoryId).doc) === null) return false;
+      if ((this.firingRowsFor(memoryId).get(windowKey)?.fires ?? 0) > 0) return false;
+      return !this.plainTold(memoryId, windowKey, "day");
+    } catch {
+      return false;
+    }
+  }
+
   /** A PLAIN arrival whose window's LAST beat has been told: `day` for a day
    *  item, `last-day` for a month or a range (`plainDue`'s beats). A quiet
    *  arrival never is. A read. */
@@ -1330,6 +1354,8 @@ export class Prospective {
         // importance signal, so it skips the salience floor — never decay.
         explicitDate: explicit.length > 0,
         faded: s <= this.tunables.FADED_STRENGTH,
+        // A live repeat is exempt from `faded` (review of #341, `derive.ts`).
+        recurring: recurrenceOf(read.doc) !== null,
       },
       doc: read.doc,
       dates: dates.filter((d) => (seen.has(d.date) ? false : (seen.add(d.date), true))),

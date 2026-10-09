@@ -489,6 +489,24 @@ export interface DatedMemory {
  */
 export const RECURRING_META = "recurring";
 
+/**
+ * The repeat a ROW carries, or null: a day `event_date` and a recurrence word
+ * in its meta — the one predicate `recurringMemories` and the prune's
+ * `recurring` gate (`sleep/prune.ts`, 2026-10-09) both read. Unreadable meta,
+ * a month or a range, or `recurring` dropped: null, the date is once.
+ */
+export function recurrenceOfRow(row: { readonly event_date: string | null; readonly meta: string }): Recurrence | null {
+  if (!isDay(row.event_date)) return null;
+  if (!row.meta.includes(`"${RECURRING_META}"`)) return null;
+  let rule: unknown;
+  try {
+    rule = (JSON.parse(row.meta) as Record<string, unknown>)[RECURRING_META];
+  } catch {
+    return null;
+  }
+  return isRecurrence(rule) ? rule : null;
+}
+
 /** One memory whose reminder date repeats, as `Store.recurringMemories` returns it. */
 export interface RecurringMemory {
   readonly id: string;
@@ -4354,14 +4372,8 @@ export class Store {
     );
     const out: RecurringMemory[] = [];
     for (const r of rows) {
-      if (!isDay(r.event_date)) continue;
-      let rule: unknown;
-      try {
-        rule = (JSON.parse(r.meta) as Record<string, unknown>)[RECURRING_META];
-      } catch {
-        continue;
-      }
-      if (isRecurrence(rule)) out.push({ id: r.id, eventDate: r.event_date, recurring: rule });
+      const rule = recurrenceOfRow(r);
+      if (rule !== null) out.push({ id: r.id, eventDate: r.event_date, recurring: rule });
     }
     return out;
   }
