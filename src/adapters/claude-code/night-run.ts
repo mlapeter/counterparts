@@ -503,22 +503,46 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // THE CHILD'S OWN SESSION, CHOSEN HERE (2026-10-09): so its transcript can
   // be found by name once it exits, and read for the host's cut.
   const hostSession = randomUUID();
-  const plan = planNightChild({
+  const childInput: NightChildInput = {
     config: input.config,
     run: input.run,
     prompt,
     scope: input.scope,
     session: input.session,
-    hostSession,
     ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
     ...(input.baseEnv === undefined ? {} : { baseEnv: input.baseEnv }),
     ...(input.command === undefined ? {} : { command: input.command }),
-  });
+  };
+  const plan = planNightChild({ ...childInput, hostSession });
   if (!plan.ok) return ended({ state: "could-not-start", reason: "refused", detail: plan.reason, code: null });
+  const where = { configDir: input.hostConfigDir ?? hostConfigDir(plan.env), id: hostSession, ...(plan.cwd === undefined ? {} : { cwd: plan.cwd }) };
 
+  const start = input.start ?? ((p: ChildPlan) => startChild(p));
   let result: ChildResult;
+  // Whether the child that ran was the one named (review of #330, below).
+  let named = true;
   try {
-    result = await (input.start ?? ((p: ChildPlan) => startChild(p)))(plan);
+    const childAt = now();
+    result = await start(plan);
+    // A HOST THAT REFUSED THE NAME (review of #330): `--session-id` is read
+    // for telemetry only, and the night must not be lost to it. A host too
+    // old for the flag, or one that dropped it, exits at once on its argument
+    // list — nothing begun, no transcript under the name. Exactly that is
+    // retried ONCE without the flag, its cut left unchecked (`absent`). The
+    // child's output is discarded (`child.ts`), so the refusal is read from
+    // what it left: a quick non-zero exit, no transcript, nothing in the store.
+    if (
+      result.spawnCode === undefined &&
+      result.code !== null &&
+      result.code !== 0 &&
+      !result.timedOut &&
+      now() - childAt < TUNABLES.NIGHT_QUICK_EXIT_MS &&
+      hostTranscriptPath(where) === null &&
+      !begunSince(input.open, childAt, input.session)
+    ) {
+      named = false;
+      result = await start(planNightChild(childInput));
+    }
   } catch (err) {
     return ended({ state: "could-not-start", reason: "spawn-failed", detail: err instanceof Error ? err.name : "UNKNOWN", code: null });
   }
@@ -527,14 +551,15 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
 
   // WHAT THE HOST CUT (2026-10-09, U14 item 3), read from the child's own
   // transcript — the host's record of what the model saw, not the child's
-  // prose. A child that never started left none.
-  const spill = neverStarted ? null : readNightSpills({ configDir: input.hostConfigDir ?? hostConfigDir(plan.env), id: hostSession, ...(plan.cwd === undefined ? {} : { cwd: plan.cwd }) });
+  // prose. A child that never started left none; one started without its
+  // name left none this process can find.
+  const spill: ToolSpills | null = neverStarted ? null : named ? readNightSpills(where) : { reason: "absent", results: 0, spills: [], corrupt: 0, short: false };
   if (spill !== null) {
     input.onEvent?.({
       at: now(),
       name: "adapter.night.spill",
       ref: input.run,
-      data: { transcript: spill.reason, results: spill.results, spills: spill.spills.length, short: spill.short, corrupt: spill.corrupt },
+      data: { transcript: spill.reason, results: spill.results, spills: spill.spills.length, short: spill.short, corrupt: spill.corrupt, ...(named ? {} : { named: false }) },
     });
   }
 
@@ -622,6 +647,28 @@ export function readNightSpills(input: { configDir: string; id: string; cwd?: st
     return readToolSpills(path);
   } catch {
     return { reason: "unreadable", results: 0, spills: [], corrupt: 0, short: false };
+  }
+}
+
+/**
+ * DID A CHILD BEGIN ANYTHING since `at` — a dream, a reflection, the page
+ * writer's phase (the same reads as `runNight`'s own)? A store that will not
+ * open answers yes: a second child is never started on a guess.
+ */
+function begunSince(open: () => Counterpart, at: number, session: string): boolean {
+  try {
+    const c = open();
+    try {
+      return (
+        c.store.dreams({ sinceAt: at, limit: 1 }).length > 0 ||
+        c.store.reflections({ limit: 5 }).some((r) => r.started_at >= at) ||
+        c.pageWriterRuns({ limit: 20 }).some((r) => r.at >= at && r.session === session)
+      );
+    } finally {
+      c.close();
+    }
+  } catch {
+    return true;
   }
 }
 

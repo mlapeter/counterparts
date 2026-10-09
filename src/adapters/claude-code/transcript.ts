@@ -974,6 +974,17 @@ export function readWakeArrival(
 //     25000 token limit]" and "The tool output was truncated. …" after it —
 //     the same line, when the host keeps no files.
 //
+// A SECOND PLACE THE HOST CUTS (review of #330): besides each result's own
+// line, 2.1.295 has a budget for ALL the results answering one assistant turn
+// (200,000 characters, behind a remote flag). Past it, the largest are swapped
+// for the same `<persisted-output>` preview — but at request time: the
+// result's own line in the transcript stays WHOLE, and the swap is written as
+// a line of its own, `{"type":"content-replacement","replacements":[{"kind":
+// "tool-result","toolUseId":…,"replacement":…}]}`, which resume replays. So
+// those lines are read too, the replacement judged by the same anchors, and
+// such a cut is shaped `turn-budget`: several results at once, not one too
+// long. Each call is counted once, however many lines speak of it.
+//
 // ANCHORED, NEVER A SUBSTRING (the morning of 2026-10-09): a search of a
 // night's transcript for "Output too large" found two hits that were memories
 // QUOTING that very check, inside our own result. A memory's words sit inside
@@ -981,7 +992,7 @@ export function readWakeArrival(
 // own text, or in another tool's result, is not one of our results at all.
 
 /** How the host cut a result, by the marker it left (see above). */
-export type SpillShape = "persisted" | "unsaved" | "tokens" | "token-cut";
+export type SpillShape = "persisted" | "unsaved" | "tokens" | "token-cut" | "turn-budget";
 
 /** One of our results the host cut. Names, a shape and a size — never the saved file's path, never a byte of the result. */
 export interface Spill {
@@ -1018,7 +1029,8 @@ export const SPILL_MAX_BYTES = 64 * 1024 * 1024;
 
 const PERSISTED = /^<persisted-output>[ \t]*\r?\n(?:Output too large \(([^)\n]{1,40})\)\. Full output saved to: |Output exceeded the [^\n]{1,40} persist limit; only the first )/;
 const UNSAVED = /^<truncated-output>[ \t]*\r?\nOutput too large \(([^)\n]{1,40})\)\. It could not be saved, so only the first /;
-const TOKENS = /^Error: result \(([\d,]{1,20} characters)[^)\n]{0,80}\) exceeds maximum allowed tokens\. (?:Output has been saved to |Failed to save output to file: )/;
+/** The count is the host's `toLocaleString()`: "51,306", "51.306" or "51 306" by the machine's locale. */
+const TOKENS = /^Error: result \((\d[\d.,'   ]{0,19} characters)[^)\n]{0,80}\) exceeds maximum allowed tokens\. (?:Output has been saved to |Failed to save output to file: )/;
 /**
  * The `token-cut` trailer, at the very end, with the REAL line breaks the host
  * writes around its bracket: inside our result's JSON a quoted line break is
@@ -1056,15 +1068,28 @@ export function spillOf(content: unknown): { shape: SpillShape; said: string | n
 
 /**
  * THE PASS, on a transcript's text: every assistant `tool_use` of ours, by id,
- * then every `tool_result` answering one, judged by `spillOf`. Exported so the
- * rule is testable without a file. Never throws.
+ * then every `tool_result` answering one, judged by `spillOf` — and every
+ * `content-replacement` line's swap of one (the per-turn budget, above).
+ * One result and at most one spill per call id. Exported so the rule is
+ * testable without a file. Never throws.
  */
 export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = {}): { results: number; spills: Spill[]; corrupt: number } {
   const ours = opts.tool ?? COUNTERPARTS_TOOL;
   const calls = new Map<string, { tool: string; phase: string | null }>();
+  const answered = new Set<string>();
+  const cutIds = new Set<string>();
   const spills: Spill[] = [];
-  let results = 0;
   let corrupt = 0;
+  const judge = (id: string, content: unknown, budget: boolean): void => {
+    const call = calls.get(id);
+    if (call === undefined) return;
+    answered.add(id);
+    if (cutIds.has(id)) return;
+    const cut = spillOf(content);
+    if (cut === null) return;
+    cutIds.add(id);
+    spills.push({ tool: call.tool, phase: call.phase, shape: budget ? "turn-budget" : cut.shape, said: cut.said });
+  };
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: unknown;
@@ -1076,6 +1101,14 @@ export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = 
     }
     if (!isEntry(entry)) {
       corrupt += 1;
+      continue;
+    }
+    // The per-turn budget's swap, on a line of its own (see above).
+    if (entry["type"] === "content-replacement") {
+      const swaps = entry["replacements"];
+      for (const r of Array.isArray(swaps) ? (swaps as unknown[]) : []) {
+        if (isEntry(r) && r["kind"] === "tool-result" && typeof r["toolUseId"] === "string") judge(r["toolUseId"], r["replacement"], true);
+      }
       continue;
     }
     const message = entry["message"];
@@ -1092,14 +1125,10 @@ export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = 
       }
       const answers = block["tool_use_id"];
       if (block["type"] !== "tool_result" || typeof answers !== "string") continue;
-      const call = calls.get(answers);
-      if (call === undefined) continue;
-      results += 1;
-      const cut = spillOf(block["content"]);
-      if (cut !== null) spills.push({ tool: call.tool, phase: call.phase, ...cut });
+      judge(answers, block["content"], false);
     }
   }
-  return { results, spills, corrupt };
+  return { results: answered.size, spills, corrupt };
 }
 
 /** Read one transcript and judge it. `absent` and `unreadable` are said apart from a clean read. Never throws. */

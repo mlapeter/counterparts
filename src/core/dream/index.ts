@@ -1281,7 +1281,7 @@ export class Dreams {
     const what = n === 1 ? "one of the nightly run's tool results" : `${String(n)} of the nightly run's tool results`;
     return (
       `Counterparts: Claude Code cut ${what} to a short preview before the run could read ${n === 1 ? "it" : "them"}, so last night's run worked from part of what it was handed. ` +
-      `At a natural moment — not mid-task — tell ${who} plainly, in a sentence, that this happened: Claude Code's limit on one tool result is now lower than the size Counterparts keeps its results under. \`counterparts doctor\` has the details on its Tool results line.`
+      `At a natural moment — not mid-task — tell ${who} plainly, in a sentence, that this happened: Claude Code cut results that Counterparts had already sized to fit. \`counterparts doctor\` has the details on its Tool results line.`
     );
   }
 

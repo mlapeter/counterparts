@@ -707,12 +707,16 @@ replaced with its marker (`readToolSpills`): `<persisted-output>` "Output too la
 maximum allowed tokens", or the "[OUTPUT TRUNCATED - exceeded … token limit]" trailer — as
 read from Claude Code 2.1.295. Matched where the host puts each one, at the start or the very
 end of a `tool_result`, never as a substring: a memory quoting the marker sits inside our
-JSON. Each cut result is one durable `mcp.result.spilled` row (run, tool, phase, shape, the
+JSON. The host's budget for all the results of one turn swaps a result at request time and
+writes the swap as a `content-replacement` line of its own, the result's line left whole —
+those lines are read too, shaped `turn-budget` (review of #330). Each cut result is one durable `mcp.result.spilled` row (run, tool, phase, shape, the
 size the host said; never the saved file's path); the run's row carries `transcript` (`read`
 | `absent` | `unreadable`) and, when read, `spills`. Doctor's Tool results line goes amber on
 any row in its window and says in green whether the last night's transcript was read; the
 morning hand-back adds a plain line (`Dreams.nightSpillLine`), even for a run that journaled
-nothing. The catch-up child is not read.
+nothing. The catch-up child is not read. A host that refuses the flag
+(a quick non-zero exit, no transcript under the name, nothing begun in the store) costs the
+night nothing: the child is started once more without it, and the row says `absent`.
 
 **[M] Session binding: the run is attributed to the session that started it.** The launch
 prompt names that session's id, and the id and its directory are PINNED

@@ -181,6 +181,39 @@ describe("the host's marker is matched where the host puts it, on our results on
     expect(parseToolSpills(raw)).toEqual({ results: 0, spills: [], corrupt: 0 });
   });
 
+  test("REVIEW OF #330: the per-turn budget's swap is a line of its own — read there, shaped turn-budget, each call counted once", () => {
+    // Several parts fetched in one turn: each result's own line stays whole;
+    // the host's swap of the largest is written after them, as resume replays it.
+    const raw = [
+      call("toolu_p2", DREAM, { phase: "part", dream: "drm_1", part: 2 }),
+      call("toolu_p3", DREAM, { phase: "part", dream: "drm_1", part: 3 }),
+      call("toolu_rd", "Read", { file_path: "/tmp/big.txt" }),
+      answer("toolu_p2", '{"phase":"part","part":2,"of":3}'),
+      answer("toolu_p3", '{"phase":"part","part":3,"of":3}'),
+      answer("toolu_rd", "a file"),
+      JSON.stringify({
+        type: "content-replacement",
+        sessionId: "x",
+        replacements: [
+          { kind: "tool-result", toolUseId: "toolu_p3", replacement: persisted("39.8KB") },
+          // Another tool's swap is not ours; an unknown kind is not a result.
+          { kind: "tool-result", toolUseId: "toolu_rd", replacement: persisted("90KB") },
+          { kind: "something-else", toolUseId: "toolu_p2", replacement: persisted("39KB") },
+        ],
+      }),
+      // The same swap replayed, and the same result recorded twice: one each.
+      JSON.stringify({ type: "content-replacement", replacements: [{ kind: "tool-result", toolUseId: "toolu_p3", replacement: persisted("39.8KB") }] }),
+      answer("toolu_p2", '{"phase":"part","part":2,"of":3}'),
+    ].join("\n");
+    expect(parseToolSpills(raw)).toEqual({ results: 2, spills: [{ tool: DREAM, phase: "part", shape: "turn-budget", said: "39.8KB" }], corrupt: 0 });
+  });
+
+  test("REVIEW OF #330: the token marker's count as the host's locale writes it", () => {
+    expect(spillOf(tokens.replace("51,306", "51.306"))).toEqual({ shape: "tokens", said: "51.306 characters" });
+    expect(spillOf(tokens.replace("51,306", "51 306"))).toEqual({ shape: "tokens", said: "51 306 characters" });
+    expect(spillOf(tokens.replace("51,306 characters", "51,306 characters across 3 lines"))).toEqual({ shape: "tokens", said: "51,306 characters" });
+  });
+
   test("a night with the dream's begin cut: one spill, named by tool and phase; the rest counted whole", () => {
     const out = parseToolSpills(`${spilledNight()}\nnot json\n[1,2]`);
     expect(out.results).toBe(3);
@@ -285,19 +318,24 @@ function child(transcript: string | null, where: "spelled" | "elsewhere" = "else
       mkdirSync(join(host, "projects", name), { recursive: true });
       writeFileSync(join(host, "projects", name, `${id}.jsonl`), transcript, "utf8");
     }
-    const c = openNightCounterpart(config());
-    try {
-      const d = c.dreams.begin({ session: "s1" });
-      if (!d.ok) throw new Error(d.reason);
-      c.dreams.journal({ dream: d.bundle.dream, session: "s1", title: "Boot order", text: "A dream." });
-      const r = c.reflections.begin({ session: "s1", dream: d.bundle.dream });
-      if (!r.ok) throw new Error(r.reason);
-      c.reflections.finish({ reflection: r.bundle.reflection, session: "s1", entry: "Nothing much tonight." });
-    } finally {
-      c.close();
-    }
+    dreamAndReflect();
     return { code: 0, timedOut: false, error: null };
   };
+}
+
+/** What a child that ran does to the store: a dream journaled, a reflection finished. */
+function dreamAndReflect(): void {
+  const c = openNightCounterpart(config());
+  try {
+    const d = c.dreams.begin({ session: "s1" });
+    if (!d.ok) throw new Error(d.reason);
+    c.dreams.journal({ dream: d.bundle.dream, session: "s1", title: "Boot order", text: "A dream." });
+    const r = c.reflections.begin({ session: "s1", dream: d.bundle.dream });
+    if (!r.ok) throw new Error(r.reason);
+    c.reflections.finish({ reflection: r.bundle.reflection, session: "s1", entry: "Nothing much tonight." });
+  } finally {
+    c.close();
+  }
 }
 
 function night(start: ReturnType<typeof child>): Parameters<typeof runNight>[0] {
@@ -369,7 +407,7 @@ describe("the run reads its child's transcript once it exits", () => {
     c.noteAdapterEvent(MCP_PART_EVENT, { mechanism: "dream", ref: "drm_x", part: 1, of: 1, chars: 30_000 });
     const [f] = resultFindings(c.store);
     expect(f?.severity).toBe("green");
-    expect(f?.detail).toContain("transcript showed nothing of ours cut by Claude Code");
+    expect(f?.detail).toContain("the 2026-09-20 run's transcript showed none of our results cut by Claude Code");
     expect(f?.data["lastTranscript"]).toBe("read");
   });
 
@@ -385,6 +423,79 @@ describe("the run reads its child's transcript once it exits", () => {
     const [f] = resultFindings(c.store);
     expect(f?.severity).toBe("green");
     expect(f?.detail).toContain("was not found where Claude Code keeps sessions, so Claude Code's cut was not checked");
+  });
+
+  test("REVIEW OF #330: doctor's advice follows the newest cut's shape — the token line and the turn's budget are not the character line", () => {
+    const c = openNight();
+    lived(c);
+    c.noteAdapterEvent(MCP_SPILLED_EVENT, { run: "nrn_a", tool: DREAM, phase: "begin", shape: "tokens", said: "41,000 characters" });
+    const [tok] = resultFindings(c.store);
+    expect(tok?.severity).toBe("amber");
+    expect(tok?.fix).toContain("token limit on one tool result came out lower than the 25000 tokens");
+    expect(tok?.fix).not.toContain("40000 characters");
+    c.noteAdapterEvent(MCP_SPILLED_EVENT, { run: "nrn_b", tool: DREAM, phase: "part", shape: "turn-budget", said: "39.8KB" });
+    const [turn] = resultFindings(c.store);
+    expect(turn?.fix).toContain("several results in one turn");
+    expect(turn?.detail).toContain("2 results of the nightly run (2 runs)");
+  });
+
+  test("REVIEW OF #330: a host that refuses --session-id costs the night nothing — retried once without it, its cut unchecked", async () => {
+    lived(openNight());
+    const seen: string[][] = [];
+    const events: { name: string; data: unknown }[] = [];
+    const out = await runNight({
+      ...night(child(null)),
+      onEvent: (e) => events.push({ name: e.name, data: e.data }),
+      start: async (plan: ChildPlan) => {
+        seen.push([...plan.args]);
+        // An old or changed host: an unknown option, refused before anything ran.
+        if (plan.args.includes("--session-id")) return { code: 1, timedOut: false, error: null };
+        dreamAndReflect();
+        return { code: 0, timedOut: false, error: null };
+      },
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("--session-id");
+    expect(seen[1]).not.toContain("--session-id");
+    expect(out).toMatchObject({ state: "done", transcript: "absent" });
+    expect(out.spills).toBeUndefined();
+    expect(events.find((e) => e.name === "adapter.night.spill")?.data).toMatchObject({ transcript: "absent", named: false });
+  });
+
+  test("REVIEW OF #330: a quick failure that left its transcript, or began something, is the night's own answer — never run twice", async () => {
+    lived(openNight());
+    let starts = 0;
+    const leftTranscript = await runNight({
+      ...night(child(null)),
+      start: async (plan: ChildPlan) => {
+        starts += 1;
+        // Not logged in, say: the session was written, then the child gave up.
+        const id = plan.args[plan.args.indexOf("--session-id") + 1] ?? "";
+        mkdirSync(join(host, "projects", "-store"), { recursive: true });
+        writeFileSync(join(host, "projects", "-store", `${id}.jsonl`), said("user", "the launch prompt"), "utf8");
+        return { code: 1, timedOut: false, error: null };
+      },
+    });
+    expect(starts).toBe(1);
+    expect(leftTranscript).toMatchObject({ state: "could-not-start", reason: "quick-exit" });
+    // No transcript, but a dream begun: not retried either.
+    let again = 0;
+    const began = await runNight({
+      ...night(child(null)),
+      run: "nrn_began",
+      start: async () => {
+        again += 1;
+        const c = openNightCounterpart(config());
+        try {
+          c.dreams.begin({ session: "s1" });
+        } finally {
+          c.close();
+        }
+        return { code: 1, timedOut: false, error: null };
+      },
+    });
+    expect(again).toBe(1);
+    expect(began.state).not.toBe("done");
   });
 
   test("a child that never started has no transcript to read, and the row says nothing about one", async () => {

@@ -3355,23 +3355,33 @@ export function resultFindings(store: Store): Finding[] {
     newestSpill === undefined
       ? ""
       : `${String(spilled.length)} ${spilled.length === 1 ? "result" : "results"} of the nightly run${spillRuns > 1 ? ` (${String(spillRuns)} runs)` : ""} reached the model only as Claude Code's short preview — the newest, ${spillTool}${str(sp, "phase") === null ? "" : ` ${str(sp, "phase") as string}`} on ${rowDate(newestSpill) ?? "an unknown day"}${str(sp, "said") === null ? "" : `, at ${str(sp, "said") as string}`}`;
-  // WAS THE LAST NIGHT CHECKED AT ALL (2026-10-09)? Said in the green line, so
-  // a transcript the host stopped writing where it is looked for is not
-  // silence that reads as "nothing cut".
+  // WAS THE LAST NIGHT CHECKED AT ALL (2026-10-09)? Said on the line, green or
+  // amber, so a transcript the host stopped writing where it is looked for is
+  // not silence that reads as "nothing cut". A last run whose own cuts the
+  // amber text already names adds nothing here.
   let checked = "";
   let lastTranscript: string | null = null;
   try {
     const last = nightRunOf(store);
     lastTranscript = last?.transcript ?? null;
-    if (last !== null && last.transcript !== undefined) {
+    if (last !== null && last.transcript !== undefined && !(last.transcript === "read" && (last.spills ?? 0) > 0)) {
       checked =
         last.transcript === "read"
-          ? `; the run of ${last.date}'s transcript showed nothing of ours cut by Claude Code`
-          : `; the run of ${last.date}'s transcript ${last.transcript === "absent" ? "was not found where Claude Code keeps sessions" : "could not be read"}, so Claude Code's cut was not checked`;
+          ? `; the ${last.date} run's transcript showed none of our results cut by Claude Code`
+          : `; the ${last.date} run's transcript ${last.transcript === "absent" ? "was not found where Claude Code keeps sessions" : "could not be read"}, so Claude Code's cut was not checked`;
     }
   } catch {
     /* the line stands without it */
   }
+  // WHY THE HOST CUT, by the newest cut's shape (review of #330): the
+  // character line, the token line the run pins, or the budget for one turn.
+  const spillShape = str(sp, "shape");
+  const spillFix =
+    spillShape === "turn-budget"
+      ? "Nothing to do by hand: the run fetched several results in one turn, and together they passed Claude Code's budget for one turn, so it cut the largest to a preview. Worth reporting with this line."
+      : spillShape === "tokens" || spillShape === "token-cut"
+        ? `Nothing to do by hand: Claude Code's token limit on one tool result came out lower than the ${String(TOOL_RESULT_CEILING.HOST_TOKENS)} tokens the nightly run sets it to, so the night read through a keyhole. Worth reporting with this line.`
+        : `Nothing to do by hand: Claude Code's limit on one tool result is lower than the ${String(ceiling)} characters Counterparts keeps them under, so the night read through a keyhole. Worth reporting with this line — the ceiling has to come down to meet it.`;
   const data = {
     ceiling,
     oversize: oversize.length,
@@ -3391,9 +3401,9 @@ export function resultFindings(store: Store): Finding[] {
         "results",
         "amber",
         "Tool results",
-        `${window} — ${[spillSaid, overSaid, unreadSaid].filter((x) => x.length > 0).join("; ")}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
+        `${window} — ${[spillSaid, overSaid, unreadSaid].filter((x) => x.length > 0).join("; ")}${checked}${floor ? ". More rows than were read: the counts are a floor" : ""}`,
         spillSaid.length > 0
-          ? `Nothing to do by hand: Claude Code's limit on one tool result is lower than the ${String(ceiling)} characters Counterparts keeps them under, so the night read through a keyhole. Worth reporting with this line — the ceiling has to come down to meet it.`
+          ? spillFix
           : overSaid.length > 0
             ? "Nothing to do by hand: the model was told the answer was cut. It means a cap upstream lets a result grow past the ceiling — worth reporting with this line."
             : "Nothing to do by hand: the next night reads its own bundle. If it repeats, the run is skipping parts — worth reporting with this line.",

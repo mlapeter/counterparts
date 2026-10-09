@@ -803,7 +803,8 @@ The nightly run reads its child's transcript for the host's marker on our result
    transcript lands under `projects/` where the lookup asks. Both were read from the host's
    code (2.1.295), not seen. If either fails, the run's row says `transcript: "absent"` and
    doctor's green line says the night was not checked — check that line after the first
-   night on a build with this.
+   night on a build with this. A host that refuses the flag outright is retried once without
+   it (review of #330), so the night itself is not lost to this check.
 2. **The markers are the host's wording.** Read from 2.1.295's code; a host that rewords
    them makes the check go quiet (a missed spill), never noisy. A new marker shape is one
    regex in `transcript.ts`.
