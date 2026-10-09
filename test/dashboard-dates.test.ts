@@ -56,22 +56,35 @@ describe("the dashboard's dates", () => {
 
   test("the memory card prints its dates in words, never as 2026-09-30", async () => {
     const { memoryCard } = (await import(join(WEB, "shared/memory-modal.js"))) as { memoryCard(d: Record<string, unknown>): string };
+    const createdAt = Date.UTC(2026, 8, 28, 17, 47);
     const html = memoryCard({
       id: "mem_1", kind: "fact", title: "A title", text: "Some words.", shownText: "Some words.", confidential: false,
       archived: null, journal: false, chapter: false, curve: null, curveNote: null,
       salience: { relevance: 0, emotional: 0, predictive: 0, novelty: 0, combined: 0, claimed: null },
-      createdAt: Date.UTC(2026, 8, 28, 17, 47), learnedOn: "2026-09-28", happenedOn: "2026-09-27", eventDate: "2026-10-02",
+      createdAt, learnedOn: "2026-09-28", happenedOn: "2026-09-27", eventDate: "2026-10-02",
       writtenDate: "2026-09-26", prospective: [{ date: "2026-10-02", state: "waiting" }],
       uses: 0, useDays: [], bornDay: 3, day: 5, lastUsedDay: 3, reinforcedDays: 0, promotion: null, promoted: false, protected: false,
       pressure: 0, bar: null, feelings: [], intensity: 0, points: [], edges: [], timeline: [], revision: 1, contentHash: "h",
       band: "episodic", recordedBand: "episodic", strength: 0.5, repetition: 0, consolidated: false, removal: [],
     });
-    expect(html).toContain("Written Sep 28th, 2026");
+    // Written on this computer's calendar: Sep 28th in most of the world, the 29th at UTC+14.
+    expect(html).toContain(`Written ${dateWords(localIso(createdAt), { year: true })}`);
     expect(html).toContain("about Oct 2nd, 2026");
     expect(html).toContain("happened Sep 27th, 2026");
     expect(html).toContain("recorded Sep 28th, 2026");
     expect(html).toContain("reminder Oct 2nd, 2026 · waiting");
     expect(html).toContain("Sep 28th, 2026, 17:47 UTC");
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  test("the card's written day is the local one, at either end of the day", async () => {
+    // The UTC day it used to read put a Denver evening's memory on tomorrow, and a
+    // Tokyo morning's on yesterday. Half past midnight and half past eleven, both
+    // local, are the 28th in every zone; only under UTC can the old reading pass.
+    const { writtenOn } = (await import(join(WEB, "shared/memory-modal.js"))) as { writtenOn(d: Record<string, unknown>): string | null };
+    expect(writtenOn({ createdAt: new Date(2026, 8, 28, 0, 30).getTime() })).toBe("2026-09-28");
+    expect(writtenOn({ createdAt: new Date(2026, 8, 28, 23, 30).getTime() })).toBe("2026-09-28");
+    // No moment: the recorded day, as it was written.
+    expect(writtenOn({ createdAt: null, learnedOn: "2026-09-27" })).toBe("2026-09-27");
   });
 });

@@ -19,6 +19,7 @@ import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import {
   FIRED_DAYS,
@@ -825,7 +826,11 @@ describe("counterparts mechanisms --all (the full fired report)", () => {
 
     const { code, text } = await fired();
     expect(code).toBe(0);
-    expect(text).toContain("what has fired — 2026-09-11→2026-09-17, against");
+    // The console's today is the person's day, and with no config beside the
+    // store that is the machine's zone, not the UTC the helpers above pin:
+    // 2026-09-11→2026-09-17 in most of the world, a day later at UTC+14.
+    const today = localDate(at(TODAY));
+    expect(text).toContain(`what has fired — ${daysBefore(today, FIRED_DAYS - 1)}→${today}, against`);
     // The group that says something changed leads the page.
     expect(text).toContain("Fired last week and not once this week:");
     expect(text.indexOf("QUIET (")).toBeLessThan(text.indexOf("FIRING ("));

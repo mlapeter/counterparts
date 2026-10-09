@@ -53,3 +53,10 @@ the other memory physics. It is a counter, not a calendar, and nothing here chan
 - **Daylight saving.** The zone is a name (`America/Denver`), not an offset, so the
   change in March and November is handled by the zone rules.
 - **A server on UTC.** Set `timeZone` in the config, and every local date follows it.
+- **Far from UTC.** Zones run from UTC−12 to UTC+14, a 26-hour spread, so no single
+  moment is the same date everywhere: noon UTC is already the next day from UTC+12
+  eastward (1 am in New Zealand in January, 2 am at UTC+14).
+  A test that stores a moment and expects a date takes the date from the same clock the
+  code reads (`localDate(at)` for a store with no zone set), or pins the store's zone when
+  that one zone is the point. On 2026-10-09 the suite passed under
+  `TZ=Pacific/Kiritimati` (UTC+14), `TZ=Etc/GMT+12` (UTC−12) and `TZ=UTC`.

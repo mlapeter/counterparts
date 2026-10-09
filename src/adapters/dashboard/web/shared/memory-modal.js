@@ -13,7 +13,7 @@ import { emptyBox } from "./absence.js";
 import { esc } from "./dom.js";
 import { headline, n2, n3, said } from "./format.js";
 import { coreRoadLine, curveStart, versionRows } from "./memory-card-words.js";
-import { dateOr, stampWords } from "./dates.js";
+import { dateOr, localIso, stampWords } from "./dates.js";
 import { FEELING_COLOURS, feelingName, feelingWord, kindMark, kindOf } from "./memory-marks.js";
 import { openModal } from "./modal.js";
 import { confirmTyped } from "./widgets/confirm.js";
@@ -48,9 +48,11 @@ export function memoryCard(d) {
 }
 
 /** The day it was written, once: "Written Sep 28th, 2026" — the moment it entered
- *  the store (v7 `created_at`), else the calendar day it was recorded. */
+ *  the store (v7 `created_at`) on this computer's calendar, else the calendar day
+ *  it was recorded. It read the UTC day until 2026-10-09, which put a memory
+ *  written on a Denver evening on the next day. */
 export function writtenOn(d) {
-  if (typeof d.createdAt === "number" && d.createdAt > 0) return new Date(d.createdAt).toISOString().slice(0, 10);
+  if (typeof d.createdAt === "number" && d.createdAt > 0) return localIso(d.createdAt);
   return /^\d{4}-\d{2}-\d{2}$/.test(String(d.learnedOn || "")) ? d.learnedOn : null;
 }
 

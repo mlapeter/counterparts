@@ -60,6 +60,10 @@
   reached through links). Each showing is counted once. `counterparts probe-oq4` prints the
   resulting hit rate. This only measures: nothing is strengthened, weakened or ranked
   differently because of it.
+- **A memory's card in the dashboard says the day it was written on your calendar.** "Written
+  …" used the UTC date, so in Denver anything written in the evening showed the next day, and
+  east of UTC anything written early in the morning showed the day before. It now uses this
+  computer's date, the same day as the card's "recorded" line.
 
 ## 0.3.12 — 2026-10-08
 

@@ -600,3 +600,17 @@ hand, in the old shape.
   card, usually the biggest, won, and the person asked about went under "also
   named". The answer tests ran the action with no owner name, as the server never
   does. Facts still gets his name, where words are what match.
+
+## 2026-10-09 — the card's "Written" day is local
+
+The memory card's "Written …" line took the UTC date of `createdAt`
+(`shared/memory-modal.js#writtenOn`), so in Denver a memory written in the
+evening said the next day, beside a "recorded" chip that said the right one.
+It now reads `shared/dates.js#localIso`, the browser's calendar, as the Health
+cycle line already did. The "written" row under the card's details still prints
+its UTC minute and says "UTC", so it was left alone.
+
+How it got through: `test/time.test.ts` scans `src/` for hand-built dates, but
+only `.ts` files, so the browser modules here are not scanned at all. Widening
+the scan to `.js` would also catch `dates.js` and `cycle.js`, which build dates
+on purpose, so it needs its own allow-list decisions; left as a follow-up.
