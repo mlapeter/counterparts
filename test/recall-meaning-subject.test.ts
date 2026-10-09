@@ -18,7 +18,7 @@
  * Hermetic: one temp store, seeded once, removed after.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +36,8 @@ let dir: string;
 let owner: { name: string; count: number };
 let fewer: { name: string; count: number };
 let more: { name: string; count: number };
+/** The project (an `entity` card) with the most memories. */
+let project: { name: string; count: number };
 
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), "counterparts-meaning-subject-"));
@@ -54,6 +56,11 @@ beforeAll(async () => {
       .sort((a, b) => a.count - b.count || a.name.localeCompare(b.name));
     fewer = people[0] as { name: string; count: number };
     more = people[people.length - 1] as { name: string; count: number };
+    project = c.schemas
+      .entities()
+      .filter((e) => e.kind === "entity")
+      .map((e) => ({ name: e.name, count: c.store.memoriesNaming(e.id).length }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))[0] as { name: string; count: number };
   } finally {
     c.close();
   }
@@ -68,6 +75,8 @@ test("the store reaches the bug: the owner's card outnumbers one person, another
   expect(fewer.count).toBeLessThan(owner.count);
   expect(more.count).toBeGreaterThan(fewer.count);
   expect(more.name).not.toBe(fewer.name);
+  expect(project.count).toBeGreaterThan(0);
+  expect(project.name).not.toBe(project.name.toLowerCase());
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -145,6 +154,17 @@ describe("the recall tool, meaning mode", () => {
     expect(felt.head).not.toStartWith(owner.name);
     expect(felt.answer).toContain("feeling asked:");
   });
+
+  test('"you" ranks under a card named in a plain place, over one in an aside (review of #334)', async () => {
+    // The card the question names, as before the pronoun counted.
+    expect((await recall(`what have you done on ${project.name}`)).head).toStartWith(`${project.name} · `);
+    expect((await recall(`how are you doing with ${project.name}?`)).head).toStartWith(`${project.name} · `);
+    expect((await recall(`what have you learned from ${fewer.name}`)).head).toStartWith(`${fewer.name} · `);
+    // "since X" is when: his own arc.
+    expect((await recall(`how have you been since ${project.name}`)).head).toStartWith(`${owner.name} · `);
+    // Joined to the pronoun, a name takes the about place, over a plain one.
+    expect((await recall(`how have you and ${fewer.name} been on ${project.name}`)).head).toStartWith(`${fewer.name} · `);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -172,5 +192,51 @@ describe("the console's ask --mode meaning: the owner asking, so \"I\" is his", 
     expect((await ask("how has my swap sheet gone")).lens?.name).not.toBe(owner.name);
     // In my voice (--voiced) "I" is me, not him.
     expect((await ask("what have I been like", ["--voiced"])).lens?.name).not.toBe(owner.name);
+  });
+
+  test('his "I" beside a card named in a plain place is that card (review of #334)', async () => {
+    expect((await ask(`what have I done on ${project.name}`)).lens).toMatchObject({ kind: "card", name: project.name });
+    expect((await ask(`how have I been with ${fewer.name}`)).lens).toMatchObject({ kind: "card", name: fewer.name });
+    expect((await ask(`how have I been since ${project.name}`)).lens).toMatchObject({ kind: "card", name: owner.name });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("a card named with a common word (review of #334)", () => {
+  // Its own copy of the seeded store, so the card born here moves no count
+  // the tests above read.
+  let s: McpServer;
+  beforeAll(async () => {
+    const copy = join(work, "store-common-word");
+    cpSync(dir, copy, { recursive: true });
+    s = openServer({ dir: copy, session: "sess_common", scope: "/common", owner: true });
+    s.counterpart.schemas.mention({
+      name: "Will",
+      kind: "person",
+      source: "Will runs the bike shop on the corner.",
+      chunkRef: "test:will",
+      day: 0,
+    });
+    const noted = (await s.call("note", { text: "Will runs the bike shop on the corner and fixed the courier bike." }))
+      .structuredContent as Record<string, unknown>;
+    expect(noted["stored"]).toBe(true);
+  });
+  afterAll(() => {
+    s.counterpart.close();
+  });
+
+  async function answer(question: string): Promise<string> {
+    const r = (await s.call("recall", { question, mode: "meaning" })).structuredContent as Record<string, unknown>;
+    return String(r["answer"]);
+  }
+
+  test('"will" typed in lower case is a step under a name typed with its capital', async () => {
+    const going = await answer(`how will ${project.name} go`);
+    expect(going).toStartWith(`${project.name} · `);
+    expect(going).not.toContain("alike");
+    expect(await answer(`what will ${fewer.name} be to ${more.name}`)).toStartWith(`${fewer.name} · `);
+    // Typed as the card writes it, the grammar decides as for any name.
+    expect(await answer(`what has Will been to ${fewer.name}`)).toStartWith("Will · ");
   });
 });

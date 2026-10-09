@@ -1244,3 +1244,16 @@ Nkechi Abernathy arrived" answered about Nkechi.
 - **Not done:** an arc of two cards together (the memories naming both). "What has Rosalind
   been to Ilya" is still one card's arc; the overlap would be the better answer, and a
   bigger change.
+- **Review of #334: two seams, both regressions against master.** (1) The owner's pronoun
+  took the about place's full rank, so "what have I done on Driftwood", "how have I been
+  with Nkechi" and "what have you learned from Ilya" answered with his own card where
+  master answered with the card named. It now ranks under any card named in a plain or
+  about place and over an aside (`mentionRank`): "how have I been since Driftwood" and
+  "what have I been to Ilya" stay his; a name joined to the pronoun still takes the about
+  place. (2) The alias index matches a name in any case, so a card named with a common
+  word — Will, Hope, Bridge — is found in "how will Driftwood go" and "I hope Ilya is ok",
+  and "first named wins" made it the arc, with an "alike" note. A name typed in lower case
+  where its card writes a capital is now a step under the same place typed as written; a
+  question typed all in lower case loses the step on every name, so the grammar still
+  decides. The matching itself (and a Will card linking every "will" in the store's
+  memories at birth) is the alias index's, untouched here.

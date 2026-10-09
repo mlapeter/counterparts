@@ -1280,6 +1280,22 @@ type Slot = "about" | "plain" | "aside";
 const SLOT_RANK: Readonly<Record<Slot, number>> = { about: 2, plain: 1, aside: 0 };
 
 /**
+ * How strongly one mention says the question is about its card (review of
+ * #334). A name: twice its place's rank, plus one when it is typed as its card
+ * writes it — so "will" for a card named Will, or "hope" for Hope, sits a step
+ * under a name in the same place typed with its capital ("how will Driftwood
+ * go" is Driftwood's, not Will's); in a question typed all in lower case every
+ * name loses the same step and the grammar still decides. The owner's
+ * pronoun asked about: under every name in a plain or about place (2 and up),
+ * over every aside (1 at most) — "what have I done on Driftwood" is
+ * Driftwood's, "how have I been since Driftwood" is his.
+ */
+function mentionRank(m: { readonly slot: Slot; readonly pronoun: boolean; readonly lowered: boolean }): number {
+  if (m.pronoun) return 1.5;
+  return SLOT_RANK[m.slot] * 2 + (m.lowered ? 0 : 1);
+}
+
+/**
  * WHICH CARD THE QUESTION IS ABOUT (2026-10-09). Deterministic; no model.
  *
  *   1. Each name the question gives a card is read in place: ABOUT when the
@@ -1287,7 +1303,9 @@ const SLOT_RANK: Readonly<Record<Slot, number>> = { about: 2, plain: 1, aside: 0
  *      changed", "about X", `ABOUT_BEFORE`), an ASIDE when they say who it
  *      matters to or since when ("been to Y", "since Y arrived"), plain
  *      otherwise. A name joined to the one before it ("X and Y", "X, Y")
- *      takes that one's place. A card's place is its best mention's.
+ *      takes that one's place. A name typed in lower case where its card
+ *      writes a capital ("will" for Will) is a step under the same place
+ *      (`mentionRank`). A card's place is its best mention's.
  *   2. Of the cards with memories, those in the best place are the field. The
  *      owner's own card leaves a field it shares — every memory here is his,
  *      so the other one says more ("Rosalind's arc with Ilya").
@@ -1299,7 +1317,10 @@ const SLOT_RANK: Readonly<Record<Slot, number>> = { about: 2, plain: 1, aside: 0
  * The owner's "I" — "you" in the counterpart's voice, as `feeling-ask.ts`
  * reads whose — names his card (by its id, not his name) where it sits in an
  * about place: "what have you been like", "how have I changed", "how have you
- * and Ilya been". Anywhere else a pronoun names nothing, so "do you remember
+ * and Ilya been". It ranks under any card named in a plain or about place and
+ * over an aside, so "what have I done on Driftwood" is still Driftwood's (as
+ * it was before the pronoun counted) and "how have I been since Driftwood" is
+ * his. Anywhere else a pronoun names nothing, so "do you remember
  * the budget" is still read by its words. Off (`ownerPronoun` null) for a
  * question about feeling, where the pronoun says whose feeling, and for "us".
  */
@@ -1315,11 +1336,14 @@ function subjectOf(
 ): { card: NamedCard | null; alike: readonly string[] } {
   const live = cards.filter((x) => x.ids.length > 0);
   // Every mention of every card, in the order they are named.
-  const mentions: { card: NamedCard; at: number; end: number; slot: Slot }[] = [];
+  const mentions: { card: NamedCard; at: number; end: number; slot: Slot; pronoun: boolean; lowered: boolean }[] = [];
   for (const card of live) {
     for (const term of o.terms(card.id)) {
+      // Typed in lower case where the card writes a capital: "will" for Will.
+      const capital = term !== term.toLowerCase();
       for (const m of question.matchAll(nameRegex(term, "giu"))) {
-        mentions.push({ card, at: m.index, end: m.index + m[0].length, slot: slotAt(question, m.index) });
+        const lowered = capital && m[0] === m[0].toLowerCase();
+        mentions.push({ card, at: m.index, end: m.index + m[0].length, slot: slotAt(question, m.index), pronoun: false, lowered });
       }
     }
   }
@@ -1328,7 +1352,9 @@ function subjectOf(
     const own = asked.length === 0 ? null : (live.find((x) => x.id === o.ownerCard) ?? o.ownerCardOf());
     if (own !== null && own.ids.length > 0) {
       if (!live.includes(own)) live.push(own);
-      for (const m of asked) mentions.push({ card: own, at: m.index, end: m.index + m[0].length, slot: "about" });
+      for (const m of asked) {
+        mentions.push({ card: own, at: m.index, end: m.index + m[0].length, slot: "about", pronoun: true, lowered: false });
+      }
     }
   }
   if (live.length === 0) return { card: null, alike: [] };
@@ -1338,18 +1364,21 @@ function subjectOf(
     const prev = kept[kept.length - 1];
     // A name inside a longer one ("Han" in "Han Seo") is not a mention of its own.
     if (prev !== undefined && m.at < prev.end) continue;
+    // Joined to the owner's pronoun ("how have you and Ilya been"), a name
+    // takes the place the grammar gives, not the pronoun's lower rank.
     if (prev !== undefined && JOINED.test(question.slice(prev.end, m.at))) m.slot = prev.slot;
     kept.push(m);
   }
-  const place = new Map<string, { slot: Slot; at: number; length: number }>();
+  const place = new Map<string, { rank: number; at: number; length: number }>();
   for (const m of kept) {
     const had = place.get(m.card.id);
-    if (had === undefined || SLOT_RANK[m.slot] > SLOT_RANK[had.slot]) place.set(m.card.id, { slot: m.slot, at: m.at, length: m.end - m.at });
+    const rank = mentionRank(m);
+    if (had === undefined || rank > had.rank) place.set(m.card.id, { rank, at: m.at, length: m.end - m.at });
   }
   // A card named only inside another's longer name: the least of them.
-  const placeOf = (x: NamedCard) => place.get(x.id) ?? { slot: "aside" as Slot, at: Number.POSITIVE_INFINITY, length: 0 };
-  const best = Math.max(...live.map((x) => SLOT_RANK[placeOf(x).slot]));
-  let field = live.filter((x) => SLOT_RANK[placeOf(x).slot] === best);
+  const placeOf = (x: NamedCard) => place.get(x.id) ?? { rank: -1, at: Number.POSITIVE_INFINITY, length: 0 };
+  const best = Math.max(...live.map((x) => placeOf(x).rank));
+  let field = live.filter((x) => placeOf(x).rank === best);
   if (field.length > 1 && o.ownerCard !== null) field = field.filter((x) => x.id !== o.ownerCard);
   field.sort((a, b) => {
     const pa = placeOf(a);

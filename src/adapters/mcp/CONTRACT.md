@@ -470,10 +470,13 @@ them.
   one-liners (`meaning.ts#subjectOf`, 2026-10-09). A name the words before it ask about
   ("what has X been", "how has X changed", "about X", "my arc with X") ranks over a plain
   mention, and that over an aside ("been to Y", "since Y", "after Y"); a name joined to the one
-  before it ("X and Y") shares its place; the owner's own card leaves a place it shares;
-  then the first named wins, memory counts only break a tie, and the answer says when
-  more than one were asked about alike. The owner's "I" ("you" in the counterpart's
-  voice) asked about is his card, except in a question about feeling or about "us".
+  before it ("X and Y") shares its place; a name typed in lower case that its card
+  capitalises ("will" for Will) is a step under the same place typed as written; the
+  owner's own card leaves a place it shares; then the first named wins, memory counts
+  only break a tie, and the answer says when more than one were asked about alike. The
+  owner's "I" ("you" in the counterpart's voice) asked about is his card, except in a
+  question about feeling or about "us" — and under any card named outside an aside:
+  "what have I done on Driftwood" is Driftwood's, "how have I been since Driftwood" his.
   "us" (the words *us*, *ourselves*, *together*) is the memories marked
   `about: us`; a ranked question about feeling (`feeling-ask.ts`) with no card is the
   stamps that match it by word, core and whose — narrowed, when it names a topic no card
