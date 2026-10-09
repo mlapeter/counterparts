@@ -15,7 +15,7 @@
 .mbadge.journal{color:var(--purple);border-color:rgba(179,136,255,.3)}
 /* An id inside a memory's words, drawn as what it is ("memory ↗"), the id on
    hover (`idMark`). Quiet: the same word, not a link. */
-.idref{display:inline;padding:0 2px;margin:0;background:none;border:none;border-radius:3px;font:inherit;font-size:.92em;
+.idref{display:inline;padding:0;margin:0;background:none;border:none;border-radius:3px;font:inherit;font-size:.92em;
   color:var(--cyan);cursor:pointer;white-space:nowrap}
 .idref:hover,.idref:focus-visible{text-decoration:underline;outline:none}
 .idref.quiet{color:var(--faint);cursor:inherit}
