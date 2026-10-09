@@ -243,6 +243,100 @@ describe("time in a question (time-ask.ts)", () => {
     expect(readTimeAsk("anything after 2026-07-22?", clock)?.window).toEqual({ from: "2026-07-23", to: OPEN_END });
   });
 
+  // Review of #338's findings that predate it, 2026-10-09. Each is read in two
+  // zones whose day differs from UTC's, at local noon on Saturday 2026-10-03.
+  const zones: [string, { now: number; zone: string }][] = [
+    ["America/Denver", { now: Date.parse("2026-10-03T18:00:00Z"), zone: "America/Denver" }],
+    ["Pacific/Kiritimati", { now: Date.parse("2026-10-02T22:00:00Z"), zone: "Pacific/Kiritimati" }],
+  ];
+
+  test("an amount is not a date: a range with a unit after it, a price, a fraction (Denver, Kiritimati)", () => {
+    for (const [, at] of zones) {
+      for (const q of [
+        "I usually sleep up to 7-8 hours",
+        "how long, 7-8 hours or 10-12 minutes?",
+        "a 2-3 week trip",
+        "lost 5-10 lbs",
+        "about 5-10% of the budget",
+        "$5-10 a month",
+        "slept 7-8.5 hours",
+        "ran 3-4 km",
+        "1/2 cup of sugar",
+        "3/4 of the team agreed",
+      ]) {
+        expect({ q, ask: readTimeAsk(q, at) }).toEqual({ q, ask: null });
+      }
+      // A date after an amount is still read, and the amount stays in the question.
+      const after = readTimeAsk("slept 7-8 hours before 9/21", at);
+      expect(after?.window).toEqual({ from: OPEN_START, to: "2026-09-20" });
+      expect(after?.rest).toBe("slept 7-8 hours");
+      // An ordinary word after a date leaves it a date.
+      expect(readTimeAsk("what happened on 7/8 at the lake", at)?.window).toEqual({ from: "2026-07-08", to: "2026-07-08" });
+      expect(readTimeAsk("09-28 gym", at)?.window).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+    }
+  });
+
+  test("\"by 1/2\" is a fraction after a word of quantity, else January 2 (Denver, Kiritimati)", () => {
+    for (const [, at] of zones) {
+      for (const q of ["cut it by 1/2", "we reduced the dose by 1/2", "how much did prices drop by 1/3", "grew to 3/4", "reduced the dose to 1/3"]) {
+        expect({ q, ask: readTimeAsk(q, at) }).toEqual({ q, ask: null });
+      }
+      const finish = readTimeAsk("what do I have to finish by 1/2", at);
+      expect(finish?.window).toEqual({ from: OPEN_START, to: "2026-01-02" });
+      expect(finish?.cue).toBe("by 1/2");
+      expect(readTimeAsk("what happened on 1/2", at)?.window).toEqual({ from: "2026-01-02", to: "2026-01-02" });
+      // Not a common fraction (over 10 below it), so a deadline: "cut costs by 3/15".
+      expect(readTimeAsk("cut costs by 3/15", at)?.window).toEqual({ from: OPEN_START, to: "2026-03-15" });
+      // "By" as part of a verb still reads as through (review of #338, item 5).
+      expect(readTimeAsk("drop by 7/22", at)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    }
+  });
+
+  test("since / after a day that has not come yet this year is last year's; before, until, by and the day alone are not moved (Denver, Kiritimati)", () => {
+    for (const [, at] of zones) {
+      const since = readTimeAsk("what changed since 10/25", at);
+      expect(since?.said).toEqual({ from: "2025-10-25", to: "2026-10-03" });
+      expect(since?.cue).toBe("since 10/25");
+      expect(since?.rest).toBe("what changed");
+      expect(readTimeAsk("since Oct 25", at)?.said).toEqual({ from: "2025-10-25", to: "2026-10-03" });
+      expect(readTimeAsk("since the 25th of October", at)?.said).toEqual({ from: "2025-10-25", to: "2026-10-03" });
+      expect(readTimeAsk("after 10/25", at)?.window).toEqual({ from: "2025-10-26", to: OPEN_END });
+      // The date names a thing on that day: the same year, the day kept.
+      expect(readTimeAsk("who called after the 10/25 launch", at)?.window).toEqual({ from: "2025-10-25", to: OPEN_END });
+      expect(readTimeAsk("since the 10/25 launch", at)?.said).toEqual({ from: "2025-10-25", to: "2026-10-03" });
+      // A future cutoff hides nothing that has happened: this year's, as before.
+      expect(readTimeAsk("before 10/25", at)?.window).toEqual({ from: OPEN_START, to: "2026-10-24" });
+      expect(readTimeAsk("before the 10/25 flight", at)?.window).toEqual({ from: OPEN_START, to: "2026-10-25" });
+      expect(readTimeAsk("by 10/25", at)?.window).toEqual({ from: OPEN_START, to: "2026-10-25" });
+      expect(readTimeAsk("on 10/25", at)?.window).toEqual({ from: "2026-10-25", to: "2026-10-25" });
+      // Today has come; a written year is the year meant.
+      expect(readTimeAsk("since 10/3", at)?.said).toEqual({ from: "2026-10-03", to: "2026-10-03" });
+      expect(readTimeAsk("since 10/25/2026", at)?.said).toEqual({ from: "2026-10-25", to: "2026-10-03" });
+      expect(readTimeAsk("after 2026-10-25", at)?.window).toEqual({ from: "2026-10-26", to: OPEN_END });
+    }
+    // On the person's own day: 04:00 UTC on 10-04 is still 10-03 in Denver, already 10-04 on Kiritimati.
+    const edge = Date.parse("2026-10-04T04:00:00Z");
+    expect(readTimeAsk("since 10/4", { now: edge, zone: "America/Denver" })?.said).toEqual({ from: "2025-10-04", to: "2026-10-03" });
+    expect(readTimeAsk("since 10/4", { now: edge, zone: "Pacific/Kiritimati" })?.said).toEqual({ from: "2026-10-04", to: "2026-10-04" });
+    expect(readTimeAsk("after 10/4", { now: edge, zone: "America/Denver" })?.window).toEqual({ from: "2025-10-05", to: OPEN_END });
+    expect(readTimeAsk("after 10/4", { now: edge, zone: "Pacific/Kiritimati" })?.window).toEqual({ from: "2026-10-05", to: OPEN_END });
+    // Feb 29 not yet come in a leap year: the last Feb 29 there was.
+    const leap = { now: Date.parse("2028-02-10T19:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("since 2/29", leap)?.said).toEqual({ from: "2024-02-29", to: "2028-02-10" });
+  });
+
+  test("the event-day rule of #338 holds in both zones: \"before the 7/22 flight\" keeps 07-22, \"before 7/22\" does not", () => {
+    for (const [, at] of zones) {
+      const flight = readTimeAsk("what did I eat before the 7/22 flight", at);
+      expect(flight?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+      expect(flight?.cue).toBe("before the 7/22");
+      expect(flight?.rest).toBe("what did I eat before the flight");
+      expect(readTimeAsk("what came up after the July 22 meeting", at)?.window).toEqual({ from: "2026-07-22", to: OPEN_END });
+      expect(readTimeAsk("what did I eat before 7/22", at)?.window).toEqual({ from: OPEN_START, to: "2026-07-21" });
+      expect(readTimeAsk("after the 4th of July we sailed", at)?.window).toEqual({ from: "2026-07-05", to: OPEN_END });
+    }
+  });
+
   test("\"last Saturday\" is read on the person's own day, not UTC's (Denver, Kiritimati)", () => {
     // Saturday 22:00 in Denver is Sunday in UTC; Sunday 01:00 on Kiritimati is Saturday in UTC.
     const denverSat = { now: Date.parse("2026-10-04T04:00:00Z"), zone: "America/Denver" };
@@ -467,6 +561,28 @@ describe("time filters", () => {
     const pitch = ask(c, "zqtent before the 7/22 pitch");
     expect(pitch.memories.map((m) => m.id)).toEqual(expect.arrayContaining([early, day]));
     expect(renderFacts(pitch)).toContain("time: before the 7/22 → through 07-22");
+  });
+
+  // Review of #338's findings that predate it, 2026-10-09.
+  test("an amount filters nothing, and \"since\" a day not yet come this year reaches back to last year's", () => {
+    const c = brain();
+    seed(c);
+    const cut = c.store.put({ type: "memory", kind: "fact", body: "Cut the zqbudget by half for the autumn.", occurredOn: "2026-09-15" });
+    // "By 1/2" read as January 2 would have kept only the days through 01-02.
+    const half = ask(c, "did we cut the zqbudget by 1/2?");
+    expect(half.time).toBeNull();
+    expect(half.memories.map((m) => m.id)).toEqual([cut]);
+    expect(renderFacts(half)).not.toContain("time:");
+    const sleep = c.store.put({ type: "memory", kind: "fact", body: "Needs zqsleep of a full night before a race.", occurredOn: "2026-09-20" });
+    expect(ask(c, "how much zqsleep, 7-8 hours?").memories.map((m) => m.id)).toEqual([sleep]);
+    // Asked on 10-03: this year's 10/25 has not come, so "since 10/25" is last year's.
+    const moved = c.store.put({ type: "memory", kind: "fact", body: "Moved the zqboat to the marina.", occurredOn: "2025-11-02" });
+    const sold = c.store.put({ type: "memory", kind: "fact", body: "Sold the old zqboat trailer.", occurredOn: "2026-09-01" });
+    c.store.put({ type: "memory", kind: "fact", body: "Bought the zqboat.", occurredOn: "2025-10-01" });
+    const since = ask(c, "zqboat since 10/25");
+    expect(new Set(since.memories.map((m) => m.id))).toEqual(new Set([moved, sold]));
+    expect(since.time?.outside).toBe(1);
+    expect(renderFacts(since)).toContain("time: since 10/25 → 2025-10-25..10-03 · 1 more match outside it");
   });
 
   test("a question that is only a time answers with everything in the window", () => {

@@ -15,6 +15,14 @@
   a memory in the middle of being corrected. It now counts `protected` and
   `in-live-revision-chain` only where that is what kept the memory, as it already did for
   `recurring`. Nothing is cleaned up differently.
+- **Facts recall no longer reads an amount as a date, or "since 10/25" as an empty
+  window.** "7-8 hours", "3/4 cup", "5-10%" and "$5-10" were read as dates (July 8, March
+  4, May 10) and filtered the answer to them; they are amounts now, and a date later in
+  the question is still read. "Cut it by 1/2" or "reduced to 1/3" is a fraction, not a
+  deadline of January 2; "finish by 1/2" still is one. And "since 10/25" or "after 10/25"
+  asked before the 25th of this month means last year's 10/25, where it gave nothing (or
+  only what is still to come). "Before", "until" and "by" a coming day keep this year's.
+  Questions with no time in them answer exactly as before.
 
 ## 0.3.13 — 2026-10-09
 

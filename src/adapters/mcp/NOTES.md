@@ -1337,3 +1337,44 @@ right (asked on 2023-02-01: 01-16..01-22, checked on a benchmark store).
   be the coming one), "last weekend" (no time), a two-digit year (`7/22/23` is still 7/22
   with `yearFor`'s year, `/23` left in), `2023/07/22`. The learned-date fallback for a row
   with no `occurred_on` is the owner's decision and untouched.
+
+## 2026-10-09 — facts mode: amounts, fractions, and a day not yet come
+
+Three of #338's reviewer's findings predated it (items 3 and 4 of that review), all in
+`recall/time-ask.ts`; this is them.
+
+- **What changed meaning, exactly.** (1) A `M-D` or `M/D` with a unit or counting noun
+  right after it is an amount, not a date: "7-8 hours", "3-4pm", "5-10%", "3/4 cup", "1/2
+  of the budget", "lost 5-10 lbs" (a decimal tail too: "7-8.5 hours"). A price is one too:
+  "$5-10". It was July 8 (and, under "up to", through 07-08). The scan goes on past an
+  amount, so "slept 7-8 hours before 9/21" is through 09-20; anything else stops it where
+  it stopped before. (2) "Cut it by 1/2", "reduced the dose to 1/3": a fraction after a
+  word of quantity is no date. It was through 01-02 (master before #338: 01-02 alone).
+  (3) "Since" and "after" a month and day with no year that has not come yet this year
+  (a later day of this month, the only case `yearFor` left in the future) now mean last
+  year's. "Since 10/25" asked on 10-03 was empty (10-25..10-03); now it is
+  2025-10-25..10-03. "After 10/25" was only what is still to come; now it is 2025-10-26
+  onward, which holds that too. The event form follows ("after the 10/25 launch" is
+  2025-10-25 onward). A Feb 29 not yet come reaches back to the last Feb 29 there was.
+- *Choices:*
+  - The fraction rule is narrow on purpose: a slash, no year written, the number above
+    smaller than the one below and the one below at most 10 (halves to tenths), and a
+    word of quantity (cut, reduce, increase, decrease, divide, multiply, grow, shrink,
+    raise, lower, halve, trim, slash, boost, scale, drop, fall, rise, in their forms) at
+    most three words before the "by" or "to". Anything else stays a date: "finish by
+    1/2" is through 01-02, "cut costs by 3/15" is a March deadline. When it guesses
+    wrong the other way ("drop it off by 1/2"), nothing is filtered, which hides nothing.
+  - The year moves only under "since" and "after". Under "before", "until", "by" and a
+    day alone this year's coming day is kept: "before 10/25" asked on 10-03 is through
+    this year's 10-24, which holds everything that has happened plus the plans before
+    it, where last year's would hide a year; "by 10/25" is a deadline ahead; "on 10/25"
+    can be a plan. So the CONTRACT's "before 1/5" asked on 01-03 (through this year's
+    01-04) stands.
+  - "Today" is the person's own day (the store's zone), as everywhere here: at 04:00 UTC
+    on 10-04, "since 10/4" is last year's in Denver (still 10-03) and today on Kiritimati.
+  - The event-day rule of #338 ("before the 7/22 flight" keeps 07-22) is unchanged and
+    now tested in Denver and on Kiritimati.
+- **Not done:** an amount written with words between the number and the unit ("7-8 full
+  hours"), a score ("rated it 8/10" is still August 10), a later MONTH under "by" or
+  "until" (still last year's by `yearFor`, as before), and a number range with "to"
+  ("7 to 8 hours" was never a date).
