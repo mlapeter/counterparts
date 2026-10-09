@@ -1,8 +1,8 @@
 /**
  * The lab page: renders `Brain` frames and paints them the way iTerm2 would.
  * One foreground and one background per cell; braille drawn as font glyphs
- * (Menlo, falling back for U+2800 to the system cascade as the terminal does: only
- * the set dots are drawn); block elements
+ * (Menlo 13, falling back for U+2800 to the system cascade as the terminal
+ * does: only the set dots are drawn); block elements
  * drawn flush. Bundled for the browser by shoot.ts.
  *
  * Query: `?only=<panel>` one panel of the round (see layout.ts), otherwise the

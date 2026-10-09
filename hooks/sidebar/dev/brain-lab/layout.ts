@@ -3,16 +3,17 @@
  * bundled for the browser) and the shooter (shoot.ts, run by bun), so both
  * agree on every panel's size in CSS pixels.
  *
- * The metrics are measured from Mike's iTerm2 screenshot
- * (refs/current-in-iterm-toggles-and-glow.png): a cell is about 8.1 x 16 px,
- * which is Menlo at 13.5 px. Braille falls back to Apple Braille there and in
- * Chrome alike, so the dots cluster 2 x 4 per cell with wider gaps between
- * cells, as they do in the terminal.
+ * The metrics are Mike's iTerm2 default profile: Menlo-Regular 13, spacing
+ * 1.0 both ways. Menlo's advance is 0.602 em (7.83 px); iTerm rounds the cell
+ * up to 8 x 16, which his Retina screenshot confirms (dot columns repeat every
+ * 16 device px, rows every 32). Braille falls back to a system font that draws
+ * only the set dots, in iTerm and in Chrome alike, so the dots cluster 2 x 4
+ * per cell with wider gaps between cells, as they do in the terminal.
  */
 
-export const CW = 8.13;
+export const CW = 8;
 export const CH = 16;
-export const FONT_PX = 13.5;
+export const FONT_PX = 13;
 export const PAD = 14;
 export const LABEL_H = 20;
 export const GAP = 18;

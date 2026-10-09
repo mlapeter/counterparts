@@ -122,9 +122,12 @@ That needs measuring live.
 
 ## The lab (`hooks/sidebar/dev/brain-lab/`)
 
-- `lab.ts` + `index.html`: paint frames as iTerm2 would. Menlo is 13.5 px;
-  cells are 8.13 x 16, measured from Mike's screenshot, not 7.8 x 17. Braille
-  falls back to the system font that draws only the set dots.
+- `lab.ts` + `index.html`: paint frames as iTerm2 would. Round 1's frames
+  used Menlo 13.5 px in 8.13 x 16 cells, an estimate from Mike's screenshot.
+  After the round, the lab is pinned to his profile: Menlo 13 in an 8 x 16
+  cell, which his Retina screenshot confirms. The dots are square either way,
+  so `DOT_ASPECT` stays 1. Braille falls back to the system font that draws
+  only the set dots.
 - `shoot.ts round N`: builds the bundle and shoots each frame plus
   `contact.png` with headless Chrome on its own profile, then kills it.
 - `bench.ts`: the table above.

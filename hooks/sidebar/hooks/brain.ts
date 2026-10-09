@@ -186,7 +186,7 @@ const SULCI: readonly Sulcus[] = [
 
 const P_STIPPLE = 1, P_FOLD = 2, P_INNER = 3, P_FISSURE = 4, P_OUTLINE = 5, P_LIT = 6, P_SIGNAL = 7;
 const BRAILLE = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]]; // [row][col]
-/** Braille dots are about square in the terminal (iTerm2, Menlo 13.5: a cell 8.1 x 16 px). */
+/** Braille dots are square in the terminal: iTerm2, Menlo 13, a cell 8 x 16 (4 x 4 a dot). */
 const DOT_ASPECT = 1.0;
 const FAR = 4;
 
