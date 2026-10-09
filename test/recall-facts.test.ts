@@ -25,7 +25,7 @@ import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
 import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/contradictions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { loadGateState, readTimeAsk } from "../src/core/recall/index.js";
+import { OPEN_END, OPEN_START, loadGateState, readTimeAsk } from "../src/core/recall/index.js";
 
 const ZONE = "America/Los_Angeles";
 /** 2026-10-03, 15:00 local. */
@@ -130,6 +130,129 @@ describe("time in a question (time-ask.ts)", () => {
     const r = readTimeAsk("what happened the day before yesterday", clock);
     expect(r?.window).toEqual({ from: "2026-10-01", to: "2026-10-01" });
     expect(r?.rest).toBe("what happened");
+  });
+
+  // 2026-10-09, the LongMemEval run: "last Saturday" read as no time at all.
+  test("last <weekday> is the most recent one before today, exact; asked on that weekday it is a week back", () => {
+    // NOW is Saturday 2026-10-03 in Los Angeles.
+    const sat = readTimeAsk("what did I do last Saturday", clock);
+    expect(sat?.said).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    expect(sat?.window).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    expect(sat?.stretch).toBe(0);
+    expect(sat?.cue).toBe("last Saturday");
+    expect(sat?.rest).toBe("what did I do");
+    expect(readTimeAsk("last friday at the market", clock)?.window).toEqual({ from: "2026-10-02", to: "2026-10-02" });
+    expect(readTimeAsk("who came last Sunday", clock)?.window).toEqual({ from: "2026-09-27", to: "2026-09-27" });
+    const past = readTimeAsk("this past Monday's meeting", clock);
+    expect(past?.window).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+    expect(past?.rest).toBe("meeting");
+    // Asked on Monday 10-05: Saturday is two days back, and Monday a week.
+    const monday = { now: Date.parse("2026-10-05T19:00:00Z"), zone: ZONE };
+    expect(readTimeAsk("last Saturday", monday)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
+    expect(readTimeAsk("last Monday", monday)?.window).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+    // Across a year: asked on Friday 2027-01-01.
+    const newYear = { now: Date.parse("2027-01-01T19:00:00Z"), zone: ZONE };
+    expect(readTimeAsk("last Saturday", newYear)?.window).toEqual({ from: "2026-12-26", to: "2026-12-26" });
+    // A word in front bounds it, as it bounds a date.
+    const since = readTimeAsk("what have I done since last Saturday", clock);
+    expect(since?.window).toEqual({ from: "2026-09-26", to: "2026-10-03" });
+    expect(since?.cue).toBe("since last Saturday");
+    expect(since?.rest).toBe("what have I done");
+    expect(readTimeAsk("before last Wednesday", clock)?.window).toEqual({ from: OPEN_START, to: "2026-09-29" });
+    // Either could be the coming one: not read. Nor "the last Saturday" of something.
+    expect(readTimeAsk("what did I do this Saturday", clock)).toBeNull();
+    expect(readTimeAsk("what did I do on Saturday", clock)).toBeNull();
+    expect(readTimeAsk("on the last Saturday of the season we sailed", clock)).toBeNull();
+  });
+
+  // 2026-10-09, the LongMemEval run: "before 7/22" filtered to 07-22 alone.
+  test("a word in front of a date bounds it: before, after, since, until, by — in every date shape", () => {
+    const shapes = ["2026-07-22", "7/22", "July 22", "7/22/2026", "22 July", "July 22nd, 2026"];
+    const bounds: [string, { from: string; to: string }][] = [
+      ["before", { from: OPEN_START, to: "2026-07-21" }],
+      ["prior to", { from: OPEN_START, to: "2026-07-21" }],
+      ["after", { from: "2026-07-23", to: OPEN_END }],
+      ["since", { from: "2026-07-22", to: "2026-10-03" }],
+      ["until", { from: OPEN_START, to: "2026-07-22" }],
+      ["up until", { from: OPEN_START, to: "2026-07-22" }],
+      ["by", { from: OPEN_START, to: "2026-07-22" }],
+    ];
+    for (const shape of shapes) {
+      for (const [word, window] of bounds) {
+        const r = readTimeAsk(`what did I buy ${word} ${shape} at the market?`, clock);
+        expect({ shape, word, said: r?.said, window: r?.window, stretch: r?.stretch, rest: r?.rest }).toEqual({
+          shape,
+          word,
+          said: window,
+          window,
+          stretch: 0,
+          rest: "what did I buy at the market?",
+        });
+        expect(r?.cue).toBe(`${word} ${shape}`);
+      }
+      // Alone, the date is that day and no other.
+      expect(readTimeAsk(`what did I buy on ${shape}?`, clock)?.window).toEqual({ from: "2026-07-22", to: "2026-07-22" });
+    }
+    // A month under a bound: before it starts, after it ends; "since" keeps its stretch.
+    expect(readTimeAsk("before 2026-07", clock)?.window).toEqual({ from: OPEN_START, to: "2026-06-30" });
+    expect(readTimeAsk("after 2026-07", clock)?.window).toEqual({ from: "2026-08-01", to: OPEN_END });
+    expect(readTimeAsk("since 2026-07", clock)?.stretch).toBe(2);
+  });
+
+  test("a year written with the date is the year meant, and leaves the question", () => {
+    const slash = readTimeAsk("what happened on 7/22/2025", clock);
+    expect(slash?.window).toEqual({ from: "2025-07-22", to: "2025-07-22" });
+    expect(slash?.rest).toBe("what happened");
+    expect(readTimeAsk("before 7/22/2025", clock)?.window).toEqual({ from: OPEN_START, to: "2025-07-21" });
+    expect(readTimeAsk("since July 22, 2025 what moved", clock)?.window).toEqual({ from: "2025-07-22", to: "2026-10-03" });
+    expect(readTimeAsk("the 22 July 2025 trip", clock)?.window).toEqual({ from: "2025-07-22", to: "2025-07-22" });
+    // Month first, as before: 3/4 is March 4th.
+    expect(readTimeAsk("on 3/4", clock)?.window).toEqual({ from: "2026-03-04", to: "2026-03-04" });
+  });
+
+  test("a bound across the new year: \"before 1/5\" asked in early January reaches back into December", () => {
+    // Sunday 2027-01-03 in Los Angeles.
+    const jan = { now: Date.parse("2027-01-03T19:00:00Z"), zone: ZONE };
+    expect(readTimeAsk("before 1/5", jan)?.window).toEqual({ from: OPEN_START, to: "2027-01-04" });
+    expect(readTimeAsk("after 12/28", jan)?.window).toEqual({ from: "2026-12-29", to: OPEN_END });
+    expect(readTimeAsk("since 12/28", jan)?.window).toEqual({ from: "2026-12-28", to: "2027-01-03" });
+    expect(readTimeAsk("until Dec 30", jan)?.window).toEqual({ from: OPEN_START, to: "2026-12-30" });
+    expect(readTimeAsk("before 1/2", { now: Date.parse("2027-01-10T19:00:00Z"), zone: ZONE })?.window).toEqual({ from: OPEN_START, to: "2027-01-01" });
+  });
+
+  // Review of #338: "before the 7/22 flight" cut 07-22 off, and the flight was on 07-22.
+  test("a date that names a thing on that day keeps that day under a bound; a cutoff still does not", () => {
+    const flight = readTimeAsk("what did I eat before the 7/22 flight", clock);
+    expect(flight?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    expect(flight?.cue).toBe("before the 7/22");
+    expect(flight?.rest).toBe("what did I eat before the flight");
+    expect(readTimeAsk("what came up after the July 22 meeting", clock)?.window).toEqual({ from: "2026-07-22", to: OPEN_END });
+    const standup = readTimeAsk("what did Rosalind update after July 22's standup", clock);
+    expect(standup?.window).toEqual({ from: "2026-07-22", to: OPEN_END });
+    expect(standup?.rest).toBe("what did Rosalind update after standup");
+    expect(readTimeAsk("two days before the 7/22 launch", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    expect(readTimeAsk("who called after last Saturday's party", clock)?.window).toEqual({ from: "2026-09-26", to: OPEN_END });
+    expect(readTimeAsk("after the 4th of July fireworks", clock)?.window).toEqual({ from: "2026-07-04", to: OPEN_END });
+    // "since", "until", "by" already keep the day.
+    expect(readTimeAsk("since the 7/22 launch", clock)?.window).toEqual({ from: "2026-07-22", to: "2026-10-03" });
+    expect(readTimeAsk("by the 7/22 deadline", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
+    // A cutoff: nothing after the date, punctuation, or the question going on.
+    expect(readTimeAsk("who did I meet before the 4th of July", clock)?.window).toEqual({ from: OPEN_START, to: "2026-07-03" });
+    expect(readTimeAsk("after the 4th of July, what did we sail", clock)?.window).toEqual({ from: "2026-07-05", to: OPEN_END });
+    expect(readTimeAsk("after the 4th of July we sailed", clock)?.window).toEqual({ from: "2026-07-05", to: OPEN_END });
+    expect(readTimeAsk("anything after 2026-07-22?", clock)?.window).toEqual({ from: "2026-07-23", to: OPEN_END });
+  });
+
+  test("\"last Saturday\" is read on the person's own day, not UTC's (Denver, Kiritimati)", () => {
+    // Saturday 22:00 in Denver is Sunday in UTC; Sunday 01:00 on Kiritimati is Saturday in UTC.
+    const denverSat = { now: Date.parse("2026-10-04T04:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("last Saturday", denverSat)?.window).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    const denverSun = { now: Date.parse("2026-10-05T04:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("last Saturday", denverSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
+    const kiriSat = { now: Date.parse("2026-10-02T10:30:00Z"), zone: "Pacific/Kiritimati" };
+    expect(readTimeAsk("last Saturday", kiriSat)?.window).toEqual({ from: "2026-09-26", to: "2026-09-26" });
+    const kiriSun = { now: Date.parse("2026-10-03T11:00:00Z"), zone: "Pacific/Kiritimati" };
+    expect(readTimeAsk("last Saturday", kiriSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
   });
 });
 
@@ -317,6 +440,33 @@ describe("time filters", () => {
     expect(r.memories.map((m) => m.id)).toEqual([inside]);
     // The chapter (with its copy folded in) is the one fact outside worth saying.
     expect(r.time?.outside).toBe(1);
+  });
+
+  test("\"before\" keeps every day before the date and \"after\" every day after, by event date or learned date; the header names the cutoff", () => {
+    const c = brain();
+    seed(c);
+    const early = c.store.put({ type: "memory", kind: "fact", body: "Bought the zqtent in spring.", occurredOn: "2026-04-11" });
+    const day = c.store.put({ type: "memory", kind: "fact", body: "Pitched the zqtent by the lake.", occurredOn: "2026-07-22" });
+    const later = c.store.put({ type: "memory", kind: "fact", body: "Patched the zqtent seam.", occurredOn: "2026-08" });
+    // No event date: learned today (10-03), so after the cutoff by its learned date.
+    const learned = c.store.put({ type: "memory", kind: "fact", body: "Lent the zqtent to Han." });
+    const before = ask(c, "what about the zqtent before 7/22?");
+    expect(before.memories.map((m) => m.id)).toEqual([early]);
+    expect(before.time?.outside).toBe(3);
+    expect(renderFacts(before)).toContain("time: before 7/22 → through 07-21 · 3 more match outside it");
+    const after = ask(c, "zqtent after July 22");
+    expect(new Set(after.memories.map((m) => m.id))).toEqual(new Set([later, learned]));
+    expect(renderFacts(after)).toContain("time: after July 22 → 07-23 onward · 2 more match outside it");
+    const by = ask(c, "zqtent by 2026-07-22");
+    expect(new Set(by.memories.map((m) => m.id))).toEqual(new Set([early, day]));
+    // A question that is only a cutoff answers with everything on its side.
+    const only = ask(c, "what happened before 7/22/2026?");
+    expect(only.memories.map((m) => m.id)).toContain(early);
+    expect(only.memories.map((m) => m.id)).not.toContain(learned);
+    // The date names the thing asked about (review of #338): its day stays in.
+    const pitch = ask(c, "zqtent before the 7/22 pitch");
+    expect(pitch.memories.map((m) => m.id)).toEqual(expect.arrayContaining([early, day]));
+    expect(renderFacts(pitch)).toContain("time: before the 7/22 → through 07-22");
   });
 
   test("a question that is only a time answers with everything in the window", () => {

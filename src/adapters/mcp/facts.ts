@@ -82,6 +82,8 @@ import { sessionsHere } from "../../core/coverage/index.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
 
 import {
+  OPEN_END,
+  OPEN_START,
   informativeness,
   localKey,
   readTimeAsk,
@@ -1031,7 +1033,17 @@ function renderAt(r: FactsResult, today: string, excerpt: number): string {
   lines.push(head.join(" · "));
   if (r.time !== null) {
     const t = r.time;
-    const span = (w: DayWindow | null): string => (w === null ? "" : w.from === w.to ? shortDate(w.from, today) : `${shortDate(w.from, today)}..${shortDate(w.to, today)}`);
+    // An open end ("before 7/22", "after 7/22") reads as a cutoff, not as year 1 or 9999.
+    const span = (w: DayWindow | null): string =>
+      w === null
+        ? ""
+        : w.from === OPEN_START
+          ? `through ${shortDate(w.to, today)}`
+          : w.to === OPEN_END
+            ? `${shortDate(w.from, today)} onward`
+            : w.from === w.to
+              ? shortDate(w.from, today)
+              : `${shortDate(w.from, today)}..${shortDate(w.to, today)}`;
     const out = t.outside > 0 ? ` · ${String(t.outside)} more match outside it` : "";
     if (t.anchor !== undefined && t.anchor.date === null) {
       lines.push(
