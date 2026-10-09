@@ -373,14 +373,20 @@ const REMIND_PROPERTY = {
     'Optional, with eventDate: how it comes back. "plain" when you judge it genuinely matters for remembering to DO something — a real deadline, an important date — or when the person says it matters ("don\'t let me forget to pay taxes before Oct 15th!"): on the day it is said plainly, once, to them in their terminal and to you in context (a month or range: its first day and its last). Otherwise "quiet", the default: it can surface as a footnote around the date, at most twice — giving it a date is itself what makes it eligible, whatever its salience.',
 } as const;
 
-/** The two privileges `note` and `session_end` share for the date fields. */
-const DATE_PRIVILEGES: readonly Privilege[] = [
-  {
-    claim:
-      "`eventDate` is a FIELD, never read out of your text: it is checked by the one module that reads dates, and an unreadable one is refused by name before anything is stored.",
-    mechanizedBy:
-      "src/adapters/mcp/server.ts#readReminder -> src/core/remember/proposals.ts#intake (EVENT_DATE_UNREADABLE) -> src/core/time.ts#parseCalendarDate",
-  },
+/**
+ * The date field's own privilege — how to CALL it — kept apart from the two
+ * about what a reminder then does, so `note` can lead with it (inside the
+ * host's 2,048-character cut, `renderDescription`).
+ */
+const EVENT_DATE_FIELD_PRIVILEGE: Privilege = {
+  claim:
+    "`eventDate` is a FIELD, never read out of your text: it is checked by the one module that reads dates, and an unreadable one is refused by name before anything is stored.",
+  mechanizedBy:
+    "src/adapters/mcp/server.ts#readReminder -> src/core/remember/proposals.ts#intake (EVENT_DATE_UNREADABLE) -> src/core/time.ts#parseCalendarDate",
+};
+
+/** The two privileges `note` and `session_end` share about what a reminder does. */
+const REMINDER_PRIVILEGES: readonly Privilege[] = [
   {
     claim:
       'A "plain" reminder is said at most once per beat — on its day, or on the first and the last day of a month or range — and never under observer stance; a "quiet" one is only ever a cue, capped at the footnote tier and spent at most twice per window. A recurring date counts each time it comes round as its own, and each time it is said or surfaced counts once as a use of the memory; while it repeats, the nightly prune keeps it, and it comes round on its date even when it has faded.',
@@ -458,21 +464,20 @@ const NOTE: ToolSpec = {
     "Do NOT call it to store a credential, key or token 'for later' — the gate redacts it and the note is refused as empty.",
     "Do NOT use `feelingsNow` for a feeling in this moment about something new — that is `feelings` on the note that remembers it — nor to restate how an old memory felt: only when it feels DIFFERENT now.",
   ],
+  // How to call it first: a host that loads this tool up front serves only the
+  // first 2,048 characters of the description (`renderDescription`).
   privileges: [
     {
       claim:
-        "It takes the same road as ambient memory: one write chokepoint, the full gate battery, no exceptions for being asked politely.",
-      mechanizedBy: "src/core/counterpart.ts#deposit -> bridge.batteryGate()",
+        "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the note unlinked rather than refusing it when the address does not hold.",
+      mechanizedBy:
+        "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
     },
+    EVENT_DATE_FIELD_PRIVILEGE,
     {
       claim:
         "A salience you claim is a FLOOR, not a value: it can raise how strongly this is held, never lower it, and every lift is recorded.",
       mechanizedBy: "src/core/physics/index.ts#clampSalienceAtSeam",
-    },
-    {
-      claim:
-        "Credentials are redacted before anything is stored, and a note that was nothing but a credential is refused outright.",
-      mechanizedBy: "src/core/encode/secrets.ts + src/core/encode/floor.ts#contentFloor",
     },
     {
       claim:
@@ -489,6 +494,16 @@ const NOTE: ToolSpec = {
       mechanizedBy: "src/core/encode/floor.ts#contentFloor",
     },
     {
+      claim:
+        "It takes the same road as ambient memory: one write chokepoint, the full gate battery, no exceptions for being asked politely.",
+      mechanizedBy: "src/core/counterpart.ts#deposit -> bridge.batteryGate()",
+    },
+    {
+      claim:
+        "Credentials are redacted before anything is stored, and a note that was nothing but a credential is refused outright.",
+      mechanizedBy: "src/core/encode/secrets.ts + src/core/encode/floor.ts#contentFloor",
+    },
+    {
       claim: "The same content twice is refused, not stored twice.",
       mechanizedBy: "src/core/remember/proposals.ts#submitProposal (content-idempotency ledger)",
     },
@@ -497,13 +512,7 @@ const NOTE: ToolSpec = {
         "Your own words ride the buffer as their own span, so the end-of-session sweep does not mint them a second time.",
       mechanizedBy: "src/core/counterpart.ts#captureJot -> SubmitContext.ownSpanHash",
     },
-    {
-      claim:
-        "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the note unlinked rather than refusing it when the address does not hold.",
-      mechanizedBy:
-        "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
-    },
-    ...DATE_PRIVILEGES,
+    ...REMINDER_PRIVILEGES,
     WRITE_FACTS_PRIVILEGE,
     {
       claim: "Under observer stance nothing is written and the refusal says so.",
@@ -596,12 +605,14 @@ const RECALL: ToolSpec = {
     "Do NOT pass a question and ids together, or ids you have not seen in a result: ids is the follow-up to a list, not a second way to search.",
     "Do NOT send a question without a mode: there is no default, and the call is refused with the two modes named.",
   ],
+  // How to call it first — the three kinds of ask — inside the host's
+  // 2,048-character cut (`renderDescription`).
   privileges: [
     {
       claim:
-        "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one, by id or by title handle, is using it, and so is QUOTING the words a question's answer showed you in your reply: either is credited at the session boundary, once per lived day. The tool never writes a memory; what it writes is bookkeeping — which memory a title reached, which memories an answer showed this session, and one count row per call.",
+        "A question needs mode: \"facts\" or \"meaning\". Each is its own path, with its own ranking and its own answer, returned as labeled lines in `answer`; tuning one does not change the other.",
       mechanizedBy:
-        "src/adapters/mcp/facts.ts#factsRecall (reads only) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/lifecycle.ts#creditAtBoundary -> src/core/recall/reference.ts (expansion and quote) + src/adapters/mcp/server.ts#noteAsked -> src/core/counterpart.ts#noteAsked / creditReferences (asked records) -> src/core/recall/index.ts#resolveUse (once per lived day)",
+        "src/adapters/mcp/server.ts#recallTool (mode-required, mode-unknown) + src/adapters/mcp/facts.ts#factsRecall + src/adapters/mcp/meaning.ts#meaningRecall",
     },
     {
       claim:
@@ -610,9 +621,14 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "A question needs mode: \"facts\" or \"meaning\". Each is its own path, with its own ranking and its own answer, returned as labeled lines in `answer`; tuning one does not change the other.",
+        `Pass ids to read those memories whole. It takes up to ${RECALL_MAX_IDS}, each resolved as an exact address with the same confidentiality boundary; a long body comes in parts, and ids past the result's room wait, named. Ids and a handle take no mode.`,
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id) + src/adapters/mcp/deliberate.ts#boundById (RECALL_BODY_CHARS parts, RECALL_ID_RESULT_CHARS)",
+    },
+    {
+      claim:
+        "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one, by id or by title handle, is using it, and so is QUOTING the words a question's answer showed you in your reply: either is credited at the session boundary, once per lived day. The tool never writes a memory; what it writes is bookkeeping — which memory a title reached, which memories an answer showed this session, and one count row per call.",
       mechanizedBy:
-        "src/adapters/mcp/server.ts#recallTool (mode-required, mode-unknown) + src/adapters/mcp/facts.ts#factsRecall + src/adapters/mcp/meaning.ts#meaningRecall",
+        "src/adapters/mcp/facts.ts#factsRecall (reads only) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/lifecycle.ts#creditAtBoundary -> src/core/recall/reference.ts (expansion and quote) + src/adapters/mcp/server.ts#noteAsked -> src/core/counterpart.ts#noteAsked / creditReferences (asked records) -> src/core/recall/index.ts#resolveUse (once per lived day)",
     },
     {
       claim: `Facts mode considers every memory the question's words reach, every memory linked to a person or project it names, and the ${String(FACTS_MEANING_CAP)} closest by meaning — and, for a question that is only a time, everything in that window. A memory matched more ways ranks higher; it ranks by how strongly it matched, and newer comes first only on a tie.`,
@@ -648,11 +664,6 @@ const RECALL: ToolSpec = {
       claim:
         "An answer is bounded and never ships every body at full length: a short fact comes whole, a long one as an excerpt, and the whole answer stays under the result's room. An answer the host truncates is not a smaller answer, it is no answer.",
       mechanizedBy: "src/adapters/mcp/facts.ts#renderFacts (RECALL_EXCERPT_CHARS, RECALL_RESULT_CHARS)",
-    },
-    {
-      claim:
-        `Pass ids to read those memories whole. It takes up to ${RECALL_MAX_IDS}, each resolved as an exact address with the same confidentiality boundary; a long body comes in parts, and ids past the result's room wait, named. Ids and a handle take no mode.`,
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id) + src/adapters/mcp/deliberate.ts#boundById (RECALL_BODY_CHARS parts, RECALL_ID_RESULT_CHARS)",
     },
     {
       claim:
@@ -765,6 +776,9 @@ const SESSION_END: ToolSpec = {
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
     "Do NOT summarize the conversation; a transcript is not a memory. Write what was LEARNED.",
   ],
+  // How to call it first, inside the host's 2,048-character cut
+  // (`renderDescription`); the salience claims stay inside it
+  // (`test/stop-ask-quiet.test.ts`).
   privileges: [
     {
       claim:
@@ -773,23 +787,9 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "The id you pass is checked against host state you cannot write — the hooks' own live-session registry — and a claim that is unknown there, ended, silent too long, or running in another project is refused with which of the four it was.",
-      mechanizedBy: "src/adapters/sessions.ts#readSession + isLive + sameScope",
-    },
-    {
-      claim:
         "`updates` is a FIELD on an entry, not prose: name the id of the memory that entry revises and the engine resolves it, writes the resolved id, and leaves the entry unlinked rather than refusing it when the address does not hold.",
       mechanizedBy:
         "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
-    },
-    {
-      claim: "Each entry takes the same road as ambient memory, gate battery included.",
-      mechanizedBy: "src/core/counterpart.ts#submitSessionEnd -> bridge.batteryGate()",
-    },
-    {
-      claim:
-        "The authorship record is set by the engine: what you write is recorded as authored, and nothing a transcript sweep produces can claim to be.",
-      mechanizedBy: "src/core/counterpart.ts#deposit (channel: authored, engine-set)",
     },
     {
       claim: "A salience you claim is a floor, clamped, and every lift is recorded.",
@@ -801,10 +801,31 @@ const SESSION_END: ToolSpec = {
       mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#clampSalienceAtSeam",
     },
     {
+      claim:
+        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing, is recorded against this session as answered, and counts what this session said so far as written up, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
+      mechanizedBy:
+        "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew, src/core/coverage/index.ts#claimUnwritten",
+    },
+    {
+      claim:
+        "The id you pass is checked against host state you cannot write — the hooks' own live-session registry — and a claim that is unknown there, ended, silent too long, or running in another project is refused with which of the four it was.",
+      mechanizedBy: "src/adapters/sessions.ts#readSession + isLive + sameScope",
+    },
+    {
+      claim: "Each entry takes the same road as ambient memory, gate battery included.",
+      mechanizedBy: "src/core/counterpart.ts#submitSessionEnd -> bridge.batteryGate()",
+    },
+    {
+      claim:
+        "The authorship record is set by the engine: what you write is recorded as authored, and nothing a transcript sweep produces can claim to be.",
+      mechanizedBy: "src/core/counterpart.ts#deposit (channel: authored, engine-set)",
+    },
+    {
       claim: "Credentials are redacted and empty entries are refused, per entry, without failing the batch.",
       mechanizedBy: "src/core/encode/secrets.ts + src/adapters/mcp/server.ts#sessionEndTool (per-entry isolation)",
     },
-    ...DATE_PRIVILEGES,
+    EVENT_DATE_FIELD_PRIVILEGE,
+    ...REMINDER_PRIVILEGES,
     WRITE_FACTS_PRIVILEGE,
     {
       claim: "Under observer stance nothing is written and the refusal says so.",
@@ -834,12 +855,6 @@ const SESSION_END: ToolSpec = {
       claim:
         "The handoff is refused past its size limit rather than cut, and passes the same gate battery, because what is cut at write time is the only copy.",
       mechanizedBy: "src/core/handoff/index.ts#Handoffs.write (HANDOFF_MAX_BYTES, gate-refused)",
-    },
-    {
-      claim:
-        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing, is recorded against this session as answered, and counts what this session said so far as written up, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
-      mechanizedBy:
-        "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew, src/core/coverage/index.ts#claimUnwritten",
     },
     {
       claim:
@@ -1385,6 +1400,11 @@ const REFLECT: ToolSpec = {
     },
     {
       claim:
+        "`settle` settles two memories it was shown — changed, corrected or open — only with a plain reason, and the record names the reflection; it can be undone like any settle.",
+      mechanizedBy: "src/core/dream/reflect.ts#Reflections.settle -> src/core/contradictions.ts#settle",
+    },
+    {
+      claim:
         "A memory it cites comes back — a return that slows its fading and counts toward the core's lanes — at most once a lived day, and once a week from reflections; it promotes nothing itself.",
       mechanizedBy: "src/core/store/index.ts#reflectReturn -> src/core/physics/index.ts#creditReturn (REFLECTION_SPACING_DAYS)",
     },
@@ -1407,11 +1427,6 @@ const REFLECT: ToolSpec = {
       claim:
         "Every word it writes is scanned for credentials first; its hand-back carries the mark capture refuses, so the share is told in the session's own words rather than filed from the tool's.",
       mechanizedBy: "src/core/dream/reflect.ts#Reflections.words + src/core/dream/mark.ts#DREAM_MARK -> src/core/remember/spans.ts#enters",
-    },
-    {
-      claim:
-        "`settle` settles two memories it was shown — changed, corrected or open — only with a plain reason, and the record names the reflection; it can be undone like any settle.",
-      mechanizedBy: "src/core/dream/reflect.ts#Reflections.settle -> src/core/contradictions.ts#settle",
     },
   ],
   inputSchema: {
@@ -1597,6 +1612,15 @@ export function toolSpec(name: string, desktop = false): ToolSpec | undefined {
  * examples, then the privileges — each one a claim that has a `mechanizedBy`
  * row behind it. Nothing here is free-form: adding a sentence means adding a
  * registry entry, which means naming the code that enforces it.
+ *
+ * The order is what a model reads when a host serves only the start (2026-10-09).
+ * Claude Code keeps the first 2,048 characters of a tool description when the
+ * tool is loaded up front — tool search off, a custom base URL or proxy, a model
+ * without tool search — and the whole of it (to 16,384) only through tool
+ * search; the field descriptions in the schema are served whole either way. So
+ * the summary, the admission test and every negative example come before the
+ * list, and each list leads with the claims that say how to call the tool
+ * (`test/description-cut.test.ts` holds both).
  */
 export function renderDescription(spec: ToolSpec): string {
   const lines: string[] = [spec.summary, "", `When: ${spec.admission}`];
