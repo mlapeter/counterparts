@@ -905,8 +905,10 @@ const FLAG_HELP: Record<string, string> = {
   out: "the directory to write into",
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
-  markdown: "export the readable markdown tree instead of the database file",
-  "include-confidential": "include confidential memories in the markdown tree (they are omitted, and counted, by default)",
+  markdown:
+    "export the readable markdown tree instead of the database file: memories, the journal, the self page, and a file per dream and per reflection (its README says what is where)",
+  "include-confidential":
+    "include confidential memories in the markdown tree, and the dreams and reflections that rest on one (they are omitted, and counted, by default)",
   // NOT `--versions`: `self-page` takes both `--versions` and `--version`, and
   // the help-page totality test reads flags as substrings — an `export
   // --versions` puts the string `--version` on export's page, where it names a
@@ -4233,7 +4235,7 @@ async function hostWiringCommand(
     result.outcome === "ok" &&
     (result.hooks !== "already" || result.mcp !== "already")
   ) {
-    sessionsNote(ui(io, env), lister);
+    sessionsNote(ui(io, env), lister, { dataDir: store, env });
   }
   return exitFor(result.outcome);
 }
@@ -7118,6 +7120,12 @@ function exportCommand(
             omittedConfidential: report.omittedConfidential,
             versions: flags["with-versions"] === true,
             notRendered: report.notRendered.length,
+            // The nights, counted apart from `rows` (2026-10-09): the
+            // dashboard reads `rows` as memories.
+            dreams: report.dreams,
+            reflections: report.reflections,
+            omittedDreams: report.omittedDreams,
+            omittedReflections: report.omittedReflections,
           },
         });
       } catch {

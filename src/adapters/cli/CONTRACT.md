@@ -185,6 +185,11 @@ snapshots and exports; the removal record; telemetry by reference.
    *`export` is NOT on `OWNER_OPS` (2026-09-20): an export reads the store and writes
    outside it, so under `--observer` the copy is made, the durable row is not, and the
    report says which.*
+   *Extended 2026-10-09.* The tree also holds one file per dream (`dreams/`: its journal
+   and its changes) and per reflection (`reflections/`: what it was asked, its entry, its
+   morning share and what became of it), dated like the journal. A dream or reflection
+   that was shown, changed or cites a memory that is confidential now is left out unless
+   `--include-confidential`, and counted apart from memory rows, at zero as well.
 8. **[M] Backups never leave the machine and never throw** — a backup problem must not
    block a consolidation cycle.
 9. **[M] Reads are pure.** Inspecting the protected list or the census writes nothing and
