@@ -68,7 +68,9 @@ jobs:
           exe=""; [ "${{ matrix.platform }}" = "windows-x64" ] && exe=".exe"
           # Not $RUNNER_TEMP: it sits inside HOME on GitHub's runners, and both
           # tests refuse a work directory under the home. The OS temp is outside it.
-          bash tools/single-binary/smoke.sh "$PWD/dist/single-binary/$version/counterparts-$version-${{ matrix.platform }}$exe"
+          # Windows' own temp is under the home too; its RUNNER_TEMP (D:\a\_temp) is not.
+          work=""; [ "${{ matrix.platform }}" = "windows-x64" ] && work="$RUNNER_TEMP/smoke"
+          bash tools/single-binary/smoke.sh "$PWD/dist/single-binary/$version/counterparts-$version-${{ matrix.platform }}$exe" $work
       - name: The binary through plugin-run.sh, downloaded and verified
         run: |
           version=$(bun -e 'console.log(require("./package.json").version)')
