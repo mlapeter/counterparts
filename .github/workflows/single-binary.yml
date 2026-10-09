@@ -35,6 +35,8 @@ jobs:
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
+    # A green run takes under five minutes; Windows' smoke test hung once (2026-10-09).
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
