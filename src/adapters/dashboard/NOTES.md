@@ -649,3 +649,13 @@ store (`cli/commands.ts#openCounterpart`), not a named configuration kept somewh
 On an install the configuration is beside the store, and the two agree.
 Test: `test/dashboard-zone.test.ts`, on a store configured to a zone 20 hours or
 more from the machine's.
+
+## 2026-10-09 (later) — Ask names corrected versions
+
+A facts answer now names its corrected versions (`FactItem.correctedShown`; the mcp
+NOTES of this day), and `search.js#factLines` draws them under the words as it draws an
+earlier one: `corrected (was wrong): “…”`, when it was learned and when corrected, and
+its id as a link that opens it; `+N more corrected (was wrong)` for the rest. "N
+corrected versions hidden" stays only for an answer that names none (one a non-owner
+may not be told of). "Ask reads the answers 0.3.12 gives" above says "corrected ones
+counted": that was the answer then. Test: `test/dashboard-ask-answers.test.ts`.

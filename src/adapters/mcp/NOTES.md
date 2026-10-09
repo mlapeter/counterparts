@@ -1545,4 +1545,7 @@ guard makes that rarer, but older stores already hold some.
   the index, so nothing matched. In the benchmark case the two shared the market's name.
   Folding through `corrected` pairs as `changed` ones fold (a match on the wrong one
   bringing in the one that holds) would need the archived rows' words searched; left for
-  when a case shows it is needed.
+  when a case shows it is needed. And a corrected memory is listed under the memory that
+  corrected it directly: when that one was later `changed` and folds under its successor,
+  the corrected one is not listed under the successor (nor counted there, as before).
+  Opening the earlier one by id shows it ("corrects mem_…").
