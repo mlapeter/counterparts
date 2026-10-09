@@ -47,6 +47,11 @@
  * `how` and stays a link: a retelling of a transcript does not settle what
  * the experiencer did not.
  *
+ * **An authored `changed` or `corrected` arrives here already read**
+ * (2026-10-09): `Counterpart#guardUpdate` checks the pair before the mint,
+ * and one that looks unrelated is minted with no `updates` at all, so this
+ * seam is never called for it (`contradictions.ts#updateRelatedness`).
+ *
  * "One declaration adds pressure; the element is superseded only when the bar is
  * crossed; the old version is retained with lineage" (constitution 7) — that is
  * the slow half. A current-state row is the fast half by construction: a "now"

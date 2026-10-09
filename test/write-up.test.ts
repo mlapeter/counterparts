@@ -68,6 +68,7 @@ import { keyFor } from "../src/core/remember/index.js";
 import { CLAIM_NOTHING_NEW, claimUnwritten } from "../src/core/coverage/index.js";
 import { localDate } from "../src/core/time.js";
 import { ALREADY_AUTHORED_MARK } from "../src/core/remember/index.js";
+import { CONTRADICTION_HELD_EVENT, CONTRADICTION_SETTLED_EVENT } from "../src/core/contradictions.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -851,6 +852,41 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(v.now.get("old-1")).toBe("kept-young");
     expect(v.later.get("old-1")).toBe("deleted");
     expect(v.later.get("old-2")).toBe("kept-owed");
+  });
+
+  test("a batch writer HOLDS (the update guard, 2026-10-09): an unrelated corrected stays held — nobody reads the reply, and that is the safe side", async () => {
+    seeded();
+    const w = Counterpart.open({ dir: storeDir, owner: true });
+    const passport = w.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The owner changed her last name on her passport after the wedding; the new passport arrived in May.",
+      salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 },
+    });
+    w.close();
+    const { s } = await pointAndFetch("new-1");
+    const out = payload(
+      await s.call("session_end", {
+        session: "new-1",
+        writeUp: "old-1",
+        part: 1,
+        memories: [{ ...MEMORY, updates: passport, how: "corrected" }],
+      }),
+    );
+    expect(out).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+    const outcome = (out["outcomes"] as Record<string, unknown>[])[0] ?? {};
+    expect(outcome["settled"]).toMatchObject({ held: true, over: passport, how: "corrected" });
+    const store = s.counterpart.store;
+    // The old memory is as it was: live, unfaded, unlinked, in no pair.
+    expect(store.row(passport)?.archived).toBe(0);
+    expect(store.physicsOf(passport).fade ?? 1).toBe(1);
+    expect(store.contradictionsOf([passport]).get(passport) ?? []).toEqual([]);
+    expect(store.read(String(outcome["id"])).doc.meta["updates"]).toBeUndefined();
+    // One hold, marked as a write-up's; nothing settled.
+    const held = store.eventLog({ name: CONTRADICTION_HELD_EVENT });
+    expect(held).toHaveLength(1);
+    expect(JSON.parse(held[0]?.payload ?? "{}")).toMatchObject({ holds: outcome["id"], over: passport, source: "session-end", writeUp: true, actorId: "new-1" });
+    expect(store.eventLog({ name: CONTRADICTION_SETTLED_EVENT })).toHaveLength(0);
   });
 
   test("an EMPTY batch after the fetch is a real answer: nothing minted, the session marked, and retention reads it", async () => {

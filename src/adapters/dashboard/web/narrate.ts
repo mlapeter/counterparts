@@ -1080,6 +1080,11 @@ export const NARRATORS = {
       : notable(`${who} settled a contradiction as ${how}: ${s(t, "holds") ?? "one"} holds over ${s(t, "over") ?? "the other"}.`);
   },
   "contradiction.undone": (t) => calm(`A settle was undone (${s(t, "pair") ?? "a pair"}); the pair is unsettled again.`),
+  "contradiction.held": (t) =>
+    calm(
+      `A new memory said it ${s(t, "how") === "corrected" ? "corrected" : "changed"} ${s(t, "over") ?? "another"}, which looked unrelated to it` +
+        `${s(t, "by") === "meaning" ? " in meaning" : " in its words"}, so that one was left as it was and the two were not linked.`,
+    ),
 
   // ── what is not written up (2026-09-30) ─────────────────────────────────
   "coverage.owed": (t) =>
@@ -1262,6 +1267,8 @@ export const REF_KIND = {
   "contradiction.flagged": "none",
   "contradiction.settled": "none",
   "contradiction.undone": "none",
+  // A held `updates` points at the NEW memory (2026-10-09).
+  "contradiction.held": "memory",
   // A coverage row names a session in its payload; a written row's ref is the
   // claim (a proposal id, or `nothing-new:` / `chapter:` / `writeup:` and an id).
   "coverage.owed": "none",

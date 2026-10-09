@@ -106,7 +106,19 @@ name/alias resolution; birth and death telemetry.
    SETTLED when an author declared it (2026-09-29, `src/core/contradictions.ts`): `how` is
    `changed` (the default — one strength cut, labelled earlier), `corrected` (archived:
    out of recall, readable by its id) or `open` (both kept); a SWEPT declaration carries no
-   `how` and stays a link. A **protected** element refuses every one of those paths. Authored
+   `how` and stays a link. **Before any of it, an authored `changed` or `corrected` declared
+   by id is read against the memory it names** (2026-10-09, the update guard,
+   `Counterpart#guardUpdate` → `contradictions.ts#updateRelatedness`): by meaning through the
+   embedder (cosine under `UPDATE_COSINE`, 0.30 CAL, looks unrelated), by shared content words
+   when there is no embedder. A pair that looks unrelated is HELD — the new memory lands with
+   no `updates`, so nothing is linked, carried, closed, settled or pressed; the writer is
+   shown the old memory's title and text and asked to settle it itself (`note` settle) if it
+   meant to; a `contradiction.held` row records it; no pair is written. A CLOSE OR A REDATE
+   goes straight through: the memory named is an open thread, or the write sends a reminder
+   field (`eventDate`, a date or null, or `remind`) and it holds a date, or the write sends a
+   `status` and it has a different one. `open`, a content match the engine made itself and a
+   swept declaration are not read. A batch writer (a write-up, the nightly catch-up) has
+   nobody to read the reply, so its hold stays a hold. A **protected** element refuses every one of those paths. Authored
    declarations count for more than swept ones through the PHYSICS alone — a fallback
    challenger's claim was already cut at the minting seam — and no second weighting
    exists here. A CONFIRMATION (the engine matched a restatement rather than an author

@@ -438,6 +438,14 @@ writing one; `reflect` phase `settle` is the reflection's door; the dream's `pro
 takes a `settle` action. Every settle is `core/contradictions.ts#settle`'s, recorded with
 who, how, why and when; an observer writes nothing and says so.
 
+**[M] A held `updates` answers in the same field** (2026-10-09, the update guard,
+`schemas/CONTRACT.md` §5 1b). A `changed` or `corrected` at a memory that looks unrelated
+comes back as `settled: {ok: false, held: true, reason: "looks-unrelated", how, holds,
+over, title, text, detail}` — the old memory's own title and text (none for a
+confidential one outside the owner's session), the two ids to settle with, and
+`HELD_HINT`, the neighbours' ask said for this case. The held memory is not listed again
+among the neighbours. Nothing else about the reply changes: the memory is stored.
+
 ## 6c. Re-feeling while awake (2026-10-02, lane B)
 
 **[M]** `note` takes `feelingsNow`: how memories this session was shown feel now, recorded

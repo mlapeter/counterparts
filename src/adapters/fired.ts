@@ -777,7 +777,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     module: "core/contradictions.ts (revision.ts, dream/, mcp note, cli settle)",
     cadence: { kind: "occasion", when: "two memories disagree" },
     evidence: { kind: "event", names: ["contradiction.settled"] },
-    covers: ["contradiction.flagged", "contradiction.undone"],
+    covers: ["contradiction.flagged", "contradiction.undone", "contradiction.held"],
     since: "2026-09-29",
   },
   {

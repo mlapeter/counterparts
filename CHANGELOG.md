@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A memory can no longer fade or retire an unrelated one by mistake.** When a new memory
+  says it changes or corrects an older one (`updates` with `how: changed` or `corrected`),
+  Counterparts now checks the two are about the same thing first: by meaning, through the
+  local embeddings, or by shared words when there are none. If they look unrelated, the
+  new memory is stored but the old one is left as it was and the two are not linked. The
+  reply shows the old memory's title and text and asks the model to settle it itself with
+  `note` if it really meant the correction. In a benchmark with a smaller model, about two
+  thirds of these pointers named the wrong memory (one about a mole removal retired a
+  passport name change); on Opus they were right. Closing an open thread, moving or
+  dropping a reminder's date, and changing a status still go straight through, however
+  short the note. A write-up or the nightly catch-up has nobody to read the reply, so
+  there the old memory simply stays. Each hold is recorded; the dashboard's flow shows
+  them.
 - **Dates can repeat.** A dated memory can now say `recurring`: `daily`, `weekly`,
   `monthly` or `yearly`, counted from its date. A birthday saved as 1990-05-14 with
   `yearly` comes back every May 14 — a plain one is said on the day each year, once, and

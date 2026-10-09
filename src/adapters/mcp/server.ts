@@ -56,7 +56,7 @@
  */
 import { CLAIM_NOTHING_NEW, claimUnwritten } from "../../core/coverage/index.js";
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT } from "../../core/counterpart.js";
-import { CONTRADICTION_TUNABLES, NEIGHBOURS_HINT } from "../../core/contradictions.js";
+import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT } from "../../core/contradictions.js";
 import type { Neighbour } from "../../core/contradictions.js";
 import { isRecurrence, localDate, occurrenceOnOrAfter, parseCalendarDate, readableRecurrence, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
@@ -1803,6 +1803,25 @@ export class McpServer {
    * declared.
    */
   private settledOf(deposit: DepositResult, sentHow: boolean): Record<string, unknown> {
+    // HELD (2026-10-09, the update guard): the memory named in `updates`
+    // looked unrelated, so nothing was settled or linked. Its own words come
+    // back with the ask the neighbours carry, and the two ids to settle with.
+    const h = deposit.held;
+    if (h !== undefined) {
+      return {
+        settled: {
+          ok: false,
+          held: true,
+          reason: "looks-unrelated",
+          how: h.how,
+          holds: deposit.memoryId,
+          over: h.over,
+          ...(h.title === null ? {} : { title: h.title }),
+          ...(h.text === null ? {} : { text: h.text }),
+          detail: HELD_HINT,
+        },
+      };
+    }
     const r = deposit.revision;
     if (r === undefined) return {};
     const o = r.settle;
@@ -1846,7 +1865,8 @@ export class McpServer {
     if (!deposit.deposited || deposit.memoryId === null || room <= 0) return [];
     // Not the memory it updates, and not a sibling written by the same call
     // (review of #284, M1): those are this writer's own words, not existing ones.
-    const exclude = [deposit.revision?.targetId, deposit.mint?.updates, ...siblings].filter((x): x is string => typeof x === "string");
+    // A held one (2026-10-09) is already shown whole, beside its own ask.
+    const exclude = [deposit.revision?.targetId, deposit.mint?.updates, deposit.held?.over, ...siblings].filter((x): x is string => typeof x === "string");
     return this.counterpart.writeNeighbours(deposit.memoryId, { exclude, owner: this.owner }).slice(0, room);
   }
 

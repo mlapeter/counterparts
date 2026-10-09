@@ -115,9 +115,11 @@ import {
   DREAM_UNDONE_EVENT,
 } from "../../core/dream/index.js";
 import { V8_CENSUS_EVENT } from "../../core/sleep/index.js";
-// Contradictions (2026-09-29, `core/contradictions.ts`): a flag, a settle, an undo.
+// Contradictions (2026-09-29, `core/contradictions.ts`): a flag, a settle, an
+// undo — and a write's `updates` held as unrelated (2026-10-09).
 import {
   CONTRADICTION_FLAGGED_EVENT,
+  CONTRADICTION_HELD_EVENT,
   CONTRADICTION_SETTLED_EVENT,
   CONTRADICTION_UNDONE_EVENT,
 } from "../../core/contradictions.js";
@@ -237,6 +239,7 @@ export type DurableEventName =
   | typeof CONTRADICTION_FLAGGED_EVENT
   | typeof CONTRADICTION_SETTLED_EVENT
   | typeof CONTRADICTION_UNDONE_EVENT
+  | typeof CONTRADICTION_HELD_EVENT
   | typeof COVERAGE_OWED_EVENT
   | typeof COVERAGE_WRITTEN_EVENT
   | typeof COVERAGE_LAPSED_EVENT;
@@ -369,6 +372,8 @@ export const DURABLE_EVENTS = {
   "contradiction.flagged": "two memories that disagree were flagged as a pair, unsettled (by a dream, today)",
   "contradiction.settled": "a pair of memories that disagree was settled — changed, corrected or open — and by whom (a session, a dream, a reflection, the page writer or the owner)",
   "contradiction.undone": "a settle was undone: strength put back, a corrected memory back in recall, the pair unsettled again",
+  // The update guard (2026-10-09). Ids, the reading and its numbers; no text.
+  "contradiction.held": "a new memory said it changed or corrected one that looked unrelated to it, so the old one was left as it was and the two were not linked (the writer was shown it and asked to settle it if it meant to)",
   // What is not written up (2026-09-30). Ids and counts only; one row per stretch per state.
   "coverage.owed": "a session left a stretch that is not written up — three pieces or more over a quarter of an hour — and is no longer at work, so it owes a write-up (how many pieces, over how long)",
   "coverage.written": "a stretch of a session was written up (how many pieces, and by whom: the session itself, a \"nothing new\", a chapter, or the next session)",
