@@ -327,38 +327,47 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
   // THE NIGHTS (dream INTERFACE-GAPS §4 and §7, closed 2026-10-09). A dream's
   // journal and a reflection's entry and morning share live in their own
   // tables, never as memories, so the loop above walked past them and the
-  // readable copy said nothing about the nights at all. Reflections first, so
-  // a dream's file can say which of them is in the tree.
-  const reflectionFiles = new Map<string, string>();
-  for (const r of store.reflections({ limit: Math.max(1, store.reflectionCount()) })) {
-    const path = nightPath("reflections", r.id, r.date);
-    if (path === null) {
-      counts.notRendered.push(r.id);
+  // readable copy said nothing about the nights at all.
+  //
+  // TWO PASSES (review of #331): every night's fate is decided before any file
+  // is written, so a reflection's file never points at its dream's path when
+  // that dream was left out, and a dream's file says the same of each
+  // reflection after it.
+  const fates = new Map<string, NightFate>();
+  const fate = (dir: "dreams" | "reflections", id: string, date: string | null, rests: readonly (string | null)[]): NightFate => {
+    const path = nightPath(dir, id, date);
+    if (path === null) return { left: "unrenderable" };
+    if (opts.includeConfidential !== true && restsOnConfidential(store, rests)) return { left: "confidential" };
+    return { path };
+  };
+  const reflections = store.reflections({ limit: Math.max(1, store.reflectionCount()) });
+  const dreams = store.dreams({ limit: Math.max(1, store.dreamCount()) });
+  for (const r of reflections) {
+    fates.set(r.id, fate("reflections", r.id, r.date, [...parseIdList(r.shown), ...parseIdList(r.cites), ...parseIdList(r.share_cites), r.entry_id]));
+  }
+  for (const dream of dreams) {
+    const changes = store.dreamChanges(dream.id);
+    fates.set(dream.id, fate("dreams", dream.id, dream.date, [...parseIdList(dream.shown), ...changes.flatMap((c) => [c.ref, c.ref2])]));
+  }
+  for (const r of reflections) {
+    const f = fates.get(r.id);
+    if (f === undefined || "left" in f) {
+      if (f?.left === "confidential") counts.omittedReflections += 1;
+      else counts.notRendered.push(r.id);
       continue;
     }
-    const rests = [...parseIdList(r.shown), ...parseIdList(r.cites), ...parseIdList(r.share_cites), r.entry_id];
-    if (opts.includeConfidential !== true && restsOnConfidential(store, rests)) {
-      counts.omittedReflections += 1;
-      continue;
-    }
-    put(path, reflectionMarkdown(store, r));
-    reflectionFiles.set(r.id, path);
+    put(f.path, reflectionMarkdown(store, r, r.dream_id === null ? undefined : fates.get(r.dream_id)));
     counts.reflections += 1;
   }
-  for (const dream of store.dreams({ limit: Math.max(1, store.dreamCount()) })) {
-    const path = nightPath("dreams", dream.id, dream.date);
-    if (path === null) {
-      counts.notRendered.push(dream.id);
+  for (const dream of dreams) {
+    const f = fates.get(dream.id);
+    if (f === undefined || "left" in f) {
+      if (f?.left === "confidential") counts.omittedDreams += 1;
+      else counts.notRendered.push(dream.id);
       continue;
     }
-    const changes = store.dreamChanges(dream.id);
-    const rests = [...parseIdList(dream.shown), ...changes.flatMap((c) => [c.ref, c.ref2])];
-    if (opts.includeConfidential !== true && restsOnConfidential(store, rests)) {
-      counts.omittedDreams += 1;
-      continue;
-    }
-    const after = store.reflections({ dreamId: dream.id }).map((r) => ({ id: r.id, path: reflectionFiles.get(r.id) ?? null }));
-    put(path, dreamMarkdown(store, dream, after));
+    const after = store.reflections({ dreamId: dream.id }).map((r) => ({ id: r.id, fate: fates.get(r.id) }));
+    put(f.path, dreamMarkdown(store, dream, after));
     counts.dreams += 1;
   }
 
@@ -426,6 +435,18 @@ function nightPath(dir: "dreams" | "reflections", id: string, date: string | nul
   return `${dir}/${day === UNDATED ? UNDATED : day.slice(0, 4)}/${day}-${id}.md`;
 }
 
+/** What became of one night in this export: its file, or why it has none. */
+type NightFate = { readonly path: string } | { readonly left: "confidential" | "unrenderable" };
+
+/** How one night file names another: ` — \`path\``, or why that one is not in this copy. */
+function nightWhere(f: NightFate | undefined): string {
+  if (f === undefined) return " (not in this copy)";
+  if ("path" in f) return ` — \`${f.path}\``;
+  return f.left === "confidential"
+    ? " (left out of this copy: it rests on a confidential memory)"
+    : " (not in this copy: its file could not be written; the README names it)";
+}
+
 /**
  * DOES A DREAM OR A REFLECTION REST ON A CONFIDENTIAL MEMORY — was it shown
  * one, did it change one, does it cite one, is its entry one? Asked of the
@@ -465,7 +486,7 @@ function nightFrontMatter(lines: readonly (readonly [string, string | number | n
 function dreamMarkdown(
   store: Store,
   dream: DreamRow,
-  after: readonly { readonly id: string; readonly path: string | null }[],
+  after: readonly { readonly id: string; readonly fate: NightFate | undefined }[],
 ): string {
   const out = [
     nightFrontMatter([
@@ -499,9 +520,7 @@ function dreamMarkdown(
   }
   if (after.length > 0) {
     out.push("\n## Reflected on afterwards\n\n");
-    for (const r of after) {
-      out.push(r.path === null ? `- ${r.id} (left out of this copy: it rests on a confidential memory)\n` : `- ${r.id} — \`${r.path}\`\n`);
-    }
+    for (const r of after) out.push(`- ${r.id}${nightWhere(r.fate)}\n`);
   }
   return out.join("");
 }
@@ -512,8 +531,7 @@ function dreamMarkdown(
  * and the page version it wrote. An entry that cited anything is also a memory
  * of source `reflection`, and is in `memories/` as well; this file says which.
  */
-function reflectionMarkdown(store: Store, r: ReflectionRow): string {
-  const dream = r.dream_id === null ? undefined : store.dream(r.dream_id);
+function reflectionMarkdown(store: Store, r: ReflectionRow, dreamFate: NightFate | undefined): string {
   const out = [
     nightFrontMatter([
       ["id", r.id],
@@ -526,10 +544,9 @@ function reflectionMarkdown(store: Store, r: ReflectionRow): string {
       ["session", r.session],
     ]),
   ];
-  if (dream !== undefined) {
-    const path = nightPath("dreams", dream.id, dream.date);
-    out.push(`After dream ${dream.id}${path === null ? "" : ` — \`${path}\``}.\n\n`);
-  }
+  // Its dream's file only when that dream is in this copy too (review of
+  // #331): a dream left out as resting on a confidential memory is said so.
+  if (r.dream_id !== null && dreamFate !== undefined) out.push(`After dream ${r.dream_id}${nightWhere(dreamFate)}.\n\n`);
   const questions = parseIdList(r.questions);
   out.push("## Asked\n\n");
   out.push(questions.length === 0 ? "(Nothing recorded.)\n" : questions.map((q) => `- ${q.replace(/\r?\n/g, " ")}\n`).join(""));

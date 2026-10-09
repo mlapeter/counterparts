@@ -1191,6 +1191,42 @@ describe("export", () => {
     expect(readFileSync(join(opened, "dreams", "2026", "2026-10-09-drm_two.md"), "utf8")).toContain("ZQSECONDJOURNAL");
   });
 
+  test("a night file never points at a night this copy left out (review of #331)", async () => {
+    // The dream rests on a memory marked confidential afterwards; the
+    // reflection after it does not. The reflection is written, and says its
+    // dream was left out rather than naming a path that is not in the tree.
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "ZQKEPT — an ordinary thing." });
+    const later = s.put({ type: "memory", kind: "person", body: "ZQLATER — marked confidential after the night." });
+    s.openDream({ id: "drm_left", day: 3, date: "2026-10-08", shown: [later] });
+    s.updateDream("drm_left", { state: "journaled", title: "Left", journal: "ZQLEFTJOURNAL" });
+    s.openReflection({ id: "rfl_kept", dreamId: "drm_left", day: 3, date: "2026-10-08", questions: ["What stayed?"], shown: [kept] });
+    s.updateReflection("rfl_kept", { state: "reflected", entry: "ZQKEPTENTRY", cites: [kept], share: null, shareCites: [], shareState: "none" });
+    s.close();
+    const marked = store();
+    marked.revise(later, { meta: { confidential: true } });
+    marked.close();
+
+    const target = join(outside, "nights-linked");
+    expect(await run(["export", "--out", target, "--markdown", "--plaintext"], { io: consoleWith().io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(existsSync(join(target, "dreams", "2026", "2026-10-08-drm_left.md"))).toBe(false);
+    const reflection = readFileSync(join(target, "reflections", "2026", "2026-10-08-rfl_kept.md"), "utf8");
+    expect(reflection).toContain("After dream drm_left (left out of this copy: it rests on a confidential memory).");
+    expect(reflection).not.toContain("dreams/2026/2026-10-08-drm_left.md");
+
+    // With the opt-in both are written, and each names the other's file.
+    const opened = join(outside, "nights-linked-opened");
+    expect(
+      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], { io: consoleWith().io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(opened, "reflections", "2026", "2026-10-08-rfl_kept.md"), "utf8")).toContain(
+      "After dream drm_left — `dreams/2026/2026-10-08-drm_left.md`.",
+    );
+    expect(readFileSync(join(opened, "dreams", "2026", "2026-10-08-drm_left.md"), "utf8")).toContain(
+      "- rfl_kept — `reflections/2026/2026-10-08-rfl_kept.md`",
+    );
+  });
+
   test("a store that never dreamed says so in the manifest, and writes no dreams/ or reflections/", async () => {
     store().put({ type: "memory", kind: "fact", body: "ZQAWAKE — nothing dreamed yet." });
     const target = join(outside, "no-nights");
