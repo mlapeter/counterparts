@@ -133,6 +133,11 @@ const run = {
 
 // ── pure helpers ────────────────────────────────────────────────────────────
 
+/** Work left running on its own: a reload or the session's end may cut it off, and that is fine. */
+function quiet(p: Promise<unknown>): void {
+  p.catch(() => undefined)
+}
+
 function isPaused(mode: string): boolean {
   return mode === 'paused' || mode === 'off'
 }
@@ -396,7 +401,7 @@ async function pick($: EngineInterface, id: MechId): Promise<void> {
   const mark = { id, at: now }
   await update($, selA, () => mark)
   $.clock.after(AUTO_CLOSE_MS, () => {
-    void update($, selA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s))
+    quiet(update($, selA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s)))
   })
 }
 
@@ -410,7 +415,7 @@ async function openRow($: EngineInterface, id: string): Promise<void> {
   const mark = { id, at: now }
   await update($, openRowA, () => mark)
   $.clock.after(AUTO_CLOSE_MS, () => {
-    void update($, openRowA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s))
+    quiet(update($, openRowA, s => (s !== null && s.id === mark.id && s.at === mark.at ? null : s)))
   })
 }
 
@@ -481,12 +486,12 @@ export const register: Register = on => {
     const opened = await openPane($)
     run.notPlaced = run.interactive && !opened.isPlaced
     if (run.interactive) startBrain($)
-    $.clock.every(POLL_MS, () => void poll($))
+    $.clock.every(POLL_MS, () => quiet(poll($)))
     if (run.interactive) {
-      void poll($)
-      void readScope($)
+      quiet(poll($))
+      quiet(readScope($))
     } else {
-      void refreshStatus($)
+      quiet(refreshStatus($))
     }
     return next(e)
   })
@@ -524,8 +529,8 @@ export const register: Register = on => {
     const opened = await openPane($)
     run.notPlaced = false
     if (!run.interactive) run.drawn = true
-    void poll($)
-    void readScope($)
+    quiet(poll($))
+    quiet(readScope($))
     return { text: opened.isPlaced ? 'Counterparts sidebar opened.' : 'Counterparts sidebar is open but this surface does not place panes.' }
   })
 
@@ -782,21 +787,22 @@ export const register: Register = on => {
     } else if (search.status !== 'idle') {
       const head = search.status === 'running' ? 'SEARCHING' : search.status === 'error' ? 'NOT SEARCHED' : `${String(search.hits.length)} FOUND`
       rows.push(rule(head, C.cyan))
-      rows.push(<Text key="for" color={C.dim}>{ellipsize(`for “${search.query}” · a search strengthens nothing`, w)}</Text>)
+      rows.push(<Text key="for" color={C.dim}>{ellipsize(`for “${search.query}”`, w)}</Text>)
+      rows.push(<Text key="weak" color={C.faint}>a search strengthens nothing</Text>)
       rows.push(<Text key="gap8"> </Text>)
       if (search.status === 'error') {
         for (const [i, l] of wrap(search.error ?? 'the search was refused', w).entries()) rows.push(<Text key={`err${String(i)}`} color={C.dim}>{l}</Text>)
       } else if (search.status === 'done' && search.hits.length === 0) {
         rows.push(<Text key="none" color={C.faint}>nothing matches yet</Text>)
       }
-      search.hits.forEach((h, i) => {
+      search.hits.forEach((hit, i) => {
         rows.push(
           <Box key={`hit${String(i)}`} flexDirection="row">
             <Text color={C.cyan}>● </Text>
-            <Text color={C.text}>{ellipsize(h.title, w - 2)}</Text>
+            <Text color={C.text}>{ellipsize(hit.title, w - 2)}</Text>
           </Box>,
         )
-        rows.push(<Text key={`hitm${String(i)}`} color={C.dim}>{`  ${ellipsize(h.meta, w - 2)}`}</Text>)
+        rows.push(<Text key={`hitm${String(i)}`} color={C.dim}>{`  ${ellipsize(hit.meta, w - 2)}`}</Text>)
         rows.push(<Text key={`hitg${String(i)}`}> </Text>)
       })
       if (search.status === 'done' && search.hits.length > 0) {
@@ -815,7 +821,7 @@ export const register: Register = on => {
       if (feed.length === 0 && dash !== 'down') {
         rows.push(<Text key="empty" color={C.faint}>{dash === 'unknown' ? 'reading the dashboard…' : 'nothing yet'}</Text>)
       }
-      const lw = 12
+      const lw = 13
       const tw = Math.max(8, w - lw)
       const room = Math.max(4, (e.props.scroll?.bodyRows ?? 60) - rows.length - 2)
       let spent = 0
