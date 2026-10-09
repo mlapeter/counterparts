@@ -30,8 +30,8 @@ function css(c: number): string {
 export function renderCells(p: Panel): Uint32Array {
   const b = new Brain() as Brain & { spin: number; rotY: number; rotX: number };
   b.spin = 0;
-  const gy = params.get('gyri');
-  if (gy !== null) (b as unknown as { gyri: string }).gyri = gy;
+  const mz = params.get('maze');
+  if (mz !== null) (b as unknown as { mazeFill: boolean }).mazeFill = mz === '1';
   const sd = params.get('stipple');
   if (sd !== null) (b as unknown as { stippleDensity: number }).stippleDensity = Number(sd);
   const gk = params.get('gyriK');
