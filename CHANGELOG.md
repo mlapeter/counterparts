@@ -10,6 +10,14 @@
   checked (no transcript to read)" and are left out of "N of M arrived whole", and the
   dashboard no longer shows them in orange. A transcript still missing when the first answer
   ends, or one that could not be read, is named on its own.
+- **A plan changed after a handoff is shown with it.** When a session left a handoff and
+  later wrote a note or a `session_end` memory that changed the plan (status `planned`,
+  `proposed` or `asked`, or marked `unresolved`), the next session in that directory saw
+  only the handoff. The handoff now has a "Since this handoff:" line under it naming up to
+  three such memories by title and id, newest first, from any session working in that
+  directory, including the one that wrote the handoff. Memories written in the same answer
+  as the handoff are left out, and a memory named there is not repeated in "Work here". When
+  the wake has no room for the line, the handoff is shown as before.
 - **The self page no longer prints "Last revised" twice.** A page that carried its own
   "(Last revised …)" line showed it under the wake's own date line. The wake now leaves the
   page's line out, and so does writing the page, so a stored page loses it the next time it

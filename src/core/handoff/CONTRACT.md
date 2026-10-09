@@ -72,7 +72,8 @@ this host a directory is what a piece of work *is*.
 model id (or null), the lived-day clock, and a gate (`bridge.episodeGate`, injected).
 **Outputs** — one schema row per (directory, session) with `meta.role = "handoff"`; a
 pointer block for a given directory and day — two lines for one live handoff, a short
-newest-first list for several; four durable event names (`written`, `shown`, `cleared`,
+newest-first list for several, and under either a "since" line when a plan was written
+here after the newest (§5 G13); four durable event names (`written`, `shown`, `cleared`,
 `refused`). And a "Last here" block for a directory where a session wrote a chapter inside
 the fortnight: one to three lines, no row and no durable event (§5 G11).
 
@@ -211,6 +212,25 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     The root hands it to `self/`'s render as furniture for the day before the render's
     date; unlike "Last here" it is in the published bundle, not spliced at delivery.
 
+13. **[M] What was planned here since the handoff is named under it** (2026-10-09). A
+    session that left a handoff and later changed the plan in a note, without rewriting
+    the handoff, left the newer memory quiet. Now the pointer's block ends with one line,
+    "Since this handoff:" ("Since the newest handoff here:" beside several), naming the
+    memories this directory's sessions wrote by hand after the NEWEST handoff's words
+    whose v12 `status` is `planned`, `proposed` or `asked`, or that are still flagged
+    `unresolved` (`Handoffs#plansSince`, `PLAN_STATUSES`): up to `SINCE_SHOWN` by title
+    (cut to `SINCE_TITLE_BYTES`), word and id, newest first, the rest by count. Its own
+    session's memories count, except what it wrote within `SINCE_SAME_ANSWER_MS` of the
+    handoff, which is the same answer (the `session_end` call writes its handoff first
+    and its memories straight after). Never named: a `done` or unmarked memory, another
+    directory's, a dream's or a sweep's (`source = 'authored'` only), one a later memory
+    settled over, a journal copy, a confidential one outside the owner's session. Read
+    at delivery and at the boundary from the columns (`Store#planCandidates`), then the
+    prose of what came back; a store that will not answer names nothing. Every rung of
+    the ladder is tried WITH the line before the rungs WITHOUT it, which are the blocks as
+    they were, byte for byte; a memory the line names is left out of the work lines
+    above it. `handoff.shown` counts the line's memories (`plans`).
+
 ## 6. Where it sits in the wake's order — who pays, when, and how much
 
 The pointer is **furniture at the foot of the bundle**, above the tail sentinel and below
@@ -263,6 +283,16 @@ true:
   fallback. The line alone only when no handoff rung fits (`no-room` written as before).
   With no chapter here the ladder is the handoff's, rung for rung.
 
+- **The "since" line (2026-10-09)** is part of the handoff's own rungs (§5 G13): each rung
+  with it is a candidate in the reserve, sized to the line that exists at the boundary,
+  and the share rule still takes the widest that passes. It adds 79 bytes for one plan
+  with a 29-byte title, and at most 306 (317 beside several handoffs: three titles at the
+  cap, the widest word, a count). With no plan written here since the newest handoff the
+  rungs, the reserve and the block are what they were. A plan written after the boundary
+  that composed the bundle waits for the next one to be reserved for (`session_end`
+  marks the wake behind; a lone `note` does not), and until then is carried only where
+  the bundle has the room.
+
 So the order of who gives up bytes, stated plainly: **above the share rule's threshold the
 pointer is paid for first, out of the compose budget, by whatever lane the trim order
 reaches — store-wide. Below it the pointer gives up everything and the lanes give up
@@ -292,7 +322,8 @@ does not log its own refusal) · **§13 G3** (one ask at the blocked moment).
    naming a session and a model (2,400 until 2026-09-30, when the pointer began saying how
    current it is, then who left it and how to retire it, and the reserve was sized to
    those words), and roughly 4,400 for one that also says why it may be out of date
-   (2026-10-01). It is a judgement about
+   (2026-10-01); about 5,000 with a one-plan "since" line under that, and 6,900 with the
+   widest line (2026-10-09). It is a judgement about
    what a pointer is worth against a memory, made once, in numbers; the owner's hosts all
    report far more than that, so nothing he runs is near it today.
 2. **Does the host's own file memory duplicate this?** The spec names it as the thing to

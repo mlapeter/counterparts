@@ -405,3 +405,58 @@ choices it left open:
 Each chapter `chaptersOf` reads now carries its engine heading line (`heading`, null for a
 body with none), so a chapter address (`self/chapter-address.ts`, v12) resolves to it. The
 two fields it had are unchanged.
+
+## 11. What was planned here since the handoff (2026-10-09)
+
+From daily use: a session wrote its handoff, worked on, and near its end wrote a note that
+changed the plan, without rewriting the handoff. The next wake in that directory showed the
+older handoff as the place to resume, and the note said nothing. §10's stale words would
+not fire: they look for a chapter by ANOTHER session, or a newer install. What was built
+(CONTRACT §5 G13), and why each piece is the way it is:
+
+- **The signal is the writer's v12 `status`, plus `unresolved`.** `planned` (decided, not
+  done), `proposed` (put forward, not decided) and `asked` (a question or request still
+  open) are a closed vocabulary the writer fills deliberately, a column the SQL can filter
+  on, and a revision carries it over by default — so a note that `updates` a planned
+  memory to change the plan is still `planned` unless the writer says otherwise. `done` is
+  not a next step and an unmarked memory says nothing. `unresolved` is the older flag for
+  an open question or a pending promise, and the brief named it; the line prints it as
+  "open", the word the "Still open:" lane uses. Not a separate "updates a plan" rule: a
+  revision of a fact is not a plan, and a revision of a plan carries its status.
+- **Since the NEWEST handoff, one line for the block.** Per-handoff lines would multiply
+  the bytes, and "since the oldest shown" makes "since" mean something different on each
+  rung. What this gives up: a plan written between two sessions' handoffs is not named
+  once the later handoff exists. Beside several handoffs the lead says "Since the newest
+  handoff here:".
+- **The same answer is not news.** `session_end` writes its handoff first and its memories
+  straight after, so a planned entry in the same call would be listed "since" a handoff it
+  was written with, every wake for a fortnight. The writer's own memories within
+  `SINCE_SAME_ANSWER_MS` (five minutes, the chapter span's grace for the same answer) are
+  left out; another session's count from the first millisecond. Chosen over "until the
+  writer's next turn-end" (`coverage/#workSince`'s rule): a turn in this host can run an
+  hour, a plan changed late in the same long turn should be named, and a host with no
+  turn-ends (Desktop chat) would never name its own.
+- **Only what a session wrote** (`source = 'authored'`: notes, `session_end` entries, a
+  write-up). A dream's gist can carry a status too, and is filed under the directory the
+  dream ran in; it is a reading of older memories, not news since the handoff.
+- **Tried before the third handoff.** The ladder is every rung with the line, widest first,
+  then every rung as it was. Interleaved (three with, three, two with, …) would keep a
+  third, older handoff over the line at the owner's ceiling, where the share rule caps the
+  block near 1,077 bytes; the line is newer than any handoff in the block. The rungs
+  without it are today's blocks byte for byte, so a ceiling with no room for the line
+  carries exactly what it carried before.
+- **Not named twice.** A planned note written in a project is usually a work memory too
+  (an unmarked fact with a directory), so the work lines above the pointer leave out the
+  ids the chosen rung's line names. The "Still open:" lane is in the published bundle and
+  is not filtered: an `unresolved` memory can appear there and here. Left as it is; the
+  line says why it matters beside the handoff, and the lane is store-wide and capped.
+- **Sized to the line that exists, at the boundary** (`liveBlockBytesByScope` asks
+  `plansSince` as delivery does). A `note` does not mark the wake behind, so a plan written
+  after the last boundary is carried only where the bundle has room until the next one;
+  `session_end` does mark it, and the Stop that follows re-renders. The one-boundary lag
+  every handoff fact has.
+- **Cost.** One SQL read per directory with a live handoff, at each delivery and each
+  boundary (no index on `origin_scope`, as `workCandidates`), and prose reads only for
+  what it returns; `settledOver` only when there is something to name. Timed against the
+  continuity suite's busiest ladder test with the read switched off: no difference above
+  the noise.
