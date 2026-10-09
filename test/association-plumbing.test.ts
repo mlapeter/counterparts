@@ -237,6 +237,52 @@ describe("(a) the links a regrown copy was left holding before this are carried 
     expect(JSON.parse(retry.store.getMeta(REGROWN_RELINK_META) ?? "{}")["copies"]).toBe(1);
   });
 
+  test("review of #329: a copy taken dark by a removal (edges not yet chased) carries nothing", () => {
+    const before = brain();
+    const { copyId } = chapterWithCopy(before);
+    const n = neighbour(before);
+    coUse(before, copyId, n, 3);
+    before.associate.retargetOnSupersede = () => NO_RETARGET;
+    const { newCopy } = regrow(before);
+    before.store.appendRemovalRecord({ memoryId: copyId, stage: "dark", actor: "owner" });
+    // Dark, not chased: its edge rows are still in the table.
+    expect(before.store.edgesFrom(copyId).length).toBeGreaterThan(0);
+    before.store.updateMeta(REGROWN_RELINK_META, () => null);
+    before.close();
+    const c = brain();
+    expect(c.associate.weightAt(newCopy, n)).toBe(0);
+    expect(c.associate.weightAt(n, newCopy)).toBe(0);
+    const record = JSON.parse(c.store.getMeta(REGROWN_RELINK_META) ?? "{}") as Record<string, number>;
+    expect(record["copies"]).toBe(0);
+    expect(record["removed"]).toBe(1);
+  });
+
+  test("review of #329: two archived copies of one chapter carry by max, never by sum, and a tie between them is not carried", () => {
+    const c = brain();
+    const { copyId: first } = chapterWithCopy(c);
+    const n = neighbour(c);
+    coUse(c, first, n, 2);
+    c.associate.retargetOnSupersede = () => NO_RETARGET;
+    const second = regrow(c).newCopy;
+    coUse(c, second, n, 4);
+    coUse(c, first, second, 1);
+    c.episodeAsk("s1", { turns: 80, bytes: 80_000 });
+    c.appendEpisode("s1", "And the night after, writing it all down while it was still warm.");
+    const third = c.ingestEpisode({ sessionId: "s1" }).memoryId as string;
+    const strongest = Math.max(c.associate.weightAt(first, n), c.associate.weightAt(second, n));
+    c.store.updateMeta(REGROWN_RELINK_META, () => null);
+    c.close();
+
+    const after = brain();
+    expect(after.associate.weightAt(third, n)).toBeCloseTo(strongest, 9);
+    expect(after.associate.weightAt(n, third)).toBeCloseTo(strongest, 9);
+    // The stale copies' tie to each other went nowhere: both ends are archived.
+    expect(after.associate.weightAt(third, third)).toBe(0);
+    expect(after.associate.linked(first, second)).toBe(false);
+    const record = JSON.parse(after.store.getMeta(REGROWN_RELINK_META) ?? "{}") as Record<string, number>;
+    expect(record["copies"]).toBe(2);
+  });
+
   test("an observer's open carries nothing and writes no latch", () => {
     stranded();
     const c = brain({ observer: true });
@@ -348,6 +394,56 @@ describe("(b) the credit pass scores each ambient showing once, at the first bou
     expect(c.store.allEdges().length).toBe(edges);
   });
 
+  test("review of #329, the real path: what recall's own turn showed is what the boundary scores", () => {
+    const c = brain();
+    for (const body of [
+      "The quarterly review moved to the second Tuesday of the month.",
+      "The office plants get watered on Mondays by whoever arrives first.",
+      "The printer on the third floor jams when the paper tray is overfilled.",
+      "Lunch orders for the team offsite go through the shared spreadsheet.",
+    ]) {
+      fact(c, body);
+    }
+    const target = c.store.put({
+      type: "memory",
+      kind: "skill",
+      title: "Compost tumbler",
+      body: "The rotary compost tumbler jammed after the winter freeze; a mallet on the drum frees it.",
+      salience: { novelty: null, relevance: 0.8, emotional: 0.5, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    const out = c.recallForTurn({ sessionId: "s1", text: "the rotary compost tumbler jammed again" });
+    const reached = [...out.decision.surfaced, ...out.decision.footnotes];
+    expect(reached).toContain(target);
+    const summary = c.creditReferences("s1", { assistantTurns: ["Try warming it first."], expansions: [] });
+    expect(summary.shown.loud).toBe(out.decision.surfaced.length);
+    expect(summary.shown.footnotes + summary.shown.pointers).toBe(out.decision.footnotes.length);
+    expect([...summary.shownNotUsed].sort()).toEqual([...reached].sort());
+    expect(summary.judgedThrough).toBe(out.decision.turn);
+    expect(judgedThrough(c.store, "s1")).toBe(out.decision.turn);
+  });
+
+  test("review of #329: a boundary that read no reply judges nothing, and the next one that does scores the showing", () => {
+    const c = brain();
+    const loud = fact(c, LOUD_BODY);
+    shown(c, "s1", 1, { [loud]: { turn: 1, tier: "surfaced", trains: true } });
+    // No reply in the slice (a capture that failed, or nothing new): no verdict.
+    const empty = c.creditReferences("s1", { assistantTurns: [], expansions: [] });
+    expect(empty.shown).toEqual({ loud: 0, footnotes: 0, pointers: 0 });
+    expect(empty.shownNotUsed).toEqual([]);
+    expect(judgedThrough(c.store, "s1")).toBe(0);
+    // The reply arrives at the next boundary, and it quoted the memory.
+    const next = c.creditReferences("s1", {
+      assistantTurns: [
+        "As I said before, the storage split keeps canonical prose in markdown files, operational state in one small database.",
+      ],
+      expansions: [],
+    });
+    expect(next.shown).toEqual({ loud: 1, footnotes: 0, pointers: 0 });
+    expect(next.unused).toEqual({ loud: 0, footnotes: 0, pointers: 0 });
+    expect(judgedThrough(c.store, "s1")).toBe(1);
+  });
+
   test("an observer scores, and writes no mark", () => {
     const writer = brain();
     const m = fact(writer, "The tide tables for the estuary are pinned inside the boathouse door.");
@@ -417,6 +513,35 @@ describe("(b) the boundary's row carries the score, and the probe reads the hit 
     expect(report.hits.unused).toEqual({ loud: 1, footnotes: 0, pointers: 0 });
     const text = renderProbe(report).join("\n");
     expect(text).toContain("hit rate, over 1 boundary that scored what recall showed: loud 0 of 1 used (0.0%), footnotes 1 of 1 used (100.0%), pointers 0 of 0 used");
+  });
+
+  test("review of #329, through the hooks: a prompt's real recall, then a Stop whose slice is empty, then one with the reply", () => {
+    const a = adapter();
+    const c = a.counterpart;
+    const loud = fact(c, LOUD_BODY);
+    for (const body of [
+      "The quarterly review moved to the second Tuesday of the month.",
+      "The office plants get watered on Mondays by whoever arrives first.",
+      "The printer on the third floor jams when the paper tray is overfilled.",
+    ]) {
+      fact(c, body);
+    }
+    a.userPromptSubmit(input({ prompt: "where did we land on the storage split, canonical prose and the small database" }));
+    const decision = JSON.parse(c.store.eventLog({ name: "recall.decision" }).at(-1)?.payload ?? "{}") as Record<string, unknown>;
+    const reachedCount = Number(decision["surfacedCount"] ?? 0) + Number(decision["footnoteCount"] ?? 0);
+    expect(reachedCount).toBeGreaterThan(0);
+
+    // A Stop whose slice holds no reply judges nothing and leaves the mark.
+    a.stop(input({ turns: [] }));
+    const first = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<string, unknown>;
+    expect(first["shownLoud"] as number + (first["shownFootnotes"] as number) + (first["shownPointers"] as number)).toBe(0);
+    expect(judgedThrough(c.store, "s1")).toBe(0);
+
+    a.stop(input());
+    const second = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<string, unknown>;
+    expect(second["shownLoud"] as number + (second["shownFootnotes"] as number) + (second["shownPointers"] as number)).toBe(reachedCount);
+    expect(second["judgedThrough"]).toBe(1);
+    expect(loud.length).toBeGreaterThan(0);
   });
 
   test("with no row that scores, the probe says unknown, not zero", () => {

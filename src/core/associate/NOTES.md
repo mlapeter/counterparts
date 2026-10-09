@@ -440,6 +440,14 @@ code:
   failed (the edge module answers `failed` rather than throwing) leaves the pass
   unlatched, so a store that keeps failing re-reads its edge table at every open until
   one pass lands, as the v12 backfill would.
+- *Review of #329.* A copy a removal has taken dark (its edge rows still waiting for the
+  chase) carries nothing and is counted `removed`: its links must not outlive the chase on
+  the live copy. The live copies come from one `store.copiesOf` read, not a
+  `list({ originRef })` per chapter (`origin_ref` has no index). Measured on synthetic
+  stores at open: about 800 memories and 1,800 edge rows (130 pairs stranded), the pass
+  went from 120–340 ms to about 50 ms; about 15,000 memories and 12,000 edge rows, from
+  2.8–3.4 s to about 0.3 s. Most of what is left is one `linkMany` per copy. Every later
+  open pays one meta read.
 - *Known limits, the merge rule's own:* only the old copy's outgoing rows are read, so a
   row written one way into it would not carry (co-use, contiguity and a dream's links all
   write both ways today), and contiguity's forward-over-back difference becomes the

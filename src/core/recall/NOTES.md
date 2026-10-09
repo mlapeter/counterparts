@@ -1030,6 +1030,10 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
   - A showing is scored at the first boundary after it. One opened at a later boundary is
     counted once as not used (its own) and once as used (the later row's `expandedIds`):
     the score is of the reply it was shown for.
+  - A boundary whose slice holds no reply and no expansion scores nothing and leaves the
+    mark (review of #329): a capture that failed or found nothing new is not a reply
+    that ignored what it was shown. Its showings wait for the next boundary that read a
+    reply.
   - A session already open when this build arrived has no mark, so its first boundary
     scores everything that session showed (at most `MAX_SESSION_RECORDS`, at most 64 ids
     on the row). One over-count, toward more misses.
