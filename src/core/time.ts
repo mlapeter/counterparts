@@ -456,3 +456,128 @@ export function readableDate(ymd: string): string {
 
 /** Legacy name (`self/calendar.ts`, 2026-09-23): the local date of a moment. */
 export const calendarDate = localDate;
+
+// ── a date that repeats (2026-10-09, the owner's design, held lightly) ───────
+
+/**
+ * How often a stated DAY comes round again, anchored on that day: a birthday
+ * stored as `1990-05-14` with `yearly` is every May 14 from then on. Every
+ * other week, "the first Monday" and the like are not kept (loose first), and
+ * nothing finer than a day: dates and reminders here are per day.
+ */
+export const RECURRENCES = ["daily", "weekly", "monthly", "yearly"] as const;
+export type Recurrence = (typeof RECURRENCES)[number];
+
+/** Is `v` one of the four recurrence words? */
+export function isRecurrence(v: unknown): v is Recurrence {
+  return typeof v === "string" && (RECURRENCES as readonly string[]).includes(v);
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+
+/** A month `k` months after `(y, m)`, with the day held to that month's length. */
+function monthsAfter(y: number, m: number, d: number, k: number): number {
+  const total = y * 12 + (m - 1) + k;
+  const yy = Math.floor(total / 12);
+  const mm = (total % 12) + 1;
+  return dayNumber(yy, mm, Math.min(d, daysInMonth(yy, mm)));
+}
+
+/**
+ * The `k`-th time a stated day comes round (`k = 0` is the day itself), as a
+ * day count. ALWAYS counted from the anchor, never from the last occurrence,
+ * so a short month cannot drag the rest of the year with it:
+ *
+ *   - **monthly on the 29th, 30th or 31st** falls on the LAST day of a month
+ *     too short to have it (Jan 31 → Feb 28, or 29 in a leap year → Mar 31 →
+ *     Apr 30 → May 31);
+ *   - **yearly on Feb 29** falls on Feb 28 in a year with no Feb 29.
+ */
+function occurrenceNumber(y: number, m: number, d: number, rule: Recurrence, k: number): number {
+  switch (rule) {
+    case "daily":
+      return dayNumber(y, m, d) + k;
+    case "weekly":
+      return dayNumber(y, m, d) + 7 * k;
+    case "monthly":
+      return monthsAfter(y, m, d, k);
+    case "yearly":
+      return monthsAfter(y, m, d, 12 * k);
+  }
+}
+
+/** The anchor read as numbers, or null when it is not one real DAY. */
+function anchorParts(anchor: string): [number, number, number] | null {
+  if (dayOf(anchor) === null) return null;
+  const [y, m, d] = anchor.split("-").map(Number) as [number, number, number];
+  return [y, m, d];
+}
+
+/** The `k`-th occurrence of `anchor` (k ≥ 0), `YYYY-MM-DD`; null for anything but a real day. */
+export function occurrenceOf(anchor: string, rule: Recurrence, k: number): string | null {
+  const p = anchorParts(anchor);
+  if (p === null || !Number.isInteger(k) || k < 0) return null;
+  return fromDayNumber(occurrenceNumber(p[0], p[1], p[2], rule, k));
+}
+
+/**
+ * The first occurrence of `anchor` on or after `ymd`, and its index. Never one
+ * before the anchor: a repeat starts on the day it was stated. Null when either
+ * is not a real day.
+ */
+export function occurrenceOnOrAfter(anchor: string, rule: Recurrence, ymd: string): { k: number; date: string } | null {
+  const p = anchorParts(anchor);
+  const target = dayOf(ymd);
+  if (p === null || target === null) return null;
+  const [y, m, d] = p;
+  const start = dayNumber(y, m, d);
+  if (target <= start) return { k: 0, date: anchor };
+  // A lower bound on k, then forward: at most a step or two past the estimate.
+  let k =
+    rule === "daily"
+      ? target - start
+      : rule === "weekly"
+        ? Math.floor((target - start) / 7)
+        : rule === "monthly"
+          ? Math.max(0, (Number(ymd.slice(0, 4)) - y) * 12 + (Number(ymd.slice(5, 7)) - m) - 1)
+          : Math.max(0, Number(ymd.slice(0, 4)) - y - 1);
+  while (occurrenceNumber(y, m, d, rule, k) < target) k += 1;
+  return { k, date: fromDayNumber(occurrenceNumber(y, m, d, rule, k)) };
+}
+
+/** Does some occurrence of `anchor` fall on a day from `from` to `to`, inclusive? The first one that does, or null. */
+export function occurrenceBetween(anchor: string, rule: Recurrence, from: string, to: string): string | null {
+  const next = occurrenceOnOrAfter(anchor, rule, from);
+  return next !== null && next.date <= to ? next.date : null;
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
+  return `${String(n)}${suffix}`;
+}
+
+/**
+ * The repeat as a person says it, from the ANCHOR (so a monthly 31st reads as
+ * the 31st even in a February): `every day`, `every Monday`, `every month on
+ * the 14th`, `every May 14`. Empty for an anchor that is not a real day.
+ */
+export function readableRecurrence(anchor: string, rule: Recurrence): string {
+  const p = anchorParts(anchor);
+  if (p === null) return "";
+  const [, m, d] = p;
+  switch (rule) {
+    case "daily":
+      return "every day";
+    case "weekly":
+      return `every ${WEEKDAY_NAMES[(((dayNumber(p[0], m, d) + 4) % 7) + 7) % 7] ?? ""}`;
+    case "monthly":
+      return `every month on the ${ordinal(d)}`;
+    case "yearly":
+      return `every ${MONTH_NAMES[m - 1] ?? ""} ${String(d)}`;
+  }
+}

@@ -71,9 +71,9 @@ import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, semantic
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, findIdentityCore, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
-import { feelingValence, tokenize } from "../../core/store/index.js";
+import { RECURRING_META, feelingValence, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
-import { calendarOverlaps, daysBetween, localDate } from "../../core/time.js";
+import { calendarOverlaps, daysBetween, isDay, isRecurrence, localDate, occurrenceOnOrAfter, readableRecurrence } from "../../core/time.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
@@ -202,6 +202,9 @@ export interface MeaningOpen {
   /** `open` — an unresolved thread; `dated` — a reminder on or after today. */
   readonly why: "open" | "dated";
   readonly date: string | null;
+  /** A repeating reminder (2026-10-09): how often, in words — `date` is then
+   *  its next occurrence. Absent on a date that happens once. */
+  readonly every?: string;
 }
 
 export interface MeaningPattern {
@@ -997,6 +1000,17 @@ function openFor(
     const r = usable(id);
     if (r === null) continue;
     const title = clip(oneLine(r.title ?? firstLine(r.body)), TITLE_CHARS);
+    // A REPEATING reminder (2026-10-09) is dated by its next occurrence — a
+    // birthday stated in 1990 is still coming — and says how often.
+    const meta = r.event_date !== null && isDay(r.event_date) ? parseMeta(r.meta) : null;
+    const rule = meta === null ? null : meta[RECURRING_META];
+    if (r.event_date !== null && isRecurrence(rule)) {
+      const next = occurrenceOnOrAfter(r.event_date, rule, today);
+      if (next !== null) {
+        dated.push({ id, title, why: "dated", date: next.date, every: readableRecurrence(r.event_date, rule), sort: next.date });
+        continue;
+      }
+    }
     if (r.event_date !== null && calendarOverlaps(r.event_date, today, "9999-12-31")) {
       dated.push({ id, title, why: "dated", date: r.event_date, sort: r.event_date });
       continue;
@@ -1219,7 +1233,7 @@ export function renderMeaning(r: MeaningResult): string {
   if (r.open.length > 0) {
     out.push("");
     out.push(`STILL OPEN (${String(r.counts.open)})`);
-    for (const o of r.open) out.push(`  ${o.id}  ${o.title} · ${o.why === "dated" ? `dated ${o.date ?? "?"}` : `open since ${o.date === null ? "?" : short(o.date)}`}`);
+    for (const o of r.open) out.push(`  ${o.id}  ${o.title} · ${o.why === "dated" ? `dated ${o.date ?? "?"}${o.every === undefined ? "" : `, ${o.every}`}` : `open since ${o.date === null ? "?" : short(o.date)}`}`);
   }
   if (r.patterns.subjects.length > 0 || r.patterns.feelings.length > 0) {
     out.push("");

@@ -262,6 +262,12 @@ export interface HorizonItem {
    * learned (2026-10-01). Absent: the line carries the learned date alone.
    */
   readonly due?: string;
+  /**
+   * How often it comes round, in words, when the date repeats (`time.ts
+   * #readableRecurrence`, 2026-10-09): the line says `(due 2027-05-14, every
+   * May 14)`. Absent: a date that happens once.
+   */
+  readonly every?: string;
 }
 
 export interface BoundaryRequest extends BriefingRequest {
@@ -584,15 +590,20 @@ export class Self {
     }
     const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
     // An arriving occasion's due date, beside its learned one (2026-10-01).
-    const dues = new Map<string, string>();
-    for (const h of req.horizon ?? []) if (h.due !== undefined && h.due.trim() !== "") dues.set(h.id, h.due.trim());
+    // A repeating one says how often, beside it (2026-10-09).
+    const dues = new Map<string, { due: string; every?: string }>();
+    for (const h of req.horizon ?? []) {
+      if (h.due === undefined || h.due.trim() === "") continue;
+      const every = h.every?.trim() ?? "";
+      dues.set(h.id, every === "" ? { due: h.due.trim() } : { due: h.due.trim(), every });
+    }
     const resolve: Resolve =
       dues.size === 0
         ? base
         : (id) => {
             const r = base(id);
             const due = dues.get(id);
-            return due === undefined ? r : { ...r, due };
+            return due === undefined ? r : { ...r, ...due };
           };
     // THE DAY-0 LANE (NOTES §11). The lookup is guarded by the empty lane and by
     // nothing else: it reads prose, and a store with even one identity element

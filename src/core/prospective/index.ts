@@ -34,7 +34,9 @@ import type { Kind } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { UseTier } from "../physics/index.js";
 import type { ProseDoc, ProspectiveInput, ProspectiveRow, Store } from "../store/index.js";
-import { addDays, isDay } from "../time.js";
+import { RECURRING_META } from "../store/index.js";
+import { addDays, isDay, isRecurrence, occurrenceBetween } from "../time.js";
+import type { Recurrence } from "../time.js";
 import { derive } from "./derive.js";
 import type { DerivableMemory, DeriveReason, ExtractedDate, Prospectivity } from "./derive.js";
 import { TEMPORAL_MAX_TIER, withTunables } from "./tunables.js";
@@ -106,6 +108,22 @@ export const CUE_MODE_META = "remind";
 
 export function cueModeOf(doc: Pick<ProseDoc, "meta">): CueMode {
   return doc.meta[CUE_MODE_META] === "plain" ? "plain" : "quiet";
+}
+
+/**
+ * HOW OFTEN IT COMES ROUND (2026-10-09, the owner's design, held lightly):
+ * `daily | weekly | monthly | yearly`, in the meta bag beside `remind`
+ * (`store`'s `RECURRING_META` — no schema bump), anchored on the event date.
+ * Only a DAY repeats: on a month, a range or a year, and with no date at all,
+ * this reads null and the date is once, as stated. A repeating date arrives
+ * once per OCCURRENCE (`windows.ts#recurringWindowAt`) — each occurrence its
+ * own window key, so every per-window brake is per occurrence.
+ */
+export { RECURRING_META };
+
+export function recurrenceOf(doc: Pick<ProseDoc, "eventDate"> & { readonly meta?: ProseDoc["meta"] }): Recurrence | null {
+  const rule = doc.meta?.[RECURRING_META];
+  return isRecurrence(rule) && isDay(doc.eventDate) ? rule : null;
 }
 
 /**
@@ -243,6 +261,11 @@ export interface Arrival {
   /** Plain or quiet, as the author said (`CUE_MODE_META`). Carried so the fire
    *  row can count the two apart; it changes nothing about the cue itself. */
   readonly mode: CueMode;
+  /** A repeating date (2026-10-09): `eventDate` is this occurrence; these say
+   *  the day it repeats from and how often, so a host can say "every May 14".
+   *  Absent on a date that does not repeat. */
+  readonly anchor?: string;
+  readonly recurring?: Recurrence;
 }
 
 /** Which moment of a plain item's window it is being told on. */
@@ -404,9 +427,21 @@ export interface ExitReport {
  * meant a second enumeration (a scan of every memory) to find what the index
  * now answers. Caller-extracted dates still arrive through `extraDates`.
  */
-export function contentDates(doc: Pick<ProseDoc, "eventDate">): ExtractedDate[] {
+export function contentDates(doc: Pick<ProseDoc, "eventDate"> & { readonly meta?: ProseDoc["meta"] }): ExtractedDate[] {
   const v = doc.eventDate;
-  return typeof v === "string" && v !== "" ? [{ date: v }] : [];
+  if (typeof v !== "string" || v === "") return [];
+  // A repeating day carries its rule to `derive`, which finds the occurrence.
+  const rule = recurrenceOf(doc);
+  return [rule === null ? { date: v } : { date: v, recurring: rule }];
+}
+
+/** Ids of live memories whose repeating date has an occurrence from `from` to
+ *  `to` — what `Store.datedMemories` cannot see, since it reads the anchor. */
+function recurringIn(store: Store, from: string, to: string): string[] {
+  return store
+    .recurringMemories()
+    .filter((r) => occurrenceBetween(r.eventDate, r.recurring, from, to) !== null)
+    .map((r) => r.id);
 }
 
 /** Every memory whose stated date could have an OPEN window on `at`: the span
@@ -507,6 +542,8 @@ export class Prospective {
     const ids = new Set<string>(
       span === null ? [] : this.store.datedMemories(span.from, span.to).map((d) => d.id),
     );
+    // A repeating date is found by an occurrence in the span, not by its anchor.
+    if (span !== null) for (const id of recurringIn(this.store, span.from, span.to)) ids.add(id);
     for (const id of input.extraDates?.keys() ?? []) ids.add(id);
     let considered = 0;
     const order = new Map<string, readonly [number, number]>();
@@ -563,6 +600,7 @@ export class Prospective {
           lastFiredDay: stateRow?.last_fired_day ?? null,
           strength: loaded.strength,
           mode,
+          ...(w.anchor === undefined || w.recurring === undefined ? {} : { anchor: w.anchor, recurring: w.recurring }),
         });
         order.set(`${id} ${w.key}`, imminence(w, input.at));
       }
@@ -641,8 +679,18 @@ export class Prospective {
     // written for both so the two cannot drift if that changes). Only the lane:
     // `arrivals()` is untouched, so recall's cue path still finds it, and a
     // quiet item is unchanged.
+    //
+    // A DAILY repeat takes no wake line either (review of #339, 2026-10-09). It
+    // is never "arriving" — it is every day — and the lane cannot say it right:
+    // the wake is rendered at the evening boundary (`runner.ts`, `at` = that
+    // day) and read the next morning, so a quiet daily read "due <yesterday>,
+    // every day" at every first wake, measured through the hooks, and held one
+    // of the two lines for good. A one-off's date is fixed, so a day-old render
+    // of it is still true. A plain daily is still said outright each day
+    // (`plainDue`), and a quiet one still cues recall on every turn.
     const items = considered.arrivals
       .filter((a) => a.precision === "day")
+      .filter((a) => a.recurring !== "daily")
       .filter((a) => !this.toldForGood(a))
       .slice(0, this.tunables.HORIZON_ITEMS);
     const reason: HorizonReason = items.length === 0 ? "nothing-arrived" : "selected";
@@ -689,7 +737,18 @@ export class Prospective {
     const at = input.at;
     const denied = new Set(this.store.deniedIds());
     const out: PlainDue[] = [];
-    for (const dated of this.store.datedMemories(at, at)) {
+    // A REPEATING date is due on each occurrence (2026-10-09): the occurrence
+    // that falls on `at` stands in for the date, so its window key — and with
+    // it the latch per beat — is that occurrence's own.
+    const due: { id: string; eventDate: string }[] = [];
+    const repeating = new Set<string>();
+    for (const r of this.store.recurringMemories()) {
+      repeating.add(r.id);
+      const occurrence = occurrenceBetween(r.eventDate, r.recurring, at, at);
+      if (occurrence !== null) due.push({ id: r.id, eventDate: occurrence });
+    }
+    for (const d of this.store.datedMemories(at, at)) if (!repeating.has(d.id)) due.push(d);
+    for (const dated of due) {
       const id = dated.id;
       if (denied.has(id)) continue;
       const row = this.store.row(id);

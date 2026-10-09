@@ -48,11 +48,13 @@ import {
   daysBetween,
   isCalendarDate,
   isDay,
+  isRecurrence,
   localDate,
   parseCalendarDate,
   resolveZone,
   utcDate,
 } from "../time.js";
+import type { Recurrence } from "../time.js";
 import { LATER_FEELING_SOURCES, checkFeelings } from "./feelings.js";
 import type { AddFeelingsResult, FeelingInput, FeelingRow, FeelingSource } from "./feelings.js";
 import { checkTraitsRepaired } from "./traits.js";
@@ -474,6 +476,25 @@ export interface DatedMemory {
   readonly id: string;
   /** As stated — never widened, never narrowed. */
   readonly eventDate: string;
+}
+
+/**
+ * HOW OFTEN A REMINDER DATE COMES ROUND (2026-10-09, the owner's design, held
+ * lightly): `daily`, `weekly`, `monthly` or `yearly` (`time.ts#RECURRENCES`),
+ * anchored on the memory's `event_date`, in the memory's meta bag under this
+ * key — beside `remind`, and for the same reason: NO SCHEMA BUMP, so a store
+ * written with it opens in a build that never heard of it, which reads the
+ * anchor as a one-off date already passed. Only a DAY repeats; on a month, a
+ * range or a year the key is inert. `prospective/` is its reader.
+ */
+export const RECURRING_META = "recurring";
+
+/** One memory whose reminder date repeats, as `Store.recurringMemories` returns it. */
+export interface RecurringMemory {
+  readonly id: string;
+  /** The day as stated — the anchor every occurrence is counted from. */
+  readonly eventDate: string;
+  readonly recurring: Recurrence;
 }
 
 /**
@@ -4314,6 +4335,35 @@ export class Store {
       .filter((r) => calendarOverlaps(r.event_date, from, to))
       .sort((a, b) => compareCalendarDates(a.event_date, b.event_date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .map((r) => ({ id: r.id, eventDate: r.event_date }));
+  }
+
+  /**
+   * LIVE memories whose reminder date REPEATS (`RECURRING_META`, 2026-10-09):
+   * a day `event_date` and a recurrence word in meta. `datedMemories` asks
+   * whether the date AS STATED reaches a span, and a birthday stated as
+   * `1990-05-14` never reaches this year's; this is the other half, and
+   * `prospective/` asks it for the occurrence that does. The SQL match is
+   * loose (a text match on the meta, as `planCandidates` does for
+   * `unresolved`) and the parsed meta decides. Ordered by id.
+   */
+  recurringMemories(opts: { archived?: boolean } = {}): RecurringMemory[] {
+    const rows = this.ops.all<{ id: string; event_date: string; meta: string }>(
+      `SELECT id, event_date, meta FROM memories
+        WHERE event_date IS NOT NULL AND meta LIKE '%"${RECURRING_META}":"%'${opts.archived === true ? "" : " AND archived = 0"}
+        ORDER BY id`,
+    );
+    const out: RecurringMemory[] = [];
+    for (const r of rows) {
+      if (!isDay(r.event_date)) continue;
+      let rule: unknown;
+      try {
+        rule = (JSON.parse(r.meta) as Record<string, unknown>)[RECURRING_META];
+      } catch {
+        continue;
+      }
+      if (isRecurrence(rule)) out.push({ id: r.id, eventDate: r.event_date, recurring: rule });
+    }
+    return out;
   }
 
   /** A memory's feelings, oldest first (then in the order written). A removed memory has none. */

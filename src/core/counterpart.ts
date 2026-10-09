@@ -47,7 +47,7 @@ import { UNRESOLVED_META_KEY, mintProposal } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
-import { Prospective, DATE_LINEAGE_MAX, DATE_MOVED_TO_META, cueModeOf } from "./prospective/index.js";
+import { Prospective, DATE_LINEAGE_MAX, DATE_MOVED_TO_META, cueModeOf, recurrenceOf } from "./prospective/index.js";
 import type { PlainDue } from "./prospective/index.js";
 import {
   ASKED_KIND,
@@ -143,6 +143,7 @@ import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionSt
 import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
+import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
 import {
@@ -1147,8 +1148,13 @@ export interface DepositReminder {
   /** The date the new memory carries, or null when the revision dropped it. */
   readonly eventDate: string | null;
   readonly remind: "plain" | "quiet" | null;
+  /** How often the carried date comes round (2026-10-09), or null: once. */
+  readonly recurring: Recurrence | null;
+  /** A repeat — sent or carried — that the new date cannot take (only a day
+   *  repeats), so it was dropped: said in the answer, never silently lost. */
+  readonly recurringDropped?: boolean;
   /** Which fields came from `from` because the author left them out. */
-  readonly inherited: readonly ("eventDate" | "remind")[];
+  readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
   readonly moved: boolean;
 }
@@ -1158,7 +1164,8 @@ interface ReminderCarryPlan {
   readonly proposal: Proposal;
   /** The dated memory being revised, or null when there is nothing to carry. */
   readonly from: string | null;
-  readonly inherited: readonly ("eventDate" | "remind")[];
+  readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
+  readonly recurringDropped?: boolean;
 }
 
 export interface SweepEntry {
@@ -5861,18 +5868,34 @@ export class Counterpart {
     const priorDate = this.store.row(from)?.event_date ?? null;
     if (priorDate === null) return none;
     let priorMode: "plain" | "quiet" = "quiet";
+    let priorRule: Recurrence | null = null;
     try {
-      priorMode = cueModeOf(this.store.readProse(from));
+      const prior = this.store.readProse(from);
+      priorMode = cueModeOf(prior);
+      priorRule = recurrenceOf(prior);
     } catch {
-      // Unreadable prose: the date still carries, at the default mode.
+      // Unreadable prose: the date still carries, at the default mode, once.
     }
     const eventDate =
       intent.eventDate === "set" ? p.eventDate : intent.eventDate === "cleared" ? null : priorDate;
     const remind = eventDate === null ? null : intent.remind ?? priorMode;
-    const inherited: ("eventDate" | "remind")[] = [];
+    // HOW OFTEN, field by field like the rest (2026-10-09): what the author
+    // sent, `null` for "no longer repeats", else the revised memory's. Only a
+    // day repeats, so a revision that moves the date to a month or a range
+    // leaves it once — the same occurrence keys are what `lineage` counts.
+    const sentRule = intent.recurring ?? null;
+    const wanted = eventDate === null || sentRule === "cleared" ? null : sentRule ?? priorRule;
+    const recurring = wanted !== null && isDay(eventDate) ? wanted : null;
+    const inherited: ("eventDate" | "remind" | "recurring")[] = [];
     if (eventDate !== null && intent.eventDate === "absent") inherited.push("eventDate");
     if (eventDate !== null && intent.remind === null) inherited.push("remind");
-    return { proposal: { ...p, eventDate, remind, reminderFrom: from }, from, inherited };
+    if (recurring !== null && sentRule === null) inherited.push("recurring");
+    return {
+      proposal: { ...p, eventDate, remind, recurring, reminderFrom: from },
+      from,
+      inherited,
+      ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
+    };
   }
 
   /**
@@ -5929,12 +5952,15 @@ export class Counterpart {
       moved,
       eventDate: carry.proposal.eventDate,
       remind: carry.proposal.remind,
+      recurring: carry.proposal.recurring ?? null,
       inherited: carry.inherited.join(",") || null,
     });
     return {
       from,
       eventDate: carry.proposal.eventDate,
       remind: carry.proposal.remind,
+      recurring: carry.proposal.recurring ?? null,
+      ...(carry.recurringDropped === true ? { recurringDropped: true } : {}),
       inherited: carry.inherited,
       moved,
     };
