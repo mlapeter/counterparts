@@ -83,7 +83,7 @@ beforeAll(async () => {
     ids.old = s.put({ type: "memory", kind: "fact", title: "Gym at 7", body: "The zqswim session is at 7am." });
     ids.now = s.put({ type: "memory", kind: "fact", title: "Gym moved", body: "The zqswim session moved to 6am." });
     expect(settle(s, { holds: ids.now, over: ids.old, how: "changed", why: "the time changed", actor: "session" }).ok).toBe(true);
-    // A wrong one, corrected: hidden, and counted.
+    // A wrong one, corrected: never a result, named as wrong under the one that holds.
     ids.wrong = s.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 4." });
     ids.right = s.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 9." });
     expect(settle(s, { holds: ids.right, over: ids.wrong, how: "corrected", why: "it was pier 9", actor: "session" }).ok).toBe(true);

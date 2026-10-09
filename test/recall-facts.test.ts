@@ -6,7 +6,7 @@
  * ranked by match strength (several ways rank higher), recency only on a tie;
  * a time window filters and counts what fell outside; each fact's labeled
  * lines (who said it, its status, when it happened and was learned, CURRENT);
- * earlier versions folded, corrected ones hidden and counted; faded ones
+ * earlier versions folded, corrected ones named as wrong (never a result); faded ones
  * listed after; a count header, pages, the 12,000-character room; and a
  * quote of a shown memory credited at the boundary.
  *
@@ -459,7 +459,7 @@ describe("each fact's labeled lines", () => {
   });
 });
 
-describe("current first: earlier versions fold, corrected ones are hidden and counted", () => {
+describe("current first: earlier versions fold, corrected ones are named as wrong, never results", () => {
   test("a changed pair: the old one folds under the new, even when only the old one matched", () => {
     const c = brain();
     seed(c);
@@ -889,6 +889,23 @@ describe("corrected versions are named, as wrong, and open by id (through the to
     expect(guest).toContain("   1 corrected version hidden");
     const owner = String(body(await server(c).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
     expect(owner).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
+  });
+
+  test("beside a plain corrected one, a confidential one is only counted to a non-owner, and its id opens nothing", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
+    const plain = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Pine Street." });
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
+    for (const over of [plain, secret]) expect(settle(c.store, { holds: right, over, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
+    const guest = server(c, false);
+    const answer = String(body(await guest.call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(answer).toContain(`   corrected (was wrong): "The zqclinic is on Pine Street." (learned 10-03), corrected 10-03 · ${plain}\n   +1 more corrected (was wrong)\n`);
+    expect(answer).not.toContain(secret);
+    expect(answer).not.toContain("Elm");
+    const opened = JSON.stringify(await guest.call("recall", { ids: [secret] }));
+    expect(opened).toContain("handle-confidential-withheld");
+    expect(opened).not.toContain("Elm");
   });
 
   test("an answer with no corrected version carries no corrected field or line", async () => {
