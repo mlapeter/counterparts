@@ -13,7 +13,7 @@ each mechanism is working. It should run in whatever AI host people use.
 | | |
 |---|---|
 | **On npm** | 0.3.12 (Oct 8) |
-| **On master, not released** | the wake check waits for the transcript (#325); a chapter's copy keeps its links, and recall records what it showed that no reply used (#329); the nightly run notices Claude Code's cut, and a reflection reads every part first (#330); export carries dreams and reflections, and `connect` says which version each session runs (#331); "Since this handoff:" and one "Last revised" in the wake (#332); the dashboard's Ask reads facts and meaning (#333); plus an install-loop fix (#326) and the write-up plan measured (#327) |
+| **On master, not released** | the wake check waits for the transcript (#325); a chapter's copy keeps its links, and recall records what it showed that no reply used (#329); the nightly run notices Claude Code's cut, and a reflection reads every part first (#330); export carries dreams and reflections, and `connect` says which version each session runs (#331); "Since this handoff:" and one "Last revised" in the wake (#332); the dashboard's Ask reads facts and meaning (#333); meaning mode picks the card the question is about, not the biggest one (#334); plus an install-loop fix (#326) and the write-up plan measured (#327) |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11). Not Windows. |
 
