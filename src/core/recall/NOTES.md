@@ -695,6 +695,7 @@ titled chapter against an untitled copy can fall under `NEAR_DUPLICATE` anyway.
 - **The dashboard**: its ask view had folded the pair the other way since round 3 (the
   memory, with a "from chapter …" link). It now receives the chapter alone and shows it as
   a journal row; `pages/memories/fold.js` still links a copy whose chapter was not shown.
+  (2026-10-09: `fold.js` and `/api/chapters` are gone; facts mode folds the pair itself.)
 
 ## 22. Recall by feeling, deliberate only — 2026-09-30 (U13 items 1 and 2)
 

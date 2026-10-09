@@ -373,7 +373,14 @@ function argvFor(name: ActionName, body: Body, ctx: ActionContext): Built {
       // `exact: true`. The CLI's own `ask` is untouched.
       const typed = words(question as string, "question");
       const exact = flag(body, "exact");
-      const voiced = exact ? { text: typed, changed: false } : toMyVoice(typed, ctx.ownerName ?? null);
+      // In MEANING mode his "I" becomes "you", never his name (review of #333):
+      // meaning takes the card with the most memories as its subject, and the
+      // owner's own card is usually the biggest, so "what has Ilya been to me"
+      // turned into "… to Rosalind" answered about Rosalind, with Ilya under
+      // "also named". In my voice "you" is the owner to meaning (`--voiced`),
+      // so his feelings stay his.
+      const owner = mode === "meaning" ? null : ctx.ownerName ?? null;
+      const voiced = exact ? { text: typed, changed: false } : toMyVoice(typed, owner);
       // In MY voice, "I" is me: a question about feeling asks about the
       // counterpart's own feelings (`--voiced`, U13). `exact` keeps the owner's
       // words, and his "I".

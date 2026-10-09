@@ -594,3 +594,9 @@ hand, in the old shape.
   shows as "memory ↗" and opens it, "epi_…#2" as "journal chapter 2 ↗", the id on
   hover. Inside something already clickable (a moment's title) it is drawn the same
   but not linked. The memory card's own body still prints ids as written.
+- **Review of #333: in meaning mode the owner's "I" becomes "you", not his name.**
+  The voice rewrite turned "what has Ilya been to me" into "… to Rosalind", and
+  meaning takes the card with the most memories as its subject: the owner's own
+  card, usually the biggest, won, and the person asked about went under "also
+  named". The answer tests ran the action with no owner name, as the server never
+  does. Facts still gets his name, where words are what match.

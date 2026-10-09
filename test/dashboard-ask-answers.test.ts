@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { settle } from "../src/core/contradictions.js";
+import { ownerNames } from "../src/core/sleep/index.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { runAction } from "../src/adapters/dashboard/web/actions.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
@@ -278,6 +279,43 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     const { answer: two } = await ask<MeaningResult>({ question: q, mode: "meaning", page: 2 });
     expect(two.page).toBe(2);
     expect(seen(page.askPager(two))).toContain(`page 2 of ${two.pages}`);
+  });
+
+  test("with the owner's name known, as the server hands it, \"… to me\" is about the person asked of, not the owner (review of #333)", async () => {
+    // The server passes the owner's name (`server.ts#ownerNameOf`); the
+    // rewrite once turned "me" into it, and meaning took the owner's own card
+    // (more memories than this person's) as the subject.
+    const c = Counterpart.open({ dir, owner: true });
+    let ownerName: string | null;
+    let person: { name: string; count: number } | undefined;
+    let ownerCount = 0;
+    try {
+      ownerName = ownerNames(c.store)[0] ?? null;
+      for (const id of c.store.list({ type: "schema", archived: false })) {
+        const name = c.schemas.entity(id)?.name ?? null;
+        const count = c.store.memoriesNaming(id).length;
+        if (name === null || count === 0) continue;
+        if (ownerName !== null && name.toLowerCase() === ownerName.toLowerCase()) ownerCount = count;
+      }
+      for (const id of c.store.list({ type: "schema", archived: false })) {
+        const name = c.schemas.entity(id)?.name ?? null;
+        const count = c.store.memoriesNaming(id).length;
+        if (name === null || count === 0 || count >= ownerCount || name.toLowerCase() === ownerName?.toLowerCase()) continue;
+        if (c.schemas.entity(id)?.kind === "person" && (person === undefined || count > person.count)) person = { name, count };
+      }
+    } finally {
+      c.close();
+    }
+    expect(ownerName).not.toBeNull();
+    expect(person).toBeDefined();
+    const q = `what has ${person?.name} been to me`;
+    const r = await runAction("ask", { json: true, question: q, mode: "meaning" }, { dir, ownerName });
+    expect(r.body.exit).toBe(0);
+    const answer = JSON.parse((r.body.out ?? []).join("\n")) as MeaningResult;
+    expect(answer.lens?.name).toBe(person?.name as string);
+    expect(answer.others.map((o) => o.name.toLowerCase())).not.toContain(ownerName?.toLowerCase());
+    // His feelings are still his: in my voice "you" is the owner.
+    expect(answer.whose.self).toBe("mine");
   });
 
   test("nothing holds it: said so, with what to try", async () => {
