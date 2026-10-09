@@ -222,6 +222,33 @@ export function localStampAfter(at: number, after: number, zone?: string): strin
   return q !== null && q.month === p.month && q.day === p.day ? clock : `${p.month}-${p.day} ${clock}`;
 }
 
+/**
+ * The first moment of the calendar day `ymd` in `zone` — local midnight, as an
+ * instant (2026-10-09). A window over moments that is meant to be a person's
+ * days starts here, never at `${ymd}T00:00:00Z`, which is the UTC day: in
+ * Denver that opens the window six hours early, in Kiritimati fourteen hours
+ * late. Found by a search over `localDate` rather than by offset arithmetic, so
+ * a day a clock change starts at 01:00 still starts where the zone says it
+ * does. Throws on a malformed day — a caller's bug, as `addDays` does.
+ */
+export function startOfLocalDay(ymd: string, zone?: string): number {
+  const z = zone === undefined || !isZoneCached(zone) ? machineZone() : zone;
+  const utcMidnight = Date.parse(`${ymd}T00:00:00Z`);
+  if (!isDay(ymd) || !Number.isFinite(utcMidnight)) throw new RangeError(`startOfLocalDay: not a day: ${ymd}`);
+  const minute = 60_000;
+  // Every offset in use lies inside UTC−12..UTC+14, so local midnight lies
+  // between these two bounds, with an hour to spare on each side: the first is
+  // always the day before in `z`, the second always `ymd` or later.
+  let before = Math.floor((utcMidnight - 15 * 3_600_000) / minute);
+  let onOrAfter = Math.floor((utcMidnight + 13 * 3_600_000) / minute);
+  while (onOrAfter - before > 1) {
+    const mid = Math.floor((before + onOrAfter) / 2);
+    if (localDate(mid * minute, z) < ymd) before = mid;
+    else onOrAfter = mid;
+  }
+  return onOrAfter * minute;
+}
+
 /** Today's `YYYY-MM-DD` in `zone`. A store passes its own clock; the default is
  *  the ambient one, for an adapter with no store open. */
 export function todayIn(zone?: string, at: number = Date.now()): string {

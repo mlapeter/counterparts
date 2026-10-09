@@ -34,6 +34,7 @@ export async function render() {
     rows.join("") + "</tbody></table>";
   $("h-fired-foot").textContent =
     d.from + "→" + d.today + " (UTC), against " + d.previousFrom + "→" + d.previousTo + ". " +
+    (d.missedOccasion && d.missedOccasion.length ? "Its occasion came this week and it did not fire: " + d.missedOccasion.join("; ") + ". " : "") +
     (d.wentQuiet.length ? "Fired last week and not once this week: " + d.wentQuiet.join("; ") + ". "
                         : "Nothing that fired last week has fallen silent this week. ") +
     (d.truncated ? "The event read hit its ceiling, so every count is a floor. " : "") +

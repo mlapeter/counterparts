@@ -639,6 +639,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
         // core change (`AdapterDurableEventName`) and this fact is about
         // exactly the moment that row describes.
         scopeRegistry: this.scopeTrouble,
+        // WHETHER ANYBODY COULD BE TOLD ANYTHING HERE (review of #337): the
+        // same test that decides whether this session is handed plain
+        // reminders. The `fired` report's plain-due check reads it, so a day
+        // only the headless run or `claude -p` came is not a day a reminder
+        // could have been said.
+        interactive: isInteractive(input) && input.nightRun !== true,
       });
       // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
       // FITS.

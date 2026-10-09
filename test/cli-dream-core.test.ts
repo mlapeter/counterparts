@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { dreamingFindings, upgradeV8Findings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { run } from "../src/adapters/cli/index.js";
-import { FIRED_DAYS, MECHANISMS, daysBefore, firedReport } from "../src/adapters/fired.js";
+import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -241,13 +241,12 @@ describe("fired: the rows for dreaming and consolidation", () => {
       expect(row("dream")?.state).toBe("firing");
       expect(row("dream-changes")?.state).toBe("firing");
       expect(row("gist")?.state).toBe("firing");
-      // core-demote never fired here. It reads "new" while its `since` is
-      // inside the window and "never" after — so the answer depends on the
-      // calendar, and the test asks for the one today's window gives.
+      // core-demote never fired here. It is the owner's door out of the core,
+      // so its silence is an occasion that has not come: "waiting", on any
+      // calendar (2026-10-09; it read "new", then "never", before).
       const since = MECHANISMS.find((m) => m.id === "core-demote")?.since as string;
-      expect(row("core-demote")?.state).toBe(since >= daysBefore(today, FIRED_DAYS - 1) ? "new" : "never");
-      // And on its own first day it is "new", whatever today is.
-      expect(firedReport(s, since).rows.find((r) => r.id === "core-demote")?.state).toBe("new");
+      expect(row("core-demote")?.state).toBe("waiting");
+      expect(firedReport(s, since).rows.find((r) => r.id === "core-demote")?.state).toBe("waiting");
     } finally {
       s.close();
     }
