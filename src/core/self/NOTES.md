@@ -1565,3 +1565,12 @@ paragraph stay. The blank line it stood behind goes with it. The revision row sa
 went (`datelines`), because the owner's console writes through the same door. A page that
 is nothing but the line is refused as `empty` at write, and printed as it stands at render.
 The guidance stays: the strip is the check, not a reason to stop asking.
+
+**Review of #332: only a dateline.** As first built the rule took any short line opening
+"Last revised" past its wrappers, which took prose ("Last revised my view of …"), a quoted
+line, a list entry, a code block's line and a page's own history list — at the write door,
+so the words left the stored page. Now the words must be followed by a date (ISO or numeric,
+a month's name, or today / tonight / yesterday), straight after or after "on" or a short
+"by …"; and a line inside a code fence, beside another such line (a history), or an entry
+beside another entry of a list stays. A lone one, at the head, the foot or between
+sections, still goes.

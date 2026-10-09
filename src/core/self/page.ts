@@ -284,16 +284,36 @@ function byteLengthOf(s: string): number {
  */
 export const REVISED_LINE_MAX_CHARS = 160;
 
+/** A date as a dateline states one: ISO or numeric, a month's name and a day,
+ *  or the day words the writers used before the 10-01 guidance. */
+const REVISED_DATE = String.raw`(?:(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.]\d{1,2}[/.]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:\d{4}|\d{1,2}))(?!\d)|(?:\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|today|tonight|yesterday)(?![a-z]))`;
+
+/** "Last revised", then the date — straight after, or after "on" or a short
+ *  "by …" (review of #332: without the date, "Last revised my view of …", a
+ *  quoted line and a list entry were all taken). */
+const REVISED_OPENING = new RegExp(
+  String.raw`^last\s+revised\b[\s:,(*_\-–—]*(?:on\s+)?(?:by\s+[^,;:\n]{1,48}?[\s,]+(?:on\s+)?)?${REVISED_DATE}`,
+  "iu",
+);
+
+/** A Markdown list entry: `- `, `* `, `+ `, `1. ` or `1) `. */
+const LIST_ENTRY = /^\s*(?:[-*+]|\d+[.)])\s+/u;
+
+/** A code fence's opening or closing line. */
+const FENCE = /^\s{0,3}(?:```|~~~)/u;
+
 /**
  * IS THIS LINE THE PAGE'S OWN "LAST REVISED" LINE (2026-10-09)? A whole line
  * that opens — past any wrapping of parentheses, brackets, emphasis, a quote
- * marker or a dash — with "Last revised", and is short. A sentence that says
- * the words in the middle of a paragraph is not one.
+ * marker or a dash — with "Last revised" and a date (`REVISED_OPENING`), and
+ * is short. A sentence that says the words in the middle of a paragraph is
+ * not one, and neither is a line that opens with them and goes on to say
+ * something else. Where it stands is `stripRevisedLines`'s to judge.
  */
 export function isRevisedLine(line: string): boolean {
   const t = line.trim();
   if (t.length === 0 || t.length > REVISED_LINE_MAX_CHARS) return false;
-  return /^last\s+revised\b/i.test(t.replace(/^[>(\[*_\s\-–—]+/u, ""));
+  return REVISED_OPENING.test(t.replace(/^[>(\[*_\s\-–—]+/u, ""));
 }
 
 /**
@@ -305,17 +325,35 @@ export function isRevisedLine(line: string): boolean {
  * out where the wake renders the page and where the page is written
  * (`Self#revisePage`), so a stored page heals the next time it is written.
  *
+ * A dateline stands alone, so three places keep the line (review of #332):
+ * inside a code fence; beside another such line, with no blank between (two
+ * in a row are the page's own history); and as an entry of a list, beside
+ * another entry. A lone one, at the head, the foot or between sections, goes.
+ *
  * Only the line goes, and the blank line it stood behind when it stood
  * between two, so a removed line leaves no gap of two. `stripped` counts what
  * went; with none, the body is returned exactly as it came. Pure.
  */
 export function stripRevisedLines(body: string): { body: string; stripped: number } {
   const lines = body.split("\n");
+  let fenced = false;
+  const dateline = lines.map((l) => {
+    if (FENCE.test(l)) {
+      fenced = !fenced;
+      return false;
+    }
+    return !fenced && isRevisedLine(l);
+  });
+  const beside = (i: number): number[] =>
+    [i - 1, i + 1].filter((j) => j >= 0 && j < lines.length && (lines[j] ?? "").trim() !== "");
+  const kept = (i: number): boolean =>
+    beside(i).some((j) => dateline[j] === true) ||
+    (LIST_ENTRY.test(lines[i] ?? "") && beside(i).some((j) => LIST_ENTRY.test(lines[j] ?? "")));
   const out: string[] = [];
   let stripped = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    if (!isRevisedLine(line)) {
+    if (dateline[i] !== true || kept(i)) {
       out.push(line);
       continue;
     }

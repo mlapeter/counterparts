@@ -652,6 +652,37 @@ describe("a page that carries its own 'Last revised' line", () => {
     expect(stripRevisedLines(spaced).body).toBe(spaced);
   });
 
+  test("only a dateline goes: prose, a list entry, a history, a quote and a code block that open with the words stay (review of #332)", () => {
+    for (const body of [
+      // Prose that opens with the words and says no date.
+      "Core: placeholder.\n\nLast revised my view of small PRs after the incident; now I split by concern.",
+      "Core: placeholder.\n\nLast revised by me after the talk with Mike, when I understood the cost.",
+      "Core: placeholder.\n\n*Last revised thoughts on trust:* I trust slower now.",
+      // A quote.
+      "Mike once wrote:\n> Last revised means nothing if nobody reads it.\nI keep that.",
+      // An entry of a list, dated or not.
+      "Recent:\n- Last revised the deploy runbook so it names the tarball.\n- Wrote the docs pass.",
+      "## History\n\n- 2026-09-01: created.\n- Last revised 2026-09-15: dropped the old tone rule.\n- 2026-09-20: renamed sections.",
+      // The page's own history, two in a row.
+      "History:\nLast revised 2026-09-01: added X.\nLast revised 2026-09-15: removed Y.",
+      // A code block.
+      "Core: placeholder.\n\n```\nLast revised 2026-10-01\n```",
+    ]) {
+      expect(stripRevisedLines(body)).toEqual({ body, stripped: 0 });
+    }
+    // A lone dateline still goes, whatever the date looks like or who it names.
+    for (const line of [
+      "(Last revised by the reflection, 2026-09-30.)",
+      "_Last revised by Opus 5.5 on 2026-10-01_",
+      "**Last revised:** 2026-10-01",
+      "(Last revised October 1, 2026.)",
+      "*Last revised tonight, after the chapter.*",
+      "- Last revised 2026-10-01",
+    ]) {
+      expect(stripRevisedLines(`Core: placeholder.\n\n${line}`)).toEqual({ body: "Core: placeholder.", stripped: 1 });
+    }
+  });
+
   test("a page that is nothing but the line is refused as empty, and printed as it is", () => {
     const s = store();
     const me = self(s);
