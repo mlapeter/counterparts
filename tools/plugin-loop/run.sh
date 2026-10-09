@@ -29,6 +29,14 @@
 #     variables Claude Code sets — and the steps that need a real turn are in
 #     docs/plugin.md as a manual checklist.
 #
+# WHAT IT INSTALLS: the working tree, never the release the repository pins.
+# The repository's marketplace entry names GitHub at a release tag (`ref`), so
+# a stranger only ever gets a released version. The loop keeps that entry's
+# `ref` and swaps only where it points: at a git snapshot of the working tree,
+# tagged with the same name inside the loop's own throwaway clone, with one
+# more commit on its branch past the tag. The install must come out as the
+# tagged snapshot, not that later commit — which is the pin doing its job.
+#
 # WHAT IT CANNOT VERIFY: a model turn (Stop capture of a real transcript, the
 # model calling a memory tool), Claude Desktop's Code tab, Cowork, `claude
 # plugin eval`. See docs/plugin.md.
@@ -171,6 +179,41 @@ mkdir -p "$MARKET_SRC"
 ) >/dev/null 2>&1
 if [ -f "$MARKET_GIT/HEAD" ] && [ -f "$MARKET_SRC/.claude-plugin/marketplace.json" ]; then ok; else no "no snapshot" ""; fi
 
+step "the repository's entry pins a release tag; the snapshot is tagged with it, and its branch moves past it"
+# The pin, read from the snapshot's own marketplace.json: GitHub at a tag.
+PIN=$(bun -e '
+  const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const e = (m.plugins ?? []).find((p) => p.name === "counterparts");
+  const s = e?.source;
+  console.log(s && typeof s === "object" && s.source === "github" ? (s.ref ?? "") : "");
+' "$MARKET_SRC/.claude-plugin/marketplace.json" 2>/dev/null || true)
+# Inside the throwaway bare clone only: the snapshot gets the pin's tag, and the
+# branch gets one more commit (a marker file) the pin must not install.
+PAST="$WORK/past-the-pin"
+rm -rf "$PAST"
+if [[ "$PIN" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  (
+    git -C "$MARKET_GIT" tag "$PIN" main &&
+      git clone -q "$MARKET_GIT" "$PAST" &&
+      cd "$PAST" &&
+      echo "a commit past the pinned tag; a pinned install never has this file" > PAST-THE-PIN &&
+      git -c user.name=plugin-loop -c user.email=plugin-loop@example.invalid add PAST-THE-PIN &&
+      git -c user.name=plugin-loop -c user.email=plugin-loop@example.invalid commit -q -m "past the pin" &&
+      git push -q origin HEAD:main
+  ) >/dev/null 2>&1
+fi
+TAGGED=$(git -C "$MARKET_GIT" rev-parse -q --verify "refs/tags/$PIN^{commit}" 2>/dev/null || true)
+BRANCH=$(git -C "$MARKET_GIT" rev-parse -q --verify "refs/heads/main" 2>/dev/null || true)
+if [[ ! "$PIN" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  no "the repository's entry is not GitHub at a release tag (ref: '${PIN}')" "$(cat "$MARKET_SRC/.claude-plugin/marketplace.json")"
+elif [ -z "$TAGGED" ] || [ -z "$BRANCH" ] || [ "$TAGGED" = "$BRANCH" ]; then
+  no "could not tag the snapshot $PIN and move its branch past it" "tag: $TAGGED
+main: $BRANCH"
+else
+  ok
+  echo "      pin: $PIN (the loop installs the working tree under that tag)"
+fi
+
 step "claude plugin validate passes the plugin and the marketplace"
 V1=$(claude plugin validate "$MARKET_SRC" 2>&1)
 printf '%s\n' "$V1" > "$WORK/validate.txt"
@@ -195,25 +238,47 @@ $LISTED
 $REMOVED"
 fi
 
-step "plugin install through a git source: Claude Code clones, copies into its cache, installs dependencies"
 # `marketplace add` refuses a file:// URL, but a plugin ENTRY may name one
-# (`url` source), and that is the same path a GitHub source takes: clone,
-# copy into ~/.claude/plugins/cache, dependency install. So the loop's own
-# one-entry marketplace points at the snapshot's bare clone.
+# (`url` source), and that is the same path a GitHub source takes: clone at
+# the entry's `ref`, copy into ~/.claude/plugins/cache, dependency install. So
+# the loop's own one-entry marketplace points at the snapshot's bare clone,
+# with the repository's pin as its `ref`.
 LOOP_MARKET="$WORK/loop-marketplace"
 mkdir -p "$LOOP_MARKET/.claude-plugin"
-cat > "$LOOP_MARKET/.claude-plugin/marketplace.json" <<EOF
+loop_market() { # loop_market <ref>
+  cat > "$LOOP_MARKET/.claude-plugin/marketplace.json" <<EOF
 {
   "name": "counterparts-loop",
   "owner": { "name": "plugin-loop" },
   "plugins": [
-    { "name": "counterparts", "source": { "source": "url", "url": "file://$MARKET_GIT" } }
+    { "name": "counterparts", "source": { "source": "url", "url": "file://$MARKET_GIT", "ref": "$1" } }
   ]
 }
 EOF
+}
+
+step "pinned to a tag that does not exist yet (master before the first plugin release): the install fails and installs nothing"
+loop_market "v999.0.0"
 ADD=$(claude plugin marketplace add "$LOOP_MARKET" 2>&1)
+UNTAGGED=$(claude plugin install counterparts@counterparts-loop 2>&1)
+UNTAGGED_RC=$?
+printf '%s\n%s\nexit %s\n' "$ADD" "$UNTAGGED" "$UNTAGGED_RC" > "$WORK/install-untagged.txt"
+if [ "$UNTAGGED_RC" -ne 0 ] &&
+   ! grep -qs '"counterparts@counterparts-loop"' "$HOME/.claude/plugins/installed_plugins.json" &&
+   [ ! -d "$HOME/.claude/plugins/cache/counterparts-loop" ]; then
+  ok
+  grep -m1 -oE "fatal: .*" <<<"$UNTAGGED" | cut -c1-160 | sed 's/^/      /'
+else
+  no "an entry naming a missing tag installed something (exit $UNTAGGED_RC)" "$ADD
+$UNTAGGED
+$(ls -R "$HOME/.claude/plugins/cache" 2>&1 | head -10)"
+fi
+
+step "plugin install through a git source at the pinned tag: Claude Code clones, copies into its cache, installs dependencies"
+loop_market "$PIN"
+UPDATE=$(claude plugin marketplace update counterparts-loop 2>&1)
 INSTALL=$(claude plugin install counterparts@counterparts-loop 2>&1)
-printf '%s\n%s\n' "$ADD" "$INSTALL" > "$WORK/install.txt"
+printf '%s\n%s\n' "$UPDATE" "$INSTALL" > "$WORK/install.txt"
 JSON=$(claude plugin list --json 2>/dev/null || true)
 printf '%s\n' "$JSON" > "$WORK/plugin-list.json"
 INSTALL_PATH=$(bun -e '
@@ -237,12 +302,21 @@ if [ -n "$INSTALL_PATH" ] && [ -f "$INSTALL_PATH/.claude-plugin/plugin.json" ]; 
   ok
   echo "      installed at ${INSTALL_PATH/#$HOME/~}"
 else
-  no "the plugin is not installed (or its path could not be read)" "$ADD
+  no "the plugin is not installed (or its path could not be read)" "$UPDATE
 $INSTALL
 $JSON"
   echo "STOPPING: nothing to exercise."
   echo "workdir: $WORK"
   exit 1
+fi
+
+step "the install is the tagged snapshot (the working tree), not the branch head past the tag"
+if [ -e "$INSTALL_PATH/PAST-THE-PIN" ]; then
+  no "the install carries the commit past $PIN: Claude Code took the branch, not the pin" "$(ls "$INSTALL_PATH" | head -20)"
+elif ! cmp -s "$REPO/.claude-plugin/plugin.json" "$INSTALL_PATH/.claude-plugin/plugin.json"; then
+  no "the installed plugin.json is not the working tree's" "$(diff "$REPO/.claude-plugin/plugin.json" "$INSTALL_PATH/.claude-plugin/plugin.json" | head -20)"
+else
+  ok
 fi
 
 step "the install is a COPY in the cache, with no .git (so doctor reads it as an installed package)"
