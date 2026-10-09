@@ -525,6 +525,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
     const byWords = holdByWords(store, topic, usable, hold);
     textMatch = byWords.textMatch;
     lineMatch = byWords.lineMatch;
+    notes.push("matched by the name as written, not by meaning");
     for (const x of cards) others.push({ name: x.name, memories: x.ids.length });
     if (usIds.length > 0) others.push({ name: usName, memories: usIds.length });
   } else if (usIds.length > 0) {

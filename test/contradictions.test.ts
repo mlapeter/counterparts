@@ -780,6 +780,7 @@ describe("visible: the owner's settle, doctor's line, the mechanism's evidence",
     expect(heldLine(1, 1)).toBe("; 1 correction held because it didn't look related to the memory it named, settled by hand since");
     expect(heldLine(3, 0)).toBe("; 3 corrections held because they didn't look related to the memory they named; if any were meant, settle them with counterparts settle, which lists them");
     expect(heldLine(3, 1)).toContain(", 1 settled by hand since; if any were meant, settle them");
+    expect(heldLine(3, 2)).toContain(", 2 settled by hand since; if the one left was meant, settle it with counterparts settle, which lists it");
   });
 
   test("doctor's Upgrade line says what v10 carried, and is silent on a store born at v10", () => {

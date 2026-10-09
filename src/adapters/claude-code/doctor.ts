@@ -2797,7 +2797,8 @@ export function heldLine(held: number, settledAfter: number): string {
   if (left <= 0) return `${head}, ${one ? "settled" : "all settled"} by hand since`;
   const since = settledAfter > 0 ? `, ${String(settledAfter)} settled by hand since` : "";
   const them = left === 1 ? "it" : "them";
-  return `${head}${since}; if ${left === 1 ? (one ? "it was" : "the other was") : "any were"} meant, settle ${them} with counterparts settle, which lists ${them}`;
+  const was = left > 1 ? "any were" : one ? "it was" : held === 2 ? "the other was" : "the one left was";
+  return `${head}${since}; if ${was} meant, settle ${them} with counterparts settle, which lists ${them}`;
 }
 
 /**
