@@ -403,3 +403,23 @@ occurrence's row is re-derived with `windowFor`, which does not know the clippin
 phase can read a few days long. Both only colour the exit count. The dream's
 "coming up" list and the dashboard's "ahead" list read `datedMemories` alone, so they do
 not show a repeating date's next occurrence yet.
+
+Review of #339 (2026-10-09), measured through the hooks with an evening boundary each
+simulated day:
+
+- **A daily repeat takes no wake line** (`horizon()`). The wake is rendered at the
+  boundary with `at` = that evening's day (`runner.ts`) and read the next morning, so a
+  quiet daily read "due <yesterday>, every day" at every first wake, and kept one of the
+  two lines for good. A one-off's date is fixed, so a day-old render of it stays true. A
+  plain daily is still said outright each day; a quiet one still cues recall each turn
+  (one fire a day). A weekly one keeps its line; rendered on the Thursday it closes, it
+  reads last Monday at Friday's wake — one day in seven, like a one-off's grace.
+- **A quiet weekly spends both fires in its lead** when it is surfaced every day: Friday
+  and Saturday, and nothing on the Monday itself. That is the one-off rule (a day window
+  holds no fire back for its day); a repeat just shows it every week.
+- **Decay still holds, and a repeat has to outlive it** (named, not fixed — the owner's
+  call). A memory noted at the default salience fades below `FADED_STRENGTH` and becomes
+  prunable at about 152 lived days unless it is used: `derive` then refuses it as
+  `faded`, and once prune archives it `recurringMemories()` no longer finds it, so even a
+  plain repeat stops. A one-off dated that far out has the same fate; a birthday or a
+  daily pill is meant to last for good.

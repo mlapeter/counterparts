@@ -1595,4 +1595,6 @@ A horizon item whose date repeats (`prospective/` NOTES §15) carries `every` be
 `datePrefix` prints `2026-08-25 (due 2026-10-12, every Monday) · `. `due` is this
 occurrence, never the anchor, so a birthday stated in 1990 reads as due this year. Unlike
 a one-off date, the parenthesis stays when the occurrence falls on the learned date:
-"every May 14" is news even then. Nothing about what the lane selects changed.
+"every May 14" is news even then. One change to what the lane selects (review of #339): a
+DAILY repeat takes no line (`prospective/` NOTES §15) — rendered the evening before, it
+would read as due yesterday.

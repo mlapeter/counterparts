@@ -679,8 +679,18 @@ export class Prospective {
     // written for both so the two cannot drift if that changes). Only the lane:
     // `arrivals()` is untouched, so recall's cue path still finds it, and a
     // quiet item is unchanged.
+    //
+    // A DAILY repeat takes no wake line either (review of #339, 2026-10-09). It
+    // is never "arriving" — it is every day — and the lane cannot say it right:
+    // the wake is rendered at the evening boundary (`runner.ts`, `at` = that
+    // day) and read the next morning, so a quiet daily read "due <yesterday>,
+    // every day" at every first wake, measured through the hooks, and held one
+    // of the two lines for good. A one-off's date is fixed, so a day-old render
+    // of it is still true. A plain daily is still said outright each day
+    // (`plainDue`), and a quiet one still cues recall on every turn.
     const items = considered.arrivals
       .filter((a) => a.precision === "day")
+      .filter((a) => a.recurring !== "daily")
       .filter((a) => !this.toldForGood(a))
       .slice(0, this.tunables.HORIZON_ITEMS);
     const reason: HorizonReason = items.length === 0 ? "nothing-arrived" : "selected";

@@ -6,12 +6,13 @@
   `monthly` or `yearly`, counted from its date. A birthday saved as 1990-05-14 with
   `yearly` comes back every May 14 — a plain one is said on the day each year, once, and
   a quiet one can surface around it each year, at most twice. The wake's Arriving line
-  and recall's open items show it beside the date: "due 2026-10-12, every Monday".
-  Monthly on the 29th, 30th or 31st falls on the last day of a shorter month, and yearly
-  on February 29 falls on February 28 in other years. Only a single day can repeat (not a
-  month or a range); every other week and "the first Monday" aren't supported. Revising
-  the memory keeps the repeat unless you say otherwise, and never repeats a reminder
-  already given that day. No change to the store's format.
+  and recall's open items show it beside the date: "due 2026-10-12, every Monday" (a
+  daily one takes no Arriving line; it's every day, not arriving). Monthly on the 29th,
+  30th or 31st falls on the last day of a shorter month, and yearly on February 29 falls
+  on February 28 in other years. Only a single day can repeat (not a month or a range);
+  every other week and "the first Monday" aren't supported. Revising the memory keeps
+  the repeat unless you say otherwise, and never repeats a reminder already given that
+  day. No change to the store's format.
 - **Facts recall reads "last Saturday" and "before 7/22" the way you mean them.** "Last
   Saturday" (any weekday, or "this past Saturday") was read as no time at all; it is now
   the most recent Saturday before today, so asked on a Saturday it is the one a week ago.

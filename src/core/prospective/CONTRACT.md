@@ -48,7 +48,8 @@ clothes. **Hold debts, lose deadlines.**
   occurrence's window opens no earlier than the day after the last one and closes the day
   before the next one opens (the coming lead wins over the last grace), so a daily date's
   window is its day and a weekly one runs from three days before to three days after.
-  Only a DAY repeats; a month, a range or a year with `recurring` is refused at the door.
+  A daily one takes no wake line (review of #339): it is every day, not arriving, and a
+  wake rendered the evening before would date it yesterday. Only a DAY repeats; a month, a range or a year with `recurring` is refused at the door.
   Two calendar rules, counted from the anchor every time so nothing drifts: **monthly on
   the 29th, 30th or 31st falls on the last day of a month too short to have it** (Jan 31
   → Feb 28, or 29 → Mar 31 → Apr 30), and **yearly on Feb 29 falls on Feb 28 in a common

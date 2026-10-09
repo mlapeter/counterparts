@@ -563,6 +563,29 @@ describe("the wake and recall show how often, beside the date", () => {
     expect(lines[at + 1]).toBe("- 2026-08-25 (due 2026-10-12, every Monday) · The recycling goes out to the curb on Monday mornings.");
   });
 
+  test("a DAILY repeat takes no Arriving line: rendered one evening, read the next morning, it would say yesterday (review of #339)", () => {
+    const c = counterpart();
+    for (const body of ["Ran the morning loop around the reservoir.", "The library closes early on Sundays now."]) {
+      c.store.put({ type: "memory", kind: "fact", body });
+    }
+    const daily = repeating(c.store, "2026-10-01", "daily", "quiet", { body: "Stretch the lower back for ten minutes every evening." });
+    const weekly = repeating(c.store, "2026-08-31", "weekly", "quiet", { body: "The recycling goes out to the curb on Monday mornings." });
+    // The lane: the weekly one, never the daily one — though both arrive.
+    const p = new Prospective({ store: c.store });
+    expect(p.arrivals({ at: "2026-10-10", day: 5 }).arrivals.map((a) => a.memoryId).sort()).toEqual([daily, weekly].sort());
+    expect(p.horizon({ at: "2026-10-10", day: 5 }).items.map((i) => i.memoryId)).toEqual([weekly]);
+    // Through the wake as the boundary renders it (`at` = the evening's day),
+    // read the next morning: no "every day", and nothing dated yesterday.
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-10" });
+    const lines = c.wake(20_000, { date: "2026-10-11" }).text.split("\n");
+    const at = lines.indexOf("Arriving:");
+    expect(at).toBeGreaterThan(-1);
+    const lane: string[] = [];
+    for (let i = at + 1; i < lines.length && (lines[i] ?? "").startsWith("- "); i++) lane.push(lines[i] as string);
+    expect(lane).toEqual(["- 2026-08-25 (due 2026-10-12, every Monday) · The recycling goes out to the curb on Monday mornings."]);
+    expect(lines.join("\n")).not.toContain("every day");
+  });
+
   test("recall (meaning): a repeating reminder is dated by its next occurrence, with how often", () => {
     let clock = Date.parse("2026-10-01T10:00:00Z");
     const c = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
