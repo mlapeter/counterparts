@@ -333,6 +333,8 @@ protected one is. Each delivered occurrence counts as a use, which carries a dai
 weekly or monthly repeat; a yearly one is used once a year, and no single use outlasts
 365 lived days at an ordinary salience. Only the prune: it still decays, its band and
 strength read as before. The caller supplies it (`sleep/prune.ts`, from the row's meta).
+It is an exemption from the floor, so the verdict names it only where the first three
+conditions hold (review of #341); a repeat above the floor is refused `above-floor` alone.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
 §2.20) — and is the only physics-driven removal. Everything else merely fades: a

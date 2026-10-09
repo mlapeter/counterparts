@@ -1094,6 +1094,12 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     // `protected` is; absent or false, the verdict is the five gates' alone.
     expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["recurring"]);
     expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: false }).prune).toBe(true);
+    // An exemption FROM THE FLOOR (review of #341): named only where the floor
+    // would have let it go. Above it, `recurring` is not a refusal to report.
+    expect(pruneVerdict(faded, 100, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["above-floor"]);
+    expect(
+      pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy,
+    ).toEqual(["protected", "recurring"]);
   });
 
   test("the prune record carries counts, kind and dates — never a body, never a hash", () => {

@@ -484,12 +484,17 @@ lift), and past the 90-day dwell by then. Measured through the hooks: without th
 `test/recurring-reinforce.test.ts`'s yearly birthday was let go 263 lived days after its
 first May 14. So `pruneVerdict` takes `ctx.recurring` and blocks with `recurring`, the
 way `protected` blocks; `sleep/prune.ts` reads it off the row (`store#recurrenceOfRow`,
-the predicate `recurringMemories` uses). Nothing else moves: decay, band and strength are
-unchanged, so the memories view still shows a repeat as fading between its dates, and
-prospective's `faded` refusal still holds — a QUIET yearly that faded by its next date is
-alive and unpruned but not cued (named in prospective NOTES §15). The entity-card fade
-(`schemas/`) and the memories view's `letGoDay` never pass it; neither sees a repeat.
-`fired.ts` counts it with `protected` and `in-live-revision-chain` as a real refusal.
+the predicate `recurringMemories` uses). Nothing else moves here: decay, band and strength
+are unchanged, so the memories view still shows a repeat as fading between its dates.
+(Prospective, in the review of #341, stopped refusing a live repeat `faded`, so a QUIET
+yearly that faded by its next date is still cued on it — prospective NOTES §16.) The
+entity-card fade (`schemas/`) and the memories view's `letGoDay` never pass it, so the
+view's "fading" and let-go day for a repeat are what the floor alone would do.
+`fired.ts` counts it with `protected` and `in-live-revision-chain` as a real refusal —
+and so `pruneVerdict` names it only where the floor would otherwise have let the memory
+go (review of #341). It is an exemption from the floor, not a standing rule: named on
+every live repeat every night, a strong daily pill reminder read as a refusal and turned
+the fired view's prune row BLOCKED on a store where nothing was wrong.
 
 Why `surfaced` and not `referenced`: an occurrence delivered is a showing, and nothing
 says the reply used it; and `creditReturn` refuses `not-referenced`, so a schedule earns

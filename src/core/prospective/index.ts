@@ -256,7 +256,8 @@ export interface Arrival {
   readonly lastFiredDay: number | null;
   /** Decayed strength on `day`, for ORDERING only. No decay exemption before
    *  arrival (§12 G10): a future-dated memory that faded before its window was
-   *  an occasion that didn't matter. */
+   *  an occasion that didn't matter — save a live repeat, which arrives faded
+   *  or not (review of #341, `derive.ts`). */
   readonly strength: number;
   /** Plain or quiet, as the author said (`CUE_MODE_META`). Carried so the fire
    *  row can count the two apart; it changes nothing about the cue itself. */
@@ -1353,6 +1354,8 @@ export class Prospective {
         // importance signal, so it skips the salience floor — never decay.
         explicitDate: explicit.length > 0,
         faded: s <= this.tunables.FADED_STRENGTH,
+        // A live repeat is exempt from `faded` (review of #341, `derive.ts`).
+        recurring: recurrenceOf(read.doc) !== null,
       },
       doc: read.doc,
       dates: dates.filter((d) => (seen.has(d.date) ? false : (seen.add(d.date), true))),

@@ -14,8 +14,9 @@
  *     is credited no more and fades to the prune like any memory;
  *   - a live repeat is refused by the prune by name (`recurring`): a yearly one
  *     is used once a year, and one use does not outlast 365 lived days at the
- *     default salience. It still fades: a QUIET yearly that faded is refused
- *     `faded` at its next occurrence, unchanged (named, not fixed).
+ *     default salience. It still fades for recall and display, but a live
+ *     repeat is not refused `faded` (review of #341): a QUIET yearly that has
+ *     faded by its next date still fires on it.
  *
  * Hermetic (CLAUDE.md): a fresh temp dir per test, removed in `afterEach`.
  */
@@ -36,6 +37,7 @@ import type { Kind } from "../src/core/types.js";
 import { ClaudeCodeAdapter, openAdapter } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig, HookInput } from "../src/adapters/claude-code/index.js";
 import { deliverTurn } from "../src/adapters/claude-code/bin/hook.js";
+import { firedReport } from "../src/adapters/fired.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 
@@ -161,7 +163,7 @@ describe("each occurrence that reaches the person counts as a use", () => {
     const a = hooks();
     const s = a.counterpart.store;
     const id = reminder(s, { title: "call Ruth for her birthday", date: "1955-05-14", rule: "yearly", mode: "plain", learnedOn: "2027-05-01", kind: "person" });
-    // Its QUIET twin, a month later in the year (named, not fixed: see below).
+    // Its QUIET twin, a month later in the year (see below).
     const quiet = reminder(s, { title: "send Ada a card", date: "1958-06-20", rule: "yearly", mode: "quiet", learnedOn: "2027-05-01", kind: "person" });
     await evening(a, "2027-05-01");
     const told: string[] = [];
@@ -187,13 +189,42 @@ describe("each occurrence that reaches the person counts as a use", () => {
     expect(refusedByRecurring).toBeGreaterThanOrEqual(wouldHavePruned);
     expect(s.row(quiet)?.archived).toBe(0);
 
-    // NAMED, NOT FIXED (the owner kept fading): the quiet twin fired and was
-    // credited at its first occurrence, 50 lived days after it was noted;
-    // a year later it had faded, and prospective's `faded` refusal (§12 G10)
-    // still holds — alive, unpruned, and not cued.
-    expect(s.prospectiveFor(quiet).map((r) => r.window_key)).toEqual(["d:2027-06-20"]);
-    expect(uses(s, quiet)).toBe(0.25);
-    expect(a.counterpart.prospective.deriveFor(quiet, "2028-06-20", [], s.livedDay())?.blockedBy).toContain("faded");
+    // The quiet twin fired and was credited at each occurrence: a live repeat
+    // is not refused `faded` (review of #341), so the years it had faded by
+    // its date it was still cued.
+    expect(s.prospectiveFor(quiet).map((r) => r.window_key)).toEqual(["d:2027-06-20", "d:2028-06-20", "d:2029-06-20"]);
+    expect(uses(s, quiet)).toBe(0.25 * 3);
+    expect(a.counterpart.prospective.deriveFor(quiet, "2030-06-20", [], s.livedDay())?.blockedBy).not.toContain("faded");
+  });
+
+  test("a QUIET yearly at the default salience has FADED by its 2nd and 3rd dates, and fires on both all the same", async () => {
+    const a = hooks();
+    const s = a.counterpart.store;
+    // A `fact` decays fastest, so this is the hardest case.
+    const id = reminder(s, { title: "renew the car registration", date: "2019-06-20", rule: "yearly", mode: "quiet", learnedOn: "2027-05-01" });
+    await evening(a, "2027-05-01");
+    // The window key a morning first fired, and the strength it had just before.
+    const firstFires: { key: string; strength: number }[] = [];
+    let date = "2027-05-01";
+    while (date < "2029-07-01") {
+      date = addDays(date, 1);
+      const row = s.row(id);
+      if (row === undefined || row.archived !== 0) throw new Error(`the yearly repeat was let go on ${date}`);
+      const before = strength(rowToPhysics(row), s.livedDay());
+      const keys = new Set(s.prospectiveFor(id).map((r) => r.window_key));
+      morning(a, date);
+      for (const r of s.prospectiveFor(id)) if (!keys.has(r.window_key)) firstFires.push({ key: r.window_key, strength: before });
+      await evening(a, date);
+    }
+    expect(firstFires.map((f) => f.key)).toEqual(["d:2027-06-20", "d:2028-06-20", "d:2029-06-20"]);
+    // Not vacuous: the 2nd and 3rd occurrences found it faded to the floor —
+    // what prospective refused as `faded` before the review of #341. Fading
+    // itself is unchanged: the strength read here is the one recall sees.
+    expect(firstFires[0]?.strength ?? 0).toBeGreaterThan(PHYSICS.PHI_PRUNE);
+    for (const f of firstFires.slice(1)) expect(f.strength).toBeLessThanOrEqual(PHYSICS.PHI_PRUNE);
+    // Each occurrence spent a fire and was credited once.
+    for (const r of s.prospectiveFor(id)) expect(r.fires).toBeGreaterThan(0);
+    expect(uses(s, id)).toBe(0.25 * 3);
   });
 
   test("a QUIET weekly fired twice in each window is credited once per window, on its first fire", async () => {
@@ -326,5 +357,31 @@ describe("what is not a repeat is not credited", () => {
     expect(uses(s, id)).toBe(after);
     expect(letGo).not.toBeNull();
     expect(s.row(id)?.archived_reason).toBe("pruned");
+  });
+});
+
+describe("the prune's `recurring` refusal is counted only where it held a memory back", () => {
+  test("a strong daily repeat on a store with nothing to prune: the cycle names `above-floor`, not `recurring`, and the prune row is not BLOCKED", async () => {
+    // Review of #341. The fired view's prune row reads BLOCKED whenever a
+    // named rule refused a memory and nothing was pruned that week; a repeat
+    // well above the floor was refused by nothing but arithmetic, and counting
+    // it would be the `dwell-too-short ×240` false alarm again, on every store
+    // with a pill reminder.
+    const a = hooks();
+    const s = a.counterpart.store;
+    const id = reminder(s, { title: "take the blue pill", date: "2026-10-10", rule: "daily", mode: "plain", learnedOn: "2026-10-09" });
+    await evening(a, "2026-10-09");
+    let date = "2026-10-09";
+    for (let i = 0; i < 7; i++) {
+      date = addDays(date, 1);
+      morning(a, date);
+      const cycle = await evening(a, date);
+      expect(blocked(cycle, "recurring")).toBe(0);
+      expect(blocked(cycle, "above-floor")).toBeGreaterThan(0);
+    }
+    expect(uses(s, id)).toBe(0.25 * 7);
+    const prune = firedReport(s, date).rows.find((r) => r.id === "prune");
+    expect(prune?.refusedInWindow).toBe(0);
+    expect(prune?.state).not.toBe("blocked");
   });
 });

@@ -917,5 +917,7 @@ unchanged; `log` needs none.
 (`recurring: store#recurrenceOfRow(row) !== null` — a day `event_date` and a recurrence
 word in its meta, the predicate `recurringMemories` reads), beside `inLiveRevisionChain`.
 Physics refuses such a row by name (`blocked:recurring` on the cycle row, counted by the
-fired view as a real refusal beside `protected`). The phase adds no criterion of its own;
+fired view as a real refusal beside `protected`) — only on a night the floor would
+otherwise have let it go (review of #341), so a repeat above the floor counts under
+`above-floor` alone. The phase adds no criterion of its own;
 why the gate exists is physics NOTES 2026-10-09 and prospective NOTES §16.

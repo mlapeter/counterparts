@@ -720,8 +720,11 @@ export const MECHANISMS: readonly Mechanism[] = [
     // THREE GATES out of six. `protected` is the owner saying this may never be
     // forgotten; `in-live-revision-chain` is a live chain holding a row that
     // the floor would otherwise have let go; `recurring` (2026-10-09) is a
-    // reminder date that still comes round, kept for its next occurrence. All
-    // three are a rule refusing a memory that qualified. `above-floor`,
+    // reminder date that still comes round, kept for its next occurrence —
+    // and physics names it only where the floor would otherwise have let the
+    // memory go (review of #341), or every pill reminder would read as a
+    // refusal every night. All three are a rule refusing a memory that
+    // qualified. `above-floor`,
     // `dwell-too-short` and `band-not-episodic`
     // are the ordinary condition of almost every memory on almost every night —
     // the reviewer measured `dwell-too-short ×240` on a healthy forty-memory

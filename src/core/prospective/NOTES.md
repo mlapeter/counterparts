@@ -457,15 +457,24 @@ repeat by name. What the build chose:
 - **The prune's sixth gate** (physics NOTES, 2026-10-09). One credit a year does not
   carry a yearly repeat across 365 lived days at the default salience; measured through
   the hooks, the test's birthday was let go 263 lived days after its first May 14
-  without the gate. `pruneVerdict` refuses `recurring`, as it refuses `protected`.
+  without the gate. `pruneVerdict` refuses `recurring`, as it refuses `protected` — but
+  only where the floor would otherwise have let it go (review of #341): a repeat above
+  the floor is held by `above-floor` alone. Named on every live repeat every night, it
+  read in the fired view as a refusal and turned the prune row BLOCKED on any store with
+  a pill reminder and nothing pruned that week.
 
-Named, not fixed — **a quiet yearly still fades** (the owner kept fading and display as
-they were). Between its dates a default-salience yearly falls under `FADED_STRENGTH`;
-`derive` then refuses it `faded` at its next occurrence, so a QUIET one is alive,
-unpruned and not cued that year. A PLAIN one is still said (`plainDue` reads no decay, as
-before) and credited. Daily, weekly and monthly repeats are credited before they fade.
-A higher salience, or the owner exempting live repeats from the `faded` refusal too, are
-the two ways to change it; neither is built.
+**A live repeat is not refused `faded`** (review of #341, 2026-10-09). The build first
+kept the `faded` refusal and named the gap: between its dates a default-salience yearly
+falls under `FADED_STRENGTH`, so `derive` refused a QUIET one at its next occurrence —
+alive, unpruned, and silent that year, which is not "so they stay alive". So `derive`
+skips `faded` for a memory whose date still repeats (`DerivableMemory.recurring`, set by
+`load` from `recurrenceOf`, read now), the one carve-out from G10; the occurrence is
+delivered by its own remind rules and credited as above. Fading itself is unchanged: the
+strength recall and the views read still decays between dates, and an arrival's
+`strength` still orders it among the day's arrivals. A one-off date, or a repeat whose
+`recurring` was dropped, is refused `faded` as before. Measured through the hooks: a
+quiet yearly `fact` at the default salience, under `PHI_PRUNE` before its 2nd and 3rd
+dates, fires on both and is credited each time (`test/recurring-reinforce.test.ts`).
 
 Named, not fixed — **the same-day stronger credit.** If the reply also quotes a repeat
 that recall surfaced loud on the turn its occurrence fired, the boundary's `referenced`
