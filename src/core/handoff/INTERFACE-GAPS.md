@@ -16,6 +16,11 @@ rows about places, which is a handful in any store anyone has.
 rows. Until then: do not put this call on a hot path. It runs at a boundary
 (`liveBlockBytes`, one walk), at a wake (`pointer`) and at a write, and nowhere else.
 
+The "since" line (2026-10-09) meets the same gap for `unresolved`, which lives in the
+meta and not in a column: `Store#planCandidates` matches the meta's text loosely
+(`"unresolved":true`) beside the `status` column, and `Handoffs#plansSince` confirms each
+on the prose it reads anyway.
+
 ## 2. `expandHandle` has no scope filter
 
 **Owner:** `mcp/deliberate.ts`.

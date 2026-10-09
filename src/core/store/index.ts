@@ -4236,6 +4236,46 @@ export class Store {
   }
 
   /**
+   * WHAT A SESSION WROTE IN ONE DIRECTORY AFTER A MOMENT THAT MAY BE A PLAN
+   * (2026-10-09, the handoff's "since" line): live memories a session wrote
+   * itself (`source = 'authored'`: a note, a `session_end` entry) under one of
+   * `scopes`, born after `after` (epoch ms), whose v12 `status` is one of
+   * `statuses` or whose meta may say `unresolved` — a loose text match the
+   * caller confirms on the prose. Not archived, superseded or emptied, and
+   * not confidential unless `confidential`. Newest first, then id, at most
+   * `limit`. The columns only, as `workCandidates`. A store without the v12
+   * column throws; the caller wraps it.
+   */
+  planCandidates(input: {
+    readonly scopes: readonly string[];
+    readonly after: number;
+    readonly statuses: readonly MemoryStatus[];
+    readonly limit: number;
+    readonly confidential?: boolean;
+  }): string[] {
+    const scopes = input.scopes.filter((s) => s.length > 0);
+    const statuses = input.statuses.filter((s) => (STATUSES as readonly string[]).includes(s));
+    if (scopes.length === 0 || input.limit <= 0) return [];
+    const marks = (n: number): string => Array.from({ length: n }, () => "?").join(", ");
+    const status = statuses.length === 0 ? "" : `status IN (${marks(statuses.length)}) OR `;
+    return this.ops
+      .all<{ id: string }>(
+        `SELECT id FROM memories
+          WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND body != ''
+            AND source = 'authored' AND origin_scope IN (${marks(scopes.length)}) AND created_at > ?
+            ${input.confidential === true ? "" : "AND confidential = 0"}
+            AND (${status}meta LIKE '%"unresolved":true%')
+          ORDER BY created_at DESC, id
+          LIMIT ?`,
+        ...scopes,
+        input.after,
+        ...statuses,
+        Math.max(0, Math.floor(input.limit)),
+      )
+      .map((r) => r.id);
+  }
+
+  /**
    * How many rows `list()` would return, counted in SQL rather than materialized.
    * The same filter, the same WHERE, one number — for the callers that want the
    * SIZE of the store (the wake's delivery preface states it) and would otherwise
