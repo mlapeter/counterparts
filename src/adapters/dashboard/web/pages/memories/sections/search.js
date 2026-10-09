@@ -293,12 +293,21 @@ export function factLines(m) {
     parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "an earlier version — now " + withIdMarks(m.now) : "an earlier version — a later one holds now");
   }
   for (const s of m.standing || []) parts.push(withIdMarks(s));
-  if (m.corrected > 0) parts.push(esc(plural(m.corrected, "corrected version") + " hidden"));
+  // Corrected versions were wrong: each named and linked like an earlier one,
+  // labelled so (`facts.ts#itemLines`); the rest counted.
+  const wrong = m.correctedShown || [];
+  const unnamed = (m.corrected || 0) - wrong.length;
+  if (unnamed > 0 && wrong.length === 0) parts.push(esc(plural(unnamed, "corrected version") + " hidden"));
   const earlier = (m.earlier || []).map((e) =>
     '<div class="mearlier">earlier: “' + esc(e.text) + "”" +
       esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.changed ? ", changed " + dateOr(e.changed) : "")) +
       (e.id ? " " + withIdMarks(e.id) : "") + "</div>").join("") +
-    (m.earlierMore > 0 ? '<div class="mearlier">+' + m.earlierMore + " more earlier</div>" : "");
+    (m.earlierMore > 0 ? '<div class="mearlier">+' + m.earlierMore + " more earlier</div>" : "") +
+    wrong.map((e) =>
+      '<div class="mearlier">corrected (was wrong): “' + esc(e.text) + "”" +
+        esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.corrected ? ", corrected " + dateOr(e.corrected) : "")) +
+        " " + withIdMarks(e.id) + "</div>").join("") +
+    (unnamed > 0 && wrong.length > 0 ? '<div class="mearlier">+' + unnamed + " more corrected (was wrong)</div>" : "");
   if (parts.length === 0 && !earlier) return "";
   return '<div class="mfacts">' + (parts.length > 0 ? "<div>" + parts.join(" · ") + "</div>" : "") + earlier + "</div>";
 }

@@ -180,8 +180,17 @@ describe("facts: every match, counted and paged", () => {
     const boat = (await ask<FactsResult>({ question: "zqboat pier", mode: "facts" })).answer;
     const right = boat.memories.find((x) => x.id === ids.right) as FactItem;
     expect(right.corrected).toBe(1);
-    expect(seen(page.factRow(right, []))).toContain("1 corrected version hidden");
+    const fixed = right.correctedShown?.[0];
+    expect(fixed?.id).toBe(ids.wrong as string);
+    // Named as wrong, dated, and a link to open it — like an earlier one, labelled corrected.
+    const drawnRight = page.factRow(right, []);
+    expect(seen(drawnRight)).toContain(`corrected (was wrong): “${fixed?.text ?? ""}” (learned ${dates.dateOr(fixed?.learned ?? null)}), corrected ${dates.dateOr(fixed?.corrected ?? null)}`);
+    expect(drawnRight).toContain(`data-open="${ids.wrong}"`);
+    expect(seen(drawnRight)).not.toContain("hidden");
     expect(boat.memories.map((x) => x.id)).not.toContain(ids.wrong);
+    // One this asker may not be told of is still counted; past the few named, the rest are.
+    expect(seen(page.factRow({ ...right, correctedShown: undefined }, []))).toContain("1 corrected version hidden");
+    expect(seen(page.factRow({ ...right, corrected: 3 }, []))).toContain("+2 more corrected (was wrong)");
 
     const cafe = (await ask<FactsResult>({ question: "zqcafe", mode: "facts" })).answer;
     const open = cafe.memories.find((x) => x.standing.length > 0) as FactItem;

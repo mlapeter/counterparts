@@ -475,7 +475,7 @@ describe("current first: earlier versions fold, corrected ones are hidden and co
     expect(text).toContain("CURRENT");
   });
 
-  test("a corrected version is out of the answer and counted on the one that holds", () => {
+  test("a corrected version is out of the answer and named, as wrong, on the one that holds", () => {
     const c = brain();
     seed(c);
     const wrong = c.store.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 4." });
@@ -484,7 +484,10 @@ describe("current first: earlier versions fold, corrected ones are hidden and co
     const r = ask(c, "zqboat pier");
     expect(r.memories.map((m) => m.id)).toEqual([right]);
     expect(r.memories[0]?.corrected).toBe(1);
-    expect(renderFacts(r)).toContain("1 corrected version hidden");
+    expect(r.memories[0]?.correctedShown).toEqual([{ text: "The zqboat is moored at pier 4.", learned: "2026-10-03", corrected: "2026-10-03", id: wrong }]);
+    const text = renderFacts(r);
+    expect(text).toContain(`   corrected (was wrong): "The zqboat is moored at pier 4." (learned 10-03), corrected 10-03 · ${wrong}\n`);
+    expect(text).not.toContain("hidden");
   });
 
   test("an in-place revision shows its earlier words, dated", () => {
@@ -818,5 +821,87 @@ describe("through the tool", () => {
     expect(quoted.quoted).toBe(1);
     expect(quoted.ids).toContain(id);
     expect(c.store.physicsOf(id).uses).toBeGreaterThan(before);
+  });
+});
+
+// 2026-10-09 (the LongMemEval run): a corrected memory is archived, so out of
+// the word index, and "N corrected versions hidden" named none — one a wrong
+// correction archived could not be reached, even by a search that named it.
+describe("corrected versions are named, as wrong, and open by id (through the tool)", () => {
+  function server(c: Counterpart, owner = true): McpServer {
+    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner, registryDir: join(dir, "store"), now: () => NOW });
+  }
+  const body = (r: ToolResult): Record<string, unknown> => r.structuredContent;
+
+  test("a search that names the corrected one finds it under the one that corrected it, and its id opens it", async () => {
+    const c = brain();
+    seed(c);
+    const wrong = c.store.put({ type: "memory", kind: "fact", title: "Potted plants at the market", body: "Sold 14 zqpotted plants at the Zqsolstice Market." });
+    const right = c.store.put({ type: "memory", kind: "fact", title: "Herb sale", body: "Sold 30 herb bundles at the Zqsolstice Market." });
+    expect(settle(c.store, { holds: right, over: wrong, how: "corrected", why: "it was herbs", actor: "session" }).ok).toBe(true);
+    const s = server(c);
+    const out = body(await s.call("recall", { question: "Zqsolstice Market zqpotted plants sold", mode: "facts" }));
+    const answer = String(out["answer"]);
+    expect(answer).toContain(`   corrected (was wrong): "Potted plants at the market" (learned 10-03), corrected 10-03 · ${wrong}\n`);
+    expect(answer).not.toContain("hidden");
+    // Not a result: the shown ids are the results only, as for an earlier version.
+    expect(out["ids"]).toEqual([right]);
+    expect(answer.split("\n").filter((l) => /^\d+\. /.test(l))).toHaveLength(1);
+    // Archived, and readable by its id: the words whole, and that it was corrected, by which.
+    expect(c.store.row(wrong)?.archived).toBe(1);
+    const opened = body(await s.call("recall", { ids: [wrong] }));
+    expect(opened["reason"]).toBe("expanded");
+    const mems = opened["memories"] as { id: string; excerpt: string; truncated: boolean; standing?: string }[];
+    expect(mems.map((m) => m.id)).toEqual([wrong]);
+    expect(mems[0]?.excerpt).toBe("Sold 14 zqpotted plants at the Zqsolstice Market.");
+    expect(mems[0]?.truncated).toBe(false);
+    expect(mems[0]?.standing).toContain(`corrected by ${right}`);
+  });
+
+  test("a few named, those the question reaches first, the rest counted", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqferry leaves from dock 2 at noon." });
+    const wrongs: string[] = [];
+    for (const [i, w] of ["dock 5", "dock 6", "dock 7", "the zqharbour pier"].entries()) {
+      const id = c.store.put({ type: "memory", kind: "fact", body: `The zqferry leaves from ${w}, take ${String(i)}.` });
+      wrongs.push(id);
+      expect(settle(c.store, { holds: right, over: id, how: "corrected", why: "dock 2", actor: "session" }).ok).toBe(true);
+    }
+    const answer = String(body(await server(c).call("recall", { question: "zqferry zqharbour", mode: "facts" }))["answer"]);
+    const lines = answer.split("\n").filter((l) => l.includes("corrected"));
+    expect(lines).toHaveLength(4);
+    // The one the question's words reach comes first.
+    expect(lines[0]).toContain(`zqharbour pier, take 3." (learned 10-03), corrected 10-03 · ${wrongs[3] as string}`);
+    expect(lines.slice(0, 3).every((l) => l.startsWith("   corrected (was wrong): "))).toBe(true);
+    expect(lines[3]).toBe("   +1 more corrected (was wrong)");
+  });
+
+  test("a confidential corrected memory is counted, never named, to a non-owner", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
+    expect(settle(c.store, { holds: right, over: secret, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
+    const guest = String(body(await server(c, false).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(guest).not.toContain(secret);
+    expect(guest).not.toContain("Elm");
+    expect(guest).toContain("   1 corrected version hidden");
+    const owner = String(body(await server(c).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(owner).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
+  });
+
+  test("an answer with no corrected version carries no corrected field or line", async () => {
+    const c = brain();
+    seed(c);
+    const old = c.store.put({ type: "memory", kind: "fact", title: "Gym at 7", body: "The zqswim session is at 7am." });
+    const now = c.store.put({ type: "memory", kind: "fact", title: "Gym moved", body: "Moved to 6am from next week." });
+    expect(settle(c.store, { holds: now, over: old, how: "changed", why: "the time changed", actor: "session" }).ok).toBe(true);
+    const r = ask(c, "zqswim");
+    expect(r.memories[0]?.corrected).toBe(0);
+    expect(Object.keys(r.memories[0] ?? {})).not.toContain("correctedShown");
+    const answer = String(body(await server(c).call("recall", { question: "zqswim", mode: "facts" }))["answer"]);
+    expect(answer).toBe(renderFacts(r));
+    expect(answer).not.toContain("corrected");
   });
 });

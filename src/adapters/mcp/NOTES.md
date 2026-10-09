@@ -1503,3 +1503,46 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
   because "on 7-8 hours of sleep" is an amount after the same "on" and no time hides
   nothing; with a comma ("on 5/6, days later") it is a date. "7/8 hours before the
   launch" is no time (an amount, and the launch is not resolved).
+
+## 2026-10-09 — facts mode names its corrected versions
+
+Found by the LongMemEval run; the owner approved the fix. A memory settled `corrected` is
+archived (`contradictions.ts#settle`), so it is out of `recallRows` and out of the word
+index, and facts mode said only "N corrected versions hidden" under the one that corrected
+it. Nothing on the page reached it, even a search that named it: "Summer Solstice Market
+potted plants sold" came back with the herb-sale memory and that line. Answers that showed
+the line passed 18 of 26, against 409 of 472 otherwise. The worst case is a wrong
+correction (pointed at an unrelated memory), which made a true one unreachable; #340's
+guard makes that rarer, but older stores already hold some.
+
+- **What changed.** Each corrected version is named under the memory that corrected it,
+  in the shape of `earlier:` and marked wrong in front:
+  `corrected (was wrong): "…" (learned 09-10), corrected 09-11 · mem_…`. Three at most
+  (`FACTS_CORRECTED_SHOWN`), the rest counted (`+N more corrected (was wrong)`). Its id
+  opens it: `recall` by id reads an archived row whole, with its standing ("corrected by
+  mem_…") in front, so the reader sees both sides before deciding. `FactItem` keeps
+  `corrected` (every one) and gains `correctedShown`, present only when one is named, so
+  a facts answer with none is byte-identical to before (six questions compared on a demo
+  store: answer, structured payload and `FactsResult` JSON).
+- *Choices:*
+  - Three, one more than the earlier versions' two: a `changed` earlier one is live, so
+    the question's words reach it and fold it under its current one; a corrected one is
+    archived, and this line is its only way in from a question.
+  - Order: those sharing a content word with the question first (it is out of the index,
+    so this is the only "matched" there is), then the latest corrected. The market
+    question puts the potted-plants memory first; a pier question the pier one.
+  - Not a result and not in the answer's `ids`, like an earlier version: it is not
+    offered as a fact, so it does not join the seen set or the quotable `asked` record.
+  - Not named, and still counted ("N corrected versions hidden", as before) when this
+    asker may not be told of it — a confidential one outside the owner's session, a
+    removed one — or nothing of it is left to read.
+  - The dashboard's Ask draws the same: each one a line under the words like an earlier
+    one, "corrected (was wrong): “…”", dated, with the id as a link; the rest counted.
+    The console's `ask` needed nothing: its short list shows neither, `--full` is this
+    answer and `--json` the `FactsResult`.
+- **Not done:** a question whose words reach ONLY the corrected memory, and nothing of
+  the one that corrected it, still does not bring that one in: the archived row is out of
+  the index, so nothing matched. In the benchmark case the two shared the market's name.
+  Folding through `corrected` pairs as `changed` ones fold (a match on the wrong one
+  bringing in the one that holds) would need the archived rows' words searched; left for
+  when a case shows it is needed.
