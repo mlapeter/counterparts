@@ -41,8 +41,8 @@
   memories list no longer marks it "fading" and its card names no day it would be put
   away. The row says how often it comes round instead ("repeats every May 14"), and the
   card says "It comes round every May 14, so I'll keep it while it does." A protected
-  memory's card no longer names such a day either, since it is never put away: it says
-  "It's protected, so I'll keep it even if nobody uses it."
+  memory's card no longer names such a day either, since the nightly cleanup never lets
+  one go: it says "It's protected, so I'll keep it even if nobody uses it."
 - **Doctor's prune line no longer reads BLOCKED over protected memories it was keeping
   anyway.** The nightly cleanup counted every protected memory (the self page is one) as
   a refusal every night, even when it was nowhere near being let go, and did the same for

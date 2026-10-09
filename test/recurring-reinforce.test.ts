@@ -196,7 +196,8 @@ describe("each occurrence that reaches the person counts as a use", () => {
     expect(s.prospectiveFor(quiet).map((r) => r.window_key)).toEqual(["d:2027-06-20", "d:2028-06-20", "d:2029-06-20"]);
     expect(uses(s, quiet)).toBe(0.25 * 3);
     expect(a.counterpart.prospective.deriveFor(quiet, "2030-06-20", [], s.livedDay())?.blockedBy).not.toContain("faded");
-  });
+    // Three years of nights through the hooks: 5.5–6 s alone, over bun's 5 s default.
+  }, 30_000);
 
   test("a QUIET yearly at the default salience has FADED by its 2nd and 3rd dates, and fires on both all the same", async () => {
     const a = hooks();
