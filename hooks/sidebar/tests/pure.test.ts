@@ -26,12 +26,11 @@ describe('the brain', () => {
     expect(braille).toBeGreaterThan(80) // a brain, not an empty box
   })
 
-  test('the hologram glows by cell background; paused, it is grey and has none', () => {
-    const brain = new Brain()
-    const live = brain.frame(42, 14, T0)
-    let glow = 0
-    for (let i = 2; i < live.length; i += 3) if (live[i] !== DEFAULT_COLOR) glow += 1
-    expect(glow).toBeGreaterThan(50)
+  test('no glow by cell background (it steps): every cell takes the one background given; paused, it is grey', () => {
+    const live = new Brain().frame(42, 14, T0)
+    for (let i = 2; i < live.length; i += 3) expect(live[i]).toBe(DEFAULT_COLOR)
+    const onBlack = new Brain().frame(42, 14, T0, { bg: [5, 8, 12] })
+    for (let i = 2; i < onBlack.length; i += 3) expect(onBlack[i]).toBe(0x05080c)
     const grey = new Brain().frame(42, 14, T0, { mono: true })
     for (let i = 0; i < grey.length; i += 3) {
       expect(grey[i + 2]).toBe(DEFAULT_COLOR)
@@ -42,12 +41,18 @@ describe('the brain', () => {
     }
   })
 
-  test('it turns: two frames apart in time differ', () => {
+  test('it sways: two frames apart in time differ; with nothing firing it comes to rest and asks for no frames', () => {
     const brain = new Brain()
     const a = encodeCells(brain.frame(42, 14, T0))
     brain.step(T0 + 2000, 2000)
     const b = encodeCells(brain.frame(42, 14, T0 + 2000))
     expect(a === b).toBe(false)
+    expect(brain.mode()).toBe('calm')
+    for (let t = 2500; t <= 80000; t += 500) brain.step(T0 + t, 500) // a minute quiet, then it eases to a stop
+    expect(brain.mode()).toBe('rest')
+    brain.pulse('amygdala', STAGES.encoding.col, T0 + 80000)
+    brain.step(T0 + 80100, 100)
+    expect(brain.mode()).toBe('burst')
   })
 
   test('a picked mechanism tags its region with its name on its stage colour', () => {
