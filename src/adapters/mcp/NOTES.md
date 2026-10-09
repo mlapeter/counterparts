@@ -1346,7 +1346,8 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
 - **What changed meaning, exactly.** (1) A `M-D` or `M/D` with a unit or counting noun
   right after it is an amount, not a date: "7-8 hours", "3-4pm", "5-10%", "3/4 cup", "1/2
   of the budget", "lost 5-10 lbs" (a decimal tail too: "7-8.5 hours"). A price is one too:
-  "$5-10". It was July 8 (and, under "up to", through 07-08). The scan goes on past an
+  "$5-10". They were dates ("7-8 hours" July 8, and under "up to" through 07-08; "$5-10"
+  May 10). The scan goes on past an
   amount, so "slept 7-8 hours before 9/21" is through 09-20; anything else stops it where
   it stopped before. (2) "Cut it by 1/2", "reduced the dose to 1/3": a fraction after a
   word of quantity is no date. It was through 01-02 (master before #338: 01-02 alone).
