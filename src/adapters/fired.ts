@@ -1323,7 +1323,10 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
       notRead.push(m.id);
       continue;
     }
-    const occasion = readOccasion(m, store, log, window);
+    // An occasion check reads memories, so it costs what a probe costs and is
+    // skipped with them: an unchecked occasion row reads `waiting`, claiming
+    // nothing either way.
+    const occasion = probed === null ? null : readOccasion(m, store, log, window);
     const row = rowFor(m, log, probed, window, occasion);
     rows.push(row);
     if (occasion !== null && occasion.missed > 0) missedOccasion.push(`${row.label} (${occasion.says})`);

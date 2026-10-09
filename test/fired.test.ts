@@ -915,6 +915,11 @@ describe("one-time and occasion-driven mechanisms", () => {
     expect(plain.note).toContain("1 plain reminder was due on a day a session ran and not said");
     expect(r.missedOccasion).toHaveLength(1);
     expect(r.missedOccasion[0]).toContain("a reminder marked plain was said plainly on its day");
+    // With the probes off the check is not made — it reads memories, as they
+    // do — and the row claims nothing either way.
+    const unread = firedReport(s, TODAY, { probes: false });
+    expect(unread.missedOccasion).toEqual([]);
+    expect(pick(unread, "prospective-plain").state).toBe("waiting");
   });
 
   test("the same reminder SAID on its day is firing, and nothing is missed", () => {
