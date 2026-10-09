@@ -2765,16 +2765,47 @@ export class Counterpart {
     for (const a of arrived) {
       if (!shown.has(a.memoryId)) continue;
       try {
-        this.prospective.fire({
+        const first = this.prospective.occurrenceUndelivered(a.memoryId, a.windowKey);
+        const fired = this.prospective.fire({
           memoryId: a.memoryId,
           windowKey: a.windowKey,
           at,
           day: decision.day,
           sessionId: decision.sessionId,
         });
+        if (fired.fired && first) this.creditOccurrence(a.memoryId, a.windowKey, decision.day, "quiet");
       } catch (err) {
         this.emit("counterpart.prospective.fire.failed", a.memoryId, { code: errCode(err) });
       }
+    }
+  }
+
+  /**
+   * A REPEAT IS KEPT ALIVE BY COMING ROUND (owner decision 2026-10-09, held
+   * lightly). The first delivery of each occurrence of a repeating date — a
+   * quiet fire the gate admitted, or a plain line the host claimed — counts as
+   * one use of the memory, the way rehearsal keeps a memory: `store.reinforce`,
+   * the seam recall's credit ends in, at the `surfaced` tier. Surfaced and not
+   * referenced: it was shown, nothing says the reply used it, and a schedule
+   * earns no RETURN (`physics#creditReturn` refuses `not-referenced`), so a
+   * daily repeat never walks the core's slow lane on the calendar alone. Once
+   * per occurrence (`Prospective.occurrenceUndelivered`, asked before the
+   * delivery); a one-off date, or a repeat whose `recurring` was dropped, is
+   * never credited here. Physics keeps its own refusals (birth day, already
+   * credited today). Never throws into the turn.
+   */
+  private creditOccurrence(memoryId: string, windowKey: string, day: number, via: "quiet" | "plain"): void {
+    try {
+      const out = this.store.reinforce(memoryId, day, "surfaced");
+      this.emit("counterpart.prospective.occurrence.credited", memoryId, {
+        window: windowKey,
+        via,
+        credited: out.credited,
+        reason: out.reason,
+        day,
+      });
+    } catch (err) {
+      this.emit("counterpart.prospective.occurrence.failed", memoryId, { window: windowKey, code: errCode(err) });
     }
   }
 
@@ -2828,10 +2859,12 @@ export class Counterpart {
   claimPlainReminder(reminder: PlainDue, input: { at: string; day?: number }): boolean {
     if (this.observer) return false;
     try {
-      return this.prospective.claimPlain(reminder, {
-        at: input.at,
-        ...(input.day === undefined ? {} : { day: input.day }),
-      });
+      const day = input.day ?? this.store.livedDay();
+      // Asked BEFORE the claim, which is itself what would make it false.
+      const first = this.prospective.occurrenceUndelivered(reminder.memoryId, reminder.windowKey);
+      const claimed = this.prospective.claimPlain(reminder, { at: input.at, day });
+      if (claimed && first) this.creditOccurrence(reminder.memoryId, reminder.windowKey, day, "plain");
+      return claimed;
     } catch (err) {
       this.emit("counterpart.prospective.plain.failed", reminder.memoryId, { code: errCode(err) });
       return false;

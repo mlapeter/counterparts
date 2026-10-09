@@ -301,6 +301,8 @@ export type FadeReason =
   | "band-not-episodic"
   | "protected"
   | "in-live-revision-chain"
+  /** Physics' sixth gate (a repeating reminder date). The card fade never asks it. */
+  | "recurring"
   | "has-live-attached-elements"
   /** The identity core is not a card that fades. */
   | "identity-core"

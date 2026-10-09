@@ -383,9 +383,9 @@ const DATE_PRIVILEGES: readonly Privilege[] = [
   },
   {
     claim:
-      'A "plain" reminder is said at most once per beat — on its day, or on the first and the last day of a month or range — and never under observer stance; a "quiet" one is only ever a cue, capped at the footnote tier and spent at most twice per window. A recurring date counts each time it comes round as its own.',
+      'A "plain" reminder is said at most once per beat — on its day, or on the first and the last day of a month or range — and never under observer stance; a "quiet" one is only ever a cue, capped at the footnote tier and spent at most twice per window. A recurring date counts each time it comes round as its own, and each time it is said or surfaced counts once as a use of the memory; while it repeats, the nightly prune keeps it.',
     mechanizedBy:
-      "src/core/prospective/index.ts#Prospective.plainDue + claimPlain (dedupKey latch) + fire (FIRES_PER_WINDOW) -> src/core/counterpart.ts#recallForTurn; src/core/prospective/windows.ts#recurringWindowAt (one window key per occurrence)",
+      "src/core/prospective/index.ts#Prospective.plainDue + claimPlain (dedupKey latch) + fire (FIRES_PER_WINDOW) -> src/core/counterpart.ts#recallForTurn; src/core/prospective/windows.ts#recurringWindowAt (one window key per occurrence); Prospective.occurrenceUndelivered -> src/core/counterpart.ts#creditOccurrence (store.reinforce, surfaced) + src/core/physics/index.ts#pruneVerdict (recurring)",
   },
   {
     claim:

@@ -50,6 +50,15 @@ clothes. **Hold debts, lose deadlines.**
   window is its day and a weekly one runs from three days before to three days after.
   A daily one takes no wake line (review of #339): it is every day, not arriving, and a
   wake rendered the evening before would date it yesterday. Only a DAY repeats; a month, a range or a year with `recurring` is refused at the door.
+  **A repeat is kept alive by coming round** (owner decision 2026-10-09, held lightly):
+  the first DELIVERY of each occurrence — a quiet fire the gate admitted, or a plain line
+  the host claimed — counts as one use of the memory (`surfaced`, no return), credited by
+  the composition root through the store's reinforce seam; this module answers only
+  whether the occurrence is still undelivered (`occurrenceUndelivered`). Never for a
+  one-off date or a dropped repeat. And physics' prune refuses a live repeat by name
+  (`recurring`), because one use a year does not outlast a yearly gap. Fading is
+  unchanged, so G10 below still holds for a repeat: a quiet yearly that faded by its next
+  date is not cued that year (NOTES §16).
   Two calendar rules, counted from the anchor every time so nothing drifts: **monthly on
   the 29th, 30th or 31st falls on the last day of a month too short to have it** (Jan 31
   → Feb 28, or 29 → Mar 31 → Apr 30), and **yearly on Feb 29 falls on Feb 28 in a common
@@ -135,7 +144,9 @@ session's affect summary; the observer predicate.
 tasks"* (day-dated items only, since 2026-09-26), and/or a temporal cue fed into the
 ordinary turn-time pass; for a PLAIN item, a claimed record the host turns into one line on
 its day (§3's named exception) — records, never words; firing-state transitions;
-telemetry by reference.
+telemetry by reference; and for a repeating date, whether an occurrence is still
+undelivered, which the caller turns into one credited use (§3) — this module writes no
+physics.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 

@@ -1073,7 +1073,7 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     expect(supersededResolvable(100, 191)).toBe(false);
   });
 
-  test("each of the five gates refuses by name", () => {
+  test("each of the six gates refuses by name", () => {
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
     expect(pruneVerdict(faded, 60, { inLiveRevisionChain: false }).blockedBy).toEqual([
       "above-floor",
@@ -1090,6 +1090,10 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     expect(pruneVerdict(faded, 280, { inLiveRevisionChain: true }).blockedBy).toEqual([
       "in-live-revision-chain",
     ]);
+    // A reminder date that still repeats (2026-10-09): refused by name, as
+    // `protected` is; absent or false, the verdict is the five gates' alone.
+    expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["recurring"]);
+    expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: false }).prune).toBe(true);
   });
 
   test("the prune record carries counts, kind and dates — never a body, never a hash", () => {

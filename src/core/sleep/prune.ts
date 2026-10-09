@@ -24,6 +24,7 @@
 
 import { pressureAt, pruneVerdict, supersededResolvable } from "../physics/index.js";
 import type { MemoryPhysics, PruneReason } from "../physics/index.js";
+import { recurrenceOfRow } from "../store/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PRUNE_ARCHIVE_REASON, PRUNE_RECORD_PREFIX } from "./tunables.js";
 import type { MemoryRow, PhaseCtx, PhaseOutcome, PrunedRecord } from "./types.js";
@@ -36,7 +37,7 @@ const PRUNE_PHASE: Phase = "prune";
 
 export interface PruneResult extends PhaseOutcome {
   readonly pruned: readonly PrunedRecord[];
-  /** Every blocking gate, counted — physics names all five, not just the first. */
+  /** Every blocking gate, counted — physics names all six, not just the first. */
   readonly blocked: Readonly<Record<string, number>>;
   /** Memories left in place because their record could not be written. */
   readonly recordFailures: readonly { id: string; error: string }[];
@@ -131,9 +132,12 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     const p = rowToPhysics(row);
     const verdict = pruneVerdict(p, day, {
       inLiveRevisionChain: inLiveRevisionChain(store, id, row, p, day),
+      // A reminder date that still repeats (2026-10-09): physics refuses it by
+      // name. The meta is the row's, read here because physics cannot see it.
+      recurring: recurrenceOfRow(row) !== null,
     });
     if (!verdict.prune || verdict.record === null) {
-      // EVERY failing gate, not just the first — physics names all five, and a
+      // EVERY failing gate, not just the first — physics names all six, and a
       // memory blocked by two reasons that reports one is a memory nobody can
       // explain. Mirrored into the skip map so the cycle report carries them.
       for (const reason of verdict.blockedBy) {

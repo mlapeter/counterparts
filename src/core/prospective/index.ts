@@ -808,6 +808,29 @@ export class Prospective {
     }
   }
 
+  /**
+   * IS THIS THE FIRST TIME THIS OCCURRENCE REACHES ANYONE? (2026-10-09.) True
+   * only for a memory whose date still REPEATS (`recurrenceOf`, read now — a
+   * one-off, or a repeat whose `recurring` was dropped, is always false) and
+   * whose `windowKey` nothing has delivered yet: no quiet fire spent on it and
+   * no plain beat told, on this memory or one its reminder moved from (the
+   * rows the brakes read, so a revision does not count the same occurrence
+   * twice). The caller asks BEFORE its `fire` or `claimPlain`, and counts the
+   * occurrence as a use of the memory only when that delivery lands
+   * (`Counterpart#creditOccurrence`). A read; firing state stays what it is,
+   * not canonical memory, and the physics write is the caller's.
+   */
+  occurrenceUndelivered(memoryId: string, windowKey: string): boolean {
+    if (this.observer) return false;
+    try {
+      if (recurrenceOf(this.store.read(memoryId).doc) === null) return false;
+      if ((this.firingRowsFor(memoryId).get(windowKey)?.fires ?? 0) > 0) return false;
+      return !this.plainTold(memoryId, windowKey, "day");
+    } catch {
+      return false;
+    }
+  }
+
   /** A PLAIN arrival whose window's LAST beat has been told: `day` for a day
    *  item, `last-day` for a month or a range (`plainDue`'s beats). A quiet
    *  arrival never is. A read. */
