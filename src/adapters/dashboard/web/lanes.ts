@@ -69,6 +69,8 @@ export const LANES = {
   "contradiction.settled": "home",
   "contradiction.flagged": "flow",
   "contradiction.undone": "flow",
+  // A held `updates` (2026-10-09) moved nothing: housekeeping.
+  "contradiction.held": "flow",
   // A session end that strengthened nothing is housekeeping — unless the credit
   // itself failed, which is a real problem about memories and stays home.
   "recall.credit": (p) =>

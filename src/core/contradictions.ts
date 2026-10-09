@@ -41,6 +41,21 @@
  * memories of one just written, above a similarity bar, handed back with the
  * write so the writer can settle there and then. No model call.
  *
+ * **A write's word is checked before it settles** (`updateRelatedness`,
+ * 2026-10-09). A `changed` or `corrected` declared by id moves the old
+ * memory on the writer's word alone, and a weaker writer points at the wrong
+ * one: in a 10-02 benchmark read, a Haiku writer named an unrelated memory in
+ * about two thirds of 149 pairs (a mole removal retired a passport name
+ * change). So the pair is read first — by meaning when the embedder can read
+ * both, by shared content words when it cannot — and a pair that looks
+ * unrelated is HELD: the new memory lands, the old one is not settled and
+ * not linked, the writer is shown the old one's words and asked to settle it
+ * itself if it meant to (`HELD_HINT`), and the hold is recorded
+ * (`CONTRADICTION_HELD_EVENT`). No pair is written: an unrelated pair shown
+ * as a disagreement would be noise. `Counterpart#deposit` decides when the
+ * guard applies (a close or a redate goes straight through); this file reads
+ * the pair. No model call.
+ *
  * Arithmetic and bookkeeping only. Refusals are RETURNED with a reason and a
  * sentence, never thrown; an observer writes nothing and says so.
  */
@@ -87,6 +102,19 @@ export const CONTRADICTION_TUNABLES = {
   EXCERPT_CHARS: 160,
   /** Most neighbours one `session_end` call lists across all its entries (review of #284, M1). */
   NEIGHBOURS_PER_CALL: 12,
+  /**
+   * THE UPDATE GUARD's meaning bar (2026-10-09): the embedder's cosine
+   * between a write and the memory it says it changes or corrects, below
+   * which the pair looks unrelated and the settle is held. Calibrated on 120
+   * labelled pairs (61 related, 59 not: the demo store's script and
+   * hand-written life and work facts) under potion-base-8M: at 0.30, 50 of 61
+   * related passed and 58 of 59 unrelated were held (the one that passed, at
+   * 0.37, is two demo notes about reading screens). Unrelated pairs topped
+   * out at 0.29; a short mole/passport pair scored 0.28. CAL.
+   */
+  UPDATE_COSINE: 0.3,
+  /** Characters of a held memory's text shown back to the writer: enough to judge by. */
+  HELD_TEXT_CHARS: 600,
 } as const;
 
 /** The archive reason a `corrected` memory carries. */
@@ -96,10 +124,16 @@ export const CORRECTED_REASON = "corrected";
 export const CONTRADICTION_FLAGGED_EVENT = "contradiction.flagged";
 export const CONTRADICTION_SETTLED_EVENT = "contradiction.settled";
 export const CONTRADICTION_UNDONE_EVENT = "contradiction.undone";
+/** A write's `updates` that looked unrelated, so nothing was settled (2026-10-09). */
+export const CONTRADICTION_HELD_EVENT = "contradiction.held";
 
 /** The one line a write's result carries beside its neighbours. */
 export const NEIGHBOURS_HINT =
   "These existing memories are close to what you just wrote. If the new memory changes, corrects or disagrees with one of them, settle it now: note with settle {holds, over, how, why}.";
+
+/** The same ask, for the memory a write named in `updates` that looked unrelated to it (2026-10-09). */
+export const HELD_HINT =
+  "The memory you named in updates looks unrelated to what you just wrote (few words in common, not close in meaning), so it was left as it was: not changed, not corrected, not linked. Its title and text are here. If the new memory does change or correct it, settle it now: note with settle {holds, over, how, why}. If not, do nothing.";
 
 export type SettleRefusal =
   | "observer"
@@ -604,4 +638,144 @@ export function writeNeighbours(
     title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: s.row.body }) || null : s.row.title,
     excerpt: excerptOf(s.row.body, T.EXCERPT_CHARS),
   }));
+}
+
+// ── THE UPDATE GUARD (2026-10-09) ───────────────────────────────────────────
+
+/**
+ * Words every memory shares, so sharing one says nothing: function words,
+ * the words a writer uses about writing ("updated", "corrected", "user"),
+ * and dates' words. The benchmark harness's list (`tools/longmemeval/store.ts`
+ * on `bench/longmemeval`, 10-02), kept as it was.
+ */
+const GUARD_STOP: ReadonlySet<string> = new Set(
+  (
+    "the and for with that this from have has had was were are been being its it's his her hers their theirs they them " +
+    "she he him you your yours our ours who what when where which while about into onto over under after before again " +
+    "also just very more most some any all each every other another than then there here not but can could would should " +
+    "will did does doing done one two three new old now still only same such per via upon user user's users assistant " +
+    "said says say mentioned mentions told tell asked asks noted shared memory memories conversation today yesterday " +
+    "week weeks month months year years day days time times date dated " +
+    "change changed changes changing update updated updates updating correct corrected correction latest current " +
+    "january february march april may june july august september october november december " +
+    "monday tuesday wednesday thursday friday saturday sunday"
+  ).split(" "),
+);
+
+/**
+ * A text's content words, the benchmark harness's loose rule: letters only
+ * (numbers and dates are shared by everything), three or more long, no
+ * stopword and nothing in `ignore` (the owner's names, which half the store
+ * says), cut to a five-letter stem.
+ */
+export function contentWords(text: string, ignore: ReadonlySet<string> = new Set()): Set<string> {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().split(/[^a-z']+/)) {
+    const t = w.replace(/^'+|'+$/g, "").replace(/'s$/, "");
+    if (t.length < 3 || GUARD_STOP.has(t) || ignore.has(t)) continue;
+    out.add(t.replace(/(ing|ed|es|s)$/, "").slice(0, 5));
+  }
+  return out;
+}
+
+/** How a write and the memory it `updates` read against each other. */
+export interface UpdateRelatedness {
+  /** True: settle as declared. False: hold. */
+  readonly related: boolean;
+  /** Which reading decided: `meaning` when there were two vectors to compare, `words` otherwise. */
+  readonly by: "meaning" | "words";
+  /** The embedder's cosine, rounded, when there were two vectors. */
+  readonly cosine: number | null;
+  /** The content words the two share (stems). */
+  readonly shared: readonly string[];
+}
+
+/**
+ * IS THIS THE MEMORY THE WRITE IS ABOUT? Read by MEANING when both vectors
+ * are there: the cosine clears `UPDATE_COSINE` or the pair looks unrelated.
+ * The words do not vote then: on the labelled pairs they added nothing but
+ * mistakes — as a second requirement they held 20 related pairs where meaning
+ * alone held 11, and as a second way in they passed 12 unrelated pairs that
+ * shared a common word ("back", "because", "staff"). Read by WORDS when the
+ * embedder cannot read both (no embedder, or two widths): related when the
+ * two share a content word, or when the old memory has none to share. Pure.
+ */
+export function updateRelatedness(input: {
+  /** The memory named in `updates`: its title and text. */
+  readonly over: string;
+  /** The memory being written: its title and text. */
+  readonly text: string;
+  readonly overVec?: readonly number[] | null;
+  readonly textVec?: readonly number[] | null;
+  /** Names that say nothing here — the owner's (`sleep/consolidate.ts#ownerNames`), any case. */
+  readonly ignoreNames?: readonly string[];
+}): UpdateRelatedness {
+  const ignore = new Set((input.ignoreNames ?? []).flatMap((n) => n.toLowerCase().split(/[^a-z']+/)).filter((w) => w.length >= 3));
+  const a = contentWords(input.over, ignore);
+  const b = contentWords(input.text, ignore);
+  const shared = [...a].filter((w) => b.has(w));
+  const x = input.overVec ?? null;
+  const y = input.textVec ?? null;
+  if (x !== null && y !== null && x.length > 0 && x.length === y.length) {
+    const cos = cosine(x, y);
+    return { related: cos >= CONTRADICTION_TUNABLES.UPDATE_COSINE, by: "meaning", cosine: round(cos), shared };
+  }
+  return { related: a.size === 0 || shared.length > 0, by: "words", cosine: null, shared };
+}
+
+/** A held `updates`, as the write's result carries it: the memory, in its own words. */
+export interface HeldUpdate {
+  /** The memory named in `updates`, left as it was. */
+  readonly over: string;
+  readonly title: string | null;
+  /** Its text, cut at `HELD_TEXT_CHARS`; null when this session may not read it (confidential, not the owner's). */
+  readonly text: string | null;
+  /** The settle the writer declared. */
+  readonly how: SettleHow;
+  readonly by: UpdateRelatedness["by"];
+  readonly cosine: number | null;
+  /** How many content words the two share. */
+  readonly shared: number;
+}
+
+/** A held memory's title and text, shaped for the writer (`HeldUpdate`). */
+export function heldView(row: Pick<MemoryRow, "title" | "body" | "confidential">, owner: boolean): { title: string | null; text: string | null } {
+  if (row.confidential === 1 && !owner) return { title: null, text: null };
+  const title = row.title === null || row.title.trim().length === 0 ? lineOf({ body: row.body }) || null : row.title;
+  return { title, text: excerptOf(row.body, CONTRADICTION_TUNABLES.HELD_TEXT_CHARS) };
+}
+
+/**
+ * HOW OFTEN THE GUARD FIRED — a reader for doctor or the dashboard, which
+ * neither calls yet (owed: `mcp/INTERFACE-GAPS.md`). Holds since `sinceDay`,
+ * by which reading, and how many of them the writer settled by hand
+ * afterwards (a `contradiction.settled` row naming the same two memories): a
+ * hold later settled is most likely a related pair the guard got wrong; one
+ * never settled is a wrong pointer caught, or a writer that had no one to
+ * read its result (a write-up, the nightly catch-up).
+ */
+export function heldCorrections(
+  store: Pick<Store, "eventLog">,
+  opts: { sinceDay?: number } = {},
+): { held: number; settledAfter: number; byMeaning: number; byWords: number } {
+  const since = opts.sinceDay === undefined ? {} : { sinceDay: opts.sinceDay };
+  const read = (raw: string | null): Record<string, unknown> => {
+    try {
+      return JSON.parse(raw ?? "{}") as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  };
+  const holds = store.eventLog({ name: CONTRADICTION_HELD_EVENT, ...since }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
+  const settles = store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, ...since }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
+  let settledAfter = 0;
+  for (const h of holds) {
+    if (settles.some((s) => s.seq > h.seq && s.p["holds"] === h.p["holds"] && s.p["over"] === h.p["over"])) settledAfter += 1;
+  }
+  return {
+    held: holds.length,
+    settledAfter,
+    byMeaning: holds.filter((h) => h.p["by"] === "meaning").length,
+    byWords: holds.filter((h) => h.p["by"] === "words").length,
+  };
 }

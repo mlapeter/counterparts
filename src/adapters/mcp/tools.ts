@@ -395,7 +395,7 @@ const HOW_PROPERTY = {
   type: "string",
   enum: ["changed", "corrected", "open"],
   description:
-    "With `updates`: how this settles the memory it revises. `changed` (the default): both were true at their time — the old one fades once and is shown as earlier. `corrected`: the old one was wrong — it leaves recall, still readable by its id. `open`: a real disagreement — both stay, each shown with the other. For changed or corrected, say the journey in your own words (\"I used to think X, now Y\").",
+    "With `updates`: how this settles the memory it revises. `changed` (the default): both were true at their time — the old one fades once and is shown as earlier. `corrected`: the old one was wrong — it leaves recall, still readable by its id. `open`: a real disagreement — both stay, each shown with the other. For changed or corrected, say the journey in your own words (\"I used to think X, now Y\"). If the memory you name looks unrelated to what you wrote, nothing is settled and you are shown it: settle it yourself if you meant it.",
 } as const;
 
 /** Settling two memories that already exist, on `note` (2026-09-29). */
@@ -420,6 +420,11 @@ const SETTLE_PRIVILEGES: readonly Privilege[] = [
     claim:
       "`how` beside `updates` settles the memory it revises — changed (it fades once and is shown as earlier), corrected (archived: out of recall, readable by its id, never deleted), or open (both kept, shown together) — and every settle is recorded (who, how, why, when) and can be undone. A belief, a core memory, a current-state fact and a protected memory keep their own revision path, and the result says so.",
     mechanizedBy: "src/core/revision.ts#applyRevision -> src/core/contradictions.ts#settleOnWrite",
+  },
+  {
+    claim:
+      "A changed or corrected at a memory that looks unrelated to the new one — not close in meaning, or with no embedder, no content word in common — is held: the new memory is stored unlinked, the old one is left as it was, its title and text come back with the ask to settle it yourself if you meant it, and the hold is recorded. Closing an open thread, moving or dropping a date, and changing a status go straight through.",
+    mechanizedBy: "src/core/counterpart.ts#guardUpdate -> src/core/contradictions.ts#updateRelatedness",
   },
   {
     claim:

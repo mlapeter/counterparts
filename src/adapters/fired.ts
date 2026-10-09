@@ -692,7 +692,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "two memories that disagree were settled — changed, corrected or kept open — or flagged, or a settle undone",
     module: "core/contradictions.ts (revision.ts, dream/, mcp note, cli settle)",
     evidence: { kind: "event", names: ["contradiction.settled"] },
-    covers: ["contradiction.flagged", "contradiction.undone"],
+    covers: ["contradiction.flagged", "contradiction.undone", "contradiction.held"],
     since: "2026-09-29",
   },
   {

@@ -346,3 +346,16 @@ reflection (`reflect` phase `settle`), the owner (`counterparts settle`). The pa
 writes through `self_page`, which takes no settle; if it settles through `note`, the
 trail says the launching session. A `settle` on `self_page`, or a page-writer claim on
 `note`, would close it — neither is built until the writer is seen wanting one.
+
+## 12. Nobody reads how often the update guard fires — OPEN 2026-10-09
+
+A held `updates` (`schemas/CONTRACT.md` §5 1b) leaves one durable `contradiction.held`
+row: the two ids, the `how`, which reading decided (`meaning` or `words`), the cosine and
+the shared-word count, the door, whether it was a write-up, and the session. The dashboard
+narrates each row on the flow lane; nothing COUNTS them. `core/contradictions.ts#heldCorrections`
+is the reader, written and tested and called by nobody: holds since a day, by which
+reading, and how many the writer settled by hand afterwards (the guard's likely mistakes).
+A doctor line — "N held this week, M settled after" — is the obvious caller; `doctor.ts`
+belonged to another lane when the guard landed, so it was left for that lane to add. The
+number to watch is `settledAfter / held`: high means the 0.30 bar holds back real
+corrections, and it is the evidence for moving it.

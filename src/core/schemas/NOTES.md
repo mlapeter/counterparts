@@ -407,3 +407,70 @@ too: it is not a claim.
   same hits as `matchesIn` with a word-token prefilter (`encode/words.ts#wordTokens`, the
   matcher's own word class) and every candidate confirmed by the one rule — so the
   prefilter can skip work without changing an answer (`test/recall-write-side.test.ts`).
+
+## 2026-10-09 — the update guard: a `changed` or `corrected` is read before it moves anything
+
+**Why.** §16's arm settles on the writer's word. A 10-02 benchmark read (counterparts-87,
+LongMemEval, a Haiku 4.5 writer) found the `updates` pointing at an unrelated memory in
+about two thirds of 149 sampled pairs — one memory about a mole removal retired a passport
+name change. On the owner's store (Opus) all 10 checked were right. The risk is the weaker
+host model, and the bad moment. The bench harness had dropped such links on its own side
+(`plausiblyRelated`, `tools/longmemeval/store.ts` on `bench/longmemeval`); it drops that
+once this lands.
+
+**What.** Contract §5 1b states the rule. `Counterpart#guardUpdate` runs between intake
+and mint, so a hold is a proposal with no `updates`: no `meta.updates` link, no reminder
+carried or moved, no facts inherited, no thread closed, no settle, no pressure, and an
+unrelated pair is never shown as a disagreement. The writer gets the old memory's words
+and the neighbours' ask (`HELD_HINT`); `settle` with `holds`/`over` needs no new code. The
+record is a durable `contradiction.held` row (ids and numbers, no text) and its reader
+`heldCorrections`, which no line calls yet (mcp INTERFACE-GAPS §12).
+
+**The calibration** (scratch script, not committed; potion-base-8M, the full index text
+of each memory, cosine). 120 labelled pairs: 31 related and 29 unrelated from the demo
+store's script (the challenges against their beliefs, the current-state correction, later
+notes that change earlier ones on the same subject; unrelated = two notes on different
+subjects, in one tight domain where "rota", "ward" and "shift" are everywhere), and 30 and
+30 hand-written life and work facts (related ones worded differently on purpose — "lives
+in Austin" / "Colorado is home now", "Postgres on RDS" / "migrated the main DB to
+Aurora"; unrelated ones like the mole and the passport). Counts are related passed /
+related held | unrelated passed / unrelated held:
+
+| rule | related | unrelated |
+|---|---|---|
+| shared content word (the bench rule) | 46 / 15 | 12 / 47 |
+| meaning ≥ 0.30 (**chosen**) | 50 / 11 | 1 / 58 |
+| meaning ≥ 0.35 | 44 / 17 | 1 / 58 |
+| meaning ≥ 0.40 | 38 / 23 | 0 / 59 |
+| word AND meaning ≥ 0.30 (the brief's "both pass") | 41 / 20 | 1 / 58 |
+| word OR meaning ≥ 0.40 | 50 / 11 | 12 / 47 |
+
+The unrelated pairs topped out at 0.29 but one: two demo notes about reading (a solver's
+constraint list, a printed rota) at 0.37, arguably related. Meaning alone holds the fewest
+related pairs at the same one false pass; the words, as a second requirement, only add
+held corrections, and as a second way in they let through every pair that shares a
+common word ("back", "because", "staff"). So meaning decides when there are two vectors
+and the words only when there are not. That is a departure from the brief's "both clearly
+pass", named and held lightly.
+
+**Limits seen.** Mean-pooled static vectors dilute: "Mike moved to Denver." / "Mike lives
+in Colorado now." reads 0.68, but "Mike lives in Austin, Texas, in a rented house near
+Zilker Park." / "Moved to Denver last month; Colorado is home now." reads 0.23 and is held.
+Short texts lean on their function words: "The user changed her name on her passport." /
+"The user had a mole removed." reads 0.28 — under the bar, not by much. Renames of a
+technology (React → Svelte 0.17, GitHub Actions → Buildkite 0.27) read as unrelated. A
+writer that is reading its replies settles those itself; a batch writer leaves them held,
+both memories live, which costs a stale memory staying at full strength, never a wrong one
+archived.
+
+**Where it does not apply.** `open` (moves nothing). A content match (`content`,
+`content+hint`): the engine's own reading, already held to a score floor. A sweep (no
+`how`). And a close or a redate: an open thread (both documented roads close one, and an
+answer rarely shares its question's words — "which cache?" / "Redis" reads −0.08), a
+reminder field at a memory holding a date, a status unlike the one it had. A field the
+memory has nothing for — `eventDate` on an undated memory, `status` where it had none —
+dates or describes the new memory, so the pair is read. The cost of the open-thread rule:
+a wrong id that happens to name an open thread closes it, `corrected` included — the
+wake's "Still open" lane hands those ids out, so a writer pointing there is usually
+pointing on purpose, and an unanswered thread held open by the guard would be the quieter
+failure (the coordinator's call, 10-09).

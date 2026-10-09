@@ -212,7 +212,10 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     miss falls back to **content matching** against candidate memories — score and margin
     both required, ambiguity refuses, the author's hint is a tiebreak inside the margin and
     can never defeat a refusal, and score/margin/method are logged as provenance
-    (scar §2.5). A miss costs nothing durable: the memory still lands.
+    (scar §2.5). A miss costs nothing durable: the memory still lands. An id that RESOLVES
+    is an address, not yet a licence: whether a `changed` or `corrected` there may move the
+    memory it names is the update guard's call, made after this resolution
+    (2026-10-09, `schemas/CONTRACT.md` §5 1b).
 11. **[A] The ask's wording is load-bearing and is part of the spec** — first person, the
     author's own voice, what happened and what mattered, how it felt, what was learned
     about the person and about oneself. It sanctions honesty about a routine stretch and
