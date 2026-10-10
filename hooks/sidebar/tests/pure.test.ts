@@ -508,6 +508,17 @@ describe('the body, laid out', () => {
     expect(open).toContain('fact · learned Oct 9')
   })
 
+  test('an opened dream keeps its words while the saved list goes down to two; then its excerpt shortens', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ ...BASE.saved[1]!, key: `k${String(i)}`, title: `Saved item ${String(i)} with a title long enough to wrap twice over` }))
+    const dream = { ...BASE.dream!, rest: 'The interpretability paper had a model that writes its reasoning toward whatever answer the hint gives it. Mike said he weighs his words because I lean toward agreeing, and more after that.' }
+    const open = { key: 'dream', status: 'ready' as const, title: null, text: '', meta: null, at: T0 }
+    const roomy = layoutBody({ ...BASE, saved: many, dream, open, rows: 36 })
+    expect(roomy.folds).toEqual(['chart folded', 'saved shows 5'])
+    expect(textOf(roomy.lines).join(' ')).toContain('more after that.')
+    const tight = layoutBody({ ...BASE, saved: many, dream, open, rows: 28 })
+    expect(tight.folds).toEqual(['chart folded', 'saved shows 2', 'dream excerpt 7 lines'])
+  })
+
   test('an opened mechanism lists its firings grouped under what and when; an opened dream adds what changed', () => {
     const mech = { id: 'decay' as const, status: 'ready' as const, at: T0, events: [
       { seq: 3, at: new Date(2026, 9, 9, 8, 7).getTime(), word: 'faded', title: 'Writer and reflection are different jobs; both write the page', memoryId: 'mem_1', text: '' },
@@ -517,6 +528,10 @@ describe('the body, laid out', () => {
     const f = lines.findIndex(l => l.startsWith('Forgetting'))
     // each firing's title on up to two lines, back at the left edge
     expect(lines.slice(f + 1, f + 6)).toEqual(['faded at 8:07:', 'Writer and reflection are', 'different jobs; both write the…', 'Tiny Castles run 4 counterpart', 'playtest: top findings'])
+    // a wrapped line a shade softer than a firing's first: no bullet says where one ends
+    const ev = layoutBody({ ...BASE, mech }).lines
+    const first = ev.findIndex(l => l.segs[0]?.t === 'Writer and reflection are')
+    expect(ev[first]?.segs[0]?.c).not.toBe(ev[first + 1]?.segs[0]?.c)
     const dream = textOf(layoutBody({ ...BASE, open: { key: 'dream', status: 'ready', title: null, text: '', meta: null, at: T0 } }).lines)
     const w = dream.indexOf('what changed last night:')
     expect(dream.slice(w + 1, w + 3)).toEqual(['merged 3 near-copies into one', '4 memories faded'])

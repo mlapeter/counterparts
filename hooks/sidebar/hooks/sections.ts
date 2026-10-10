@@ -207,14 +207,16 @@ const chartFold = step('chart folded', 'chart', f => ({ ...f, chartFolded: true 
 const mindFold = step('memories folded', 'mind', f => ({ ...f, mindFolded: true, sub: 0 }))
 const dreamFold = step('dream folded', 'dream', f => ({ ...f, dreamFolded: true }))
 /**
- * Saved items, fewer one at a time, each keeping its two lines; then the
- * section folds to its heading. Never one line each: Mike would rather read
+ * Saved items, fewer one at a time (down to `to`), each keeping its two
+ * lines; `savedFold` then folds the section to its heading. Never one line each: Mike would rather read
  * fewer titles whole than many cut short (his standing complaint about v0.1,
  * restated for v0.2 on 2026-10-10), so how many fit is the room's to decide,
  * not a cut.
  */
-function savedDown(n: number): Step[] {
-  return [...Array.from({ length: Math.max(0, n - 1) }, (_, i) => savedTo(n - 1 - i)), savedFold]
+function savedFewer(n: number, to = 1): Step[] {
+  const out: Step[] = []
+  for (let k = n - 1; k >= Math.max(1, to); k--) out.push(savedTo(k))
+  return out
 }
 
 /** A mechanism's firings, fewer one at a time, each title keeping its two lines. */
@@ -228,14 +230,17 @@ const EVENTS_DOWN = [eventsTo(5), eventsTo(4), eventsTo(3), eventsTo(2)]
  * item keeps its room longest: the rest folds around it.
  */
 function ladders(s: BodyState): Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> {
-  const saved = savedDown(s.saved.length)
+  const n = s.saved.length
+  const saved = [...savedFewer(n), savedFold]
   return {
     default: [...saved, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
     // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way;
     // the dream (two rows) folds before the chart (twelve).
     open: [...saved, dreamTo(1), subTo(1), subTo(0), dreamFold, chartFold, textTo(8), textTo(5)],
     mech: [...saved, dreamTo(1), mindFold, ...EVENTS_DOWN, dreamFold, eventsTo(1)],
-    dream: [chartFold, excerptTo(7), excerptTo(5), excerptTo(3), ...saved, subTo(1), subTo(0), mindFold],
+    // The dream the person opened keeps its words while the saved list goes down to two items; past that its
+    // excerpt shortens before the last two go (the round-3 160x48 frame: two saved, the dream's first sentence).
+    dream: [chartFold, ...savedFewer(n, 2), excerptTo(7), excerptTo(5), excerptTo(3), ...(n > 1 ? [savedTo(1)] : []), savedFold, subTo(1), subTo(0), mindFold],
   }
 }
 
@@ -390,7 +395,10 @@ function mechEvents(s: BodyState, f: Fold): Line[] {
     if (s.open?.key === key) {
       if (e.memoryId === null && s.open.title === null) out.push(...plain(wrapN(e.text, s.w, f.text), P.hi, key, { b: true }))
       else out.push(...opened(s, key, e.title, f))
-    } else out.push(...plain(wrapN(e.title, s.w, EVENT_LINES), P.text, key))
+    } else {
+      // no dot or bullet between firings: a wrapped line a shade softer says where one ends
+      wrapN(e.title, s.w, EVENT_LINES).forEach((t, i) => out.push(line([seg(t, i === 0 ? P.text : P.mid)], key)))
+    }
   }
   return out
 }
