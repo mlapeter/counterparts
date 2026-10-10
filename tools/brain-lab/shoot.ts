@@ -3,9 +3,9 @@
  * on a profile of its own (never anyone's browser), one Chrome per shot,
  * killed by pid and by that profile only once the file is written.
  *
- *   bun hooks/sidebar/dev/brain-lab/shoot.ts round <N> [title]   frames + contact.png into out/round-N/
- *   bun hooks/sidebar/dev/brain-lab/shoot.ts sheet <out.png> [query]
- *   bun hooks/sidebar/dev/brain-lab/shoot.ts one <panel> <out.png> [query]
+ *   bun tools/brain-lab/shoot.ts round <N> [title]   frames + contact.png into out/round-N/
+ *   bun tools/brain-lab/shoot.ts sheet <out.png> [query]
+ *   bun tools/brain-lab/shoot.ts one <panel> <out.png> [query]
  *
  * LAB_SCRATCH sets where the Chrome profile lives (default: the OS temp dir).
  */

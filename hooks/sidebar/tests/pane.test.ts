@@ -179,6 +179,47 @@ test('the brain is a Raster the terminal can hold, repainted by blits; /counterp
   await ui.unmount()
 })
 
+test('the timer keeps the brain’s pace: calm while it sways, burst only while an arc flies, none at rest until a pick, a pulse or an open wakes it', async ($, on) => {
+  const w = world(on)
+  on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_p0000001"}' }))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  const report = async () => (await $.command.run({ command: 'counterparts', args: 'fps' } as never)).text ?? ''
+  await w.clock.advance(2000)
+  expect(await report()).toContain('now swaying (6 fps)')
+  // a quiet minute and a little: it eases to rest, and the timer stops
+  await w.clock.advance(90000)
+  expect(await report()).toContain('now at rest (no timer)')
+  let n = w.blits.length
+  await w.clock.advance(10000)
+  expect(w.blits.length).toBe(n)
+  // a picked mechanism wakes it
+  await ui.press({ key: 'm:decay' })
+  await w.clock.advance(1000)
+  expect(w.blits.length - n).toBeGreaterThanOrEqual(3)
+  expect(await report()).toContain('now swaying')
+  await ui.press({ key: 'm:decay' })
+  await w.clock.advance(120000)
+  expect(await report()).toContain('now at rest (no timer)')
+  // a pulse (a kept note) wakes it at the burst rate while its arc flies
+  n = w.blits.length
+  await $.tool.call({ tool: 'mcp__counterparts__note', title: 'Wake up', text: 'x' } as never)
+  await settle(w)
+  await w.clock.advance(1000)
+  expect(await report()).toContain('now in a burst (12 fps)')
+  expect(w.blits.length - n).toBeGreaterThanOrEqual(8)
+  await w.clock.advance(3000)
+  expect(await report()).toContain('now swaying')
+  // opening it full wakes it too: at rest, quiet, then full again
+  await w.clock.advance(120000)
+  expect(await report()).toContain('now at rest (no timer)')
+  await ui.press({ key: 'fold' })
+  await ui.press({ key: 'unfold' })
+  await w.clock.advance(1000)
+  expect(await report()).toContain('now swaying')
+  await ui.unmount()
+})
+
 test('the brain stops when its Raster is gone: refused blits stop the timer after a few fresh drawings', async ($, on) => {
   const w = world(on, { blitDeny: true })
   await start($, w)

@@ -10,5 +10,7 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["src", "tools", "test"]
+  "include": ["src", "tools", "test"],
+  "//": "tools/brain-lab is a bun-run dev lab for the sidebar mod's brain (hooks/sidebar/hooks/brain.ts, a hooks module's sources with extensionless imports); it is not type-checked here.",
+  "exclude": ["tools/brain-lab"]
 }

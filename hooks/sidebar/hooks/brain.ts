@@ -1,7 +1,7 @@
 /**
  * The brain: a hologram in braille line art, a side or three-quarter view that
  * sways slowly, the way the reference icon shows it
- * (dev/brain-lab/refs/PRIMARY-i2-side-view.png, kept local).
+ * (tools/brain-lab/refs/PRIMARY-i2-side-view.png, kept local).
  *
  * The shape is a handful of ellipsoids proportioned from Gray's lateral view
  * (Gray728, public domain): per hemisphere a main dome, the frontal pole and
@@ -353,6 +353,11 @@ export class Brain {
     const r = RID[region];
     this.glowCol[r] = col;
     this.glowTarget[r] = Math.max(this.glowTarget[r] ?? 0, amount);
+  }
+
+  /** Wakes it from rest (the sidebar opened full): the sway eases back in, as a pulse would make it, with no arc. */
+  wake(): void {
+    this.poked = true;
   }
 
   /** Sways the view and lets glows ease and fade; `dt` in milliseconds. */

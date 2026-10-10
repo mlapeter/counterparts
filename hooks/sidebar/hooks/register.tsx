@@ -142,8 +142,6 @@ const fps = {
   shown: false,
   inFlight: false,
   lastTick: 0,
-  /** Ticks counted, so that swaying draws on every other one. */
-  ticks: 0,
   /** `performance.now()` of each blit the surface took: the measurement. */
   blits: [] as number[],
   frameMs: [] as number[],
@@ -174,6 +172,8 @@ const run = {
   brainTimer: null as { cancel: () => void } | null,
   /** Which timer is the brain's now: a tick or a blit answer of an older one changes nothing. */
   brainGen: 0,
+  /** The pace the brain's timer runs at; `rest` while it is stopped at rest. */
+  brainPace: 'calm' as 'burst' | 'calm' | 'rest',
   /** When this session began: an event naming no session, from after it, is taken as this session's. */
   startedAt: 0,
   /** The command that opens a URL here, once found. */
@@ -207,11 +207,16 @@ function meanFrameMs(): number {
   return fps.frameMs.reduce((a, b) => a + b, 0) / fps.frameMs.length
 }
 
+function paceWords(): string {
+  if (run.brainTimer === null) return run.brainPace === 'rest' ? 'at rest (no timer)' : 'stopped'
+  return run.brainPace === 'burst' ? `in a burst (${String(fps.target)} fps)` : `swaying (${(1000 / paceMs('calm')).toFixed(0)} fps)`
+}
+
 function fpsReport(): string {
   if (fps.blits.length < 2) {
-    return `Brain: no frames measured yet (target ${String(fps.target)} fps). It draws only while the sidebar shows in a terminal; ask again in a few seconds.`
+    return `Brain: no frames measured yet (target ${String(fps.target)} fps), now ${paceWords()}. It draws only while the sidebar shows in a terminal and something moves; ask again in a few seconds.`
   }
-  return `Brain: ${achievedFps().toFixed(1)} fps achieved over the last 10 s (target ${String(fps.target)}); a frame takes ${meanFrameMs().toFixed(1)} ms to compute.`
+  return `Brain: ${achievedFps().toFixed(1)} fps achieved over the last 10 s (target ${String(fps.target)}), now ${paceWords()}; a frame takes ${meanFrameMs().toFixed(1)} ms to compute.`
 }
 
 /** The whole status line, or undefined to clear it. */
@@ -676,6 +681,7 @@ async function runSearch($: EngineInterface, raw: string): Promise<void> {
  * stay frozen.
  */
 async function openPane($: EngineInterface, view: 'full' | 'quiet'): Promise<{ isPlaced: boolean }> {
+  if (view === 'full') brain.wake() // opened full, it eases out of rest
   await setView($, view)
   const opened = await $.ui.open({ id: PANE, title: TITLE, columns: view === 'quiet' ? QUIET_COLUMNS : OPEN_COLUMNS })
   $.ui.invalidate('ui.render')
@@ -746,6 +752,19 @@ function stopBrain(): void {
 }
 
 /**
+ * At rest the timer stops altogether; the Raster stays mounted and the last
+ * frame stands. A pulse, a picked mechanism or the view opening full starts it
+ * again (each draws the pane, and the drawing's `wake` starts the timer).
+ */
+function restBrain(): void {
+  run.brainGen += 1
+  run.brainTimer?.cancel()
+  run.brainTimer = null
+  run.brainPace = 'rest'
+  fps.inFlight = false
+}
+
+/**
  * A refused blit is a Raster gone (rail, hidden, closed) or one not mounted
  * yet (a pane just reopened). Ask for a fresh drawing, a few times at most
  * until a blit is taken again: a drawing that mounts the Raster starts the
@@ -757,33 +776,54 @@ function redrawAfterRefusal($: EngineInterface): void {
   $.ui.invalidate('ui.render')
 }
 
-/** One frame of the brain onto the mounted Raster; the blit's time is the measurement. */
+/** The timer's interval for a pace: every frame of the target while an arc flies, the calm rate while it sways. */
+function paceMs(pace: 'burst' | 'calm'): number {
+  const every = pace === 'burst' ? 1 : Math.max(1, Math.round(fps.target / brain.calmFps))
+  return Math.max(16, Math.round((every * 1000) / fps.target))
+}
+
+/**
+ * One frame of the brain onto the mounted Raster; the blit's time is the
+ * measurement. The timer runs at the pace the brain asks for: the burst rate
+ * only while a pulse's arc is in flight, the calm rate while it sways, and not
+ * at all at rest.
+ */
 function tick($: EngineInterface, gen: number): void {
   if (gen !== run.brainGen) return
   const now = Date.now()
+  const pace = run.brainPace === 'burst' ? 'burst' : 'calm'
   // the brain moves at least a tick's worth each tick: its clock is the ticks', not the wall's
-  const dt = fps.lastTick === 0 ? 0 : Math.min(250, Math.max(now - fps.lastTick, 1000 / fps.target))
+  // (a fresh start counts one tick too, so a brain woken from rest starts to ease out at once)
+  const dt = fps.lastTick === 0 ? paceMs(pace) : Math.min(250, Math.max(now - fps.lastTick, paceMs(pace)))
   fps.lastTick = now
+  // a picked mechanism keeps it awake (and wakes it the tick after the pick)
+  if (look.sel !== null) {
+    const m = mechById(look.sel)
+    if (m !== undefined) brain.light(m.region, stageOf(m.id).col)
+  }
   brain.step(now, dt)
   if (!raster.live) {
     stopBrain()
     return
   }
-  if (fps.inFlight) return
-  // the brain says how much to draw: every tick while an arc flies, every other while it sways, nothing at rest
   const mode = brain.mode()
-  fps.ticks += 1
-  if (mode === 'rest' || (mode === 'calm' && fps.ticks % Math.max(1, Math.round(fps.target / brain.calmFps)) !== 0)) return
+  if (mode === 'rest') {
+    restBrain()
+    return
+  }
+  if (mode !== run.brainPace) startBrain($, mode) // a new timer at the new pace; this tick still draws
+  if (fps.inFlight) return
   const cells = frameCells(raster.cols, raster.rows, now)
   raster.cells = cells
   raster.look = lookKey()
   if (!brain.fresh) return // nothing moved a fifth of a dot: the frame on screen stands, no blit
   fps.inFlight = true
+  const blitGen = run.brainGen
   void $.ui.blit({ requestId: PANE, key: 'brain', cells, columns: raster.cols, rows: raster.rows }).then(
     r => {
       // An answer to a blit of a timer since stopped or replaced (a close, the
-      // rail, a reopen) must not stop the brain that runs now.
-      if (gen !== run.brainGen) return
+      // quiet view, a reopen, a change of pace) must not stop the brain that runs now.
+      if (blitGen !== run.brainGen) return
       fps.inFlight = false
       if (r.deny !== undefined) {
         stopBrain()
@@ -799,20 +839,23 @@ function tick($: EngineInterface, gen: number): void {
       }
     },
     () => {
-      if (gen !== run.brainGen) return
+      if (blitGen !== run.brainGen) return
       stopBrain()
       redrawAfterRefusal($)
     },
   )
 }
 
-function startBrain($: EngineInterface): void {
+/** Starts (or re-paces) the brain's timer under a new generation; a fresh start begins at the calm rate. */
+function startBrain($: EngineInterface, pace: 'burst' | 'calm' = 'calm'): void {
+  const fresh = run.brainTimer === null
   run.brainTimer?.cancel()
   run.brainGen += 1
   const gen = run.brainGen
   fps.inFlight = false
-  fps.lastTick = 0
-  run.brainTimer = $.clock.every(Math.max(16, Math.round(1000 / fps.target)), () => tick($, gen))
+  if (fresh) fps.lastTick = 0
+  run.brainPace = pace
+  run.brainTimer = $.clock.every(paceMs(pace), () => tick($, gen))
 }
 
 /**

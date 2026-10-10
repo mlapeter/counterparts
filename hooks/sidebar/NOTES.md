@@ -31,7 +31,7 @@ It opens by itself only where the terminal docks a pane beside the transcript
 hides it (as its `✕` does), `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (56 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (57 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -135,8 +135,8 @@ Found on the way (each **verified** unless marked):
 
 ## The frame rate and the load, measured
 
-The brain (rebuilt in the brain lab, `dev/brain-lab/`, 2026-10-09; rounds and
-measurements in `dev/brain-lab/out/round-*/NOTES.md`) repaints on
+The brain (rebuilt in the brain lab, `tools/brain-lab/`, 2026-10-09; rounds and
+measurements in `tools/brain-lab/out/round-*/NOTES.md`) repaints on
 `$.clock.every(1000 / target)` with `$.ui.blit`. The target is **12**, which is
 the most it draws. Each tick, the brain says how much to draw:
 
@@ -166,7 +166,7 @@ against 255 before the rebuild.
   during an arc.
 - **"A frame takes N ms"** averages the last 120 frames asked for. That
   includes frames the cache answered in microseconds, so it reads low. The cost
-  of a frame drawn afresh comes from `bun hooks/sidebar/dev/brain-lab/bench.ts`.
+  of a frame drawn afresh comes from `bun tools/brain-lab/bench.ts`.
   At load average about 7, it measured 0.99 ms at 42 x 14 (the old brain 1.46),
   0.62 ms at 30 x 10, and 5.3 ms at 90 x 32.
 
@@ -191,17 +191,26 @@ two rows are noisy:
 
 | State | CPU | Earlier |
 |---|---|---|
-| Pane drawn, swaying (5.0 fps achieved of a 12 target; 1.9 ms a frame) | **4.4–4.6%** | 3.5% (the old brain at a fixed 6 fps); 6.1% at 10 fps (the review's measure) |
-| Pane drawn, at rest after a quiet minute | **0.8–1.4%** | — |
+| Pane drawn, swaying (timer at the calm rate, 6 a second) | **2.8–4.2%** | 4.4–4.6% with the timer at 12 a second; 3.5% (the old brain at a fixed 6 fps); 6.1% at 10 fps (the review's measure) |
+| Pane drawn, at rest after a quiet minute (no timer) | **0.3–1.2%** | 0.8–1.4% with the timer still ticking |
 | Quiet (`‹`) | 0.6–0.8% | 1.6% on the old rail (timer ticking with nothing drawn) |
 | Hidden (`✕`) | 0.7% | — |
 | No plugin | — | 0.6% (the review's measure) |
 
-What swaying and rest still cost is the timer itself: it ticks at the target (12
-a second) whatever the brain's mode, and swaying draws on every other tick.
-Ticking at the calm rate until a pulse, and stopping the timer at rest until
-something fires or is picked, would bring both close to the bare 0.6%. That is
-a follow-up for the brain's tick.
+**The timer keeps the brain's pace** (`register.tsx#tick`):
+- it ticks at the calm rate (`round(target / 6)` ticks of the target: 6 a
+  second at 12) while the brain sways;
+- it re-paces to the target only while a pulse's arc is in flight;
+- it stops altogether at rest.
+
+A pulse, a picked mechanism or the sidebar opening full wakes it. Each of those
+draws the pane, and the drawing starts the timer. Opening full also calls
+`Brain.wake()`, the one line added to `brain.ts`, and the brain eases out of
+rest as it does after a pulse. Every re-pace is a new timer under a new
+generation, so a late answer from the old one changes nothing.
+`/counterparts fps` says which it is now: "swaying (6 fps)", "in a burst (12
+fps)", or "at rest (no timer)". Measured live in tmux, at a load average of
+5–7.
 
 Nothing runs until the pane draws. The brain's timer stops when a blit is
 refused (the Raster is gone: quiet, hidden, another pane shown) and while the
@@ -349,10 +358,15 @@ Mike's first real run is the real measurement.
     colours.
 
   The point cloud read as a blob at 42 x 14 (the judge's scorecards are in
-  `dev/brain-lab/out/`).
+  `tools/brain-lab/out/`).
 - **The brain sways and rests rather than spinning** at a fixed 6 fps. Front
   and back views read worst, and a still brain costs nothing. 12 fps is only
   for arcs.
+- **The brain lab lives in `tools/brain-lab/`**, outside the plugin folder, so
+  a plugin install doesn't copy it. Its rounds' PNGs stay on disk and out of git
+  (`.gitignore`), with the notes and the judge's scorecards kept. Run it with
+  `bun tools/brain-lab/shoot.ts` or `bench.ts`. Neither `tsc` nor the plugin's
+  checks read it (the repository's `tsconfig.json` excludes it).
 
 ## Known gaps (v0.1)
 

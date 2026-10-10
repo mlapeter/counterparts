@@ -5,14 +5,14 @@
  * repaint). With `dist/old-brain.ts` present (`git show 87c1ebb9:hooks/sidebar/
  * hooks/brain.ts > dist/old-brain.ts`), the brain before this work too.
  *
- *   bun hooks/sidebar/dev/brain-lab/bench.ts
+ *   bun tools/brain-lab/bench.ts
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { Brain } from '../../hooks/brain';
-import { encodeCells } from '../../hooks/cells';
+import { Brain } from '../../hooks/sidebar/hooks/brain';
+import { encodeCells } from '../../hooks/sidebar/hooks/cells';
 
 type AnyBrain = { frame: (c: number, r: number, now: number, o?: object) => Uint32Array; step: (now: number, dt: number) => void };
 

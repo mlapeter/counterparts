@@ -10,8 +10,8 @@
  * the brain's own angles alone (for shooting the brain as it was).
  */
 
-import { Brain, DEFAULT_COLOR } from '../../hooks/brain';
-import type { RegionKey, Rgb } from '../../hooks/mechanisms';
+import { Brain, DEFAULT_COLOR } from '../../hooks/sidebar/hooks/brain';
+import type { RegionKey, Rgb } from '../../hooks/sidebar/hooks/mechanisms';
 import { BG, CH, CW, FONT_PX, LABEL_H, PAD, ROUND, findPanel, panelSize, sheetLayout, type Panel } from './layout';
 
 const T0 = 1_760_000_000_000;
