@@ -419,11 +419,15 @@ export function decodeF16(halves: Uint16Array): Float32Array {
  * the caller names it.
  */
 export function resolveStaticWeights(
-  opts: { dir?: string; env?: Record<string, string | undefined> } = {},
+  opts: { dir?: string; env?: Record<string, string | undefined>; packageDir?: string } = {},
 ): { dir: string; source: "option" | "env" | "package" } | null {
   if (opts.dir !== undefined && opts.dir.length > 0) return { dir: opts.dir, source: "option" };
   const fromEnv = (opts.env ?? process.env)[STATIC_WEIGHTS_ENV];
   if (fromEnv !== undefined && fromEnv.trim().length > 0) return { dir: fromEnv.trim(), source: "env" };
+  // The package's directory when the caller already knows it — the single
+  // compiled binary, which carries the package's files but no `node_modules`
+  // for `require.resolve` to search (adapters/runtime.ts#bundledModelDir).
+  if (opts.packageDir !== undefined && opts.packageDir.length > 0) return { dir: opts.packageDir, source: "package" };
   try {
     const require = createRequire(import.meta.url);
     return { dir: dirname(require.resolve(`${STATIC_WEIGHTS_PACKAGE}/package.json`)), source: "package" };

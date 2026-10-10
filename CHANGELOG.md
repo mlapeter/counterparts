@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **The plugin works on a Mac or Linux computer with no Bun or Node.js.** Until now it
+  gave up there. Now it downloads one prebuilt Counterparts program for that computer
+  (55–75 MB, over HTTPS, from this repository's GitHub releases), checks it against a
+  sha256 that ships inside the plugin, keeps it in the plugin's data folder, and runs
+  that. It re-checks the kept program too: the whole file each time the memory server
+  starts, and a quick stamp of it at every hook; one that changed is deleted and fetched
+  again. Windows isn't offered a program yet; there, the plugin still says to install
+  Bun or Node. The first session says it's getting ready and that memory starts in the
+  next one. A failed download says so once and tries again later; nothing unchecked is
+  ever run. `COUNTERPARTS_BINARY_DOWNLOAD=off` forbids the download. The program is the
+  whole of Counterparts, with the model and the dashboard packed in. It starts a little
+  faster than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire
+  Claude Code or Claude Desktop itself: `counterparts connect` from it says to use the
+  npm install for that. How it is built and released: `docs/single-binary.md`.
 - **"Still open" lists its first item beside a long self page, and never prints a heading
   over a count.** With a long page, the Yesterday line and the Arriving lines taking the
   room, a 9,000-byte wake could print "Still open:" with only "(20 more still open; recall

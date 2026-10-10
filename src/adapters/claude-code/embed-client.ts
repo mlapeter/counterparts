@@ -22,6 +22,7 @@ import type { Embedder, EmbedderIdentity } from "../../core/store/index.js";
 import { hashText } from "../../core/store/index.js";
 
 import type { AdapterConfig, EmbedderKind } from "../config.js";
+import { bundledModelDir } from "../runtime.js";
 
 /** One fill's failure, named — what the worker's backfill row persists as `codes`. */
 export interface ChunkFailure {
@@ -197,9 +198,11 @@ export function unavailableStaticEmbedder(code: string): LiveEmbedder {
  */
 export function openStaticEmbedder(opts: StaticEmbedderOptions = {}): LiveEmbedder {
   const emit = opts.onEvent ?? ((): void => {});
+  const bundled = bundledModelDir();
   const found = resolveStaticWeights({
     ...(opts.weightsDir === undefined ? {} : { dir: opts.weightsDir }),
     ...(opts.env === undefined ? {} : { env: opts.env }),
+    ...(bundled === undefined ? {} : { packageDir: bundled }),
   });
   if (found === null) {
     emit("embed.refused", { code: "NO_WEIGHTS", kind: "static" });

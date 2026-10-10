@@ -8,6 +8,7 @@
  * caller imports. The console reaches it directly; nobody else may.
  */
 export {
+  BINARY_CONNECT_REFUSAL,
   COMMANDS,
   COMMAND_BLURB,
   COMMAND_FLAGS,

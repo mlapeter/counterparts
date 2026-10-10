@@ -1016,6 +1016,10 @@ const PROCESS_MARKS: readonly { readonly re: RegExp; readonly what: string }[] =
   { re: /claude-code[/\\]bin[/\\]runner\.ts/, what: "the worker" },
   { re: /dashboard[/\\]bin[/\\]dashboard\.(ts|mjs)/, what: "a dashboard" },
   { re: /(^|[\s"'/\\])counterparts-dashboard(\s|$|")/, what: "a dashboard" },
+  // The single binary (`runtime.ts#BINARY_MODES`): `…/counterparts mcp`.
+  { re: /(^|[/\\])counterparts(\.exe)?"?\s+mcp(\s|$)/, what: "an MCP server" },
+  { re: /(^|[/\\])counterparts(\.exe)?"?\s+runner(\s|$)/, what: "the worker" },
+  { re: /(^|[/\\])counterparts(\.exe)?"?\s+dashboard(\s|$)/, what: "a dashboard" },
 ];
 
 /** Which of ours, if any, this command line is. Exported for the test, which

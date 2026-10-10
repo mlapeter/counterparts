@@ -79,6 +79,8 @@ import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
 import { hostSessionEvidence, installedVersion, writeUpSources } from "../../sessions.js";
 import { openLog } from "../../log/index.js";
+import { BINARY } from "../../runtime.js";
+import type { Binary } from "../../runtime.js";
 
 import {
   configLine,
@@ -544,8 +546,10 @@ export function pinnedScope(env: Record<string, string | undefined> = process.en
   return raw !== undefined && raw.trim().length > 0 ? raw : null;
 }
 
-export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+export function isEntryPoint(argv1: string | undefined, url: string, binary: Binary | null = BINARY): boolean {
+  // Never in the single binary, where every module shares one URL: its
+  // dispatcher (tools/single-binary/main.ts) calls `start()` itself.
+  if (argv1 === undefined || binary !== null) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
@@ -643,7 +647,9 @@ async function main(): Promise<void> {
   }
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** One worker run, then exit — what this file does as a script, and what the
+ *  single binary's `runner` mode calls. */
+export function start(): void {
   void main().then(
     () => process.exit(0),
     (err: unknown) => {
@@ -659,3 +665,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();

@@ -587,7 +587,8 @@ export interface HostRead {
 /** One runtime a host's configuration launches us with. */
 export interface HostRuntime {
   readonly exe: string;
-  readonly kind: RuntimeKind;
+  /** `binary`: the single compiled binary, its own runtime. */
+  readonly kind: RuntimeKind | "binary";
   readonly present: boolean;
   /** `hooks`, `mcp`, or both. */
   readonly used: readonly ("hooks" | "mcp")[];
@@ -605,10 +606,11 @@ export interface HostRuntime {
  * version matched any command merely *mentioning* the name, so `echo
  * counterparts-hook` read as an installed hook. It still cannot resolve an
  * arbitrary shell command — that is out of scope, and deliberately so — but it
- * no longer matches prose.
+ * no longer matches prose. The third shape is the single binary's own
+ * (`"<…>/counterparts" hook`, `runtime.ts#parseScriptInvocation`).
  */
 export const HOOK_COMMAND_MARK =
-  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.ts/;
+  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.ts|[/\\]counterparts(\.exe)?"?\s+hook(\s|$)/;
 
 /**
  * The absolute path a hook command runs, when it names one — the first token
@@ -619,6 +621,9 @@ export const HOOK_COMMAND_MARK =
  * anything else rather than guessing. A null is never reported as stale.
  */
 export function hookTargetPath(command: string): string | null {
+  // The single binary is its own script: `"<binary>" hook` needs the binary.
+  const run = parseScriptInvocation(shellTokens(command));
+  if (run?.runtime === "binary") return run.exe;
   const tokens = command.trim().split(/\s+/);
   for (const raw of tokens) {
     const token = raw.replace(/^["']|["']$/g, "");
@@ -724,7 +729,7 @@ export function readHost(
   const settingsUnreadable: string[] = [];
   // WHICH RUNTIME the host launches us with — read off the same commands, never
   // spawned: `bun run <script>` or `node --import <node-hooks.mjs> <script>`.
-  const runtimes = new Map<string, { kind: RuntimeKind; used: Set<"hooks" | "mcp">; projectEnv: Set<"hooks" | "mcp"> }>();
+  const runtimes = new Map<string, { kind: RuntimeKind | "binary"; used: Set<"hooks" | "mcp">; projectEnv: Set<"hooks" | "mcp"> }>();
   const noteRuntime = (tokens: readonly string[], used: "hooks" | "mcp"): void => {
     const run = parseScriptInvocation(tokens);
     if (run === null) return;
