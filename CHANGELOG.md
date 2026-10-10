@@ -12,8 +12,10 @@ the first "Still open" item beside a long self page and says when a reminder was
 recall names corrected memories with an id to open and reads amounts as amounts, meaning
 recall says when the person asked about has no card, and the dashboard dates everything in
 the configured zone. **No change to the store's format (still v12).** Going back to 0.3.13
-is a reinstall followed by `counterparts connect` run by 0.3.13, because 0.3.14's commands
-name a file that 0.3.13 doesn't ship.
+takes three steps, in this order: `counterparts disconnect` while 0.3.14 is still installed,
+then the 0.3.13 reinstall, then `counterparts connect`. 0.3.14's hook and server commands
+name a file 0.3.13 doesn't ship, and 0.3.13's `connect` doesn't recognise them, so it would
+add its own beside them.
 
 A project's `.env` and `bunfig.toml` stay out (#349).
 
