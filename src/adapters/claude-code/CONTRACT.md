@@ -476,7 +476,7 @@ row, saying which source answered, existed until the keys were removed — §1a.
 22. **[M] TURNING A DIRECTORY BACK ON NEVER REACHES BACK.** A session that lived
     under `off` or `paused` left no session record and no span cursor, because the
     hook process returned before anything was constructed (G19). Flip the registry
-    to `on` mid-session — `counterparts scope . --resume`, or the `scope` tool, which
+    to `on` mid-session — `counterparts scope <folder> --resume`, or the `scope` tool, which
     is deliberately the one tool that answers in an off directory — and the next
     boundary would otherwise slice the transcript from cursor 0 and deposit the whole
     off conversation. It does not: a boundary that finds NO session record and a
