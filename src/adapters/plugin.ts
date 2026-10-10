@@ -41,7 +41,7 @@
  *      between the two a non-event. WHICHEVER of the two makes it, the
  *      session's first SessionStart says so, once: the maker leaves a notice
  *      and the hook takes it (`firstRunNoticePath`), because the server has no
- *      channel to the person and is often first (since 0.3.15's sidebar
+ *      channel to the person and is often first (since #342's sidebar
  *      module, Claude Code starts the hook after the server has finished).
  */
 import { spawnSync } from "node:child_process";
