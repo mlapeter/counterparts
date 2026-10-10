@@ -123,6 +123,8 @@ export type WorldOptions = {
   windows?: boolean;
   /** What the person's permission settings say about the memory tools (`allow` unless given). */
   permission?: 'allow' | 'ask' | 'deny';
+  /** A read of the folder's scope takes this long on the mocked clock (none unless given). */
+  scopeReadMs?: number;
 }
 
 export type World = {
@@ -239,7 +241,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     }
     return { value: { status: 404, ok: false, headers: {}, text: '{"error":"not found"}' } }
   })
-  on('mcp.call', (_$, e) => {
+  on('mcp.call', async (_$, e) => {
     w.mcp.push({ server: e.server, tool: e.tool, args: e.args })
     const text = (p: unknown, isError = false) => ({ value: { content: [{ type: 'text', text: JSON.stringify(p) }], isError } })
     if (e.tool === 'scope') {
@@ -247,6 +249,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
       // remembers an own on/observer, a resume needs an own entry.
       const mode = e.args['mode']
       if (mode === undefined) {
+        if (opts.scopeReadMs !== undefined) await clock.sleep(opts.scopeReadMs)
         return text({ scope: HERE, mode: w.scope.mode, stance: w.scope.mode, ...(w.scope.setBy === null ? {} : { setBy: w.scope.setBy }) })
       }
       const own = w.scope.setBy === HERE

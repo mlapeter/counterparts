@@ -408,6 +408,12 @@ export function wrap(text: string, w: number): string[] {
   return out;
 }
 
+/** A folder as a person says it: a home folder (`/Users/<name>`, `/home/<name>`) as `~`. */
+export function shortDir(dir: string | null): string {
+  if (dir === null) return 'this folder';
+  return dir.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~');
+}
+
 /** `s` cut to `w` terminal cells, with an ellipsis. */
 export function ellipsize(s: string, w: number): string {
   return ellipsizeCells(s, w);

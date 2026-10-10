@@ -47,12 +47,14 @@ import {
   parseRecallBlock,
   payloadOf,
   resolveServer,
+  shortDir,
   wrap,
 } from './feed'
 import type { DashEvent } from './feed'
 import { DASHBOARD, MECHS, MEMORIES_URL, hex, mechById, stageOf } from './mechanisms'
 import type { MechId } from './mechanisms'
 import type { ListNote, ListProps, ListRow } from './list'
+import { ellipsizeCells, padCells } from './width'
 import type { SidebarHit } from '../types'
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -70,6 +72,8 @@ const POLL_IDLE_MS = 30000
 /** A gap longer than this since the last read starts over from a cold read. */
 const STALE_MS = 10 * 60000
 const AUTO_CLOSE_MS = 30000
+/** When to look for the memory server again if it had not connected at session start. */
+const START_READ_RETRIES_MS = [2000, 5000, 15000] as const
 const FIRING_MS = 2600
 const FEED_LIMIT = 30
 /**
@@ -96,6 +100,8 @@ const C = {
   cyan: '#00e5ff',
   cyanDim: '#0b6f7c',
   white: '#ffffff',
+  /** A paused or off folder: the one warm colour, so it can't be missed. */
+  amber: '#ffb347',
   trackOn: '#00e5ff',
   trackRead: '#0b6f7c',
   knobOn: '#f4fcff',
@@ -115,7 +121,7 @@ const CAPS = {
 // ── state (the contract: ../types/index.d.ts) ──────────────────────────────
 
 const IDLE_SEARCH: SidebarSearch = { query: '', status: 'idle', header: '', total: 0, hits: [], error: null }
-const UNKNOWN_SCOPE: SidebarScope = { mode: 'unknown', own: false, setBy: null, dir: null, error: null, busy: false }
+const UNKNOWN_SCOPE: SidebarScope = { mode: 'unknown', own: false, setBy: null, dir: null, error: null, busy: false, unread: null }
 const pulseA = atom({ plugin: 'counterparts', key: 'pulse' } as const, null)
 const dashA = atom({ plugin: 'counterparts', key: 'dash' } as const, 'unknown')
 const feedA = atom({ plugin: 'counterparts', key: 'feed' } as const, [])
@@ -128,6 +134,7 @@ const memoryA = atom({ plugin: 'counterparts', key: 'claudeMemory' } as const, t
 const viewA = atom({ plugin: 'counterparts', key: 'view' } as const, 'full')
 const capsA = atom({ plugin: 'counterparts', key: 'caps' } as const, 'block')
 const noteA = atom({ plugin: 'counterparts', key: 'switchNote' } as const, null)
+const pauseAskA = atom({ plugin: 'counterparts', key: 'pauseAsk' } as const, null)
 const flashA = atom({ plugin: 'counterparts', key: 'flash' } as const, null)
 
 // ── the module's own (a reload starts these over; the host keeps the state) ──
@@ -152,8 +159,10 @@ const run = {
   interactive: false,
   /** The pane has drawn at least once in this module's life. */
   drawn: false,
-  /** The first drawing's one-time work (the quiet scope read) is done. */
+  /** The first drawing's one-time work (a quiet scope read, if the start's found none) is done. */
   woke: false,
+  /** A read of this folder's scope is on its way. */
+  scopeReading: false,
   /** Whether to open the pane unasked has been decided (from the first band drawing). */
   placementDecided: false,
   cold: false,
@@ -267,6 +276,17 @@ function switchCells(on: boolean, caps: 'round' | 'block', dim: boolean, track: 
     : [{ t: l, fg: knob }, { t: r, fg: knob, bg: track }, { t: ' ', bg: track }, { t: r, fg: track }]
 }
 
+/**
+ * The switch while this folder's state is not known: a grey track with a `?`
+ * where the knob would be. Never the on track or the on knob: on 2026-10-09 an
+ * unread state drawn as on hid a folder paused by mistake.
+ */
+function unknownCells(caps: 'round' | 'block'): Cell[] {
+  const { l, r } = CAPS[caps]
+  const track = C.trackOff
+  return [{ t: l, fg: track }, { t: '?', fg: C.dim, bg: track }, { t: ' ', bg: track }, { t: r, fg: track }]
+}
+
 /** The status line's words; the engine heads a plugin's line with the plugin's name already. */
 function statusFor(
   scope: SidebarScope,
@@ -286,11 +306,14 @@ function statusFor(
     return `${lead} ${parts.join(' · ')}`
   }
   if (scope.mode === 'paused') {
-    lead = '◌'
-    parts.push('paused in this folder')
+    // In every session in the folder, whatever the view: a pause made by
+    // mistake must not pass for an ordinary quiet session.
+    lead = '⏸'
+    parts.push('Counterparts memory paused in this folder')
+    parts.push(scope.own ? '/counterparts resume' : `resume it in ${shortDir(scope.setBy)}`)
   } else if (scope.mode === 'off') {
     lead = '◌'
-    parts.push('off in this folder')
+    parts.push('Counterparts memory off in this folder')
   } else {
     if (scope.mode === 'observer') parts.push('reads only here')
     if (pulse !== null) parts.push(`day ${String(pulse.day)}`, `${String(pulse.memories)} memories`)
@@ -536,7 +559,7 @@ function scopeOf(payload: Record<string, unknown> | null, isError: boolean, befo
   // A read names the entry that governs (`setBy`); a set wrote this folder's own.
   const setBy = payload['set'] === true ? dir : typeof payload['setBy'] === 'string' ? (payload['setBy'] as string) : null
   const own = setBy !== null && dir !== null && trimSlash(setBy) === trimSlash(dir)
-  return { mode, own, setBy, dir, error: null, busy: false }
+  return { mode, own, setBy, dir, error: null, busy: false, unread: null }
 }
 
 /**
@@ -557,20 +580,55 @@ async function quietlyAllowed($: EngineInterface, tool: string, input: Record<st
 }
 
 async function readScope($: EngineInterface): Promise<void> {
+  run.scopeReading = true
   const before = await read($, scopeA)
+  await update($, scopeA, () => ({ ...before, busy: true }))
   try {
     const { payload, isError } = await callMemory($, 'scope', {})
     await update($, scopeA, () => scopeOf(payload, isError, before))
   } catch (err) {
     await update($, scopeA, () => ({ ...before, busy: false, error: err instanceof Error ? err.message : String(err) }))
+  } finally {
+    run.scopeReading = false
   }
   look.mono = isPaused((await read($, scopeA)).mode)
   await refreshStatus($)
 }
 
-/** On the pane's first drawing: where this folder stands, if asking needs no dialog. (Each read is one `mcp.scope.read` line in the event log.) */
+/**
+ * Where this folder stands, read without asking: only while it is unknown,
+ * one read at a time, and only when the person's permission settings would
+ * open no dialog for it (otherwise the switch says it is unknown, never on).
+ * Each read is one `mcp.scope.read` line in the event log.
+ */
 async function readScopeQuietly($: EngineInterface): Promise<void> {
-  if (await quietlyAllowed($, 'scope', {})) await readScope($)
+  if (run.scopeReading) return
+  const now = await read($, scopeA)
+  if (now.mode !== 'unknown' || now.busy) return
+  run.scopeReading = true
+  let allowed = false
+  let server: string | null = null
+  try {
+    server = await memoryServer($)
+    allowed = server !== null && (await quietlyAllowed($, 'scope', {}))
+  } finally {
+    run.scopeReading = false
+  }
+  if (allowed) {
+    await readScope($)
+    return
+  }
+  const unread = server === null ? ('no-server' as const) : ('ask' as const)
+  await update($, scopeA, s => (s.mode === 'unknown' ? { ...s, unread } : s))
+}
+
+/** At session start: a session in a paused folder shows it at once. The server may connect after the session starts, so it looks again a few times. */
+async function readScopeAtStart($: EngineInterface, attempt: number): Promise<void> {
+  await readScopeQuietly($)
+  const now = await read($, scopeA)
+  if (now.mode === 'unknown' && now.unread === 'no-server' && attempt < START_READ_RETRIES_MS.length) {
+    $.clock.after(START_READ_RETRIES_MS[attempt] ?? 5000, () => quiet(readScopeAtStart($, attempt + 1)))
+  }
 }
 
 async function noteSwitch($: EngineInterface, text: string | null): Promise<void> {
@@ -585,53 +643,110 @@ async function noteSwitch($: EngineInterface, text: string | null): Promise<void
 }
 
 /**
- * The switch. The first press learns where the folder stands. After that it
- * pauses a folder whose own entry is on or observer (the pause remembers which)
- * and resumes its own pause; for every other state it says why it won't, and
- * what will (`switchExplains`). One call per press.
+ * The switch. While the folder's state is unknown a press only learns it.
+ * After that: a folder whose own entry is on or observer gets a confirm row
+ * (`askPause`; only its [Pause] pauses), its own pause resumes at once, and
+ * every other state is explained rather than changed (`switchExplains`).
  */
 async function toggleScope($: EngineInterface): Promise<void> {
   const scope = await read($, scopeA)
-  if (scope.busy) return
+  if (scope.busy || run.scopeReading) return
+  if (scope.mode === 'unknown') {
+    await readScope($)
+    const now = await read($, scopeA)
+    if (now.mode === 'unknown' || now.error !== null) await noteSwitch($, `Couldn't read this folder: ${now.error ?? 'no answer'}`)
+    else {
+      const why = switchExplains(now)
+      await noteSwitch(
+        $,
+        why ??
+          (now.mode === 'paused'
+            ? 'Counterparts memory is paused in this folder. Press again to turn it back on.'
+            : now.mode === 'observer'
+              ? 'Counterparts reads only in this folder: memories come to mind, nothing new is kept. Press again to pause it (it asks first).'
+              : 'Counterparts memory is on in this folder. Press again to pause it (it asks first).'),
+      )
+    }
+    return
+  }
+  const why = switchExplains(scope)
+  if (why !== null) {
+    await noteSwitch($, why)
+    return
+  }
+  // Here the folder's own entry is on, observer or paused.
+  if (scope.mode === 'paused') await setScope($, 'resume')
+  else await askPause($, scope)
+}
+
+/** The quiet view's paused line: its own pause resumes from there; anything else opens the pane full, where the switch explains. */
+async function quietBanner($: EngineInterface): Promise<void> {
+  const scope = await read($, scopeA)
+  if (scope.mode !== 'paused' || !scope.own) await openPane($, 'full')
+  await toggleScope($)
+}
+
+/** A pause asks first: the confirm row under the switches. Nothing is called until its [Pause]. */
+async function askPause($: EngineInterface, scope: SidebarScope): Promise<void> {
+  const at = await $.clock.now()
+  const ask = { dir: scope.dir ?? 'this folder', at }
+  await noteSwitch($, null)
+  await update($, pauseAskA, () => ask)
+  $.clock.after(AUTO_CLOSE_MS, () => {
+    quiet(update($, pauseAskA, a => (a !== null && a.at === at ? null : a)))
+  })
+}
+
+async function cancelPause($: EngineInterface): Promise<void> {
+  await update($, pauseAskA, () => null)
+}
+
+/** The confirm row's [Pause]: the only press that pauses, and only a folder still on or observer by its own entry. */
+async function confirmPause($: EngineInterface): Promise<void> {
+  const ask = await read($, pauseAskA)
+  await update($, pauseAskA, () => null)
+  if (ask === null) return
+  const scope = await read($, scopeA)
+  if (scope.busy || switchExplains(scope) !== null || (scope.mode !== 'on' && scope.mode !== 'observer')) return
+  await setScope($, 'pause')
+}
+
+/** One call: pause or resume this folder's own entry. */
+async function setScope($: EngineInterface, to: 'pause' | 'resume'): Promise<void> {
+  const scope = await read($, scopeA)
   await update($, scopeA, () => ({ ...scope, busy: true }))
   try {
-    if (scope.mode === 'unknown') {
-      const { payload, isError } = await callMemory($, 'scope', {})
-      const now = scopeOf(payload, isError, scope)
-      await update($, scopeA, () => now)
-      if (now.error !== null) await noteSwitch($, `The memory server said: ${now.error}`)
-      else {
-        const why = switchExplains(now)
-        await noteSwitch(
-          $,
-          why ??
-            (now.mode === 'paused'
-              ? 'Counterparts is paused in this folder. Press again to turn it back on.'
-              : now.mode === 'observer'
-                ? 'Counterparts reads only in this folder: memories come to mind, nothing new is kept. Press again to pause it.'
-                : 'Counterparts is on in this folder. Press again to pause it.'),
-        )
-      }
-    } else {
-      const why = switchExplains(scope)
-      if (why !== null) {
-        await update($, scopeA, () => ({ ...scope, busy: false }))
-        await noteSwitch($, why)
-      } else {
-        // Here the folder's own entry is on, observer or paused.
-        const to = scope.mode === 'paused' ? 'resume' : 'pause'
-        const { payload, isError } = await callMemory($, 'scope', { mode: to })
-        const now = scopeOf(payload, isError, scope)
-        await update($, scopeA, () => now)
-        await noteSwitch($, now.error === null ? null : `The memory server said: ${now.error}`)
-      }
-    }
+    const { payload, isError } = await callMemory($, 'scope', { mode: to })
+    const now = scopeOf(payload, isError, scope)
+    await update($, scopeA, () => now)
+    await noteSwitch($, now.error === null ? null : `The memory server said: ${now.error}`)
   } catch (err) {
     await update($, scopeA, () => ({ ...scope, busy: false }))
     await noteSwitch($, err instanceof Error ? err.message : String(err))
   }
   look.mono = isPaused((await read($, scopeA)).mode)
   await refreshStatus($)
+}
+
+/** What the Counterparts switch does, said under it while the pointer is on it. */
+function scopeHover(scope: SidebarScope): string {
+  if (scope.mode === 'unknown') {
+    return "Counterparts memory for every session in this folder: the wake, recall and what's remembered. Not read yet: a click checks where it stands and changes nothing."
+  }
+  if (switchExplains(scope) !== null) {
+    return 'Counterparts memory for every session in this folder. A click says why this switch cannot change it here, and what can.'
+  }
+  if (scope.mode === 'paused') {
+    return 'Paused for every session in this folder: no wake, no recall, nothing remembered. A click turns it back on.'
+  }
+  return "Pauses Counterparts for every session in this folder: no wake, no recall, nothing remembered, until you turn it back on. It asks first. What's kept stays kept."
+}
+
+/** What the Claude Code memory switch does, said under it while the pointer is on it. */
+function memoryHover(on: boolean): string {
+  return on
+    ? "Turns off Claude Code's own memory (its MEMORY.md files and memory instructions) in every session, from your next message. Counterparts is the other switch and stays as it is."
+    : "Claude Code's own memory is off in every session. A click turns it back on from your next message."
 }
 
 async function toggleClaudeMemory($: EngineInterface): Promise<void> {
@@ -923,7 +1038,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'counterparts',
       description: 'Counterparts sidebar: open it, slide it to the rail, or measure the brain',
-      argumentHint: '[quiet | hide | fps [n] | caps]',
+      argumentHint: '[quiet | hide | resume | fps [n] | caps]',
     })
     const [mem, viewPref, capsPref, fpsPref, fpsShown] = await Promise.all([
       $.store.get('claudeMemory'),
@@ -937,12 +1052,15 @@ export const register: Register = on => {
     await update($, capsA, () => (capsPref === 'round' ? 'round' : 'block'))
     if (typeof fpsPref === 'number' && fpsPref >= 1 && fpsPref <= 30) fps.target = fpsPref
     fps.shown = fpsShown === true
-    // Nothing is opened, read or drawn here. The pane opens unasked from the
-    // first drawing of the band above the prompt, which says whether this
-    // surface docks a pane (`AbovePrompt` below); the brain and the dashboard
-    // start with the pane's own first drawing. The status line still says,
-    // in every session, when Claude Code's own memory is off.
+    // Nothing is opened or drawn here, and the dashboard is not read. The pane
+    // opens unasked from the first drawing of the band above the prompt, which
+    // says whether this surface docks a pane (`AbovePrompt` below); the brain
+    // and the dashboard start with the pane's own first drawing. One thing is
+    // read: where this folder stands, when that asks no dialog, so a session
+    // started in a paused folder says so at once, pane or not. The status line
+    // also says, in every session, when Claude Code's own memory is off.
     quiet(refreshStatus($))
+    if (run.interactive) quiet(readScopeAtStart($, 0))
     return next(e)
   })
 
@@ -977,8 +1095,19 @@ export const register: Register = on => {
       await $.store.set('caps', nextCaps)
       return { text: nextCaps === 'block' ? 'Switch ends drawn with half blocks.' : 'Switch ends drawn with Powerline round caps.' }
     }
+    if (verb === 'resume') {
+      if ((await read($, scopeA)).mode === 'unknown') await readScope($)
+      const scope = await read($, scopeA)
+      if (scope.mode === 'paused' && scope.own) {
+        await setScope($, 'resume')
+        const after = await read($, scopeA)
+        return { text: after.error === null ? `Counterparts memory is back on in ${shortDir(after.dir)}.` : `The memory server said: ${after.error}` }
+      }
+      if (scope.mode === 'unknown') return { text: `Couldn't read this folder: ${scope.error ?? 'no answer'}` }
+      return { text: switchExplains(scope) ?? `Counterparts memory isn't paused in ${shortDir(scope.dir)}.` }
+    }
     if (verb !== '' && verb !== 'open') {
-      return { text: 'Usage: /counterparts [quiet | hide | fps [n] | caps]. With nothing after it, opens the sidebar full.' }
+      return { text: 'Usage: /counterparts [quiet | hide | resume | fps [n] | caps]. With nothing after it, opens the sidebar full.' }
     }
     // Asked for: placed at any width, whatever view it was left in.
     const opened = await openPane($, 'full')
@@ -1081,9 +1210,9 @@ export const register: Register = on => {
     const Client = 'Client' in els ? els.Client : null
     const now = await $.clock.now()
     run.drawn = true
-    const [pulse, dash, feed, counts, firing, sel, search, scope, view, caps, note, flashMark] = await Promise.all([
+    const [pulse, dash, feed, counts, firing, sel, search, scope, view, caps, note, flashMark, pauseAsk] = await Promise.all([
       read($, pulseA), read($, dashA), read($, feedA), read($, countsA), read($, firingA), read($, selA),
-      read($, searchA), read($, scopeA), read($, viewA), read($, capsA), read($, noteA), read($, flashA),
+      read($, searchA), read($, scopeA), read($, viewA), read($, capsA), read($, noteA), read($, flashA), read($, pauseAskA),
     ])
     // The stored preference, not this session's copy: another session may have turned it.
     const memoryOn = await claudeMemoryOn($)
@@ -1122,7 +1251,17 @@ export const register: Register = on => {
         </Box>,
       )
       rows.push(<Text key="qgap"> </Text>)
-      if (paused) rows.push(<Text key="qpaused" color={C.dim}>{scope.mode === 'off' ? '◌ off here' : '◌ paused here'}</Text>)
+      if (paused) {
+        const off = scope.mode === 'off'
+        rows.push(<Text key="qpaused" color={C.amber} bold>{off ? '◌ Counterparts off' : '⏸ Counterparts paused'}</Text>)
+        rows.push(<Text key="qpaused2" color={C.amber}>in this folder</Text>)
+        rows.push(
+          <Button key="resume-banner" plain onPress={() => quietBanner($)}>
+            <Text color={C.amber} underline>{scope.mode === 'paused' && scope.own ? 'click to resume' : off ? 'why?' : 'how to resume'}</Text>
+          </Button>,
+        )
+        rows.push(<Text key="qgap2"> </Text>)
+      }
       const room = Math.max(3, fill - 4)
       mine.slice(0, room).forEach(r => {
         rows.push(
@@ -1156,32 +1295,94 @@ export const register: Register = on => {
         <Text color={C.dim}>{pulse === null ? '' : `day ${String(pulse.day)} · ${String(pulse.memories)}`}</Text>
       </Box>,
     )
+    if (paused) {
+      // Every session in this folder sees it, before anything else in the pane.
+      const off = scope.mode === 'off'
+      rows.push(
+        <Box key="paused-banner" flexDirection="column" width={w}>
+          <Text color={C.amber} bold>{ellipsize(off ? '◌ Counterparts memory off in this folder' : '⏸ Counterparts paused in this folder', w)}</Text>
+          <Button key="resume-banner" plain onPress={() => toggleScope($)}>
+            <Text color={C.amber} underline>
+              {ellipsize(off ? 'why, and how to turn it on' : scope.own ? 'click to resume' : `paused by ${shortDir(scope.setBy)} · how to resume`, w)}
+            </Text>
+          </Button>
+        </Box>,
+      )
+    }
     rows.push(<Text key="gap1"> </Text>)
 
-    // ── the two switches ──
-    // on (its own, inherited, or unset: on by default), observer (reads only,
-    // a darker track), paused or off (off); unknown until the first read.
-    const cpOn = !paused
+    // ── the two switches, one a line, each saying what it governs ──
+    // Counterparts: on (its own, inherited, or unset: on by default), reads
+    // only (observer, a darker track), paused or off (off), or not known yet
+    // (a grey track with a `?`: never drawn as on). Hovered, each says what a
+    // click does.
+    const known = scope.mode !== 'unknown'
+    const cpOn = known && !paused
     const readsOnly = scope.mode === 'observer'
-    const cpDim = scope.mode === 'unknown' || scope.busy
-    const sw = (isOn: boolean, dim: boolean, track?: string) =>
-      switchCells(isOn, caps, dim, track).map((c, i) => (
+    const swCells = (cs: Cell[]) =>
+      cs.map((c, i) => (
         <Text key={`c${String(i)}`} {...(c.fg === undefined ? {} : { color: c.fg })} {...(c.bg === undefined ? {} : { backgroundColor: c.bg })}>
           {c.t}
         </Text>
       ))
+    const labelled = (label: string) => padCells(ellipsizeCells(label, w - 5), w - 4)
+    const said = (key: string, text: string) => (
+      <Box display="none" hover={{ display: 'flex' }} flexDirection="column">
+        {wrap(text, w - 2).map((l, i) => (
+          <Box key={`${key}${String(i)}`} flexDirection="row">
+            <Text color={C.faint}>{'  '}</Text>
+            <Text color={C.dim}>{l}</Text>
+          </Box>
+        ))}
+      </Box>
+    )
+    const cpLabel = readsOnly ? 'Counterparts reads only · this folder' : 'Counterparts memory · this folder'
     rows.push(
-      <Box key="switches" flexDirection="row" justifyContent="space-between" width={w}>
+      <Box key="row-cp" flexDirection="column" width={w}>
         <Button key="toggle-cp" plain onPress={() => toggleScope($)}>
-          <Text color={cpOn ? C.text : C.dim}>{readsOnly ? 'Reads only ' : 'Counterparts '}</Text>
-          {sw(cpOn, cpDim, readsOnly ? C.trackRead : undefined)}
+          <Text color={cpOn ? C.text : C.dim}>{labelled(cpLabel)}</Text>
+          {swCells(known ? switchCells(cpOn, caps, scope.busy, readsOnly ? C.trackRead : undefined) : unknownCells(caps))}
         </Button>
-        <Button key="toggle-mem" plain onPress={() => toggleClaudeMemory($)}>
-          <Text color={memoryOn ? C.text : C.dim}>Claude memory </Text>
-          {sw(memoryOn, false)}
-        </Button>
+        {known ? null : (
+          <Text key="cp-unknown" color={C.dim}>
+            {scope.busy || run.scopeReading
+              ? '  checking…'
+              : scope.unread === 'no-server'
+                ? '  state unknown · no memory server yet'
+                : '  state unknown · click to check'}
+          </Text>
+        )}
+        {said('cpw', scopeHover(scope))}
       </Box>,
     )
+    rows.push(
+      <Box key="row-mem" flexDirection="column" width={w}>
+        <Button key="toggle-mem" plain onPress={() => toggleClaudeMemory($)}>
+          <Text color={memoryOn ? C.text : C.dim}>{labelled("Claude Code's own memory")}</Text>
+          {swCells(switchCells(memoryOn, caps, false))}
+        </Button>
+        {said('memw', memoryHover(memoryOn))}
+      </Box>,
+    )
+    if (pauseAsk !== null && cpOn) {
+      const q = `Pause Counterparts memory in ${shortDir(pauseAsk.dir)} for every session here?`
+      for (const [i, l] of wrap(q, w - 2).entries()) {
+        rows.push(
+          <Box key={`ask${String(i)}`} flexDirection="row">
+            <Text color={C.amber}>▎ </Text>
+            <Text color={C.text}>{l}</Text>
+          </Box>,
+        )
+      }
+      rows.push(
+        <Box key="pause-ask" flexDirection="row">
+          <Text color={C.amber}>▎ </Text>
+          <Button key="confirm-pause" onPress={() => confirmPause($)}>Pause</Button>
+          <Text> </Text>
+          <Button key="cancel-pause" onPress={() => cancelPause($)}>Cancel</Button>
+        </Box>,
+      )
+    }
     if (note !== null) {
       for (const [i, l] of wrap(note.text, w - 2).entries()) {
         rows.push(

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
-import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, wrap } from '../hooks/feed'
+import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, shortDir, wrap } from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { MECHS, STAGES } from '../hooks/mechanisms'
 import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0 } from './world'
@@ -208,4 +208,13 @@ describe('the feed', () => {
     expect(wrap('the quick brown fox jumps', 10)).toEqual(['the quick', 'brown fox', 'jumps'])
     expect(wrap('abcdefghijkl', 5)).toEqual(['abcde', 'fghij', 'kl'])
   })
+})
+
+test('a folder as a person says it: a home folder as ~', () => {
+  expect(shortDir('/Users/mike/random')).toBe('~/random')
+  expect(shortDir('/home/mike')).toBe('~')
+  expect(shortDir('/Users/mikeother')).toBe('~')
+  expect(shortDir('/work/project')).toBe('/work/project')
+  expect(shortDir('/Users')).toBe('/Users')
+  expect(shortDir(null)).toBe('this folder')
 })

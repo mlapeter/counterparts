@@ -56,12 +56,12 @@ async function band($: Engine, w: World, docks: boolean): Promise<void> {
   await ui.unmount()
 }
 
-test('nothing is opened, read or drawn at session start; a docking surface opens it, 44 columns', async ($, on) => {
+test('at session start nothing is opened or drawn and the dashboard is not read, but where this folder stands is; a docking surface opens it, 44 columns', async ($, on) => {
   const w = world(on)
   await start($, w)
   expect(w.opens).toHaveLength(0)
   expect(w.fetches).toHaveLength(0)
-  expect(w.mcp).toHaveLength(0)
+  expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }]) // one read, no dialog (the world allows it)
   await band($, w, true)
   expect(w.opens).toEqual([{ id: PANE, title: 'Counterparts', columns: 44 }])
   expect(w.fetches).toHaveLength(0) // still nothing read: the pane has not drawn
@@ -100,8 +100,8 @@ test('drawn, it reads the dashboard and heads itself with the day and the count'
     expect((await ui.find({ type: 'Text', text: 'day 18 · 776' }))?.text).toBe('day 18 · 776')
     expect(await ui.find({ type: 'Text', text: '◉ COUNTERPARTS' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'fold' })).toBeDefined()
-    expect((await ui.find({ type: 'Button', key: 'toggle-cp' }))?.text).toContain('Counterparts')
-    expect((await ui.find({ type: 'Button', key: 'toggle-mem' }))?.text).toContain('Claude memory')
+    expect((await ui.find({ type: 'Button', key: 'toggle-cp' }))?.text).toContain('Counterparts memory · this folder')
+    expect((await ui.find({ type: 'Button', key: 'toggle-mem' }))?.text).toContain("Claude Code's own memory")
     if (surface === 'terminal') {
       const r = await ui.find({ type: 'Raster', key: 'brain' })
       expect(r?.props['columns']).toBe(42)
@@ -514,17 +514,21 @@ test('search counts what matched in all, from the answer’s header, and says wh
   await ui.unmount()
 })
 
-test('the Counterparts switch pauses a folder set on, and resumes it; paused, the brain is grey and the list says so', async ($, on) => {
+test('the Counterparts switch asks before it pauses a folder set on, and resumes it at once; paused, the brain is grey and the list says so', async ($, on) => {
   const w = world(on)
   await start($, w)
-  expect(w.mcp).toHaveLength(0) // nothing asked before the pane draws
+  expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }]) // the quiet read at start, once
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
-    expect(w.mcp[0]).toEqual({ server: 'counterparts', tool: 'scope', args: {} }) // the quiet read, once
+    const before = w.mcp.length
     await ui.press({ key: 'toggle-cp' })
+    expect(w.mcp).toHaveLength(before) // the press asked first, and called nothing
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeDefined()
+    await ui.press({ key: 'confirm-pause' })
     expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: { mode: 'pause' } })
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: 'PAUSED' })).toBeDefined()
-    expect(w.lastStatus()).toBe('◌ paused in this folder')
+    expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · /counterparts resume')
     if (surface === 'terminal') {
       const cells = decodeCells(String((await ui.find({ type: 'Raster', key: 'brain' }))?.props['cells']))
       for (let i = 0; i < cells.length; i += 3) {
@@ -535,7 +539,7 @@ test('the Counterparts switch pauses a folder set on, and resumes it; paused, th
         expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(40)
       }
     }
-    await ui.press({ key: 'toggle-cp' })
+    await ui.press({ key: 'toggle-cp' }) // resuming asks nothing
     expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: { mode: 'resume' } })
     expect(w.scope.mode).toBe('on')
     expect(await ui.find({ type: 'Text', text: 'ACTIVITY' })).toBeDefined()
@@ -550,7 +554,8 @@ test('a folder set off shows off, and the switch explains rather than turning it
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     expect(await ui.find({ type: 'Text', text: 'OFF' })).toBeDefined()
-    expect(w.lastStatus()).toBe('◌ off in this folder')
+    expect(await ui.find({ type: 'Text', text: '◌ Counterparts memory off in this folder' })).toBeDefined()
+    expect(w.lastStatus()).toBe('◌ Counterparts memory off in this folder')
     await ui.press({ key: 'toggle-cp' })
     expect(w.mcp.some(c => c.args['mode'] !== undefined)).toBe(false) // no resume sent, ever
     const said = (await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')
@@ -593,11 +598,13 @@ test('observer shows as reads-only, not on; a pause of it resumes to observer', 
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     const sw = await ui.find({ type: 'Button', key: 'toggle-cp' })
-    expect(sw?.text).toContain('Reads only')
+    expect(sw?.text).toContain('Counterparts reads only · this folder')
     const cells = (sw?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object' && c !== null)
     expect(cells.some(c => c.props['backgroundColor'] === '#0b6f7c')).toBe(true) // the darker, read-only track
     expect(w.lastStatus()).toContain('reads only here')
     await ui.press({ key: 'toggle-cp' })
+    expect(w.scope.mode).toBe('observer') // asked first
+    await ui.press({ key: 'confirm-pause' })
     expect(w.scope.mode).toBe('paused')
     await ui.press({ key: 'toggle-cp' })
     expect(w.scope.mode).toBe('observer')
@@ -611,12 +618,13 @@ test('unasked, the switch reads this folder only when no permission dialog would
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     if (surface === 'terminal') {
-      expect(w.mcp).toHaveLength(0) // nothing asked behind the person's back
+      expect(w.mcp).toHaveLength(0) // nothing asked behind the person's back, at start or at the drawing
       await ui.press({ key: 'toggle-cp' }) // the first press learns where the folder stands
       expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }])
-      expect((await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')).toContain('Counterparts is on in this folder. Press again to pause it.')
-    }
-    await ui.press({ key: 'toggle-cp' }) // each press after that is one call
+      expect((await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')).toContain('Counterparts memory is on in this folder. Press again to pause it (it asks first).')
+      await ui.press({ key: 'toggle-cp' })
+      await ui.press({ key: 'confirm-pause' })
+    } else await ui.press({ key: 'toggle-cp' }) // a resume asks nothing
     expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: { mode: surface === 'terminal' ? 'pause' : 'resume' } })
     await ui.unmount()
   }
@@ -792,4 +800,148 @@ test('headless (-p): nothing opens, ticks or reads', async ($, on) => {
   expect(w.opens).toHaveLength(0)
   expect(w.blits).toHaveLength(0)
   expect(w.fetches).toHaveLength(0)
+  expect(w.mcp).toHaveLength(0) // not even the folder's scope
+})
+
+// ── 2026-10-09: a press meant for Claude Code's memory paused ~/random, and
+// the sidebar drew the unread state as on while three sessions there ran
+// with no wake, no recall and no log lines. ──
+
+/** The four cells of a switch, as drawn. */
+async function switchCellsOf(ui: Awaited<ReturnType<typeof mount>>, key: string): Promise<{ text: string; props: Record<string, unknown> }[]> {
+  const sw = await ui.find({ type: 'Button', key })
+  return (sw?.children ?? []).filter((c): c is { text: string; props: Record<string, unknown> } => typeof c === 'object' && c !== null)
+}
+
+function drawnOn(cells: { props: Record<string, unknown> }[]): boolean {
+  return cells.some(c => c.props['backgroundColor'] === '#00e5ff' || c.props['backgroundColor'] === '#0b6f7c' || c.props['color'] === '#f4fcff')
+}
+
+test('an unknown state is never drawn as on: unread for a permission dialog it says “state unknown · click to check”; reading, “checking…”', async ($, on) => {
+  const w = world(on, { permission: 'ask', scopeReadMs: 800 })
+  await start($, w)
+  expect(w.mcp).toHaveLength(0)
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    if (surface === 'terminal') {
+      const cells = await switchCellsOf(ui, 'toggle-cp')
+      expect(drawnOn(cells)).toBe(false)
+      expect((await ui.find({ type: 'Button', key: 'toggle-cp' }))?.text).toContain('?')
+      expect(await ui.find({ type: 'Text', text: /state unknown · click to check/ })).toBeDefined()
+      expect(w.lastStatus()).not.toContain('paused')
+      const pressing = ui.press({ key: 'toggle-cp' }) // the read takes 800 ms
+      await settle(w)
+      expect(await ui.find({ type: 'Text', text: /checking…/ })).toBeDefined()
+      expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(false)
+      await w.clock.advance(1000)
+      await pressing
+      await settle(w)
+      expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(true) // read: on, so drawn on
+      expect(await ui.find({ type: 'Text', text: /state unknown/ })).toBeUndefined()
+    }
+    await ui.unmount()
+  }
+})
+
+test('each switch says what it governs, and hovered, what a click does', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    const shown = (await texts(ui)).replace(/\s+/g, ' ')
+    expect(shown).toContain('Counterparts memory · this folder')
+    expect(shown).toContain("Claude Code's own memory")
+    // The hover lines are drawn hidden (display none) and shown under the pointer by the surface.
+    expect(shown).toContain('Pauses Counterparts for every session in this folder: no wake, no recall, nothing remembered, until you turn it back on.')
+    expect(shown).toContain('Counterparts is the other switch and stays as it is.')
+    await ui.unmount()
+  }
+})
+
+test('pausing asks first: Cancel calls nothing, and an unanswered ask closes by itself', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    const calls = () => w.mcp.filter(c => c.args['mode'] !== undefined)
+    await ui.press({ key: 'toggle-cp' })
+    expect(calls()).toHaveLength(0)
+    expect((await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')).toContain(`Pause Counterparts memory in ${HERE} for every session here?`)
+    await ui.press({ key: 'cancel-pause' })
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeUndefined()
+    expect(calls()).toHaveLength(0)
+    await ui.press({ key: 'toggle-cp' })
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeDefined()
+    await w.clock.advance(31000)
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeUndefined()
+    expect(calls()).toHaveLength(0)
+    expect(w.scope.mode).toBe('on')
+    await ui.unmount()
+  }
+})
+
+test('a paused folder says so in every view: amber in the pane, the quiet view and the status line, hidden or not; /counterparts resume', async ($, on) => {
+  const w = world(on, { scopeMode: 'paused' })
+  await start($, w)
+  const paused = '⏸ Counterparts memory paused in this folder · /counterparts resume'
+  expect(w.lastStatus()).toBe(paused) // before any pane is drawn
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    const banner = await ui.find({ type: 'Text', text: '⏸ Counterparts paused in this folder' })
+    expect(banner?.props['color']).toBe('#ffb347')
+    expect((await ui.find({ type: 'Button', key: 'resume-banner' }))?.text).toContain('click to resume')
+    expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(false)
+    await ui.press({ key: 'fold' })
+    expect((await ui.find({ type: 'Text', text: '⏸ Counterparts paused' }))?.props['color']).toBe('#ffb347')
+    expect(await ui.find({ type: 'Button', key: 'resume-banner' })).toBeDefined()
+    expect(w.lastStatus()).toBe(paused)
+    await ui.press({ key: 'unfold' })
+    await ui.unmount()
+  }
+  await $.command.run({ command: 'counterparts', args: 'hide' } as never)
+  expect(w.lastStatus()).toBe(paused)
+  const out = await $.command.run({ command: 'counterparts', args: 'resume' } as never)
+  expect(out.text).toBe(`Counterparts memory is back on in ${HERE}.`)
+  expect(w.mcp.at(-1)?.args).toEqual({ mode: 'resume' })
+  expect(w.lastStatus()).toBe('◉ /counterparts to open')
+})
+
+test('the paused banner resumes with one click', async ($, on) => {
+  const w = world(on, { scopeMode: 'paused' })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await ui.press({ key: 'resume-banner' })
+  expect(w.mcp.at(-1)?.args).toEqual({ mode: 'resume' })
+  expect(await ui.find({ type: 'Button', key: 'resume-banner' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('paused by a parent folder: the banner names it and explains, and resumes nothing here', async ($, on) => {
+  const w = world(on, { scopeMode: 'paused', scopeSetBy: '/work' })
+  await start($, w)
+  expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · resume it in /work')
+  const ui = await mount($, w, 'terminal')
+  expect((await ui.find({ type: 'Button', key: 'resume-banner' }))?.text).toContain('paused by /work')
+  await ui.press({ key: 'resume-banner' })
+  expect(w.mcp.some(c => c.args['mode'] !== undefined)).toBe(false)
+  expect((await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')).toContain('Resume it there: `counterparts scope /work')
+  await ui.unmount()
+})
+
+test('repro 2026-10-09: another session pauses this folder; a session started there shows paused at once, and never draws on', async ($, on) => {
+  const w = world(on)
+  // The other session's press, as the server kept it: this folder's own entry, paused.
+  Object.assign(w.scope, { mode: 'paused', setBy: HERE, resumeTo: 'on' })
+  await start($, w)
+  expect(w.opens).toHaveLength(0)
+  expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: {} }) // read at start
+  expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · /counterparts resume')
+  await band($, w, true)
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    expect(await ui.find({ type: 'Text', text: '⏸ Counterparts paused in this folder' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'PAUSED' })).toBeDefined()
+    expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(false)
+    await ui.unmount()
+  }
 })

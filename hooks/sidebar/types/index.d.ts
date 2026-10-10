@@ -85,6 +85,13 @@ export type SidebarScope = {
   dir: string | null;
   error: string | null;
   busy: boolean;
+  /**
+   * Why the mode is still `unknown`: `ask` (the person's permission settings
+   * would open a dialog for an unasked read, so none was made), `no-server`
+   * (no Counterparts memory server in this session yet), or null (not tried,
+   * or read). An unknown mode is never drawn as on.
+   */
+  unread: 'ask' | 'no-server' | null;
 };
 
 /** A line or two the switch explains itself with, under the switches. */
@@ -119,6 +126,13 @@ declare module 'claude-code' {
       caps: 'round' | 'block';
       /** What the Counterparts switch said about a press it would not act on. */
       switchNote: SidebarNote | null;
+      /**
+       * The confirm row a press on the Counterparts switch opens before a
+       * pause (since 2026-10-09: a press meant for the other switch paused a
+       * folder): `dir` is the folder it would pause, `at` when it opened.
+       * Only its [Pause] calls the scope tool; [Cancel] or 30 s closes it.
+       */
+      pauseAsk: { dir: string; at: number } | null;
       /** The quiet view's `◉` lights in this stage colour for a moment after an event. */
       flash: SidebarMark | null;
     };

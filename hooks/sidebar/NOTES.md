@@ -28,10 +28,11 @@ It opens by itself only where the terminal docks a pane beside the transcript
 (the fullscreen layout). Elsewhere, and after closing it by hand,
 `/counterparts` opens it. `/counterparts fps` shows the brain's frame rate,
 `/counterparts quiet` makes it quiet (as `‹` does), `/counterparts hide`
-hides it (as its `✕` does), `/counterparts caps` swaps the switch ends.
+hides it (as its `✕` does), `/counterparts resume` resumes a folder paused
+here, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (57 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (65 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -74,9 +75,14 @@ Found on the way (each **verified** unless marked):
   `mcp__counterparts__recall` ends the asking for search. **Not for `scope`**:
   with that rule the model could pause or turn off folders unasked. (Mike runs
   in auto mode; whether its classifier passes these quietly is **assumed**,
-  not measured.) The quiet read happens once, at the pane's first drawing (and
-  again after a hot reload), and each one is one `mcp.scope.read` line in the
-  event log.
+  not measured.) The quiet read happens at **session start** in every
+  interactive session (since 2026-10-09; before, at the pane's first drawing),
+  and the first drawing tries again only if that found no server. Each read is
+  one `mcp.scope.read` line in the event log, so every interactive session now
+  logs one. That the memory server is already listed at `session.start` is
+  **assumed** (the test world answers at once; live, MCP may connect later):
+  if it isn't, the start read looks again at 2 s, 5 s and 15 s, then leaves it
+  to the first drawing.
 - The recall block arrives at `session.append` as door `hook-context`, name
   `hook_additional_context`, origin `{ kind: 'hook', event: 'UserPromptSubmit' }`,
   inside a system reminder (a `-p` run with a settings hook printing a block).
@@ -290,14 +296,39 @@ Mike's first real run is the real measurement.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
+- **2026-10-09, Mike's trial: a press meant for Claude Code's memory paused
+  ~/random.** The label "Counterparts" beside "Claude memory" didn't say which
+  memory was which, the press paused at once, and a folder whose state was
+  never read drew as on. The folder stayed paused for about ten minutes; three
+  ~/random sessions got no wake, no recall and no log lines (a paused folder's
+  hooks return before logging). Since then:
+  - the switches read **"Counterparts memory · this folder"** and **"Claude
+    Code's own memory"**, one a line, and hovered each says what a click does
+    (a hidden Box revealed by `hover: { display: 'flex' }` in the row's keyed
+    Box: **verified** in the test kit that the words are drawn; the reveal
+    itself is the surface's, **assumed** from the reference, and it pushes the
+    rows below down while the pointer is on the row);
+  - **an unknown state is never drawn as on**: a grey track with a `?`, and
+    "state unknown · click to check" (or "checking…" while reading);
+  - **a pause asks first**: a confirm row, "Pause Counterparts memory in
+    ~/random for every session here? [Pause] [Cancel]". Only [Pause] calls the
+    tool; Cancel, or 30 s, closes it. Resuming asks nothing;
+  - **a paused folder shows everywhere**: an amber "⏸ Counterparts paused in
+    this folder · click to resume" under the header (quiet view too), and the
+    status line ("⏸ Counterparts memory paused in this folder · /counterparts
+    resume") in every view, hidden included. `$.ui.status` takes text only, so
+    the status line can't be amber: the ⏸ and the words carry it;
+  - the folder is read at session start (above), so a session started in a
+    paused folder says so before anything is drawn.
 - **The Counterparts switch shows four folder states, not two, and acts on only
   some of them.**
   - **States:** `on` and `unset` (on by default) draw on. `observer` draws
-    "Reads only" on a darker track. `paused` and `off` draw off, and the list
-    says PAUSED or OFF. Before the first read it is dim.
-  - **What a press does:** the first press learns the state. After that it
-    pauses only a folder whose **own** entry is `on` or `observer` (the pause
-    remembers which), and it resumes only its own pause. One call per press.
+    "Counterparts reads only" on a darker track. `paused` and `off` draw off,
+    and the list says PAUSED or OFF. Unread, it is a grey `?` (above).
+  - **What a press does:** while unread, a press only learns the state. After
+    that it asks before pausing a folder whose **own** entry is `on` or
+    `observer` (the pause remembers which), and it resumes only its own pause,
+    at once. One call per confirmed press.
   - **What it refuses, and says so** in a line under the switches, with the
     console command that would do it:
     - an `off` folder (no `resume` is ever sent to one; the line names
