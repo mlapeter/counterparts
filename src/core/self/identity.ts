@@ -50,6 +50,12 @@ export interface Ranked {
   readonly lastRendered: number;
   /** Hints only: why it ranked where it did (`hintReading`). */
   readonly hint?: HintReading;
+  /**
+   * Horizon only (2026-10-10): a plain reminder due the day this wake is
+   * read (`HorizonItem.plainDue`). It leads the lane, and it outranks the
+   * self page's borrowing (`briefing.ts#ROOM_ORDER`'s `due`).
+   */
+  readonly due?: boolean;
 }
 
 /**

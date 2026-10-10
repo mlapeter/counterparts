@@ -19,6 +19,7 @@
  *     (`self/INTERFACE-GAPS.md` §3: the lane, its heading and its trim position
  *     are already built; only the source was borrowed).
  */
+import { plainDueOn } from "./prospective/index.js";
 import type { RenderFn } from "./sleep/index.js";
 import { isDay, readableRecurrence } from "./time.js";
 import type { Recurrence } from "./time.js";
@@ -36,7 +37,7 @@ export interface BriefingRenderer {
 /** Structurally `Prospective.horizon()`. */
 export interface HorizonSource {
   horizon(input: { at: string; day?: number }): {
-    items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence }[];
+    items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence; mode?: "quiet" | "plain" }[];
   };
 }
 
@@ -50,9 +51,14 @@ export interface RendererOptions {
   /** Its shorter forms, widest first (review of #350): stepped down only to
    *  make room for "Still open"'s first item. */
   yesterdayShorter?: readonly string[];
-  /** The room the delivery holds for "Work here", lent to "Still open"'s
-   *  first item only (`self/briefing.ts#keepFirstOpen`, review of #350). */
+  /** The room the delivery holds for "Work here", lent to the lanes above it
+   *  (`self/briefing.ts#ROOM_ORDER`, review of #350). */
   lendBytes?: number;
+  /** The room the delivery holds for "Last here" and the handoff pointer,
+   *  lent after "Work here" and the Yesterday line's titles to "Arriving:"
+   *  and "Still open"'s first item (`self/briefing.ts#ROOM_ORDER`,
+   *  2026-10-10). */
+  handoffLendBytes?: number;
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -84,6 +90,9 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
                 due: i.eventDate,
                 ...(every === "" ? {} : { every }),
                 ...(isDay(i.eventDate) && isDay(at) && i.eventDate < at ? { past: true } : {}),
+                // A plain reminder due the day this wake is read (2026-10-10):
+                // it leads the lane and outranks the page's borrowing.
+                ...(plainDueOn(i, at) ? { plainDue: true } : {}),
               };
             });
     const result = self.boundary({
@@ -93,6 +102,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       ...(opts.yesterday === undefined ? {} : { yesterday: opts.yesterday }),
       ...(opts.yesterday === undefined || opts.yesterdayShorter === undefined ? {} : { yesterdayShorter: opts.yesterdayShorter }),
       ...(opts.lendBytes === undefined || opts.lendBytes <= 0 ? {} : { lendBytes: opts.lendBytes }),
+      ...(opts.handoffLendBytes === undefined || opts.handoffLendBytes <= 0 ? {} : { handoffLendBytes: opts.handoffLendBytes }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };

@@ -399,9 +399,15 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
  */
 export function yesterdayLine(day: readonly ChaptersOnDate[], date: string, titles = YESTERDAY_SHOWN): string | null {
   if (day.length === 0) return null;
-  const shown = day.slice(0, Math.max(1, titles)).map((c) => {
+  // The first `YESTERDAY_SHOWN` are named, the first `titles` of them by
+  // title and id and the rest by id alone — pointers instead of titles
+  // (2026-10-10, `yesterdayShorter`); past them, a count.
+  const named = Math.min(day.length, YESTERDAY_SHOWN);
+  const shown = day.slice(0, named).map((c, i) => {
     const n = c.chapters > 1 ? `, ${String(c.chapters)} chapters` : "";
-    return c.title === null ? `${c.id}${n === "" ? "" : ` (${n.slice(2)})`}` : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id}${n})`;
+    return c.title === null || i >= titles
+      ? `${c.id}${n === "" ? "" : ` (${n.slice(2)})`}`
+      : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id}${n})`;
   });
   const rest = day.length - shown.length;
   return flatten(`Yesterday, ${date.slice(5)}: ${shown.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`);
@@ -409,16 +415,23 @@ export function yesterdayLine(day: readonly ChaptersOnDate[], date: string, titl
 
 /**
  * THE SAME LINE, SHORTER (review of #350, 2026-10-09): one title fewer at a
- * time, down to one, the rest by count — widest first, and none when the line
- * already names one. The wake steps down these only to make room for "Still
- * open"'s first item beside a long self page (`self/briefing.ts#keepFirstOpen`);
- * the count is honest because it is counted here, where the chapters are.
+ * time, down to none — widest first, each strictly narrower than the one
+ * before, and none when the line names no title. Since 2026-10-10 a title
+ * given up leaves its id in its place — POINTERS INSTEAD OF TITLES — so every
+ * chapter the whole line names is still named, by the id `recall` opens, and
+ * the count past them is the whole line's. The wake steps down these to make
+ * room for what ranks above the line (`self/briefing.ts#ROOM_ORDER`): the
+ * Arriving lane and "Still open"'s first item; the count is honest because it
+ * is counted here, where the chapters are.
  */
 export function yesterdayShorter(day: readonly ChaptersOnDate[], date: string): string[] {
   const out: string[] = [];
-  for (let n = Math.min(YESTERDAY_SHOWN, day.length) - 1; n >= 1; n--) {
+  let last = yesterdayLine(day, date);
+  for (let n = Math.min(YESTERDAY_SHOWN, day.length) - 1; n >= 0; n--) {
     const line = yesterdayLine(day, date, n);
-    if (line !== null) out.push(line);
+    if (line === null || last === null || line.length >= last.length) continue;
+    out.push(line);
+    last = line;
   }
   return out;
 }

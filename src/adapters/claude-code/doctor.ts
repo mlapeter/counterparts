@@ -3285,6 +3285,7 @@ export function wakeArrivalFindings(store: Store): Finding[] {
     handoffNoRoom: room.handoffNoRoom,
     lastHereNoRoom: room.lastHereNoRoom,
     workNoRoom: room.workNoRoom,
+    datedUnlisted: room.datedUnlisted,
     floor,
   };
   const head =
@@ -3328,6 +3329,9 @@ interface WakeRoom {
   readonly handoffNoRoom: number;
   readonly lastHereNoRoom: number;
   readonly workNoRoom: number;
+  /** Wake renders that left a dated item ("Arriving:") unlisted for want of
+   *  room (2026-10-10) — amber. */
+  readonly datedUnlisted: number;
   /** The clauses, each led by "; ", or "". */
   readonly clauses: string;
   /** The amber's remedy, or null when nothing here is amber. */
@@ -3355,6 +3359,13 @@ function wakeRoom(store: Store, since: number): WakeRoom {
   const handoffNoRoom = read(HANDOFF_REFUSED_EVENT).filter((r) => str(payloadOf(r), "reason") === "no-room").length;
   const lastHereNoRoom = read(LAST_HERE_NOROOM_EVENT).length;
   const workNoRoom = read(WORK_OVERFLOW_EVENT).filter((r) => str(payloadOf(r), "cause") === "room").length;
+  // A DATED ITEM THE WAKE DID NOT LIST (2026-10-10): a render whose durable
+  // row says "Arriving:" lost an element for want of room
+  // (`self/briefing.ts#ROOM_ORDER`) — by its uncapped per-lane count, or, on
+  // a row from before that count, by its trimmed list.
+  const datedRows = read(SELF_BRIEFING_EVENT).filter((r) => datedUnlisted(payloadOf(r)) > 0);
+  const datedUnlistedRenders = datedRows.length;
+  const datedNewest = rowDate(datedRows[0]);
   const parts = Object.entries(gaveWay)
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .map(([part, n]) => `${part} ${String(n)}`);
@@ -3375,13 +3386,39 @@ function wakeRoom(store: Store, since: number): WakeRoom {
           .filter((s) => s.length > 0)
           .join(" and ")}`
       : "") +
-    (workNoRoom > 0 ? `; "Work here" lines that did not fit, in ${String(workNoRoom)} ${workNoRoom === 1 ? "directory-day" : "directory-days"}` : "");
-  const amber =
-    overCap > 0
-      ? "Claude Code shows a hook's output past 10,000 characters only as a preview, so that output did not reach the session whole. Nothing to do by hand; if it repeats, worth reporting with this line."
-      : null;
+    (workNoRoom > 0 ? `; "Work here" lines that did not fit, in ${String(workNoRoom)} ${workNoRoom === 1 ? "directory-day" : "directory-days"}` : "") +
+    (datedUnlistedRenders > 0
+      ? `; a dated item under "Arriving:" was not listed for want of room in ${String(datedUnlistedRenders)} ${datedUnlistedRenders === 1 ? "wake" : "wakes"}${datedNewest === null ? "" : ` (newest ${datedNewest})`}`
+      : "");
+  const remedies = [
+    ...(datedUnlistedRenders > 0
+      ? [
+          "A dated item is listed before everything below it gives way — \"Work here\", the Yesterday line's titles, \"Last here\" and the handoffs — so a wake that still had no room for it is over-full: give the self page a short version or bring it under its room (`counterparts self-page`), or raise `injectionBudgetBytes`. The item is still a memory, and recall finds it.",
+        ]
+      : []),
+    ...(overCap > 0
+      ? ["Claude Code shows a hook's output past 10,000 characters only as a preview, so that output did not reach the session whole. Nothing to do by hand; if it repeats, worth reporting with this line."]
+      : []),
+  ];
+  const amber = remedies.length === 0 ? null : remedies.join(" ");
   const any = clauses.length > 0;
-  return { overBudget, overCap, noticeDropped, gaveWay, handoffNoRoom, lastHereNoRoom, workNoRoom, clauses, amber, any, floor };
+  return { overBudget, overCap, noticeDropped, gaveWay, handoffNoRoom, lastHereNoRoom, workNoRoom, datedUnlisted: datedUnlistedRenders, clauses, amber, any, floor };
+}
+
+/**
+ * HOW MANY DATED ITEMS ONE RENDER LEFT UNLISTED (2026-10-10), from its
+ * `self.briefing` payload: the uncapped per-lane count (`trimmedLanes`), or —
+ * on a row written before it — the `horizon` entries of its trimmed list.
+ */
+function datedUnlisted(p: Record<string, unknown>): number {
+  const lanes = p["trimmedLanes"];
+  if (typeof lanes === "object" && lanes !== null) {
+    const n = (lanes as Record<string, unknown>)["horizon"];
+    return typeof n === "number" ? n : 0;
+  }
+  const trimmed = p["trimmed"];
+  if (!Array.isArray(trimmed)) return 0;
+  return trimmed.filter((e) => typeof e === "object" && e !== null && (e as Record<string, unknown>)["lane"] === "horizon").length;
 }
 
 /** How far back the Tool results line reads, in lived days. */
