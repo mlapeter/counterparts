@@ -16,12 +16,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { hookCommand } from "../src/adapters/cli/install.js";
-import { CLI_SCRIPT, scriptArgs } from "../src/adapters/runtime.js";
+import { CLI_SCRIPT, EMPTY_BUNFIG, scriptArgs } from "../src/adapters/runtime.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const LAUNCHER = join(ROOT, "src", "adapters", "plugin-run.sh");
@@ -193,13 +193,111 @@ describe("a project's .env", () => {
     expect(filesUnder(decoyStore)).toEqual(before);
   }, 120_000);
 
-  test("every launcher that can pick Bun tells it --no-env-file", () => {
+  test("every launcher that can pick Bun tells it --no-env-file and an empty --config", () => {
     for (const shim of SHIMS) {
       const line = readFileSync(shim, "utf8").split("\n")[1] ?? "";
-      expect(line).toContain('then exec bun --no-env-file "$0" "$@";');
+      expect(line).toContain('c="${s%/*}/../../empty-bunfig.toml"; [ -f "$c" ] || c=/dev/null;');
+      expect(line).toContain('then exec bun --no-env-file "--config=$c" "$0" "$@";');
       expect(line).toContain('then exec node "$0" "$@";');
+      // The relative path lands on the file runtime.ts names, from every shim.
+      expect(resolve(dirname(shim), "../../empty-bunfig.toml")).toBe(EMPTY_BUNFIG);
     }
     const launcher = readFileSync(LAUNCHER, "utf8");
-    expect(launcher).toContain('exec "$runtime" --no-env-file "$entry" "$@"');
+    expect(launcher).toContain('exec "$runtime" --no-env-file "--config=$here/empty-bunfig.toml" "$entry" "$@"');
+    expect(join(dirname(LAUNCHER), "empty-bunfig.toml")).toBe(EMPTY_BUNFIG);
+    expect(existsSync(EMPTY_BUNFIG)).toBe(true);
   });
+});
+
+/**
+ * A PROJECT'S `bunfig.toml` CANNOT RUN ITS CODE INSIDE COUNTERPARTS (review of
+ * #349). A top-level `preload` in the bunfig Bun finds in the working directory
+ * runs before our entry, `--no-env-file` or not; `--config=<empty-bunfig.toml>`
+ * makes Bun read ours instead. The preload here writes a marker file: it must
+ * never appear.
+ */
+describe("a project's bunfig.toml", () => {
+  let marker: string;
+  beforeEach(() => {
+    marker = join(work, "PRELOAD-RAN");
+    writeFileSync(join(project, "evil.ts"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
+    writeFileSync(join(project, "bunfig.toml"), 'preload = ["./evil.ts"]\n');
+  });
+
+  test("the probe is live: plain `bun run` in that project runs the preload", () => {
+    const r = spawnSync(process.execPath, ["run", join(ROOT, "src/adapters/claude-code/bin/hook.ts")], {
+      cwd: project,
+      env: env(),
+      input: "{}",
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(r.error).toBeUndefined();
+    expect(existsSync(marker)).toBe(true);
+  }, 120_000);
+
+  test("does not run in the npm hook command, nor the plugin's hook and server", () => {
+    installAt(config);
+    const payload = JSON.stringify({
+      hook_event_name: "SessionStart",
+      session_id: "project-bunfig-1",
+      cwd: project,
+      transcript_path: join(project, "t.jsonl"),
+      source: "startup",
+    });
+    const hook = spawnSync("/bin/sh", ["-c", hookCommand(config, process.execPath)], {
+      cwd: project,
+      env: env(),
+      input: payload,
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(hook.status).toBe(0);
+    expect(existsSync(join(store, "sessions", "project-bunfig-1.json"))).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+
+    const pluginHook = spawnSync("/bin/sh", [LAUNCHER, "hook"], {
+      cwd: project,
+      env: env({ COUNTERPARTS_RUNTIME: process.execPath, COUNTERPARTS_CONFIG: config }),
+      input: payload.replace("project-bunfig-1", "project-bunfig-2"),
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(pluginHook.status).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+
+    const note = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "note", arguments: { text: CANARY } } };
+    const serve = spawnSync("/bin/sh", [LAUNCHER, "mcp"], {
+      cwd: project,
+      env: env({ COUNTERPARTS_RUNTIME: process.execPath, COUNTERPARTS_DATA_DIR: store, COUNTERPARTS_CONFIG: config }),
+      input: rpc(note),
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(response(serve.stdout ?? "", 2)).toContain('"result"');
+    expect(existsSync(marker)).toBe(false);
+  }, 180_000);
+
+  test("does not run in an installed command reached through a bin symlink", () => {
+    // npm and bun link a bin to the shim; the shim finds the empty bunfig from its real path.
+    const bin = join(work, "bin");
+    mkdirSync(bin);
+    symlinkSync(relative(bin, SHIMS[0] as string), join(bin, "counterparts"));
+    const run = (argv0: string[]) =>
+      spawnSync(argv0[0] as string, [...argv0.slice(1), "--help"], {
+        cwd: project,
+        env: env({ PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` }),
+        encoding: "utf8",
+        timeout: 60_000,
+      });
+    const r = run([join(bin, "counterparts")]);
+    expect(r.status).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+    // Traced: it found the shipped file through the link, not the /dev/null fallback.
+    const traced = run(["/bin/sh", "-x", join(bin, "counterparts")]);
+    expect(traced.status).toBe(0);
+    expect(traced.stderr).toContain("empty-bunfig.toml");
+    expect(traced.stderr).not.toContain("c=/dev/null");
+    expect(existsSync(marker)).toBe(false);
+  }, 120_000);
 });

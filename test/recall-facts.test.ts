@@ -6,7 +6,7 @@
  * ranked by match strength (several ways rank higher), recency only on a tie;
  * a time window filters and counts what fell outside; each fact's labeled
  * lines (who said it, its status, when it happened and was learned, CURRENT);
- * earlier versions folded, corrected ones hidden and counted; faded ones
+ * earlier versions folded, corrected ones named as wrong (never a result); faded ones
  * listed after; a count header, pages, the 12,000-character room; and a
  * quote of a shown memory credited at the boundary.
  *
@@ -353,6 +353,53 @@ describe("time in a question (time-ask.ts)", () => {
     expect(readTimeAsk("since 2/29", leap)?.said).toEqual({ from: "2024-02-29", to: "2028-02-10" });
   });
 
+  // Review of #345: "by 12/20" asked in October was last year's 12/20, through
+  // 2025-12-20, which hid the ten months since.
+  test("by / until / before a month not yet begun is this year's, not last year's; since and after still reach back (Denver, Kiritimati)", () => {
+    const october: [string, { now: number; zone: string }][] = [
+      ["America/Denver", { now: Date.parse("2026-10-09T18:00:00Z"), zone: "America/Denver" }],
+      ["Pacific/Kiritimati", { now: Date.parse("2026-10-08T22:00:00Z"), zone: "Pacific/Kiritimati" }],
+    ];
+    for (const [zone, at] of october) {
+      const due = readTimeAsk("what's due by 12/20", at);
+      expect({ zone, window: due?.window, cue: due?.cue, rest: due?.rest }).toEqual({
+        zone,
+        window: { from: OPEN_START, to: "2026-12-20" },
+        cue: "by 12/20",
+        rest: "what's due",
+      });
+      expect(readTimeAsk("before 12/20", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-19" });
+      expect(readTimeAsk("until Dec 20", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+      expect(readTimeAsk("up to the 20th of December", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+      expect(readTimeAsk("prior to 11/2", at)?.window).toEqual({ from: OPEN_START, to: "2026-11-01" });
+      // The date names a thing on its day: this year's, the day kept.
+      expect(readTimeAsk("what did I eat before the 12/20 flight", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+      // Unchanged: since and after reach back to the last 12/20 there was; a
+      // date alone keeps `yearFor`'s year; a written year is the year meant; a
+      // month already begun was this year's all along.
+      expect(readTimeAsk("since 12/20", at)?.said).toEqual({ from: "2025-12-20", to: "2026-10-09" });
+      expect(readTimeAsk("after 12/20", at)?.window).toEqual({ from: "2025-12-21", to: OPEN_END });
+      expect(readTimeAsk("on 12/20", at)?.window).toEqual({ from: "2025-12-20", to: "2025-12-20" });
+      expect(readTimeAsk("by 12/20/2025", at)?.window).toEqual({ from: OPEN_START, to: "2025-12-20" });
+      expect(readTimeAsk("before 9/30", at)?.window).toEqual({ from: OPEN_START, to: "2026-09-29" });
+      expect(readTimeAsk("by 1/5", at)?.window).toEqual({ from: OPEN_START, to: "2026-01-05" });
+    }
+    // On the person's own day: 04:00 UTC on 12-01 is still 11-30 in Denver
+    // (December not begun) and already 12-01 on Kiritimati. Both read this
+    // year's 12/20 — before, Denver read last year's.
+    const edge = Date.parse("2026-12-01T04:00:00Z");
+    expect(readTimeAsk("by 12/20", { now: edge, zone: "America/Denver" })?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+    expect(readTimeAsk("by 12/20", { now: edge, zone: "Pacific/Kiritimati" })?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+    // The nearer of the two: asked on 05-01, last year's 12/20 (132 days back)
+    // is nearer than this year's (233 ahead), as before; on Jan 3, "until Dec
+    // 30" is the one four days back (the new-year test above).
+    const may = { now: Date.parse("2026-05-01T18:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("by 12/20", may)?.window).toEqual({ from: OPEN_START, to: "2025-12-20" });
+    // A Feb 29 this year lacks keeps the year it had (2028's, asked in 2029).
+    const leap = { now: Date.parse("2029-01-10T19:00:00Z"), zone: "America/Denver" };
+    expect(readTimeAsk("by 2/29", leap)?.window).toEqual({ from: OPEN_START, to: "2028-02-29" });
+  });
+
   test("the event-day rule of #338 holds in both zones: \"before the 7/22 flight\" keeps 07-22, \"before 7/22\" does not", () => {
     for (const [, at] of zones) {
       const flight = readTimeAsk("what did I eat before the 7/22 flight", at);
@@ -459,7 +506,7 @@ describe("each fact's labeled lines", () => {
   });
 });
 
-describe("current first: earlier versions fold, corrected ones are hidden and counted", () => {
+describe("current first: earlier versions fold, corrected ones are named as wrong, never results", () => {
   test("a changed pair: the old one folds under the new, even when only the old one matched", () => {
     const c = brain();
     seed(c);
@@ -475,7 +522,7 @@ describe("current first: earlier versions fold, corrected ones are hidden and co
     expect(text).toContain("CURRENT");
   });
 
-  test("a corrected version is out of the answer and counted on the one that holds", () => {
+  test("a corrected version is out of the answer and named, as wrong, on the one that holds", () => {
     const c = brain();
     seed(c);
     const wrong = c.store.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 4." });
@@ -484,7 +531,10 @@ describe("current first: earlier versions fold, corrected ones are hidden and co
     const r = ask(c, "zqboat pier");
     expect(r.memories.map((m) => m.id)).toEqual([right]);
     expect(r.memories[0]?.corrected).toBe(1);
-    expect(renderFacts(r)).toContain("1 corrected version hidden");
+    expect(r.memories[0]?.correctedShown).toEqual([{ text: "The zqboat is moored at pier 4.", learned: "2026-10-03", corrected: "2026-10-03", id: wrong }]);
+    const text = renderFacts(r);
+    expect(text).toContain(`   corrected (was wrong): "The zqboat is moored at pier 4." (learned 10-03), corrected 10-03 · ${wrong}\n`);
+    expect(text).not.toContain("hidden");
   });
 
   test("an in-place revision shows its earlier words, dated", () => {
@@ -611,6 +661,18 @@ describe("time filters", () => {
     expect(new Set(since.memories.map((m) => m.id))).toEqual(new Set([moved, sold]));
     expect(since.time?.outside).toBe(1);
     expect(renderFacts(since)).toContain("time: since 10/25 → 2025-10-25..10-03 · 1 more match outside it");
+  });
+
+  // Review of #345: through last year's 12/20 hid everything since it.
+  test("\"by 12/20\" asked in October keeps the months since last December", () => {
+    const c = brain();
+    seed(c);
+    const spring = c.store.put({ type: "memory", kind: "fact", body: "Patched the zqkayak hull.", occurredOn: "2026-03-14" });
+    const last = c.store.put({ type: "memory", kind: "fact", body: "Bought the zqkayak.", occurredOn: "2025-11-02" });
+    const by = ask(c, "zqkayak by 12/20");
+    expect(new Set(by.memories.map((m) => m.id))).toEqual(new Set([spring, last]));
+    expect(by.time?.outside).toBe(0);
+    expect(by.time?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
   });
 
   test("a question that is only a time answers with everything in the window", () => {
@@ -818,5 +880,104 @@ describe("through the tool", () => {
     expect(quoted.quoted).toBe(1);
     expect(quoted.ids).toContain(id);
     expect(c.store.physicsOf(id).uses).toBeGreaterThan(before);
+  });
+});
+
+// 2026-10-09 (the LongMemEval run): a corrected memory is archived, so out of
+// the word index, and "N corrected versions hidden" named none — one a wrong
+// correction archived could not be reached, even by a search that named it.
+describe("corrected versions are named, as wrong, and open by id (through the tool)", () => {
+  function server(c: Counterpart, owner = true): McpServer {
+    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner, registryDir: join(dir, "store"), now: () => NOW });
+  }
+  const body = (r: ToolResult): Record<string, unknown> => r.structuredContent;
+
+  test("a search that names the corrected one finds it under the one that corrected it, and its id opens it", async () => {
+    const c = brain();
+    seed(c);
+    const wrong = c.store.put({ type: "memory", kind: "fact", title: "Potted plants at the market", body: "Sold 14 zqpotted plants at the Zqsolstice Market." });
+    const right = c.store.put({ type: "memory", kind: "fact", title: "Herb sale", body: "Sold 30 herb bundles at the Zqsolstice Market." });
+    expect(settle(c.store, { holds: right, over: wrong, how: "corrected", why: "it was herbs", actor: "session" }).ok).toBe(true);
+    const s = server(c);
+    const out = body(await s.call("recall", { question: "Zqsolstice Market zqpotted plants sold", mode: "facts" }));
+    const answer = String(out["answer"]);
+    expect(answer).toContain(`   corrected (was wrong): "Potted plants at the market" (learned 10-03), corrected 10-03 · ${wrong}\n`);
+    expect(answer).not.toContain("hidden");
+    // Not a result: the shown ids are the results only, as for an earlier version.
+    expect(out["ids"]).toEqual([right]);
+    expect(answer.split("\n").filter((l) => /^\d+\. /.test(l))).toHaveLength(1);
+    // Archived, and readable by its id: the words whole, and that it was corrected, by which.
+    expect(c.store.row(wrong)?.archived).toBe(1);
+    const opened = body(await s.call("recall", { ids: [wrong] }));
+    expect(opened["reason"]).toBe("expanded");
+    const mems = opened["memories"] as { id: string; excerpt: string; truncated: boolean; standing?: string }[];
+    expect(mems.map((m) => m.id)).toEqual([wrong]);
+    expect(mems[0]?.excerpt).toBe("Sold 14 zqpotted plants at the Zqsolstice Market.");
+    expect(mems[0]?.truncated).toBe(false);
+    expect(mems[0]?.standing).toContain(`corrected by ${right}`);
+  });
+
+  test("a few named, those the question reaches first, the rest counted", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqferry leaves from dock 2 at noon." });
+    const wrongs: string[] = [];
+    for (const [i, w] of ["dock 5", "dock 6", "dock 7", "the zqharbour pier"].entries()) {
+      const id = c.store.put({ type: "memory", kind: "fact", body: `The zqferry leaves from ${w}, take ${String(i)}.` });
+      wrongs.push(id);
+      expect(settle(c.store, { holds: right, over: id, how: "corrected", why: "dock 2", actor: "session" }).ok).toBe(true);
+    }
+    const answer = String(body(await server(c).call("recall", { question: "zqferry zqharbour", mode: "facts" }))["answer"]);
+    const lines = answer.split("\n").filter((l) => l.includes("corrected"));
+    expect(lines).toHaveLength(4);
+    // The one the question's words reach comes first.
+    expect(lines[0]).toContain(`zqharbour pier, take 3." (learned 10-03), corrected 10-03 · ${wrongs[3] as string}`);
+    expect(lines.slice(0, 3).every((l) => l.startsWith("   corrected (was wrong): "))).toBe(true);
+    expect(lines[3]).toBe("   +1 more corrected (was wrong)");
+  });
+
+  test("a confidential corrected memory is counted, never named, to a non-owner", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
+    expect(settle(c.store, { holds: right, over: secret, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
+    const guest = String(body(await server(c, false).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(guest).not.toContain(secret);
+    expect(guest).not.toContain("Elm");
+    expect(guest).toContain("   1 corrected version hidden");
+    const owner = String(body(await server(c).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(owner).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
+  });
+
+  test("beside a plain corrected one, a confidential one is only counted to a non-owner, and its id opens nothing", async () => {
+    const c = brain();
+    seed(c);
+    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
+    const plain = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Pine Street." });
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
+    for (const over of [plain, secret]) expect(settle(c.store, { holds: right, over, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
+    const guest = server(c, false);
+    const answer = String(body(await guest.call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    expect(answer).toContain(`   corrected (was wrong): "The zqclinic is on Pine Street." (learned 10-03), corrected 10-03 · ${plain}\n   +1 more corrected (was wrong)\n`);
+    expect(answer).not.toContain(secret);
+    expect(answer).not.toContain("Elm");
+    const opened = JSON.stringify(await guest.call("recall", { ids: [secret] }));
+    expect(opened).toContain("handle-confidential-withheld");
+    expect(opened).not.toContain("Elm");
+  });
+
+  test("an answer with no corrected version carries no corrected field or line", async () => {
+    const c = brain();
+    seed(c);
+    const old = c.store.put({ type: "memory", kind: "fact", title: "Gym at 7", body: "The zqswim session is at 7am." });
+    const now = c.store.put({ type: "memory", kind: "fact", title: "Gym moved", body: "Moved to 6am from next week." });
+    expect(settle(c.store, { holds: now, over: old, how: "changed", why: "the time changed", actor: "session" }).ok).toBe(true);
+    const r = ask(c, "zqswim");
+    expect(r.memories[0]?.corrected).toBe(0);
+    expect(Object.keys(r.memories[0] ?? {})).not.toContain("correctedShown");
+    const answer = String(body(await server(c).call("recall", { question: "zqswim", mode: "facts" }))["answer"]);
+    expect(answer).toBe(renderFacts(r));
+    expect(answer).not.toContain("corrected");
   });
 });

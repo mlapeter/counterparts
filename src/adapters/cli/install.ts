@@ -120,11 +120,12 @@ export function shellQuote(path: string): string {
 }
 
 /**
- * `<runtime> --no-env-file run <script>` under Bun, `<runtime> --import
- * <node-hooks.mjs> <script>` under Node (`adapters/runtime.ts`) — the shape
- * both printed host commands take. A path is quoted and a bare flag is not.
- * Until 2026-10-09 the Bun shape was `<runtime> run <script>`; those commands
- * still read as ours, so `connect` repairs them in place.
+ * `<runtime> --no-env-file "--config=<empty-bunfig.toml>" run <script>` under
+ * Bun, `<runtime> --import <node-hooks.mjs> <script>` under Node
+ * (`adapters/runtime.ts`) — the shape both printed host commands take. A path
+ * (or a flag carrying one) is quoted and a bare flag is not. Until 2026-10-09
+ * the Bun shape was `<runtime> run <script>`; those commands still read as
+ * ours, so `connect` repairs them in place.
  */
 export function runCommand(script: string, exe: string = process.execPath): string {
   const words = scriptArgs(script, exe).map((a) => (/^[A-Za-z-]+$/.test(a) ? a : shellQuote(a)));
@@ -591,8 +592,9 @@ export interface HostRuntime {
   readonly present: boolean;
   /** `hooks`, `mcp`, or both. */
   readonly used: readonly ("hooks" | "mcp")[];
-  /** Of `used`, the ones whose command lets Bun read the project's `.env` —
-   *  wired before `--no-env-file` (`runtime.ts#BUN_NO_ENV_FILE`). */
+  /** Of `used`, the ones whose command lets Bun read the project's `.env` or
+   *  `bunfig.toml` — wired before `--no-env-file` and an empty `--config=`
+   *  (`runtime.ts#BUN_NO_ENV_FILE`, `#EMPTY_BUNFIG`). */
   readonly projectEnv: readonly ("hooks" | "mcp")[];
 }
 

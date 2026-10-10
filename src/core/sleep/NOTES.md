@@ -927,3 +927,29 @@ the self page alone put one on every cycle. `blocked:in-live-revision-chain` too
 #343): `inLiveRevisionChain` is still asked of every examined row, but physics names it only
 on a night the floor would otherwise have let the row go, so a strong row under challenge
 pressure no longer counts on every night the pressure stands.
+
+## 2026-10-09 — dedup and fade: no cursor, measured
+
+The 2026-09-28 audit's item 4 asked for a cursor in the four phases without one; prune and
+decay got theirs (above). Dedup and fade were measured on a seeded hermetic store (bun,
+this machine, while a long benchmark ran beside it) and left without one:
+
+| store | dedup, one night | fade, one sweep |
+|---|---|---|
+| 3,000 memories, 300 cards | 0.41 s (30 pairs judged; budget 1,000) | 0.04 s (300 cards; budget 5,000) |
+| 20,000 memories, 1,500 cards | 2.9 s (200 pairs) | 0.25 s (1,500 cards) |
+
+- **Fade**: its budget never binds on a personal store, so a cursor would visit the same
+  cards in the same order. It runs every third lived day.
+- **Dedup**: the time is not the pairs (the budget counts those, and a night judges a few
+  hundred at most) but the pass that finds them: every live row read twice (`runDedup`'s
+  live set, then `contentHashCandidates`) and every body read once, to group by hash. A
+  cursor cannot skip that pass, since a new memory's twin can be any row. (Profiled at
+  3,000 rows: about 0.13 s for one pass over the rows, 0.14 s for the bodies, 2 ms
+  hashing.)
+- **What would make it cheaper, with the same pairs (not done):** group by
+  `memories.content_hash`, which since the floor is `hashText(body)` — equal on all 3,000
+  seeded rows — and read each row once. The module header says `content_hash` is
+  deliberately not used; that reasoning predates the floor, and a change wants it
+  re-ruled and every body write checked to keep the column in step. Or a store `GROUP BY`
+  over the column, which reads no row at all.

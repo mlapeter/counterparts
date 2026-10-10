@@ -70,7 +70,7 @@ import {
 } from "../src/adapters/cli/wire.js";
 import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adapters/cli/wire.js";
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
-import { scriptArgs } from "../src/adapters/runtime.js";
+import { EMPTY_BUNFIG, scriptArgs } from "../src/adapters/runtime.js";
 import { recordServerLaunch } from "../src/adapters/sessions.js";
 import type { BuildStamp } from "../src/adapters/sessions.js";
 
@@ -503,8 +503,8 @@ describe("the MCP registration", () => {
     const args = mcpAddArgs(store(), undefined, EXE);
     expect(args.slice(0, 5)).toEqual(["mcp", "add", MCP_SERVER_NAME, "-s", "user"]);
     expect(args).toContain(`COUNTERPARTS_DATA_DIR=${store()}`);
-    expect(args.slice(-4)).toEqual([EXE, ...scriptArgs(MCP_SCRIPT, EXE)]);
-    expect(args.slice(-4)).toEqual([EXE, "--no-env-file", "run", MCP_SCRIPT]);
+    expect(args.slice(-5)).toEqual([EXE, ...scriptArgs(MCP_SCRIPT, EXE)]);
+    expect(args.slice(-5)).toEqual([EXE, "--no-env-file", `--config=${EMPTY_BUNFIG}`, "run", MCP_SCRIPT]);
     // No shell quoting anywhere: these are argv entries, not a command line.
     expect(args.some((a) => a.includes('"'))).toBe(false);
   });

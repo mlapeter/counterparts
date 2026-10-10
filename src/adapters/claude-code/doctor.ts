@@ -4289,8 +4289,9 @@ export interface HostReading {
     readonly kind: "bun" | "node" | "binary";
     readonly present: boolean;
     readonly used: readonly string[];
-    /** Of `used`, the commands that let Bun read the project's `.env` (wired
-     *  before `--no-env-file`); absent on a reading that predates the field. */
+    /** Of `used`, the commands that let Bun read the project's `.env` or
+     *  `bunfig.toml` (wired before `--no-env-file` and an empty `--config=`);
+     *  absent on a reading that predates the field. */
     readonly projectEnv?: readonly string[];
   }[];
   /** The runtime this console is running under (`runtime.ts#runtimeLabel`). */
@@ -4321,11 +4322,13 @@ function runtimeFindings(reading: HostReading): Finding[] {
     console: reading.consoleRuntime ?? null,
   };
   const missing = rows.filter((r) => !r.present);
-  // WIRED BEFORE `--no-env-file` (2026-10-09): Bun loads the project's `.env`
-  // into every hook and server it starts there, so a project could name
-  // another store. Amber, because it is a hole and not a fault: everything
-  // still runs, and one `connect` rewrites the commands (it repairs an entry
-  // that is ours in an older shape).
+  // WIRED BEFORE `--no-env-file` AND `--config=<empty-bunfig.toml>`
+  // (2026-10-09): Bun loads the project's `.env` into every hook and server it
+  // starts there, so a project could name another store, and runs its
+  // `bunfig.toml` preload inside them. A command missing EITHER flag counts,
+  // so one `connect` closes both. Amber, because it is a hole and not a fault:
+  // everything still runs, and `connect` rewrites the commands (it repairs an
+  // entry that is ours in an older shape).
   const readsEnv = rows.flatMap((r) => r.projectEnv ?? []);
   data["projectEnv"] = readsEnv.length === 0 ? "ignored" : [...new Set(readsEnv)].sort().join(",");
   if (missing.length === 0 && readsEnv.length > 0) {
@@ -4335,8 +4338,8 @@ function runtimeFindings(reading: HostReading): Finding[] {
         "runtime",
         "amber",
         "Runtime",
-        `${said}${console_}; the ${what} ${what.includes(" and ") ? "were" : "was"} wired before Counterparts told Bun to skip a project's .env, so a project whose .env sets COUNTERPARTS_DATA_DIR or COUNTERPARTS_CONFIG could point them at another memory`,
-        "Run: counterparts connect — it rewrites the commands with --no-env-file. Then restart Claude Code.",
+        `${said}${console_}; the ${what} ${what.includes(" and ") ? "were" : "was"} wired before Counterparts told Bun to skip a project's .env and bunfig.toml, so a project whose .env sets COUNTERPARTS_DATA_DIR or COUNTERPARTS_CONFIG could point them at another memory, and its bunfig.toml could run its own code inside them`,
+        "Run: counterparts connect — it rewrites the commands with --no-env-file and an empty --config. Then restart Claude Code.",
         data,
       ),
     ];

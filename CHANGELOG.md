@@ -11,23 +11,47 @@
   again. Windows isn't offered a program yet; there, the plugin still says to install
   Bun or Node. The first session says it's getting ready and that memory starts in the
   next one. A failed download says so once and tries again later; nothing unchecked is
-  ever run.
-  `COUNTERPARTS_BINARY_DOWNLOAD=off` forbids the download. The program is the whole of
-  Counterparts, with the model and the dashboard packed in. It starts a little faster
-  than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire Claude
-  Code or Claude Desktop itself: `counterparts connect` from it says to use the npm
-  install for that. How it is built and released: `docs/single-binary.md`.
-- **A project's `.env` can no longer point Counterparts at another memory.** Bun reads
-  `.env` files from the folder it starts in, and Claude Code starts the hooks and the
-  memory server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR`
-  or `COUNTERPARTS_CONFIG` could send the plugin's server, an npm install's hooks or
-  the `counterparts` command to a different store. Every place Counterparts starts Bun
-  now passes `--no-env-file`: the hook and server commands `install` and `connect`
-  write, the plugin's launcher, the installed commands, and the workers and nightly
-  run it starts itself. Node never read a `.env` on its own. **If you installed
-  through npm, run `counterparts connect` once** to rewrite your hooks and server
-  registration. Until you do, doctor's Runtime line is amber and says so. Plugin users
-  get the change when the plugin updates.
+  ever run. `COUNTERPARTS_BINARY_DOWNLOAD=off` forbids the download. The program is the
+  whole of Counterparts, with the model and the dashboard packed in. It starts a little
+  faster than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire
+  Claude Code or Claude Desktop itself: `counterparts connect` from it says to use the
+  npm install for that. How it is built and released: `docs/single-binary.md`.
+- **A project's `.env` and `bunfig.toml` no longer reach into Counterparts.** Bun reads
+  both from the folder it starts in, and Claude Code starts the hooks and the memory
+  server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR` or
+  `COUNTERPARTS_CONFIG` could send the plugin's server, an npm install's hooks or the
+  `counterparts` command to a different store, and a `bunfig.toml` with a `preload`
+  ran its own code inside them. Every place Counterparts starts Bun now passes
+  `--no-env-file` and `--config=` pointing at an empty bunfig in the package: the hook
+  and server commands `install` and `connect` write, the plugin's launcher, the
+  installed commands, and the workers and nightly run it starts itself. Node reads
+  neither on its own. **If you installed through npm, run `counterparts connect`
+  once** to rewrite your hooks and server registration. Until you do, doctor's Runtime
+  line is amber and says so. Plugin users get the change when the plugin updates.
+- **Facts recall reads "by 12/20" asked in October as this year's December 20th.** A
+  date with no year under "by", "until", "up to" or "before", in a month that has not
+  begun yet, was read as last year's: "what's due by 12/20" asked on 10-09 kept only what
+  happened through 2025-12-20 and hid the ten months since. It is now this year's
+  whenever that is the nearer of the two, so those months are no longer cut off.
+  "Until Dec 30" asked on January 3rd is still the one four days back, and "since" and
+  "after" still reach back to last year's date as before.
+- **Three more reads keep the newest rows.** Past the number of rows each reads,
+  `counterparts settle` (and doctor's held-corrections count) took the newest held
+  corrections for never settled, and the self tab's page history left its newest
+  versions and days undated. They read the newest now. Below those limits nothing
+  changes.
+
+- **Facts recall now names corrected memories, so they can be opened.** A memory
+  settled as corrected (it was wrong) is never offered as a fact. Facts answers used to
+  say only "1 corrected version hidden" under the memory that corrected it, with no way
+  to reach it, even when the question named it. If the correction itself pointed at the
+  wrong memory, a true memory became unreachable. Each one now gets a line under the
+  memory that corrected it, marked as wrong, with its id:
+  `corrected (was wrong): "…" (learned 09-10), corrected 09-11 · mem_…`. Opening that id
+  with `recall` shows the whole memory and which memory corrected it. Up to three are
+  named, the ones the question's words reach first, and any more are counted. The
+  dashboard's Ask shows them the same way, with links. Answers that have no corrected
+  versions are unchanged.
 - **The dashboard no longer says a repeating reminder is about to be put away.** A memory
   whose date still repeats is kept for its next time however faint it has grown, so the
   memories list no longer marks it "fading" and its card names no day it would be put

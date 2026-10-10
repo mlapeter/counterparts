@@ -22,7 +22,6 @@
  * scan stays — it is what covers them, and a cast.
  */
 import type { Counterpart } from "../../core/counterpart.js";
-import type { Dreams } from "../../core/dream/index.js";
 import type { Schemas } from "../../core/schemas/index.js";
 import type { Self } from "../../core/self/index.js";
 import type { ReadOnlyStore } from "../../core/store/index.js";
@@ -31,12 +30,6 @@ export interface DashboardSource {
   readonly store: ReadOnlyStore;
   readonly schemas: Schemas;
   readonly self: Self;
-  /**
-   * The dream gate's read-only preview (`Dreams.previewAsk`, #262): would the
-   * day's ask be raised now, and why. Optional so a hand-built source still
-   * type-checks; a view without it says only how much is new.
-   */
-  readonly dreams?: Pick<Dreams, "previewAsk">;
   /** Always true. A false one never gets built. */
   readonly observer: boolean;
 }
@@ -56,7 +49,6 @@ export function sourceOf(counterpart: Counterpart): DashboardSource {
     store: counterpart.store,
     schemas: counterpart.schemas,
     self: counterpart.self,
-    dreams: counterpart.dreams,
     observer: true,
   };
 }

@@ -156,7 +156,6 @@ describe("dreaming: auto | ask | off, durable and reversible", () => {
     expect(c.dreams.setSetting("off", { by: "session", session: SESSION })).toEqual({ ok: true, setting: "off", before: "ask" });
     expect(c.store.getMeta(DREAMING_SETTING_KEY)).toBe("off");
     expect(c.dreams.status(c.store.today()).reason).toBe("off");
-    expect(c.dreams.previewAsk().reason).toBe("off");
     expect(c.dreams.askLine({ at: c.store.today(), session: SESSION })).toBeNull();
     expect(c.dreams.setSetting("ask", { by: "owner" }).ok).toBe(true);
     expect(c.dreams.askLine({ at: c.store.today(), session: SESSION })).not.toBeNull();

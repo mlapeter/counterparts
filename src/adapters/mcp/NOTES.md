@@ -1489,7 +1489,8 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
     now tested in Denver and on Kiritimati.
 - **Not done:** an amount written with words between the number and the unit ("7-8 full
   hours"), a score ("rated it 8/10" is still August 10), a later MONTH under "by" or
-  "until" (still last year's by `yearFor`, as before), and a number range with "to"
+  "until" (still last year's by `yearFor`, as before; *done* the same day, the next
+  section but one), and a number range with "to"
   ("7 to 8 hours" was never a date).
 - *Review of #345:* two follow-ons of the amount rule. (1) Passing "2-3" over as an amount
   left "3 weeks ago" to be read alone: the week three back, which hid the week two back
@@ -1503,3 +1504,79 @@ Three of #338's reviewer's findings predated it (items 3 and 4 of that review), 
   because "on 7-8 hours of sleep" is an amount after the same "on" and no time hides
   nothing; with a comma ("on 5/6, days later") it is a date. "7/8 hours before the
   launch" is no time (an amount, and the launch is not resolved).
+
+## 2026-10-09 — facts mode names its corrected versions
+
+Found by the LongMemEval run; the owner approved the fix. A memory settled `corrected` is
+archived (`contradictions.ts#settle`), so it is out of `recallRows` and out of the word
+index, and facts mode said only "N corrected versions hidden" under the one that corrected
+it. Nothing on the page reached it, even a search that named it: "Summer Solstice Market
+potted plants sold" came back with the herb-sale memory and that line. Answers that showed
+the line passed 18 of 26, against 409 of 472 otherwise. The worst case is a wrong
+correction (pointed at an unrelated memory), which made a true one unreachable; #340's
+guard makes that rarer, but older stores already hold some.
+
+- **What changed.** Each corrected version is named under the memory that corrected it,
+  in the shape of `earlier:` and marked wrong in front:
+  `corrected (was wrong): "…" (learned 09-10), corrected 09-11 · mem_…`. Three at most
+  (`FACTS_CORRECTED_SHOWN`), the rest counted (`+N more corrected (was wrong)`). Its id
+  opens it: `recall` by id reads an archived row whole, with its standing ("corrected by
+  mem_…") in front, so the reader sees both sides before deciding. `FactItem` keeps
+  `corrected` (every one) and gains `correctedShown`, present only when one is named, so
+  a facts answer with none is byte-identical to before (six questions compared on a demo
+  store: answer, structured payload and `FactsResult` JSON).
+- *Choices:*
+  - Three, one more than the earlier versions' two: a `changed` earlier one is live, so
+    the question's words reach it and fold it under its current one; a corrected one is
+    archived, and this line is its only way in from a question.
+  - Order: those sharing a content word with the question first (it is out of the index,
+    so this is the only "matched" there is), then the latest corrected. The market
+    question puts the potted-plants memory first; a pier question the pier one.
+  - Not a result and not in the answer's `ids`, like an earlier version: it is not
+    offered as a fact, so it does not join the seen set or the quotable `asked` record.
+  - Not named, and still counted ("N corrected versions hidden", as before) when this
+    asker may not be told of it — a confidential one outside the owner's session, a
+    removed one — or nothing of it is left to read.
+  - The dashboard's Ask draws the same: each one a line under the words like an earlier
+    one, "corrected (was wrong): “…”", dated, with the id as a link; the rest counted.
+    The console's `ask` needed nothing: its short list shows neither, `--full` is this
+    answer and `--json` the `FactsResult`.
+- **Not done:** a question whose words reach ONLY the corrected memory, and nothing of
+  the one that corrected it, still does not bring that one in: the archived row is out of
+  the index, so nothing matched. In the benchmark case the two shared the market's name.
+  Folding through `corrected` pairs as `changed` ones fold (a match on the wrong one
+  bringing in the one that holds) would need the archived rows' words searched; left for
+  when a case shows it is needed. And a corrected memory is listed under the memory that
+  corrected it directly: when that one was later `changed` and folds under its successor,
+  the corrected one is not listed under the successor (nor counted there, as before).
+  Opening the earlier one by id shows it ("corrects mem_…").
+
+## 2026-10-09 — facts mode: "by 12/20" asked in October (review of #345, item 2)
+
+`yearFor` picks a yearless month's year by the month alone: this year's once it has begun,
+else last year's. Under "since" and "after" that is right (the roll of the section before
+last covers a later day of this month). Under "before", "until", "up to" and "by" a month
+not yet begun went to last year: "what's due by 12/20" asked on 10-09 was `OPEN_START` to
+2025-12-20, which hid 2025-12-21 to today, about ten months. Now `dated` moves such a date
+to this year's when this year's is the nearer of the two: through 2026-12-20, which hides
+nothing that has happened.
+
+- *Choices:*
+  - The nearer, not "this year's" outright (the reviewer's wording). The new-year test
+    already pins "until Dec 30" asked on Jan 3 as the one four days back; this year's
+    would have been 361 days ahead and no filter at all. Asked on 05-01, "by 12/20" is
+    last year's (132 days back against 233 ahead), as before. On a tie this year's wins
+    (it hides less).
+  - Scoped to a month not yet begun, where `yearFor` went back a year. A month already
+    begun keeps its year: "before 9/30" asked on 10-09 is through this year's 09-29, and
+    "by 1/5" asked in October is through this year's 01-05, as before. The event form
+    follows ("before the 12/20 flight" keeps this year's 12-20); a date alone ("on
+    12/20") and a written year are not moved. A Feb 29 this year lacks keeps its year.
+  - Tested in Denver and on Kiritimati, at 10-09 and across the 12-01 edge (11-30 in
+    Denver, 12-01 on Kiritimati: both now read this year's 12-20, where Denver read last
+    year's).
+- **Not done:** the year-end mirror. "By 1/5" asked on 12-28 is through this year's 01-05,
+  nearly a year back, where the person likely means the coming one; moving it would also
+  move "finish by 1/2" asked in October, which the amount tests pin as this year's. "By
+  the end of December" and "through December" asked in October are read as a month
+  (`yearFor`, last year's), not as a bound; unchanged.

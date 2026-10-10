@@ -571,24 +571,6 @@ export interface DreamStatus {
 }
 
 /**
- * THE ASK, PREVIEWED (`Dreams.previewAsk`): what the day's gate would answer a
- * live session right now, read without claiming the day. Never "observer".
- */
-export interface DreamPreview {
-  /** The gate would raise the ask now (`askLine` would claim the day and return a line). */
-  readonly wouldAsk: boolean;
-  /** The gate's own reason (`DreamStatus.reason`), never "observer". */
-  readonly reason: Exclude<DreamStatus["reason"], "observer">;
-  /**
-   * THE QUEUE's length: showable memories shown to no dream that stands, born
-   * within `QUEUE_DAYS` — the count the gate compares with `MIN_NEW`. Not
-   * capped at what one night takes (2026-09-28): what does not fit tonight
-   * waits. Counted for every reason, also when the gate stops before counting.
-   */
-  readonly newSince: number;
-}
-
-/**
  * HOW THE SESSION SAYS THE DAY'S LINE (2026-10-01, lane 8 — the 09-30 plan's
  * build 4): once, in its first reply, as one plain sentence. The terminal line
  * is the extra; a session whose person sees no terminal still hears it.
@@ -928,33 +910,9 @@ export class Dreams {
   }
 
   /**
-   * THE LINE, PREVIEWED (2026-09-27, for the dashboard's Tonight box): would the
-   * gate raise the line now, why, and how many memories are new since the last
-   * dream. The SAME gate `status` and `askLine` run, asked as a live session
-   * would ask it — so it answers under observer, where `status` says
-   * "observer". It claims nothing, records no event, writes nothing.
-   *
-   * WHOSE GATE. Confidential memories count toward "new" only in the owner's
-   * own session. A live session previews its own gate, whatever it asks for.
-   * An observer is never the owner's session (the facade forces `owner` off),
-   * so by default it previews a guest's gate; `owner: true` previews the
-   * owner's — his hooks run `owner: true` (the install writes it). Only a
-   * count comes back, never an id or a word.
-   */
-  previewAsk(opts: { at?: string; owner?: boolean } = {}): DreamPreview {
-    const at = opts.at ?? this.ctx.today();
-    const owner = this.ctx.observer ? (opts.owner ?? this.ctx.owner) : this.ctx.owner;
-    const s = this.gate(at, false, owner);
-    if (s.reason === "observer") throw new Error("unreachable: the preview asks as a live session");
-    // The gate stops before counting when it already knows the answer; the
-    // preview counts anyway (it is not on the per-prompt path).
-    const counted = s.reason === "due" || s.reason === "too-little-new";
-    return { wouldAsk: s.due, reason: s.reason, newSince: counted ? s.newSince : this.queue({ owner, skip: (d) => this.passedOver(d, at) }).ids.length };
-  }
-
-  /**
-   * THE GATE ITSELF — `status` asks it in this module's stance, `previewAsk` as
-   * a live session. Reads only.
+   * THE GATE ITSELF — `status` asks it in this module's stance. Reads only.
+   * (`previewAsk`, which asked it as a live session for the dashboard's
+   * Tonight box, was removed 2026-10-09 with no caller left: NOTES.)
    */
   private gate(at: string, observer: boolean, owner: boolean, enough?: number): DreamStatus {
     const setting = this.setting();
@@ -996,8 +954,8 @@ export class Dreams {
     // what arrived since the last dream began — what a night could not take
     // waits, and counts here.
     // THE PER-PROMPT PATH COUNTS ONLY AS FAR AS IT NEEDS (review of build B):
-    // `status` stops at `MIN_NEW` (and says the count is a floor); the
-    // preview and the line count the whole queue.
+    // `status` stops at `MIN_NEW` (and says the count is a floor); the line
+    // counts the whole queue.
     const q = this.queue({ owner, skip: (d) => this.passedOver(d, at), ...(enough === undefined ? {} : { enough }) });
     const newSince = q.ids.length;
     // A RUN LEFT BEHIND is due whatever the count: its dream is half-done, and
@@ -1111,8 +1069,8 @@ export class Dreams {
   /**
    * A dream the gate passes over: begun, left behind, and about to be resumed
    * or closed by the next `begin` — what it was shown is its own again, so it
-   * does not take memories out of the queue. The gate, the preview and
-   * `begin` count the same queue.
+   * does not take memories out of the queue. The gate and `begin` count the
+   * same queue.
    */
   private passedOver(d: DreamRow, at: string): boolean {
     return d.state === "begun" && this.abandoned(d) && (this.resumable(d, at) || this.store.dreamChanges(d.id).length === 0);
@@ -2117,7 +2075,7 @@ export class Dreams {
     return this.showableAs(row, this.bundleOwner);
   }
 
-  /** `showable`, for a session whose owner stance is `owner` (the preview's). */
+  /** `showable`, for a session whose owner stance is `owner` (the gate's). */
   private showableAs(row: MemoryRow, owner: boolean): boolean {
     if (row.archived === 1 || row.superseded_by !== null) return false;
     if (row.type !== "memory") return false;
@@ -2133,8 +2091,8 @@ export class Dreams {
    * dreams' own `shown`, no state of its own. `skip` passes over a dream (the
    * one being resumed; one the next `begin` will resume or close). One bounded
    * read (`store.newMemoryIds`, which applies the column gates), then the
-   * deny-list and confidentiality (`owner`: this session's stance unless the
-   * preview names another). Newest first; the caller ranks.
+   * deny-list and confidentiality (`owner`: the stance the caller reads in).
+   * Newest first; the caller ranks.
    */
   private queue(opts: { owner: boolean; skip?: (d: DreamRow) => boolean; enough?: number; madeBy?: number }): QueueRead {
     const T = DREAM_TUNABLES;

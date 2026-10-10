@@ -83,7 +83,7 @@ beforeAll(async () => {
     ids.old = s.put({ type: "memory", kind: "fact", title: "Gym at 7", body: "The zqswim session is at 7am." });
     ids.now = s.put({ type: "memory", kind: "fact", title: "Gym moved", body: "The zqswim session moved to 6am." });
     expect(settle(s, { holds: ids.now, over: ids.old, how: "changed", why: "the time changed", actor: "session" }).ok).toBe(true);
-    // A wrong one, corrected: hidden, and counted.
+    // A wrong one, corrected: never a result, named as wrong under the one that holds.
     ids.wrong = s.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 4." });
     ids.right = s.put({ type: "memory", kind: "fact", body: "The zqboat is moored at pier 9." });
     expect(settle(s, { holds: ids.right, over: ids.wrong, how: "corrected", why: "it was pier 9", actor: "session" }).ok).toBe(true);
@@ -180,8 +180,17 @@ describe("facts: every match, counted and paged", () => {
     const boat = (await ask<FactsResult>({ question: "zqboat pier", mode: "facts" })).answer;
     const right = boat.memories.find((x) => x.id === ids.right) as FactItem;
     expect(right.corrected).toBe(1);
-    expect(seen(page.factRow(right, []))).toContain("1 corrected version hidden");
+    const fixed = right.correctedShown?.[0];
+    expect(fixed?.id).toBe(ids.wrong as string);
+    // Named as wrong, dated, and a link to open it — like an earlier one, labelled corrected.
+    const drawnRight = page.factRow(right, []);
+    expect(seen(drawnRight)).toContain(`corrected (was wrong): “${fixed?.text ?? ""}” (learned ${dates.dateOr(fixed?.learned ?? null)}), corrected ${dates.dateOr(fixed?.corrected ?? null)}`);
+    expect(drawnRight).toContain(`data-open="${ids.wrong}"`);
+    expect(seen(drawnRight)).not.toContain("hidden");
     expect(boat.memories.map((x) => x.id)).not.toContain(ids.wrong);
+    // One this asker may not be told of is still counted; past the few named, the rest are.
+    expect(seen(page.factRow({ ...right, correctedShown: undefined }, []))).toContain("1 corrected version hidden");
+    expect(seen(page.factRow({ ...right, corrected: 3 }, []))).toContain("+2 more corrected (was wrong)");
 
     const cafe = (await ask<FactsResult>({ question: "zqcafe", mode: "facts" })).answer;
     const open = cafe.memories.find((x) => x.standing.length > 0) as FactItem;

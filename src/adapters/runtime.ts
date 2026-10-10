@@ -10,26 +10,38 @@
  * `<runtime> <scriptArgs(script)>`, with the runtime the one running NOW
  * (`process.execPath`) — so `counterparts install` run under Node wires Node,
  * and under Bun wires Bun. The Bun shape was `run <script>` from 2026-09-03
- * and is `--no-env-file run <script>` since 2026-10-09 (below).
+ * and is `--no-env-file --config=<empty-bunfig.toml> run <script>` since
+ * 2026-10-09 (below).
  *
  * The runtime is read off the executable's NAME, not off this process, so a
  * caller that passes a fixed executable (every test does) gets the shape that
  * executable needs. Anything not named `node…` is treated as Bun, which is what
  * every command written before Node support said.
  *
- * **BUN IS TOLD NOT TO READ THE PROJECT'S `.env` (2026-10-09).** Bun loads
- * `.env`, `.env.local` and `.env.<NODE_ENV>` from the WORKING DIRECTORY into
- * `process.env` before any of our code runs, and a host starts our hooks and
- * servers in the person's project. So a project whose `.env` set
- * `COUNTERPARTS_DATA_DIR` or `COUNTERPARTS_CONFIG` could point Counterparts at
- * another store — measured, for the plugin's server, which no `-e` pins (scar
- * §2.13 from a direction the spawner's pinning never covered). A variable
- * already in the real environment still wins over a `.env` (also measured), so
- * the hole was every variable nobody set. `--no-env-file` switches the loading
- * off; Node never had it (it reads a `.env` only when `--env-file` names one).
- * Commands written before this carry `run <script>` alone: they still parse
- * (`parseScriptInvocation`), `doctor` names them, and `counterparts connect`
- * rewrites them.
+ * **BUN IS TOLD NOT TO READ THE PROJECT'S `.env` OR `bunfig.toml`
+ * (2026-10-09).** A host starts our hooks and servers in the person's project,
+ * and Bun reads two things from the WORKING DIRECTORY before any of our code
+ * runs:
+ *
+ *   - `.env`, `.env.local` and `.env.<NODE_ENV>`, into `process.env`. A
+ *     project whose `.env` set `COUNTERPARTS_DATA_DIR` or `COUNTERPARTS_CONFIG`
+ *     could point Counterparts at another store — measured, for the plugin's
+ *     server, which no `-e` pins, and for an npm install's hooks, which name no
+ *     `--config` (scar §2.13 from a direction the spawner's pinning never
+ *     covered). A variable already in the real environment still wins over a
+ *     `.env` (also measured), so the hole was every variable nobody set.
+ *     `--no-env-file` switches the loading off.
+ *   - `bunfig.toml`, whose TOP-LEVEL `preload = [...]` runs the project's code
+ *     inside our process before our entry (measured on Bun 1.3.10, through
+ *     `run` and a bare script alike, the plugin's launcher included; `[run]
+ *     preload` does not apply to these launches). `--config=<file>` makes Bun
+ *     read that file instead, and `EMPTY_BUNFIG` is one with nothing in it. A
+ *     missing one is fatal to Bun, so it ships beside this file and must stay.
+ *
+ * Node has neither: it reads a `.env` only when `--env-file` names one, and no
+ * `bunfig.toml`. Commands written before this lack one flag or both: they
+ * still parse (`parseScriptInvocation`, `projectEnv: "read"`), `doctor` names
+ * them, and `counterparts connect` rewrites them.
  */
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -123,6 +135,14 @@ function isBinaryMode(word: string | undefined): word is BinaryMode {
   return (BINARY_MODES as readonly string[]).includes(word ?? "");
 }
 
+/** An empty `bunfig.toml`, shipped beside this file, that every Bun launch
+ *  names in place of the project's own. Absolute, from this file. */
+export const EMPTY_BUNFIG = fileURLToPath(new URL("./empty-bunfig.toml", import.meta.url));
+
+/** How a Bun command names its configuration file: `--config=<path>`, ONE
+ *  argument (Bun 1.3 does not read `--config <path>` as two the same way). */
+export const BUN_CONFIG_PREFIX = "--config=";
+
 /** The module Node loads before a script (`--import`). Absolute, from this file. */
 export const NODE_HOOKS = fileURLToPath(new URL("./node-hooks.mjs", import.meta.url));
 
@@ -152,14 +172,18 @@ export function runtimeOf(exe: string): RuntimeKind {
   return /^node(js)?(\d[\d.]*)?(\.exe)?$/i.test(exe.split(/[\\/]/).pop() ?? "") ? "node" : "bun";
 }
 
-/** The arguments that make `exe` run `script`: `--no-env-file run <script>`
- *  for Bun, `--import <node-hooks.mjs> <script>` for Node, and the script's
- *  mode alone (`hook`, `runner`, …) when `exe` is the compiled binary itself. */
+/** The arguments that make `exe` run `script`: `--no-env-file
+ *  --config=<empty-bunfig.toml> run <script>` for Bun, `--import
+ *  <node-hooks.mjs> <script>` for Node, and the script's mode alone (`hook`,
+ *  `runner`, …) when `exe` is the compiled binary itself, which reads no
+ *  `.env` or `bunfig.toml` (it is built with both off). */
 export function scriptArgs(script: string, exe: string = process.execPath, binary: Binary | null = BINARY): string[] {
   // The compiled binary runs ITSELF in another mode: `<binary> runner`.
   const mode = binary !== null && exe === binary.self ? BINARY_MODE_OF[basename(script)] : undefined;
   if (mode !== undefined) return [mode];
-  return runtimeOf(exe) === "node" ? ["--import", NODE_HOOKS, script] : [BUN_NO_ENV_FILE, "run", script];
+  return runtimeOf(exe) === "node"
+    ? ["--import", NODE_HOOKS, script]
+    : [BUN_NO_ENV_FILE, `${BUN_CONFIG_PREFIX}${EMPTY_BUNFIG}`, "run", script];
 }
 
 /** A command split into its parts, when it is `<exe> <scriptArgs(script)> <rest…>`. */
@@ -174,20 +198,22 @@ export interface ScriptInvocation {
   readonly mode?: BinaryMode;
   /** Whatever followed the script (`--config <path>`, flags). */
   readonly rest: readonly string[];
-  /** Whether the runtime reads the project's `.env` into the process: `read`
-   *  for a Bun command written before `--no-env-file`, else `ignored`. */
+  /** Whether the runtime reads the project's `.env` or `bunfig.toml` into the
+   *  process: `read` for a Bun command lacking `--no-env-file` or a
+   *  `--config=` (written before 2026-10-09), else `ignored`. */
   readonly projectEnv: "read" | "ignored";
 }
 
 /**
- * Read `<exe> [--no-env-file] run [--no-env-file] <script> …`, `<exe>
- * --import <…node-hooks.mjs> <script> …` or `<binary> <mode> …` back out of a
- * token list — the
- * inverse of `scriptArgs`, for the readers that must recognise what the
- * writers wrote (`wire.ts#isOurHookCommand`, doctor's runtime line, the
- * plugin's npm-wiring check). The Bun shape without the flag is what every
- * install wrote until 2026-10-09, so it is still ours. Null for any other
- * shape: a command this cannot read is not one of ours.
+ * Read `<exe> [bun flags] run [bun flags] <script> …`, `<exe> --import
+ * <…node-hooks.mjs> <script> …` or `<binary> <mode> …` back out of a token
+ * list — the inverse of `scriptArgs`, for the readers that must recognise what
+ * the writers wrote (`wire.ts#isOurHookCommand`, doctor's runtime line, the
+ * plugin's npm-wiring check). The Bun flags read are `--no-env-file` and
+ * `--config=<file>`, in any order, before or after `run`. A shape missing
+ * either is what installs wrote until 2026-10-09: still ours, and
+ * `projectEnv: "read"`. Null for any other shape: a command this cannot read
+ * is not one of ours.
  */
 export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocation | null {
   const exe = tokens[0] ?? "";
@@ -199,16 +225,21 @@ export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocati
   }
   let at = 1;
   let noEnvFile = false;
-  if (tokens[at] === BUN_NO_ENV_FILE) {
-    noEnvFile = true;
-    at += 1;
-  }
-  if (tokens[at] === "run") {
-    at += 1;
-    if (tokens[at] === BUN_NO_ENV_FILE) {
-      noEnvFile = true;
+  let ownConfig = false;
+  const flags = (): void => {
+    for (;;) {
+      const t = tokens[at] ?? "";
+      if (t === BUN_NO_ENV_FILE) noEnvFile = true;
+      else if (t.startsWith(BUN_CONFIG_PREFIX) && t.length > BUN_CONFIG_PREFIX.length) ownConfig = true;
+      else return;
       at += 1;
     }
+  };
+  flags();
+  const flagged = at > 1;
+  if (tokens[at] === "run") {
+    at += 1;
+    flags();
     const script = tokens[at] ?? "";
     if (script.length === 0) return null;
     const runtime = runtimeOf(exe);
@@ -217,10 +248,10 @@ export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocati
       runtime,
       script,
       rest: tokens.slice(at + 1),
-      projectEnv: runtime === "node" || noEnvFile ? "ignored" : "read",
+      projectEnv: runtime === "node" || (noEnvFile && ownConfig) ? "ignored" : "read",
     };
   }
-  if (noEnvFile) return null;
+  if (flagged) return null;
   if (tokens[1] === "--import" && /(^|[/\\])node-hooks\.mjs$/.test(tokens[2] ?? "") && (tokens[3] ?? "").length > 0) {
     return { exe, runtime: "node", script: tokens[3] as string, rest: tokens.slice(4), projectEnv: "ignored" };
   }
