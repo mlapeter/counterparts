@@ -2015,3 +2015,11 @@ reset by the driver, so it holds no lock against another connection (bun 1.3, No
 SQLite re-prepares a kept statement when a cache reset drops and re-creates its table
 (`test/lane0-statements.test.ts`). Measured on the review's 10x clone: a new lived day's
 `runCycle` 3.7 s → 1.05 s, a same-day one 568 → 353 ms.
+
+Review of #368: what SQLite re-prepares, the drivers do not re-read. A kept statement's
+column NAMES are fixed at its first prepare: after `ALTER TABLE … ADD COLUMN` on the same
+connection a kept `SELECT *` gave the old columns on bun 1.3 (and, after a table rebuild,
+values under the wrong names), and its `all` threw "Cannot get name of column" on Node 22.
+So an `ALTER TABLE` or `DROP TABLE` run on the connection (`exec` or `run`) empties its
+cache. Another connection's change is not seen; the version checks refuse a newer build's
+store before anything reads it.

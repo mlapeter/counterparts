@@ -62,3 +62,27 @@ test("a thousand one-off statements: every one answers", () => {
   }
   db.close();
 });
+
+test("a table changed on this connection: a kept SELECT * reads the new columns, under their own names (review of #368)", () => {
+  // Without emptying the cache, bun 1.3 answered the old columns after the
+  // ALTER and the values under the wrong names after the rebuild; Node 22's
+  // `all` threw "Cannot get name of column".
+  type Row = Record<string, unknown>;
+  const db = openDb(join(dir, "d.sqlite"));
+  db.exec("CREATE TABLE m (a INTEGER, b TEXT)");
+  db.run("INSERT INTO m (a, b) VALUES (1, 'bee')");
+  expect(db.get<Row>("SELECT * FROM m")).toEqual({ a: 1, b: "bee" });
+  db.exec("ALTER TABLE m ADD COLUMN c TEXT DEFAULT 'cee'");
+  expect(db.get<Row>("SELECT * FROM m")).toEqual({ a: 1, b: "bee", c: "cee" });
+  expect(db.all<Row>("SELECT * FROM m")).toEqual([{ a: 1, b: "bee", c: "cee" }]);
+  // The column surgery a migration does: build, copy, drop, rename.
+  db.exec("CREATE TABLE m_new (b TEXT, a INTEGER, c TEXT)");
+  db.exec("INSERT INTO m_new SELECT b, a, c FROM m");
+  db.exec("DROP TABLE m");
+  db.exec("ALTER TABLE m_new RENAME TO m");
+  expect(db.get<Row>("SELECT * FROM m")).toEqual({ b: "bee", a: 1, c: "cee" });
+  // Through `run` too.
+  db.run("ALTER TABLE m ADD COLUMN d INTEGER DEFAULT 4");
+  expect(db.all<Row>("SELECT * FROM m")).toEqual([{ b: "bee", a: 1, c: "cee", d: 4 }]);
+  db.close();
+});
