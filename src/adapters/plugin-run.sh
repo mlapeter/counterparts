@@ -24,11 +24,12 @@
 # The entry it runs is the same one those bins run (hook.mjs, serve.mjs,
 # counterparts.mjs), so the runtime choice is the only difference.
 #
-# Bun runs with --no-env-file: Claude Code starts the hooks and the server in
-# the person's project, and Bun would otherwise load that project's .env into
-# them — and nothing pins the plugin server's COUNTERPARTS_DATA_DIR, so a
-# project .env could name another store (adapters/runtime.ts). Node reads no
-# .env unless told to.
+# Bun runs with --no-env-file and --config=<empty-bunfig.toml>: Claude Code
+# starts the hooks and the server in the person's project, and Bun would
+# otherwise load that project's .env into them (nothing pins the plugin
+# server's COUNTERPARTS_DATA_DIR, so a project .env could name another store)
+# and run its bunfig.toml `preload` inside them (adapters/runtime.ts). Node
+# reads neither unless told to.
 #
 # With no runtime: a hook says so ONCE, at SessionStart, as a systemMessage the
 # person sees (and a line of context, so the model can say it too), and exits 0;
@@ -119,7 +120,7 @@ else
 fi
 
 if [ "$kind" = "bun" ]; then
-  exec "$runtime" --no-env-file "$entry" "$@"
+  exec "$runtime" --no-env-file "--config=$here/empty-bunfig.toml" "$entry" "$@"
 fi
 if [ -n "$runtime" ]; then
   exec "$runtime" "$entry" "$@"

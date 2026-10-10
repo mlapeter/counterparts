@@ -10,7 +10,7 @@
  * for real (`bun run test:node`); this file is the Bun suite's half.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,8 +32,10 @@ import { isOurHookCommand, mcpAddArgs, processMark, readMcp } from "../src/adapt
 import { describeFault } from "../src/adapters/claude-code/standdown.js";
 import { StoreError } from "../src/core/store/index.js";
 import {
+  BUN_CONFIG_PREFIX,
   BUN_NO_ENV_FILE,
   CLI_SCRIPT,
+  EMPTY_BUNFIG,
   NODE_HOOKS,
   currentRuntime,
   parseScriptInvocation,
@@ -45,6 +47,8 @@ import {
 
 const BUN = "/Users/x/.bun/bin/bun";
 const NODE = "/usr/local/bin/node";
+/** The flag that points Bun at the shipped empty bunfig, not the project's. */
+const CFG = `${BUN_CONFIG_PREFIX}${EMPTY_BUNFIG}`;
 
 let root: string;
 
@@ -68,10 +72,16 @@ describe("which runtime an executable names", () => {
     expect(currentRuntime()).toBe("bun");
   });
 
-  test("the arguments: `--no-env-file run <script>` for Bun, `--import <node-hooks.mjs> <script>` for Node", () => {
-    // Bun is told not to load the project's .env (runtime.ts, 2026-10-09).
-    expect(scriptArgs("/s/hook.ts", BUN)).toEqual([BUN_NO_ENV_FILE, "run", "/s/hook.ts"]);
+  test("the arguments: `--no-env-file --config=<empty> run <script>` for Bun, `--import <node-hooks.mjs> <script>` for Node", () => {
+    // Bun is told not to load the project's .env, nor its bunfig.toml (runtime.ts, 2026-10-09).
+    expect(scriptArgs("/s/hook.ts", BUN)).toEqual([BUN_NO_ENV_FILE, CFG, "run", "/s/hook.ts"]);
     expect(BUN_NO_ENV_FILE).toBe("--no-env-file");
+    expect(CFG).toBe(`--config=${EMPTY_BUNFIG}`);
+    // The empty bunfig ships beside runtime.ts (a missing one is fatal to Bun),
+    // and holds nothing but comments.
+    expect(EMPTY_BUNFIG.endsWith("/src/adapters/empty-bunfig.toml")).toBe(true);
+    expect(existsSync(EMPTY_BUNFIG)).toBe(true);
+    expect(readFileSync(EMPTY_BUNFIG, "utf8").split("\n").filter((l) => l.trim().length > 0 && !l.trim().startsWith("#"))).toEqual([]);
     expect(scriptArgs("/s/hook.ts", NODE)).toEqual(["--import", NODE_HOOKS, "/s/hook.ts"]);
     expect(NODE_HOOKS.endsWith("/src/adapters/node-hooks.mjs")).toBe(true);
   });
@@ -89,7 +99,7 @@ describe("which runtime an executable names", () => {
 
 describe("reading an invocation back", () => {
   test("both shapes parse, with what follows the script kept", () => {
-    expect(parseScriptInvocation([BUN, "--no-env-file", "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
+    expect(parseScriptInvocation([BUN, "--no-env-file", CFG, "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
       exe: BUN,
       runtime: "bun",
       script: "/s/hook.ts",
@@ -105,7 +115,7 @@ describe("reading an invocation back", () => {
     });
   });
 
-  test("what install wrote before --no-env-file still parses, and says it reads the project's .env", () => {
+  test("what install wrote before --no-env-file and --config= still parses, and says it reads the project's .env", () => {
     expect(parseScriptInvocation([BUN, "run", "/s/hook.ts", "--config", "/c.json"])).toEqual({
       exe: BUN,
       runtime: "bun",
@@ -113,9 +123,15 @@ describe("reading an invocation back", () => {
       rest: ["--config", "/c.json"],
       projectEnv: "read",
     });
-    // Bun takes the flag after `run` too; a hand edit that put it there is ours.
-    expect(parseScriptInvocation([BUN, "run", "--no-env-file", "/s/hook.ts"])?.projectEnv).toBe("ignored");
-    expect(parseScriptInvocation([BUN, "run", "--no-env-file", "/s/hook.ts"])?.script).toBe("/s/hook.ts");
+    // One flag of the two is still the old wiring: the other door stays open.
+    expect(parseScriptInvocation([BUN, "--no-env-file", "run", "/s/hook.ts"])?.projectEnv).toBe("read");
+    expect(parseScriptInvocation([BUN, CFG, "run", "/s/hook.ts"])?.projectEnv).toBe("read");
+    // Bun takes the flags after `run` too, in either order; a hand edit that put them there is ours.
+    expect(parseScriptInvocation([BUN, "run", "--no-env-file", CFG, "/s/hook.ts"])?.projectEnv).toBe("ignored");
+    expect(parseScriptInvocation([BUN, CFG, "run", "--no-env-file", "/s/hook.ts"])?.projectEnv).toBe("ignored");
+    expect(parseScriptInvocation([BUN, "run", CFG, "--no-env-file", "/s/hook.ts"])?.script).toBe("/s/hook.ts");
+    // An empty --config= names nothing.
+    expect(parseScriptInvocation([BUN, "--no-env-file", "--config=", "run", "/s/hook.ts"])).toBeNull();
   });
 
   test("every shape scriptArgs writes reads back as the same script, ignoring the project's .env", () => {
@@ -134,15 +150,18 @@ describe("reading an invocation back", () => {
     expect(parseScriptInvocation([NODE, "--import", NODE_HOOKS])).toBeNull();
     expect(parseScriptInvocation([BUN, "--no-env-file", "/s/hook.ts"])).toBeNull();
     expect(parseScriptInvocation([BUN, "--no-env-file", "run"])).toBeNull();
+    expect(parseScriptInvocation([BUN, "--no-env-file", CFG, "/s/hook.ts"])).toBeNull();
   });
 });
 
 describe("what install writes, and what reads it back", () => {
-  test("the Bun hook command tells Bun to skip the project's .env, the flag unquoted", () => {
-    expect(runCommand("/s/hook.ts", BUN)).toBe(`"${BUN}" --no-env-file run "/s/hook.ts"`);
+  test("the Bun hook command tells Bun to skip the project's .env and bunfig.toml, the bare flag unquoted", () => {
+    expect(runCommand("/s/hook.ts", BUN)).toBe(`"${BUN}" --no-env-file "${CFG}" run "/s/hook.ts"`);
     expect(hookCommand("/c/claude-code.json", BUN)).toBe(
-      `"${BUN}" --no-env-file run "${HOOK_SCRIPT}" --config "/c/claude-code.json"`,
+      `"${BUN}" --no-env-file "${CFG}" run "${HOOK_SCRIPT}" --config "/c/claude-code.json"`,
     );
+    // The quoted flag is one shell word, and reads back as given.
+    expect(shellTokens(runCommand("/s/hook.ts", BUN))).toEqual([BUN, BUN_NO_ENV_FILE, CFG, "run", "/s/hook.ts"]);
   });
 
   test("a hook command written before --no-env-file is still ours, so connect repairs it in place", () => {
@@ -150,6 +169,8 @@ describe("what install writes, and what reads it back", () => {
     expect(isOurHookCommand(old)).toBe(true);
     expect(isOurHookCommand(`${old} --config "/c/claude-code.json"`)).toBe(true);
     expect(hookTargetPath(old)).toBe(HOOK_SCRIPT);
+    // And the shape with --no-env-file alone (this branch before review): ours too.
+    expect(isOurHookCommand(`"${BUN}" --no-env-file run "${HOOK_SCRIPT}"`)).toBe(true);
   });
 
   test("the Node hook command names the loader and the script, both quoted", () => {
@@ -174,7 +195,7 @@ describe("what install writes, and what reads it back", () => {
   });
 
   test("the MCP registration carries the runtime's arguments, and reads back as a match", () => {
-    expect(mcpAddArgs("/st", undefined, BUN).slice(-4)).toEqual([BUN, "--no-env-file", "run", MCP_SCRIPT]);
+    expect(mcpAddArgs("/st", undefined, BUN).slice(-5)).toEqual([BUN, "--no-env-file", CFG, "run", MCP_SCRIPT]);
     expect(mcpAddArgs("/st", undefined, NODE).slice(-4)).toEqual([NODE, "--import", NODE_HOOKS, MCP_SCRIPT]);
     expect(mcpCommand("/st", runCommand(MCP_SCRIPT, NODE))).toContain(`-- "${NODE}" --import "${NODE_HOOKS}"`);
     for (const exe of [BUN, NODE]) {
@@ -200,7 +221,7 @@ describe("what install writes, and what reads it back", () => {
 
   test("Claude Desktop's entry and the nightly run's server carry the same arguments", () => {
     expect(desktopEntry("/st", NODE).args).toEqual(["--import", NODE_HOOKS, MCP_SCRIPT]);
-    expect(desktopEntry("/st", BUN).args).toEqual(["--no-env-file", "run", MCP_SCRIPT]);
+    expect(desktopEntry("/st", BUN).args).toEqual(["--no-env-file", CFG, "run", MCP_SCRIPT]);
     const night = JSON.parse(nightMcpConfig({ runtime: NODE, dataDir: "/st", session: "s", scope: "/p" })) as {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
@@ -292,7 +313,7 @@ describe("doctor's Runtime line", () => {
     expect(line?.fix).not.toContain("under the runtime you want");
   });
 
-  test("Bun commands written before --no-env-file: amber, naming the .env hole, and connect as the fix", () => {
+  test("Bun commands written before --no-env-file and --config=: amber, naming both holes, and connect as the fix", () => {
     const bun = join(root, "bin", "bun");
     mkdirSync(join(root, "bin"));
     writeFileSync(bun, "");
@@ -308,9 +329,29 @@ describe("doctor's Runtime line", () => {
     const { host, line } = runtimeLine();
     expect(host.runtimes).toEqual([{ exe: bun, kind: "bun", present: true, used: ["hooks", "mcp"], projectEnv: ["hooks", "mcp"] }]);
     expect(line?.severity).toBe("amber");
-    expect(line?.detail).toContain("hooks and mcp were wired before Counterparts told Bun to skip a project's .env");
+    expect(line?.detail).toContain("hooks and mcp were wired before Counterparts told Bun to skip a project's .env and bunfig.toml");
     expect(line?.fix).toContain("counterparts connect");
     expect(line?.data["projectEnv"]).toBe("hooks,mcp");
+  });
+
+  test("Bun commands with --no-env-file but no --config= are the old wiring too: one connect closes both", () => {
+    const bun = join(root, "bin", "bun");
+    mkdirSync(join(root, "bin"));
+    writeFileSync(bun, "");
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `"${bun}" --no-env-file run "${HOOK_SCRIPT}"` }] }] } }),
+    );
+    writeFileSync(
+      join(root, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: bun, args: scriptArgs(MCP_SCRIPT, bun) } } }),
+    );
+    const { host, line } = runtimeLine();
+    expect(host.runtimes[0]?.projectEnv).toEqual(["hooks"]);
+    expect(line?.severity).toBe("amber");
+    expect(line?.detail).toContain("the hooks was wired before");
+    expect(line?.data["projectEnv"]).toBe("hooks");
   });
 
   test("Bun commands as connect writes them now: green", () => {

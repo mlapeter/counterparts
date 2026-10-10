@@ -1,0 +1,5 @@
+# Deliberately empty. Every Bun launch Counterparts makes passes
+# --config=<this file>, so Bun reads this instead of the bunfig.toml in the
+# folder it starts in (the person's project), whose `preload` would otherwise
+# run inside the hooks and the memory server. adapters/runtime.ts says why.
+# Installed commands name this path: it must stay, and stay empty.
