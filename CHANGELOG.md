@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.3.15 — 2026-10-10
+
+The self page is never cut in the wake. A page may now be at most 6,078 bytes, which the
+wake prints whole at its default 9,000-byte ceiling; a longer one is refused and written
+again shorter. A page written before this that is longer still prints whole, borrowing the
+room held for "Work here", and doctor's Self page line is amber until the next revision
+comes in under the limit. With the plugin and the npm install both connected, each event
+runs once. `counterparts connect`, and `install` at a terminal, now rewrite Claude
+Desktop's entry too, and doctor's Runtime line reads it. **If you connected Claude Desktop,
+quit it and run `counterparts connect` once after upgrading**; until then doctor's Runtime
+line is amber. Claude Code's hooks and server registration are the same as 0.3.14's, so
+with Claude Code alone there is nothing to run (coming from 0.3.13 or earlier, run
+`connect` once, as 0.3.14 said). The Claude Code plugin brings the sidebar mod (v0.1).
+**No change to the store's format (still v12)**: the hooks keep their claims in a small
+file of their own, `sessions/claims/hook-claims.sqlite`. Going back to 0.3.14 is the order
+in QUICKSTART's "Going back to an earlier version": `counterparts disconnect` while 0.3.15
+is still installed, then the 0.3.14 reinstall, then `counterparts connect`, and, if you
+connected Claude Desktop, `counterparts install --host claude-desktop` with Desktop quit.
+
+The self page in the wake (#358).
 
 - **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
   which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
@@ -18,6 +37,9 @@
   long and the run moves on without sending it again shorter, that night now reads as
   failed, with the numbers, instead of "nothing to say". And "Still open" keeps its
   "N more" count beside its first item when a long page leaves no other room for it.
+
+Claude Desktop's entry, and the way back (#354, #356).
+
 - **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
   skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
   Code's server registration to match. It left alone the entry that
@@ -33,17 +55,13 @@
   is open. Its last line no longer promises a green doctor while Desktop's entry is left
   as it was. The scripted install (`--no-connect`, or not at a terminal) still reads no
   host file.
-- **Facts recall reads "by 1/5" asked in late December as the coming January.** A date
-  with no year after "by", "until" or "before" now takes whichever year puts it nearest
-  today: "by 1/5" asked on 12-28 runs through next year's January 5, where it ran through
-  this year's and left out the year since. "Until Dec 30" asked on January 3 is still the
-  one four days back. Asked in early October, "by 1/5" and "finish by 1/2" now mean the
-  coming January too. "Since" and "after" still reach back to the last time the date came
-  round.
 - **Going back to an earlier version is in the quickstart** ("Going back to an earlier
   version"): `disconnect` first, then the reinstall, then `connect`, and
   `install --host claude-desktop` again if you use Claude Desktop. Done in the other
   order, every hook breaks and the older version's doctor still reads green.
+
+One delivery per event when two wirings are live (#355, #359).
+
 - **With the plugin and the npm install both connected, each event now runs once.**
   The plugin is meant to step aside when the npm install's hooks are in your settings.
   A plugin from before 0.3.14 didn't recognise the hook lines 0.3.14's `connect` writes,
@@ -59,6 +77,19 @@
   millisecond.
   Doctor has a new amber line, "Installed twice", when a hook stepped aside this way in
   the last week, and says how to keep just one install. No change to the store's format.
+
+Recall (#356).
+
+- **Facts recall reads "by 1/5" asked in late December as the coming January.** A date
+  with no year after "by", "until" or "before" now takes whichever year puts it nearest
+  today: "by 1/5" asked on 12-28 runs through next year's January 5, where it ran through
+  this year's and left out the year since. "Until Dec 30" asked on January 3 is still the
+  one four days back. Asked in early October, "by 1/5" and "finish by 1/2" now mean the
+  coming January too. "Since" and "after" still reach back to the last time the date came
+  round.
+
+The plugin's sidebar (#342).
+
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
   layout, a pane beside the transcript shows the brain turning in braille, the twelve
   mechanisms, search, and what this session kept and recalled (with the night's dreams and
