@@ -24,6 +24,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,9 +37,11 @@ import {
   FRESH_SESSION_SOURCES,
   eventDirectory,
   hookScopeVerdict,
+  pausedNotice,
   sessionScope,
   startDirectory,
 } from "../src/adapters/claude-code/bin/hook.js";
+import { NIGHT_RUN_ENV } from "../src/adapters/claude-code/night-run.js";
 import { EXIT, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { openServer } from "../src/adapters/mcp/index.js";
@@ -68,10 +71,11 @@ import type {
   ScopeVerdict,
 } from "../src/adapters/scopes.js";
 import { canonicalScope, readSession, recordSession } from "../src/adapters/sessions.js";
-import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT } from "../src/core/counterpart.js";
+import { BOUNDARY_EVENT, Counterpart, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
+const CLI_SCRIPT = resolve(import.meta.dir, "../src/adapters/cli/bin/counterparts.ts");
 const BUDGET_BYTES = 9000;
 
 let work: string;
@@ -165,6 +169,57 @@ function grepStore(needle: string): number {
   };
   walk(store);
   return hits;
+}
+
+/** A SessionStart's `systemMessage` (the person's line), or null. */
+function systemMessageOf(stdout: string): string | null {
+  if (stdout.trim().length === 0) return null;
+  const v = (JSON.parse(stdout) as Record<string, unknown>)["systemMessage"];
+  return typeof v === "string" ? v : null;
+}
+
+/** A SessionStart's `additionalContext` (the model's), or null. */
+function contextOf(stdout: string): string | null {
+  if (stdout.trim().length === 0) return null;
+  const out = (JSON.parse(stdout) as Record<string, unknown>)["hookSpecificOutput"] as Record<string, unknown> | undefined;
+  const v = out?.["additionalContext"];
+  return typeof v === "string" ? v : null;
+}
+
+/**
+ * The person's line in a folder paused by its own entry, verbatim. The folder is
+ * NAMED (review of #362): `dir` is outside the test's HOME, so it is written out
+ * whole, realpathed as the registry key is. And these hooks read `--config
+ * configPath`, not the default beside HOME, so the command names it too.
+ */
+function pausedHere(dir: string): string {
+  const named = canonicalScopePath(dir);
+  return `Counterparts memory is paused in ${named}; \`${resumeCommand(named)}\` turns it back on.`;
+}
+
+/** The resume command a hook run with `--config configPath` prints for `target`. */
+function resumeCommand(target: string): string {
+  return `counterparts scope ${target} --resume --config ${configPath}`;
+}
+
+/** Every file under `dir` with its size and mtime — "nothing was written", as bytes on disk. */
+function snapshot(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (d: string): void => {
+    if (!existsSync(d)) return;
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, entry.name);
+      if (entry.isDirectory()) {
+        out[`${p}/`] = "dir";
+        walk(p);
+        continue;
+      }
+      const st = statSync(p);
+      out[p] = `${String(st.size)}@${String(st.mtimeMs)}`;
+    }
+  };
+  walk(dir);
+  return out;
 }
 
 /** The durable rows of one name, newest last. */
@@ -523,7 +578,9 @@ describe("a directory set OFF: no output, no write", () => {
         since: "2026-09-10T00:00:00.000Z",
       },
     });
-    expect(runHook("SessionStart", "paused-1", project).stdout).toBe("");
+    // Its one line at session start (rulings brief #19), and nothing else.
+    expect(systemMessageOf(runHook("SessionStart", "paused-1", project).stdout)).toBe(pausedHere(project));
+    expect(runHook("UserPromptSubmit", "paused-1", project).stdout).toBe("");
     expect(existsSync(store)).toBe(false);
 
     const resumed = await cli(["scope", project, "--resume"]);
@@ -556,9 +613,12 @@ describe("a directory set OFF: no output, no write", () => {
     writeFileSync(transcript, `${paused.join("\n")}\n`, "utf8");
     put({ [project]: { mode: "paused", resumeTo: "on", since: "2026-09-10T00:00:00.000Z" } });
 
-    // The paused stretch: silent, and not a byte on disk.
+    // The paused stretch: one line at session start, silent after, and not a
+    // byte on disk.
     for (const event of ["SessionStart", "Stop", "Stop"]) {
-      expect(runHook(event, "one-session", project, [], transcript).stdout).toBe("");
+      const out = runHook(event, "one-session", project, [], transcript).stdout;
+      if (event === "SessionStart") expect(systemMessageOf(out)).toBe(pausedHere(project));
+      else expect(out).toBe("");
     }
     expect(existsSync(store)).toBe(false);
 
@@ -620,6 +680,260 @@ describe("a directory set OFF: no output, no write", () => {
     const r = runHook("SessionStart", "corrupt", project);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("has not lived a boundary");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A PAUSED folder says so, once, at session start (rulings brief #19, 2026-10-10)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("a PAUSED folder says so at session start, and does nothing else", () => {
+  /** A hook process with control of the payload's source and the environment. */
+  function start(opts: {
+    session: string;
+    cwd: string;
+    event?: string;
+    source?: string;
+    env?: Record<string, string>;
+  }): { code: number; stdout: string; stderr: string } {
+    const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, "--config", configPath], {
+      input: JSON.stringify({
+        hook_event_name: opts.event ?? "SessionStart",
+        session_id: opts.session,
+        cwd: opts.cwd,
+        ...(opts.source === undefined ? {} : { source: opts.source }),
+      }),
+      encoding: "utf8",
+      env: { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", ...opts.env },
+      timeout: 60_000,
+    });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  const SOURCES = ["startup", "resume", "clear", "compact"] as const;
+  const OTHER_EVENTS = ["UserPromptSubmit", "Stop", "SessionEnd", "PreCompact"] as const;
+
+  test("every SessionStart source says it ONCE — the person's line and the model's — and opens no store", () => {
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    put({ [project]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" } });
+    for (const source of SOURCES) {
+      const r = start({ session: `paused-${source}`, cwd: project, source });
+      expect({ source, code: r.code, stderr: r.stderr }).toEqual({ source, code: 0, stderr: "" });
+      // ONE JSON object: the person's line, and the model's.
+      const named = canonicalScopePath(project);
+      expect(JSON.parse(r.stdout)).toEqual({
+        systemMessage: pausedHere(project),
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext:
+            `Counterparts memory is paused in ${named}: no memories are loaded and nothing said here is remembered ` +
+            `until the person resumes it (\`${resumeCommand(named)}\`). Don't act as if you remember earlier sessions.`,
+        },
+      });
+      // Once: the person's line is in the output one time, the model's one time.
+      expect(r.stdout.split("Counterparts memory is paused").length - 1).toBe(2);
+    }
+    // And every other event is as silent as `off`.
+    for (const event of OTHER_EVENTS) {
+      const r = start({ session: "paused-others", cwd: project, event });
+      expect({ event, code: r.code, stdout: r.stdout, stderr: r.stderr }).toEqual({ event, code: 0, stdout: "", stderr: "" });
+    }
+    expect(existsSync(store)).toBe(false);
+  });
+
+  test("NOTHING is written to a store that exists: no session record, no claim, no log, not a byte", () => {
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    // A store that is there, as on any machine with an install.
+    Counterpart.open({ dir: store }).close();
+    put({ [project]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } });
+    const before = snapshot(store);
+    expect(Object.keys(before).length).toBeGreaterThan(0);
+    for (const source of SOURCES) {
+      expect(systemMessageOf(start({ session: "no-write", cwd: project, source }).stdout)).toBe(pausedHere(project));
+    }
+    for (const event of OTHER_EVENTS) expect(start({ session: "no-write", cwd: project, event }).stdout).toBe("");
+    expect(snapshot(store)).toEqual(before);
+    expect(existsSync(join(store, "sessions", "no-write.json"))).toBe(false);
+    expect(existsSync(join(store, "sessions", "claims"))).toBe(false);
+  });
+
+  test("paused by a PARENT: the parent is named, and the command resumes the entry that paused it", async () => {
+    const parent = join(home, "random");
+    const child = join(parent, "proj");
+    mkdirSync(child, { recursive: true });
+    put({ [parent]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" } });
+    const r = start({ session: "by-parent", cwd: child, source: "startup" });
+    expect(systemMessageOf(r.stdout)).toBe(
+      `Counterparts memory is paused for ~/random, which includes this folder; \`${resumeCommand("~/random")}\` turns it back on.`,
+    );
+    expect(contextOf(r.stdout)).toContain("paused for ~/random, which includes this folder");
+    expect(contextOf(r.stdout)).toContain(`\`${resumeCommand("~/random")}\``);
+    // Why the parent has to be named: `--resume` on the child refuses ...
+    expect((await cli(["scope", child, "--resume"])).code).toBe(EXIT.refused);
+    // ... and on the parent — the command the notice gives — turns it back on.
+    expect((await cli(["scope", parent, "--resume"])).code).toBe(EXIT.ok);
+    const after = start({ session: "by-parent-2", cwd: child, source: "startup" });
+    expect(after.stdout).not.toContain("paused");
+    expect(after.stdout).toContain("has not lived a boundary");
+  });
+
+  test("a parent outside HOME is named by its absolute path", () => {
+    const outside = join(work, "elsewhere");
+    const child = join(outside, "proj");
+    mkdirSync(child, { recursive: true });
+    put({ [outside]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } });
+    const said = systemMessageOf(start({ session: "outside", cwd: child, source: "startup" }).stdout) ?? "";
+    const abs = canonicalScopePath(outside);
+    expect(said).toBe(
+      `Counterparts memory is paused for ${abs}, which includes this folder; \`${resumeCommand(abs)}\` turns it back on.`,
+    );
+  });
+
+  test("the notice's command, typed VERBATIM in another terminal, resumes the registry the hook read", () => {
+    // The two things a command in a notice can get wrong, both proved on a real
+    // shell and the real console: `.` (here, the terminal stands in HOME), and a
+    // registry other than the console's default (these hooks read `--config`).
+    const project = join(home, "random", "proj");
+    mkdirSync(project, { recursive: true });
+    put({ [project]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" } });
+    const said = systemMessageOf(start({ session: "verbatim", cwd: project, source: "startup" }).stdout) ?? "";
+    const command = /`([^`]+)`/.exec(said)?.[1] ?? "";
+    expect(command).toBe(resumeCommand("~/random/proj"));
+    // A `counterparts` on PATH that is this checkout's console.
+    const shim = join(work, "shim");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, "counterparts"), `#!/bin/sh\nexec '${process.execPath}' run '${CLI_SCRIPT}' "$@"\n`, { mode: 0o755 });
+    const typed = spawnSync("/bin/sh", ["-c", command], {
+      cwd: home,
+      encoding: "utf8",
+      env: { PATH: `${shim}:${emptyBin}`, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+      timeout: 60_000,
+    });
+    expect({ code: typed.status, stderr: typed.stderr }).toEqual({ code: 0, stderr: "" });
+    expect(typed.stdout).toContain("— on.");
+    // The registry the hook reads was the one written: the next start wakes.
+    const after = start({ session: "verbatim-2", cwd: project, source: "startup" });
+    expect(after.stdout).not.toContain("paused");
+    expect(after.stdout).toContain("has not lived a boundary");
+    // And the default registry beside HOME was never touched.
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
+  });
+
+  test("the SESSION's folder paused while the shell stands elsewhere: named, as covering this session", () => {
+    const project = join(home, "project");
+    const elsewhere = join(home, "elsewhere");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(elsewhere, { recursive: true });
+    put({ [project]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } });
+    // The session is filed under CLAUDE_PROJECT_DIR; the event's cwd is not paused.
+    const r = start({ session: "session-dir", cwd: elsewhere, source: "startup", env: { CLAUDE_PROJECT_DIR: project } });
+    expect(systemMessageOf(r.stdout)).toBe(
+      `Counterparts memory is paused for ~/project, which covers this session; \`${resumeCommand("~/project")}\` turns it back on.`,
+    );
+    expect(existsSync(join(store, "sessions", "session-dir.json"))).toBe(false);
+  });
+
+  test("a session filed under an OFF folder whose shell stands in a paused one says nothing", () => {
+    // Resuming the paused folder would turn nothing back on for this session —
+    // its own folder is off — so the line would be a false promise, and `off`
+    // is silent. A start (CLAUDE_PROJECT_DIR is not the cwd) and a compaction
+    // (the shell moved) are the two ways SessionStart meets this.
+    const offDir = join(home, "private");
+    const pausedDir = join(home, "random");
+    mkdirSync(offDir, { recursive: true });
+    mkdirSync(pausedDir, { recursive: true });
+    put({
+      [offDir]: { mode: "off", since: "2026-10-10T00:00:00.000Z" },
+      [pausedDir]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" },
+    });
+    for (const source of SOURCES) {
+      const r = start({ session: `off-session-${source}`, cwd: pausedDir, source, env: { CLAUDE_PROJECT_DIR: offDir } });
+      expect({ source, code: r.code, stdout: r.stdout, stderr: r.stderr }).toEqual({ source, code: 0, stdout: "", stderr: "" });
+    }
+    expect(existsSync(store)).toBe(false);
+    // The paused folder's own session still hears it.
+    const own = start({ session: "own", cwd: pausedDir, source: "startup", env: { CLAUDE_PROJECT_DIR: pausedDir } });
+    expect(systemMessageOf(own.stdout)).toBe(`Counterparts memory is paused in ~/random; \`${resumeCommand("~/random")}\` turns it back on.`);
+  });
+
+  test("OFF stays silent on every source; ON and OBSERVER say nothing about a pause", () => {
+    const off = join(work, "off");
+    const on = join(work, "on");
+    const watched = join(work, "watched");
+    for (const d of [off, on, watched]) mkdirSync(d, { recursive: true });
+    put({
+      [off]: { mode: "off", since: "2026-10-10T00:00:00.000Z" },
+      [on]: { mode: "on", since: "2026-10-10T00:00:00.000Z" },
+      [watched]: { mode: "observer", since: "2026-10-10T00:00:00.000Z" },
+    });
+    for (const source of SOURCES) {
+      const r = start({ session: `off-${source}`, cwd: off, source });
+      expect({ source, code: r.code, stdout: r.stdout, stderr: r.stderr }).toEqual({ source, code: 0, stdout: "", stderr: "" });
+    }
+    expect(existsSync(store)).toBe(false);
+    const loud = start({ session: "on-1", cwd: on, source: "startup" });
+    expect(loud.stdout).toContain("has not lived a boundary");
+    expect(loud.stdout).not.toContain("paused");
+    // Observer reads the store the `on` session just made.
+    const quiet = start({ session: "observer-1", cwd: watched, source: "startup" });
+    expect(quiet.code).toBe(0);
+    expect(quiet.stdout.length).toBeGreaterThan(0);
+    expect(quiet.stdout).not.toContain("paused");
+  });
+
+  test("the headless nightly run, in a paused folder, is told nothing", () => {
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    put({ [project]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } });
+    const r = start({ session: "night", cwd: project, source: "startup", env: { [NIGHT_RUN_ENV]: "1" } });
+    expect({ code: r.code, stdout: r.stdout, stderr: r.stderr }).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+});
+
+describe("pausedNotice, the words", () => {
+  const paused = (matched: string): ScopeVerdict => ({ mode: "paused", matched, entry: { mode: "paused", since: "t" } });
+
+  test("nothing for any mode but paused", () => {
+    for (const mode of ["on", "observer", "off", "unset"] as const) {
+      const v: ScopeVerdict = { mode, matched: mode === "unset" ? null : "/x", entry: null };
+      expect(pausedNotice(v, "/x", { whose: "folder", home: "/h", pluginRoot: null })).toBe(null);
+    }
+  });
+
+  test("a path that needs quoting is quoted, and a quoted path is never `~`-shortened", () => {
+    const dir = join(home, "my dir");
+    mkdirSync(join(dir, "proj"), { recursive: true });
+    const n = pausedNotice(paused(dir), join(dir, "proj"), { whose: "folder", home, pluginRoot: null });
+    const abs = canonicalScopePath(dir);
+    expect(n?.person).toBe(
+      `Counterparts memory is paused for ~/my dir, which includes this folder; \`counterparts scope '${abs}' --resume\` turns it back on.`,
+    );
+  });
+
+  test("under the plugin, the command is the plugin's own launcher (no `counterparts` on PATH)", () => {
+    const project = join(home, "p");
+    mkdirSync(project, { recursive: true });
+    const root = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.15");
+    const n = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: root });
+    expect(n?.person).toBe(
+      "Counterparts memory is paused in ~/p; `sh ~/.claude/plugins/cache/counterparts/counterparts/0.3.15/src/adapters/plugin-run.sh cli scope ~/p --resume` turns it back on.",
+    );
+  });
+
+  test("a plugin root and a named configuration with spaces are quoted whole; `--config` is two words", () => {
+    const project = join(home, "p");
+    mkdirSync(project, { recursive: true });
+    const root = join(work, "plugin copies", "counterparts");
+    const config = join(home, "other base", "claude-code.json");
+    const n = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: root, configPath: config });
+    expect(n?.person).toBe(
+      `Counterparts memory is paused in ~/p; \`sh '${join(root, "src", "adapters", "plugin-run.sh")}' cli scope ~/p --resume --config '${config}'\` turns it back on.`,
+    );
+    // A named configuration with no spaces under HOME is `~`-shortened, unquoted, so the shell expands it.
+    const plain = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: null, configPath: join(home, "base", "claude-code.json") });
+    expect(plain?.person).toBe("Counterparts memory is paused in ~/p; `counterparts scope ~/p --resume --config ~/base/claude-code.json` turns it back on.");
   });
 });
 

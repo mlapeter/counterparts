@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **A paused folder now says so when a session starts.** With memory paused in a folder
+  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
+  compacted session there shows one line naming the paused folder and the command that
+  turns it back on, which works from any terminal. If the pause is on a parent folder, the
+  line names that folder and the command resumes it there. Claude gets a matching line so
+  it doesn't act as if it remembers.
+  Nothing else changes: no memories are loaded or recorded, nothing is written, other
+  hooks stay silent, and a folder turned `off` stays completely silent.
+- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
+  every mechanism it proves: a turn where a matching mood brought a memory closer lights
+  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
+  Gist, Interference and Consolidation beside Dreaming.
+
 ## 0.3.15 — 2026-10-10
 
 The self page is never cut in the wake. A page may now be at most 6,078 bytes, which the

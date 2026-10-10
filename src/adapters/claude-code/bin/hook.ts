@@ -14,7 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal } from "../../../core/store/index.js";
@@ -27,6 +27,7 @@ import {
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 import {
+  canonicalScopePath,
   describeScopeTrouble,
   lookupScope,
   mostRestrictiveVerdict,
@@ -60,7 +61,7 @@ import { readTranscript } from "../transcript.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
-import { ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
+import { PLUGIN_ROOT_ENV, ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { claimDelivery, deliveryClaimKey, finishClaim } from "../claim.js";
 
 /**
@@ -361,6 +362,125 @@ function verdictOver(read: ScopeRead, scopes: readonly string[]): ScopeVerdict {
     first = false;
   }
   return verdict;
+}
+
+/**
+ * A PAUSED FOLDER SAYS SO, ONCE, AT SESSION START (rulings brief #19, 2026-10-10).
+ *
+ * Until this a pause was as silent as `off` (§5 G19): no wake, no recall, no
+ * line. On 2026-10-09 three sessions in a paused folder ran without memory for
+ * ten minutes before anyone noticed. `off` stays silent — it is a deliberate
+ * opt-out, and a line every session would nag — but a pause is meant to end,
+ * so its SessionStart now carries one line for the person (`person`, the
+ * `systemMessage` the host displays) and one for the model (`model`, as
+ * `additionalContext`, so it does not act as if it remembers).
+ *
+ * The command has to target the entry that PAUSED it: `--resume` refuses a
+ * directory that only inherits a parent's pause. So the folder is always NAMED,
+ * and the command names it — never `.`, which means wherever the person types
+ * it (another terminal, or a shell that moved after a compaction) and, from a
+ * subfolder of the entry, is refused outright (review of #362). A plugin
+ * install puts no `counterparts` on PATH (`commands/doctor.md`), so under the
+ * plugin the command is the plugin's own launcher.
+ *
+ * And it has to reach the REGISTRY this hook read. `counterparts scope` writes
+ * the `scopes.json` beside the configuration it resolves, so a hook wired with
+ * `--config` (or `COUNTERPARTS_CONFIG`) somewhere other than the default's
+ * directory gives the command the same `--config` (`configPath`); without it
+ * the command would resume an entry in the default registry, or refuse, and
+ * this folder would stay paused (review of #362).
+ *
+ * `whose` says which directory the verdict was taken on: the event's folder
+ * (the shell's) or the session's (where it started, when that is not where the
+ * shell stands). Null for anything but a pause with a matched entry. Pure.
+ */
+export function pausedNotice(
+  verdict: ScopeVerdict,
+  here: string,
+  opts: {
+    readonly whose: "folder" | "session";
+    readonly home: string;
+    readonly pluginRoot: string | null;
+    /** The configuration the hook read, when its registry is not the default's; else null. */
+    readonly configPath?: string | null;
+  },
+): { readonly person: string; readonly model: string } | null {
+  if (verdict.mode !== "paused" || verdict.matched === null) return null;
+  const entry = canonicalScopePath(verdict.matched);
+  const own = opts.whose === "folder" && entry === canonicalScopePath(here);
+  const named = shortPath(entry, opts.home);
+  const where = own
+    ? `in ${named}`
+    : opts.whose === "folder"
+      ? `for ${named}, which includes this folder`
+      : `for ${named}, which covers this session`;
+  const target = shellWord(entry, opts.home);
+  // `--config <path>` as two words, so an unquoted `~/…` expands (`--config=~/…` would not).
+  const config = opts.configPath === undefined || opts.configPath === null ? "" : ` --config ${shellWord(opts.configPath, opts.home)}`;
+  const command =
+    opts.pluginRoot === null
+      ? `counterparts scope ${target} --resume${config}`
+      : `sh ${shellWord(join(opts.pluginRoot, "src", "adapters", "plugin-run.sh"), opts.home)} cli scope ${target} --resume${config}`;
+  return {
+    person: `Counterparts memory is paused ${where}; \`${command}\` turns it back on.`,
+    model:
+      `Counterparts memory is paused ${where}: no memories are loaded and nothing said here is remembered ` +
+      `until the person resumes it (\`${command}\`). Don't act as if you remember earlier sessions.`,
+  };
+}
+
+/** `path` with the home directory as `~`, for reading. Both spellings of home
+ *  are tried, since `path` arrives canonical (realpathed). */
+function shortPath(path: string, home: string): string {
+  for (const h of new Set([resolve(home), canonicalScopePath(home)])) {
+    if (path === h) return "~";
+    if (path.startsWith(`${h}/`)) return `~${path.slice(h.length)}`;
+  }
+  return path;
+}
+
+/** `path` as one shell word: `~/…` when that needs no quoting (a quoted `~`
+ *  does not expand), else the absolute path, single-quoted only if it must be. */
+function shellWord(path: string, home: string): string {
+  const plain = /^[A-Za-z0-9_./@%+=:,-]+$/;
+  const short = shortPath(path, home);
+  if (short !== path && (short === "~" || plain.test(short.slice(1)))) return short;
+  if (plain.test(path)) return path;
+  return `'${path.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Print the paused notice when this is SessionStart in a paused folder — from
+ * the registry already read, writing nothing anywhere but stdout. Every other
+ * event, an `off` verdict, and the headless nightly run (a windowless session
+ * nobody watches, kept quiet like every other ask) print nothing.
+ */
+function sayPaused(
+  name: HookName,
+  verdict: ScopeVerdict,
+  here: string,
+  whose: "folder" | "session",
+  payload: Record<string, unknown>,
+  said: Said,
+  configPath: string,
+): void {
+  if (name !== "session-start") return;
+  if ((process.env[NIGHT_RUN_ENV] ?? "").trim().length > 0) return;
+  const home = homedir();
+  const notice = pausedNotice(verdict, here, {
+    whose,
+    home,
+    pluginRoot: runningAsPlugin(process.env) ? (process.env[PLUGIN_ROOT_ENV] ?? "").trim() || null : null,
+    // The console's default registry is the one beside `defaultConfigPath()`;
+    // any other is named on the command.
+    configPath: scopesPath(configPath) === scopesPath(defaultConfigPath(home)) ? null : configPath,
+  });
+  if (notice === null) return;
+  // The SessionStart envelope every notice rides (`hostDelivery`): the person's
+  // line as `systemMessage`, the model's as `additionalContext`.
+  const delivery = hostDelivery(name, { injection: notice.model, ask: null }, payload, [notice.person]);
+  process.stdout.write(delivery.stdout);
+  said.wroteStdout = true;
 }
 
 export function toHookInput(
@@ -674,12 +794,30 @@ async function runHook(
   const eventDir = eventDirectory(payload);
   const { verdict: eventVerdict, read } = hookScopeVerdict(choice.path, eventDir);
   if (stanceOfMode(eventVerdict.mode) === "off") {
-    // Silent on BOTH channels, deliberately. `off` is an opt-out, not an
+    // `off` is silent on BOTH channels, deliberately. It is an opt-out, not an
     // observer stand-down: there is no store to log to without writing one, and
     // UserPromptSubmit fires every turn, so a line per event would be a
     // permanent noise floor in the host's log for a directory that asked to be
     // left alone. The record that this happened is the registry itself, which
     // `counterparts scope <path>` prints on demand.
+    //
+    // `paused` says ONE LINE, at SessionStart only (rulings brief #19,
+    // 2026-10-10; `sayPaused`): a pause is meant to end, and on 10-09 three
+    // sessions ran without memory for ten minutes before anyone noticed. It is
+    // printed from what was already read — the registry — and nothing is
+    // written; every other event stays as silent as `off`.
+    //
+    // UNLESS THE SESSION'S OWN FOLDER IS `off` (review of #362): a session that
+    // started in one and whose shell stands in a paused folder is off whatever
+    // this folder says, so "resume turns it back on" would be a false promise.
+    // `startDirectory` is the environment and the payload — the session record
+    // agrees with it by construction (`sessionScope`) — so still nothing but the
+    // registry is read.
+    const sessionOff =
+      name === "session-start" &&
+      eventVerdict.mode === "paused" &&
+      lookupScope(read.registry, startDirectory(payload)).mode === "off";
+    if (!sessionOff) sayPaused(name, eventVerdict, eventDir, "folder", payload, said, choice.path);
     return;
   }
   // A REGISTRY IN TROUBLE IS NOT SILENT, and that is a DIFFERENT exception from
@@ -742,7 +880,10 @@ async function runHook(
     // and reached only when the session's OWN directory is the one that is off,
     // which is a session whose SessionStart ran somewhere the owner opted out
     // of. Nothing has been written; the configuration and the session record
-    // were read, and neither is a write.
+    // were read, and neither is a write. A `paused` session directory says its
+    // one SessionStart line here too (a compaction, or a start whose
+    // `CLAUDE_PROJECT_DIR` is paused while the shell stands elsewhere).
+    sayPaused(name, verdict, scope, "session", payload, said, choice.path);
     return;
   }
   // THE COMBINATION: the most restrictive of what the configuration said and

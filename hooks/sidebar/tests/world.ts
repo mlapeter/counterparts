@@ -159,6 +159,8 @@ export type World = {
   slowDeny: number;
   denied: number;
   lastStatus: () => string;
+  /** The dashboard's event log (EVENTS to begin with): push to it, and the next poll reads the new ones. */
+  events: Ev[];
 }
 
 /** Registers the test's answers beneath the plugin; call before the first `$` call. */
@@ -193,6 +195,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     slowDeny: 0,
     denied: 0,
     lastStatus: () => w.statuses.filter((s): s is string => typeof s === 'string').at(-1) ?? '',
+    events: [...EVENTS],
   }
   mock.env(on, opts.env ?? { HOME })
   // The scope registry as the server keeps it: `w.scope` is its one entry (none
@@ -272,8 +275,8 @@ export function world(on: On, opts: WorldOptions = {}): World {
     if (url.pathname === '/api/activity') {
       const name = url.searchParams.get('name')
       const since = url.searchParams.get('sinceSeq')
-      const events = EVENTS.filter(x => (name === null || x.name === name) && (since === null || x.seq > Number(since)))
-      return ok({ events, total: events.length, lastSeq: PULSE.lastSeq })
+      const events = w.events.filter(x => (name === null || x.name === name) && (since === null || x.seq > Number(since)))
+      return ok({ events, total: events.length, lastSeq: Math.max(PULSE.lastSeq, ...w.events.map(x => x.seq)) })
     }
     return { value: { status: 404, ok: false, headers: {}, text: '{"error":"not found"}' } }
   })
