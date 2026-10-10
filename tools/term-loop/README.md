@@ -20,14 +20,16 @@ from npm.
 ## Every time
 
 ```sh
-# the three views, from a frozen copy of the mod (hooks/sidebar/NOTES.md says how to make one)
-bun tools/term-loop/shoot.ts --plugin-dir ~/counterparts-trials/sidebar-v01-ff3d732f \
-  shot:full 'cmd:/counterparts quiet' shot:quiet 'cmd:/counterparts hide' shot:hidden
+# the sidebar v0.2's views and brain modes, from a frozen copy of the mod (hooks/sidebar/NOTES.md
+# says how to make one); a term-loop session sends no message, so name a session whose
+# memories and saves to show (the sidebar reads them from the dashboard, read only)
+COUNTERPARTS_SIDEBAR_SESSION=<session id> bun tools/term-loop/shoot.ts --plugin-dir <dir> \
+  shot:full click:Forgetting shot:mechanism 'cmd:/counterparts brain off' shot:no-brain \
+  'cmd:/counterparts brain turning' 'cmd:/counterparts strip' shot:strip 'cmd:/counterparts quiet' shot:quiet
 
-# a legend item opened, a switch hovered, a search typed (not run)
+# a switch hovered, a search typed (not run)
 bun tools/term-loop/shoot.ts --plugin-dir <dir> \
-  click:Salience shot:legend 'hover:Counterparts memory' shot:hover \
-  'click:search memories' type:publish shot:typed
+  'hover:Counterparts' shot:hover 'click:search' type:publish shot:typed
 
 # draw a saved capture again after changing render.ts (no claude, no tmux)
 bun tools/term-loop/shoot.ts --render tools/term-loop/out/<time>/full.ansi --out /tmp/again
@@ -83,9 +85,9 @@ Things learned driving it (2026-10-10, Claude Code 2.1.296):
   `term-loop-<pid>-<time>` per run, at `--size`.
 - `claude --plugin-dir <dir> --settings '{"tui":"fullscreen"}'`: the
   fullscreen layout, where the sidebar opens by itself. If the sidebar was
-  stored hidden, the run opens it with `/counterparts` first (and hides it
-  again at the end); that path hasn't run live yet, since the store has held
-  `full` throughout.
+  stored closed (v0.1's hidden, v0.2's strip or quiet), the run opens it with
+  `/counterparts` first (and puts the view back at the end); that path hasn't
+  run live yet, since the store has held the sidebar throughout.
 - **`--permission-mode default`**, so the session asks before any tool: a
   prompt that slipped past the guard would stall at a permission dialog,
   not run tools unattended. So the line under the status line differs from
@@ -156,13 +158,16 @@ The sessions are real Claude Code sessions with his own login and settings.
   `~/.claude/plugins/store/<name>_inline-<12 hex of sha256("<name>@inline")>.json`
   (`counterparts_inline-41db9a71a546.json`), shared by every folder copy named
   `counterparts`, his own trial copy included. So `/counterparts quiet` or
-  `hide` in a run would make his next session open quiet or hidden. The run
-  reads that file before it starts (read only), and before the session ends
-  puts back whatever differs, through the mod: first the "Claude Code's own
-  memory" switch, by a click on it in the full view (that switch is one
-  preference for every session, his running ones included, and no command
-  turns it), then `view`, `caps`, `fpsShown` and `fps` with the mod's own
-  commands. It never writes the file. This runs after a step fails or times
+  `strip` (or `brain off`) in a run would make his next session open that way.
+  The run reads that file before it starts (read only), and before the session
+  ends puts back whatever differs, through the mod: first the Claude memory
+  switch ("Claude memory" in v0.2's footer, "Claude Code's own memory" in
+  v0.1), by a click on it in the pane (that switch is one preference for
+  every session, his running ones included, and no command turns it), then
+  `view`, `brain`, `caps`, `fpsShown` and `fps` with the mod's own commands.
+  Views are compared by what they mean in either version (v0.2's `sidebar` is
+  v0.1's `full`), so a v0.2 run that writes `sidebar` over his `full` changes
+  nothing. It never writes the file. This runs after a step fails or times
   out as well as after the last step (a prompt a failed step left holding
   words is cleared first), and after a first ^C (or TERM, HUP): the signal
   stops the steps, the preferences go back, the session closes, and no PNGs
@@ -236,9 +241,9 @@ window's edge), and his window is shorter, so his pane has fewer rows.
 
 Judge: layout and alignment, wrapping and cutting, spacing, the colours of
 text and stage dots against the `#05080c` panel, contrast, the brain's shape
-and region colours, how each view (full, quiet, hidden, hovered, focused)
-reads. Use the full `<name>.png` for what sits outside the pane: the status
-line under the prompt (where the hidden view lives), and how wide the dock
+and region colours, how each view (sidebar, strip, quiet, hovered, focused)
+reads. Use the full `<name>.png` for what sits outside the pane: the lines
+under the prompt (the quiet view's dim tail, a paused folder's amber line), and how wide the dock
 is beside the transcript.
 
 Don't judge: the exact brain frame, the live numbers and ACTIVITY rows, the

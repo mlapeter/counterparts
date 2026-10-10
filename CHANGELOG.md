@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+The sidebar, rebuilt (#371).
+
+- **The sidebar shows what memory is doing, in 35 columns.** A small brain beside the
+  title (click COUNTERPARTS for the dashboard), the day, the count and a search box; then
+  **Memories**, what was said to Claude in full for your last message, and
+  **Subconscious**, the titles it was quietly given (`↗ opened` on one it looked up);
+  **Saved this session**, newest first, with what an update replaces; **Mechanisms today**,
+  how many times each of the twelve fired today, as bars; and **Last Dream**, its first
+  sentence. A click opens an item in place when it is short, and on the dashboard when it
+  is long (the dashboard now opens one memory by `#memories?id=`); a click on a section's
+  heading gives it the room. Three rows of switches at the bottom: Counterparts in this
+  folder and Claude Code's own memory (each as safe as before: a pause still asks first,
+  and an unknown state is never shown as on), the view, and the brain. On a laptop screen
+  the sections fold to fit, each keeping its heading.
+- **Closed, it says the newest thing in one line.** `/counterparts strip` shows it above
+  the prompt; `/counterparts quiet` (or the pane's ✕) shows it dim at the end of the line
+  under the prompt, as in "remembered: …", "stored: …" or "dreamed: …". The amber status
+  line is gone except to warn that a folder is paused or off, and clearing it gives the
+  row back. `/counterparts brain turning|still|off` (or the footer) sets the brain: turning
+  sways gently, still lights only when something fires, off leaves it out. A view or brain
+  you set before carries over; v0.1's "full" opens the sidebar, its "quiet" and "hidden"
+  are quiet.
+- **The dashboard counts each mechanism's firings today.** `/api/mechanisms` carries
+  `firedToday` on every mechanism: how many times it fired on today's date, counting
+  rows rather than amounts, and one dream once. With a dashboard from before this
+  release the sidebar counts them itself from the activity feed.
+
 ## 0.3.16 — 2026-10-10
 
 The self page is kept whole up to 16 KB, and when it doesn't fit, the wake steps down to
