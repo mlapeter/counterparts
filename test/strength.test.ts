@@ -490,7 +490,7 @@ const V13_INDEXES = [
   "edges_dst",
   "derivations_parent",
 ];
-const V13_TRIGGERS = ["memories_next_change_inputs", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"];
+const V13_TRIGGERS = ["memories_next_change_inputs", "memories_next_change_era", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"];
 
 function cols(path: string, table: string): string {
   const d = new Database(path, { readonly: true });
