@@ -14,7 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal } from "../../../core/store/index.js";
@@ -32,10 +32,13 @@ import {
   lookupScope,
   mostRestrictiveVerdict,
   readScopes,
+  scopeCommand,
+  scopeCommandContext,
   scopesPath,
+  shortPath,
   stanceOfMode,
 } from "../../scopes.js";
-import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
+import type { ScopeCommandContext, ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { canonicalScope, isEntrypoint, readSession } from "../../sessions.js";
 import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
@@ -71,7 +74,7 @@ import {
   runningAsPlugin,
   takeFirstRunNotice,
 } from "../../plugin.js";
-import { claimDelivery, deliveryClaimKey, finishClaim } from "../claim.js";
+import { claimDelivery, deliveryClaimKey, finishClaim, firesOnce } from "../claim.js";
 
 /**
  * The host's own spellings of the two events that carry a notice — one
@@ -82,26 +85,30 @@ import { HOST_SESSION_START, HOST_USER_PROMPT_SUBMIT, envelopeJson } from "../en
 export { HOST_SESSION_START, HOST_USER_PROMPT_SUBMIT } from "../envelope.js";
 
 /**
- * THE MOST STDOUT THIS HOOK MAY PRINT AS JSON, and why the number is 9,500.
+ * WHAT THE JSON FORM MUST FIT: EACH FIELD, NOT THE WHOLE ENVELOPE (measured
+ * 2026-10-10 on Claude Code 2.1.296; adapter NOTES, "The notice is capped").
  *
- * The host's own cap, verbatim (https://code.claude.com/docs/en/hooks): "Hook
- * output strings, including `additionalContext`, `systemMessage`, and plain
- * stdout, are capped at 10,000 characters. Output that exceeds this limit is
- * saved to a file and replaced with a preview and file path."
+ * The host's cap (https://code.claude.com/docs/en/hooks#json-output): "A hook's
+ * `additionalContext`, `systemMessage`, and `initialUserMessage` strings, and
+ * its plain stdout, are capped at 10,000 characters … For JSON output, each
+ * field is measured separately; plain stdout is measured whole." Measured: a
+ * 10,488-character envelope in this hook's own shape (`systemMessage` 376,
+ * `additionalContext` 9,910) and a 12,637-character escape-heavy one both
+ * parsed, every field whole; a field past 10,000 is previewed and the JSON
+ * still parses. So the JSON form's escaping costs nothing: what must fit is
+ * the model's text and the person's line, each under `TUNABLES.HOST_OUTPUT_CHARS`
+ * (the one place the host's number lives), in characters, as the host counts.
  *
- * Which is survivable for PLAIN stdout — a truncated wake is still a wake — and
- * fatal for the JSON form: replace the printed object with a preview and the
- * stdout no longer parses as JSON, so `additionalContext` is never read and the
- * ENTIRE WAKE is dropped. And the envelope is bigger than the wake it carries:
- * JSON escaping turns every newline into two characters, so a 9,038-byte wake
- * plus a 352-character notice measured 9,618 characters of stdout — one bad day
- * away from losing the wake on exactly the morning something was red.
- *
- * So the JSON form is used only while it demonstrably fits, with 500 characters
- * of margin for the escaping, and the fallback is the plain wake: the notice is
- * what gets dropped, never the memory. `counterparts doctor` still prints it.
+ * Until then (2026-09-14) the rule was 9,500 characters of WHOLE envelope —
+ * read from the same docs as fatal past 10,000, since a previewed object would
+ * no longer parse — so on a full-wake day the notice was dropped though both
+ * fields fit. Now the notice is kept whenever both fields fit, and the fallback
+ * is still the plain wake: a notice that does not fit is dropped, never the
+ * memory, and `counterparts doctor` still prints it.
  */
-export const ENVELOPE_MAX_CHARS: number = TUNABLES.ENVELOPE_CHARS;
+function fieldsFit(context: string, message: string): boolean {
+  return context.length <= TUNABLES.HOST_OUTPUT_CHARS && message.length <= TUNABLES.HOST_OUTPUT_CHARS;
+}
 
 /**
  * HOW A DUE STOP ASK LEAVES THIS PROCESS — ONE shape (owner, 2026-09-24).
@@ -423,13 +430,12 @@ export function pausedNotice(
     : opts.whose === "folder"
       ? `for ${named}, which includes this folder`
       : `for ${named}, which covers this session`;
-  const target = shellWord(entry, opts.home);
-  // `--config <path>` as two words, so an unquoted `~/…` expands (`--config=~/…` would not).
-  const config = opts.configPath === undefined || opts.configPath === null ? "" : ` --config ${shellWord(opts.configPath, opts.home)}`;
-  const command =
-    opts.pluginRoot === null
-      ? `counterparts scope ${target} --resume${config}`
-      : `sh ${shellWord(join(opts.pluginRoot, "src", "adapters", "plugin-run.sh"), opts.home)} cli scope ${target} --resume${config}`;
+  // The one console line every model- and person-facing text prints (`scopes.ts#scopeCommand`).
+  const command = scopeCommand(entry, "--resume", {
+    home: opts.home,
+    pluginRoot: opts.pluginRoot,
+    configPath: opts.configPath ?? null,
+  });
   return {
     person: `Counterparts memory is paused ${where}; \`${command}\` turns it back on.`,
     model:
@@ -438,24 +444,17 @@ export function pausedNotice(
   };
 }
 
-/** `path` with the home directory as `~`, for reading. Both spellings of home
- *  are tried, since `path` arrives canonical (realpathed). */
-function shortPath(path: string, home: string): string {
-  for (const h of new Set([resolve(home), canonicalScopePath(home)])) {
-    if (path === h) return "~";
-    if (path.startsWith(`${h}/`)) return `~${path.slice(h.length)}`;
-  }
-  return path;
-}
-
-/** `path` as one shell word: `~/…` when that needs no quoting (a quoted `~`
- *  does not expand), else the absolute path, single-quoted only if it must be. */
-function shellWord(path: string, home: string): string {
-  const plain = /^[A-Za-z0-9_./@%+=:,-]+$/;
-  const short = shortPath(path, home);
-  if (short !== path && (short === "~" || plain.test(short.slice(1)))) return short;
-  if (plain.test(path)) return path;
-  return `'${path.replace(/'/g, "'\\''")}'`;
+/**
+ * What a console line this hook prints needs to work where it is typed: the
+ * plugin's launcher when this is the plugin's process, and `--config` when the
+ * registry it read is not the default's (`scopes.ts#scopeCommandContext`).
+ */
+export function hookScopeContext(configPath: string, env: Record<string, string | undefined> = process.env): ScopeCommandContext {
+  return scopeCommandContext({
+    configPath,
+    pluginRoot: runningAsPlugin(env) ? (env[PLUGIN_ROOT_ENV] ?? null) : null,
+    home: homedir(),
+  });
 }
 
 /**
@@ -475,15 +474,7 @@ function sayPaused(
 ): void {
   if (name !== "session-start") return;
   if ((process.env[NIGHT_RUN_ENV] ?? "").trim().length > 0) return;
-  const home = homedir();
-  const notice = pausedNotice(verdict, here, {
-    whose,
-    home,
-    pluginRoot: runningAsPlugin(process.env) ? (process.env[PLUGIN_ROOT_ENV] ?? "").trim() || null : null,
-    // The console's default registry is the one beside `defaultConfigPath()`;
-    // any other is named on the command.
-    configPath: scopesPath(configPath) === scopesPath(defaultConfigPath(home)) ? null : configPath,
-  });
+  const notice = pausedNotice(verdict, here, { whose, ...hookScopeContext(configPath) });
   if (notice === null) return;
   // The SessionStart envelope every notice rides (`hostDelivery`): the person's
   // line as `systemMessage`, the model's as `additionalContext`.
@@ -938,6 +929,9 @@ async function runHook(
     // instead. It is also pinned onto the worker's environment, so the child
     // reads the same file its parent did rather than resolving one of its own.
     configPath: choice.path,
+    // How the first-launch question's console line must read here: the
+    // plugin's launcher under the plugin, `--config` for another registry.
+    scopeCommand: hookScopeContext(choice.path),
     // The verdict travels IN: it is a fact about this process's startup, decided before anything opened, and
     // the adapter's jobs with it are to record it and — when it is `unset` — to
     // ask the question once (G41).
@@ -970,7 +964,15 @@ async function runHook(
     sessionId: said.sessionId,
     side: runningAsPlugin(process.env) ? "plugin" : "settings",
     observer: config.observer === true,
+    // A session-opening start or an identified prompt is sent once, so a twin
+    // whose runtime came up late is still a twin (`../claim.ts#firesOnce`).
+    once: firesOnce(name, payload),
   });
+  // A CLAIMS FILE THAT WAS NOT A DATABASE was set aside and rebuilt on the way
+  // (review of #359): said once, here, and kept as the copy doctor reads.
+  if (claim.setAside !== undefined) {
+    process.stderr.write(`[counterparts] ${name}: the claims file could not be read; set aside as ${claim.setAside} and made again\n`);
+  }
   if (claim.outcome === "lost") {
     process.stderr.write(
       `[counterparts] ${name} stood down by claim: another Counterparts hook (${claim.heldBy ?? "?"}) already took this event — two wirings are live in this host\n`,
@@ -1079,7 +1081,12 @@ async function runHook(
     adapter.counterpart.close();
   }
   // A throw above never reaches this line: `main`'s handler writes it instead.
-  opened.end(outcome, unclaimed === null ? undefined : { unclaimed, busy: claim.busy === true });
+  // The reason as its CODE (review of #359): the log writes a sentence as its
+  // length (`[text:N]`), and a length is no reason.
+  opened.end(outcome, {
+    ...(unclaimed === null ? {} : { unclaimed: claim.code ?? "unknown", busy: claim.busy === true }),
+    ...(claim.setAside === undefined ? {} : { claimsSetAside: true }),
+  });
 }
 
 /** `CLAUDE_CODE_SESSION_ATTENDED` as `HookInput.attended`: `1`/`true` and
@@ -1373,15 +1380,16 @@ export function hostDelivery(
     );
     if (name === "session-start" && notices.length > 0) {
       const envelopeOf = (message: string): string => envelopeJson(HOST_SESSION_START, message, out);
-      // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
-      // whole string with a preview, the JSON would stop parsing, and the
-      // session would start with no memory at all — a worse outcome than not
-      // seeing the warning, which `counterparts doctor` prints on request.
-      // And the notices go in in the order given, each only if it still fits.
+      // THE WAKE WINS. Each field must fit the host's cap on its own
+      // (`fieldsFit`): a wake past it is previewed in either form, and then the
+      // plain form is printed and `overCap` says so. The notices go in in the
+      // order given, each only while the person's field still fits.
+      // `envelopeChars` stays what it was, the whole object's length — a fact
+      // for the record, no longer the test.
       const kept: string[] = [];
       const left: string[] = [];
       for (const n of notices) {
-        if (envelopeOf([...kept, n].join("\n")).length <= ENVELOPE_MAX_CHARS) kept.push(n);
+        if (fieldsFit(out, [...kept, n].join("\n"))) kept.push(n);
         else left.push(n);
       }
       const dropped =
@@ -1390,7 +1398,7 @@ export function hostDelivery(
           : {
               noticeChars: left.join("\n").length,
               envelopeChars: envelopeOf(notices.join("\n")).length,
-              limitChars: ENVELOPE_MAX_CHARS,
+              limitChars: TUNABLES.HOST_OUTPUT_CHARS,
             };
       if (kept.length === 0) return plainOut(out, dropped);
       return { stdout: envelopeOf(kept.join("\n")), stderr: "", exitCode: 0, dropped };
@@ -1411,8 +1419,8 @@ export function hostDelivery(
           ? {}
           : { hookSpecificOutput: { hookEventName: HOST_USER_PROMPT_SUBMIT, additionalContext: out } }),
       });
-      if (envelope.length > ENVELOPE_MAX_CHARS) {
-        return plainOut(out, { noticeChars: message.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS });
+      if (!fieldsFit(out, message)) {
+        return plainOut(out, { noticeChars: message.length, envelopeChars: envelope.length, limitChars: TUNABLES.HOST_OUTPUT_CHARS });
       }
       return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
     }

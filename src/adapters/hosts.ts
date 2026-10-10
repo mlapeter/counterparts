@@ -159,9 +159,30 @@ export interface HostWording {
   /** What switching it back ON does, the same way. */
   readonly scopeOn: string;
   /** Every other tool's refusal while this place is OFF, and the way back on. */
-  readonly offRefusal: string;
+  readonly offRefusal: (at: RefusalPlace) => string;
   /** The same while it is PAUSED. */
-  readonly pausedRefusal: string;
+  readonly pausedRefusal: (at: RefusalPlace) => string;
+}
+
+/**
+ * WHERE A REFUSAL STANDS, as its words name it (`mcp/server.ts#refuseScopeOff`,
+ * 2026-10-10). The refusals said `counterparts scope . --on`; `.` is wherever
+ * the line is typed — the model's shell after a `cd`, another terminal — and
+ * `--resume` refuses a directory that only inherits a parent's pause. So the
+ * place is named, the entry that set it is named when it is an ancestor's, and
+ * each console line arrives built (`scopes.ts#scopeCommand`: the folder, the
+ * plugin's launcher, `--config`), because this module may not import the one
+ * that builds it (`scopes.ts` imports this one).
+ */
+export interface RefusalPlace {
+  /** This place, as a person reads it: `~/proj/sub`, or `claude-desktop:`. */
+  readonly here: string;
+  /** The ancestor whose entry set it, read the same way; null when the entry is this place's own. */
+  readonly inherited: string | null;
+  /** The console line for the entry that set it, with `flag`. */
+  readonly entryCommand: (flag: string) => string;
+  /** The console line for this place itself, with `flag`. */
+  readonly hereCommand: (flag: string) => string;
 }
 
 /**
@@ -182,10 +203,18 @@ export const HOST_WORDING: Readonly<Record<string, HostWording>> = {
     // directory was off or paused stays out of the memory for good.
     scopeOn:
       "Recorded. This takes effect for the tools immediately, and for the hooks at their next boundary in this session. Nothing said before now is recorded — the conversation that happened while this directory was off or paused is passed over, not collected — and remembering starts from here.",
-    offRefusal:
-      "Counterparts is off for this directory. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope . --on`.",
-    pausedRefusal:
-      "Counterparts is paused for this directory. Nothing is recorded or read here until it is resumed — call `scope` with mode `resume`, or run `counterparts scope . --resume`.",
+    // A PARENT'S SETTING (2026-10-10). The `scope` tool sets only this
+    // directory: `on` turns it on here alone, and `resume` refuses a directory
+    // with no entry of its own. So an inherited pause names the console line
+    // for the parent, and says what the tool can and cannot do here.
+    offRefusal: (at) =>
+      at.inherited === null
+        ? `Counterparts is off for this directory (${at.here}). Nothing is recorded or read here — call \`scope\` with mode \`on\`, or run \`${at.hereCommand("--on")}\`.`
+        : `Counterparts is off for ${at.inherited}, which includes this directory (${at.here}). Nothing is recorded or read here — call \`scope\` with mode \`on\`, or run \`${at.hereCommand("--on")}\`, to turn it on here alone; \`${at.entryCommand("--on")}\` turns all of ${at.inherited} back on.`,
+    pausedRefusal: (at) =>
+      at.inherited === null
+        ? `Counterparts is paused for this directory (${at.here}). Nothing is recorded or read here until it is resumed — call \`scope\` with mode \`resume\`, or run \`${at.entryCommand("--resume")}\`.`
+        : `Counterparts is paused for ${at.inherited}, which includes this directory (${at.here}). Nothing is recorded or read here until it is resumed — run \`${at.entryCommand("--resume")}\`. The \`scope\` tool sets only this directory: mode \`resume\` refuses here, and mode \`on\` turns this directory on alone while ${at.inherited} stays paused.`,
   },
   // Desktop has no `/mcp` and no hooks: the one server every chat talks to is
   // started with the app, so a newer build loads when the app does.
@@ -196,10 +225,12 @@ export const HOST_WORDING: Readonly<Record<string, HostWording>> = {
       "Claude Desktop's chats are no longer recorded or read. Every other tool will refuse until it is turned back on — including in a new chat, which is the point.",
     scopeOn:
       "Recorded. This takes effect immediately, for every tool in every Claude Desktop chat. Nothing is collected from before now: Desktop chat keeps no transcript here, so only what is written through the tools is remembered.",
-    offRefusal:
-      "Counterparts is off for Claude Desktop's chats. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope claude-desktop: --on`.",
-    pausedRefusal:
-      "Counterparts is paused for Claude Desktop's chats. Nothing is recorded or read here until it is resumed — call `scope` with mode `resume`, or run `counterparts scope claude-desktop: --resume`.",
+    // `claude-desktop:` is a name, governed only by its own entry, so nothing
+    // here is inherited; the console line still carries `--config` when needed.
+    offRefusal: (at) =>
+      `Counterparts is off for Claude Desktop's chats. Nothing is recorded or read here — call \`scope\` with mode \`on\`, or run \`${at.hereCommand("--on")}\`.`,
+    pausedRefusal: (at) =>
+      `Counterparts is paused for Claude Desktop's chats. Nothing is recorded or read here until it is resumed — call \`scope\` with mode \`resume\`, or run \`${at.entryCommand("--resume")}\`.`,
   },
 };
 

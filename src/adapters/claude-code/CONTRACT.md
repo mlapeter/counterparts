@@ -476,7 +476,7 @@ row, saying which source answered, existed until the keys were removed — §1a.
 22. **[M] TURNING A DIRECTORY BACK ON NEVER REACHES BACK.** A session that lived
     under `off` or `paused` left no session record and no span cursor, because the
     hook process returned before anything was constructed (G19). Flip the registry
-    to `on` mid-session — `counterparts scope . --resume`, or the `scope` tool, which
+    to `on` mid-session — `counterparts scope <folder> --resume`, or the `scope` tool, which
     is deliberately the one tool that answers in an off directory — and the next
     boundary would otherwise slice the transcript from cursor 0 and deposit the whole
     off conversation. It does not: a boundary that finds NO session record and a
@@ -646,19 +646,32 @@ row, saying which source answered, existed until the keys were removed — §1a.
       `adapter.hook.claim.lost` row, and leaves one stderr line. All five events
       are claimed. A matching key from a process that started after the holder
       finished is a separate event (a host with no `prompt_id` sending the same
-      words twice) and delivers. **Fail-open:** no session id, an observer, or a
+      words twice) and delivers — EXCEPT for an event the host sends once per key
+      (`firesOnce`: a SessionStart whose `source` opens a session id — `startup`,
+      `clear`, `fork` — and a prompt with its `prompt_id`), where any same-key
+      process inside the window is the twin however late its runtime came up
+      (2026-10-10: the 0.3.15 release check measured a twin starting 45 ms after
+      the winner finished, under load, and two wakes). For the events that can
+      legitimately repeat, a twin that starts that late still delivers: the
+      stand-down above is the main guard, and the claim a backstop that stops
+      the twins it sees. **Fail-open:** no session id, an observer, or a
       claims file that will not take the write, and the process delivers, so one
       wiring behaves exactly as before (two small writes: about 0.3 ms measured in
-      process, within noise end to end). The claims are in their own file, not
+      process, within noise end to end). A claims file that is not a database
+      is set aside with its `-wal`/`-shm` as `hook-claims.unreadable-<ms>.sqlite`
+      (one copy kept) and made again, once, and the event is claimed on the new
+      file; doctor's `Hook claims` line (amber, a week) reads the copy. The
+      directory is 0700 and the file 0600. The claims are in their own file, not
       the store's `meta`, so a claim waits only on another claim: the store's
       writers (the worker the last Stop started, the MCP server, the CLI) never
       hold it up, and a store somebody holds costs it nothing. Each of the two
       writes waits at most `CLAIM_WAIT_MS` (500 ms). A claim that could not be
-      written is in the hook's `process.end` log line; it is said on stderr too
-      only when it is a fault (the file cannot be made or written), not when
-      another claim held the file. Doctor's `Installed twice` line (amber)
-      reads the week's `claim.lost` rows. The transcript's size is not in the key:
-      the host may write between the twins starting.
+      written is in the hook's `process.end` log line, as its error's code; it is
+      said on stderr too only when it is a fault (the file cannot be made or
+      written), not when another claim held the file. Doctor's `Installed twice`
+      line (amber) reads the week's `claim.lost` rows, and says only what they
+      show. The transcript's size is not in the key: the host may write between
+      the twins starting.
 
 ### The nightly run, and the page writer inside it (2026-09-28 — working defaults, held lightly)
 
@@ -838,11 +851,12 @@ terminal; "dream on your own" sets it again. Any setting chosen on this version 
 ### One size budget per hook envelope (2026-09-29 — a working default)
 
 **[M] Everything one SessionStart or one UserPromptSubmit prints is measured against one
-budget**, the host's cap (`TUNABLES.HOST_OUTPUT_CHARS`, 10,000, counted in bytes; the JSON
-form `ENVELOPE_CHARS`, 9,500), and a crowded envelope gives way in a stated order, first to
+budget**, the host's cap (`TUNABLES.HOST_OUTPUT_CHARS`, 10,000, counted in bytes; in the JSON
+form each field is held to it on its own, as the host measures it — 2026-10-10, it was 9,500
+characters of whole envelope before), and a crowded envelope gives way in a stated order, first to
 last. Each part that gives way is DEFERRED, never cut, and never spent on a line the session
 did not get.
-- **SessionStart:** the owner's notices (dropped before the JSON envelope passes 9,500) →
+- **SessionStart:** the owner's notices (dropped when a field of the JSON form would pass the cap) →
   the write-up pointer → the first-launch question (measured against this budget, no
   longer the reported injection budget) → plain reminders due today (they wait for the
   first prompt, unclaimed) → the wake, which is never cut at delivery: it was composed to
@@ -917,7 +931,7 @@ session, because an MCP result is not under the host's 10,000-character cap on a
 output and the wake is. The pointer is measured against that cap as PLAIN stdout
 (`HOST_OUTPUT_CHARS` = 10,000; bytes ≥ characters): with no owner notice
 `bin/hook.ts#hostDelivery` prints plain text, and with one it drops the notice before it
-lets the JSON envelope pass `ENVELOPE_MAX_CHARS`. It is NOT held to the reported budget,
+lets either field of the JSON form pass the cap (`fieldsFit`). It is NOT held to the reported budget,
 which is what the wake is composed to; a 9,038-byte wake leaves room (tested with host
 ids). Past the cap it DEFERS, claims nothing, and records the deferral DURABLY
 (`sessions.ts#WRITE_UP_POINTER_KEY`, one meta row: outcome, need, room), which doctor

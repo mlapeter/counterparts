@@ -32,9 +32,10 @@ import {
   derive,
 } from "../src/core/prospective/index.js";
 import { openServer } from "../src/adapters/mcp/index.js";
-import { openAdapter, plainContextLine, withoutPlain } from "../src/adapters/claude-code/index.js";
+import { openAdapter, plainContextLine, plainLine, withoutPlain } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig, HookInput } from "../src/adapters/claude-code/index.js";
-import { ENVELOPE_MAX_CHARS, deliverTurn, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { deliverTurn, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { TUNABLES as ADAPTER_TUNABLES } from "../src/adapters/config.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -97,7 +98,7 @@ describe("a plain beat is claimed only when its line is certainly leaving", () =
     expect(woke.plain?.map((r) => r.memoryId)).toEqual([id]);
     // A wake the size of the owner's (~9 KB) leaves no room in the host's
     // 10,000-character envelope for the systemMessage.
-    const full = { ...woke, injection: `${woke.injection ?? ""}\n${"x".repeat(ENVELOPE_MAX_CHARS)}` };
+    const full = { ...woke, injection: `${woke.injection ?? ""}\n${"x".repeat(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS)}` };
     const doors = { updateNotice: () => null, markUpdateNotice: () => false, claimPlain: (i: HookInput, due: readonly PlainReminder[]) => a.claimPlain(i, due) };
     const start = deliverTurn("session-start", full, { hook_event_name: "SessionStart" }, [null, null], doors, input());
     expect(start.stdout).not.toContain("pay your taxes");
@@ -113,48 +114,67 @@ describe("a plain beat is claimed only when its line is certainly leaving", () =
     expect(again.plain).toBeUndefined();
   });
 
-  test("more plain lines than room: the ones that fit are said and claimed, the rest wait", () => {
+  test("the person's lines are a field of their own: a turn whose recall fills the model's field to the cap still says all three", () => {
     const a = hooks();
     for (const what of ["pay your taxes", "call the plumber", "renew the passport"]) {
       dated(a.counterpart.store, "2026-10-15", { title: what, meta: { [CUE_MODE_META]: "plain" } });
     }
     const turn = a.userPromptSubmit(input({ prompt: "morning" }));
     expect(turn.plain).toHaveLength(3);
+    // The model's field at exactly the host's cap (measured 2026-10-10: each
+    // field is capped on its own, and the escaped envelope may be longer).
+    const full = { ...turn, injection: `${turn.injection ?? ""}\n${"y".repeat(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS - (turn.injection ?? "").length - 1)}` };
+    const doors = { updateNotice: () => null, markUpdateNotice: () => false, claimPlain: (i: HookInput, due: readonly PlainReminder[]) => a.claimPlain(i, due) };
+    const out = deliverTurn("user-prompt-submit", full, {}, null, doors, input());
+    expect(out.stdout.length).toBeGreaterThan(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS);
+    const parsed = JSON.parse(out.stdout) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
+    expect(parsed.systemMessage.split("\n")).toHaveLength(3);
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(full.injection);
+    expect(plainRows(a.counterpart.store)).toBe(3);
+  });
+
+  test("more plain lines than the person's field holds: the ones that fit are said and claimed, the rest wait", () => {
+    const a = hooks();
+    dated(a.counterpart.store, "2026-10-15", { title: "pay your taxes", meta: { [CUE_MODE_META]: "plain" } });
+    const turn = a.userPromptSubmit(input({ prompt: "morning" }));
     const first = turn.plain?.[0];
     if (first === undefined) throw new Error("no plain record");
-    const one = `Today: ${first.what}`;
-    const probe = JSON.stringify({ systemMessage: one, hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: turn.injection } });
-    const tight = { ...turn, injection: `${turn.injection ?? ""}\n${"y".repeat(ENVELOPE_MAX_CHARS - probe.length - 10)}` };
-    const doors = { updateNotice: () => null, markUpdateNotice: () => false, claimPlain: (i: HookInput, due: readonly PlainReminder[]) => a.claimPlain(i, due) };
-    const out = deliverTurn("user-prompt-submit", tight, {}, null, doors, input());
-    const parsed = JSON.parse(out.stdout) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
-    expect(parsed.systemMessage).toBe(one);
-    // The model's copy carries the one that was said, not the two that wait.
-    expect(parsed.hookSpecificOutput.additionalContext).toContain(plainContextLine(first));
-    expect(parsed.hookSpecificOutput.additionalContext.split("Plain reminder").length - 1).toBe(1);
-    expect(plainRows(a.counterpart.store)).toBe(1);
-    // The next prompt says the other two.
-    const next = a.userPromptSubmit(input({ prompt: "and then" }));
-    expect(next.plain).toHaveLength(2);
+    // Ninety lines of 120 characters: past the 10,000 one field holds.
+    const due = Array.from({ length: 90 }, (_, i) => ({ ...first, memoryId: `mem_${String(i)}`, what: `${String(i).padStart(3, "0")} ${"w".repeat(116)}` }));
+    let claimed: readonly PlainReminder[] = [];
+    let gave = -1;
+    const doors = {
+      updateNotice: () => null,
+      markUpdateNotice: () => false,
+      claimPlain: (_i: HookInput, d: readonly PlainReminder[]) => (claimed = d),
+      noteGaveWay: (_i: HookInput, part: string, count: number) => {
+        if (part === "plain") gave = count;
+      },
+    };
+    const out = deliverTurn("user-prompt-submit", { injection: "recall", ask: null, plain: due }, {}, null, doors, input());
+    const message = (JSON.parse(out.stdout) as { systemMessage: string }).systemMessage;
+    const fits = Math.floor((ADAPTER_TUNABLES.HOST_OUTPUT_CHARS + 1) / (plainLine(due[0] ?? first).length + 1));
+    expect(message.split("\n")).toHaveLength(fits);
+    expect(message.length).toBeLessThanOrEqual(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS);
+    expect(claimed.map((d) => d.memoryId)).toEqual(due.slice(0, fits).map((d) => d.memoryId));
+    expect(gave).toBe(90 - fits);
   });
 
   test("the update notice never costs a plain line that fit", () => {
     const a = hooks();
     dated(a.counterpart.store, "2026-10-15", { title: "pay your taxes", meta: { [CUE_MODE_META]: "plain" } });
     const turn = a.userPromptSubmit(input({ prompt: "morning" }));
-    // Room for the plain line, not for the plain line AND a long update notice.
+    // Room in the person's field for the plain line, not for the plain line
+    // AND an update notice as long as the field.
     const line = "Today: pay your taxes";
-    const probe = JSON.stringify({ systemMessage: line, hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: turn.injection } });
-    const pad = ENVELOPE_MAX_CHARS - probe.length - 40;
-    const roomy = { ...turn, injection: `${turn.injection ?? ""}\n${"y".repeat(pad)}` };
     let marked = false;
     const out = deliverTurn(
       "user-prompt-submit",
-      roomy,
+      turn,
       {},
       null,
       {
-        updateNotice: () => `Counterparts was updated. ${"z".repeat(200)}`,
+        updateNotice: () => `Counterparts was updated. ${"z".repeat(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS - 40)}`,
         markUpdateNotice: () => (marked = true),
         claimPlain: (i, due) => a.claimPlain(i, due),
       },

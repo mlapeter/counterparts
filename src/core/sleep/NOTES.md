@@ -954,6 +954,55 @@ this machine, while a long benchmark ran beside it) and left without one:
   re-ruled and every body write checked to keep the column in step. Or a store `GROUP BY`
   over the column, which reads no row at all.
 
+## 2026-10-10 — Group 1, strength: the turn-down, the exemptions, the census (g1a)
+
+- **The turn-down by `next_change_day` (review 13 C2).** `runDecay` reads only the live rows
+  whose stored next-change day has come or is NULL (`Store#turnDownDue`), writes each one's
+  next day back (`physics#nextChangeDay`), and leaves the rest: their strength, band and reach
+  are what their last pass read, by construction. Store v13's triggers clear the day whenever
+  an input of the curve is written (a use, a return, a replay, a fade, a claim, a feeling), so
+  no writer has to remember. A build with another curve forgets every day once
+  (`CURVE_META_KEY`, the constants' signature) and is re-signed in the same breath, so a
+  budget-cut first pass resumes the next day. An observer, which writes nothing, still walks
+  the whole store. The ranking cache's strength for an unvisited row is therefore the one read
+  at its last crossing — exact for band and reach, stale in the decimals (`rankingAll`'s
+  readers are doctor's band-of-record count and the dashboard's below-reach count; both read
+  only the side of a line).
+- **Crossing REACH is always a move** for the cache, however small the step, because the
+  ambient prefilter reads that side.
+- **Out of decay and prune (03 C4):** a chapter's copy (`types.ts#isJournalCopy`) like the
+  chapter; a handoff and an entity card out of decay (`operational.ts#reachExempt` — their
+  ranking rows are dropped); a LIVE handoff out of the prune (`isLiveHandoffRow`; an expired
+  one is still let go at the floor — decided by g1a-builder, lightly held).
+- **The census** ran at every boundary, outside the phases' once-a-lived-day markers, walking
+  every row (archived too) with a two-subquery read each. It is now one grouped read
+  (`Store#bornOn`). The phases themselves (decay, dedup, …) were already once per lived day by
+  their markers; nothing about dedup changed.
+- **Exit at 14** (`physics D_FLOOR_DAYS`): the first night after the upgrade will archive
+  what has sat under the floor for 14 lived days — on the live store, mostly old weak notes;
+  never chapters, their copies or live handoffs. Archival, readable by id.
+
+## 2026-10-10 — archived rows out of census, dedup and decay (Lane 0, scale review C3)
+
+Each of the three listed every row and read each one to skip the archived. Now: decay and
+dedup list `archived = 0` in SQL (decay still counts its `archived` skips, by listing their
+ids alone, so the named skip says what it said); the census lists only rows born on or after
+the day (`bornFromDay`) and reads those. The census keeps archived births on purpose: a
+memory written and merged the same day is one created and one exited, and dropping its birth
+would unbalance G13. Prune and consolidate were left as they are (not in this lane). No
+index added — `memories(archived, birth_day)` waits for Group 1's single migration.
+After the merge with Group 1a: the census takes `Store#bornOn`'s grouped count where the port
+has it and this listing otherwise, and decay counts its `archived` skips on the turn-down as on
+the full walk (`turnDownDue` lists live rows only).
+
+- **The self page (review of #372, 2026-10-10):** it was already safe from the prune (born
+  `protected`), but the decay pass ranked it and the dashboard's below-reach count included
+  it. It is now outside reach altogether (`operational.ts#reachExempt`, role `page`) and the
+  prune skips it by name (`types.ts#isSelfPageRow`), so a page whose flag were lost is still
+  kept. Its archived versions keep the ordinary retention (90 lived days, owner ruling
+  2026-09-18), which #372 does not change; `test/strength.test.ts` reads one back 30+ lived
+  days after the revision.
+
 ## 2026-10-10 — "strongly felt" by the word's own measure (Group 1c, review 08 C3)
 
 `coreContextFor` now hands the lanes `stronglyFelt`: a feeling on the memory at 0.6, or at

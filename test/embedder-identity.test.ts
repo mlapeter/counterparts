@@ -130,8 +130,8 @@ describe("the tag format", () => {
     expect(parseIdentityTag("no-dim")).toEqual({ model: "no-dim", dim: null });
   });
 
-  test("the cache schema is v5", () => {
-    expect(CACHE_SCHEMA_VERSION).toBe(5);
+  test("the cache schema is v6 (Lane 0: the neighbours table)", () => {
+    expect(CACHE_SCHEMA_VERSION).toBe(6);
   });
 });
 
@@ -509,7 +509,7 @@ describe("the v4 → v5 migration, and the rest of box 3's lifecycle", () => {
     db.close();
     openCache(paths.cache(dir)).close();
     expect(meta()[EMBEDDER_META_KEY]).toBe("static-a@4");
-    expect(meta()["schemaVersion"]).toBe("5");
+    expect(meta()["schemaVersion"]).toBe(String(CACHE_SCHEMA_VERSION));
     expect(store(embedder(STATIC_A, 4)).embedderVerdict).toEqual({ kind: "match", tag: "static-a@4" });
   });
 
@@ -581,17 +581,17 @@ describe("a cache from a NEWER build is left exactly as it is (roadmap E's rule)
     db.close();
   }
 
-  test("v6 opened by v5 code: version still 6, no row dropped, the vector channel off by name, lexical still works", () => {
+  test("v7 opened by v6 code: version still 7, no row dropped, the vector channel off by name, lexical still works", () => {
     const [first] = seed(embedder(STATIC_A, 4));
-    stampVersion("6");
+    stampVersion("7");
     const beforeRows = rows();
     const beforeMeta = meta();
 
     // Even a MISMATCHED static embedder — which would otherwise drop and
     // rebuild every vector — touches nothing here.
     const s = store(embedder(STATIC_B, 4));
-    expect(s.embedderVerdict).toEqual({ kind: "cache-ahead", found: "6", expected: CACHE_SCHEMA_VERSION });
-    expect(s.events("cache.schema.ahead")[0]?.data).toEqual({ kind: "cache-ahead", found: "6", expected: 5 });
+    expect(s.embedderVerdict).toEqual({ kind: "cache-ahead", found: "7", expected: CACHE_SCHEMA_VERSION });
+    expect(s.events("cache.schema.ahead")[0]?.data).toEqual({ kind: "cache-ahead", found: "7", expected: 6 });
     expect(s.nearestTo(vec("cold brew ratios", 4, "static-a"), 3)).toEqual([]);
     expect(s.neighbourVectors(vec("cold brew ratios", 4, "static-a"), 3)).toEqual([]);
     // Lexical: still read, and a new memory is still findable.
@@ -609,7 +609,7 @@ describe("a cache from a NEWER build is left exactly as it is (roadmap E's rule)
     expect(code).toBe("SCHEMA_AHEAD");
     closeAll();
 
-    expect(meta()["schemaVersion"]).toBe("6");
+    expect(meta()["schemaVersion"]).toBe("7");
     expect(meta()[EMBEDDER_META_KEY]).toBe(beforeMeta[EMBEDDER_META_KEY]);
     expect(rows()).toEqual(beforeRows);
   });

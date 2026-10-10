@@ -497,7 +497,9 @@ describe("the decay tick", () => {
   test("a DEMOTION reaches the table too, and the table agrees with the transition it emits", () => {
     const s = store();
     const id = put(s, {
-      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      // Semantic at day 5, under THETA_SEM by 305 on the 2026-10-10 curve (a
+      // fully felt 1.0 would never leave: S runs to years).
+      salience: { relevance: 0.6, emotional: 0, predictive: 0.6 },
       physics: { lastUsedDay: 5, uses: 3 },
     });
     const cache = memoryStrengthCache();
@@ -1411,7 +1413,9 @@ describe("band transitions, counted by direction (guarantee 12)", () => {
   test("a DEMOTION is counted, durably, with its direction and its site", () => {
     const s = store();
     const id = put(s, {
-      salience: { relevance: 0.9, emotional: 0, predictive: 0.8 }, // emotion-free: §5.10 would hold it semantic
+      // Emotion-free, and on the 2026-10-10 curve a 0.55 that is semantic on day
+      // 1 and under THETA_SEM by day 101 (S ≈ 50 lived days at two uses).
+      salience: { relevance: 0.55, emotional: 0, predictive: 0.55 },
       physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
     });
 
@@ -1445,7 +1449,9 @@ describe("band transitions, counted by direction (guarantee 12)", () => {
   test("the same demotion is recorded ONCE, however many times the day is replayed", () => {
     const s = store();
     put(s, {
-      salience: { relevance: 0.9, emotional: 0, predictive: 0.8 }, // emotion-free: §5.10 would hold it semantic
+      // Emotion-free, and on the 2026-10-10 curve a 0.55 that is semantic on day
+      // 1 and under THETA_SEM by day 101 (S ≈ 50 lived days at two uses).
+      salience: { relevance: 0.55, emotional: 0, predictive: 0.55 },
       physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
     });
     runCycle({ store: s, date: date(1) });
@@ -1483,7 +1489,9 @@ describe("band transitions, counted by direction (guarantee 12)", () => {
   test("an OBSERVER records no transition — it materializes no cache to diff against", () => {
     const s = store();
     put(s, {
-      salience: { relevance: 0.9, emotional: 0, predictive: 0.8 }, // emotion-free: §5.10 would hold it semantic
+      // Emotion-free, and on the 2026-10-10 curve a 0.55 that is semantic on day
+      // 1 and under THETA_SEM by day 101 (S ≈ 50 lived days at two uses).
+      salience: { relevance: 0.55, emotional: 0, predictive: 0.55 },
       physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
     });
     runCycle({ store: s, date: date(1) });

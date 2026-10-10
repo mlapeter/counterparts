@@ -164,7 +164,9 @@ describe("the host's marker is matched where the host puts it, on our results on
     expect(raw).toContain("<persisted-output>");
     expect(raw).toContain("[OUTPUT TRUNCATED - exceeded 25000 token limit]");
     // What the night reads: our results, two of them, none cut.
-    expect(parseToolSpills(raw)).toEqual({ results: 2, spills: [], corrupt: 0 });
+    const read = parseToolSpills(raw);
+    expect({ results: read.results, spills: read.spills, corrupt: read.corrupt }).toEqual({ results: 2, spills: [], corrupt: 0 });
+    expect(read.whole).toHaveLength(2);
   });
 
   test("the marker quoted by the model, by the person, or in another tool's result is not one of our results cut", () => {
@@ -178,7 +180,7 @@ describe("the host's marker is matched where the host puts it, on our results on
       // An answer to a call nobody made (a resumed transcript's tail).
       answer("toolu_gone", persisted("51.5KB")),
     ].join("\n");
-    expect(parseToolSpills(raw)).toEqual({ results: 0, spills: [], corrupt: 0 });
+    expect(parseToolSpills(raw)).toEqual({ results: 0, spills: [], whole: [], corrupt: 0 });
   });
 
   test("REVIEW OF #330: the per-turn budget's swap is a line of its own — read there, shaped turn-budget, each call counted once", () => {
@@ -205,7 +207,13 @@ describe("the host's marker is matched where the host puts it, on our results on
       JSON.stringify({ type: "content-replacement", replacements: [{ kind: "tool-result", toolUseId: "toolu_p3", replacement: persisted("39.8KB") }] }),
       answer("toolu_p2", '{"phase":"part","part":2,"of":3}'),
     ].join("\n");
-    expect(parseToolSpills(raw)).toEqual({ results: 2, spills: [{ tool: DREAM, phase: "part", shape: "turn-budget", said: "39.8KB" }], corrupt: 0 });
+    expect(parseToolSpills(raw)).toEqual({
+      results: 2,
+      spills: [{ tool: DREAM, phase: "part", shape: "turn-budget", said: "39.8KB", part: 3, dream: "drm_1" }],
+      // Lane 0 (2026-10-10): part 2 came through whole; part 3 did not.
+      whole: [{ tool: DREAM, phase: "part", part: 2, dream: "drm_1" }],
+      corrupt: 0,
+    });
   });
 
   test("REVIEW OF #330: the token marker's count as the host's locale writes it", () => {
@@ -218,7 +226,7 @@ describe("the host's marker is matched where the host puts it, on our results on
     const out = parseToolSpills(`${spilledNight()}\nnot json\n[1,2]`);
     expect(out.results).toBe(3);
     expect(out.corrupt).toBe(2);
-    expect(out.spills).toEqual([{ tool: DREAM, phase: "begin", shape: "persisted", said: "51.5KB" }]);
+    expect(out.spills).toEqual([{ tool: DREAM, phase: "begin", shape: "persisted", said: "51.5KB", part: null, dream: null }]);
   });
 });
 
@@ -372,7 +380,13 @@ describe("the run reads its child's transcript once it exits", () => {
     expect(out.state).toBe("done");
     expect(out).toMatchObject({ transcript: "read", spills: 1 });
     expect(events).toContain("adapter.night.spill");
+    // Lane 0 (2026-10-10): the cut begin carried the night's fresh list, so
+    // every new memory it named goes back in the queue, counted on the row.
+    expect(out.requeued).toBe(4);
     const c = openNight();
+    expect(nightRunOf(c.store)).toMatchObject({ requeued: 4 });
+    const journaled = c.store.dreams({ limit: 1 })[0];
+    expect(JSON.parse(journaled?.shown ?? "[]")).toEqual([]);
     expect(rows(c)).toEqual([{ run: "nrn_spill", tool: DREAM, phase: "begin", shape: "persisted", said: "51.5KB" }]);
     expect(nightRunOf(c.store)).toMatchObject({ state: "done", transcript: "read", spills: 1 });
     const done = c.store.eventLog({ name: "dream.night" }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>).find((p) => p["state"] === "done");
@@ -392,6 +406,7 @@ describe("the run reads its child's transcript once it exits", () => {
     const turn = a.userPromptSubmit(input());
     expect(turn.injection).toContain("the nightly run finished in the background, on its own");
     expect(turn.injection).toContain("Claude Code cut one of the nightly run's tool results to a short preview");
+    expect(turn.injection).toContain("The 4 new memories it could not see go back in the queue for the next dream.");
     expect(turn.injection).toContain("tell Mike plainly");
     expect(a.userPromptSubmit(input({ sessionId: "s3", prompt: "again" })).injection).not.toContain("Claude Code cut");
   });

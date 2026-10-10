@@ -685,7 +685,7 @@ const RECALL: ToolSpec = {
     {
       claim:
         "A matched memory that has faded from long disuse is not dropped: it is listed after the main results as one line — title, date, id, labeled faded — and never takes a main slot. Opening it by id brings it back.",
-      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (FACTS_FADED_LINES) + src/adapters/mcp/deliberate.ts#hasFaded (FADED_RETAINED)",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (FACTS_FADED_LINES) + src/adapters/mcp/deliberate.ts#hasFaded (physics REACH)",
     },
     {
       claim:

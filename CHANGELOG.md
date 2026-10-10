@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Forgetting now changes what comes to mind (store v13).** Each memory fades on its own
+  curve: steep at first and flat later, slower the more it mattered, the more it was felt,
+  used or came back. A routine note leaves the working layer in about two days; a felt
+  reading lasts months; a strong fact about a year. Under a line ("below reach") a memory
+  stops coming up on its own — in turns, as a pointer from a link, or in the wake's work
+  lines — but asking for it still finds it, listed after the main results as faded, and
+  using it, opening it or a dream replaying it brings it back. A memory that has sat under
+  the floor for 14 lived days (was 90) is archived — never deleted, still readable by id.
+  A reminder is held at full strength until its date and the week after, then fades a little faster until it is used again;
+  a repeating date is held around each time it comes round. Chapters, their copies and live handoffs are never let
+  go. A feeling now counts once for how high a memory stands and once for how slowly it
+  fades, and softens from the day it was recorded. The nightly pass reads only the
+  memories whose standing changes that day. The dashboard counts "below reach now" and
+  "exited" apart. Skills and places now count their salience as fully as any other memory
+  (they counted it at 0.4, which left a quiet skill out of reach from the day it was written).
+  The band-symmetry check now warns only when memories climb with nothing behind it; fading
+  down a band is the curve working. The store upgrades to v13 on the first open, after taking a copy; a
+  build from before refuses the upgraded store, and the copy is the way back. These are
+  lightly held decisions; they are listed in `docs/IMPROVEMENTS.md` under "Decisions to
+  review".
 - **`note` is now `remember`, and memory is asked for by attention.** The tool Claude
   writes a memory with in the moment is called `remember`. **The old name `note` still
   works** for at least this release — a session that started before the upgrade keeps
@@ -42,19 +62,52 @@
   A few strongly felt memories claimed at 0.42–0.50 now start episodic rather than semantic.
   The text of a session that still owes a write-up is now kept up to 14 days of use plus the
   ordinary 7 days, not 2.
+- **Recall counts the memories instead of listing them on every turn.** At ten times
+  today's size that list was about a sixth of a turn. A second speed-up, not looking up
+  words found in almost every memory, is built but off: it changed what recall showed on
+  small stores.
+- **The sleep pass no longer reads forgotten memories to skip them.** The census, the
+  duplicate check and the fading pass ask the database for the rows they need instead of
+  reading every row, archived ones included. Their counts are unchanged.
+- **The store reuses its prepared database statements.** It used to prepare each query
+  again on every read. A new day's sleep pass at ten times today's size went from about
+  3.7 to 1.1 seconds.
+- **New memories in a dream part Claude Code cut go back in the queue.** When the nightly
+  run's transcript shows a part of the dream was cut to a preview the run couldn't open
+  (and it wasn't fetched again whole), the new memories that part carried are dreamed on
+  another night instead of being marked as seen. Any the dream changed or looked up stay
+  done. The morning's line about the cut says how many went back.
+- **A night's dream starts in about a second at ten times today's size, not half a
+  minute.** The cache keeps each memory's nearest memories from when it was written, so
+  the dream reads them instead of comparing every queued memory against every stored one.
+  A new memory's list is the older memories nearest it when it was written; one written
+  before the upgrade gets its list the first night it is dreamed. The cache's format goes
+  to v6 and fills itself in. An MCP server still running the previous build refuses its
+  tools until it is reconnected (`/mcp`), as after a store-format change.
 
-- **A paused folder now says so when a session starts.** With memory paused in a folder
-  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
-  compacted session there shows one line naming the paused folder and the command that
-  turns it back on, which works from any terminal. If the pause is on a parent folder, the
-  line names that folder and the command resumes it there. Claude gets a matching line so
-  it doesn't act as if it remembers.
-  Nothing else changes: no memories are loaded or recorded, nothing is written, other
-  hooks stay silent, and a folder turned `off` stays completely silent.
-- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
-  every mechanism it proves: a turn where a matching mood brought a memory closer lights
-  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
-  Gist, Interference and Consolidation beside Dreaming.
+## 0.3.16 — 2026-10-10
+
+The self page is kept whole up to 16 KB, and when it doesn't fit, the wake steps down to
+something whole instead of cutting it: the page, a short version written with it, an
+outline, the headings, or one line saying where to read it. At the default 9,000-byte
+ceiling the page's room is now 5,681 bytes (it was 6,078). Dated items come before the
+wake's furniture: an "Arriving:" item or a plain reminder due today is listed before the
+handoffs, "Last here" and "Work here" take their room, and doctor's Wake line turns amber
+when one still goes unlisted. A paused folder says so in one line when a session starts.
+Each field of a hook's output is now held to Claude Code's 10,000-character limit on its
+own, so a red doctor notice shows beside a full wake. A damaged claims file mends itself,
+a late twin of a session's first start stands down, and every `counterparts scope` command
+Claude is shown names its folder. The plugin's first-run line is back, and its sidebar
+lights every mechanism an event proves. **Nothing to run after upgrading from 0.3.15**:
+the hooks, the memory server's registration and Claude Desktop's entry are the same as
+0.3.15's (coming from 0.3.14 or earlier, see those versions' notes on `counterparts
+connect`). **No change to the store's format (still v12)**: a page's short version is kept
+in the page's own record, which 0.3.15 reads past. Going back to 0.3.15 is the order in
+QUICKSTART's "Going back to an earlier version": `counterparts disconnect` while 0.3.16 is
+still installed, then the 0.3.15 reinstall, then `counterparts connect`.
+
+The self page in the wake (#363).
+
 - **A long self page is kept, not refused, and the wake steps down to something whole.**
   0.3.15 refused a page past 6,078 bytes. Now the page is kept whole up to 16,384 bytes,
   and the wake shows the first of these that fits, each one whole: the page; a short
@@ -81,6 +134,9 @@
   the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
   refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
   ceiling, because of those fixed lines; the default is 9,000.
+
+Dated items first in the wake (#367).
+
 - **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
   room to list them in this wake" while it still printed yesterday's chapter titles and
   four handoffs: the room held for the handoffs and "Last here" was never offered to the
@@ -99,6 +155,60 @@
   than leave it out. The page within its own room still comes first. Beside a page that
   borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
   dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
+
+Paused folders and the scope commands (#362, #366).
+
+- **A paused folder now says so when a session starts.** With memory paused in a folder
+  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
+  compacted session there shows one line naming the paused folder and the command that
+  turns it back on, which works from any terminal. If the pause is on a parent folder, the
+  line names that folder and the command resumes it there. Claude gets a matching line so
+  it doesn't act as if it remembers.
+  Nothing else changes: no memories are loaded or recorded, nothing is written, other
+  hooks stay silent, and a folder turned `off` stays completely silent.
+- **Every `counterparts scope` command Claude is shown now names the folder.** In a
+  folder that is off or paused, the memory tools' refusal used to tell Claude to run
+  `counterparts scope . --resume`, and the question a new folder gets in its first session
+  said `counterparts scope . --on`. The `.` meant wherever the command was run, and from a
+  subfolder `--resume` refuses. Now the command names the folder, and when the setting
+  belongs to a parent folder it names that one ("paused for ~/work, which includes this
+  directory"). Under the plugin it uses the plugin's own launcher, and with a
+  configuration other than the default it adds `--config`, as the paused notice does.
+
+The hooks: each output field, the claims file, late twins (#366).
+
+- **A red doctor notice now shows beside a full wake.** Measured on Claude Code 2.1.296:
+  the 10,000-character limit applies to each field of a hook's output, not to the output
+  as a whole. Counterparts held the whole output to 9,500 characters, so on a morning with
+  a full wake the doctor's notice was left out, and plain reminders, the dream question and
+  the update notice waited for a later turn. Now each field is held to the limit on its
+  own: they show beside a full wake or a full recall, and wait only when Claude's own text
+  would pass the limit.
+- **A damaged claims file repairs itself.** If `sessions/claims/hook-claims.sqlite`
+  can't be read as a database, the next hook moves it aside (one copy is kept) and makes a
+  new one, and the event is still delivered. Before, every event printed an error and the
+  guard against double delivery stayed off until someone deleted the file. Doctor's new
+  amber "Hook claims" line says when it happened, for a week. The claims folder and file
+  are now private to you (0700 and 0600), like the log, and the log says why a claim
+  could not be made instead of giving only the length of the message.
+- **With two installs live, a session's first start runs once even on a busy machine.**
+  The 0.3.15 release check found one double wake under load: the second hook started 45
+  ms after the first had finished, so its claim read it as a new event. A session's first
+  start, and a prompt Claude Code gives an id, are sent only once, so a second copy within
+  15 seconds now always steps aside. Doctor's "Installed twice" line no longer says
+  nothing was delivered twice; its fix also names `~/.claude/settings.json`.
+  A correction to the 0.3.15 notes, which said the claim "works between any two
+  versions": the plugin stepping aside is the main guard, and the claim is a backstop. It
+  catches a second hook that runs at the same time; for a resumed or compacted session, a
+  Stop, or a prompt without an id, one that starts after the first has finished can
+  still deliver again on a busy machine.
+
+The plugin (#360, #365).
+
+- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
+  every mechanism it proves: a turn where a matching mood brought a memory closer lights
+  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
+  Gist, Interference and Consolidation beside Dreaming.
 - **A new plugin user is told their memory was set up, again.** In 0.3.15, the
   sidebar's hooks module makes Claude Code start the plugin's SessionStart hook later,
   after the plugin's server has already made the new memory, so the first session

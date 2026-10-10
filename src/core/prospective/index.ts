@@ -1383,7 +1383,13 @@ export class Prospective {
         // The owner's rule (2026-09-26): an author-written date is its own
         // importance signal, so it skips the salience floor — never decay.
         explicitDate: explicit.length > 0,
-        faded: s <= this.tunables.FADED_STRENGTH,
+        // NOT BEFORE ITS WINDOW (2026-10-10, Group 1, review 03 C4c / 07 C1):
+        // a memory whose date is still ahead is HELD by decay (physics
+        // `DatedHold`, t = 0), so it cannot fade on the way; and `faded` no
+        // longer refuses a pending one even when its height alone sits at the
+        // floor — a reminder set a month out is asked for, not decayed. G10
+        // ("no decay exemption before arrival") is reversed; on the rules audit.
+        faded: s <= this.tunables.FADED_STRENGTH && read.physics.hold?.state !== "pending",
         // A live repeat is exempt from `faded` (review of #341, `derive.ts`).
         recurring: recurrenceOf(read.doc) !== null,
       },

@@ -52,11 +52,11 @@
  * fail.
  */
 import type { Kind, MemoryPhysics } from "../types.js";
-import { emotionalIntensity, sal, softenedFeeling, strength } from "../physics/index.js";
+import { TUNABLES as PHYSICS, belowReach, sal, salArm, softenedFeeling, strength } from "../physics/index.js";
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
-import { confidentialByMeta, feelingValence, rowToPhysics, tokenize } from "../store/index.js";
+import { confidentialByMeta, feelingValence, feltDay, reachExempt, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
@@ -212,6 +212,15 @@ export interface ActivationInput {
   readonly maxCandidates: number;
   /** Live memory count, for informativeness and the cold-start regime. */
   readonly storeSize: number;
+  /**
+   * Keep memories BELOW REACH (physics `REACH`, 2026-10-10)? Absent or false
+   * on an ambient turn — the only caller today — and then they are left out of
+   * every channel here: the token and semantic top-K (prefiltered on the
+   * ranking cache), the candidates (the exact strength, rechecked), and
+   * spreading's landings. A deliberate caller sets it (as does a turn with
+   * `feeling`, which only the deliberate ask sets).
+   */
+  readonly includeBelowReach?: boolean | undefined;
 }
 
 export interface ActivationResult {
@@ -242,9 +251,15 @@ export interface ActivationResult {
   /** Scored candidates the `maxCandidates` cut left out — counted, never
    *  silent (2026-09-28). */
   readonly dropped: number;
+  /** Cues too common to look up (`CUE_FETCH_MIN_IDF`, Lane 0 2026-10-10) —
+   *  a count, never the words. Reported, not recorded, for `capped`'s reason. */
+  readonly unfetched: number;
   /** Journal copies folded into their own chapter before the cut (2026-09-30,
    *  U13). Reported, not recorded, for `capped`'s reason. */
   readonly collapsed: number;
+  /** Rows the exact recheck found BELOW REACH and left out (2026-10-10) —
+   *  candidates and would-be pointers. Reported, not recorded. */
+  readonly belowReach: number;
   /**
    * The feeling lane (2026-09-30, U13), when the turn was a deliberate ask:
    * whether the question was about feeling, how many of its words named one,
@@ -355,8 +370,12 @@ export function isConfidential(doc: ProseDoc): boolean {
  * `feelings` table is not read as unfelt. Otherwise it is 0, as before.
  */
 export function gatedSal(p: MemoryPhysics, selfFelt: boolean): number {
-  if (selfFelt) return sal({ ...p.salience, emotional: emotionalIntensity(p) });
-  return sal({ ...p.salience, emotional: 0 });
+  // Since 2026-10-10 `sal()` no longer averages `emotional` in (review 02 C1),
+  // so G10 adds the feeling the way height does — `salArm`, sal + EMO_LIFT x
+  // I — and only on a self-felt turn. Decided by g1a-builder, 2026-10-10,
+  // lightly held; revisit after ~5 lived days. Why: keep G10 (a feeling
+  // matters to the bar only when the turn states one) with the dimension gone.
+  return selfFelt ? salArm(p) : sal(p.salience);
 }
 
 export function activate(
@@ -365,6 +384,14 @@ export function activate(
   t: RecallTunables,
 ): ActivationResult {
   const storeSize = input.storeSize;
+  // BELOW REACH (2026-10-10, Group 1, review 03 C2): an ambient turn leaves out
+  // what has faded below physics' `REACH`. Prefiltered on the ranking cache in
+  // the two top-K reads (so a faded row takes no slot), then rechecked exactly
+  // in `recallable`, below. Chapters, their copies and the identity band are
+  // never below reach here (journal; the core never fades).
+  const ambient = input.includeBelowReach !== true && input.feeling === undefined;
+  const reachFilter = ambient ? { minStrength: PHYSICS.REACH } : {};
+  let belowReachCount = 0;
 
   // ── the token channel: one index probe per distinct cue token ────────────
   const searchTokens: string[] = [];
@@ -425,10 +452,20 @@ export function activate(
     b: t.CUE_LENGTH_NORM,
     oneSided: t.CUE_LENGTH_ONE_SIDED,
   };
+  // A WORD IN ALMOST EVERY MEMORY IS NOT LOOKED UP (Lane 0, scale review C4):
+  // its postings are the whole store and its weight is near zero. It stays a
+  // cue (the record lists it); it fetches nothing. Counted, never named.
+  let unfetched = 0;
   for (const cue of cues) {
     if (postings.has(cue.token)) continue;
+    const d = df.get(cue.token);
+    if (d !== undefined && informativeness(d, storeSize) < t.CUE_FETCH_MIN_IDF) {
+      unfetched += 1;
+      postings.set(cue.token, new Map());
+      continue;
+    }
     const byDoc = new Map<string, number>();
-    for (const h of store.search(cue.token, t.PER_CUE_FETCH, norm)) byDoc.set(h.id, h.score);
+    for (const h of store.search(cue.token, t.PER_CUE_FETCH, norm, reachFilter)) byDoc.set(h.id, h.score);
     postings.set(cue.token, byDoc);
   }
 
@@ -512,7 +549,7 @@ export function activate(
     input.hits !== undefined
       ? input.hits
       : input.vector !== undefined && input.vector.length > 0
-        ? store.nearestTo(input.vector, t.SEMANTIC_TOP_M)
+        ? store.nearestTo(input.vector, t.SEMANTIC_TOP_M, reachFilter)
         : null;
   // PER-EMBEDDER, PER-PATH (2026-09-23): the floor and weight are chosen for
   // the model box 3 RECORDS — read fresh from the file at every activation
@@ -593,6 +630,13 @@ export function activate(
     // context inside another's turn. Gated on the row's own columns, as above,
     // so only a SCHEMA row of the place kind pays for the prose read.
     if (row.type === "schema" && row.kind === "place" && isHandoffRow(store, id)) return undefined;
+    // BELOW REACH, exactly (2026-10-10): the ranking cache's prefilter is a
+    // pass stale at most; this is the day's own number. Ambient only; never a
+    // chapter, a chapter's copy or an entity card (`reachExempt`).
+    if (ambient && !reachExempt(row) && belowReach(rowToPhysics(row), input.day)) {
+      belowReachCount += 1;
+      return undefined;
+    }
     return row;
   };
 
@@ -659,7 +703,7 @@ export function activate(
         if (tier === null) return;
         // Softened (how a feeling fades) unless the question asks for the
         // strongest or over all time (lane 6, item 2): then as recorded.
-        const soft = softenedFeeling(f.strength, input.day - f.birth_day, feelingValence(f));
+        const soft = softenedFeeling(f.strength, input.day - feltDay(f), feelingValence(f));
         const value = ask.strongest && ask.ranked ? f.strength : soft;
         if (!(value > 0) || !(soft > 0)) return;
         const mine = { tier, value, day: f.birth_day };
@@ -1073,6 +1117,7 @@ export function activate(
     skipped,
     semanticDegraded,
     capped,
+    unfetched,
     semantic: ranked === null ? null : { identity, path, floor: tuning.floor, weight: tuning.weight },
     // `landed` is counted AFTER the cut: a hop on a candidate the cut left out
     // reached nothing the gate saw.
@@ -1087,6 +1132,7 @@ export function activate(
           },
     dropped,
     collapsed,
+    belowReach: belowReachCount,
     feeling:
       feelingAsk === null
         ? null

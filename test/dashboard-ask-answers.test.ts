@@ -40,6 +40,7 @@ import { FACTS_PAGE_SIZE } from "../src/adapters/mcp/facts.js";
 import type { FactItem, FactsResult } from "../src/adapters/mcp/facts.js";
 import type { MeaningEntry, MeaningResult } from "../src/adapters/mcp/meaning.js";
 import { seedDemo } from "../tools/demo/seed.js";
+import { findable } from "./store-fixture.js";
 
 const WEB = fileURLToPath(new URL("../src/adapters/dashboard/web/", import.meta.url));
 const HOST = "127.0.0.1:4747";
@@ -75,6 +76,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-ask-answers-"));
   await seedDemo({ dir });
   const c = Counterpart.open({ dir, owner: true });
+  findable(c.store); // fixtures the tests expect to find (2026-10-10)
   try {
     const s = c.store;
     // Who said it, its status, and when it happened (v12's three fields).
@@ -271,6 +273,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     const first = (await ask<MeaningResult>({ question: "what has Halfmoon been to me", mode: "meaning" })).answer;
     const entry = first.arc.flatMap((l) => (l.fold ? [] : [l.entry])).find((e) => e.kind === "chapter" && e.moments.length > 0) as MeaningEntry;
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     try {
       c.store.addFeelings(entry.moments[0]?.id as string, [
         { whose: "owner", core: "happy", emotion: "proud", strength: 0.8 },
@@ -292,6 +295,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
 
   test("a name asked about with no card is said first, above the head, and the answer is what mentions it (2026-10-09)", async () => {
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     let said: string;
     try {
       said = c.store.put({ type: "memory", kind: "fact", body: "Zqhan sent the photos from the climb, the good ones." });
@@ -334,6 +338,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     // rewrite once turned "me" into it, and meaning took the owner's own card
     // (more memories than this person's) as the subject.
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     let ownerName: string | null;
     let person: { name: string; count: number } | undefined;
     let ownerCount = 0;
@@ -371,6 +376,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     // the question was read by its words ("like"). In my voice "you" asked
     // about is his card (`meaning.ts#subjectOf`).
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     let ownerName: string | null;
     try {
       ownerName = ownerNames(c.store)[0] ?? null;

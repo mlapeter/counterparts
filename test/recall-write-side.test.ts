@@ -45,6 +45,7 @@ import {
   paths,
 } from "../src/core/store/index.js";
 import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { stripV13 } from "./store-fixture.js";
 
 let root: string;
 let dir: string;
@@ -99,6 +100,7 @@ function v11Store(): string {
   const id = s.put({ type: "memory", kind: "fact", body: "Mira moved the standup to nine on Mondays." });
   s.close();
   const db = new Database(paths.operational(dir));
+  stripV13(db); // a v11 file has none of v13's either (2026-10-10)
   for (const t of ["memories", "versions"]) {
     for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
   }
@@ -114,8 +116,8 @@ function v11Store(): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("store v12", () => {
-  test("the version is 12 and the observer floor stays at 11", () => {
-    expect(SCHEMA_VERSION).toBe(12);
+  test("the version is 12 or later and the observer floor stays at 11", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(12);
     expect(OBSERVER_READ_FLOOR).toBe(11);
   });
 
@@ -132,9 +134,9 @@ describe("store v12", () => {
 
     const s = Store.open({ dir, snapshotsDir: join(root, "snaps"), now: () => clock });
     open.push(s);
-    expect(s.getMeta("schemaVersion")).toBe("12");
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     // The copy came first, named for the versions it spans.
-    expect(readdirSync(join(root, "snaps")).some((n) => n.includes("v11-to-v12"))).toBe(true);
+    expect(readdirSync(join(root, "snaps")).some((n) => n.includes(`v11-to-v${String(SCHEMA_VERSION)}`))).toBe(true);
     const up = JSON.parse(s.getMeta(V12_UPGRADE_KEY) ?? "{}") as Record<string, unknown>;
     expect(up["from"]).toBe("11");
     expect(up["memories"]).toBe(1);

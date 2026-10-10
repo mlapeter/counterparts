@@ -66,7 +66,7 @@ import { WORKER_RUNNER_PATH } from "../src/adapters/spawn.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { RUNNER_PATH } from "../src/adapters/claude-code/bin/hook.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
-import { SCOPE_ASK } from "../src/adapters/claude-code/hooks.js";
+import { SCOPE_ASK_OPEN } from "../src/adapters/claude-code/hooks.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DesktopReading } from "../src/adapters/claude-code/doctor.js";
 import { EXIT, run } from "../src/adapters/cli/commands.js";
@@ -665,14 +665,21 @@ describe("the place: `claude-desktop:` is a name, not a directory", () => {
     const s = desktopServer({ scopesFile });
     await s.call("scope", { mode: "off" });
     const refused = payload(await s.call("remember", { text: "Should not land." }));
-    expect(refused["detail"]).toBe(wordingFor(DESKTOP_HOST).offRefusal);
-    expect(String(refused["detail"])).toContain("counterparts scope claude-desktop: --on");
+    expect(refused["detail"]).toBe(
+      "Counterparts is off for Claude Desktop's chats. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope claude-desktop: --on`.",
+    );
     expect(String(refused["detail"])).not.toContain("scope . ");
     await s.call("scope", { mode: "pause" });
-    expect(String(payload(await s.call("remember", { text: "Nor this." }))["detail"])).toContain("claude-desktop: --resume");
-    // Claude Code's refusal is what it was.
-    expect(wordingFor("claude-code").offRefusal).toBe(
-      "Counterparts is off for this directory. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope . --on`.",
+    expect(String(payload(await s.call("remember", { text: "Nor this." }))["detail"])).toContain("counterparts scope claude-desktop: --resume");
+    // Claude Code's refusal names the directory (2026-10-10), never `.`.
+    const place = {
+      here: "~/p",
+      inherited: null,
+      entryCommand: (flag: string): string => `counterparts scope ~/p ${flag}`,
+      hereCommand: (flag: string): string => `counterparts scope ~/p ${flag}`,
+    };
+    expect(wordingFor("claude-code").offRefusal(place)).toBe(
+      "Counterparts is off for this directory (~/p). Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope ~/p --on`.",
     );
   });
 
@@ -1023,7 +1030,7 @@ describe("Desktop's Code tab, 'No folder': the first-launch question is not aske
       const a = openAdapter({ dataDir: dir, owner: true }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
       open.push(a.counterpart);
       const out = a.sessionStart({ sessionId: `s-${String(asks)}`, scope, at });
-      expect((out.ask ?? "").includes(SCOPE_ASK)).toBe(asks);
+      expect((out.ask ?? "").includes(SCOPE_ASK_OPEN)).toBe(asks);
       if (!asks) expect(a.events("adapter.scope.ask.skipped").some((e) => e.data["reason"] === "scratch-workspace")).toBe(true);
     }
   });

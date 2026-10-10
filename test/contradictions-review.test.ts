@@ -23,6 +23,7 @@ import { Self, hintReading } from "../src/core/self/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { SCHEMA_VERSION, Store, paths } from "../src/core/store/index.js";
 import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { stripV13 } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 let root: string;
@@ -115,7 +116,8 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const store = storeOnly();
     days(store, 2);
     const old = put(store, "The office printer on floor two jams on duplex.", { relevance: 0.1, emotional: 0, predictive: 0.1 }, { claimed: 0.1 });
-    days(store, 60, "2026-09-10");
+    // Ten lived days: inside the 14-day dwell (2026-10-10; it was 60 inside 90).
+    days(store, 10, "2026-09-10");
     const d = store.livedDay();
     const lastUsed = store.physicsOf(old).lastUsedDay;
     const neu = put(store, "The floor-two printer was replaced; duplex works now.");
@@ -147,7 +149,9 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
-    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too
+    // — and v13's (2026-10-10).
+    stripV13(db);
     for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");
@@ -365,7 +369,9 @@ describe("the minors", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
-    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too
+    // — and v13's (2026-10-10).
+    stripV13(db);
     for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");

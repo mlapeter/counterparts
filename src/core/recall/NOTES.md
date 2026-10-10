@@ -1056,7 +1056,47 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
     state's `surfaced`, and are not scored.
   - Recorded only where the credit pass runs (INTERFACE-GAPS §9).
 
-## 29. Mood weights to 0 (2026-10-10, review 02 C3)
+## 29. Below reach (2026-10-10, Group 1, g1a — kept minimal in this module)
+
+Physics now has a line under which a memory is out of the working layer (`REACH = 0.15`,
+review 03 C2). Ambient recall leaves it out:
+
+- `activate()` takes `includeBelowReach` (absent on the ambient turn, its only caller; a turn
+  with `feeling` set counts as deliberate). On an ambient turn the token top-K and the inline
+  semantic top-K are PREFILTERED on box 3's ranking (`Store#search` / `nearestTo`'s
+  `minStrength`, `cache.ts#reachJoin`), so a faded row takes no slot, and `recallable`
+  RECHECKS the exact strength, which also covers spreading's landings and the temporal cue.
+  `ActivationResult.belowReach` counts what the recheck left out (reported, not recorded).
+  The lagged semantic cue (`Counterpart#noteSessionSemantic`) is prefiltered the same way.
+- Outside reach altogether: chapters, their copies, handoffs, entity cards
+  (`store/operational.ts#reachExempt`); the identity band is never below it.
+- **Stale by one pass, named:** a memory revived since the last decay pass (a use, an open)
+  still reads below reach in the prefilter until the next pass; the exact recheck passes it,
+  but the top-K never offered it. Deliberate recall, which does not prefilter, finds it.
+- `gatedSal` (G10): `sal()` lost its emotional dimension, so a felt turn adds `EMO_LIFT × I`
+  (`salArm`), an unfelt one reads `sal()`.
+- Softening reads `feelings.recorded_day` (`feltDay`), store v13.
+- Untouched on purpose: the credit tiers and `resolveUse` (Group 1b), the mood weights (1c).
+
+## 2026-10-10 — near-universal cue words are not looked up (Lane 0, scale review C4)
+
+`activate` fetched every cue's postings, and a word in almost every memory has postings the
+size of the store: the review measured `searchIndex` at 52% of a turn at 10x. A cue whose
+`informativeness(df, storeSize)` is under `CUE_FETCH_MIN_IDF` (0.1 — a word in more than
+~80% of memories) can stay a cue and fetch nothing; `ActivationResult.unfetched` counts
+them (not a `RecallDecision` field, for `capped`'s reason). **It ships off (0).** Its own
+evidence is a few percent of one rare word's, but its postings (up to `PER_CUE_FETCH`
+near-zero candidates) were the gate's background: without them a thin turn drops from the
+relative bar to the absolute one (`gate.ts#background`, `MIN_BACKGROUND_SAMPLE`). Measured
+by the review of #368: a 40-memory store, "the garden tomatoes", 2 footnotes → 0; a prose
+corpus with 4-word prompts, 5 of 120 turns showed fewer at 150 memories and 2 of 120 changed
+at 400; sentence-length prompts, none. Re-enable after a recall-bench run on a store copy,
+with a minimum store size. `storeSize` is `countMemories` now, not
+the length of a list of every live id (16% of a 10x turn). Not done here, from the same
+finding: persisting the alias index and indexing `feelings(created_at)` (a canonical index —
+Group 1).
+
+## 30. Mood weights to 0 (2026-10-10, review 02 C3)
 
 `MOOD_SAME_WEIGHT` and `MOOD_CROSS_WEIGHT` are 0. Decided by b2+f8, 2026-10-10, lightly
 held. Evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after

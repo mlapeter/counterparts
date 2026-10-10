@@ -41,6 +41,7 @@ import {
   restoreFeelingsV10,
 } from "../src/core/store/index.js";
 import type { StoreOptions } from "../src/core/store/index.js";
+import { stripV13 } from "./store-fixture.js";
 
 let root: string;
 let dir: string;
@@ -304,6 +305,7 @@ function v10Store(): { memory: string; ids: string[] } {
      VALUES (?, ?, 'self', ?, ?, ?, 0.4, '', ?, ?, 'session')`,
   );
   LIVE.forEach(([core, emotion, word], i) => insert.run(ids[i] as string, memory, core, emotion, word, 1_000 + i, 1_000 + i));
+  stripV13(db); // a v10 file has none of v13's either (2026-10-10)
   db.run("ALTER TABLE feelings DROP COLUMN valence");
   db.run("ALTER TABLE feelings DROP COLUMN core_v10");
   db.run("ALTER TABLE feelings DROP COLUMN emotion_v10");

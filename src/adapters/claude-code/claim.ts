@@ -56,8 +56,14 @@
  *     twin. A process that started after the holder finished is a separate event
  *     that happens to look the same — a host with no `prompt_id` sending the same
  *     words twice, a session resumed twice in a row — and it delivers. So the
- *     time a hook takes, the store's busy timeout or a slow start-up cannot turn
- *     a twin into a second delivery, and no repeat is ever swallowed by a clock.
+ *     time a hook takes or the store's busy timeout cannot turn a twin into a
+ *     second delivery, and no repeat is ever swallowed by a clock. A slow
+ *     START-UP can, and did (2026-10-10, measured under load: a twin's runtime
+ *     came up 45 ms after the winner finished, and the session got two wakes).
+ *     So an event the host sends ONCE per key (`firesOnce`: a session's first
+ *     start, a prompt with its id) is a twin whenever it started; the rest keep
+ *     the start-time rule, and there the claim is a backstop that a very late
+ *     twin can still pass.
  *   - A holder that never says it finished (killed, crashed) holds for
  *     `CLAIM_WINDOW_MS` and no longer.
  *
@@ -66,17 +72,31 @@
  * a session that woke up with no memory. A single wiring therefore behaves
  * exactly as before, at the cost of two small writes per event.
  *
+ * A CLAIMS FILE THAT IS NOT A DATABASE IS SET ASIDE AND REBUILT, ONCE (review of
+ * #359, 2026-10-10). Before, a corrupt or foreign file was a lasting fault: a
+ * stderr line on every event, and the backstop off until somebody deleted it.
+ * Now the write that meets one (`isUnreadableDatabase`) moves it — with its
+ * `-wal` and `-shm`, so a stale log is never replayed into the new file — to
+ * `hook-claims.unreadable-<epoch ms>.sqlite` beside it, keeping only the newest
+ * such copy, and tries once more on a fresh file. The copy is the durable trace:
+ * doctor's `Hook claims` line reads it (`claimsSetAside`). Nothing in the file
+ * outlives the window, so nothing is lost but the claims of the last 15 s. The
+ * event is delivered whatever happens.
+ *
+ * PRIVATE, AS `log/` IS: the directory is made 0700 and the file 0600 (SQLite
+ * gives its `-wal` and `-shm` the database file's mode).
+ *
  * WHY ONE WIRING CLAIMS TOO. A hook cannot know it has no twin: the claim is the
  * backstop for exactly the case where reading the host's wiring got it wrong
  * (2026-10-09), so it cannot be skipped on that same reading. What one wiring
  * pays is the two small writes, on a file nothing else writes.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { HOOK_CLAIM_LOST_EVENT } from "../../core/counterpart.js";
-import { isLocked, openDb } from "../../core/store/db.js";
+import { isLocked, isUnreadableDatabase, openDb } from "../../core/store/db.js";
 import { sessionsDir } from "../sessions.js";
 import type { HookName } from "./hooks.js";
 
@@ -120,9 +140,245 @@ const CLAIMS_DDL = "CREATE TABLE IF NOT EXISTS claims (key TEXT PRIMARY KEY, val
  * every 100 pages rather than SQLite's 1000, so it stays under half a megabyte
  * beside a row of a few kilobytes.
  */
-function updateClaims(dataDir: string, fn: (current: string | undefined) => string | undefined): void {
+function updateClaims(dataDir: string, fn: (current: string | undefined) => string | undefined): { readonly setAside: string | null } {
   const path = claimsPath(dataDir);
-  mkdirSync(dirname(path), { recursive: true });
+  // WHICH FILE this attempt meets, so a failure can tell "this file is bad"
+  // from "a twin moved it while this attempt had it open".
+  const met = fileIdentity(path);
+  try {
+    transactClaims(path, fn);
+    return { setAside: null };
+  } catch (err) {
+    let setAside: string | null = null;
+    // A TWIN MOVED IT (review of #366) when another file, or none, holds the
+    // path now: a twin that met the same bad file set it aside while this
+    // attempt had it open. What the driver says then varies by platform and
+    // moment (`SQLITE_IOERR_VNODE`, `SQLITE_IOERR_FSTAT`, the old file's own
+    // `SQLITE_NOTADB`), so the test is the file, not the code. Then this one
+    // only tries again, on the twin's file, and loses to the twin's claim.
+    if (fileIdentity(path) === met) {
+      if (isUnreadableDatabase(err)) setAside = setClaimsAside(path, met);
+      // A twin is moving it right now (its sidecars go first, so the file is
+      // still here): wait for it to be gone, then try the twin's new file. No
+      // twin at work is the error's own — unless the file left while this
+      // looked: a twin moves the file BEFORE it lets go of the lock, so one
+      // that did both between the two looks leaves no lock but a file moved
+      // (measured under load, an `SQLITE_IOERR_VNODE` delivered beside the
+      // winner about 1 round in 1,500).
+      else if (!awaitSetAside(path, met) && fileIdentity(path) === met) throw err;
+    }
+    transactClaims(path, fn);
+    return { setAside };
+  }
+}
+
+/** The prefix and suffix of a claims file set aside as unreadable, beside the live one. */
+export const CLAIMS_SET_ASIDE_PREFIX = "hook-claims.unreadable-";
+const CLAIMS_SET_ASIDE_SUFFIX = ".sqlite";
+
+/**
+ * WHO SETS IT ASIDE: the one twin that makes this directory beside the file
+ * (review of #366). Without it two twins that met the same bad file both
+ * moved "the" file, and the second, a moment late, moved the first one's new
+ * file and its `-wal` — measured, about 1 round in 70 under load, each a
+ * second delivery. A holder that died leaves it; past `SET_ASIDE_STALE_MS`
+ * the next one takes it over (`takeSetAsideLock`), and until then a lock that
+ * old is no twin at work, so nothing waits on it (`awaitSetAside`).
+ */
+export const SET_ASIDE_LOCK = "hook-claims.setting-aside";
+const SET_ASIDE_STALE_MS = 5_000;
+
+/** The file at `path` as device and inode, or null when there is none. */
+function fileIdentity(path: string): string | null {
+  try {
+    const st = statSync(path, { bigint: true });
+    return `${String(st.dev)}:${String(st.ino)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move the unreadable claims file (`met`, the one this attempt failed on)
+ * aside, with its `-wal` and `-shm` (a stale log replayed into a new file
+ * would be the corruption all over again), to
+ * `hook-claims.unreadable-<epoch ms>.sqlite`, then remove any older copy: one
+ * is kept, so it is evidence and never a pile. Returns the copy's path, or
+ * null when a twin set it aside instead: then this waits, up to
+ * `CLAIM_WAIT_MS`, for the twin to have moved it, so the caller's next try
+ * meets the twin's new file. Throws when the file cannot be moved.
+ *
+ * Under the lock the order matters: the sidecars go while the bad file still
+ * holds the path, because the moment it is gone a twin may make a new file
+ * there, and nothing of that file may be moved.
+ */
+function setClaimsAside(path: string, met: string | null, now: number = Date.now()): string | null {
+  const dir = dirname(path);
+  const lock = join(dir, SET_ASIDE_LOCK);
+  let mine = takeSetAsideLock(lock, path, met);
+  if (mine === null) {
+    // A twin holds it: wait for the file to go. When no twin is found holding
+    // it — it let go, or a twin taking over a dead holder's lock is between
+    // moving that one off and making its own — try once more to take it, so a
+    // twin never retries on the bad file without either waiting or moving it.
+    if (awaitSetAside(path, met)) return null;
+    mine = takeSetAsideLock(lock, path, met);
+    if (mine === null) {
+      awaitSetAside(path, met);
+      return null;
+    }
+  }
+  try {
+    if (met === null || fileIdentity(path) !== met) return null;
+    const name = `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`;
+    const aside = join(dir, name);
+    for (const sidecar of ["-wal", "-shm"]) {
+      try {
+        renameSync(`${path}${sidecar}`, `${aside}${sidecar}`);
+      } catch {
+        /* not there: nothing to carry */
+      }
+    }
+    renameSync(path, aside);
+    for (const other of readdirSync(dir)) {
+      if (other.startsWith(CLAIMS_SET_ASIDE_PREFIX) && !other.startsWith(name)) rmSync(join(dir, other), { force: true });
+    }
+    return aside;
+  } finally {
+    releaseSetAsideLock(lock, mine);
+  }
+}
+
+/**
+ * When a twin holds the set-aside lock, wait (up to `CLAIM_WAIT_MS`) for the
+ * file this attempt met to leave the path. False when no twin is setting it
+ * aside, so the caller's error is its own: no lock, or one older than
+ * `SET_ASIDE_STALE_MS`, a dead holder's, which no file is leaving for — so a
+ * lock left by a crash never slows a busy write on a healthy file.
+ */
+function awaitSetAside(path: string, met: string | null): boolean {
+  const lock = lockAge(join(dirname(path), SET_ASIDE_LOCK));
+  if (lock === null || lock.age > SET_ASIDE_STALE_MS) return false;
+  const until = Date.now() + CLAIM_WAIT_MS;
+  while (fileIdentity(path) === met && Date.now() < until) sleepSync(5);
+  return true;
+}
+
+/** The lock directory at `lock` as identity and age, or null when there is none. */
+function lockAge(lock: string): { readonly id: string; readonly age: number } | null {
+  try {
+    const st = statSync(lock, { bigint: true });
+    return { id: `${String(st.dev)}:${String(st.ino)}`, age: Date.now() - Number(st.mtimeMs) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take the set-aside lock: make it, or take over one a dead holder left (older
+ * than `SET_ASIDE_STALE_MS`). Returns the lock as made, for the release, or
+ * null when a twin holds it. Throws when it cannot be made at all.
+ *
+ * THE TAKEOVER IS ONE TWIN'S (review of #366). Removing the old lock and making
+ * a new one let two twins that both judged it stale both take it — the second's
+ * removal took the first's NEW lock — and both set the file aside: measured,
+ * 4 to 16 rounds in 60 delivered twice on macOS. So the old lock is first
+ * renamed to a name of this process's own: of twins that judged one lock stale,
+ * one rename finds it. And it is removed only if what was renamed IS the lock
+ * judged stale; a twin's fresh one, made in between, is put back — and, since
+ * that twin may have gone to let go of it in the instant it was moved off and
+ * found nothing to remove, this one removes it once the file the twin was
+ * moving (`met`, the file both met) has left the path.
+ */
+function takeSetAsideLock(lock: string, path: string, met: string | null): HeldLock | null {
+  try {
+    mkdirSync(lock);
+    return { id: fileIdentity(lock) };
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code !== "EEXIST") throw err;
+  }
+  const judged = lockAge(lock);
+  if (judged === null || judged.age <= SET_ASIDE_STALE_MS) return null;
+  const moved = `${lock}.stale-${String(process.pid)}`;
+  try {
+    renameSync(lock, moved);
+  } catch {
+    return null;
+  }
+  try {
+    const taken = fileIdentity(moved);
+    if (taken !== judged.id) {
+      renameSync(moved, lock);
+      awaitSetAside(path, met);
+      if (fileIdentity(path) !== met && fileIdentity(lock) === taken) rmdirSync(lock);
+      return null;
+    }
+    rmdirSync(moved);
+    mkdirSync(lock);
+    return { id: fileIdentity(lock) };
+  } catch {
+    try {
+      rmdirSync(moved);
+    } catch {
+      /* gone already */
+    }
+    return null;
+  }
+}
+
+/** The set-aside lock as this process made it: its identity, or null in the
+ *  instant a twin's takeover had it moved off (and put it back). */
+interface HeldLock {
+  readonly id: string | null;
+}
+
+/** Let go of the lock, if it is still the one this process made: a holder
+ *  whose lock was taken over (it stalled past `SET_ASIDE_STALE_MS`) must not
+ *  remove the next holder's. Never throws: a lock left is taken over later. */
+function releaseSetAsideLock(lock: string, held: HeldLock): void {
+  try {
+    if (held.id === null || fileIdentity(lock) === held.id) rmdirSync(lock);
+  } catch {
+    /* gone, or a twin's now: nothing of this process's to remove */
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * THE TRACE DOCTOR READS: the claims file set aside as unreadable, if one is
+ * there — its file name and when it was set aside (from the name). Null when
+ * none is, or the directory cannot be read. Never throws.
+ */
+export function claimsSetAside(dataDir: string): { readonly name: string; readonly at: number } | null {
+  let names: string[];
+  try {
+    names = readdirSync(dirname(claimsPath(dataDir)));
+  } catch {
+    return null;
+  }
+  let newest: { name: string; at: number } | null = null;
+  for (const name of names) {
+    if (!name.startsWith(CLAIMS_SET_ASIDE_PREFIX) || !name.endsWith(CLAIMS_SET_ASIDE_SUFFIX)) continue;
+    const at = Number(name.slice(CLAIMS_SET_ASIDE_PREFIX.length, -CLAIMS_SET_ASIDE_SUFFIX.length));
+    if (!Number.isFinite(at)) continue;
+    if (newest === null || at > newest.at) newest = { name, at };
+  }
+  return newest;
+}
+
+/** The one transaction, on a connection opened for it and closed after it. */
+function transactClaims(path: string, fn: (current: string | undefined) => string | undefined): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  // Made 0600 before SQLite makes it 0644; its `-wal` and `-shm` take this mode.
+  // A twin may make it first, and anything else wrong surfaces at the open.
+  try {
+    closeSync(openSync(path, "wx", 0o600));
+  } catch {
+    /* there already, or the open below says why not */
+  }
   const db = openDb(path, { wal: true });
   try {
     db.exec(`PRAGMA busy_timeout = ${String(CLAIM_WAIT_MS)}`);
@@ -178,6 +434,27 @@ export function deliveryClaimKey(name: HookName, payload: Record<string, unknown
   return digest(JSON.stringify(parts));
 }
 
+/**
+ * DOES THE HOST SEND THIS EVENT ONCE PER KEY? (2026-10-10, the 0.3.15 release
+ * check.) A SessionStart that opens a session id — `startup`, `clear`, `fork`,
+ * each a new id — and a prompt carrying its `prompt_id`, one per prompt, are
+ * never sent twice. So for these a same-key process inside the window is the
+ * holder's twin WHENEVER it started. Measured: with two settings wirings on a
+ * machine loaded by the suite, the second hook's runtime came up 45 ms after
+ * the first had finished its SessionStart, the start-time rule read a new
+ * event, and the session got two wakes (1 session of 6; 5 of 5 were single on
+ * a quiet machine). `resume`, `compact`, a Stop, SessionEnd, PreCompact and a
+ * prompt with no id can legitimately repeat with the same key, so they keep the
+ * start-time rule, and for them a twin that starts late still delivers: the
+ * plugin's stand-down (`plugin.ts#hookGate`) is the main guard, the claim a
+ * backstop. Pure.
+ */
+export function firesOnce(name: HookName, payload: Record<string, unknown>): boolean {
+  if (name === "session-start") return ["startup", "clear", "fork"].includes(text(payload, "source"));
+  if (name === "user-prompt-submit") return text(payload, "prompt_id").length > 0;
+  return false;
+}
+
 /** One held claim: when it was made, by which side, when its process started,
  *  and when it finished (absent while it runs). */
 interface Held {
@@ -231,6 +508,9 @@ export interface ClaimInput {
   readonly observer: boolean;
   /** When this process started (epoch ms); `performance.timeOrigin` by default. */
   readonly started?: number;
+  /** The host sends this event once per key (`firesOnce`): a same-key claim in
+   *  the window is a twin whenever this process started. */
+  readonly once?: boolean;
   readonly now?: number;
 }
 
@@ -245,6 +525,24 @@ export interface Claim {
   /** Set when the claim could not be written because another claim held the
    *  file past `CLAIM_WAIT_MS`: contention, which passes, not a fault. */
   readonly busy?: boolean;
+  /** Why nothing was claimed, as a code the process log may write as itself
+   *  (`SQLITE_BUSY`, `SQLITE_NOTADB`, `ENOTDIR`, …), where `detail` is a sentence. */
+  readonly code?: string;
+  /** The copy an unreadable claims file was moved to before this claim was
+   *  made on a fresh one (`setClaimsAside`). */
+  readonly setAside?: string;
+}
+
+/**
+ * An error as a code the process log writes as itself: the driver's or the
+ * file system's own (`SQLITE_NOTADB`, `EACCES`); `node:sqlite`'s number as
+ * `SQLITE_<n>`; else the error's class. Never its message.
+ */
+function codeOf(err: unknown): string {
+  const e = err as { code?: unknown; errcode?: unknown; name?: unknown } | null | undefined;
+  if (typeof e?.errcode === "number") return `SQLITE_${String(e.errcode)}`;
+  if (typeof e?.code === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.code)) return e.code;
+  return typeof e?.name === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.name) ? e.name : "unknown";
 }
 
 /**
@@ -261,12 +559,17 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
   const fresh = (h: Held): boolean => Math.abs(now - Math.max(h.at, h.ended ?? h.at)) < CLAIM_WINDOW_MS;
   // Written inside the transaction's callback, read after it.
   const seen: { heldBy: string | null } = { heldBy: null };
+  let setAside: string | null = null;
   try {
-    updateClaims(doors.store.dir, (current) => {
+    ({ setAside } = updateClaims(doors.store.dir, (current) => {
+      // Reset: the callback runs again on a rebuilt file (`updateClaims`).
+      seen.heldBy = null;
       const claims = readClaims(current);
       const held = claims[key];
-      // A TWIN: the same event, and this process began before the holder ended.
-      if (held !== undefined && fresh(held) && (held.ended === undefined || started < held.ended)) {
+      // A TWIN: the same event, and this process began before the holder ended
+      // — or the host sends this event only once, so any same-key process in
+      // the window is one, however late its runtime came up (`firesOnce`).
+      if (held !== undefined && fresh(held) && (input.once === true || held.ended === undefined || started < held.ended)) {
         seen.heldBy = held.side;
         return undefined;
       }
@@ -275,13 +578,15 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, CLAIM_KEEP - 1);
       return writeClaims(Object.fromEntries([[key, { at: now, side: input.side, started }], ...kept]));
-    });
+    }));
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    return isLocked(err) ? { outcome: "unclaimed", detail, busy: true } : { outcome: "unclaimed", detail };
+    const code = codeOf(err);
+    return isLocked(err) ? { outcome: "unclaimed", detail, code, busy: true } : { outcome: "unclaimed", detail, code };
   }
+  const rebuilt = setAside === null ? {} : { setAside };
   const winner = seen.heldBy;
-  if (winner === null) return { outcome: "won", at: now };
+  if (winner === null) return { outcome: "won", at: now, ...rebuilt };
   try {
     doors.noteAdapterEvent(HOOK_CLAIM_LOST_EVENT, {
       hook: input.hook,
@@ -292,7 +597,7 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
   } catch {
     // The row is the record, not the decision: the twin still stands down.
   }
-  return { outcome: "lost", heldBy: winner };
+  return { outcome: "lost", heldBy: winner, ...rebuilt };
 }
 
 /**
@@ -305,6 +610,7 @@ export function finishClaim(doors: Pick<ClaimDoors, "store">, key: string, at: n
   let stamped = false;
   try {
     updateClaims(doors.store.dir, (current) => {
+      stamped = false;
       const claims = readClaims(current);
       const held = claims[key];
       if (held === undefined || held.at !== at) return undefined;

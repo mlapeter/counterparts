@@ -62,12 +62,13 @@
  * history, and is the price of having exactly one definition of a crossing.
  */
 
-import { band, bandMove, strength } from "../physics/index.js";
+import { NEVER_CHANGES, band, bandMove, nextChangeDay, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
-import { rowToPhysics } from "../store/operational.js";
+import type { Band, DatedHold } from "../physics/index.js";
+import { reachExempt, rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome, isJournal, recordBandTransition } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isHandoffRow, isJournal, isJournalCopy, isSelfPageRow, recordBandTransition } from "./types.js";
 import { censusDue, upgradeCensus } from "./upgrade.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 import type { Phase } from "./types.js";
@@ -76,12 +77,93 @@ import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 /** This phase's own name, for the cursor it keeps (typed: a rename fails `tsc`). */
 const DECAY_PHASE: Phase = "decay";
 
+/**
+ * THE CURVE A STORE'S NEXT-CHANGE DAYS WERE COMPUTED UNDER (2026-10-10). The
+ * turn-down trusts `memories.next_change_day` only while the constants that
+ * produced it are the ones this build runs; a build with another curve forgets
+ * them all once (`clearNextChangeDays`) and looks at every row on its first
+ * pass. Meta key + the signature it holds.
+ *
+ * EVERY constant that moves a strength, a line or the hold belongs here —
+ * height's (`base`: each kind's `wSal`/`wRep`, `REP_PER_USE`, `REP_CAP`,
+ * `CONS_BONUS`; `salArm`'s lift), steepness's, the lines', the hold's (review
+ * of #372: the height constants were missing, so a build that changed a
+ * kind's salience weight would have trusted next-change days computed under
+ * the old heights). Group 1c's `FELT_HEIGHT_CAP` (`salArm`) is one of them;
+ * a constant added to `salArm` or `base` later joins it too.
+ */
+export const CURVE_META_KEY = "decay.curve";
+export function curveSignature(): string {
+  return JSON.stringify({
+    shape: PHYSICS.DECAY_SHAPE,
+    psi: PHYSICS.POWER_LAW_PSI,
+    s0: PHYSICS.S0,
+    g: PHYSICS.STABILITY_GAIN,
+    q: PHYSICS.EMO_Q,
+    lift: PHYSICS.EMO_LIFT,
+    beta: PHYSICS.BETA,
+    ret: PHYSICS.RETURN_GAIN,
+    rep: PHYSICS.REP_PER_USE,
+    repCap: PHYSICS.REP_CAP,
+    cons: PHYSICS.CONS_BONUS,
+    sem: PHYSICS.THETA_SEM,
+    reach: PHYSICS.REACH,
+    floor: PHYSICS.PHI_PRUNE,
+    dwell: PHYSICS.D_FLOOR_DAYS,
+    grace: PHYSICS.HOLD_GRACE_DAYS,
+    lead: PHYSICS.HOLD_LEAD_DAYS,
+    spent: PHYSICS.SPENT_STABILITY_DIVISOR,
+    // Group 1c's height cap (`salArm`).
+    felt: PHYSICS.FELT_HEIGHT_CAP,
+    kinds: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, [v.wSal, v.wRep, v.kappa]])),
+  });
+}
+
+/**
+ * WHY A BAND MOVED (2026-10-10, the up-ratchet tripwire; review of #372). Pure.
+ * Down is the curve; up has to have something behind it, or it is the ratchet
+ * the tripwire exists for:
+ *
+ *   - `recurve`: the pass a new curve arrived on (`CURVE_META_KEY` changed) —
+ *     either way, the build's constants moved it; the tripwire skips it;
+ *   - `promoted`: into the identity band;
+ *   - `input`: the row's next-change day was NULL — read BEFORE this pass wrote
+ *     anything, so a trigger cleared it because an input of the curve was
+ *     written (or a rebuilt cache cleared them all);
+ *   - `held`: a dated memory — its standing turns on the CALENDAR (a window
+ *     opening, or the spent slope giving way after a long absence:
+ *     `physics#elapsed` reads "used after the window" off two clocks), so it
+ *     is read daily and a climb there is the date's, not a ratchet;
+ *   - `unexplained`: none of these — a strength that rose by itself.
+ */
+export function bandMoveCause(
+  direction: "up" | "down",
+  to: Band,
+  nextChangeDay: number | null | undefined,
+  hold: DatedHold | null,
+  recurved: boolean,
+): BandTransition["cause"] {
+  if (recurved && to !== "identity") return "recurve";
+  if (direction === "down") return "curve";
+  if (to === "identity") return "promoted";
+  if (nextChangeDay === null || nextChangeDay === undefined) return "input";
+  return hold !== null ? "held" : "unexplained";
+}
+
 /** Skip categories, enumerated so a zero is distinguishable from an absence. */
 export const DECAY_SKIPS = [
   "archived",
   "removed",
   /** The journal, which is a source and not a memory (`types.ts#isJournal`). */
   "journal",
+  /** A chapter's copy — journal too (2026-10-10, review 03 C4a; `types.ts#isJournalCopy`). */
+  "journal-copy",
+  /** A handoff — its own lived-day expiry is its clock (2026-10-10, review 03 C4b). */
+  "handoff",
+  /** An entity card — a stub at salience 0, faded by `schemas/`' own verdict (2026-10-10). */
+  "entity-card",
+  /** The self page — never decayed below reach (2026-10-10, review of #372). */
+  "self-page",
   "identity-band",
   "reinforced-today",
   "at-floor",
@@ -137,7 +219,40 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   const written: StrengthRow[] = [];
   const transitions: BandTransition[] = [];
   let bandsReconciled = 0;
-  const ids = store.list();
+  // THE TURN-DOWN (2026-10-10, Group 1, review 13 C2): only the rows whose
+  // band, reach or prune eligibility changes today — their stored next-change
+  // day has come — and the rows with none (new, or an input of their curve was
+  // written since: a trigger clears it). Everything else reads exactly what it
+  // read at its last pass, so there is nothing to recompute. A store written
+  // under another curve forgets every next-change day first (`CURVE_META_KEY`);
+  // an observer, which writes nothing, walks the whole store as before, and so
+  // does a port without the turn-down.
+  const signature = curveSignature();
+  const sameCurve = store.getMeta(CURVE_META_KEY) === signature;
+  const turnDown =
+    typeof store.turnDownDue === "function" && typeof store.setNextChangeDays === "function" && (sameCurve || ctx.apply);
+  // Forgotten and re-signed together: every row is then NULL, so it stays due
+  // until a pass reaches it, however many passes a budget takes.
+  if (turnDown && !sameCurve && ctx.apply) {
+    store.clearNextChangeDays?.();
+    store.setMeta(CURVE_META_KEY, signature);
+  }
+  // THE PASS A NEW CURVE ARRIVES ON (review of #372): every band it moves moved
+  // because this build's constants differ, not because anything was used or
+  // anything ratcheted — `recurve`, which the tripwire does not count.
+  const recurved = turnDown && !sameCurve && ctx.apply;
+  // A RANKING CACHE THAT IS GONE (`rebuildCache`, `verify --rebuild`) holds
+  // nothing for the rows the turn-down would leave alone, so every row is looked
+  // at again — the same as a new curve.
+  if (turnDown && sameCurve && ctx.apply && cache !== null && prior.size === 0) store.clearNextChangeDays?.();
+  // LIVE ROWS ONLY (2026-10-10, Lane 0 / scale review C3): archived rows are
+  // left out in SQL instead of each being read and skipped (`turnDownDue` reads
+  // live rows only too). Still counted, by their ids alone, so the named skip
+  // says what it said.
+  const ids = turnDown && store.turnDownDue !== undefined ? store.turnDownDue(day) : store.list({ archived: false });
+  countSkip(out, "archived", store.list({ archived: true }).length);
+  const nextChanges: { id: string; day: number }[] = [];
+  const dropped: string[] = [];
   // WHERE THE LAST RUN STOPPED (2026-09-28, build B; the audit's #4). `store.list()`
   // is `ORDER BY id` and ids are random, so without a resume point a budget
   // smaller than the store examined the same slice every night and the rest
@@ -160,9 +275,11 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (row === undefined) continue;
     if (denied.has(id)) {
       countSkip(out, "removed");
+      nextChanges.push({ id, day: NEVER_CHANGES });
       continue;
     }
     if (row.archived === 1) {
+      // Archived between the list and the read: counted as the rest were.
       countSkip(out, "archived");
       continue;
     }
@@ -170,6 +287,21 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     // move a band or write a strength row (`types.ts#isJournal`).
     if (isJournal(row)) {
       countSkip(out, "journal");
+      nextChanges.push({ id, day: NEVER_CHANGES });
+      continue;
+    }
+    // A chapter's copy is the journal too, a handoff keeps its own clock, and
+    // an entity card fades by `schemas/`' verdict (2026-10-10, review 03 C4;
+    // `operational.ts#reachExempt`): none is examined, and any ranking row an
+    // earlier build wrote for one is dropped, so the ambient prefilter never
+    // reads it as below reach.
+    if (reachExempt(row)) {
+      countSkip(
+        out,
+        isJournalCopy(row) ? "journal-copy" : isHandoffRow(row) ? "handoff" : isEntityCard(row) ? "entity-card" : isSelfPageRow(row) ? "self-page" : "journal",
+      );
+      nextChanges.push({ id, day: NEVER_CHANGES });
+      if (prior.has(id)) dropped.push(id);
       continue;
     }
     out.examined += 1;
@@ -177,6 +309,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     const p = rowToPhysics(row);
     const s = strength(p, day);
     const b = band(p, day);
+    nextChanges.push({ id, day: nextChangeDay(p, day) });
 
     // The named skip categories. They are reported, not branched on: the
     // arithmetic already produces the right number for each.
@@ -205,10 +338,13 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     }
 
     const was = prior.get(id);
+    // Crossing REACH is a move however small the step (2026-10-10): the
+    // ambient prefilter reads the cache's side of the line.
     const moved =
       was === undefined ||
       was.band !== b ||
-      Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM;
+      Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM ||
+      was.strength < PHYSICS.REACH !== s < PHYSICS.REACH;
     if (!moved) {
       // A ROW THE PASS ACTED ON IS NOT AN UNCHANGED ROW, even when the cache had
       // nothing to say about it. On the exact U8 shape — the column wrong and
@@ -227,6 +363,8 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (was !== undefined && was.band !== b) {
       const direction = bandMove(was.band, b);
       if (direction !== "none") {
+        // Why it moved (2026-10-10): `bandMoveCause`.
+        const cause = bandMoveCause(direction, b, row.next_change_day, p.hold ?? null, recurved);
         const transition: BandTransition = {
           id,
           kind: row.kind,
@@ -235,6 +373,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
           direction,
           site: "decay",
           day,
+          cause,
         };
         transitions.push(transition);
         recordBandTransition(ctx, transition);
@@ -249,6 +388,10 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   // cache alone, so the U8 catch-up — 869 columns rewritten, no strength row
   // moved — left no ring event at all, and the one pass worth watching was the
   // one the log could not see.
+  if (ctx.apply && cache !== null && dropped.length > 0) cache.drop?.(dropped);
+  if (ctx.apply && turnDown) {
+    store.setNextChangeDays?.(nextChanges);
+  }
   if (ctx.apply && cache !== null && (written.length > 0 || bandsReconciled > 0)) {
     if (written.length > 0) cache.write(written);
     ctx.event("sleep.decay.materialized", undefined, {

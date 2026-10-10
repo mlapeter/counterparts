@@ -87,7 +87,7 @@ import {
 } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding, GitRunner } from "../src/adapters/claude-code/index.js";
 import { EMBEDDER_ON_COMMAND } from "../src/adapters/claude-code/doctor.js";
-import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
+import { hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import {
   EXIT,
   HOST_EVENTS,
@@ -2115,7 +2115,7 @@ describe("the session-start notice", () => {
     mintStore();
     writeConfig();
     const a = adapterOn();
-    a.noteNoticeDropped({ noticeChars: 352, envelopeChars: 9618, limitChars: ENVELOPE_MAX_CHARS });
+    a.noteNoticeDropped({ noticeChars: 352, envelopeChars: 9618, limitChars: 10_000 });
     const rows = a.events("adapter.notice.dropped");
     expect(rows.length).toBe(1);
     expect(rows[0]?.data["envelopeChars"]).toBe(9618);
@@ -2161,32 +2161,39 @@ describe("hostDelivery — the notice's channel", () => {
   });
 
   /**
-   * THE RED DAY'S OWN TRAP, computed by the reviewer of this PR and reproduced
-   * here: the wake the live host injects is ~9 KB, JSON escaping adds a
-   * character per newline, and the envelope for a 9,038-byte wake plus a
-   * 352-character notice measures 9,618 characters — past `ENVELOPE_MAX_CHARS`
-   * and one bad morning from the host's 10,000-character cap, where the stdout
-   * is replaced with a preview, stops parsing as JSON, and takes the whole wake
-   * with it. So the notice is what gets dropped, never the memory.
+   * THE RED DAY'S OWN TRAP, computed by the reviewer of this PR: the envelope
+   * for a 9,038-byte wake plus a 352-character notice measures 9,618
+   * characters. Read from the docs on 2026-09-14 as one bad morning from a
+   * preview that would stop the JSON parsing; MEASURED on 2026-10-10 (Claude
+   * Code 2.1.296) as fine — the cap is per field, and a 10,488-character
+   * envelope in this shape arrived whole. So that morning keeps its notice.
    */
-  test("an envelope that would not fit falls back to the PLAIN wake and says it dropped the notice", () => {
+  test("a full wake and a red notice: each field fits, so the JSON form carries both", () => {
     const wake = `${"w".repeat(68)}\n`.repeat(131).slice(0, 9038);
     const notice = `${"n".repeat(352 - 1 - NOTICE_TAIL.length)}\n${NOTICE_TAIL}`;
     expect(wake.length).toBe(9038);
     expect(notice.length).toBe(352);
     const out = hostDelivery("session-start", { injection: wake, ask: null }, {}, notice);
+    expect(out.dropped).toBeNull();
+    expect(out.stdout.length).toBeGreaterThan(9_500);
+    const parsed = JSON.parse(out.stdout) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
+    expect(parsed.systemMessage).toBe(notice);
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(wake);
+  });
+
+  test("a wake past the host's cap falls back to the PLAIN wake and says it dropped the notice (and that it ran over)", () => {
+    const wake = "w".repeat(10_001);
+    const out = hostDelivery("session-start", { injection: wake, ask: null }, {}, `short\n${NOTICE_TAIL}`);
     // The wake, byte for byte what the plain form would have printed.
-    expect(out.stdout).toBe(hostDelivery("session-start", { injection: wake, ask: null }, {}).stdout);
-    expect(out.stdout.startsWith("{")).toBe(false);
-    expect(out.dropped?.noticeChars).toBe(352);
-    expect(out.dropped?.envelopeChars).toBeGreaterThan(ENVELOPE_MAX_CHARS);
-    expect(out.dropped?.limitChars).toBe(ENVELOPE_MAX_CHARS);
+    expect(out.stdout).toBe(wake);
+    expect(out.dropped?.noticeChars).toBe(`short\n${NOTICE_TAIL}`.length);
+    expect(out.dropped?.limitChars).toBe(10_000);
+    expect(out.overCap).toEqual({ chars: 10_001, limitChars: 10_000 });
   });
 
   test("an envelope that fits still carries both, and reports nothing dropped", () => {
     const out = hostDelivery("session-start", wake, {}, `short\n${NOTICE_TAIL}`);
     expect(out.stdout.startsWith("{")).toBe(true);
-    expect(out.stdout.length).toBeLessThanOrEqual(ENVELOPE_MAX_CHARS);
     expect(out.dropped).toBe(null);
   });
 

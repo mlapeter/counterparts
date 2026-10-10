@@ -30,7 +30,6 @@ export {
   RECALL_ID_RESULT_CHARS,
   RECALL_MAX_IDS,
   RECALL_RESULT_CHARS,
-  FADED_RETAINED,
   boundById,
   hasFaded,
   deliberateRecall,
@@ -162,6 +161,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.registryDir === undefined ? {} : { registryDir: opts.registryDir }),
     ...(opts.scopesFile === undefined ? {} : { scopesFile: opts.scopesFile }),
+    ...(opts.scopeCommand === undefined ? {} : { scopeCommand: opts.scopeCommand }),
     ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
     ...(opts.resultCeilingChars === undefined ? {} : { resultCeilingChars: opts.resultCeilingChars }),
     // Which host, and what Claude Desktop's `wake` needs (2026-09-30) — carried
