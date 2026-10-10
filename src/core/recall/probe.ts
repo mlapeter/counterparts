@@ -319,6 +319,9 @@ export interface MemoryHitReport {
    *  scored them; left out because a row's id list was cut at its cap (its
    *  misses are not all named). */
   readonly sessions: { readonly scored: number; readonly unscored: number; readonly truncated: number };
+  /** Showings in counted sessions after the session's last judged turn (no
+   *  boundary has read their reply yet): left out, counted. */
+  readonly unjudgedShowings: number;
 }
 
 /**
@@ -342,10 +345,20 @@ export interface MemoryHitReport {
  * A session counts only when one of its credit rows carries the list and none
  * cut it short (`shownNotUsedTotal` above the list's length). Leaving a session
  * out says unknown; counting it would turn an unnamed miss into a hit.
+ *
+ * The same holds inside a counted session (review of #373): a boundary scores
+ * the showings up to its `judgedThrough`, and one that read no reply does not
+ * move it. A showing whose turn is past the session's highest `judgedThrough`
+ * (the reply not read yet, the session still open, a host that closed without
+ * a boundary) was never scored, so it is left out and counted
+ * (`unjudgedShowings`); a session none of whose showings were scored is
+ * unscored. Not caught: a showing the gate state lost before a boundary
+ * scored it (its record cap, a reset) reads as a hit.
  */
 export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
-  const shownIn = new Map<string, Map<string, ShowingLane>>();
+  const shownIn = new Map<string, Map<string, { lane: ShowingLane; turn: number | null }>>();
   const missedIn = new Map<string, Set<string>>();
+  const judgedIn = new Map<string, number>();
   const truncated = new Set<string>();
   for (const row of rows) {
     if (row.name !== "recall.decision" && row.name !== "recall.credit") continue;
@@ -364,14 +377,15 @@ export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
         lanes = new Map();
         shownIn.set(session, lanes);
       }
-      for (const id of ids(p["surfaced"])) lanes.set(id, "loud");
+      const turn = count(p, "turn");
+      for (const id of ids(p["surfaced"])) lanes.set(id, { lane: "loud", turn });
       const foot = p["footnotes"];
       if (Array.isArray(foot)) {
         for (const f of foot) {
-          if (typeof f === "string") lanes.set(f, "footnotes");
+          if (typeof f === "string") lanes.set(f, { lane: "footnotes", turn });
           else if (f !== null && typeof f === "object" && typeof (f as { id?: unknown }).id === "string") {
             const e = f as { id: string; via?: unknown };
-            lanes.set(e.id, e.via === "link" ? "pointers" : "footnotes");
+            lanes.set(e.id, { lane: e.via === "link" ? "pointers" : "footnotes", turn });
           }
         }
       }
@@ -381,6 +395,8 @@ export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
     const listed = ids(p["shownNotUsed"]);
     const total = count(p, "shownNotUsedTotal");
     if (total !== null && total > listed.length) truncated.add(session);
+    const through = count(p, "judgedThrough");
+    if (through !== null) judgedIn.set(session, Math.max(judgedIn.get(session) ?? 0, through));
     let missed = missedIn.get(session);
     if (missed === undefined) {
       missed = new Set();
@@ -399,6 +415,7 @@ export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
   let scored = 0;
   let unscored = 0;
   let cut = 0;
+  let unjudgedShowings = 0;
   for (const [session, lanes] of shownIn) {
     const missed = missedIn.get(session);
     if (missed === undefined) {
@@ -409,8 +426,15 @@ export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
       cut += 1;
       continue;
     }
+    const through = judgedIn.get(session) ?? 0;
+    const judged = [...lanes].filter(([, s]) => s.turn !== null && s.turn <= through);
+    if (judged.length === 0) {
+      unscored += 1;
+      continue;
+    }
     scored += 1;
-    for (const [id, lane] of lanes) {
+    unjudgedShowings += lanes.size - judged.length;
+    for (const [id, { lane }] of judged) {
       let m = per.get(id);
       if (m === undefined) {
         m = { sessions: 0, ignored: 0, byLane: zero() };
@@ -428,5 +452,5 @@ export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
   const memories: MemoryHit[] = [...per.entries()]
     .map(([id, m]) => ({ id, ...m }))
     .sort((a, b) => b.ignored - a.ignored || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { memories, byLane, sessions: { scored, unscored, truncated: cut } };
+  return { memories, byLane, sessions: { scored, unscored, truncated: cut }, unjudgedShowings };
 }

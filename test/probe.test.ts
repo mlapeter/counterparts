@@ -32,11 +32,12 @@ function capture(): { io: Io; out: string[]; err: string[] } {
   return { io: { out: (l) => out.push(l), err: (l) => err.push(l) }, out, err };
 }
 
-const decision = (session: string, date: string, footnotes: string[], surfaced: string[] = []) => ({
+const decision = (session: string, date: string, footnotes: string[], surfaced: string[] = [], turn = 1) => ({
   name: RECALL_DECISION_EVENT,
   day: 1,
   payload: JSON.stringify({
     session,
+    turn,
     date,
     footnotes: footnotes.map((id) => ({ id, sal: 0.5, activation: 1 })),
     surfaced: surfaced.map((id) => ({ id, sal: 0.9, activation: 9 })),
@@ -202,10 +203,17 @@ describe("counterparts probe-oq4", () => {
 });
 
 describe("probeMemoryHits (pure, Hawkins 2a)", () => {
-  const scoredCredit = (session: string, shownNotUsed: string[], total = shownNotUsed.length) => ({
+  const scoredCredit = (session: string, shownNotUsed: string[], judgedThrough = 1) => ({
     name: RECALL_CREDIT_EVENT,
     day: 1,
-    payload: JSON.stringify({ session, reason: "credited", expandedIds: [], shownNotUsed, shownNotUsedTotal: total }),
+    payload: JSON.stringify({
+      session,
+      reason: "credited",
+      expandedIds: [],
+      shownNotUsed,
+      shownNotUsedTotal: shownNotUsed.length,
+      judgedThrough,
+    }),
   });
 
   test("a hit rate per memory across sessions, by the lane each was shown through", () => {
@@ -252,5 +260,22 @@ describe("probeMemoryHits (pure, Hawkins 2a)", () => {
         },
       },
     ]);
+  });
+
+  test("a showing no boundary has judged yet is left out and counted, not a hit (review of #373)", () => {
+    const r = probeMemoryHits([
+      decision("s1", "2026-10-10", ["mem_a"], [], 1),
+      scoredCredit("s1", ["mem_a"], 1),
+      decision("s1", "2026-10-10", ["mem_b"], [], 2),
+      // A boundary that read no reply: an empty list, and the mark where it was.
+      scoredCredit("s1", [], 1),
+      // A session whose only boundary judged nothing.
+      decision("s2", "2026-10-10", ["mem_c"], [], 1),
+      scoredCredit("s2", [], 0),
+    ]);
+    expect(r.sessions).toEqual({ scored: 1, unscored: 1, truncated: 0 });
+    expect(r.unjudgedShowings).toBe(1);
+    expect(r.memories.map((m) => [m.id, m.sessions, m.ignored])).toEqual([["mem_a", 1, 1]]);
+    expect(r.byLane.footnotes).toEqual({ sessions: 1, ignored: 1 });
   });
 });

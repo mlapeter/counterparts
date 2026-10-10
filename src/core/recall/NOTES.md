@@ -1030,7 +1030,9 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
   them. The per-memory read is `probe.ts#probeMemoryHits` (2026-10-10, Hawkins 2a, Mike
   asked): `shownNotUsed` joined to the session's `recall.decision` rows, per memory and
   per lane, a memory in a session as the unit. A session with no scoring row, or whose
-  list was cut at 64, is left out and counted rather than read as hits. No CLI, dashboard
+  list was cut at 64, is left out and counted rather than read as hits, and so is a
+  showing past the session's highest `judgedThrough` (`unjudgedShowings`: its reply not
+  read yet; review of #373). No CLI, dashboard
   or doctor reads it yet. Lightly held (b2+f8): ignoring is measured first; if anything
   acts on it later it lowers how readily a memory surfaces, not its strength. Decide
   after the ~10-14 check-in.
