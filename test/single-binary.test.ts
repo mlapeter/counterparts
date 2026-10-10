@@ -41,7 +41,7 @@ import {
   scriptArgs,
 } from "../src/adapters/runtime.js";
 import type { Binary } from "../src/adapters/runtime.js";
-import { PLATFORMS, RELEASE_URL, assetName, binariesJson } from "../tools/single-binary/build.js";
+import { PLATFORMS, RELEASED, RELEASE_URL, assetName, binariesJson } from "../tools/single-binary/build.js";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -272,6 +272,10 @@ describe("the checksums the plugin carries (.claude-plugin/binaries.json)", () =
     expect(lines.filter((l) => l.includes('"version": '))).toEqual(['  "version": "1.2.3",']);
   });
 
+  test("a release offers every platform CI builds but Windows, whose binary has not yet run through the launcher", () => {
+    expect([...RELEASED].sort()).toEqual(Object.keys(PLATFORMS).filter((p) => !p.startsWith("windows")).sort());
+  });
+
   test("when it is there, it is THIS version's, for every platform a release ships", () => {
     const path = join(ROOT, ".claude-plugin", "binaries.json");
     // Absent until the first release that ships the binary: the launcher then
@@ -283,7 +287,7 @@ describe("the checksums the plugin carries (.claude-plugin/binaries.json)", () =
     // `bun tools/single-binary/build.ts --release` (docs/single-binary.md, "Releasing").
     expect(parsed.version).toBe(version);
     expect(parsed.url).toBe(`${RELEASE_URL}/v${version}`);
-    expect(Object.keys(parsed.platforms).sort()).toEqual(Object.keys(PLATFORMS).sort());
+    expect(Object.keys(parsed.platforms).sort()).toEqual([...RELEASED].sort());
     for (const [platform, p] of Object.entries(parsed.platforms)) {
       expect(p.file).toBe(assetName(version, platform));
       expect(p.sha256).toMatch(/^[0-9a-f]{64}$/);

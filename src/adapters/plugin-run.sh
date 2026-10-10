@@ -39,7 +39,9 @@
 #
 #   - The platform: macOS arm64 (`sysctl hw.optional.arm64`, which a shell
 #     started under Rosetta still answers truthfully, unlike `uname -m`), macOS
-#     x64, Linux x64/arm64 (glibc), Windows x64.
+#     x64, Linux x64/arm64 (glibc), Windows x64 — though no release offers
+#     Windows one yet (tools/single-binary/build.ts#RELEASED), so there the
+#     message still names a runtime to install.
 #   - The program comes from this version's GitHub release: the URL is built
 #     here from plugin.json's version and the platform, nothing else. Its
 #     sha256s come from .claude-plugin/binaries.json: the checksums SHIP WITH

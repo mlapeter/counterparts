@@ -2,7 +2,7 @@
  * BUILD THE SINGLE BINARY — docs/single-binary.md.
  *
  *   ~/.bun/bin/bun tools/single-binary/build.ts                 this machine's platform (development, CI)
- *   ~/.bun/bin/bun tools/single-binary/build.ts --release       all five, signed, gzipped, and
+ *   ~/.bun/bin/bun tools/single-binary/build.ts --release       the four RELEASED, signed, gzipped, and
  *                                                               .claude-plugin/binaries.json written
  *   … --target darwin-arm64,linux-x64                           named platforms
  *   … --no-bytecode                                             plain JS in the binary (slower start)
@@ -45,7 +45,7 @@ const REPO = resolve(import.meta.dir, "../..");
 const HERE = import.meta.dir;
 const STAGE = join(REPO, "dist", "single-binary", "stage");
 
-/** The five platforms a release ships, and the Bun target each is built with.
+/** The five platforms CI builds, and the Bun target each is built with.
  *  linux-x64 is `-baseline` (no AVX2 needed: pre-2013 CPUs, some VMs); it is
  *  the same size. */
 export const PLATFORMS: Readonly<Record<string, string>> = {
@@ -55,6 +55,12 @@ export const PLATFORMS: Readonly<Record<string, string>> = {
   "linux-arm64": "bun-linux-arm64",
   "windows-x64": "bun-windows-x64",
 };
+
+/** The platforms a release ships: what `--release` builds and binaries.json
+ *  offers. Not Windows yet: CI builds it, but its binary has not yet run
+ *  through `plugin-run.sh` under Git Bash, so the plugin keeps telling a
+ *  Windows computer with no runtime to install one. */
+export const RELEASED: readonly string[] = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"];
 
 /** Where a release's assets are downloaded from, `/v<version>` appended. */
 export const RELEASE_URL = "https://github.com/mlapeter/counterparts/releases/download";
@@ -154,7 +160,7 @@ if (import.meta.main) {
   const release = process.argv.includes("--release");
   const bytecode = !process.argv.includes("--no-bytecode");
   const named = arg("--target");
-  const platforms = release || named === "all" ? Object.keys(PLATFORMS) : (named ?? hostPlatform()).split(",");
+  const platforms = release ? [...RELEASED] : named === "all" ? Object.keys(PLATFORMS) : (named ?? hostPlatform()).split(",");
   for (const p of platforms) {
     if (PLATFORMS[p] === undefined) throw new Error(`unknown platform ${p}; one of ${Object.keys(PLATFORMS).join(", ")}`);
   }
