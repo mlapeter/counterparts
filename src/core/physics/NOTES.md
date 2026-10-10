@@ -532,3 +532,44 @@ The memories view's `letGoDay` passes the row's recurrence (`store#recurrenceOfR
 `ctx.recurring`, so the dashboard asks physics the exact question the prune asks: a
 faded repeat is not "fading", has no let-go day, and its row and card say how often it
 comes round instead.
+
+## 2026-10-10 — Group 1, strength: the power-law curve, below reach, the dated hold (g1a)
+
+The mechanisms review (`~/counterparts-notes/2026-10-10-mechanisms-synthesis.md` §1 G1, review
+03) found decay close to cosmetic: one exponential with S ≥ 60 for every memory, nothing below
+anything, and the first possible exit at lived day 91. What changed here, all lightly held
+(revisit after ~5 lived days; Mike walks `docs/IMPROVEMENTS.md` "Decisions to review"):
+
+- **The curve** (b2+f8): power-law, ψ = 1; `S = 0.4 · e^(8q) · (1 + 0.5 ln(1+uses)) · (1 +
+  ln(1+returns)) / κ`, `q = clamp01(sal + 0.5 I)`. `EMO_SLOPE` and `S_BASE` are gone. The
+  design table of 03 §5 is a test (±1 lived day, `test/strength.test.ts`): the closed form is
+  `t_reach = S · (h/0.15 − 1)`.
+- **Feeling once** (b2+f8, 02 C1): `emotional` out of `sal()`'s mean. Consequences on an
+  existing store, by name: every `sal()` reader moves — `challengeForce`, `revisionBar` via
+  strength, recall's turn gate (`gatedSal` now adds `EMO_LIFT × I` on a felt turn only) — and
+  rows with an `emotional` score lose that share of their mean (their claim floor stays).
+- **Never fades = S = ∞** (03 D6): the identity band, and any κ = 0 kind. `decay()` keeps its
+  early return for identity only as a fast path; `stability()` returns ∞ either way.
+- **The anchor** (g1a-builder): `decayAnchor = max(lastUsedDay, lastReturnDay,
+  lastDreamDay)`. A return's ×(1 + ln(1 + w)) on S alone lifts a faded default note by ~0.01;
+  the synthesis says a replay revives, so the replay re-anchors t. `creditUse` still reads
+  `lastUsedDay` alone (no credit-today collision, the one 07 C1 warned of for a nightly touch).
+- **The dated hold** (b2+f8, 07 C1/C2): `MemoryPhysics.hold`, computed at the read seam
+  (`store/operational.ts#datedHold`) from `event_date`, `learned_on`, the repeat word and the
+  store's calendar today (`meta.lastActiveDate`, read beside the row by `Store.row()` as
+  `today_date`). Pending → t = 0; spent → q = 0 and t from the window's close at the latest
+  (calendar days since the close, an upper bound on the lived days since). Held through
+  `HOLD_GRACE_DAYS` (= prospective's 7-day grace) and always for a repeating date
+  (g1a-builder). A memory read without the store's today (a bare `SELECT *`) carries no hold;
+  every `Store.row()` / `read()` / `physicsOf()` does.
+- **Below reach** (b2+f8, 03 C2): `REACH = 0.15`, `belowReach(m, d)`; never for the identity
+  band. `nextChangeDay(m, d)`: the next band / reach / prune-eligibility day (13 C2), d + 1 for
+  a dated memory (the calendar turns it), `NEVER_CHANGES` for the core.
+- **Exit** (b2+f8, 03 C3): `D_FLOOR_DAYS` 90 → 14, dwell from the anchor. Archival.
+- **Revision pressure stays exponential** (g1a-builder): `pressureAt` defaults its own shape.
+- **Expected the first night on an existing store:** many rows cross `THETA_SEM` downward at
+  once (the curve and `sal()` both moved), so the symmetry tripwire may read
+  `reverse-ratchet-suspected` for a while. That is the curve arriving, not a ratchet; it is
+  left to fire rather than suppressed. `CORE_SLOW_FLOOR` (0.5) now reads the new strength.
+- **Flagged, not fixed:** a kind whose ω_sal is 0.4 (skill, place) at the 0.25 default is born
+  at 0.10, below reach (03 D3 warned the routine default must sit above REACH).

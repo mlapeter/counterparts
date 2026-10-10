@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Forgetting now changes what comes to mind (store v13).** Each memory fades on its own
+  curve: steep at first and flat later, slower the more it mattered, the more it was felt,
+  used or came back. A routine note leaves the working layer in about two days; a felt
+  reading lasts months; a strong fact about a year. Under a line ("below reach") a memory
+  stops coming up on its own — in turns, as a pointer from a link, or in the wake's work
+  lines — but asking for it still finds it, listed after the main results as faded, and
+  using it, opening it or a dream replaying it brings it back. A memory that has sat under
+  the floor for 14 lived days (was 90) is archived — never deleted, still readable by id.
+  A reminder is held at full strength until its date and the week after, then fades fast;
+  a repeating date is always held. Chapters, their copies and live handoffs are never let
+  go. A feeling now counts once for how high a memory stands and once for how slowly it
+  fades, and softens from the day it was recorded. The nightly pass reads only the
+  memories whose standing changes that day. The dashboard counts "below reach now" and
+  "exited" apart. The store upgrades to v13 on the first open, after taking a copy; a
+  build from before refuses the upgraded store, and the copy is the way back. These are
+  lightly held decisions; they are listed in `docs/IMPROVEMENTS.md` under "Decisions to
+  review".
 - **A paused folder now says so when a session starts.** With memory paused in a folder
   (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
   compacted session there shows one line naming the paused folder and the command that

@@ -27,6 +27,118 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## Decisions to review — the mechanisms work, groups 1–5 (2026-10-10)
+
+**Status:** `open` — Mike walks this list; npm is held until he has. Written by the Group 1a
+build (strength) from the mechanisms synthesis (§4, as amended by its draft 2, §8). Each line
+says who decided it, when, and why, in plain words. The ones that reverse a ruling of Mike's
+come first. Nothing here quotes a memory.
+
+### Revised from Mike's rulings
+
+1. **Credit for drawing on a footnote.** Revised by b2+f8, 2026-10-10, from Mike's 2026-09-14
+   ruling ("never for being named in prose"); approved by Mike on 2026-10-10 through f8,
+   lightly held. Why: without it, use is hardly counted, so the links and the core's
+   recurrence starve. A memory counts as drawn on only when a rare phrase from its title shows
+   up in the reply and not in the prompt (about 8 in 10 right against a control), the credit
+   saturates, and nothing is ever credited for being shown. (Group 1b.)
+2. **A dated memory is held until its date (no decay before it arrives).** Revised by b2+f8,
+   2026-10-10, lightly held — and it may reverse Mike's 2026-09-26 prospective decision, whose
+   note says "decay (`FADED_STRENGTH`) still holds" for a memory with an explicit date (the
+   contract's G10, "no decay exemption before arrival"). Why: under the new curve a quiet
+   reminder set a month out would fade and be refused before its day; people hold pending
+   intentions. After its window closes it fades steeply. (Group 1a.)
+
+The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
+reverse older defaults and contract lines; those go to the rules audit.
+
+### Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days
+
+3. **The forgetting curve and its numbers.** A power law, steep at first and flat later, with
+   each memory's own steepness set by its salience and half its feeling, its use, its returns
+   and its kind. Why: a routine note should leave the working layer in about two days, a felt
+   reading should last months, and a 0.7 fact about a year. Until now every memory faded on
+   the same slow curve, so nothing left reach for ~100 lived days. (1a)
+4. **Below reach at 0.15.** Under it, a memory is left out of everything that comes up on its
+   own (turn recall, the links' pointers, the wake's work lines); asking deliberately still
+   finds it, listed after the main results as faded; using it, opening it or a dream replaying
+   it brings it back. The core never goes below reach. Why: forgetting in awareness, never in
+   storage — strength has to change what comes to mind, or decay changes nothing anyone sees.
+   (1a)
+5. **Exit after 14 lived days under the floor (was 90).** Exit means ARCHIVED, never deleted:
+   the words stay, readable by id, and the journal is untouched. Nothing deletes a memory
+   except Mike's own `counterparts remove`. Why: exit should follow reach; at 90 the first
+   possible exit was lived day 91. If any later change would delete rows, it waits for Mike.
+   (1a)
+6. **A dated memory holds until its date and fades steeply after.** See item 2. (1a)
+7. **Feeling sets how slowly a memory fades, not its band; `emotional` is out of the
+   salience average.** A feeling now counts once for height and once for steepness. Why:
+   feeling was the one signal that told readings from changelog on the live store; it was
+   being counted twice in height and barely in steepness. (1a)
+8. **Mood-matched recall turned down (weights 0, code kept), marked for re-test.** Why:
+   evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after Group
+   1's engaged credit gives a real signal. Not a closed decision. (1c)
+9. **"Strongly felt" means above the word's own default, or 0.6 and over**, so the core's fast
+   lane can open again (it shut when feeling defaults were capped at 0.55). (1c)
+10. **Encoding.** `note` becomes `remember` (with `note` kept as an alias for a release or
+    two); the new end-of-session ask; salience by attention, not category; the defaults by
+    what a memory is about. The `remember` description says to write in the moment, as things
+    catch your attention; the ask is the backstop. (1c)
+11. **One model for "this replaces that".** "Newer in the same slot" is `changed`; one detector
+    (the write-time neighbours, plus status lineage or very high similarity) proposes, the
+    dream confirms or undoes; the newest in a chain is what comes up on its own. (Group 2)
+12. **"Fade faster" is the existing `fade` multiplier**, not a new per-memory slope column.
+    (2/3)
+13. **The core.** A recurrence lane (back on several days, across sessions, over weeks);
+    identity means about me or us; after 60 lived days without coming back a core memory is
+    FLAGGED "being reconsidered" (dashboard and wake) — demotion needs a decision, mine
+    (awake or in the reflection) or Mike's, never automatic from disuse; both of us can retire
+    a core memory directly. (3)
+14. **Folding.** A fold is a flag on `gist`, not a new verb; a fold starts at its sources'
+    strength; reverse provenance goes in a `derivations` table. (3)
+15. **The dream queue.** The whole queue ranked into tonight's top-K; a memory stays queued
+    until it is below reach; the reflection runs in its own context. (3)
+16. **Cards as views**, not built in v1 (Mike's direction, 2026-10-10). (3)
+17. **A missed plain reminder is told once, later, within its 7-day grace.** (5)
+
+### Decided by the Group 1a builder, 2026-10-10, lightly held; revisit after ~5 lived days
+
+Calls the synthesis left open, made in code (each carries its own `Decided by` comment):
+
+- **The hold runs through the grace week, not just to the date.** A dated memory is held
+  through its date plus prospective's 7-day grace, so the window can still fire. Why: the
+  late beat and the open window's quiet fire both need it in reach.
+- **A date that repeats is always held.** Why: a yearly date used once a year would otherwise
+  be below reach on the day it comes round.
+- **"Fades steeply after" = the steepest slope (no salience, no feeling), counted from the
+  window's close.** Use, returns and kind still count. A spent reminder at 0.6 leaves reach
+  about two lived days after its window closes and exits about 12 lived days after that.
+- **A dream replay or a reflection's citation re-anchors the curve** (as a use does, without
+  being one). Why: the synthesis says a replay revives; a return's longer stability alone
+  lifts a faded default note by about 0.01, not back into reach.
+- **A handoff is out of decay, and out of the prune while it lives.** An expired handoff is
+  still let go at the floor, as the handoff module always said. Why: its own 14-day expiry is
+  its clock; exempting it for ever would keep every expired pointer.
+- **Revision pressure keeps its exponential curve.** Why: it is the revision model's, and
+  Group 2 owns it.
+- **The turn gate adds feeling as height does, and only on a felt turn**, now that feeling is
+  out of the salience average (recall §9 G10 kept).
+- **What is outside reach altogether:** chapters, their copies, handoffs and entity cards —
+  each born at strength 0 by design (the journal; a pointer with its own expiry; a name's
+  card, faded by its own rule), so a reach line would hide every one of them from birth.
+  Beliefs and every other memory are inside it.
+- **Not fixed, flagged:** a memory of a kind whose salience weighs 0.4 (skill, place) written
+  at the 0.25 default is born at about 0.10 — below reach from its first day, and labelled
+  faded by deliberate recall. 03 warned that the routine default must sit above 0.15; for
+  those kinds it does not. Encoding (1c) or a kind weight should settle it.
+
+### Also noted
+
+- **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
+  audit) without the reading counting as a use.
+
+---
+
 ## U14 — The night run still can't open bundles over ~50 KB: the fix ships in 0.3.12 (2026-10-07)
 
 **Status 2026-10-09:** `built` (#315, merged 2026-10-02), **in 0.3.12** (published

@@ -95,9 +95,16 @@ revision verdict, a dedup verdict, a prune verdict.
 ### 5.1 Salience, fixed at encoding
 
 ```
-sal(m) = mean( novelty, relevance, emotional, predictive )          # v0, verbatim
+sal(m) = mean( novelty, relevance, predictive )                     # 2026-10-10: emotional out
 novelty(m) = 1 − max( cos( v(m), v(e) ) for e in E(m) )             # prediction error
 ```
+
+**Feeling is not in the mean (2026-10-10, Group 1, review 02 C1; decided by b2+f8, lightly
+held).** It was v0's mean of four, and the same feeling also lifted height (§5.10) and slowed
+decay — counted twice in height. Now emotion reaches strength exactly twice, once each: height
+through `EMO_LIFT × I` and steepness through q (§5.4). The numeric `emotional` score stays on
+the row as an input to `I`. With `novelty` null the mean is of the two author-supplied
+dimensions.
 
 `E(m)` is the schema slice m was encoded against (beliefs + current state) unioned with its
 `K = 8` nearest existing memories (TUNABLE; v1's semantic seed top-M). `E(m)` empty — a
@@ -210,16 +217,59 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
 - The systems-consolidation analog is exact: nothing becomes core identity the day it
   happens; it consolidates in over lived days, or arrives by deliberate revision.
 
-### 5.4 Decay — Ebbinghaus over lived days
+### 5.4 Decay — a power law over lived days (rewritten 2026-10-10, Group 1)
 
 ```
-D(m, d) = 1                                          if band(m) == identity   # named deviation
-        = exp( −( d − last_used_day(m) ) / S(m) )    otherwise
-S(m)    = S_base × (1 + β × ln(1 + uses(m))) × E(m) × R(m) / κ(k)    # stability, lived days
-S_base  = 60      β = 0.5                                            # both TUNABLE
-E(m)    = 1 + EMO_SLOPE × I(m)                                       # §5.10
-R(m)    = 1 + RETURN_GAIN × ln(1 + returns(m))                       # §5.11; 1 at no returns
+D(m, d) = ( 1 + t / S(m) )^−ψ                         ψ = 1 (hyperbolic)            # 03 C1
+t       = d − anchor(m)                               anchor = max(last use, last return, last replay)
+        = 0                                           while a dated memory is PENDING (§5.4a)
+        = min(d − anchor, days since its window closed)   once SPENT, on S with q = 0
+S(m)    = S0 × e^(G·q) × (1 + β ln(1 + uses)) × R(m) / κ(k)   S0 = 0.4, G = 8, β = 0.5
+q(m)    = clamp01( sal(m) + EMO_Q × I(m) )            EMO_Q = 0.5                    # §5.10
+R(m)    = 1 + RETURN_GAIN × ln(1 + returns(m))        # §5.11; 1 at no returns
+S(m)    = ∞                                           identity band; any kind with κ = 0
 ```
+
+*(Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days — synthesis §1 G1.1,
+mechanisms review 03 C1.)* Until then every memory rode one exponential with `S_base = 60`
+(at most ×1.45 for feeling), so the steepest memory kept 74% after 18 lived days, nothing fell
+below anything, and strength tracked age and claimed salience rather than what mattered. Now:
+
+- **Steep early, flat late** inside one memory's curve (the hyperbola), and **strong memories
+  flat overall** (S grows exponentially with q). S runs from 0.4 lived days at q = 0 through
+  ~3 (a default 0.25 note), 22 (0.5) and 109 (0.7) to ~1,200 (q = 1), before use, returns and
+  kind. A default note leaves reach in ~2 lived days; a 0.7 fact reads 0.70 → 0.66 → 0.55 →
+  0.38 at 0/7/30/90; a felt reading lasts months. 03 §5 has the design table; the tests hold it
+  within ±1 lived day.
+- **Never fades = S = ∞** — the core today, and any kind whose κ is 0 (none yet; the owner's
+  records later). `(1 + t/∞)^−1 = 1`: the exemption is the arithmetic, not a branch.
+- **The anchor** is the latest of the last credited use, the last counted return (a
+  reflection's citation) and the last counted dream replay (decided by g1a-builder, lightly
+  held): a replay re-anchors the curve without being a use (no `uses`, no rep arm, no
+  credit-today latch), which is how it "revives" a memory below reach. The prune's dwell
+  counts from the same day.
+- **Revision pressure keeps its exponential** (`pressureAt` names its own shape): it is the
+  revision model's curve, not this one.
+
+**§5.4a The dated hold (2026-10-10, review 07 C1/C2; decided by b2+f8, lightly held — it
+reverses prospective G10, "no decay exemption before arrival").** A memory whose
+`event_date` is still ahead is HELD at t = 0 through its last day plus `HOLD_GRACE_DAYS = 7`
+(prospective's grace, one owner); a date that still repeats is always held. After the window
+closes it is SPENT: the steep slope (q = 0) with t counted from the close at the latest, so it
+leaves reach in a day or two. A date already past when the memory was written is not a
+reminder and is not held. Computed at the read seam from `event_date`, `learned_on`, the
+repeat word and the store's calendar today (`store/operational.ts#datedHold`) — no column,
+no use credited, `uses` / `lastUsedDay` / returns untouched.
+
+**§5.4b Below reach (2026-10-10, review 03 C2; decided by b2+f8, lightly held).**
+`REACH = 0.15`. A memory under it is BELOW REACH: a computed state, never stored, never a
+deletion. Ambient channels leave it out (turn recall's surfaced and footnote tiers,
+spreading's landings, the wake's work lines); deliberate recall lists it after its main
+results as faded; a use, an open or a replay brings it back. The identity band is never
+below reach. Chapters, their copies, handoffs and entity cards are outside reach altogether
+(`store/operational.ts#reachExempt`): each is born at strength 0 by design.
+`nextChangeDay(m, d)` is the next lived day a memory's band, reach or prune eligibility
+changes with nothing else happening — the nightly turn-down's key (13 C2).
 
 - **The active-day clock is the only clock** [E8]: `d` counts days lived, rolling at
   `boundary_hour = 4` local (TUNABLE) — a UTC rollover splits one lived evening into two
@@ -233,8 +283,8 @@ R(m)    = 1 + RETURN_GAIN × ln(1 + returns(m))                       # §5.11; 
 - **Decay is idempotent by construction.** `D` is a pure function of `d`; there is no step to
   run twice. v1 needed a per-item `last_decayed_day` stamp to make a monotonic subtraction
   crash-safe (E8's widening); this shape does not.
-- `S_base = 60` reproduces v0's `−0.015 × age_days` slope over roughly the first month, then
-  flattens — which is the point of the curve.
+- *(Superseded 2026-10-10.)* `S_base = 60` reproduced v0's `−0.015 × age_days` slope over
+  roughly the first month; it gave every memory the same slow curve, and is gone.
 
 ### 5.5 Reinforcement
 
@@ -321,7 +371,7 @@ Only physics forgets (owner decision): no model, on any path, holds delete power
 
 ```
 PRUNE(m,d) iff strength(m,d) < φ = 0.02                            # TUNABLE
-           and (d − last_used_day(m)) ≥ D_floor = 90                # TUNABLE, lived days
+           and (d − anchor(m)) ≥ D_floor = 14                       # lived days (90 until 2026-10-10)
            and band(m) == episodic  and not protected(m)
            and m is neither successor nor predecessor in a live revision chain
            and m's reminder date does not still repeat                # 2026-10-09
@@ -343,8 +393,13 @@ alone. None of the three changes an outcome — where the floor holds, the verdi
 a refusal.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
-§2.20) — and is the only physics-driven removal. Everything else merely fades: a
-low-strength memory is still present and still retrievable by a strong enough cue.
+§2.20) — and is the only physics-driven removal. **It is archival, never deletion**: the row
+keeps its words and stays readable by id. Two states, kept apart since 2026-10-10 (review 03
+C3/D4): BELOW REACH (§5.4b — computed, revivable, deliberate recall still finds it) and
+EXITED (archived here). `D_floor` 90 → 14 (decided by b2+f8, lightly held): exit follows
+reach — a default note reaches the floor in ~34 lived days, a felt or salient one in months
+to years. The journal, chapters' copies and live handoffs are never pruned (`sleep/prune.ts`).
+If any later change would DELETE rows, it waits for the owner (synthesis §8 A).
 
 ### 5.9 Guarantees
 
@@ -401,8 +456,8 @@ simulation and the reasons.)*
 I(m)        = max( emotional(m), max strength of the feelings recorded on m )   # his or mine
 salArm(m)   = clamp01( sal(m) + EMO_LIFT × I(m) )          EMO_LIFT  = 0.15   # TUNABLE
 base(m)     = max( ω_sal(k) × salArm(m), ω_rep(k) × rep(m) ) + cons(m)       # §5.2, arm lifted
-S(m)        = §5.4's S × (1 + EMO_SLOPE × I(m))            EMO_SLOPE = 0.5    # TUNABLE
-feeling now = strength × exp( −(d − birth_day(m)) / S(v) )                        # read only
+q(m)        = clamp01( sal(m) + EMO_Q × I(m) )             EMO_Q = 0.5        # §5.4 (was EMO_SLOPE)
+feeling now = strength × exp( −(d − recorded_day(f)) / S(v) )                     # read only
 S(v)        = S_FEELING + |v| × (S_FEELING_NEGATIVE − S_FEELING)   for v < 0
             = S_FEELING + v   × (S_FEELING_POSITIVE − S_FEELING)   for v ≥ 0
               S_FEELING = 20, S_FEELING_NEGATIVE = 14, S_FEELING_POSITIVE = 28    # TUNABLE
@@ -429,9 +484,12 @@ S(v)        = S_FEELING + |v| × (S_FEELING_NEGATIVE − S_FEELING)   for v < 0
   trace at encoding); the softened value is what mood-matching (recall G18) and the
   displays read. **Approximation, named:** a feeling's age is counted from its memory's
   birth day, because the lived-day clock cannot map a feeling's wall-clock `created_at`
-  back to a lived day. Today every feeling is written in the same call that mints its
-  memory, so the two agree; a feeling added to an old memory later (`addFeelings` is
-  public) would read as already softened.
+  back to a lived day. *(Closed 2026-10-10, store v13, review 02 C5: `feelings.recorded_day`
+  is the lived day the feeling was written, so a feeling a reflection adds weeks later
+  softens from then; rows from before v13 were backfilled — session feelings from their
+  memory's birth, later ones from the event log's day at their moment.)*
+- **Slope, since 2026-10-10:** feeling enters stability through q (§5.4), `e^(G × EMO_Q ×
+  I)` — ×11 at I = 0.6, against `EMO_SLOPE`'s ×1.3. It is out of `sal()`'s mean (§5.1).
 
 ### 5.11 Returns — durability from coming back
 
@@ -514,7 +572,8 @@ ratchet) · **§2.17** (every kind names its exit — here prune and supersede) 
 1. **Decay shape: flat vs exponential vs power-law — a THREE-way, decided by replay** (owner
    ruling 2026-08-25: Ebbinghaus-family default, evidence picks). v1 ran flat per-lived-day
    erosion (its README's objection was to *calendar* time, which this page does not use, and
-   flatness self-bounds crossing telemetry). This page defaults exponential. And engram —
+   flatness self-bounds crossing telemetry). *(Decided 2026-10-10 by b2+f8, lightly held:
+   power-law, ψ = 1 — §5.4.)* This page defaulted exponential. And engram —
    the production ancestor — deliberately upgraded exponential → **power-law**, citing
    Ebbinghaus/Wixted/Jost (review finding 4's addendum; line 12 wants that ancestry named).
    All three are one line; `tools/replay` runs all three against v1's recorded month.

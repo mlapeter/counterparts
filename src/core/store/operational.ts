@@ -2173,6 +2173,37 @@ export function datedHold(
 }
 
 /**
+ * OUTSIDE REACH ALTOGETHER (2026-10-10, Group 1, review 03 C2/C4): the rows
+ * whose strength is not a working-layer question, so "below reach" never
+ * applies to them — the decay pass does not rank them, ambient recall does not
+ * leave them out for it, and the dashboard does not count them:
+ *
+ *   - a journal CHAPTER (`type = 'episode'`) and a chapter's COPY (`source =
+ *     'episode'` with the chapter's id in `origin_ref`) — the journal, which
+ *     recall folds into one result (U13);
+ *   - a HANDOFF (a schema row whose meta says `role: handoff`) — its own
+ *     lived-day expiry is its clock;
+ *   - an ENTITY CARD (`role: entity`) — a name's card, a stub at salience 0 by
+ *     design, faded by `schemas/`' own verdict, never by the floor.
+ *
+ * Read off the row's own columns and meta; no prose read. Decided by
+ * g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: each
+ * is born at strength 0 by design, so a reach line would hide all of them from
+ * birth — the chapter fold, the card's name — which no one decided.
+ */
+export function reachExempt(row: Pick<MemoryRow, "type" | "source" | "origin_ref" | "meta">): boolean {
+  if (row.type === "episode") return true;
+  if (row.type === "memory") return row.source === "episode" && row.origin_ref !== null && row.origin_ref.length > 0;
+  if (row.type !== "schema" || typeof row.meta !== "string" || !row.meta.includes('"role"')) return false;
+  try {
+    const role = (JSON.parse(row.meta) as { role?: unknown } | null)?.role;
+    return role === "handoff" || role === "entity";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A row as physics reads it. `today` is the calendar day the dated hold is
  * judged on (`datedHold`); absent, the row's own `today_date` — the store's
  * `lastActiveDate`, which `Store.row()` reads beside it, so every

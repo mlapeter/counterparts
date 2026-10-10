@@ -64,10 +64,10 @@
 
 import { NEVER_CHANGES, band, bandMove, nextChangeDay, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
-import { rowToPhysics } from "../store/operational.js";
+import { reachExempt, rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome, isHandoffRow, isJournal, isJournalCopy, recordBandTransition } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isHandoffRow, isJournal, isJournalCopy, recordBandTransition } from "./types.js";
 import { censusDue, upgradeCensus } from "./upgrade.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 import type { Phase } from "./types.js";
@@ -113,6 +113,8 @@ export const DECAY_SKIPS = [
   "journal-copy",
   /** A handoff — its own lived-day expiry is its clock (2026-10-10, review 03 C4b). */
   "handoff",
+  /** An entity card — a stub at salience 0, faded by `schemas/`' own verdict (2026-10-10). */
+  "entity-card",
   "identity-band",
   "reinforced-today",
   "at-floor",
@@ -225,12 +227,13 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       nextChanges.push({ id, day: NEVER_CHANGES });
       continue;
     }
-    // A chapter's copy is the journal too, and a handoff keeps its own clock
-    // (2026-10-10, review 03 C4): neither is examined, and any ranking row an
+    // A chapter's copy is the journal too, a handoff keeps its own clock, and
+    // an entity card fades by `schemas/`' verdict (2026-10-10, review 03 C4;
+    // `operational.ts#reachExempt`): none is examined, and any ranking row an
     // earlier build wrote for one is dropped, so the ambient prefilter never
     // reads it as below reach.
-    if (isJournalCopy(row) || isHandoffRow(row)) {
-      countSkip(out, isJournalCopy(row) ? "journal-copy" : "handoff");
+    if (reachExempt(row)) {
+      countSkip(out, isJournalCopy(row) ? "journal-copy" : isHandoffRow(row) ? "handoff" : isEntityCard(row) ? "entity-card" : "journal");
       nextChanges.push({ id, day: NEVER_CHANGES });
       if (prior.has(id)) dropped.push(id);
       continue;

@@ -476,6 +476,15 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     owner's removal blanks the three on the row and its versions and deletes the links
     both ways, and a reflection entry's memory it redacts loses its links too. The migration adds the columns and the table and records its moment
     (`V12_UPGRADE_KEY`); `OBSERVER_READ_FLOOR` stays 11.
+27. **[M] v13 (2026-10-10): the mechanisms review's one schema bump, ADDITIVE ONLY.** New
+    columns `memories.next_change_day` and `dream_shown_day`, `feelings.recorded_day`
+    (backfilled), `returns.session`, `edges.source` / `edges.reinforced`; the `derivations`
+    table; indexes for the turn-down, the dream queue, births, feelings by moment, edges and
+    derivations by parent; four triggers that clear `next_change_day` when an input of a
+    memory's curve is written. Nothing dropped or rewritten. The copy is taken first; a v12
+    build refuses the file `SCHEMA_AHEAD`; the way back is the copy (`NOTES.md`
+    2026-10-10). `OBSERVER_READ_FLOOR` stays 11. `Store.row()` reads the store's calendar
+    today beside the row (`today_date`), for physics' dated hold.
 
 ## 6. Scars honored
 

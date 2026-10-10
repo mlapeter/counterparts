@@ -82,9 +82,9 @@ clothes. **Hold debts, lose deadlines.**
   **A missing encode date fails conservatively.** [v1] §12 G3.
   **An explicit date is its own importance signal** (owner decision 2026-09-26, a working
   default): a memory whose author wrote its `eventDate` is exempt from the salience floor,
-  which now gates only a date a caller extracted. Decay is not exempted — a dated memory
-  faded to `FADED_STRENGTH` refuses as `faded` (G10), unless its date still repeats (§3) —
-  and archived, skill and journal still refuse.
+  which now gates only a date a caller extracted. *(Since 2026-10-10 decay IS exempted
+  before arrival — G10 below is reversed: physics holds a pending date, and `faded` refuses
+  only after the window.)* Archived, skill and journal still refuse.
 - **Precision is carried by the date's own format**, never rounded, and the ramp differs by
   precision — a stated month *means* early month more than the 29th. [v1] §12 G4. Since
   2026-09-26 there are four shapes (`core/time.ts`): a day, a month, a year (no window), and
@@ -106,11 +106,15 @@ clothes. **Hold debts, lose deadlines.**
 - **The firing key is the window itself**, which buys two properties free: a clock repair
   can never re-arm an already-fired window, and a reschedule opens a fresh window that owes
   nothing to the old one's spent budget. [v1] §12 G9.
-- **No decay exemption before arrival.** [v1] §12 G10 — a future-dated memory that decays
-  into insignificance before its window was an occasion that didn't matter; forgetting it
-  is memory working. One carve-out (review of #341, 2026-10-09): a date that still
-  REPEATS is not refused `faded` — the author asked for it to come round, and the owner
-  decided repeats stay alive (§3).
+- ~~No decay exemption before arrival.~~ [v1] §12 G10 — **REVERSED 2026-10-10** (Group 1,
+  review 07 C1; decided by b2+f8, lightly held; on the rules audit, and first on Mike's
+  "Decisions to review" because it may revise his 2026-09-26 note). Under the power-law
+  curve a quiet reminder set a month out would have decayed and been refused `faded` before
+  its day; people hold pending intentions. Physics now HOLDS a dated memory at t = 0 while
+  its window is ahead (its date plus `GRACE_DAYS`, physics' `HOLD_GRACE_DAYS`) — computed at
+  the store's read seam, no column, no use credited — and a repeating date always; after the
+  window closes it fades steeply. `faded` refuses only a memory whose hold is not pending.
+  The 2026-10-09 carve-out for repeats stands.
 - **Firing state is not canonical memory**, and the write budget is set by that cost:
   losing it risks one extra polite mention, never a memory, so contended writers skip the
   update loudly rather than stall a host-facing path. [v1] §12 G12.

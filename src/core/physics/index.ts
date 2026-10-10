@@ -866,12 +866,15 @@ export function nextChangeDay(m: MemoryPhysics, d: number, shape: DecayShape = T
   const anchor = decayAnchor(m);
   const now = strength(m, d, shape);
   const candidates: number[] = [];
-  for (const theta of [TUNABLES.THETA_SEM, TUNABLES.REACH, TUNABLES.PHI_PRUNE]) {
+  for (const theta of [TUNABLES.THETA_SEM, TUNABLES.REACH]) {
     if (now < theta) continue;
     const t = daysUntilBelow(m, theta, shape);
     if (t !== null) candidates.push(anchor + t);
   }
-  if (now < TUNABLES.PHI_PRUNE || candidates.length > 0) candidates.push(anchor + TUNABLES.D_FLOOR_DAYS);
+  // The prune's eligibility turns when BOTH halves hold: under the floor, and
+  // dwelt `D_FLOOR_DAYS` since the anchor — the later of the two days.
+  const floor = now < TUNABLES.PHI_PRUNE ? 0 : daysUntilBelow(m, TUNABLES.PHI_PRUNE, shape);
+  if (floor !== null) candidates.push(anchor + Math.max(floor, TUNABLES.D_FLOOR_DAYS));
   const next = candidates.filter((x) => x > d).sort((a, b) => a - b)[0];
   return next === undefined ? NEVER_CHANGES : next;
 }

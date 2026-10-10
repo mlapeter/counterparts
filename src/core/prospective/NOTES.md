@@ -516,3 +516,15 @@ order, none about which arrivals are offered:
 `HORIZON_ITEMS` stays 2 (v1's calibration). What it leaves out is no longer silent (review
 of #367): `horizon()` returns it as `more`, in the same order, and the wake names those ids
 in the lane's "N more arriving; recall ids: …" line.
+
+## 19. The dated hold, and `faded` no longer refuses a pending date (2026-10-10, Group 1)
+
+Review 03 C4c / 07 C1: under the new curve (power-law, a default note out of reach in ~2 lived
+days) G10's "no decay exemption before arrival" would have refused every quiet reminder set
+more than a few days out. Physics now HOLDS a dated memory at t = 0 while its window is ahead
+(`DatedHold`, computed at the store's read seam), through the date plus `GRACE_DAYS`, which now
+defaults to physics' `HOLD_GRACE_DAYS` (one owner); a repeating date is always held. After the
+window closes the memory fades steeply. `load()` sets `faded` only when the hold is not
+pending, so a pending reminder whose height alone sits at the floor is still asked for.
+G10 is reversed, lightly held (decided by b2+f8; on the rules audit; it may also revise the
+owner's 2026-09-26 note "decay still holds" — first on Mike's list).

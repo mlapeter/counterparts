@@ -73,6 +73,7 @@ import {
   SCHEMA_VERSION,
   olderFirst,
   openOperational,
+  reachExempt,
   rowToPhysics,
   rowTombstoned,
 } from "./operational.js";
@@ -194,6 +195,10 @@ export {
   V10_UPGRADE_KEY,
   V11_UPGRADE_KEY,
   V12_UPGRADE_KEY,
+  V13_UPGRADE_KEY,
+  backfillRecordedDays,
+  datedHold,
+  reachExempt,
   carriedPairId,
   refileFeelingsV11,
   refileStrayV10Cores,
@@ -3763,7 +3768,8 @@ export class Store {
   belowReachCount(): number {
     const ranking = this.rankingAll();
     let n = 0;
-    for (const r of this.ops.all<{ id: string }>("SELECT id FROM memories WHERE archived = 0 AND type != 'episode'")) {
+    for (const r of this.ops.all<MemoryRow>("SELECT * FROM memories WHERE archived = 0 AND type != 'episode'")) {
+      if (reachExempt(r)) continue;
       const rk = ranking.get(r.id);
       if (rk !== undefined && rk.band !== "identity" && rk.strength < PHYSICS_TUNABLES.REACH) n += 1;
     }

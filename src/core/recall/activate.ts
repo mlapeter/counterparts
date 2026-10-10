@@ -56,7 +56,7 @@ import { TUNABLES as PHYSICS, belowReach, sal, salArm, softenedFeeling, strength
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
-import { confidentialByMeta, feelingValence, feltDay, rowToPhysics, tokenize } from "../store/index.js";
+import { confidentialByMeta, feelingValence, feltDay, reachExempt, rowToPhysics, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
@@ -619,8 +619,8 @@ export function activate(
     if (row.type === "schema" && row.kind === "place" && isHandoffRow(store, id)) return undefined;
     // BELOW REACH, exactly (2026-10-10): the ranking cache's prefilter is a
     // pass stale at most; this is the day's own number. Ambient only; never a
-    // chapter or a chapter's copy (journal, folded into one result below).
-    if (ambient && row.type !== "episode" && journalCopyOf(row) === null && belowReach(rowToPhysics(row), input.day)) {
+    // chapter, a chapter's copy or an entity card (`reachExempt`).
+    if (ambient && !reachExempt(row) && belowReach(rowToPhysics(row), input.day)) {
       belowReachCount += 1;
       return undefined;
     }
