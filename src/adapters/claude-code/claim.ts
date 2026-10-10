@@ -18,7 +18,10 @@
  * IMMEDIATE` transaction (`Store#updateMeta`): the second process waits on the
  * busy timeout and then reads what the first wrote. No schema change. The row
  * holds only the claims of the last `CLAIM_WINDOW_MS` (at most `CLAIM_KEEP` of
- * them), so it never grows.
+ * them), so it never grows. Both of its writes wait `CLAIM_WAIT_MS` on another
+ * writer, not the store's five seconds (review of #355): on a store somebody
+ * holds, the claim gives up and the hook delivers, instead of adding five
+ * seconds to a turn the rest of the hook already waits on.
  *
  * WHAT MAKES TWO PROCESSES TWINS — the same KEY, and running AT THE SAME TIME.
  *
@@ -60,6 +63,12 @@ export const CLAIM_WINDOW_MS = 15_000;
 /** The most claims the row keeps, newest first — a bound on its size if a
  *  clock jumps or a burst of sessions fires at once. */
 export const CLAIM_KEEP = 64;
+/** How long each of the claim's two writes waits on another writer's lock
+ *  before it gives up (and the hook delivers). A twin outwaits its holder's
+ *  claim — well under a millisecond — many times over; a store held for
+ *  longer costs the turn this much, not `BUSY_TIMEOUT_MS` (review of #355:
+ *  a held lock took a prompt from 11 s on master to 16 s). */
+export const CLAIM_WAIT_MS = 500;
 
 /** Which side of the doubled wiring a hook process is, for the record. */
 export type ClaimSide = "plugin" | "settings";
@@ -140,7 +149,11 @@ function writeClaims(claims: Record<string, Held>): string {
  *  the durable event log. Structural, so a test can hand it a store that throws. */
 export interface ClaimDoors {
   readonly store: {
-    updateMeta(key: string, fn: (current: string | undefined) => string | null | undefined): unknown;
+    updateMeta(
+      key: string,
+      fn: (current: string | undefined) => string | null | undefined,
+      opts?: { readonly waitMs?: number },
+    ): unknown;
   };
   noteAdapterEvent(name: typeof HOOK_CLAIM_LOST_EVENT, data: Record<string, unknown>): boolean;
 }
@@ -195,7 +208,7 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, CLAIM_KEEP - 1);
       return writeClaims(Object.fromEntries([[key, { at: now, side: input.side, started }], ...kept]));
-    });
+    }, { waitMs: CLAIM_WAIT_MS });
   } catch (err) {
     return { outcome: "unclaimed", detail: err instanceof Error ? err.message : String(err) };
   }
@@ -230,7 +243,7 @@ export function finishClaim(doors: Pick<ClaimDoors, "store">, key: string, at: n
       claims[key] = { ...held, ended: now };
       stamped = true;
       return writeClaims(claims);
-    });
+    }, { waitMs: CLAIM_WAIT_MS });
   } catch {
     return false;
   }

@@ -21,6 +21,7 @@ import { join, resolve } from "node:path";
 import {
   CLAIMS_META_KEY,
   CLAIM_KEEP,
+  CLAIM_WAIT_MS,
   CLAIM_WINDOW_MS,
   claimDelivery,
   deliveryClaimKey,
@@ -285,6 +286,173 @@ describe("two wirings fire one event", () => {
     },
     120_000,
   );
+});
+
+// ── never a false twin (review of #355) ────────────────────────────────────
+//
+// The worst thing the claim can do is silence a real event because it looked
+// like a twin. Each case below is a REAL event a host sends, run through the
+// real hook entry; none of them may lose a claim.
+
+describe("separate events are never taken for twins", () => {
+  test(
+    "fired AT ONCE: two sessions with the same prompt, one prompt sent twice under two ids, /clear, resume and startup, and a Stop with its re-fire",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      const at = (session: string, event: string, extra: Record<string, unknown>): Record<string, unknown> => ({
+        ...payload(event, extra),
+        session_id: session,
+      });
+      const inputs: Record<string, unknown>[] = [
+        // The key is per session: the same words, even the same prompt_id, in two sessions.
+        at("sess-a", "UserPromptSubmit", { prompt: "what did we decide?", prompt_id: "p-same" }),
+        at("sess-b", "UserPromptSubmit", { prompt: "what did we decide?", prompt_id: "p-same" }),
+        // The same words typed twice in one session: the host gives each its own id.
+        at("sess-c", "UserPromptSubmit", { prompt: "again", prompt_id: "p-c1" }),
+        at("sess-c", "UserPromptSubmit", { prompt: "again", prompt_id: "p-c2" }),
+        // One session id, three ways in.
+        at("sess-d", "SessionStart", { source: "startup" }),
+        at("sess-d", "SessionStart", { source: "clear" }),
+        at("sess-d", "SessionStart", { source: "resume" }),
+        // A Stop and the host's re-fire after a block: same prompt, same last words.
+        at("sess-e", "Stop", { prompt_id: "p-e", stop_hook_active: false, last_assistant_message: "Done." }),
+        at("sess-e", "Stop", { prompt_id: "p-e", stop_hook_active: true, last_assistant_message: "Done." }),
+      ];
+      const runs = await Promise.all(inputs.map((i) => startHook(i)));
+      runs.forEach((r, i) => {
+        expect({ i, code: r.code, claimed: r.stderr.includes(CLAIMED) }).toEqual({ i, code: 0, claimed: false });
+        if (inputs[i]?.["hook_event_name"] === "SessionStart") expect(r.stdout.length).toBeGreaterThan(0);
+      });
+      expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(0);
+    },
+    120_000,
+  );
+
+  test(
+    "ONE AFTER ANOTHER with the same key: two auto-compactions under one prompt, a session resumed twice, two Stops with the same last words and no prompt_id",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      const sequence: Record<string, unknown>[] = [
+        payload("PreCompact", { trigger: "auto", prompt_id: "p-long", custom_instructions: null }),
+        payload("PreCompact", { trigger: "auto", prompt_id: "p-long", custom_instructions: null }),
+        payload("SessionStart", { source: "resume" }),
+        payload("SessionStart", { source: "resume" }),
+        payload("Stop", { stop_hook_active: false, last_assistant_message: "Done." }),
+        payload("Stop", { stop_hook_active: false, last_assistant_message: "Done." }),
+      ];
+      for (const input of sequence) {
+        const r = await startHook(input);
+        const event = input["hook_event_name"];
+        expect({ event, code: r.code, claimed: r.stderr.includes(CLAIMED) }).toEqual({ event, code: 0, claimed: false });
+        if (event === "SessionStart") expect(r.stdout.length).toBeGreaterThan(0);
+      }
+      expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(0);
+    },
+    120_000,
+  );
+});
+
+// ── the race itself (review of #355) ────────────────────────────────────────
+
+describe("two processes claim in the same millisecond", () => {
+  test(
+    "50 rounds, two real processes released at the same instant each round: exactly one wins every time",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      const claimModule = resolve(import.meta.dir, "../src/adapters/claude-code/claim.ts");
+      const coreModule = resolve(import.meta.dir, "../src/core/counterpart.ts");
+      const racer = join(work, "racer.ts");
+      // Each racer opens its own connection, then at every round's instant both
+      // claim the round's key. Half the rounds the winner stamps its finish at
+      // once (a fast holder), half it never does (a holder still running).
+      // Each round's "process" started a millisecond before it claims, as a
+      // real hook's does (by tens of milliseconds): a holder that finished in
+      // the very millisecond its twin started is not a case a host produces.
+      writeFileSync(
+        racer,
+        [
+          `import { claimDelivery, finishClaim } from ${JSON.stringify(claimModule)};`,
+          `import { Counterpart } from ${JSON.stringify(coreModule)};`,
+          `const [dir, side, t0, rounds, gap] = [process.argv[2], process.argv[3], Number(process.argv[4]), Number(process.argv[5]), Number(process.argv[6])];`,
+          `const cp = Counterpart.open({ dir });`,
+          `const out = [];`,
+          `for (let i = 0; i < rounds; i += 1) {`,
+          `  const at = t0 + i * gap;`,
+          `  while (Date.now() < at) {}`,
+          `  const key = "race-" + i;`,
+          `  const c = claimDelivery(cp, { hook: "user-prompt-submit", key, sessionId: "race", side, observer: false, started: at - 1 });`,
+          `  if (c.outcome === "won" && i % 2 === 0) finishClaim(cp, key, c.at);`,
+          `  out.push([i, c.outcome, Date.now() - at]);`,
+          `}`,
+          `cp.close();`,
+          `process.stdout.write(JSON.stringify(out));`,
+        ].join("\n"),
+        "utf8",
+      );
+      const rounds = 50;
+      const gap = 40;
+      const t0 = Date.now() + 1_500;
+      const run = (side: string): Promise<Ran> =>
+        new Promise((done, fail) => {
+          const child = spawn(process.execPath, ["run", racer, store, side, String(t0), String(rounds), String(gap)], {
+            env: hookEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+          child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+          child.on("error", fail);
+          child.on("close", (code) => done({ code: code ?? -1, stdout, stderr }));
+        });
+      const [a, b] = await Promise.all([run("settings"), run("plugin")]);
+      expect([a.code, b.code, a.stderr, b.stderr]).toEqual([0, 0, "", ""]);
+      const ra = JSON.parse(a.stdout) as [number, string, number][];
+      const rb = JSON.parse(b.stdout) as [number, string, number][];
+      expect(ra).toHaveLength(rounds);
+      expect(rb).toHaveLength(rounds);
+      for (let i = 0; i < rounds; i += 1) {
+        expect({ i, outcomes: [ra[i]?.[1], rb[i]?.[1]].sort() }).toEqual({ i, outcomes: ["lost", "won"] });
+      }
+      // And they really did meet: in most rounds both claimed within a millisecond of the instant.
+      const close = ra.filter((x, i) => x[2] <= 1 && (rb[i]?.[2] ?? 99) <= 1).length;
+      expect(close).toBeGreaterThan(rounds / 2);
+      expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(rounds);
+    },
+    60_000,
+  );
+});
+
+// ── a store somebody holds (review of #355) ─────────────────────────────────
+
+describe("a locked store", () => {
+  test("the claim gives up after CLAIM_WAIT_MS, not the store's five seconds, delivers unclaimed, and puts the wait back", () => {
+    const cp = Counterpart.open({ dir: store });
+    const holder = Counterpart.open({ dir: store });
+    try {
+      const base = { hook: "user-prompt-submit" as const, key: "k", sessionId: "s", side: "settings" as const, observer: false };
+      let claim: ReturnType<typeof claimDelivery> | null = null;
+      let took = -1;
+      // A second connection holds the write lock for the whole claim.
+      holder.store.updateMeta("review.lock.holder", () => {
+        const t = Date.now();
+        claim = claimDelivery(cp, base);
+        took = Date.now() - t;
+        return "held";
+      });
+      expect((claim as ReturnType<typeof claimDelivery> | null)?.outcome).toBe("unclaimed");
+      expect((claim as ReturnType<typeof claimDelivery> | null)?.detail ?? "").toMatch(/locked|busy/i);
+      expect(took).toBeGreaterThanOrEqual(CLAIM_WAIT_MS - 50);
+      expect(took).toBeLessThan(CLAIM_WAIT_MS + 1_500);
+      // The connection's own wait is back where it was.
+      expect(Object.values(cp.store["ops"].get<Record<string, number>>("PRAGMA busy_timeout") ?? {})[0]).toBe(5_000);
+      // And with the lock gone, the claim is made.
+      expect(claimDelivery(cp, base).outcome).toBe("won");
+    } finally {
+      holder.close();
+      cp.close();
+    }
+  });
 });
 
 // ── doctor ──────────────────────────────────────────────────────────────────
