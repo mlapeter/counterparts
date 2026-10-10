@@ -76,7 +76,8 @@ export const TEMPORAL_MAX_TIER: UseTier = "footnoted";
 
 export const TUNABLES: ProspectiveTunables = {
   SALIENCE_FLOOR: 0.6,
-  LEAD_DAYS: 3,
+  // One owner (2026-10-10): decay holds a repeating date from this lead, too.
+  LEAD_DAYS: PHYSICS.HOLD_LEAD_DAYS,
   // One rule, one owner (2026-10-10): decay holds a dated memory through the
   // same grace (physics `HOLD_GRACE_DAYS`), so the window and the hold close together.
   GRACE_DAYS: PHYSICS.HOLD_GRACE_DAYS,

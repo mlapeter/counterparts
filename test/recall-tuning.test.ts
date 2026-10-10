@@ -238,7 +238,7 @@ describe("review of #193 — the fixes, pinned", () => {
       }
       expect(h.embedderVerdict).toEqual({ kind: "deferred", reason: "locked" });
       // Another handle settles the tag and writes real vectors.
-      const w = Store.open({ dir, embed: embedder(POTION, 256) });
+      const w = findable(Store.open({ dir, embed: embedder(POTION, 256) }));
       const id = w.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
       for (let i = 0; i < 4; i++) w.put({ type: "memory", kind: "fact", body: `filler ${i}` });
       w.close();

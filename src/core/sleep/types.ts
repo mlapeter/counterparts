@@ -17,7 +17,6 @@
  */
 
 import type { Band, Kind, MemoryPhysics } from "../types.js";
-import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../handoff/index.js";
 import type {
   EventLogCensus,
   EventPruneReport,
@@ -621,15 +620,23 @@ export function isJournalCopy(row: Pick<MemoryRow, "type" | "source" | "origin_r
 }
 
 /**
+ * The handoff's shape, spelled here because sleep imports nothing but types,
+ * physics and store (a structural test): `handoff/index.ts`'s `HANDOFF_ROLE`,
+ * `HANDOFF_KIND`, `HANDOFF_META_WRITTEN_DAY` and `HANDOFF_LIFE_DAYS`, which
+ * `test/strength.test.ts` holds equal to these.
+ */
+export const HANDOFF_SHAPE = { role: "handoff", kind: "place", writtenDay: "writtenDay", lifeDays: 14 } as const;
+
+/**
  * A HANDOFF ROW (`handoff/index.ts#isHandoffDoc`): a schema row of the place
  * kind whose meta says `role: handoff`. Read structurally, like
  * `isEntityCard`.
  */
 export function isHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): boolean {
-  if (row.type !== "schema" || row.kind !== HANDOFF_KIND || !row.meta.includes(HANDOFF_ROLE)) return false;
+  if (row.type !== "schema" || row.kind !== HANDOFF_SHAPE.kind || !row.meta.includes(HANDOFF_SHAPE.role)) return false;
   try {
     const meta = JSON.parse(row.meta) as { role?: unknown } | null;
-    return meta !== null && typeof meta === "object" && meta.role === HANDOFF_ROLE;
+    return meta !== null && typeof meta === "object" && meta.role === HANDOFF_SHAPE.role;
   } catch {
     return false;
   }
@@ -647,8 +654,8 @@ export function isHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): bo
 export function isLiveHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">, day: number): boolean {
   if (!isHandoffRow(row)) return false;
   try {
-    const written = (JSON.parse(row.meta) as Record<string, unknown>)[HANDOFF_META_WRITTEN_DAY];
-    return typeof written === "number" && Number.isFinite(written) && HANDOFF_LIFE_DAYS - (day - written) > 0;
+    const written = (JSON.parse(row.meta) as Record<string, unknown>)[HANDOFF_SHAPE.writtenDay];
+    return typeof written === "number" && Number.isFinite(written) && HANDOFF_SHAPE.lifeDays - (day - written) > 0;
   } catch {
     return false;
   }

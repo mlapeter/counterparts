@@ -252,6 +252,17 @@ export const TUNABLES = {
    * in reach for the grace week too.
    */
   HOLD_GRACE_DAYS: 7,
+  /**
+   * A REPEATING date is held through each occurrence's window: from this many
+   * calendar days before it (prospective's `LEAD_DAYS`, which defaults to this
+   * number) to `HOLD_GRACE_DAYS` after. Between windows it fades on its curve,
+   * as the owner's 2026-10-09 design says ("its strength still decays for
+   * recall and display"); each occurrence told is a use. Decided by
+   * g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+   * ambient recall now leaves out what is below reach, and a yearly date used
+   * once a year would be below reach on the very day it comes round.
+   */
+  HOLD_LEAD_DAYS: 3,
 
   // --- §5.1 salience ---
   /** CAL. Size of the nearest-neighbour slice in E(m) for novelty (v1's top-M). */

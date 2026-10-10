@@ -152,7 +152,9 @@ describe("each occurrence that reaches the person counts as a use", () => {
     expect(strength(p, day)).toBeGreaterThan(PHYSICS.THETA_SEM - 0.01);
     // The counterfactual: never credited, the same memory would have been
     // under the floor and past the dwell long before day 200 (~152).
-    const unused = { ...p, uses: 0, lastUsedDay: p.birthDay };
+    // (As a one-off: a daily repeat is always inside an occurrence's window,
+    // so physics holds it — 2026-10-10, `DatedHold`.)
+    const unused = { ...p, uses: 0, lastUsedDay: p.birthDay, hold: null };
     expect(strength(unused, day)).toBeLessThan(PHYSICS.PHI_PRUNE);
     expect(pruneVerdict(unused, day, { inLiveRevisionChain: false }).prune).toBe(true);
     // A schedule earns no RETURN: the credit is `surfaced`, so the core's
@@ -208,23 +210,27 @@ describe("each occurrence that reaches the person counts as a use", () => {
     await evening(a, "2027-05-01");
     // The window key a morning first fired, and the strength it had just before.
     const firstFires: { key: string; strength: number }[] = [];
+    let lowest = Number.POSITIVE_INFINITY;
     let date = "2027-05-01";
     while (date < "2029-07-01") {
       date = addDays(date, 1);
       const row = s.row(id);
       if (row === undefined || row.archived !== 0) throw new Error(`the yearly repeat was let go on ${date}`);
       const before = strength(rowToPhysics(row), s.livedDay());
+      lowest = Math.min(lowest, before);
       const keys = new Set(s.prospectiveFor(id).map((r) => r.window_key));
       morning(a, date);
       for (const r of s.prospectiveFor(id)) if (!keys.has(r.window_key)) firstFires.push({ key: r.window_key, strength: before });
       await evening(a, date);
     }
     expect(firstFires.map((f) => f.key)).toEqual(["d:2027-06-20", "d:2028-06-20", "d:2029-06-20"]);
-    // Not vacuous: the 2nd and 3rd occurrences found it faded to the floor —
-    // what prospective refused as `faded` before the review of #341. Fading
-    // itself is unchanged: the strength read here is the one recall sees.
-    expect(firstFires[0]?.strength ?? 0).toBeGreaterThan(PHYSICS.PHI_PRUNE);
-    for (const f of firstFires.slice(1)) expect(f.strength).toBeLessThanOrEqual(PHYSICS.PHI_PRUNE);
+    // Not vacuous: between its dates it faded to the floor — what prospective
+    // refused as `faded` before the review of #341. Since 2026-10-10 each
+    // occurrence's window HOLDS it (physics' dated hold), so every fire found
+    // it at its full height, in reach: the strength read here is the one
+    // recall sees.
+    expect(lowest).toBeLessThanOrEqual(PHYSICS.PHI_PRUNE);
+    for (const f of firstFires) expect(f.strength).toBeGreaterThanOrEqual(PHYSICS.REACH);
     // Each occurrence spent a fire and was credited once.
     for (const r of s.prospectiveFor(id)) expect(r.fires).toBeGreaterThan(0);
     expect(uses(s, id)).toBe(0.25 * 3);

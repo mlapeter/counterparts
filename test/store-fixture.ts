@@ -156,3 +156,32 @@ export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5):
     put(input.type === "memory" && input.salience === undefined ? { ...input, salience: { claimed } } : input)) as Store["put"];
   return store;
 }
+
+/**
+ * TURN A CURRENT FILE BACK INTO A v12 ONE (2026-10-10): drop what store v13
+ * added — its four triggers and its indexes first (SQLite will not drop a
+ * column an index or a trigger names), then the `derivations` table and the
+ * six columns. For the fixtures that fake an OLDER file by stripping a fresh
+ * one: without this, the v13 columns sit before the re-added ones and a
+ * migrated store's `table_info` cannot match a fresh one's. The stamp is the
+ * caller's to set.
+ */
+export function stripV13(db: { run(sql: string): unknown }): void {
+  for (const t of ["memories_next_change_inputs", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"]) {
+    db.run(`DROP TRIGGER IF EXISTS ${t}`);
+  }
+  for (const i of ["memories_next_change", "memories_dream_shown", "memories_birth", "feelings_created", "edges_last_day", "edges_weight", "edges_dst", "derivations_parent"]) {
+    db.run(`DROP INDEX IF EXISTS ${i}`);
+  }
+  db.run("DROP TABLE IF EXISTS derivations");
+  for (const [t, c] of [
+    ["memories", "next_change_day"],
+    ["memories", "dream_shown_day"],
+    ["feelings", "recorded_day"],
+    ["returns", "session"],
+    ["edges", "source"],
+    ["edges", "reinforced"],
+  ] as const) {
+    db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+  }
+}

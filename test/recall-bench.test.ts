@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { Store } from "../src/core/store/index.js";
 import { BEFORE, benchOverStore, forbiddenStoreRoots, refuseLiveStore, renderReport, runBench } from "../tools/recall-bench/index.js";
 import type { BenchInput } from "../tools/recall-bench/index.js";
+import { findable } from "./store-fixture.js";
 
 let dir: string;
 let priorEnv: string | undefined;
@@ -42,7 +43,8 @@ afterEach(() => {
 });
 
 function store(): Store {
-  const s = Store.open({ dir });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir }));
   open.push(s);
   return s;
 }

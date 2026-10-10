@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 
 import { remapV10Feeling } from "../feelings-wheel.js";
 import { TUNABLES as PHYSICS_TUNABLES, spacingWeight } from "../physics/index.js";
-import { addDays, daysBetween, isDay, isRecurrence, parseCalendarDate } from "../time.js";
+import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, parseCalendarDate } from "../time.js";
 import type { Band, DatedHold, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
@@ -1566,12 +1566,15 @@ export const DDL_AFTER_COLUMNS: readonly string[] = [
   // turn-down must look at the row again. Any write to an input of the curve —
   // a use, a return, a replay, a fade, a claim, a kind, a promotion, a date, a
   // repeat word in the meta — and any feeling added, changed or removed, clears
-  // it to NULL ("look again"), here, so no writer can forget to. The decay pass
-  // writes it back; it is not an input, so writing it fires nothing.
+  // it to NULL ("look again"), here, so no writer can forget to. So does a
+  // write to the BAND column from anywhere (U8: the decay pass is what keeps
+  // the band of record true, and it can only do that for a row it reads). The
+  // decay pass writes the day back after its own band writes; the day is not
+  // an input, so writing it fires nothing.
   `CREATE TRIGGER IF NOT EXISTS memories_next_change_inputs
      AFTER UPDATE OF kind, novelty, relevance, emotional, predictive, claimed, uses, last_used_day,
                      consolidated, promoted_identity, legacy, returns, last_return_day, last_dream_day,
-                     fade, event_date, meta, learned_on, archived
+                     fade, event_date, meta, learned_on, archived, band
      ON memories
      WHEN NEW.next_change_day IS NOT NULL
    BEGIN
@@ -2136,11 +2139,14 @@ export const RECURRING_META = "recurring";
  * physics §5.4, review 07 C1/C2), or null for a memory with no reminder date:
  *
  *   - a date that REPEATS (a day `event_date` and a `recurring` word in its
- *     meta): `pending`, always — a live repeat's next occurrence is always
- *     ahead, so the intention is held (decided by g1a-builder, 2026-10-10,
- *     lightly held; revisit after ~5 lived days. Why: ambient recall now skips
- *     what is below reach, and a yearly date used once a year would be below
- *     reach on the day it comes round);
+ *     meta): `pending` before its first occurrence (when written before it, as
+ *     any reminder) and inside each occurrence's window — `HOLD_LEAD_DAYS`
+ *     before it to `HOLD_GRACE_DAYS` after; between windows, null: it fades on
+ *     its curve, as the owner's 2026-10-09 design says, and each occurrence
+ *     told is a use (decided by g1a-builder, 2026-10-10, lightly held; revisit
+ *     after ~5 lived days. Why: ambient recall now leaves out what is below
+ *     reach, and a yearly date used once a year would be below reach on the
+ *     day it comes round). A daily or weekly repeat is always in a window;
  *   - a date whose last day was AFTER the day it was written (a reminder, not
  *     a note about the past): `pending` while `today` is on or before its last
  *     day plus `HOLD_GRACE_DAYS`, then `spent` with the calendar days since;
@@ -2155,14 +2161,27 @@ export function datedHold(
   today: string | null | undefined,
 ): DatedHold | null {
   if (row.event_date === null || row.event_date === undefined || row.event_date === "") return null;
+  if (typeof today !== "string" || !isDay(today)) return null;
   if (isDay(row.event_date) && typeof row.meta === "string" && row.meta.includes(`"${RECURRING_META}"`)) {
+    let rule: unknown = null;
     try {
-      if (isRecurrence((JSON.parse(row.meta) as Record<string, unknown>)[RECURRING_META])) return { state: "pending" };
+      rule = (JSON.parse(row.meta) as Record<string, unknown>)[RECURRING_META];
     } catch {
       /* unreadable meta: the date is once */
     }
+    if (isRecurrence(rule)) {
+      const anchor = row.event_date;
+      const written = typeof row.learned_on === "string" ? row.learned_on.slice(0, 10) : "";
+      if (daysBetween(today, anchor) > 0 && (!isDay(written) || daysBetween(written, anchor) > 0)) return { state: "pending" };
+      const near = occurrenceBetween(
+        anchor,
+        rule,
+        addDays(today, -PHYSICS_TUNABLES.HOLD_GRACE_DAYS),
+        addDays(today, PHYSICS_TUNABLES.HOLD_LEAD_DAYS),
+      );
+      return near === null ? null : { state: "pending" };
+    }
   }
-  if (typeof today !== "string" || !isDay(today)) return null;
   const date = parseCalendarDate(row.event_date);
   if (date === null) return null;
   const written = typeof row.learned_on === "string" ? row.learned_on.slice(0, 10) : "";

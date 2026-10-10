@@ -35,7 +35,8 @@ import type { MemoryPhysics, Salience } from "../src/core/physics/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { OBSERVER_READ_FLOOR, SCHEMA_VERSION, Store, V13_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import { datedHold, rowToPhysics } from "../src/core/store/operational.js";
-import { HANDOFF_ROLE } from "../src/core/handoff/index.js";
+import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../src/core/handoff/index.js";
+import { HANDOFF_SHAPE } from "../src/core/sleep/types.js";
 import { addDays } from "../src/core/time.js";
 
 let root: string;
@@ -235,8 +236,15 @@ describe("the dated hold (review 07 C1/C2)", () => {
     expect(datedHold({ ...row, learned_on: "2026-11-05" }, "2026-11-06")).toBeNull();
     // A month: held to its last day plus grace.
     expect(datedHold({ ...row, event_date: "2026-11" }, "2026-12-07")).toEqual({ state: "pending" });
-    // A live repeat is always pending.
-    expect(datedHold({ ...row, meta: JSON.stringify({ recurring: "yearly" }) }, "2027-03-01")).toEqual({ state: "pending" });
+    // A live repeat is held inside each occurrence's window (3 days before to
+    // 7 after) and fades on its curve between them.
+    const yearly = { ...row, meta: JSON.stringify({ recurring: "yearly" }) };
+    expect(datedHold(yearly, "2026-10-20")).toEqual({ state: "pending" }); // before its first date
+    expect(datedHold(yearly, "2027-03-01")).toBeNull(); // between windows
+    expect(datedHold(yearly, "2027-10-29")).toEqual({ state: "pending" }); // three days before
+    expect(datedHold(yearly, "2027-11-08")).toEqual({ state: "pending" }); // the last grace day
+    expect(datedHold(yearly, "2027-11-09")).toBeNull();
+    expect(datedHold({ ...row, meta: JSON.stringify({ recurring: "weekly" }) }, "2027-03-01")).toEqual({ state: "pending" });
     // No calendar today: no hold.
     expect(datedHold(row, "")).toBeNull();
   });
@@ -275,6 +283,10 @@ describe("the dated hold (review 07 C1/C2)", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("exit at the floor, and what never exits (review 03 C3/C4)", () => {
+  test("sleep's spelling of the handoff's shape is the handoff module's", () => {
+    expect(HANDOFF_SHAPE).toEqual({ role: HANDOFF_ROLE, kind: HANDOFF_KIND, writtenDay: HANDOFF_META_WRITTEN_DAY, lifeDays: HANDOFF_LIFE_DAYS });
+  });
+
   test("a chapter, its copy and a live handoff are never archived; an ordinary floor memory exits after 14 lived days", () => {
     const s = store();
     let date = "2026-10-01";
