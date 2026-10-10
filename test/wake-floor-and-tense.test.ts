@@ -40,10 +40,12 @@ import { deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.j
 import { wakeLanes, wakeParts } from "../src/adapters/dashboard/web/views/mind.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import { yesterdayLine, yesterdayShorter } from "../src/core/handoff/last-here.js";
+import { episodeGate } from "../src/core/bridge.js";
 import {
   BRIEFING_KEY,
   COLLAPSED_WORDS,
   FRAMING,
+  PAGE_LIMIT_BYTES,
   PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
   arrivingTense,
@@ -52,9 +54,10 @@ import {
   compose,
   moreLine,
   prefaceLine,
+  pageTooLargeLine,
   readSentinel,
   render,
-  renderPage,
+  Self,
   WAKE_SYSTEM,
 } from "../src/core/self/index.js";
 import type { Lanes, Ranked, Resolve } from "../src/core/self/index.js";
@@ -152,10 +155,18 @@ function pageOf(bytes: number): string {
   return page;
 }
 
-/** Write a page of `bytes` bytes; returns it, as the store holds it. */
+/**
+ * Write a page of `bytes` bytes; returns it, as the store holds it. Past the
+ * limit, it is written the way such a page got into a store — before the limit
+ * (2026-10-09), when the seam took up to 16 KB.
+ */
 function longPage(a: ReturnType<typeof openAdapter>, bytes: number): string {
   const page = pageOf(bytes);
-  expect(a.counterpart.revisePage(page, { by: "owner", reason: "a long page" }).written).toBe(true);
+  const door =
+    bytes <= PAGE_LIMIT_BYTES
+      ? a.counterpart
+      : new Self({ store: a.counterpart.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
+  expect(door.revisePage(page, { by: "owner", reason: "a long page" }).written).toBe(true);
   return page;
 }
 
@@ -244,9 +255,12 @@ describe("Still open keeps its first item beside a long page, and the page is ne
   }
 
   for (const zone of ZONES) {
-    // The owner's page is 5,845 bytes (version 16); 6,100 is one a little
-    // longer, under the page's cap and past the room the lanes beside it had.
-    for (const bytes of [5_845, 6_100]) {
+    // The owner's page was 5,845 bytes (version 16); `PAGE_LIMIT_BYTES` is the
+    // longest a page may be written (2026-10-09), past the room the lanes
+    // beside it had. (At 5,904 — version 17 — this scenario's trim keeps one
+    // item and has no room for its count: the trim loop's own, which
+    // `keepFirstOpen` does not revisit. Recorded in self NOTES, not fixed here.)
+    for (const bytes of [5_845, PAGE_LIMIT_BYTES]) {
       test(`${zone}: a ${String(bytes)}-byte page is printed whole, byte for byte, and "Still open" still lists its first item and its count`, async () => {
         const { a, ids, page, text, stored } = await morning(zone, bytes);
         expect(readSentinel(text).intact).toBe(true);
@@ -272,12 +286,13 @@ describe("Still open keeps its first item beside a long page, and the page is ne
       });
     }
 
-    test(`${zone}: a page past its cap is cut to the cap and no further — the lanes beside it take nothing from it`, async () => {
+    test(`${zone}: a page past the room (written before the limit) is never cut — one line stands for it, and the lanes beside it take nothing from it`, async () => {
       const { text, stored, page } = await morning(zone, 7_000);
-      const capped = renderPage(page, SELF_TUNABLES.PAGE_WAKE_BYTES);
-      expect(capped.truncated).toBe(true);
-      expect(stored).toContain(`${FRAMING.identity}\n${capped.text}\n`);
-      expect(text).toContain(`${FRAMING.identity}\n${capped.text}\n`);
+      const line = pageTooLargeLine(7_000);
+      expect(stored).toContain(`${FRAMING.identity}\n${line}\n`);
+      expect(text).toContain(`${FRAMING.identity}\n${line}\n`);
+      expect(text).not.toContain(page.slice(0, 200));
+      expect(text).not.toContain("the wake shows the first");
       const open = lane(text, FRAMING.threads) ?? [];
       expect(open[0]?.startsWith("- ")).toBe(true);
       expect(readSentinel(text).intact).toBe(true);

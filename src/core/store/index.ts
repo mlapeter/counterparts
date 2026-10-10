@@ -5511,7 +5511,8 @@ function preRowsRemedy(
  * and costs three things that were measured rather than argued:
  *
  *   1. **The most sensitive prose in the store goes out to an embedding API for
- *      no use.** The self page is up to 16 KB of first-person identity; the
+ *      no use.** The self page is up to 6 KB of first-person identity (16 KB
+ *      if written before 2026-10-09); the
  *      handoff is the prose E1's own CONTRACT calls the likeliest to carry a
  *      token. Data leaves the machine only by the owner's choice (constitution
  *      6), and "because the indexer indexes everything" is not a choice.

@@ -77,7 +77,6 @@ import {
   arrivingTense,
   flatten,
   PAGE_FLOOR_RESERVE_BYTES,
-  PAGE_MIN_RENDER_BYTES,
   pageDateline,
   pageTooLargeLine,
   PREFACE_RESERVE_BYTES,
@@ -107,7 +106,6 @@ import {
   findPageRow,
   findSelfPage,
   readSelfPage,
-  renderPage,
   stripRevisedLines,
 } from "./page.js";
 import type { SelfPage, SelfPageAuthor } from "./page.js";
@@ -448,9 +446,6 @@ export interface PageRevision {
   readonly bytes: number;
   /** Which gate refused, when one did. Null on every other outcome. */
   readonly gate: { readonly gate: string; readonly reason: string } | null;
-  /** Accepted, and larger than the wake will show: the page is kept whole and
-   *  the wake renders a cut of it. Not a refusal — a warning the caller prints. */
-  readonly warning: "over-wake-cap" | null;
   /**
    * ACCEPTED, AND CHANGED ON THE WAY IN. The gate battery redacts before
    * anything is stored, and until the adversarial review nothing told the
@@ -833,7 +828,6 @@ export class Self {
       id: null,
       version: null,
       bytes: 0,
-      warning: null,
       gate: null,
       redacted: null,
       current: null,
@@ -898,7 +892,6 @@ export class Self {
     const none = {
       id: null,
       version: null,
-      warning: null,
       gate: null,
       redacted: null,
       current: null,
@@ -932,9 +925,16 @@ export class Self {
       return { ...none, written: false, reason: "observer", bytes };
     }
     if (draft.length === 0) return refuse("empty", { bytes: 0 });
-    if (bytes > this.tunables.PAGE_MAX_BYTES) {
-      // Refused, never cut: what gets cut at write time is the only copy.
-      return refuse("too-large", { bytes, limit: this.tunables.PAGE_MAX_BYTES });
+    // THE LIMIT IS THE WAKE'S (2026-10-09): `PAGE_MAX_BYTES` defaults to
+    // `briefing.ts#PAGE_LIMIT_BYTES`, the page the wake prints whole at the
+    // 9,000-byte ceiling under the widest reserves — so what this accepts is
+    // never cut there. In BYTES, as the wake counts them: a page of multi-byte
+    // prose reaches it in fewer characters.
+    const limit = this.tunables.PAGE_MAX_BYTES;
+    if (bytes > limit) {
+      // Refused, never cut: what gets cut at write time is the only copy. The
+      // writer is told the limit and says it shorter.
+      return refuse("too-large", { bytes, limit });
     }
     // NO FORGED WAKE STRUCTURE. The page is injected verbatim and FIRST inside
     // the bundle, so a body carrying the wake's own comment markers puts an
@@ -995,6 +995,9 @@ export class Self {
     // here, which is the one the redaction can have come from.
     const redacted = text === draft ? null : { gate: "secrets", bytesBefore: bytes };
     bytes = byteLength(text);
+    // ...and measured AGAIN after it (2026-10-09): `[REDACTED:family]` can be
+    // longer than what it replaced, so a page at the limit could land over it.
+    if (bytes > limit) return refuse("too-large", { bytes, limit, redacted: true });
 
     // THE PAGE'S ROW, cleared or not: a write after a clear revives the SAME row
     // and its whole version chain rather than minting a fresh one beside it.
@@ -1038,7 +1041,6 @@ export class Self {
       // hand — is put beyond the prune here rather than at some later repair.
       if (this.store.row(id)?.protected !== 1) this.store.updatePhysics(id, { protected: true });
     }
-    const warning = bytes > this.tunables.PAGE_WAKE_BYTES ? ("over-wake-cap" as const) : null;
     this.store.appendEvent({
       name: SELF_PAGE_REVISED_EVENT,
       day,
@@ -1057,8 +1059,7 @@ export class Self {
         ...(redacted === null ? {} : { redacted: true, redactedBy: redacted.gate }),
         version,
         created: existing === null,
-        wakeCap: this.tunables.PAGE_WAKE_BYTES,
-        ...(warning === null ? {} : { warning }),
+        limit,
         ...(own.stripped === 0 ? {} : { datelines: own.stripped }),
       },
     });
@@ -1067,7 +1068,6 @@ export class Self {
       bytes,
       version,
       created: existing === null,
-      ...(warning === null ? {} : { warning }),
     });
     // The wake leads with this page, so it is now behind (`behind.ts`): the
     // next process with a budget re-renders rather than the next lived day.
@@ -1078,7 +1078,6 @@ export class Self {
       id,
       version,
       bytes,
-      warning,
       gate: null,
       redacted,
       current: null,
@@ -1275,7 +1274,6 @@ export class Self {
       id: null,
       version: null,
       bytes: 0,
-      warning: null,
       gate: null,
       redacted: null,
       current: null,
@@ -1308,7 +1306,7 @@ export class Self {
         bytes: page.bytes,
         version,
         created: false,
-        wakeCap: this.tunables.PAGE_WAKE_BYTES,
+        limit: this.tunables.PAGE_MAX_BYTES,
       },
     });
     this.emit("self.page.revised", page.id, { by: "owner", cleared: true, version });
@@ -1319,13 +1317,19 @@ export class Self {
   /**
    * The page as the wake will print it, or null. Pure.
    *
-   * The cap is the caller's ceiling LESS the furniture that wake will wrap the
-   * page in (`PAGE_FLOOR_RESERVE_BYTES`), and not the whole ceiling: the page is
+   * WHOLE, OR ONE LINE — NEVER CUT (2026-10-09). The room is the caller's
+   * ceiling LESS the furniture that wake will wrap the page in
+   * (`PAGE_FLOOR_RESERVE_BYTES`), and not the whole ceiling: the page is
    * furniture the trim loop cannot pop, so a page sized against the whole budget
    * puts the composition over it with nothing left to trim (adversarial review
-   * B2). When what is left is too small to be a page at all, the wake says the
-   * page exists and does not fit, in one line — the one thing that is both true
-   * and short enough to say.
+   * B2). A page that fits the room prints as it is, byte for byte. One that does
+   * not — under a configured ceiling too small for it, or a page written before
+   * the limit — is replaced by one line that says so and names the two doors to
+   * it (`pageTooLargeLine`): a fragment of a self is not a smaller self, and
+   * #350's second review found the cut it used to print (at
+   * `min(6,144, room)`) reachable at the default ceiling. The writer's limit
+   * (`briefing.ts#PAGE_LIMIT_BYTES`) is this room at 9,000 under the widest
+   * reserves, so a page written today always fits there.
    */
   private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
     const page = this.page();
@@ -1358,22 +1362,12 @@ export class Self {
     // that compete with the page give way to it, never the other way round —
     // "Still open" gets its first item out of the other lanes
     // (`briefing.ts#keepFirstOpen`), not out of the page.
-    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
-    if (cap < PAGE_MIN_RENDER_BYTES && bodyBytes > cap) {
-      return {
-        text: pageTooLargeLine(bodyBytes),
-        dateline: null,
-        truncated: true,
-        wholeBytes: bodyBytes,
-      };
-    }
-    const rendered = renderPage(body, cap);
-    return {
-      text: rendered.text,
-      dateline,
-      truncated: rendered.truncated,
-      wholeBytes: rendered.wholeBytes,
-    };
+    if (bodyBytes <= room) return { text: body, dateline, truncated: false, wholeBytes: bodyBytes };
+    // NOT CUT FOR THE CEILING EITHER: the line, when the room holds it; when
+    // it does not, nothing, for the reason `NO_ROOM` gives above.
+    const line = pageTooLargeLine(bodyBytes);
+    if (byteLength(line) > room) return NO_ROOM;
+    return { text: line, dateline: null, truncated: true, wholeBytes: bodyBytes };
   }
 
   /**

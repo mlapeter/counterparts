@@ -148,7 +148,7 @@ export const PAGE_META_REASON = "reason";
 
 export interface SelfPage {
   readonly id: string;
-  /** The page, verbatim. Never truncated here — see `renderPage`. */
+  /** The page, verbatim. Never truncated — not here, not in the wake. */
   readonly body: string;
   readonly bytes: number;
   /** The calendar date of the last revision, `YYYY-MM-DD`; "" when unrecorded. */
@@ -365,95 +365,22 @@ export function stripRevisedLines(body: string): { body: string; stripped: numbe
 }
 
 // ── what the wake prints ────────────────────────────────────────────────────
-
-export interface RenderedPage {
-  /** The body as it will be injected — the whole page, or a cut one. */
-  readonly text: string;
-  readonly bytes: number;
-  /** True when the cap cut it; the marker line is already part of `text`. */
-  readonly truncated: boolean;
-  /** The page's own bytes, whole, whatever was rendered. */
-  readonly wholeBytes: number;
-}
+//
+// THE PAGE IS NEVER CUT (2026-10-09). The wake prints it whole, or — when its
+// room cannot hold it — one line saying so (`briefing.ts#pageTooLargeLine`,
+// decided in `Self#pageBlock`). The cut this section used to make (paragraph,
+// then line, then bytes, with a marker naming both numbers) is gone with the
+// gap that made it reachable: the write limit is now the room the wake
+// guarantees (`briefing.ts#PAGE_LIMIT_BYTES`). Its history is in self NOTES.
 
 /**
- * The marker a cut page carries, so a reader can tell a page that ends from a
- * page that was stopped. It names both numbers and the door to the whole thing:
- * a truncation nobody can measure is indistinguishable from a short page, which
- * is the scar the wake's own sentinel exists for (§1 G2).
+ * The marker a cut page carried, in a wake published BEFORE 2026-10-09. No
+ * render writes it now; kept so a reader of an old bundle (the dashboard's
+ * wake costs, `views/health.ts`) can still name what that wake left out until
+ * the next render replaces it.
  */
 export function truncationMarker(shown: number, whole: number): string {
   return `[This page is ${whole} bytes; the wake shows the first ${shown}. Run 'counterparts self-page' to read it whole.]`;
-}
-
-/**
- * Cut a page to fit, AT A BOUNDARY IT CHOSE. Paragraph first, then line, then —
- * only when a single paragraph is larger than the whole cap — bytes, because a
- * page that renders nothing is worse than a page that ends mid-sentence with a
- * marker saying so.
- *
- * The marker is inside the cap: what the composition is handed is what it costs.
- */
-export function renderPage(body: string, capBytes: number): RenderedPage {
-  const whole = byteLengthOf(body);
-  if (whole <= capBytes) {
-    return { text: body, bytes: whole, truncated: false, wholeBytes: whole };
-  }
-  // Reserve the marker's room first. The marker states the bytes shown, which
-  // changes its own length; the reserve is computed against the widest marker
-  // this page could produce (the whole page's own byte count in both slots),
-  // so the result is bounded without solving a second fixed point.
-  const reserve = byteLengthOf(truncationMarker(whole, whole)) + 2;
-  // A cap that cannot even hold the MARKER renders nothing rather than blowing
-  // through the cap to explain itself: the caller's ceiling is the promise, and
-  // a wake this small has an over-budget tripwire of its own to fire. Only
-  // reachable under ~103 bytes of room (adversarial review m5).
-  if (capBytes < reserve) return { text: "", bytes: 0, truncated: true, wholeBytes: whole };
-  const room = Math.max(0, capBytes - reserve);
-  const kept = cutAtBoundary(body, room);
-  const shown = byteLengthOf(kept);
-  const text = kept.length === 0 ? truncationMarker(0, whole) : `${kept}\n\n${truncationMarker(shown, whole)}`;
-  return { text, bytes: byteLengthOf(text), truncated: true, wholeBytes: whole };
-}
-
-/**
- * A boundary is only worth taking if it KEEPS most of the room.
- *
- * Adversarial review of PR #138, measured at the real 6,144-byte cap: the rule
- * "cut at the last blank line" is a trap for the most ordinary page a model
- * writes. A page that opens `## Core\n\n` and then runs as a bullet list — or as
- * one long paragraph — has its only `\n\n` at byte 7, so the last-blank-line
- * cut kept `## Core` and threw away 6,030 bytes of room. Two shapes of a ~9.5 KB
- * page rendered **110 bytes**: a heading, a marker, and no identity at all in a
- * wake whose list the page had just suppressed. The write was accepted with a
- * reassuring `over-wake-cap` warning, so nothing on any surface said so.
- *
- * A quarter, and not a half: a page whose only paragraph break in the window
- * sits at 2.5 KB of a 6 KB room (one medium paragraph, then one very long one)
- * should take that clean 2.5 KB cut rather than fall through to a mid-sentence
- * one. The fallback is reached only when the page genuinely offers no boundary,
- * which is the single-long-paragraph shape — and there a mid-sentence cut with a
- * marker naming both numbers is the correct and only answer.
- */
-export const BOUNDARY_KEEP_SHARE = 0.25;
-
-function cutAtBoundary(body: string, room: number): string {
-  if (room <= 0) return "";
-  const bytes = new TextEncoder().encode(body);
-  if (bytes.length <= room) return body;
-  // Decode the prefix that fits, dropping a split code point rather than
-  // rendering its replacement character.
-  const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, room));
-  const clean = prefix.replace(/�+$/u, "");
-  // The floor is in CHARACTERS, because the indices it is compared against are:
-  // `lastIndexOf` counts characters and `room` counts bytes, so on multibyte
-  // prose a byte floor rejects clean breaks that are past the share in chars.
-  const floor = clean.length * BOUNDARY_KEEP_SHARE;
-  const paragraph = clean.lastIndexOf("\n\n");
-  if (paragraph > floor) return clean.slice(0, paragraph).trimEnd();
-  const line = clean.lastIndexOf("\n");
-  if (line > floor) return clean.slice(0, line).trimEnd();
-  return clean.trimEnd();
 }
 
 // ── reading the page's own shape ────────────────────────────────────────────

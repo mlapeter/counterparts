@@ -266,8 +266,8 @@ dream having run.
   (2026-09-28); given a dream, it must be this session's and journaled. It HANDS the
   reflection, rather than letting it search: WHAT THE DREAM SAW (2026-09-28: every
   memory the dream was shown and what it made, still standing, a line each — citable
-  like the rest), the SELF PAGE WHOLE (it was cut at 6,000 characters while a page may
-  be 16,384 bytes), the dream (journal, gists, nominations — marked as dreamed), the
+  like the rest), the SELF PAGE WHOLE (it was cut at 6,000 characters while a page could
+  be 16,384 bytes; since 2026-10-09 a page is written at most 6,078), the dream (journal, gists, nominations — marked as dreamed), the
   last few days' chapters and memories, its own last few reflections, what's on my mind,
   the self page, the core, the core candidates, the most strongly felt memories that
   could be about me (marked or not), and memories that became core on reflection alone

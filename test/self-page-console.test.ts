@@ -25,7 +25,7 @@ import { mindView } from "../src/adapters/dashboard/web/views.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
-import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING, SELF_TUNABLES } from "../src/core/self/index.js";
+import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING, PAGE_LIMIT_BYTES, SELF_TUNABLES } from "../src/core/self/index.js";
 
 const PAGE = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder.`;
 const PAGE_TWO = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder two.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder two.`;
@@ -179,7 +179,8 @@ describe("counterparts self-page", () => {
       { io: c.io, env: {} },
     );
     expect(code).toBe(EXIT.refused);
-    expect(c.err.join("\n")).toContain("past the hard limit");
+    expect(c.err.join("\n")).toContain(`past the ${String(PAGE_LIMIT_BYTES)}-byte limit`);
+    expect(c.err.join("\n")).toContain(`Say it in ${String(40_000 - PAGE_LIMIT_BYTES)} fewer bytes`);
     const after = Counterpart.open({ dir, observer: true });
     expect(after.selfPage()?.body).toBe(PAGE);
     after.store.close();

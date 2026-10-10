@@ -109,7 +109,8 @@ export const REFLECT_TUNABLES = {
   JOURNAL_CHARS: 12_000,
   /**
    * THE SELF PAGE IS HANDED WHOLE (2026-09-28: was cut at 6,000 characters
-   * while a page may be 16,384 bytes) — a reflection that may rewrite the page
+   * while a page could be 16,384 bytes; since 2026-10-09 a page is written at
+   * most `PAGE_LIMIT_BYTES`, 6,078) — a reflection that may rewrite the page
    * reads all of it.
    */
   /** WHAT THE DREAM SAW (2026-09-28): characters of each memory's line. */
@@ -361,7 +362,8 @@ export interface ReflectContext {
    */
   readonly writePage: (body: string, opts: { reason: string; session: string | null; model: string | null; reflection: string }) =>
     | { ok: true; version: number }
-    | { ok: false; reason: string };
+    /** On `too-large`, the page's bytes and the limit, so the retry can be told how much to take out. */
+    | { ok: false; reason: string; bytes?: number; limit?: number };
   readonly emit?: (name: string, ref?: string, data?: Record<string, string | number | boolean | null>) => void;
 }
 
@@ -1134,6 +1136,13 @@ export class Reflections {
               ? {}
               : { note: `It cites none of the core memories you were shown (${coreShown.slice(0, 5).join(", ")}${coreShown.length > 5 ? ", …" : ""}); the page is meant to rest on them.` }),
           };
+        } else if (w.reason === "too-large" && w.bytes !== undefined && w.limit !== undefined) {
+          // TIGHTEN, NEVER CUT (2026-10-09): the limit is the most the wake
+          // prints whole, and nothing here shortens the page for it.
+          refuse(
+            w.reason,
+            `The page is ${String(w.bytes)} bytes, past the ${String(w.limit)}-byte limit — the most the wake prints whole. Say it in ${String(w.bytes - w.limit)} fewer bytes (tighten, merge, or drop what no longer holds) and send the page again.`,
+          );
         } else {
           refuse(w.reason, `The self page refused it (${w.reason}).`);
         }

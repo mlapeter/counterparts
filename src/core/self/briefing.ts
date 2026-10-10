@@ -31,7 +31,9 @@
  *     remainder, identity takes the leftover back — a ceiling, not a cap.
  *   - **Truncation is never mid-statement.** A statement is admitted whole or not
  *     at all — there is no `clip()` here on purpose. A half-sentence about who
- *     someone is, is not a smaller identity; it is a corrupted one.
+ *     someone is, is not a smaller identity; it is a corrupted one. The same is
+ *     true of the self page (2026-10-09): it prints whole, or one line says it
+ *     did not fit and where to read it (`PAGE_LIMIT_BYTES`).
  *   - **The header AND the tail sentinel each state the bundle's own true counts
  *     and bytes**, so a truncated injection is detectable from a truncation
  *     preview alone — from either end (§1 G2). Because both lines state a number
@@ -44,6 +46,7 @@ import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
 import type { SelfTunables } from "./tunables.js";
 import { addDays, isDay } from "../time.js";
+import { HANDOFF_RESERVE_MAX_BYTES, HANDOFF_RESERVE_MIN_BUDGET_MULTIPLE } from "../handoff/index.js";
 
 /**
  * Composed order — behavioral-spec §1's, minus the two riders the Rulings drop
@@ -243,11 +246,14 @@ export function identityCoreLine(name: string): string {
  * — and the page carries its own date on its own line instead.
  */
 export interface PageBlock {
-  /** The page as it will be injected: already cut to the cap, marker included. */
+  /** The page as it will be injected: the whole page, or — when the room
+   *  could not hold it whole — the one line that says so (`pageTooLargeLine`).
+   *  Never part of the page (2026-10-09). */
   readonly text: string;
   /** The page's own "last revised" line, or null when the page carries no date. */
   readonly dateline: string | null;
-  /** True when the cap cut it — `text` already carries the marker that says so. */
+  /** True when the page did not print whole — `text` is then the line that
+   *  says so, and nothing of the page itself. */
   readonly truncated: boolean;
   /** The page's own bytes, whole, whatever was rendered. */
   readonly wholeBytes: number;
@@ -351,13 +357,14 @@ export interface BriefingRequest {
    */
   readonly coreName?: string;
   /**
-   * THE WRITTEN SELF PAGE, already cut to its cap and dated by the caller
-   * (`Self.build` → `page.ts#renderPage`). Present means "Who I am" prints this
+   * THE WRITTEN SELF PAGE, whole or the line that says it did not fit, dated
+   * by the caller (`Self#pageBlock`). Present means "Who I am" prints this
    * and NOT the rotating list; absent means the list renders as it always has,
    * or — when `PAGE_EMPTY_SHOWS_LIST` is off — the still-forming line does.
    *
-   * It arrives ready because the cap is a byte decision that needs the caller's
-   * budget and the page's own prose, and this module composes rather than reads.
+   * It arrives ready because whether it fits is a byte decision that needs the
+   * caller's budget and the page's own prose, and this module composes rather
+   * than reads.
    */
   readonly page?: PageBlock;
   /**
@@ -434,8 +441,8 @@ export interface BriefingResult extends Composed {
    *  a host misconfiguration, and the wake never fails the session (§1 G7). */
   readonly overBudget: boolean;
   /** The page as it RENDERED — null when no page was handed to this render. The
-   *  bytes are the injected ones (the marker included), so a cut page's cost and
-   *  its true size are both readable. */
+   *  bytes are the injected ones (the line, when it did not fit), so what the
+   *  page cost this wake and its true size are both readable. */
   readonly page: { readonly bytes: number; readonly truncated: boolean; readonly wholeBytes: number } | null;
 }
 
@@ -1194,8 +1201,8 @@ export const PREFACE_RESERVE_BYTES = 160;
 
 /**
  * THE ROOM THE WAKE'S OWN FURNITURE TAKES AROUND THE PAGE, in bytes — the
- * number `Self.build` subtracts from the caller's ceiling before it caps the
- * page. Structural, not tunable, and measured rather than guessed: a test
+ * number `Self.build` subtracts from the caller's ceiling before it asks
+ * whether the page fits. Structural, not tunable, and measured rather than guessed: a test
  * composes the widest plausible furniture (a six-digit day and six-digit lane
  * counts in both comment lines, the stale dateline at a six-digit threshold)
  * and asserts it fits under this.
@@ -1216,15 +1223,78 @@ export const PREFACE_RESERVE_BYTES = 160;
 export const PAGE_FLOOR_RESERVE_BYTES = 512;
 
 /**
- * The smallest room worth rendering a PAGE into. Below it the wake says the
- * page exists and does not fit, in one short line, rather than handing the
- * reader a sentence and a marker — a fragment of a self is not a smaller self.
+ * HOW MANY OF THE DELIVERY'S RESERVES ARE HELD UNDER THE SHARE RULE
+ * (`handoff/#reserveBytes`), beside the preface: the handoff pointer with its
+ * "Last here" line, and "Work here" (`counterpart.ts#wakeReserveBytes` and
+ * `#workReserveBytes`). Each is at most an eighth of the ceiling and never past
+ * `HANDOFF_RESERVE_MAX_BYTES`. A third reserve there is a third here, or the
+ * page's limit below promises room the wake does not have — a test holds the
+ * root to `deliveryReserveBound`.
  */
-export const PAGE_MIN_RENDER_BYTES = 240;
+export const DELIVERY_SHARED_RESERVES = 2;
 
-/** The one short line a wake with no room for the page prints instead of it. */
+/**
+ * THE MOST THE DELIVERY CAN HOLD BACK FROM A HOST CEILING, in bytes
+ * (2026-10-09): the preface's reserve and `DELIVERY_SHARED_RESERVES` terms at
+ * the share rule's widest. What the root subtracts on a given day is usually
+ * less; this is the bound the page's limit is sized under. Pure.
+ */
+export function deliveryReserveBound(budgetBytes: number): number {
+  const share = Math.max(
+    0,
+    Math.min(HANDOFF_RESERVE_MAX_BYTES, Math.floor(budgetBytes / HANDOFF_RESERVE_MIN_BUDGET_MULTIPLE)),
+  );
+  return PREFACE_RESERVE_BYTES + DELIVERY_SHARED_RESERVES * share;
+}
+
+/**
+ * THE PAGE THE WAKE PRINTS WHOLE at a host ceiling, whatever the delivery
+ * reserves that day, in bytes (2026-10-09): the ceiling, less the most the
+ * delivery can hold back (`deliveryReserveBound`), less the furniture the wake
+ * wraps the page in (`PAGE_FLOOR_RESERVE_BYTES`). `Self#pageBlock` prints a
+ * page whole whenever it fits the room the composition actually has, which is
+ * never less than this. Grows with the ceiling. Pure.
+ */
+export function pageRoomBytes(hostBudgetBytes: number): number {
+  return hostBudgetBytes - deliveryReserveBound(hostBudgetBytes) - PAGE_FLOOR_RESERVE_BYTES;
+}
+
+/**
+ * THE HOST CEILING THE PAGE'S LIMIT IS SIZED AGAINST, in bytes — the one
+ * `install` writes when nobody names one (`adapters/cli/commands.ts`'s
+ * `DEFAULT_BUDGET_BYTES` is this constant), and the one every host reads
+ * today: Claude Code's hooks and Claude Desktop's `wake` tool deliver the same
+ * bundle, composed at the configuration's `injectionBudgetBytes`.
+ *
+ * NOT a ceiling anything composes against: scar §2.18 holds, and a host that
+ * reported none still composes no wake. It sizes one write limit, below.
+ */
+export const PAGE_HOST_BUDGET_BYTES = 9_000;
+
+/**
+ * THE SELF PAGE'S LIMIT, in bytes (2026-10-09): the most a page may be written
+ * as, and so the most the wake ever has to print — `pageRoomBytes` at
+ * `PAGE_HOST_BUDGET_BYTES`, 6,078. One number for both ends, derived rather
+ * than chosen, so the writer's limit and the wake's guarantee cannot drift
+ * apart: a page any door accepts prints whole, byte for byte, at that ceiling
+ * or a larger one, under the widest reserves the delivery can take.
+ *
+ * Why: #350's second reviewer measured the old pair apart — the wake's cap was
+ * `min(6,144, budget − 512)`, which under the widest reserves at 9,000 is
+ * 6,078, while the writer accepted up to 16,384 — so a page between them was
+ * cut. A configured ceiling below 9,000 can still be too small for a page
+ * under this limit; that wake says so in one line (`pageTooLargeLine`) and
+ * never prints part of the page.
+ */
+export const PAGE_LIMIT_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);
+
+/**
+ * The one short line a wake with no room for the WHOLE page prints instead of
+ * it (2026-10-09: instead of any cut — a fragment of a self is not a smaller
+ * self). It names both doors to the whole page.
+ */
 export function pageTooLargeLine(bytes: number): string {
-  return `(My page is ${bytes} bytes — no room for it in this wake. Read it with 'counterparts self-page'.)`;
+  return `(My page is ${bytes} bytes — no room for it whole in this wake. Read it with the self_page tool, or 'counterparts self-page'.)`;
 }
 
 export interface PrefaceFacts {

@@ -131,10 +131,12 @@ export interface WrittenLines {
   readonly ok: boolean;
 }
 
-/** What the console says about a write, accepted or not. */
+/** What the console says about a write, accepted or not. `limit` is the
+ *  page's write limit in bytes (`PAGE_MAX_BYTES`), named in a refusal so the
+ *  owner knows how much shorter to make it. */
 export function writeLines(
   written: ReturnType<Counterpart["revisePage"]>,
-  wakeCap: number,
+  limit: number,
 ): WrittenLines {
   if (!written.written) {
     switch (written.reason) {
@@ -146,7 +148,7 @@ export function writeLines(
       case "too-large":
         return {
           lines: [
-            `refused: the page is ${written.bytes} bytes, past the hard limit. Refused rather than cut — what gets cut at write time is the only copy.`,
+            `refused: the page is ${written.bytes} bytes, past the ${limit}-byte limit — the most the wake prints whole. Refused rather than cut — what gets cut at write time is the only copy. Say it in ${written.bytes - limit} fewer bytes and write it again.`,
           ],
           ok: false,
         };
@@ -216,11 +218,6 @@ export function writeLines(
         ? []
         : [
             `NOTE: the gate redacted the page before storing it (${written.redacted.gate}) — ${written.redacted.bytesBefore} bytes in, ${written.bytes} out. Read it back before you rely on it: counterparts self-page.`,
-          ]),
-      ...(written.warning === null
-        ? []
-        : [
-            `warning: past the wake's ${wakeCap}-byte cap, so the wake will show a cut of it with a marker. The page itself is kept whole.`,
           ]),
       // The write marks the wake behind (2026-09-30, `self/behind.ts`), and
       // the worker the next turn's end starts re-renders it. With no session

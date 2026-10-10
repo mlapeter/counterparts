@@ -21,7 +21,18 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_SETTING_KEY, DREAM_TUNABLES, REFLECT_TUNABLES, RELAUNCHED_KEY, dreamingSetting, nightNext, nightOrder } from "../src/core/dream/index.js";
 import { dayBefore, pageSections, pageWriterNight } from "../src/core/self/index.js";
+import { Self } from "../src/core/self/index.js";
+import { episodeGate } from "../src/core/bridge.js";
 import type { PutInput } from "../src/core/store/index.js";
+
+/**
+ * A page written BEFORE the limit (2026-10-09, `PAGE_LIMIT_BYTES`), when the
+ * seam took up to 16 KB: a store can still hold one, and the night has to
+ * carry it whole. Written the way it was then — the seam at its old limit.
+ */
+function longPageWritten(c: Counterpart, body: string, reason = "a long page"): boolean {
+  return new Self({ store: c.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } }).revisePage(body, { reason, by: "owner" }).written;
+}
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -367,7 +378,7 @@ describe("the reflection sees what the dream saw, and the whole page", () => {
     lived(c);
     const page = `## Core\n\n${"I keep what matters and let the rest go. ".repeat(200)}\n\n## Us\n\nWe talk things through.`;
     expect(page.length).toBeGreaterThan(6_000);
-    expect(c.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);
+    expect(longPageWritten(c, page)).toBe(true);
     const d = c.dreams.begin({ session: SESSION });
     if (!d.ok) throw new Error(d.reason);
     c.dreams.journal({ dream: d.bundle.dream, session: SESSION, text: "A dream." });
@@ -402,7 +413,7 @@ describe("the reflection sees what the dream saw, and the whole page", () => {
     const long = "a detail worth keeping in full, ".repeat(12);
     for (let i = 0; i < 60; i += 1) mem(c, `Memory ${String(i)} of a busy day: ${long}`, { kind: i % 2 === 0 ? "person" : "self", about: "us" });
     const page = `## Core\n\n${"A sentence of the page that goes on for a while. ".repeat(300)}`;
-    c.revisePage(page, { reason: "a long page", by: "owner" });
+    longPageWritten(c, page);
     const s = server(c, SESSION);
     const d = await s.call("dream", { phase: "begin", session: SESSION });
     const dreamId = d.structuredContent["dream"] as string;
@@ -647,7 +658,7 @@ describe("review of #271: the reflection's result at the REAL limit", () => {
       mem(c, `Memory ${String(i)} of a busy day: ${long}`, { kind: i % 3 === 0 ? "person" : i % 3 === 1 ? "self" : "fact", about: i % 2 === 0 ? "us" : "me" });
     }
     const page = `## Core\n\n${"\"A\" \"quoted\" \"page\". ".repeat(700)}`;
-    expect(c.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);
+    expect(longPageWritten(c, page)).toBe(true);
     const s = server(c, SESSION);
     const d = await s.call("dream", { phase: "begin", session: SESSION });
     const dreamId = d.structuredContent["dream"] as string;

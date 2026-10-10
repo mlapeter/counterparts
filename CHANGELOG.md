@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
+  which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
+  a day the wake also holds room for handoffs and "Work here" lines. Before, a page could
+  be written up to 16,384 bytes and the wake showed only its first 6,078 to 6,144, cut
+  with a marker. A longer page is refused, never cut: the self_page tool, the console and
+  the nightly reflection say the limit and how many bytes to take out, and the writer
+  says it shorter. The limit is in bytes, so accented letters, dashes and CJK count for
+  more than one. If your ceiling is set below 9,000 and the page doesn't fit, the wake
+  says so in one line and points to the self_page tool or `counterparts self-page`
+  instead of printing part of it. A page written before this that is over the limit
+  shows that line too, and doctor's Self page line goes amber until the next revision
+  comes in under it.
 - **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
   skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
   Code's server registration to match. It left alone the entry that

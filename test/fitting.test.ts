@@ -23,7 +23,18 @@ import type { DreamBundle, DreamItem } from "../src/core/dream/index.js";
 import { chapterEntries } from "../src/core/dream/slices.js";
 import { clipBytes, derivedFrom, fit, lineOf, packParts, readIndex, wireChars } from "../src/core/fit/index.js";
 import { chapterHeading } from "../src/core/self/index.js";
+import { Self } from "../src/core/self/index.js";
+import { episodeGate } from "../src/core/bridge.js";
 import type { PutInput } from "../src/core/store/index.js";
+
+/**
+ * A page written BEFORE the limit (2026-10-09, `PAGE_LIMIT_BYTES`), when the
+ * seam took up to 16 KB: a store can still hold one, and the night has to
+ * carry it whole. Written the way it was then — the seam at its old limit.
+ */
+function longPageWritten(c: Counterpart, body: string, reason = "a long page"): boolean {
+  return new Self({ store: c.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } }).revisePage(body, { reason, by: "owner" }).written;
+}
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -288,7 +299,7 @@ describe("the dream's begin result at the REAL limit, measured as the MCP server
       mem(c, `Memory ${String(i)} of a busy day: ${long}${"and more said at length. ".repeat(i % 7 === 0 ? 300 : 1)}`, { kind: i % 3 === 0 ? "person" : i % 3 === 1 ? "self" : "fact", about: i % 2 === 0 ? "us" : "me" });
     }
     const page = `## Core\n\n${"\"A\" \"quoted\" \"page\". ".repeat(700)}`;
-    expect(c.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);
+    expect(longPageWritten(c, page)).toBe(true);
     const s = server(c);
     const begin = await s.call("dream", { phase: "begin", session: SESSION });
     expect(begin.isError ?? false).toBe(false);
@@ -412,7 +423,7 @@ describe("review of build B (#277)", () => {
     for (let i = 0; i < 120; i += 1) mem(c, `旧的记忆 ${String(i)}：${zh}`, { kind: "fact" });
     for (let d = 11; d <= 20; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
     for (let i = 0; i < 90; i += 1) mem(c, `今天的记忆 ${String(i)}：${zh}${i % 9 === 0 ? zh.repeat(20) : ""}`, { kind: i % 2 === 0 ? "person" : "self", about: i % 2 === 0 ? "us" : "me" });
-    expect(c.revisePage(`## Core\n\n${"我是谁，我如何工作。".repeat(500)}`, { reason: "a long page", by: "owner" }).written).toBe(true);
+    expect(longPageWritten(c, `## Core\n\n${"我是谁，我如何工作。".repeat(500)}`)).toBe(true);
     const s = server(c);
     const begin = await s.call("dream", { phase: "begin", session: SESSION });
     expect(begin.isError ?? false).toBe(false);

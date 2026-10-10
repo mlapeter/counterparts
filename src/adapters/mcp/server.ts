@@ -486,7 +486,7 @@ export type ScopeSource = "flag" | "project" | "cwd" | "store" | "host";
 const PAGE_REFUSAL_DETAIL: Record<string, string> = {
   empty: "A page has to say something. Nothing worth writing is a real answer — leave the page alone instead.",
   "too-large":
-    "That page is past the hard limit, so it was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter and send it again.",
+    "That page is past its limit (`limit` bytes, UTF-8; `bytes` is what was sent, `over` how much to take out) — the most the wake prints whole, so a page is never cut there. It was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter — tighten, merge or drop what no longer holds, do not just chop the end — and send the whole page again.",
   "gate-refused":
     "The gate battery turned it away — most often because what was sent was nothing but a credential, or too short to be a page. Nothing was written.",
   "forged-markers":
@@ -3687,8 +3687,13 @@ export class McpServer {
       }
     }
     if (!written.written) {
+      // THE LIMIT, IN NUMBERS (2026-10-09): a writer told only "past the
+      // limit" guesses how much to take out; told both numbers, it tightens
+      // once and sends the page again.
+      const limit = this.counterpart.self.tunables.PAGE_MAX_BYTES;
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
+        ...(written.reason === "too-large" ? { limit, over: written.bytes - limit } : {}),
         ...(written.gate === null ? {} : { gate: written.gate }),
         // On a stale write, hand back what is actually there so the session can
         // merge rather than guess — the whole point of the check.
@@ -3715,7 +3720,6 @@ export class McpServer {
               redactedBy: written.redacted.gate,
               bytesBeforeRedaction: written.redacted.bytesBefore,
             }),
-        ...(written.warning === null ? {} : { warning: written.warning }),
         // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
         // is composed by a worker and served unchanged until the next render,
         // so "it is live now" would be false for as long as this session lasts.

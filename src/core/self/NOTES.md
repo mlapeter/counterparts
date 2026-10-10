@@ -1662,3 +1662,64 @@ recall ids (the first 5): …)`; and an Arriving reminder due 10-08 read `(due 2
   midnight), nothing re-rendered after it, so the told reminder stayed under "Arriving:"
   through the day and into the next morning. The claim now marks the wake behind
   (`told`, `behind.ts`), and the next turn-end worker re-renders it.
+
+## 2026-10-09 — the self page is never cut in the wake
+
+#350's second reviewer measured a gap between the two ends of the page. The wake's cap was
+`min(PAGE_WAKE_BYTES = 6,144, budget − PAGE_FLOOR_RESERVE_BYTES)`, on the COMPOSE budget —
+the host's ceiling less what the delivery holds back: the preface (160) and, under the
+share rule (`handoff/#reserveBytes`, a block reserves only while `want × 8 ≤ budget`), up
+to an eighth of the ceiling each for the handoff pointer with its "Last here" line and for
+"Work here". At 9,000 that is 160 + 1,125 + 1,125 = 2,410, a compose budget of 6,590 and a
+cap of 6,078 — while the writer accepted up to 16,384 (`PAGE_MAX_BYTES`, with an
+`over-wake-cap` warning past 6,144). A page between 6,078 and 6,144 was accepted with no
+warning and printed cut.
+
+- **The host ceilings.** Claude Code: `injectionBudgetBytes` in the configuration, 9,000
+  unless `install --budget` said otherwise (the interactive install's default). Claude
+  Desktop: the same number — its server reads the same configuration, and its `wake` tool
+  delivers the same published bundle (one per store, composed at the boundary); its own
+  channel is a tool result (`fit/TOOL_RESULT_CEILING`, ~50,000 characters), which does not
+  bind. A configured override: any positive number `loadConfig` reads (`install` takes a
+  whole one), so the smallest allowed is 1.
+- **One number for both ends, derived.** `briefing.ts#PAGE_LIMIT_BYTES =
+  pageRoomBytes(PAGE_HOST_BUDGET_BYTES)` — 9,000 less `deliveryReserveBound` (the preface
+  and `DELIVERY_SHARED_RESERVES` = 2 terms at the share rule's widest) less the furniture:
+  **6,078**. `PAGE_MAX_BYTES` defaults to it; `PAGE_WAKE_BYTES` and the warning are gone.
+  The CLI's install default reads `PAGE_HOST_BUDGET_BYTES`, so the ceiling the limit is
+  sized against and the one install writes cannot drift. It is no ceiling anything
+  composes against: §2.18 holds. `pageRoomBytes` grows with the ceiling, so every ceiling
+  at or above 9,000 holds a page at the limit whole; raising `injectionBudgetBytes` does
+  not raise the limit, and only lowering it can make a page meet the line.
+- **The wake: whole, or one line.** `Self#pageBlock` prints the page as it is when it fits
+  `budget − PAGE_FLOOR_RESERVE_BYTES`, and otherwise `pageTooLargeLine` — its bytes, and
+  both doors (the `self_page` tool, `counterparts self-page`) — or nothing, when even the
+  line does not fit. The cut (`page.ts#renderPage`, its boundary rule, the marker,
+  `PAGE_MIN_RENDER_BYTES`) is gone; `truncationMarker` stays only so the dashboard can
+  still read an old bundle. Only a ceiling configured below what the page needs, or a page
+  written before the limit, meets the line; doctor's Self page line goes amber for the
+  second and says the next revision has to come in under the limit.
+- **The writer: told before, refused after, never cut.** `revisePage` refuses past the
+  limit (`too-large`, with `limit`), and measures AGAIN after the gate redacts:
+  `password=hunter2x` becomes `password=[REDACTED:assigned-credential]`, 22 bytes longer,
+  so a page at the limit could otherwise be stored over it. The limit is said before
+  writing — in `PAGE_WRITING_RULE` (the nightly writer and the reflection both read it),
+  the `self_page` tool's `body` field, and the writer's block ("N bytes of at most
+  6,078") — and in the refusal: the MCP answer carries `limit` and `over`, the console
+  names the limit and how many bytes to take out, and a reflection's refusal says the
+  same. The writer tightens and sends the whole page again; nothing shortens it for him.
+- **Proved through the real paths** (`test/page-never-cut.test.ts`, Denver and
+  Kiritimati): a handoff block and a work block each tuned to exactly ⌊9,000/8⌋ − 48 =
+  1,077 bytes, so each reserves 1,125 and the boundary's own `self.briefing` row reads a
+  budget of 6,590; then a page of exactly 6,078 bytes, ASCII and multi-byte, delivered
+  whole by Claude Code's SessionStart and by Desktop's `wake`. With the bound changed to
+  one shared reserve the same tests fail. A ceiling of 6,000 gets the line and none of
+  the page.
+- **The owner's page** is 5,904 bytes (version 17): 174 bytes of headroom. The nightly
+  writer and the reflection now meet the limit in what they read before they write.
+- **Seen beside it, not fixed here.** In #350's own morning scenario (25 open items, two
+  Arriving lines, four Yesterday titles, this directory's handoffs and work), a page of
+  5,904 bytes leaves "Still open" with one item and no room for its "N more" line: the
+  trim loop kept the item itself, and `keepFirstOpen` acts only when the trim left the
+  lane empty. The page prints whole either way (the behaviour is master's at that size);
+  the lane reads as if one thing were open. 5,845 and 6,078 do not show it.

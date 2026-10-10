@@ -1979,7 +1979,9 @@ export class Counterpart {
         });
         return written.written && written.version !== null
           ? { ok: true, version: written.version }
-          : { ok: false, reason: written.reason };
+          : written.reason === "too-large"
+            ? { ok: false, reason: written.reason, bytes: written.bytes, limit: this.self.tunables.PAGE_MAX_BYTES }
+            : { ok: false, reason: written.reason };
       },
       emit: (name, ref, data) => this.emit(name, ref, data),
     });

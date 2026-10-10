@@ -281,7 +281,7 @@ export interface FeelingLane {
  * pool means it can be quoted back to the model on a turn it is ALSO carrying in
  * its own wake, can accrue use credit and association edges for being what it
  * always is, and — since a schema row has no project scope — can surface under a
- * project the owner never wrote it in. It is up to 16 KB against a bounded
+ * project the owner never wrote it in. It is up to 6 KB against a bounded
  * result, and it is the one row whose surfacing tells the reader nothing they
  * were not already told.
  *
