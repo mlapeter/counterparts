@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { decodeCells } from '../hooks/cells'
-import { BAND_PROPS, HERE, HOME, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SCOPES_FILE, SESSION, VIEWPORT, settle, start, world } from './world'
+import { BAND_PROPS, HERE, HOME, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SCOPES_FILE, SESSION, VIEWPORT, ev, settle, start, world } from './world'
 import type { World } from './world'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -360,6 +360,55 @@ test('ACTIVITY: this session’s and the night’s rows in plain words, word ove
     expect(lines.join('\n')).not.toContain('sleep') // a sleep check that faded nothing is left out
     await ui.unmount()
   }
+})
+
+test('one event lights every mechanism it proves: a mood-matched recall lights Emotion too; a dream with a gist and a merge lights Gist, Interference and Consolidation; still one row each, its arcs a little apart', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  const report = async () => (await $.command.run({ command: 'counterparts', args: 'fps' } as never)).text ?? ''
+  /** The legend's names drawn lit (white, bold), in the legend's order. */
+  const lit = async (view: typeof ui): Promise<string[]> => {
+    const out: string[] = []
+    for (const id of ['salience', 'emotional', 'decay', 'interference', 'retrieval', 'association', 'prospective', 'consolidation', 'dreaming', 'reconsolidation', 'episodic-semantic', 'schema']) {
+      const b = await view.find({ type: 'Button', key: `m:${id}` })
+      const kids = (b?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object' && c !== null)
+      if (kids.some(c => c.props['color'] === '#ffffff' && c.props['bold'] === true)) out.push(id)
+    }
+    return out
+  }
+  expect(await lit(ui)).toEqual([]) // a cold read lights nothing
+  // a turn of this session's where a matching mood brought a memory closer
+  w.events.push(ev(501, 'recall.decision', 'On turn 4 I kept three as footnotes.', 0, { session: SESSION, turn: '4', surfacedCount: '1', footnoteCount: '2', moodMatched: '1' }))
+  await w.clock.advance(15000)
+  await settle(w)
+  expect(await lit(ui)).toEqual(['emotional', 'retrieval'])
+  const desk = await mount($, w, 'desktop') // the desktop's legend lights the same
+  expect(await lit(desk)).toEqual(['emotional', 'retrieval'])
+  await desk.unmount()
+  let lines = await listLines(ui, 'activity')
+  expect(lines.filter(l => l.includes('3 came to mind'))).toHaveLength(1) // one row, Retrieval's word
+  expect(lines.some(l => /^● recalled\s+3 came to mind/.test(l))).toBe(true)
+  await click(ui, 'activity', '3 came to mind')
+  expect((await listLines(ui, 'activity')).join('\n')).toContain('also Emotion')
+  await click(ui, 'activity', '3 came to mind')
+  await w.clock.advance(3000)
+  expect(await lit(ui)).toEqual([]) // the light goes out
+  // the night's dream: merged a near-copy and wrote two gists
+  w.events.push(ev(502, 'dream.changed', 'In a dream I changed 47 things (1 merge, 20 link, 2 gist).', 0, { applied: '49', merge: '1', gist: '2', link: '20' }))
+  await w.clock.advance(12000)
+  await settle(w)
+  expect(await lit(ui)).toEqual(['interference', 'consolidation', 'dreaming', 'episodic-semantic'])
+  lines = await listLines(ui, 'activity')
+  expect(lines.filter(l => l.includes('In a dream I changed'))).toHaveLength(1)
+  expect(lines.some(l => /^● dreamed\s+In a dream I changed/.test(l))).toBe(true)
+  // three arcs (Dreaming and Consolidation draw the same one), 0.3 s apart: the burst
+  // outlasts one arc's 1.75 s, and ends once the last has landed
+  await w.clock.advance(1900)
+  expect(await report()).toContain('now in a burst')
+  await w.clock.advance(1100)
+  expect(await report()).toContain('now swaying')
+  await ui.unmount()
 })
 
 test('a click opens a row with its detail and link; a click on the link opens it in the browser; 30 s closes the row', async ($, on) => {

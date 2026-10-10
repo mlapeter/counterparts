@@ -32,7 +32,7 @@ hides it (as its `✕` does), `/counterparts resume` resumes a folder paused
 here, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (70 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (73 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -45,7 +45,8 @@ here, `/counterparts caps` swaps the switch ends.
   root that would include the 154 bun test files, which can't load in a mod's
   environment, and the runner refuses a folder with no `hooks/hooks.json`.
 - `bunfig.toml` sets `[test] root = "./test"`, so `bun test` never picks up the
-  mod's tests. It still runs the same 5,319 tests across 154 files.
+  mod's tests. It ran 5,532 tests across 164 files on 2026-10-10, the
+  sidebar's drift test among them (`test/sidebar-mechanism-drift.test.ts`).
 - The engine's declarations (`.claude-plugin/types/`) are generated per build
   and gitignored. `check.sh` lays them for `tsc`, from the copy a
   `--plugin-dir` session wrote or from the plugin-authoring skill's copy.
@@ -222,7 +223,9 @@ two rows are noisy:
 **The timer keeps the brain's pace** (`register.tsx#tick`):
 - it ticks at the calm rate (`round(target / 6)` ticks of the target: 6 a
   second at 12) while the brain sways;
-- it re-paces to the target only while a pulse's arc is in flight;
+- it re-paces to the target only while a pulse's arc is in flight (a read
+  that proves several mechanisms sends their arcs 300 ms apart, which keeps
+  the burst up to 0.9 s longer; below, "One event lights every mechanism");
 - it stops altogether at rest.
 
 A pulse, a picked mechanism or the sidebar opening full wakes it. Each of those
@@ -300,15 +303,65 @@ Mike's first real run is the real measurement.
   narrator's. Other sessions' fold into one dim line ("+29 from other
   sessions"). Whose an event is comes from:
   - its `session` detail;
-  - `actorId`, for a settle a session made;
-  - for a link flush, its `sessions` list.
+  - `actorId`, for a settle a session made.
 
-  A look-up (`mcp.recall`, the sidebar's own searches included) and a
-  reminder (`prospective.plain` / `.fire`) carry no session yet. One of those
-  from after this session began counts as this session's; one from before, as
-  another's. With two sessions running at once, the other's look-ups can show
-  here. **Core follow-up:** add `session` to the `mcp.recall`, `prospective.*`
-  and `associate.flush` payloads, and the sidebar can stop guessing.
+  A look-up (`mcp.recall`, the sidebar's own searches included), a reminder
+  (`prospective.plain` / `.fire`) and a link flush (`associate.flush`) carry
+  no session yet. One of those from after this session began counts as this
+  session's; one from before, as another's. With two sessions running at
+  once, the other's look-ups and flushes can show here. (v0.1 said a flush was
+  placed by its `sessions` detail. Core writes none: the live keys on
+  2026-10-10 were reason, day, dayFrom, claims, passes, pairs, rows, blocked,
+  evicted, swept, dropped, pendingDropped, corrupt, stuck, oldestMs, and a
+  `contiguity` object whose `sessions` is a count. That branch never ran and
+  is gone.) **Core follow-up:** add `session` to the `mcp.recall`,
+  `prospective.*` and `associate.flush` payloads; the `session` read already
+  in `classify` then places them, and the sidebar can stop guessing.
+- **One event lights every mechanism it proves** (2026-10-10). v0.1 gave each
+  event one mechanism, "first wins", while core's table
+  (`adapters/mechanism-evidence.ts`) lets one event prove several. So Emotion
+  and Gist never lit, though live 7 of the last 40 turns had a mood match and
+  10 of the last 21 dreams wrote a gist. Interference and Consolidation missed
+  a dream's merges, and Interference a settle `changed`. Now:
+  - **one row an event**, as before. Its own mechanism (`mech`, the first
+    rule in `RULES` that holds) gives its word and colour: a dream's row is
+    still "dreamed" in Dreaming's lilac, a turn's still "recalled". Every
+    mechanism that holds is in `mechs`, its own first (contract:
+    `types/index.d.ts`). An opened row says the others in the legend's names:
+    "also Emotion", "also Gist · Interference · Consolidation";
+  - **every mechanism pulses, a little apart**: the first at once, the rest
+    300 ms after one another, so each arc reads as its own. Two that draw the
+    same arc (one region in one stage colour: Dreaming and Consolidation, both
+    the hippocampus in lilac) pulse once. A fifth shares the fourth's slot, so
+    the last arc lands by 2.3 s, inside the legend's 2.6 s light. The burst
+    (12 fps) lasts while any arc flies, so a dream's three arcs keep it about
+    0.6 s longer than one; the calm and rest rates are unchanged. Done with
+    `$.clock.after` in `register.tsx`; `brain.ts` is untouched;
+  - **the legend lights each one** the read proved (`firing` holds a list now),
+    and the brain's tag still names the newest row's own;
+  - **a live came-to-mind row takes on its twin's** mechanisms when the
+    dashboard's `recall.decision` for that turn lands (`mergeRows`). The
+    recall block says nothing of mood, so Emotion lights for that turn one poll
+    after the row appears (up to 15 s), not at once. That lag is expected;
+  - **the conditions are core's too**: a `dream.changed` that changed nothing
+    and suggested nothing proves nothing and is no row (core counts `applied`
+    less suggestions, and the suggestions apart). A recall whose mood match the
+    render trimmed to nothing shown is Emotion's row ("1 brought closer by a
+    matching mood");
+  - **not mirrored: `stands`.** Core stops counting a dream, or a settle, the
+    owner undid. An `/api/activity` row carries nothing that says so. Separate
+    `dream.undone` and `contradiction.undone` events exist (none in the live
+    log on 2026-10-10), and could be matched to a row by its dream id
+    (`subject`) or pair. Left out: a pulse lights when the act happens, and an
+    undo comes later. An undone dream's row stays in ACTIVITY;
+  - **a guard**: `test/sidebar-mechanism-drift.test.ts`, a bun test at the
+    repository root, imports core's table and this `feed.ts` and fails when
+    they disagree: by event name both ways, and by payload (a row lights
+    exactly what core says it proves). Census-only evidence (emotion's lift,
+    consolidation's returns, dreaming's reflections) has no event, so no row,
+    and is out of its scope. It loads `feed.ts` by a dynamic import tsc can't
+    follow: a static one would pull the mod's sources (extensionless imports,
+    the engine's types) into the repository's `tsc`, which fails on them.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
@@ -434,7 +487,9 @@ Mike's first real run is the real measurement.
   code); the live check's fake server didn't speak that format.
 - The event-to-mechanism table in `feed.ts` copies
   `adapters/mechanism-evidence.ts` (a mod can't import from outside its folder).
-  A mechanism added there shows here only once this copy learns it.
+  A proof added there shows here only once this copy learns it; until then
+  `test/sidebar-mechanism-drift.test.ts` fails, naming it. What a dream or a
+  settle the owner undid proved still shows (core's `stands`, above).
 - A came-to-mind row is matched to its dashboard twin by session id and turn.
   That assumes the store's session id is Claude Code's (true in today's feed).
 - A session without the pane drawn follows a Claude-memory change made in

@@ -5,10 +5,13 @@
  *
  * WHICH EVENTS ARE A MECHANISM FIRING is the dashboard's table
  * (`src/adapters/mechanism-evidence.ts`, MECHANISM_EVIDENCE): an event name,
- * sometimes a condition on its payload, and the mechanism it proves. This file
- * keeps a copy of the names and conditions, not an import — a hooks module
- * reaches nothing outside its plugin folder but through `$`. A mechanism the
- * table learns later is simply not shown here until this copy learns it.
+ * sometimes a condition on its payload, and the mechanism it proves. One event
+ * can prove several: a dream that merged near-copies and wrote a gist proves
+ * Dreaming, Interference, Consolidation and Gist. This file keeps a copy of
+ * the names and conditions, not an import — a hooks module reaches nothing
+ * outside its plugin folder but through `$`. The repository's bun test
+ * `test/sidebar-mechanism-drift.test.ts` fails when the copy and the table
+ * disagree.
  */
 
 import type { SidebarHit, SidebarRow } from '../types';
@@ -49,13 +52,17 @@ export function titled(value: string | undefined): { title: string | null; id: s
 type Rule = { name: string; mech: MechId; word: string; when?: (e: DashEvent) => boolean };
 
 /**
- * The event names that prove a mechanism fired, in the dashboard's words.
- * Order matters only where one name proves two mechanisms: the first wins.
+ * The event names that prove a mechanism fired, in the dashboard's words. An
+ * event is a row when any rule for its name holds. The FIRST that holds gives
+ * the row its word and colour (`mech`); EVERY one that holds lights (`mechs`).
+ * So a name's own mechanism comes first, and what the same event also proves
+ * follows it, with the same word.
  */
 export const RULES: readonly Rule[] = [
   { name: 'gate.deposit', mech: 'salience', word: 'kept', when: e => num(e, 'accepted') > 0 },
   { name: 'gate.chunk', mech: 'salience', word: 'kept', when: e => num(e, 'accepted') > 0 },
   { name: 'recall.decision', mech: 'retrieval', word: 'recalled', when: e => num(e, 'surfacedCount') + num(e, 'footnoteCount') > 0 },
+  { name: 'recall.decision', mech: 'emotional', word: 'recalled', when: e => num(e, 'moodMatched') > 0 },
   { name: 'mcp.recall', mech: 'retrieval', word: 'looked up' },
   { name: 'recall.credit', mech: 'retrieval', word: 'stronger', when: e => num(e, 'credited') > 0 },
   { name: 'associate.flush', mech: 'association', word: 'linked', when: e => num(e, 'rows') > 0 },
@@ -68,14 +75,44 @@ export const RULES: readonly Rule[] = [
   { name: 'band.promoted', mech: 'consolidation', word: 'core' },
   { name: 'memory.merged', mech: 'consolidation', word: 'merged' },
   { name: 'dream.journaled', mech: 'dreaming', word: 'dreamed' },
-  { name: 'dream.changed', mech: 'dreaming', word: 'dreamed' },
+  // A change the dream made, or a core suggestion (`applied` counts both).
+  { name: 'dream.changed', mech: 'dreaming', word: 'dreamed', when: e => num(e, 'applied') > 0 || num(e, 'nominate-core') > 0 },
+  { name: 'dream.changed', mech: 'episodic-semantic', word: 'dreamed', when: e => num(e, 'gist') > 0 },
+  { name: 'dream.changed', mech: 'interference', word: 'dreamed', when: e => num(e, 'merge') > 0 },
+  { name: 'dream.changed', mech: 'consolidation', word: 'dreamed', when: e => num(e, 'merge') > 0 },
   { name: 'contradiction.flagged', mech: 'interference', word: 'flagged' },
   { name: 'contradiction.settled', mech: 'reconsolidation', word: 'settled' },
+  // Settled `changed`: the earlier memory fades under the one that holds.
+  { name: 'contradiction.settled', mech: 'interference', word: 'settled', when: e => detail(e, 'how') === 'changed' },
   { name: 'revision.pressure', mech: 'reconsolidation', word: 'weighed' },
 ];
 
 /** The names worth asking the dashboard for one by one on a cold start. */
 export const RULE_NAMES: readonly string[] = [...new Set(RULES.map(r => r.name))];
+
+/** The rules `e` proves, one a mechanism, the row's own first; none when it proves nothing. */
+export function provedBy(e: DashEvent): Rule[] {
+  const out: Rule[] = [];
+  for (const r of RULES) {
+    if (r.name !== e.name || (r.when !== undefined && !r.when(e))) continue;
+    if (!out.some(o => o.mech === r.mech)) out.push(r);
+  }
+  return out;
+}
+
+/** A row's mechanisms, its own first (a row kept from before rows carried `mechs`: its own alone). */
+export function mechsOf(r: SidebarRow): MechId[] {
+  return Array.isArray(r.mechs) && r.mechs.length > 0 ? r.mechs : [r.mech];
+}
+
+/**
+ * The line an opened row adds when it proves more than its own mechanism, in
+ * the legend's names: `also Emotion`, `also Gist · Interference · Consolidation`.
+ */
+export function alsoLine(r: SidebarRow): string | null {
+  const rest = mechsOf(r).filter(m => m !== r.mech);
+  return rest.length === 0 ? null : `also ${rest.map(m => mechById(m)?.short ?? m).join(' · ')}`;
+}
 
 /**
  * The events that belong to no session: the night's sleep and dreams, and
@@ -99,32 +136,32 @@ export function quotedTitles(text: string): string[] {
  * `other` (the list folds them into one line).
  *
  * WHOSE IT IS. An event's `session` (or, for a settle a session made, its
- * `actorId`) names it. A link flush names its `sessions`. A look-up
- * (`mcp.recall`) and a reminder (`prospective.*`) name none yet (a core
- * follow-up): one of those from after this session began (`since`) is taken
- * as this session's, one from before as another's.
+ * `actorId`) names it. A look-up (`mcp.recall`), a reminder
+ * (`prospective.*`) and a link flush (`associate.flush`) name none yet (a
+ * core follow-up: add `session` to those payloads, and the read below takes
+ * it): one of those from after this session began (`since`) is taken as this
+ * session's, one from before as another's.
  */
 export function classify(e: DashEvent, session = '', since = 0): FeedRow | null {
-  const rule = RULES.find(r => r.name === e.name && (r.when === undefined || r.when(e)));
+  const proved = provedBy(e);
+  const rule = proved[0];
   if (rule === undefined) return null;
   const m = mechById(rule.mech);
   const short = m?.short ?? rule.mech;
   // A settle or a revision a session made names it as its actor, not as `session`.
   const bySession = detail(e, 'actor') === 'session';
   const from = detail(e, 'session') ?? (bySession ? detail(e, 'actorId') : undefined);
-  const sessions = detail(e, 'sessions');
   const mine = session !== '';
   const who: FeedRow['who'] =
     NIGHT.has(e.name) && !bySession
       ? 'night'
       : from !== undefined
         ? mine && from === session ? 'here' : 'other'
-        : sessions !== undefined
-          ? mine && sessions.includes(session) ? 'here' : 'other'
-          : e.at >= since ? 'here' : 'other';
+        : e.at >= since ? 'here' : 'other';
   const base: FeedRow = {
     id: `seq:${String(e.seq)}`,
     mech: rule.mech,
+    mechs: proved.map(r => r.mech),
     word: rule.word,
     at: e.at,
     text: e.text,
@@ -152,7 +189,8 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
   if (rule.name === 'recall.decision') {
     const turn = detail(e, 'turn');
     const n = num(e, 'surfacedCount') + num(e, 'footnoteCount');
-    const said = `${String(n)} came to mind`;
+    // A mood match with nothing shown (the render trimmed it): a row of Emotion's, said as such.
+    const said = n > 0 ? `${String(n)} came to mind` : `${String(num(e, 'moodMatched'))} brought closer by a matching mood`;
     return {
       ...base,
       word: 'recalled',
@@ -206,6 +244,7 @@ export function cameRow(block: RecallBlock, session: string, at: number): FeedRo
   return {
     id: `live:turn:${session}:${String(block.turn)}`,
     mech: 'retrieval',
+    mechs: ['retrieval'],
     word: 'recalled',
     at,
     text: `${String(n)} came to mind`,
@@ -286,6 +325,7 @@ export function keptRow(tool: string, args: Record<string, unknown>, resultText:
   return {
     id: `live:kept:${String(seq)}`,
     mech: 'salience',
+    mechs: ['salience'],
     word: 'kept',
     at,
     text,
@@ -299,13 +339,27 @@ export function keptRow(tool: string, args: Record<string, unknown>, resultText:
   };
 }
 
-/** Newest first, live rows win over their dashboard twins, at most `limit`. */
+/**
+ * Newest first, live rows win over their dashboard twins, at most `limit`. A
+ * live row takes on what its twin proves besides its own (the recall block
+ * says nothing of mood; the turn's row on the dashboard does).
+ */
 export function mergeRows(rows: readonly FeedRow[], limit: number): FeedRow[] {
   const byId = new Map<string, FeedRow>();
   for (const r of rows) byId.set(r.id, r);
   const all = [...byId.values()].sort((a, b) => b.at - a.at);
+  const twins = new Map<string, MechId[]>();
+  for (const r of all) if (!r.live) for (const k of r.keys ?? []) twins.set(k, [...(twins.get(k) ?? []), ...mechsOf(r)]);
   const liveKeys = new Set(all.filter(r => r.live).flatMap(r => r.keys ?? []));
-  return all.filter(r => r.live || !(r.keys ?? []).some(k => liveKeys.has(k))).slice(0, limit);
+  return all
+    .filter(r => r.live || !(r.keys ?? []).some(k => liveKeys.has(k)))
+    .slice(0, limit)
+    .map(r => {
+      if (!r.live) return r;
+      const own = mechsOf(r);
+      const more = (r.keys ?? []).flatMap(k => twins.get(k) ?? []).filter(m => !own.includes(m));
+      return more.length === 0 ? r : { ...r, mechs: [...own, ...new Set(more)] };
+    });
 }
 
 // ── a facts answer ─────────────────────────────────────────────────────────

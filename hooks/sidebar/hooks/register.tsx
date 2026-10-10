@@ -38,11 +38,13 @@ import type { FrameOptions } from './brain'
 import { encodeCells } from './cells'
 import {
   RULE_NAMES,
+  alsoLine,
   cameRow,
   classify,
   clock,
   ellipsize,
   keptRow,
+  mechsOf,
   mergeRows,
   ourTool,
   parseFacts,
@@ -84,6 +86,13 @@ const SCOPES_FILE_TTL_MS = 5 * 60000
 const HOVER_CP = 'counterparts-switch-cp'
 const HOVER_MEM = 'counterparts-switch-mem'
 const FIRING_MS = 2600
+/**
+ * One event can prove several mechanisms: their pulses go this far apart, so
+ * each arc reads as its own. At most four slots: a fifth shares the fourth,
+ * and the last arc (1.4 s) lands inside the legend's light (FIRING_MS).
+ */
+const PULSE_STAGGER_MS = 300
+const PULSE_SLOTS = 4
 const FEED_LIMIT = 30
 /**
  * The most the brain draws a second: a pulse's arc, for its second and a half.
@@ -284,6 +293,27 @@ function fireBrain(mech: MechId, now: number): void {
   brain.pulse(m.region, stageOf(m.id).col, now, mech === 'retrieval' ? 'prefrontal' : 'thalamus')
 }
 
+/**
+ * Every mechanism a read proved, one pulse each: the first at once, the rest
+ * PULSE_STAGGER_MS apart, so they read as separate arcs. Two that would draw
+ * the same arc (one region in one stage colour: Dreaming and Consolidation)
+ * pulse once. The brain stays in its burst while any arc flies, so a few
+ * staggered arcs lengthen it by at most 0.9 s.
+ */
+function firePulses($: EngineInterface, ids: readonly MechId[]): void {
+  const arcs = new Set<string>()
+  for (const id of ids) {
+    const m = mechById(id)
+    if (m === undefined) continue
+    const arc = `${m.region}:${m.stage}:${id === 'retrieval' ? 'prefrontal' : 'thalamus'}`
+    if (arcs.has(arc)) continue
+    const delay = Math.min(arcs.size, PULSE_SLOTS - 1) * PULSE_STAGGER_MS
+    arcs.add(arc)
+    if (delay === 0) fireBrain(id, Date.now())
+    else $.clock.after(delay, () => fireBrain(id, Date.now()))
+  }
+}
+
 type Cell = { t: string; fg?: string; bg?: string }
 
 /** A phone's switch in four cells: a round-ended track, the knob at the end it is set to. */
@@ -377,6 +407,7 @@ function switchExplains(scope: SidebarScope): string | null {
 /** An ACTIVITY row as the list module draws it: worded, coloured, wrapped. */
 function activityRow(r: SidebarRow, now: number, tw: number): ListRow {
   const col = hex(stageOf(r.mech).col)
+  const also = alsoLine(r)
   return {
     kind: 'row',
     id: r.id,
@@ -385,7 +416,7 @@ function activityRow(r: SidebarRow, now: number, tw: number): ListRow {
     wordColor: r.who === 'night' ? hex(stageOf(r.mech).col, 0.7) : col,
     time: clock(r.at, now),
     lines: wrap(r.text, tw),
-    more: r.more.flatMap(x => wrap(x, tw).map(t => ({ text: t, dim: true }))),
+    more: [...(also === null ? [] : [also]), ...r.more].flatMap(x => wrap(x, tw).map(t => ({ text: t, dim: true }))),
     link: { url: r.url, label: r.label },
     textColor: r.who === 'night' ? C.dim : C.body,
     barColor: hex(stageOf(r.mech).col, 0.45),
@@ -449,16 +480,19 @@ async function callMemory($: EngineInterface, tool: string, args: Record<string,
   return { payload: payloadOf(text), isError: r.isError === true }
 }
 
-/** New rows into the feed; the mechanisms of the fresh ones fire. */
+/**
+ * New rows into the feed; every mechanism the fresh ones prove fires (the
+ * newest row's own first), and the legend lights each.
+ */
 async function addRows($: EngineInterface, rows: readonly SidebarRow[], fresh: boolean): Promise<void> {
   if (rows.length === 0) return
   await update($, feedA, list => mergeRows([...rows, ...list], FEED_LIMIT))
   if (!fresh) return
-  const newest = rows.filter(r => r.who !== 'other').sort((a, b) => b.at - a.at)[0]
-  if (newest === undefined) return
+  const ids = [...new Set(rows.filter(r => r.who !== 'other').sort((a, b) => b.at - a.at).flatMap(mechsOf))]
+  if (ids.length === 0) return
   const now = await $.clock.now()
-  for (const r of rows) if (r.who !== 'other') fireBrain(r.mech, Date.now())
-  await update($, firingA, () => ({ id: newest.mech, at: now }))
+  firePulses($, ids)
+  await update($, firingA, () => ({ ids, at: now }))
   $.clock.after(FIRING_MS + 100, () => $.ui.invalidate('ui.render'))
 }
 
@@ -1309,8 +1343,9 @@ export const register: Register = on => {
     const paused = isPaused(scope.mode)
     look.mono = paused
     look.sel = sel === null ? null : (sel.id as MechId)
-    const firingNow = !paused && firing !== null && now - firing.at < FIRING_MS ? (firing.id as MechId) : null
-    look.firing = firingNow
+    // Every mechanism the last read proved lights in the legend; the brain's tag names the newest row's own.
+    const firingNow: readonly MechId[] = !paused && firing !== null && now - firing.at < FIRING_MS ? firing.ids : []
+    look.firing = firingNow[0] ?? null
     const W = Math.max(e.props.bodyColumns, 1)
     const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
     const quietView = view === 'quiet'
@@ -1529,7 +1564,7 @@ export const register: Register = on => {
       }
       const base = stageOf(m.id).col
       const picked = sel?.id === m.id
-      const lit = firingNow === m.id || picked
+      const lit = firingNow.includes(m.id) || picked
       const dot = paused ? C.faint : lit ? hex(base) : hex(base, m.notBuilt ? 0.35 : 0.8)
       const word = paused ? C.faint : lit ? C.white : hex(base, m.notBuilt ? 0.3 : 0.72)
       if (used > 0) line.push(<Text key={`sp-${m.id}`}>{'  '}</Text>)
