@@ -75,6 +75,7 @@ import { BOUNDARY_EVENT, Counterpart, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT }
 import { Store } from "../src/core/store/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
+const CLI_SCRIPT = resolve(import.meta.dir, "../src/adapters/cli/bin/counterparts.ts");
 const BUDGET_BYTES = 9000;
 
 let work: string;
@@ -188,11 +189,17 @@ function contextOf(stdout: string): string | null {
 /**
  * The person's line in a folder paused by its own entry, verbatim. The folder is
  * NAMED (review of #362): `dir` is outside the test's HOME, so it is written out
- * whole, realpathed as the registry key is.
+ * whole, realpathed as the registry key is. And these hooks read `--config
+ * configPath`, not the default beside HOME, so the command names it too.
  */
 function pausedHere(dir: string): string {
   const named = canonicalScopePath(dir);
-  return `Counterparts memory is paused in ${named}; \`counterparts scope ${named} --resume\` turns it back on.`;
+  return `Counterparts memory is paused in ${named}; \`${resumeCommand(named)}\` turns it back on.`;
+}
+
+/** The resume command a hook run with `--config configPath` prints for `target`. */
+function resumeCommand(target: string): string {
+  return `counterparts scope ${target} --resume --config ${configPath}`;
 }
 
 /** Every file under `dir` with its size and mtime — "nothing was written", as bytes on disk. */
@@ -721,7 +728,7 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
           hookEventName: "SessionStart",
           additionalContext:
             `Counterparts memory is paused in ${named}: no memories are loaded and nothing said here is remembered ` +
-            `until the person resumes it (\`counterparts scope ${named} --resume\`). Don't act as if you remember earlier sessions.`,
+            `until the person resumes it (\`${resumeCommand(named)}\`). Don't act as if you remember earlier sessions.`,
         },
       });
       // Once: the person's line is in the output one time, the model's one time.
@@ -759,10 +766,10 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
     put({ [parent]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" } });
     const r = start({ session: "by-parent", cwd: child, source: "startup" });
     expect(systemMessageOf(r.stdout)).toBe(
-      "Counterparts memory is paused for ~/random, which includes this folder; `counterparts scope ~/random --resume` turns it back on.",
+      `Counterparts memory is paused for ~/random, which includes this folder; \`${resumeCommand("~/random")}\` turns it back on.`,
     );
     expect(contextOf(r.stdout)).toContain("paused for ~/random, which includes this folder");
-    expect(contextOf(r.stdout)).toContain("`counterparts scope ~/random --resume`");
+    expect(contextOf(r.stdout)).toContain(`\`${resumeCommand("~/random")}\``);
     // Why the parent has to be named: `--resume` on the child refuses ...
     expect((await cli(["scope", child, "--resume"])).code).toBe(EXIT.refused);
     // ... and on the parent — the command the notice gives — turns it back on.
@@ -780,8 +787,38 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
     const said = systemMessageOf(start({ session: "outside", cwd: child, source: "startup" }).stdout) ?? "";
     const abs = canonicalScopePath(outside);
     expect(said).toBe(
-      `Counterparts memory is paused for ${abs}, which includes this folder; \`counterparts scope ${abs} --resume\` turns it back on.`,
+      `Counterparts memory is paused for ${abs}, which includes this folder; \`${resumeCommand(abs)}\` turns it back on.`,
     );
+  });
+
+  test("the notice's command, typed VERBATIM in another terminal, resumes the registry the hook read", () => {
+    // The two things a command in a notice can get wrong, both proved on a real
+    // shell and the real console: `.` (here, the terminal stands in HOME), and a
+    // registry other than the console's default (these hooks read `--config`).
+    const project = join(home, "random", "proj");
+    mkdirSync(project, { recursive: true });
+    put({ [project]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" } });
+    const said = systemMessageOf(start({ session: "verbatim", cwd: project, source: "startup" }).stdout) ?? "";
+    const command = /`([^`]+)`/.exec(said)?.[1] ?? "";
+    expect(command).toBe(resumeCommand("~/random/proj"));
+    // A `counterparts` on PATH that is this checkout's console.
+    const shim = join(work, "shim");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, "counterparts"), `#!/bin/sh\nexec '${process.execPath}' run '${CLI_SCRIPT}' "$@"\n`, { mode: 0o755 });
+    const typed = spawnSync("/bin/sh", ["-c", command], {
+      cwd: home,
+      encoding: "utf8",
+      env: { PATH: `${shim}:${emptyBin}`, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+      timeout: 60_000,
+    });
+    expect({ code: typed.status, stderr: typed.stderr }).toEqual({ code: 0, stderr: "" });
+    expect(typed.stdout).toContain("— on.");
+    // The registry the hook reads was the one written: the next start wakes.
+    const after = start({ session: "verbatim-2", cwd: project, source: "startup" });
+    expect(after.stdout).not.toContain("paused");
+    expect(after.stdout).toContain("has not lived a boundary");
+    // And the default registry beside HOME was never touched.
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 
   test("the SESSION's folder paused while the shell stands elsewhere: named, as covering this session", () => {
@@ -793,7 +830,7 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
     // The session is filed under CLAUDE_PROJECT_DIR; the event's cwd is not paused.
     const r = start({ session: "session-dir", cwd: elsewhere, source: "startup", env: { CLAUDE_PROJECT_DIR: project } });
     expect(systemMessageOf(r.stdout)).toBe(
-      "Counterparts memory is paused for ~/project, which covers this session; `counterparts scope ~/project --resume` turns it back on.",
+      `Counterparts memory is paused for ~/project, which covers this session; \`${resumeCommand("~/project")}\` turns it back on.`,
     );
     expect(existsSync(join(store, "sessions", "session-dir.json"))).toBe(false);
   });
@@ -860,6 +897,20 @@ describe("pausedNotice, the words", () => {
     expect(n?.person).toBe(
       "Counterparts memory is paused in ~/p; `sh ~/.claude/plugins/cache/counterparts/counterparts/0.3.15/src/adapters/plugin-run.sh cli scope ~/p --resume` turns it back on.",
     );
+  });
+
+  test("a plugin root and a named configuration with spaces are quoted whole; `--config` is two words", () => {
+    const project = join(home, "p");
+    mkdirSync(project, { recursive: true });
+    const root = join(work, "plugin copies", "counterparts");
+    const config = join(home, "other base", "claude-code.json");
+    const n = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: root, configPath: config });
+    expect(n?.person).toBe(
+      `Counterparts memory is paused in ~/p; \`sh '${join(root, "src", "adapters", "plugin-run.sh")}' cli scope ~/p --resume --config '${config}'\` turns it back on.`,
+    );
+    // A named configuration with no spaces under HOME is `~`-shortened, unquoted, so the shell expands it.
+    const plain = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: null, configPath: join(home, "base", "claude-code.json") });
+    expect(plain?.person).toBe("Counterparts memory is paused in ~/p; `counterparts scope ~/p --resume --config ~/base/claude-code.json` turns it back on.");
   });
 });
 

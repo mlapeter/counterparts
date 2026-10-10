@@ -2246,7 +2246,13 @@ INTERFACE-GAPS §15.
   which covers this session; …`. Under the plugin the command is `sh <plugin root>/src/
   adapters/plugin-run.sh cli scope … --resume`, because a plugin install puts no
   `counterparts` on PATH (`commands/doctor.md`). A path that would need quoting is quoted
-  whole and never `~`-shortened (a quoted `~` does not expand).
+  whole and never `~`-shortened (a quoted `~` does not expand). A hook that read a
+  registry other than the console's default (wired with `--config`, or
+  `COUNTERPARTS_CONFIG`, somewhere else) adds `--config <that file>` to the command, as two
+  words so a `~/…` expands (review of #362): without it the command resumed an entry in
+  the default registry, or refused, and the folder stayed paused. A test types the
+  printed command verbatim through `/bin/sh` from another directory and watches the next
+  start wake.
 - **Two channels, the SessionStart envelope every notice already rides.** The person's line
   is the `systemMessage`; the model gets one `additionalContext` line (paused, nothing is
   loaded or remembered, the resume command, "don't act as if you remember"). H1's fault

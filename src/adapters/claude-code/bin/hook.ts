@@ -383,6 +383,13 @@ function verdictOver(read: ScopeRead, scopes: readonly string[]): ScopeVerdict {
  * install puts no `counterparts` on PATH (`commands/doctor.md`), so under the
  * plugin the command is the plugin's own launcher.
  *
+ * And it has to reach the REGISTRY this hook read. `counterparts scope` writes
+ * the `scopes.json` beside the configuration it resolves, so a hook wired with
+ * `--config` (or `COUNTERPARTS_CONFIG`) somewhere other than the default's
+ * directory gives the command the same `--config` (`configPath`); without it
+ * the command would resume an entry in the default registry, or refuse, and
+ * this folder would stay paused (review of #362).
+ *
  * `whose` says which directory the verdict was taken on: the event's folder
  * (the shell's) or the session's (where it started, when that is not where the
  * shell stands). Null for anything but a pause with a matched entry. Pure.
@@ -390,7 +397,13 @@ function verdictOver(read: ScopeRead, scopes: readonly string[]): ScopeVerdict {
 export function pausedNotice(
   verdict: ScopeVerdict,
   here: string,
-  opts: { readonly whose: "folder" | "session"; readonly home: string; readonly pluginRoot: string | null },
+  opts: {
+    readonly whose: "folder" | "session";
+    readonly home: string;
+    readonly pluginRoot: string | null;
+    /** The configuration the hook read, when its registry is not the default's; else null. */
+    readonly configPath?: string | null;
+  },
 ): { readonly person: string; readonly model: string } | null {
   if (verdict.mode !== "paused" || verdict.matched === null) return null;
   const entry = canonicalScopePath(verdict.matched);
@@ -402,10 +415,12 @@ export function pausedNotice(
       ? `for ${named}, which includes this folder`
       : `for ${named}, which covers this session`;
   const target = shellWord(entry, opts.home);
+  // `--config <path>` as two words, so an unquoted `~/…` expands (`--config=~/…` would not).
+  const config = opts.configPath === undefined || opts.configPath === null ? "" : ` --config ${shellWord(opts.configPath, opts.home)}`;
   const command =
     opts.pluginRoot === null
-      ? `counterparts scope ${target} --resume`
-      : `sh ${shellWord(join(opts.pluginRoot, "src", "adapters", "plugin-run.sh"), opts.home)} cli scope ${target} --resume`;
+      ? `counterparts scope ${target} --resume${config}`
+      : `sh ${shellWord(join(opts.pluginRoot, "src", "adapters", "plugin-run.sh"), opts.home)} cli scope ${target} --resume${config}`;
   return {
     person: `Counterparts memory is paused ${where}; \`${command}\` turns it back on.`,
     model:
@@ -447,13 +462,18 @@ function sayPaused(
   whose: "folder" | "session",
   payload: Record<string, unknown>,
   said: Said,
+  configPath: string,
 ): void {
   if (name !== "session-start") return;
   if ((process.env[NIGHT_RUN_ENV] ?? "").trim().length > 0) return;
+  const home = homedir();
   const notice = pausedNotice(verdict, here, {
     whose,
-    home: homedir(),
+    home,
     pluginRoot: runningAsPlugin(process.env) ? (process.env[PLUGIN_ROOT_ENV] ?? "").trim() || null : null,
+    // The console's default registry is the one beside `defaultConfigPath()`;
+    // any other is named on the command.
+    configPath: scopesPath(configPath) === scopesPath(defaultConfigPath(home)) ? null : configPath,
   });
   if (notice === null) return;
   // The SessionStart envelope every notice rides (`hostDelivery`): the person's
@@ -786,7 +806,7 @@ async function runHook(
     // sessions ran without memory for ten minutes before anyone noticed. It is
     // printed from what was already read — the registry — and nothing is
     // written; every other event stays as silent as `off`.
-    sayPaused(name, eventVerdict, eventDir, "folder", payload, said);
+    sayPaused(name, eventVerdict, eventDir, "folder", payload, said, choice.path);
     return;
   }
   // A REGISTRY IN TROUBLE IS NOT SILENT, and that is a DIFFERENT exception from
@@ -852,7 +872,7 @@ async function runHook(
     // were read, and neither is a write. A `paused` session directory says its
     // one SessionStart line here too (a compaction, or a start whose
     // `CLAUDE_PROJECT_DIR` is paused while the shell stands elsewhere).
-    sayPaused(name, verdict, scope, "session", payload, said);
+    sayPaused(name, verdict, scope, "session", payload, said, choice.path);
     return;
   }
   // THE COMBINATION: the most restrictive of what the configuration said and
