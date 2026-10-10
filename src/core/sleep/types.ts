@@ -425,11 +425,14 @@ export interface BandTransition {
    * down (the design); for a move up, `promoted` (into the core), `input` (an
    * input of the curve was written since the last reading — a use, a return,
    * a replay, a feeling, a claim, a fade; store v13's trigger cleared the
-   * row's next-change day), `held` (a dated memory's window opened), else
-   * `unexplained` — a strength that rose by itself, which the arithmetic
-   * should never do (`physics#symmetryCheck`).
+   * row's next-change day), `held` (a dated memory, whose standing turns on
+   * the calendar), else `unexplained` — a strength that rose by itself, which
+   * the arithmetic should never do (`physics#symmetryCheck`). Either way,
+   * `recurve` on the pass a new curve arrives (review of #372): the build's
+   * constants moved it, and the tripwire counts it neither up nor down
+   * (`decay.ts#bandMoveCause`).
    */
-  readonly cause: "curve" | "promoted" | "input" | "held" | "unexplained";
+  readonly cause: "curve" | "promoted" | "input" | "held" | "unexplained" | "recurve";
 }
 
 export const BAND_TRANSITION_EVENT = "band.transition";

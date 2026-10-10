@@ -64,6 +64,7 @@
 
 import { NEVER_CHANGES, band, bandMove, nextChangeDay, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
+import type { Band, DatedHold } from "../physics/index.js";
 import { reachExempt, rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
@@ -116,6 +117,37 @@ export function curveSignature(): string {
     felt: (PHYSICS as Readonly<Record<string, unknown>>)["FELT_HEIGHT_CAP"] ?? null,
     kinds: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, [v.wSal, v.wRep, v.kappa]])),
   });
+}
+
+/**
+ * WHY A BAND MOVED (2026-10-10, the up-ratchet tripwire; review of #372). Pure.
+ * Down is the curve; up has to have something behind it, or it is the ratchet
+ * the tripwire exists for:
+ *
+ *   - `recurve`: the pass a new curve arrived on (`CURVE_META_KEY` changed) —
+ *     either way, the build's constants moved it; the tripwire skips it;
+ *   - `promoted`: into the identity band;
+ *   - `input`: the row's next-change day was NULL — read BEFORE this pass wrote
+ *     anything, so a trigger cleared it because an input of the curve was
+ *     written (or a rebuilt cache cleared them all);
+ *   - `held`: a dated memory — its standing turns on the CALENDAR (a window
+ *     opening, or the spent slope giving way after a long absence:
+ *     `physics#elapsed` reads "used after the window" off two clocks), so it
+ *     is read daily and a climb there is the date's, not a ratchet;
+ *   - `unexplained`: none of these — a strength that rose by itself.
+ */
+export function bandMoveCause(
+  direction: "up" | "down",
+  to: Band,
+  nextChangeDay: number | null | undefined,
+  hold: DatedHold | null,
+  recurved: boolean,
+): BandTransition["cause"] {
+  if (recurved && to !== "identity") return "recurve";
+  if (direction === "down") return "curve";
+  if (to === "identity") return "promoted";
+  if (nextChangeDay === null || nextChangeDay === undefined) return "input";
+  return hold !== null ? "held" : "unexplained";
 }
 
 /** Skip categories, enumerated so a zero is distinguishable from an absence. */
@@ -203,6 +235,10 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     store.clearNextChangeDays?.();
     store.setMeta(CURVE_META_KEY, signature);
   }
+  // THE PASS A NEW CURVE ARRIVES ON (review of #372): every band it moves moved
+  // because this build's constants differ, not because anything was used or
+  // anything ratcheted — `recurve`, which the tripwire does not count.
+  const recurved = turnDown && !sameCurve && ctx.apply;
   // A RANKING CACHE THAT IS GONE (`rebuildCache`, `verify --rebuild`) holds
   // nothing for the rows the turn-down would leave alone, so every row is looked
   // at again — the same as a new curve.
@@ -316,21 +352,8 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (was !== undefined && was.band !== b) {
       const direction = bandMove(was.band, b);
       if (direction !== "none") {
-        // Why it moved (2026-10-10): down is the curve; up has to have an
-        // input behind it, or it is the ratchet the tripwire exists for.
-        // `row.next_change_day` is as read BEFORE this pass wrote anything:
-        // NULL means a trigger cleared it because an input changed (or a new
-        // curve, or a rebuilt cache, cleared them all).
-        const cause: BandTransition["cause"] =
-          direction === "down"
-            ? "curve"
-            : b === "identity"
-              ? "promoted"
-              : row.next_change_day === null || row.next_change_day === undefined
-                ? "input"
-                : p.hold?.state === "pending"
-                  ? "held"
-                  : "unexplained";
+        // Why it moved (2026-10-10): `bandMoveCause`.
+        const cause = bandMoveCause(direction, b, row.next_change_day, p.hold ?? null, recurved);
         const transition: BandTransition = {
           id,
           kind: row.kind,

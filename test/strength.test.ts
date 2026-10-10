@@ -33,6 +33,7 @@ import {
 } from "../src/core/physics/index.js";
 import type { MemoryPhysics, Salience } from "../src/core/physics/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
+import { CURVE_META_KEY, bandMoveCause } from "../src/core/sleep/decay.js";
 import { OBSERVER_READ_FLOOR, SCHEMA_VERSION, Store, V13_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import { datedHold, rowToPhysics } from "../src/core/store/operational.js";
 import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../src/core/handoff/index.js";
@@ -369,6 +370,71 @@ describe("the turn-down by next_change_day (review 13 C2)", () => {
     // So does a feeling.
     s.addFeelings(ids[1] as string, [{ whose: "self", emotion: "moved", strength: 0.7 }]);
     expect(s.row(ids[1] as string)?.next_change_day).toBeNull();
+  });
+});
+
+describe("why a band moved, and the up-ratchet tripwire (review of #372)", () => {
+  test("bandMoveCause: a new curve's pass is `recurve`; a dated row's climb is the date's; only an input-free climb is unexplained", () => {
+    const spent = { state: "spent", closedDaysAgo: 30 } as const;
+    expect(bandMoveCause("up", "semantic", 40, null, true)).toBe("recurve");
+    expect(bandMoveCause("down", "episodic", 40, null, true)).toBe("recurve");
+    expect(bandMoveCause("up", "identity", 40, null, true)).toBe("promoted");
+    expect(bandMoveCause("down", "episodic", 40, null, false)).toBe("curve");
+    expect(bandMoveCause("up", "semantic", null, null, false)).toBe("input");
+    expect(bandMoveCause("up", "semantic", 40, { state: "pending" }, false)).toBe("held");
+    expect(bandMoveCause("up", "semantic", 40, spent, false)).toBe("held");
+    expect(bandMoveCause("up", "semantic", 40, null, false)).toBe("unexplained");
+  });
+
+  /** A semantic fact the cache last read as episodic, due today with a day set: a climb nothing explains. */
+  function climb(s: Store, put: Parameters<Store["put"]>[0]): { id: string; date: string } {
+    let date = "2026-10-01";
+    runCycle({ store: s, date });
+    const id = s.put(put);
+    date = addDays(date, 1);
+    runCycle({ store: s, date });
+    expect(s.row(id)?.band).toBe("semantic");
+    expect(s.row(id)?.next_change_day).not.toBeNull();
+    s.setRanking([{ id, strength: 0.3, band: "episodic", day: s.livedDay() }]);
+    s.setNextChangeDays([{ id, day: s.livedDay() + 1 }]);
+    return { id, date: addDays(date, 1) };
+  }
+  const causeOf = (s: Store, id: string): unknown =>
+    JSON.parse(s.eventLog({ name: "band.transition", order: "desc", limit: 50 }).find((e) => e.ref === id)?.payload ?? "{}")["cause"];
+
+  test("an input-free climb is unexplained and trips the tripwire at once — it can still catch an inflation bug", () => {
+    const s = store();
+    const { id, date } = climb(s, { type: "memory", kind: "fact", body: "A strong fact that climbs by itself.", salience: { claimed: 0.7 } });
+    const report = runCycle({ store: s, date });
+    expect(causeOf(s, id)).toBe("unexplained");
+    expect(report.symmetry.find((v) => v.kind === "fact")).toMatchObject({ ok: false, reason: "ratchet-suspected", unexplained: 1 });
+  });
+
+  test("the pass a new curve arrives on records `recurve`, and the tripwire counts it neither up nor down", () => {
+    const s = store();
+    const { id, date } = climb(s, { type: "memory", kind: "fact", body: "A strong fact a new curve lifts.", salience: { claimed: 0.7 } });
+    s.setMeta(CURVE_META_KEY, "an older curve");
+    const report = runCycle({ store: s, date });
+    expect(causeOf(s, id)).toBe("recurve");
+    expect(report.symmetry.find((v) => v.kind === "fact")).toMatchObject({ ok: true, up: 0, down: 0, unexplained: 0 });
+  });
+
+  test("a spent dated memory that climbs back after a long absence is `held`, not a ratchet", () => {
+    const s = store();
+    // Written before its date; its window closed weeks before the store's calendar, but only a
+    // lived day or two have passed since it was written, so it reads as ordinary again.
+    const { id, date } = climb(s, {
+      type: "memory",
+      kind: "fact",
+      body: "Ship the September build by the tenth.",
+      salience: { claimed: 0.8 },
+      learnedOn: "2026-09-01",
+      eventDate: "2026-09-10",
+    });
+    expect(rowToPhysics(s.row(id)!).hold?.state).toBe("spent");
+    const report = runCycle({ store: s, date });
+    expect(causeOf(s, id)).toBe("held");
+    expect(report.symmetry.find((v) => v.kind === "fact")?.ok).toBe(true);
   });
 });
 

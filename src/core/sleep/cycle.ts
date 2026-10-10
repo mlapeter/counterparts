@@ -539,6 +539,9 @@ export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): Sy
       unreadable += 1;
       continue;
     }
+    // A move a new curve made on the pass it arrived (`recurve`, review of
+    // #372) is the build's, neither a climb nor a fall: not counted.
+    if (payload["cause"] === "recurve") continue;
     if (direction === "up") {
       up.set(kind, (up.get(kind) ?? 0) + 1);
       if (payload["cause"] === "unexplained") unexplained.set(kind, (unexplained.get(kind) ?? 0) + 1);

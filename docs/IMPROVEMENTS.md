@@ -153,6 +153,10 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   the old 4:1 expectation flagged ordinary forgetting as a "reverse ratchet". It now trips on a
   climb no input explains (each up-move records its cause) or on climbs far outnumbering falls.
   The dashboard's Health/Flow panel, `status` and `sleep.symmetry.tripped` say "up-ratchet".
+  The night a new curve arrives, the band moves it makes are recorded as `recurve` and not
+  counted (review of #372: on a copy of the live store the install night lifted 47 skills and
+  12 self memories a band, which would have read as an up-ratchet for days); a dated memory's
+  climb is its date's (`held`).
 - **Your existing store will fade slowly.** On the 10-10 snapshot, 497 of ~770 live memories
   were claimed ≥ 0.5 under the old salience text ("set it on anything that should last"), and
   under the new curve those stay in reach for months. New memories, claimed by attention, fade

@@ -250,6 +250,8 @@ function symmetryBlock(src: DashboardSource, style: Style): string {
       try {
         const p = JSON.parse(row.payload) as { kind?: string; direction?: string; cause?: string };
         if (p.kind !== kind) continue;
+        // A new curve's own moves (`recurve`, review of #372) are not counted.
+        if (p.cause === "recurve") continue;
         if (p.direction === "up") {
           up += 1;
           if (p.cause === "unexplained") unexplained += 1;
