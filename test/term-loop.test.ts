@@ -238,6 +238,24 @@ describe('steps and the keyboard guard', () => {
     expect(refuseKey('q', { focus: 'empty', typed: '', pick: null }, ALLOWED)).not.toBeNull();
   });
 
+  test('keys: tmux key names only; an Enter in any spelling meets the guard', () => {
+    // tmux types a name it doesn't know as text, and reads 0xd and ^M as a carriage return
+    for (const k of ['hello', '0xd', '0xa', '^M', '^J', 'M-', `${E}[13u`]) {
+      expect(() => parseStep(`keys:${k}`, 0)).toThrow(/not a key name/);
+      expect(refuseKey(k, { focus: 'pane', typed: '', pick: null }, ALLOWED)).toMatch(/not a key name/);
+    }
+    expect(parseStep('keys:Escape S-Tab C-u M-b F5 PageUp q', 0)).toMatchObject({ kind: 'keys' });
+    const words = { focus: 'text', typed: 'hi', pick: null } as const;
+    for (const k of ['Enter', 'enter', 'KPEnter', 'S-Enter', 'M-Enter', 'C-m', 'c-M', 'C-j', 'C-M-m', 'M-C-j']) {
+      expect(refuseKey(k, words, ALLOWED)).toMatch(/model/);
+    }
+    for (const k of ['Escape', 'Tab', 'BSpace', 'Up', 'C-u', 'C-x', 'M-m', 'M-j']) expect(refuseKey(k, words, ALLOWED)).toBeNull();
+    // a character with no C- or M- is typing, and typing on the prompt is refused
+    expect(refuseKey('S-a', { focus: 'empty', typed: '', pick: null }, ALLOWED)).toMatch(/refused/);
+    expect(refuseKey('Space', { focus: 'empty', typed: '', pick: null }, ALLOWED)).toMatch(/refused/);
+    expect(refuseKey('q', { focus: 'pane', typed: '', pick: null }, ALLOWED)).toBeNull();
+  });
+
   test('typing: into the pane, or a slash command’s words; never a prompt', () => {
     expect(refuseType('publish', 'pane')).toBeNull();
     expect(refuseType('/counterparts', 'empty')).toBeNull();

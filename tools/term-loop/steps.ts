@@ -30,6 +30,7 @@ export const STEP_HELP = `steps, run in order (default: shot:full):
                      type the mod's command into the empty prompt and press Enter
                      (only /counterparts, or --allow-cmd: nothing goes to the model)
   keys:<k> [<k>...]  tmux key names: Escape, Tab, Up, Down, C-x, BSpace, Enter...
+                     or one character; words go in type:, never here
                      (Enter only in the pane, or on an empty or allowed-command
                      prompt; Enter in the search field is a real recall)
   type:<text>        literal text: into the pane once it holds the keyboard
@@ -73,6 +74,9 @@ export function parseStep(raw: string, index: number): Step {
     case 'keys': {
       const keys = arg.split(/\s+/).filter(k => k !== '');
       if (keys.length === 0) throw new Error('keys: name at least one key');
+      for (const k of keys) {
+        if (readKey(k) === null) throw new Error(`keys:${k}: not a key name this tool sends (${KEY_HELP}); text goes in type:`);
+      }
       return { kind, keys };
     }
     case 'type': {
@@ -145,10 +149,46 @@ export function typeaheadPick(g: Grid, promptRow: number): string | null {
   return null;
 }
 
-const SUBMIT_KEYS = new Set(['enter', 'c-m', 'c-j', 'kpenter', 'm-enter', 's-enter', 'c-enter']);
+/**
+ * The tmux key names a `keys:` step may send, besides one printable
+ * character. Anything else tmux would not refuse: it types a string it
+ * doesn't know as text (`hello`), and reads `0xd` and `^M` as a carriage
+ * return, so those never reach send-keys.
+ */
+const KEY_NAMES = new Set([
+  'enter', 'kpenter', 'escape', 'tab', 'btab', 'space', 'bspace', 'up', 'down', 'left', 'right', 'home', 'end',
+  'pageup', 'pagedown', 'pgup', 'pgdn', 'ppage', 'npage', 'dc', 'ic',
+  'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+]);
 
-export function isSubmitKey(k: string): boolean {
-  return SUBMIT_KEYS.has(k.toLowerCase());
+const KEY_HELP = 'Escape, Tab, Up, Down, Left, Right, BSpace, Enter, ... with C-, M-, S-; or one character';
+
+/** A key as tmux reads it: its modifiers and its name (lower case) or its one character. */
+export type Key = { readonly ctrl: boolean; readonly meta: boolean; readonly name: string | null; readonly char: string | null };
+
+/** Reads a key name the way tmux would; null for anything tmux would send otherwise than as one key. */
+export function readKey(raw: string): Key | null {
+  let s = raw;
+  let ctrl = false;
+  let meta = false;
+  while (/^[CMScms]-./u.test(s)) {
+    const m = (s[0] ?? '').toUpperCase();
+    if (m === 'C') ctrl = true;
+    else if (m === 'M') meta = true;
+    s = s.slice(2);
+  }
+  if (KEY_NAMES.has(s.toLowerCase())) return { ctrl, meta, name: s.toLowerCase(), char: null };
+  const chars = [...s];
+  if (chars.length === 1 && !/[\p{Cc}]/u.test(s)) return { ctrl, meta, name: null, char: s };
+  return null;
+}
+
+/** Whether a key submits what the prompt holds: Enter in any spelling, C-m, C-j. A key name tmux wouldn't read as one key counts. */
+export function isSubmitKey(raw: string): boolean {
+  const k = readKey(raw);
+  if (k === null) return true;
+  if (k.name === 'enter' || k.name === 'kpenter') return true;
+  return k.ctrl && (k.char === 'm' || k.char === 'M' || k.char === 'j' || k.char === 'J');
 }
 
 /** The slash commands an Enter may run: the mod's own. A skill's or a custom command's would prompt the model. */
@@ -179,9 +219,12 @@ export function refuseEnter(k: Keyboard, allowed: readonly string[]): string | n
 
 /** Why a key may not be sent now, or null when it may. */
 export function refuseKey(key: string, k: Keyboard, allowed: readonly string[]): string | null {
+  const read = readKey(key);
+  if (read === null) return `not a key name this tool sends (${KEY_HELP}); text goes in type:`;
   if (isSubmitKey(key)) return refuseEnter(k, allowed);
-  // a one-character key name types that character
-  if ([...key].length === 1) return refuseType(key, k.focus);
+  // a character, or Space, with no C- or M- types that character
+  const typed = read.char ?? (read.name === 'space' ? ' ' : null);
+  if (typed !== null && !read.ctrl && !read.meta) return refuseType(typed, k.focus);
   return null;
 }
 
