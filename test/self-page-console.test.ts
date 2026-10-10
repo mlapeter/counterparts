@@ -25,7 +25,7 @@ import { mindView } from "../src/adapters/dashboard/web/views.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
-import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING, PAGE_LIMIT_BYTES, SELF_TUNABLES } from "../src/core/self/index.js";
+import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING, PAGE_ROOM_BYTES, SELF_TUNABLES } from "../src/core/self/index.js";
 
 const PAGE = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder.`;
 const PAGE_TWO = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder two.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder two.`;
@@ -63,6 +63,13 @@ function withPage(body: string | null): void {
 
 function pageFile(body: string): string {
   const path = join(root, "page.md");
+  writeFileSync(path, body, "utf8");
+  return path;
+}
+
+/** A short version, in a file of its own beside the page's (2026-10-10). */
+function shortFile(body: string): string {
+  const path = join(root, "short.md");
   writeFileSync(path, body, "utf8");
   return path;
 }
@@ -171,7 +178,7 @@ describe("counterparts self-page", () => {
     c.store.close();
   });
 
-  test("a page past the hard limit is refused by the console, not cut", async () => {
+  test("a page past the write ceiling is refused by the console, not cut", async () => {
     withPage(PAGE);
     const c = consoleWith();
     const code = await run(
@@ -179,11 +186,51 @@ describe("counterparts self-page", () => {
       { io: c.io, env: {} },
     );
     expect(code).toBe(EXIT.refused);
-    expect(c.err.join("\n")).toContain(`past the ${String(PAGE_LIMIT_BYTES)}-byte limit`);
-    expect(c.err.join("\n")).toContain(`Say it in ${String(40_000 - PAGE_LIMIT_BYTES)} fewer bytes`);
+    expect(c.err.join("\n")).toContain("past the 16384-byte write ceiling");
+    expect(c.err.join("\n")).toContain(`Say it in ${String(40_000 - 16_384)} fewer bytes`);
     const after = Counterpart.open({ dir, observer: true });
     expect(after.selfPage()?.body).toBe(PAGE);
     after.store.close();
+  });
+
+  /**
+   * PAST ITS ROOM, THE CONSOLE KEEPS IT AND SAYS SO (2026-10-10), and --short
+   * gives it the short version sessions read on a day the wake has no room
+   * for the whole page — beside the page, or alone, added to it as it stands.
+   */
+  test("a page past its room is written and said; --short alone adds its short version; a read says what it has", async () => {
+    withPage(null);
+    // A short version alone, with no page to add it to, says that.
+    const nothing = consoleWith();
+    expect(await run(["self-page", "--write", `--short=${shortFile("## Core\n\nCore: placeholder.")}`, `--dir=${dir}`], { io: nothing.io, env: {} })).toBe(EXIT.refused);
+    expect(nothing.err.join("\n")).toContain("there is no page to add a short version to");
+    const long = `${PAGE}\n\n${"A placeholder paragraph of the page. ".repeat(200)}`.trim();
+    const wrote = consoleWith();
+    expect(await run(["self-page", "--write", `--file=${pageFile(long)}`, `--dir=${dir}`], { io: wrote.io, env: {} })).toBe(EXIT.ok);
+    const said = wrote.out.join("\n");
+    expect(said).toContain(`past its ${String(PAGE_ROOM_BYTES)}-byte room`);
+    expect(said).toContain("counterparts self-page --write --short <file>");
+
+    const short = "## Core\n\nCore: placeholder, said short.";
+    const added = consoleWith();
+    expect(await run(["self-page", "--write", `--short=${shortFile(short)}`, "--if-version=0", `--dir=${dir}`], { io: added.io, env: {} })).toBe(EXIT.ok);
+    expect(added.out.join("\n")).toContain("sessions read the short version");
+    const c = Counterpart.open({ dir, observer: true });
+    expect(c.selfPage()?.body).toBe(long);
+    expect(c.selfPage()?.short?.body).toBe(short);
+    c.store.close();
+
+    const read = consoleWith();
+    expect(await run(["self-page", `--dir=${dir}`], { io: read.io, env: {} })).toBe(EXIT.ok);
+    expect(read.out.join("\n")).toContain(`-byte short version written with it`);
+
+    // --short without --write is a usage error; a short version beside a page
+    // within its room is not kept, and the console says why.
+    const bare = consoleWith();
+    expect(await run(["self-page", `--short=${shortFile(short)}`, `--dir=${dir}`], { io: bare.io, env: {} })).toBe(EXIT.usage);
+    const within = consoleWith();
+    expect(await run(["self-page", "--write", `--file=${pageFile(PAGE)}`, `--short=${shortFile(short)}`, `--dir=${dir}`], { io: within.io, env: {} })).toBe(EXIT.ok);
+    expect(within.out.join("\n")).toContain("The short version was not kept: the page is within its room");
   });
 
   test("--clear unwrites the page, keeps it as a version, and --restore puts it back", async () => {

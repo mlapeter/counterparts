@@ -568,8 +568,10 @@ describe("the instruction the writer reads", () => {
     expect(text).toContain("version 0");
     expect(text).toContain("`ifVersion: 0`");
     expect(text).toContain("with no arguments to read it whole");
-    // The whole block stays small enough to ride beside a real wake.
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(1500);
+    // The whole block stays small enough to ride beside a real wake. (1,800
+    // since 2026-10-10: the writing rule asks for a short version past the
+    // page's room, in the same breath as the room itself.)
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(1800);
   });
 
   test("it names the session id, so the write can be recorded as the night's", () => {

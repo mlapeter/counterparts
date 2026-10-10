@@ -59,7 +59,7 @@ import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE } from "./facts.js";
 import { RECURRENCES } from "../../core/time.js";
-import { PAGE_LIMIT_BYTES } from "../../core/self/briefing.js";
+import { PAGE_ROOM_BYTES } from "../../core/self/briefing.js";
 
 /**
  * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
@@ -1134,8 +1134,7 @@ const SCOPE: ToolSpec = {
  */
 const SELF_PAGE: ToolSpec = {
   name: "self_page",
-  summary:
-    "Your own page — the prose that opens every wake under 'Who I am'. Call it with no arguments to read the page and when it was last revised; call it with a body to write the whole page anew. It has two headed parts by convention: a stable `## Core` that has to be earned, and a `## Lately` for what the last while has actually been like; any other `##` section the page grows (Us, How I work) is kept and shown the same way. While there is nothing to say, the honest page says it is still forming.",
+  summary: `Your own page — the prose that opens every wake under 'Who I am'. No arguments: read it and when it was last revised. With \`body\`: write the whole page anew — a stable \`## Core\` that has to be earned and a \`## Lately\` for what the last while has been like, by convention; any other \`##\` section is kept too. Aim under ${String(PAGE_ROOM_BYTES)} bytes: a longer page is kept whole, but on a day the wake has no room for it, sessions read a short version instead — so with a longer page send \`short\` too (under ${String(PAGE_ROOM_BYTES)}), or add one later with \`short\` alone.`,
   admission:
     "Call it to READ when you want the page as it stands rather than as the wake abridged it. Call it to WRITE when something you now know about yourself is not on the page and will still be true next month: a way of working that has held up, a correction the user made about you, a standing preference of theirs you keep rediscovering. Date the claims that need dating, say what made you believe them, and phrase what you have learned as practice — what you do now — rather than as praise.",
   negativeExamples: [
@@ -1181,9 +1180,9 @@ const SELF_PAGE: ToolSpec = {
       mechanizedBy: "src/core/self/index.ts#revisePage (SELF_PAGE_REVISED_EVENT / SELF_PAGE_REFUSED_EVENT -> store.appendEvent)",
     },
     {
-      claim: `The wake prints the page WHOLE, never cut. A page past ${String(PAGE_LIMIT_BYTES)} bytes (UTF-8) — the most the wake prints whole — is refused rather than trimmed, with the limit in the answer, because what gets trimmed at write time is the only copy: say it shorter and send it again. A wake configured too small for the page says so in one line and names this tool.`,
+      claim: `The wake never cuts the page. It prints it WHOLE when the day's room holds it — a page within ${String(PAGE_ROOM_BYTES)} bytes (UTF-8) always fits at the default ceiling — and otherwise, in this order, the short version written with this exact text, each \`##\` section's heading and first sentence, the headings alone, or one line; each says what it is, how big the page is, and that this tool reads it whole. A short version is kept only beside a page past that room, only within it, and only until the page is rewritten without one. A page past 16,384 bytes is refused, never trimmed.`,
       mechanizedBy:
-        "src/core/self/index.ts#revisePage (PAGE_MAX_BYTES -> too-large) + #pageBlock (whole, or briefing.ts#pageTooLargeLine) + src/core/self/briefing.ts#PAGE_LIMIT_BYTES",
+        "src/core/self/index.ts#revisePage (PAGE_MAX_BYTES -> too-large; short -> PAGE_META_SHORT) + #pageBlock (the ladder, briefing.ts#PageRung) + src/core/self/briefing.ts#PAGE_ROOM_BYTES",
     },
     {
       claim:
@@ -1206,7 +1205,11 @@ const SELF_PAGE: ToolSpec = {
       body: {
         type: "string",
         description:
-          `The WHOLE page, first person, in your own voice — \`## Core\` and \`## Lately\` by convention, and any other \`##\` section the page has grown. At most ${String(PAGE_LIMIT_BYTES)} bytes (UTF-8; an em dash or an accented letter is more than one): a longer page is refused, never cut, so tighten it before you send it. Omit it to read the page instead of writing it.`,
+          `The WHOLE page, first person, in your own voice — \`## Core\` and \`## Lately\` by convention, and any other \`##\` section the page has grown. Aim under ${String(PAGE_ROOM_BYTES)} bytes (UTF-8; an em dash or an accented letter is more than one): a longer page is kept whole — refused only past 16,384 — but on a day the wake has no room for it, sessions read its short version (\`short\`) or, without one, each section's heading and first sentence. Omit it to read the page instead of writing it.`,
+      },
+      short: {
+        type: "string",
+        description: `A SHORT VERSION of the page, for a page past ${String(PAGE_ROOM_BYTES)} bytes: under ${String(PAGE_ROOM_BYTES)} bytes, first person, the whole of who you are condensed — not the page's first part. Sessions wake with it on a day the wake has no room for the whole page, marked as the short version, with the way to read the whole. Send it beside \`body\`; or send it ALONE (no \`body\`) to add one to the page as it stands — pass \`ifVersion\` so it is refused if the page moved since you read it. Kept only while the page it was written with stands: a page rewritten without one shows its outline instead. Not kept beside a page within the room, which the wake shows whole.`,
       },
       reason: {
         type: "string",
@@ -1458,8 +1461,8 @@ const REFLECT: ToolSpec = {
       cites: { type: "array", items: { type: "string" }, description: "`finish`: the memory ids the entry rests on." },
       page: {
         type: "object",
-        description: "`finish`, optional: the self page rewritten whole, and the memory ids it rests on (the core first).",
-        properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
+        description: `\`finish\`, optional: the self page rewritten whole, and the memory ids it rests on (the core first). With a page past ${String(PAGE_ROOM_BYTES)} bytes, its \`short\` version too (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) — or \`short\` alone on a second \`finish\`, to add one to the page this reflection wrote.`,
+        properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } }, short: { type: "string" } },
       },
       share: {
         type: "object",

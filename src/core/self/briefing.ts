@@ -32,8 +32,9 @@
  *   - **Truncation is never mid-statement.** A statement is admitted whole or not
  *     at all — there is no `clip()` here on purpose. A half-sentence about who
  *     someone is, is not a smaller identity; it is a corrupted one. The same is
- *     true of the self page (2026-10-09): it prints whole, or one line says it
- *     did not fit and where to read it (`PAGE_LIMIT_BYTES`).
+ *     true of the self page (2026-10-09): every rung of its ladder is whole
+ *     text — the page, its short version, its outline, its headings, or one
+ *     line saying where to read it (`PageRung`, 2026-10-10).
  *   - **The header AND the tail sentinel each state the bundle's own true counts
  *     and bytes**, so a truncated injection is detectable from a truncation
  *     preview alone — from either end (§1 G2). Because both lines state a number
@@ -246,18 +247,50 @@ export function identityCoreLine(name: string): string {
  * — and the page carries its own date on its own line instead.
  */
 export interface PageBlock {
-  /** The page as it will be injected: the whole page, or — when the room
-   *  could not hold it whole — the one line that says so (`pageTooLargeLine`).
-   *  Never part of the page (2026-10-09). */
+  /**
+   * The page as it will be injected, on the rung the room allowed
+   * (`PageRung`, 2026-10-10): the whole page, the short version its writer
+   * wrote with it, each section's heading and first sentence, its headings
+   * alone, or the one line that says it did not fit (`pageTooLargeLine`).
+   * Every rung is whole text — never part of a sentence (2026-10-09).
+   */
   readonly text: string;
+  /**
+   * THE TOP LINE (2026-10-10, `pageTopLine`): what is below, the page's size,
+   * the exact line it ends with, and both doors to the whole page — so a
+   * reader whose copy was cut on the way (a host's preview) can tell. Null on
+   * the one-line rung, which is its own top line.
+   */
+  readonly top: string | null;
   /** The page's own "last revised" line, or null when the page carries no date. */
   readonly dateline: string | null;
-  /** True when the page did not print whole — `text` is then the line that
-   *  says so, and nothing of the page itself. */
+  /** THE END LINE (`pageEndLine`), after the dateline; null when `top` is. */
+  readonly end: string | null;
+  /** Which rung printed. */
+  readonly rung: PageRung;
+  /** True when the page did not print whole — any rung but `whole`. */
   readonly truncated: boolean;
   /** The page's own bytes, whole, whatever was rendered. */
   readonly wholeBytes: number;
 }
+
+/**
+ * THE PAGE'S FALLBACK LADDER (2026-10-10), first to last; `Self#pageBlock`
+ * takes the first that fits. Every rung is whole text, never a cut:
+ *
+ *   - `whole`    — the page, byte for byte;
+ *   - `short`    — the short version the page's writer wrote WITH this
+ *                  version of it (`SelfPage.short`, tied to the page's exact
+ *                  text, so a page rewritten without one never shows a stale
+ *                  one);
+ *   - `outline`  — each `##` section's heading and its first whole sentence
+ *                  (`page.ts#pageOutline`), mechanical;
+ *   - `headings` — the headings alone;
+ *   - `line`     — one line naming the page's size and both doors
+ *                  (`pageTooLargeLine`), its own top line.
+ */
+export const PAGE_RUNGS = ["whole", "short", "outline", "headings", "line"] as const;
+export type PageRung = (typeof PAGE_RUNGS)[number];
 
 /**
  * What "Who I am" prints BESIDE the ranked elements. Both fields are decided by
@@ -441,9 +474,15 @@ export interface BriefingResult extends Composed {
    *  a host misconfiguration, and the wake never fails the session (§1 G7). */
   readonly overBudget: boolean;
   /** The page as it RENDERED — null when no page was handed to this render. The
-   *  bytes are the injected ones (the line, when it did not fit), so what the
-   *  page cost this wake and its true size are both readable. */
-  readonly page: { readonly bytes: number; readonly truncated: boolean; readonly wholeBytes: number } | null;
+   *  bytes are the injected ones (its top and end lines included, or the one
+   *  line when nothing else fit), so what the page cost this wake, its true
+   *  size and the rung it printed on are all readable. */
+  readonly page: {
+    readonly bytes: number;
+    readonly truncated: boolean;
+    readonly wholeBytes: number;
+    readonly rung: PageRung;
+  } | null;
 }
 
 
@@ -658,8 +697,13 @@ export function compose(
         // than silently cut, because `counts.identity` would otherwise state a
         // number the bundle does not carry.
         if (page !== null) {
+          // The top line, the page on its rung, its date, then the end line
+          // the top line names (2026-10-10): a reader can tell a page that
+          // ended from one cut on the way.
+          if (page.top !== null) lines.push(page.top);
           lines.push(page.text);
           if (page.dateline !== null) lines.push(page.dateline);
+          if (page.end !== null) lines.push(page.end);
         } else {
           if (forming !== null) lines.push(forming);
           if (dayZero !== null) lines.push(identityCoreLine(dayZero));
@@ -1129,9 +1173,10 @@ export function render(
           identity.page === null
             ? null
             : {
-                bytes: byteLength(identity.page.text),
+                bytes: pageBlockBytes(identity.page),
                 truncated: identity.page.truncated,
                 wholeBytes: identity.page.wholeBytes,
+                rung: identity.page.rung,
               },
       };
     }
@@ -1212,6 +1257,23 @@ export function readSentinel(text: string): SentinelReading {
 export const WAKE_SYSTEM = "Counterparts";
 
 /**
+ * THE WHOLE WAKE'S OWN WAY BACK (2026-10-10), the preface's last sentence.
+ *
+ * Measured on Claude Code 2.1.296 (host numbers: `adapters/config.ts`
+ * `HOST_OUTPUT_CHARS`, `HOST_PREVIEW_CHARS`): a hook field over the host's cap
+ * is saved to a file, and the model is shown a "too large, saved to <path>"
+ * note and about the first 2,000 characters — and nothing tells it to read
+ * the file, which holds all of it. So the wake says so itself, where any
+ * preview carries it: in the preface, the line after the opening comment. It
+ * names the end (`counterparts:wake/end`, the sentinel every wake closes on)
+ * and the door (the file the host made). No other door reads a session's
+ * composed wake today (self INTERFACE-GAPS §13). The self page's own top line
+ * (`pageTopLine`) is the second layer, for a cut inside the wake.
+ */
+export const WAKE_WHOLE_SENTENCE =
+  "If a note says this was too large and saved to a file, read that file: it holds all of this, down to the counterparts:wake/end line.";
+
+/**
  * The room the composed budget leaves for the preface, in bytes. It is the
  * preface's OWN cap, asserted by a test at the widest plausible day, date and
  * store size — one number, not a lane cap that can drift from what it bounds.
@@ -1221,8 +1283,16 @@ export const WAKE_SYSTEM = "Counterparts";
  * 126 bytes (a six-digit day and a billion rows on both counts), and a cap two
  * bytes above its own worst case is a cap that fails the first time the line
  * gains a word.
+ *
+ * Raised again on 2026-10-10 by exactly the whole-wake sentence
+ * (`WAKE_WHOLE_SENTENCE`) and its space, which the line now ends with: 160 +
+ * 133 = 293. The page's room is derived through this number
+ * (`deliveryReserveBound`), so the sentence is paid for there too.
  */
-export const PREFACE_RESERVE_BYTES = 160;
+export const PREFACE_RESERVE_BYTES =
+  // Measured with an encoder of its own: `identity.ts#byteLength` may not be
+  // initialised yet when an import cycle evaluates this module first.
+  160 + new TextEncoder().encode(` ${WAKE_WHOLE_SENTENCE}`).length;
 
 /**
  * THE ROOM THE WAKE'S OWN FURNITURE TAKES AROUND THE PAGE, in bytes — the
@@ -1273,15 +1343,136 @@ export function deliveryReserveBound(budgetBytes: number): number {
 }
 
 /**
+ * THE END LINE OF EACH RUNG (2026-10-10). Fixed words, so the top line's
+ * quote of it costs a known number of bytes and a reader can match it
+ * exactly. Printed after the page's dateline. The one-line rung has none: it
+ * is its own top line.
+ */
+export const PAGE_END_LINES: Readonly<Record<Exclude<PageRung, "line">, string>> = {
+  whole: "(End of my page.)",
+  short: "(End of the short version.)",
+  outline: "(End of the outline.)",
+  headings: "(End of the headings.)",
+};
+
+/** The end line a rung prints, or null for the one-line rung. */
+export function pageEndLine(rung: PageRung): string | null {
+  return rung === "line" ? null : PAGE_END_LINES[rung];
+}
+
+/** Both doors to the whole page, in the words every rung uses. */
+const PAGE_DOORS = "the self_page tool or 'counterparts self-page'";
+
+/**
+ * THE TOP LINE OF EACH RUNG (2026-10-10): what follows, the page's size, the
+ * exact line it ends with, and — if that line is missing — that it was cut
+ * on the way, and both doors to the whole page. It is what protects against
+ * the cuts this package does not make: a host's preview keeps the head of
+ * what it was handed, so the top line survives the cut it describes.
+ * `wholeBytes` is the page's own size, whatever the rung shows. Plain words,
+ * for whoever reads the wake. Null on the one-line rung.
+ */
+export function pageTopLine(rung: PageRung, wholeBytes: number): string | null {
+  const n = groupDigits(wholeBytes);
+  const end = pageEndLine(rung);
+  if (end === null) return null;
+  const ends = `It ends with "${end}" — if you don't see that line, it was cut off`;
+  switch (rung) {
+    case "whole":
+      return `(My page, ${n} bytes. ${ends}: read it whole with ${PAGE_DOORS}.)`;
+    case "short":
+      return `(The short version of my ${n}-byte page, too long for this wake. ${ends}. Read the whole page with ${PAGE_DOORS}.)`;
+    case "outline":
+      return `(My page is ${n} bytes, too long for this wake: here is each section's heading and first sentence. ${ends}. Read the whole page with ${PAGE_DOORS}.)`;
+    case "headings":
+      return `(My page is ${n} bytes, too long for this wake: here are its section headings. ${ends}. Read the whole page with ${PAGE_DOORS}.)`;
+    case "line":
+      return null;
+  }
+}
+
+/** Each rung's top line (and the last rung's one line), as a reader finds it again. */
+const PAGE_TOP_READERS: readonly (readonly [PageRung, RegExp])[] = [
+  ["whole", /^\(My page, ([\d,]+) bytes\. It ends with "/],
+  ["short", /^\(The short version of my ([\d,]+)-byte page, too long for this wake\./],
+  ["outline", /^\(My page is ([\d,]+) bytes, too long for this wake: here is each section's heading and first sentence\./],
+  ["headings", /^\(My page is ([\d,]+) bytes, too long for this wake: here are its section headings\./],
+  ["line", /^\(My page is (\d+) bytes — no room for it (?:whole )?in this wake\./],
+];
+
+/**
+ * WHICH RUNG A WAKE PRINTED THE PAGE ON, read back off its own words
+ * (2026-10-10) — for a reader of a published bundle that has no render row
+ * (the dashboard's wake costs). The first top line found, and the page's
+ * size it states; null when the wake carries none (no page, or a bundle
+ * published before the ladder). Kept beside `pageTopLine` so the wording and
+ * its reader change together; a test round-trips every rung. Pure.
+ */
+export function readPageTopLine(text: string): { rung: PageRung; wholeBytes: number } | null {
+  for (const line of text.split("\n")) {
+    for (const [rung, re] of PAGE_TOP_READERS) {
+      const m = re.exec(line);
+      if (m !== null) return { rung, wholeBytes: Number((m[1] ?? "0").replace(/,/g, "")) };
+    }
+  }
+  return null;
+}
+
+/**
+ * A LINE OF THE WAKE'S OWN FRAME AROUND THE PAGE (review of #363): a rung's
+ * top line or end line, or the one line, standing whole on a line of its own.
+ * A session that copies its page out of the wake and back through a writer
+ * would otherwise store them, and every wake after would print a stale size
+ * and an end line in the middle of the page — after which a cut would look
+ * whole. Left out where the page is written and where it is rendered, like
+ * its datelines (`Self#ownWords`). A sentence that only mentions one is not
+ * one. Pure.
+ */
+export function isPageFrameLine(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith("(") || !t.endsWith(")")) return false;
+  if ((Object.values(PAGE_END_LINES) as readonly string[]).includes(t)) return true;
+  return PAGE_TOP_READERS.some(([, re]) => re.test(t));
+}
+
+/**
+ * THE ROOM A PAGE BLOCK TAKES in "Who I am", in bytes: its top line, its text
+ * and its end line, with the newlines that join them. The dateline is not
+ * counted here — it is furniture, inside `PAGE_FLOOR_RESERVE_BYTES`. Pure.
+ */
+export function pageBlockBytes(block: Pick<PageBlock, "top" | "text" | "end">): number {
+  return (
+    byteLength(block.text) +
+    (block.top === null ? 0 : byteLength(block.top) + 1) +
+    (block.end === null ? 0 : byteLength(block.end) + 1)
+  );
+}
+
+/**
+ * THE MOST THE TOP AND END LINES TAKE beside the page itself, in bytes
+ * (2026-10-10) — on the two rungs a writer writes for, `whole` and `short`,
+ * at a size wider than the write ceiling lets the top line state (999,999
+ * bytes against 16,384). Structural, not tunable, and measured: the widest is
+ * the short version's, 261, and a test holds both under this. It is paid for
+ * in the page's room (`pageRoomBytes`), so the room the writer is told is the
+ * room the page itself has, top and end lines already counted. (The two
+ * mechanical rungs' frames are wider — no writer aims at them, and the wake
+ * measures every rung exactly.)
+ */
+export const PAGE_FRAME_RESERVE_BYTES = 264;
+
+/**
  * THE PAGE THE WAKE PRINTS WHOLE at a host ceiling, whatever the delivery
  * reserves that day, in bytes (2026-10-09): the ceiling, less the most the
  * delivery can hold back (`deliveryReserveBound`), less the furniture the wake
- * wraps the page in (`PAGE_FLOOR_RESERVE_BYTES`). `Self#pageBlock` prints a
- * page whole whenever it fits the room the composition actually has, which is
- * never less than this. Grows with the ceiling. Pure.
+ * wraps the page in (`PAGE_FLOOR_RESERVE_BYTES`), less its top and end lines
+ * (`PAGE_FRAME_RESERVE_BYTES`, 2026-10-10). `Self#pageBlock` prints a page
+ * whole whenever it fits the room the composition actually has, which is
+ * never less than this. A short version within it prints whole the same way.
+ * Grows with the ceiling. Pure.
  */
 export function pageRoomBytes(hostBudgetBytes: number): number {
-  return hostBudgetBytes - deliveryReserveBound(hostBudgetBytes) - PAGE_FLOOR_RESERVE_BYTES;
+  return hostBudgetBytes - deliveryReserveBound(hostBudgetBytes) - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES;
 }
 
 /**
@@ -1297,26 +1488,32 @@ export function pageRoomBytes(hostBudgetBytes: number): number {
 export const PAGE_HOST_BUDGET_BYTES = 9_000;
 
 /**
- * THE SELF PAGE'S LIMIT, in bytes (2026-10-09): the most a page may be written
- * as, and so the most the wake ever has to print — `pageRoomBytes` at
- * `PAGE_HOST_BUDGET_BYTES`, 6,078. One number for both ends, derived rather
- * than chosen, so the writer's limit and the wake's guarantee cannot drift
- * apart: a page any door accepts prints whole, byte for byte, at that ceiling
- * or a larger one, under the widest reserves the delivery can take.
+ * THE SELF PAGE'S ROOM, in bytes (2026-10-09; a target, not a limit, since
+ * 2026-10-10): `pageRoomBytes` at `PAGE_HOST_BUDGET_BYTES`. One number for
+ * both ends, derived rather than chosen, so what the writer is told and what
+ * the wake guarantees cannot drift apart: a page within it prints whole, byte
+ * for byte, top and end lines included, at that ceiling or a larger one,
+ * under the widest reserves the delivery can take.
  *
- * Why: #350's second reviewer measured the old pair apart — the wake's cap was
- * `min(6,144, budget − 512)`, which under the widest reserves at 9,000 is
- * 6,078, while the writer accepted up to 16,384 — so a page between them was
- * cut. A configured ceiling below 9,000 can still be too small for a page
- * under this limit; that wake says so in one line (`pageTooLargeLine`) and
- * never prints part of the page.
+ * The writer is told it as a TARGET ("aim under N bytes"), and a page past it
+ * is kept whole — refused only past the write ceiling (`PAGE_MAX_BYTES`,
+ * 16,384). Past the room the wake steps down the ladder (`PageRung`) on a day
+ * it cannot hold the page, so the writer is asked for a short version within
+ * this same number, written with the page.
+ *
+ * Why one number: #350's second reviewer measured the old pair apart — the
+ * wake's cap was `min(6,144, budget − 512)`, which under the widest reserves at
+ * 9,000 is 6,078, while the writer accepted up to 16,384 — so a page between
+ * them was cut. #358 then refused every page past the room, and the page's
+ * history showed the stopgap losing by a few hundred bytes each time (7,012,
+ * 6,767, then 6,085, each trimmed by hand).
  */
-export const PAGE_LIMIT_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);
+export const PAGE_ROOM_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);
 
 /**
- * The one short line a wake with no room for the WHOLE page prints instead of
- * it (2026-10-09: instead of any cut — a fragment of a self is not a smaller
- * self). It names both doors to the whole page.
+ * THE LAST RUNG (2026-10-09): the one short line a wake with no room for any
+ * other prints instead of the page — never a fragment of it. It names the
+ * page's size and both doors, so it is its own top line.
  */
 export function pageTooLargeLine(bytes: number): string {
   return `(My page is ${bytes} bytes — no room for it whole in this wake. Read it with the self_page tool, or 'counterparts self-page'.)`;
@@ -1363,12 +1560,13 @@ export function groupDigits(n: number): string {
 }
 
 /** One line, under `PREFACE_RESERVE_BYTES`, stating what the body cannot — and
- *  saying WHICH population each of its two counts is (U4). */
+ *  saying WHICH population each of its two counts is (U4) — then how to read
+ *  all of it when a host cut it (`WAKE_WHOLE_SENTENCE`, 2026-10-10). */
 export function prefaceLine(f: PrefaceFacts): string {
   const when = f.date === undefined ? `day ${f.day}` : `day ${f.day} (${f.date})`;
   return (
     `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories of ` +
-    `${groupDigits(f.liveRows)} live rows — composed at the last boundary.`
+    `${groupDigits(f.liveRows)} live rows — composed at the last boundary. ${WAKE_WHOLE_SENTENCE}`
   );
 }
 

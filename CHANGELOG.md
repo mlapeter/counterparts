@@ -10,6 +10,36 @@
   it doesn't act as if it remembers.
   Nothing else changes: no memories are loaded or recorded, nothing is written, other
   hooks stay silent, and a folder turned `off` stays completely silent.
+- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
+  every mechanism it proves: a turn where a matching mood brought a memory closer lights
+  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
+  Gist, Interference and Consolidation beside Dreaming.
+- **A long self page is kept, not refused, and the wake steps down to something whole.**
+  0.3.15 refused a page past 6,078 bytes. Now the page is kept whole up to 16,384 bytes,
+  and the wake shows the first of these that fits, each one whole: the page; a short
+  version its writer wrote with it; each section's heading and first sentence; the
+  headings alone; or one line saying where to read it. Each starts with a line giving the
+  page's size and the line it ends with — "if you don't see that line, it was cut off:
+  read it whole with the self_page tool or `counterparts self-page`" — and ends with that
+  line. The page's room at the default 9,000-byte ceiling is now 5,681 bytes (it was
+  6,078; the new top and end lines and the wake's opening line take the difference): a
+  page within it always shows whole, even on a day the wake also holds handoffs and
+  "Work here" lines, and a longer one still shows whole on most days, borrowing the room
+  held for "Work here". The nightly writer, the reflection and the self_page tool are told
+  to aim under it and, when a page runs past it, asked for a short version in the same
+  call (the tool's new `short`, the console's new `--short <file>`). A short version
+  belongs to the page it was written with — a page rewritten without one shows its
+  headings and first sentences, never an old short version — and crosses the same checks
+  as the page, a reflection's included (no confidential memory's words, no dream marks).
+  Adding a short version on its own never undoes a page written in between, and the
+  wake's own top and end lines are never stored as part of the page. Doctor's Self page
+  line says what the last wake showed: green for the page or its short version, amber
+  below, with what to do. Every wake's opening line now also says: if a note says this
+  was too large and saved to a file, read that file — which is what Claude Code does with
+  a hook's output past 10,000 characters (measured on 2.1.296: the model then sees only
+  the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
+  refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
+  ceiling, because of those fixed lines; the default is 9,000.
 - **Every `counterparts scope` command Claude is shown now names the folder.** In a
   folder that is off or paused, the memory tools' refusal used to tell Claude to run
   `counterparts scope . --resume`, and the question a new folder gets in its first session
@@ -38,6 +68,29 @@
   start, and a prompt Claude Code gives an id, are sent only once, so a second copy within
   15 seconds now always steps aside. Doctor's "Installed twice" line no longer says
   nothing was delivered twice; its fix also names `~/.claude/settings.json`.
+
+## 0.3.15 — 2026-10-10
+
+The self page is never cut in the wake. A page may now be at most 6,078 bytes, which the
+wake prints whole at its default 9,000-byte ceiling; a longer one is refused and written
+again shorter. A page written before this that is longer still prints whole, borrowing the
+room held for "Work here", and doctor's Self page line is amber until the next revision
+comes in under the limit. With the plugin and the npm install both connected, each event
+runs once. `counterparts connect`, and `install` at a terminal, now rewrite Claude
+Desktop's entry too, and doctor's Runtime line reads it. **If you connected Claude Desktop,
+quit it and run `counterparts connect` once after upgrading**; until then doctor's Runtime
+line is amber. Claude Code's hooks and server registration are the same as 0.3.14's, so
+with Claude Code alone there is nothing to run (coming from 0.3.13 or earlier, run
+`connect` once, as 0.3.14 said). The Claude Code plugin brings the sidebar mod (v0.1).
+**No change to the store's format (still v12)**: the hooks keep their claims in a small
+file of their own, `sessions/claims/hook-claims.sqlite`, which 0.3.14 leaves alone. Going
+back to 0.3.14 is the order in QUICKSTART's "Going back to an earlier version":
+`counterparts disconnect` while 0.3.15 is still installed, then the 0.3.14 reinstall, then
+`counterparts connect`. The hook and server commands are the same in both versions, and
+Claude Desktop's rewritten entry runs on 0.3.14 as it is.
+
+The self page in the wake (#358).
+
 - **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
   which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
   a day the wake also holds room for handoffs and "Work here" lines. Before, a page could
@@ -54,6 +107,9 @@
   long and the run moves on without sending it again shorter, that night now reads as
   failed, with the numbers, instead of "nothing to say". And "Still open" keeps its
   "N more" count beside its first item when a long page leaves no other room for it.
+
+Claude Desktop's entry, and the way back (#354, #356).
+
 - **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
   skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
   Code's server registration to match. It left alone the entry that
@@ -69,17 +125,13 @@
   is open. Its last line no longer promises a green doctor while Desktop's entry is left
   as it was. The scripted install (`--no-connect`, or not at a terminal) still reads no
   host file.
-- **Facts recall reads "by 1/5" asked in late December as the coming January.** A date
-  with no year after "by", "until" or "before" now takes whichever year puts it nearest
-  today: "by 1/5" asked on 12-28 runs through next year's January 5, where it ran through
-  this year's and left out the year since. "Until Dec 30" asked on January 3 is still the
-  one four days back. Asked in early October, "by 1/5" and "finish by 1/2" now mean the
-  coming January too. "Since" and "after" still reach back to the last time the date came
-  round.
 - **Going back to an earlier version is in the quickstart** ("Going back to an earlier
   version"): `disconnect` first, then the reinstall, then `connect`, and
   `install --host claude-desktop` again if you use Claude Desktop. Done in the other
   order, every hook breaks and the older version's doctor still reads green.
+
+One delivery per event when two wirings are live (#355, #359).
+
 - **With the plugin and the npm install both connected, each event now runs once.**
   The plugin is meant to step aside when the npm install's hooks are in your settings.
   A plugin from before 0.3.14 didn't recognise the hook lines 0.3.14's `connect` writes,
@@ -91,20 +143,29 @@
   exits without output, between any two versions from this one on. The plugin stepping
   aside is the main guard; the claim catches a second hook that runs at the same time,
   but on a busy machine one that starts after the first has finished can still deliver
-  again (always caught for a session's first start and an identified prompt). The
-  claims are kept in a small file of their own in the store's `sessions` folder, so
-  the background worker writing to the store doesn't hold a claim up. With one install
+  again. The claims are kept in a small file of their own in the store's `sessions`
+  folder, so the background worker writing to the store doesn't hold a claim up. With one install
   nothing changes; the claim adds two small writes per event, about a third of a
   millisecond.
   Doctor has a new amber line, "Installed twice", when a hook stepped aside this way in
   the last week, and says how to keep just one install. No change to the store's format.
+
+Recall (#356).
+
+- **Facts recall reads "by 1/5" asked in late December as the coming January.** A date
+  with no year after "by", "until" or "before" now takes whichever year puts it nearest
+  today: "by 1/5" asked on 12-28 runs through next year's January 5, where it ran through
+  this year's and left out the year since. "Until Dec 30" asked on January 3 is still the
+  one four days back. Asked in early October, "by 1/5" and "finish by 1/2" now mean the
+  coming January too. "Since" and "after" still reach back to the last time the date came
+  round.
+
+The plugin's sidebar (#342).
+
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
   layout, a pane beside the transcript shows the brain turning in braille, the twelve
   mechanisms, search, and what this session kept and recalled (with the night's dreams and
-  fading, and other sessions folded into one line). Each event is one row and lights every
-  mechanism it proves: a turn where a matching mood brought a memory closer lights Emotion
-  beside Retrieval, and a dream that wrote a gist and merged near-copies lights Gist,
-  Interference and Consolidation beside Dreaming. It also has two switches,
+  fading, and other sessions folded into one line). It also has two switches,
   "Counterparts memory · this folder" and "Claude Code's own memory". Pausing Counterparts
   asks first; a folder paused for every session shows it in amber in the pane and says so
   in the status line; a state the sidebar hasn't read yet never shows as on. `‹` makes it

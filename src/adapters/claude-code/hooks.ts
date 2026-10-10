@@ -196,7 +196,7 @@ export interface HookResult {
    * blocked moment grew back into two asks (§13 G3).
    *
    * SessionStart uses the same field for the first-launch scope question
-   * (`SCOPE_ASK`, G41) and, since S2, for the nightly page writer's block. It
+   * (`scopeAsk`, G41) and, since S2, for the nightly page writer's block. It
    * is the same field for the same reason: it is the one channel that reaches
    * the model WITHOUT being inside the wake bundle, whose byte count and tail
    * line are stated by its own sentinel.

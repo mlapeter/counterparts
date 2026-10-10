@@ -109,9 +109,8 @@ export const REFLECT_TUNABLES = {
   JOURNAL_CHARS: 12_000,
   /**
    * THE SELF PAGE IS HANDED WHOLE (2026-09-28: was cut at 6,000 characters
-   * while a page could be 16,384 bytes; since 2026-10-09 a page is written at
-   * most `PAGE_LIMIT_BYTES`, 6,078) — a reflection that may rewrite the page
-   * reads all of it.
+   * while a page may be 16,384 bytes; it aims under `PAGE_ROOM_BYTES` since
+   * 2026-10-10) — a reflection that may rewrite the page reads all of it.
    */
   /** WHAT THE DREAM SAW (2026-09-28): characters of each memory's line. */
   SAW_CHARS: 240,
@@ -360,10 +359,24 @@ export interface ReflectContext {
    * since 2026-09-28, not the nightly writer's `writer`). Returns
    * the new version, or the refusal.
    */
-  readonly writePage: (body: string, opts: { reason: string; session: string | null; model: string | null; reflection: string }) =>
-    | { ok: true; version: number }
-    /** On `too-large`, the page's bytes and the limit, so the retry can be told how much to take out. */
-    | { ok: false; reason: string; bytes?: number; limit?: number };
+  readonly writePage: (
+    /** The page, or null to add `short` to the page as it stands (`Self#addPageShort`, 2026-10-10). */
+    body: string | null,
+    opts: {
+      reason: string;
+      session: string | null;
+      model: string | null;
+      reflection: string;
+      /** The page's short version (2026-10-10), kept only beside a page past its room. */
+      short?: string;
+      /** With `body: null`: the version the short version was written for. */
+      ifVersion?: number;
+    },
+  ) =>
+    /** `note`: what the page's room means for this write (`self/pageRoomNote`), or null. */
+    | { ok: true; version: number; note?: string | null }
+    /** On `too-large`, the page's bytes and the ceiling, so the retry can be told how much to take out. */
+    | { ok: false; reason: string; bytes?: number; limit?: number; note?: string | null };
   readonly emit?: (name: string, ref?: string, data?: Record<string, string | number | boolean | null>) => void;
 }
 
@@ -376,7 +389,8 @@ export interface ReflectFinish {
   readonly entry?: string;
   readonly cites?: readonly string[];
   readonly share?: { readonly text?: string; readonly cites?: readonly string[] } | null;
-  readonly page?: { readonly text?: string; readonly cites?: readonly string[] } | null;
+  /** `short` (2026-10-10): the page's short version, for a page past its room — beside `text`, or alone on a later `finish` to add one to the page this reflection wrote. */
+  readonly page?: { readonly text?: string; readonly cites?: readonly string[]; readonly short?: string } | null;
   readonly feelings?: readonly {
     readonly id?: string;
     readonly core?: string;
@@ -775,7 +789,7 @@ export class Reflections {
     const pageLine =
       this.ctx.pageWrites === false
         ? `- page: not tonight — the owner has the page writer off, so the self page is not rewritten. Your entry and share still count.`
-        : `- page (optional, and lean toward writing it): ${earlier}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE}`;
+        : `- page (optional, and lean toward writing it): ${earlier}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE} Here the short version is page.short.`;
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (the craft: how a job is done) or world — with why. Only me, us and owner can become core. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
@@ -1121,30 +1135,96 @@ export class Reflections {
           `The page repeats "${confidential.run}" from confidential memory ${confidential.id}, and the page is read in every session: say it another way and send the page again.`,
         );
       } else {
+        // THE SHORT VERSION CROSSES THESE GATES TOO (review of #363): it is
+        // injected into every wake exactly like the page. One that fails them
+        // is not sent, and never costs the page — the note says why, and the
+        // page's own note asks for another.
+        const shortSent = (input.page?.short ?? "").trim();
+        const shortWhy = shortSent.length === 0 ? null : this.shortRefusal(shortSent, shown);
+        const shortText = shortWhy === null ? shortSent : "";
         const w = this.ctx.writePage(pageText, {
           reason: `reflection ${row.id}${row.dream_id === null ? "" : ` after dream ${row.dream_id}`}`,
           session: row.session,
           model: input.model ?? row.model,
           reflection: row.id,
+          ...(shortText.length === 0 ? {} : { short: shortText }),
         });
         if (w.ok) {
+          // PAST ITS ROOM, SAID (2026-10-10): the page is kept, and the note
+          // asks for a short version when none was kept with it.
+          const notes = [
+            ...(restsOnCore
+              ? []
+              : [`It cites none of the core memories you were shown (${coreShown.slice(0, 5).join(", ")}${coreShown.length > 5 ? ", …" : ""}); the page is meant to rest on them.`]),
+            ...(shortWhy === null ? [] : [`The short version was not kept: it ${shortWhy.why}.`]),
+            ...(w.note === undefined || w.note === null ? [] : [w.note]),
+          ];
           page = {
             written: true,
             reason: "rewritten",
             version: w.version,
-            ...(restsOnCore
-              ? {}
-              : { note: `It cites none of the core memories you were shown (${coreShown.slice(0, 5).join(", ")}${coreShown.length > 5 ? ", …" : ""}); the page is meant to rest on them.` }),
+            ...(notes.length === 0 ? {} : { note: notes.join(" ") }),
           };
         } else if (w.reason === "too-large" && w.bytes !== undefined && w.limit !== undefined) {
-          // TIGHTEN, NEVER CUT (2026-10-09): the limit is the most the wake
-          // prints whole, and nothing here shortens the page for it.
+          // PAST THE CEILING (16,384), NEVER CUT: nothing here shortens the
+          // page for it.
           refuse(
             w.reason,
-            `The page is ${String(w.bytes)} bytes, past the ${String(w.limit)}-byte limit — the most the wake prints whole. Say it in ${String(w.bytes - w.limit)} fewer bytes (tighten, merge, or drop what no longer holds) and send the page again.`,
+            `The page is ${String(w.bytes)} bytes, past the ${String(w.limit)}-byte write ceiling. Say it in ${String(w.bytes - w.limit)} fewer bytes (tighten, merge, or drop what no longer holds) and send the page again.`,
           );
         } else {
           refuse(w.reason, `The self page refused it (${w.reason}).`);
+        }
+      }
+    } else if ((input.page?.short ?? "").trim().length > 0) {
+      // A SHORT VERSION ALONE (2026-10-10), on a later `finish`: added to the
+      // page this reflection wrote, as the note on that write asked — tied to
+      // its version, so a page somebody rewrote since is not given it.
+      const shortWhy = this.shortRefusal((input.page?.short ?? "").trim(), shown);
+      if (earlierPage === null) {
+        page = {
+          written: false,
+          reason: "short-needs-page",
+          version: null,
+          detail: "A short version goes with the page this reflection wrote: send page.text with page.short.",
+        };
+        pageRefused = true;
+      } else if (this.ctx.pageWrites === false) {
+        page = {
+          written: false,
+          reason: "page-writer-off",
+          version: earlierPage,
+          detail: "The owner has the page writer off, so the self page is not rewritten. The page written earlier stands.",
+        };
+        pageRefused = true;
+      } else if (shortWhy !== null) {
+        // The same gates as the page's, and the same refusals (review of #363).
+        page = { written: false, reason: shortWhy.reason, version: earlierPage, detail: `The short version ${shortWhy.why}. The page written earlier stands.` };
+        pageRefused = true;
+      } else {
+        const w = this.ctx.writePage(null, {
+          reason: `reflection ${row.id}: added a short version`,
+          session: row.session,
+          model: input.model ?? row.model,
+          reflection: row.id,
+          short: (input.page?.short ?? "").trim(),
+          ifVersion: earlierPage,
+        });
+        if (w.ok) {
+          page = {
+            written: true,
+            reason: "short-added",
+            version: w.version,
+            ...(w.note === undefined || w.note === null ? {} : { note: w.note }),
+          };
+        } else {
+          page = {
+            written: false,
+            reason: w.reason,
+            version: earlierPage,
+            detail: `${w.note ?? `The short version was not added (${w.reason}).`} The page written earlier stands.`,
+          };
+          pageRefused = true;
         }
       }
     }
@@ -1724,6 +1804,26 @@ export class Reflections {
     const head = doc.title !== undefined && doc.title.trim().length > 0 ? `${doc.title.trim()} — ` : "";
     const flat = `${head}${doc.body}`.replace(/\s+/g, " ").trim();
     return { id, text: clipWire(flat, REFLECT_TUNABLES.SAW_CHARS) };
+  }
+
+  /**
+   * WHY A SHORT VERSION MAY NOT GO WITH THE PAGE, or null (review of #363):
+   * the page's own reflection gates — the dream's mark, a confidential
+   * memory's words — since a short version is read by every session the page
+   * would have been. `why` reads after "The short version" or "it".
+   */
+  private shortRefusal(text: string, shown: ReadonlySet<string>): { reason: string; why: string } | null {
+    if (carriesDreamMark(text)) {
+      return { reason: "dream-mark-in-text", why: `carries the dream's mark (${DREAM_MARK}…) — take it out` };
+    }
+    const confidential = this.quotesConfidential(text, shown);
+    if (confidential !== null) {
+      return {
+        reason: "confidential-words-on-the-page",
+        why: `repeats "${confidential.run}" from confidential memory ${confidential.id}, and it is read in every session — say it another way`,
+      };
+    }
+    return null;
   }
 
   /**

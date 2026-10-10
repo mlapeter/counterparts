@@ -11,15 +11,15 @@
  * one host's injection cliff; in v2 the ceiling is a host capability the caller
  * reports (contract §4, scar §2.18). `BriefingRequest.budgetBytes` is required at
  * the call, and there is no constant anywhere in this module to fall back to.
- * (`briefing.ts#PAGE_HOST_BUDGET_BYTES` sizes the page's write limit; nothing
- * composes against it.)
+ * (`briefing.ts#PAGE_HOST_BUDGET_BYTES` sizes the page's room, the target its
+ * writer is told; nothing composes against it.)
  *
  * Structural (never tunable, never ablatable): the composed budget, the
  * header/sentinel pair, the trim order existing and being declared, the freeze
  * itself, the observer refusal, pre-render-not-render-on-wake.
  */
 
-import { PAGE_LIMIT_BYTES } from "./briefing.js";
+import { PAGE_ROOM_BYTES } from "./briefing.js";
 
 export interface SelfTunables {
   // ── briefing lanes ────────────────────────────────────────────────────────
@@ -87,19 +87,28 @@ export interface SelfTunables {
 
   // ── the self page (plan 2026-09-18, S1) ───────────────────────────────────
   /**
-   * THE WRITE LIMIT, in BYTES (UTF-8). A revision larger than this is refused
-   * with a durable row rather than cut, because the thing that gets cut at
-   * write time is the only copy — the writer says it shorter and sends it
-   * again.
+   * THE WRITE CEILING, in BYTES (UTF-8): a sanity bound, not the page's room.
+   * A revision larger than this is refused with a durable row rather than cut,
+   * because the thing that gets cut at write time is the only copy.
    *
-   * Defaults to `briefing.ts#PAGE_LIMIT_BYTES` (2026-10-09): the page the wake
-   * prints whole at the 9,000-byte ceiling under the widest delivery reserves,
-   * so a page any door accepts is never cut in the wake. It was 16,384 beside a
-   * separate wake cap of 6,144 (`PAGE_WAKE_BYTES`, gone): a page between the
-   * two was accepted, warned, and printed cut. Overridden only by tests; a
-   * value above the default gives up that guarantee.
+   * 16,384 — as it was until 2026-10-09, when #358 lowered it to the room the
+   * wake guarantees (6,078) as a stopgap and the writer kept missing it by a
+   * few hundred bytes. Since 2026-10-10 the room is a TARGET
+   * (`PAGE_ROOM_BYTES`) and a page past it is kept whole: the wake steps down
+   * a ladder of whole texts instead (`briefing.ts#PageRung`).
    */
   PAGE_MAX_BYTES: number;
+  /**
+   * THE PAGE'S ROOM, in BYTES (UTF-8), the target its writer is told: "aim
+   * under N; past it, sessions read a short version instead". Defaults to
+   * `briefing.ts#PAGE_ROOM_BYTES`, the page the wake prints whole — top and
+   * end lines included — at the 9,000-byte ceiling under the widest delivery
+   * reserves. A page past it is kept; a short version is kept with it only
+   * then, and only within this same number. Overridden only by tests; a value
+   * above the default gives up the guarantee that a page within it prints
+   * whole on every day.
+   */
+  PAGE_ROOM_BYTES: number;
   /** Calendar days after which the wake says the page has not been revised.
    *  CALENDAR, not lived: the lived clock has run seven days across fifteen
    *  calendar ones on the owner's own store, so a lived window would report a
@@ -222,7 +231,8 @@ export const SELF_TUNABLES: SelfTunables = {
   HINT_RECOVERY_DAYS: 3,
   HINT_HABITUATION: 1,
 
-  PAGE_MAX_BYTES: PAGE_LIMIT_BYTES,
+  PAGE_MAX_BYTES: 16_384,
+  PAGE_ROOM_BYTES,
   PAGE_STALE_DAYS: 14,
   PAGE_EMPTY_SHOWS_LIST: true,
   PAGE_ON_EGRESS: true,

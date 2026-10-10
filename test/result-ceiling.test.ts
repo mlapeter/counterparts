@@ -33,17 +33,14 @@ import { Counterpart, MCP_OVERSIZE_EVENT, MCP_PART_EVENT } from "../src/core/cou
 import { DREAM_TUNABLES, REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
 import { BRIEFING_KEY, pageWriterNight } from "../src/core/self/index.js";
-import { Self } from "../src/core/self/index.js";
-import { episodeGate } from "../src/core/bridge.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 /**
- * A page written BEFORE the limit (2026-10-09, `PAGE_LIMIT_BYTES`), when the
- * seam took up to 16 KB: a store can still hold one, and the night has to
- * carry it whole. Written the way it was then — the seam at its old limit.
+ * A long page, up to the 16 KB write ceiling: past its room it is kept as it
+ * is (2026-10-10), and the night has to carry it whole.
  */
 function longPageWritten(c: Counterpart, body: string, reason = "a long page"): boolean {
-  return new Self({ store: c.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } }).revisePage(body, { reason, by: "owner" }).written;
+  return c.revisePage(body, { reason, by: "owner" }).written;
 }
 
 let dir: string;

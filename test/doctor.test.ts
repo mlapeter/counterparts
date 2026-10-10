@@ -64,7 +64,7 @@ import {
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_COPY_WRITTEN_EVENT,
 } from "../src/core/self/journal-file.js";
-import { PAGE_LIMIT_BYTES, Self } from "../src/core/self/index.js";
+import { PAGE_ROOM_BYTES, Self } from "../src/core/self/index.js";
 import { episodeGate } from "../src/core/bridge.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
 // @ts-expect-error — a plain browser module, no declarations
@@ -2885,34 +2885,66 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("amber");
   });
 
-  test("Self page: a page past the limit (written before it) is amber, and says the wake prints it whole only by borrowing, or one line instead", () => {
-    // The seam refuses such a page now (2026-10-09); one written before the
-    // limit, when it took up to 16 KB, is still in a store.
-    const s0 = Store.open({ dir });
-    const old = new Self({ store: s0, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
-    expect(old.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(400)}`, { reason: "long", by: "owner" }).written).toBe(true);
-    s0.close();
+  test("Self page: the rung the last wake used decides the colour — the outline is amber and says what to do; its short version is green (2026-10-10)", () => {
+    const c = Counterpart.open({ dir, owner: true });
+    // 9,200 bytes: past its room, and past what a 9,000-byte wake can hold.
+    const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`;
+    const written = c.revisePage(body, { reason: "long", by: "owner" });
+    expect(written.written).toBe(true);
+    expect(written.overRoom).toBe(PAGE_ROOM_BYTES);
+    c.rebrief({ budgetBytes: 9_000 });
+    c.close();
     writeConfig();
     const f = by(doctorFindings(input({ store: store() })), "self-page");
     expect(f.severity).toBe("amber");
-    expect(f.detail).toContain(`past the ${String(PAGE_LIMIT_BYTES)}-byte limit`);
-    expect(f.detail).toContain("only by borrowing the room held for \"Work here\"");
-    expect(f.detail).toContain("says so in one line when even that is not enough");
-    expect(f.fix).toContain(`under ${String(PAGE_LIMIT_BYTES)} bytes`);
+    expect(f.detail).toContain(`past its ${String(PAGE_ROOM_BYTES)}-byte room`);
+    expect(f.detail).toContain("the last wake showed only each section's heading and first sentence");
+    expect(f.fix).toContain(`short version under ${String(PAGE_ROOM_BYTES)} bytes`);
+    expect(f.fix).toContain("counterparts self-page --write");
+    expect(f.data["rung"]).toBe("outline");
+    expect(f.data["hasShort"]).toBe(false);
     expect(f.data["wakeShowsAll"]).toBe(false);
-    expect(f.data["limit"]).toBe(PAGE_LIMIT_BYTES);
+    expect(f.data["room"]).toBe(PAGE_ROOM_BYTES);
+
+    // A short version written with it, and the next wake shows that: green.
+    const again = Counterpart.open({ dir, owner: true });
+    expect(again.addPageShort("## Core\n\nA line the page keeps, said once.", { by: "owner" }).written).toBe(true);
+    again.rebrief({ budgetBytes: 9_000 });
+    again.close();
+    const g = by(doctorFindings(input({ store: store() })), "self-page");
+    expect(g.severity).toBe("green");
+    expect(g.detail).toContain("the last wake showed its short version");
+    expect(g.detail).toContain("with a 42-byte short version");
+    expect(g.data["rung"]).toBe("short");
   });
 
-  test("Self page: a page at the limit is green — the wake prints it whole", () => {
+  test("Self page: a page within its room is green — the last wake showed it whole", () => {
     const c = Counterpart.open({ dir, owner: true });
-    const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`.slice(0, PAGE_LIMIT_BYTES - 1).trimEnd() + ".";
-    expect(c.revisePage(body, { reason: "at the limit", by: "owner" }).written).toBe(true);
+    const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`.slice(0, PAGE_ROOM_BYTES - 1).trimEnd() + ".";
+    expect(c.revisePage(body, { reason: "within the room", by: "owner" }).written).toBe(true);
+    c.rebrief({ budgetBytes: 9_000 });
     c.close();
     writeConfig();
     const f = by(doctorFindings(input({ store: store() })), "self-page");
     expect(f.severity).toBe("green");
-    expect(f.detail).not.toContain("limit");
+    expect(f.detail).not.toContain("past its");
+    expect(f.detail).toContain("the last wake showed it whole");
     expect(f.data["wakeShowsAll"]).toBe(true);
+    expect(f.data["rung"]).toBe("whole");
+  });
+
+  test("Self page: one line about it, or nothing, is amber — and with the page within its room, the ceiling is named", () => {
+    const c = Counterpart.open({ dir, owner: true });
+    expect(c.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(40)}`, { reason: "short enough", by: "owner" }).written).toBe(true);
+    // A ceiling with room for one line and no more.
+    c.rebrief({ budgetBytes: 1_000 });
+    c.close();
+    writeConfig();
+    const f = by(doctorFindings(input({ store: store() })), "self-page");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("the last wake showed one line about it");
+    expect(f.fix).toContain("injectionBudgetBytes");
+    expect(f.data["rung"]).toBe("line");
   });
 });
 

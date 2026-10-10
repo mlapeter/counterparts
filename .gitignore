@@ -20,6 +20,9 @@ hooks/sidebar/.claude-plugin/types/
 # The brain lab's rendered rounds stay on disk, not in git (the repository is public; tools/brain-lab/README in NOTES)
 tools/brain-lab/out/**/*.png
 
+# term-loop's shots and captures show live memory (titles, counts, paths): kept on disk, never in git
+tools/term-loop/out/
+
 # The single binary (spike): the generated embed manifest and the build output
 tools/single-binary/assets.gen.ts
 dist/

@@ -187,10 +187,10 @@ proposals and their archive; render and delivery telemetry.
    kept no element is one line, its heading inside it** (2026-10-09,
    `briefing.ts#collapsedLine`): `Still open: 20 — no room to list them in this wake;
    recall ids …`, never a heading over a count. **The page is never cut for the lanes
-   beside it** (review of #350), **nor for anything else** (2026-10-09, §16): it prints
-   whole in `budget − PAGE_FLOOR_RESERVE_BYTES` — with the "Work here" reserve
-   (`lendBytes`) lent to it first when it does not fit without (review of #358) — or one
-   line stands for it. **"Still open" keeps its first item and its count
+   beside it** (review of #350), **nor for anything else** (2026-10-09, §16): it prints on
+   the first rung of its ladder that fits `budget − PAGE_FLOOR_RESERVE_BYTES` — with the
+   "Work here" reserve (`lendBytes`) lent to each rung before it steps down (review of
+   #358) — every rung whole text (2026-10-10). **"Still open" keeps its first item and its count
    before Arriving keeps its second line** (2026-10-09, a working default; the one
    exception to the trim order above, `briefing.ts#keepFirstOpen`): when the trim loop fits
    with "Still open" empty, the room for its first item and its "N more" line comes, in
@@ -247,7 +247,13 @@ proposals and their archive; render and delivery telemetry.
    memory system changed mid-day, the body went on speaking as the old one, and only the
    HTML comment named the new). Both stated byte counts are re-solved for the DELIVERED
    text, the renderer reserves the preface's room from the host's ceiling, and a damaged
-   bundle is delivered exactly as found — never rewritten. **Every rendered element opens
+   bundle is delivered exactly as found — never rewritten. **The preface ends with the
+   whole wake's way back** (2026-10-10, `WAKE_WHOLE_SENTENCE`): a host that cuts a hook
+   field saves it to a file and shows a preview of its head (Claude Code 2.1.296: past
+   10,000 characters, about the first 2,000 — `adapters/config.ts`), and nothing tells the
+   model to read the file; the preface, a line after the opening comment, says to, and
+   names the `counterparts:wake/end` line it runs to. No other door reads a session's
+   composed wake (INTERFACE-GAPS §13). **Every rendered element opens
    with the date it was learned** — `- YYYY-MM-DD · statement`, and
    `- YYYY-MM-DD (of YYYY-MM-DD) · statement` when the content date differs (neutral,
    because the horizon lane's dates are in the future), `- YYYY-MM-DD (due YYYY-MM-DD) ·
@@ -372,26 +378,36 @@ proposals and their archive; render and delivery telemetry.
 16. **[M]** **The page is what "Who I am" prints, first and as is** — less any
     dateline of its own ("Last revised" and a date, standing alone), since the wake's
     under it is the page's date (2026-10-09; a page stored before the write-side strip
-    printed two) — **WHOLE, BYTE FOR BYTE, OR NOT AT ALL; NEVER CUT** (2026-10-09). The
-    room is the caller's budget **less `PAGE_FLOOR_RESERVE_BYTES`, the furniture the wake
-    wraps it in** — the page is furniture the trim loop cannot pop, so a page sized against
-    the whole ceiling puts the composition over it with nothing left to trim. A page that
-    fits the room prints as it is. **One that does not borrows before it points** (review
-    of #358): the room the delivery holds for "Work here" (`lendBytes`, the owner's wake
-    only) is lent to it — only what it needs, the rest still "Still open"'s — and the
-    composition's `budgetBytes` states it; a page past the write limit by a little (6,079
-    to ~7,200 at 9,000) so still prints whole on every day. Only one that does not fit
-    even then is replaced by ONE line naming its
-    bytes and both doors to it, the `self_page` tool and `counterparts self-page`
-    (`briefing.ts#pageTooLargeLine`); where there is no room for that line either it says
-    nothing. **The write limit is the room the wake guarantees** — `PAGE_MAX_BYTES`
-    defaults to `briefing.ts#PAGE_LIMIT_BYTES`, `pageRoomBytes` at 9,000
-    (`PAGE_HOST_BUDGET_BYTES`, the install default and the ceiling every host reads):
-    9,000 less the widest delivery reserves (`deliveryReserveBound`: the preface's 160 and
-    an eighth of the ceiling each for the handoff pointer and "Work here") less the
-    furniture, **6,078 bytes**. So a page any door accepts prints whole at that ceiling or
-    a larger one, and only a ceiling configured smaller, or a page written before the
-    limit, ever meets the line. Measured in BYTES at both ends. It replaces the rotating identity list by
+    printed two) — **NEVER CUT: STORED SEPARATE FROM SHOWN, ON A LADDER OF WHOLE TEXTS**
+    (2026-10-09; the ladder 2026-10-10, `briefing.ts#PageRung`). The room is the caller's
+    budget **less `PAGE_FLOOR_RESERVE_BYTES`, the furniture the wake wraps it in** — the
+    page is furniture the trim loop cannot pop, so a page sized against the whole ceiling
+    puts the composition over it with nothing left to trim. The wake prints the first rung
+    that fits: **the page whole**; **the short version its writer wrote with this exact
+    text** (`page.ts#PAGE_META_SHORT`, tied by the text's hash, so a page rewritten without
+    one never shows a stale one); **each `##` section's heading and its first whole
+    sentence** (`page.ts#pageOutline`, mechanical); **the headings alone**; **one line**
+    naming its bytes and both doors (`pageTooLargeLine`); where there is no room for that
+    line either, nothing. **Each rung borrows before it steps down** (review of #358): the
+    room the delivery holds for "Work here" (`lendBytes`, the owner's wake only) is lent to
+    it — only what it needs, the rest still "Still open"'s — and the composition's
+    `budgetBytes` states it. **Every rung but the last carries a top line and an end line**
+    (`pageTopLine`, `pageEndLine`): what is below and the page's size, the exact line it
+    ends with, and — if that line is missing — that it was cut on the way, and both doors;
+    the end line prints after the dateline. They protect against cuts this package does
+    not make (a host's preview keeps the head). The rung is recorded on the render's row
+    (`pageRung`, and `page` on the durable `self.briefing`), and doctor's Self page line
+    says it: green for whole or the short version, amber below. **The room is the writer's
+    TARGET, not a refusal** — `PAGE_ROOM_BYTES`, `pageRoomBytes` at 9,000
+    (`PAGE_HOST_BUDGET_BYTES`, the install default and the ceiling every host reads): 9,000
+    less the widest delivery reserves (`deliveryReserveBound`: the preface's 293 and an
+    eighth of the ceiling each for the handoff pointer and "Work here"), less the
+    furniture, less the top and end lines (`PAGE_FRAME_RESERVE_BYTES`), **5,681 bytes**. A
+    page within it prints whole at that ceiling or a larger one. A page past it is KEPT —
+    refused only past the 16,384-byte ceiling (`PAGE_MAX_BYTES`) — and its writer is asked
+    for a short version within the same number, in the same call (the nightly writer, the
+    reflection, the `self_page` tool's `short`, the console's `--short`). Measured in BYTES
+    at both ends. It replaces the rotating identity list by
     emptying the lane before the share, the trim order or the counts see it, so
     `counts.identity` and `elements=` state what the bundle actually carries and no
     `TrimEvent` is written for elements nothing dropped. It is furniture, like the day-0
@@ -536,7 +552,8 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
-| `PAGE_MAX_BYTES` | 6,078 (`PAGE_LIMIT_BYTES`) | The WRITE limit, in bytes. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names the limit. Derived, not chosen: the page the wake prints whole at 9,000 under the widest reserves (§16), so the wake never cuts a page. 16,384 until 2026-10-09, beside a separate wake cap `PAGE_WAKE_BYTES` (6,144, gone): a page between the two printed cut. A value above the default gives up that guarantee. |
+| `PAGE_MAX_BYTES` | 16,384 | The WRITE CEILING, in bytes: a sanity bound. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names it. #358 lowered it to the room (6,078) for one day, 2026-10-09, as a stopgap; the page's history kept missing that by a few hundred bytes. |
+| `PAGE_ROOM_BYTES` | 5,681 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's ROOM, in bytes: the TARGET its writer is told, and the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (§16). Past it the page is kept, and a short version is kept with it only then and only within this. Derived, not chosen; a value above the default gives up the every-day guarantee. |
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |
@@ -549,15 +566,20 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 
 `PAGE_FLOOR_RESERVE_BYTES` (512) is **not** tunable, for the reason `PREFACE_RESERVE_BYTES`
 is not: it is the room the wake's own furniture takes around the page — measured at its
-widest (444) by a test, not guessed. Neither is `PAGE_LIMIT_BYTES`, derived from it, the
-preface's reserve and the share rule (`deliveryReserveBound`), nor
-`PAGE_HOST_BUDGET_BYTES` (9,000), the one ceiling it is sized against — which sizes the
-limit and is no ceiling anything composes against (§2.18 holds). `PAGE_MIN_RENDER_BYTES`
-(240, the smallest room worth cutting a page into) went with the cut, 2026-10-09.
+widest (444) by a test, not guessed. Neither is `PAGE_FRAME_RESERVE_BYTES` (264, 2026-10-10),
+the top and end lines of the two rungs a writer aims at — measured at their widest (261, the
+short version's, at a seven-character size) by a test; nor the room's default
+(`briefing.ts#PAGE_ROOM_BYTES`), derived from both, the preface's reserve and the share
+rule (`deliveryReserveBound`); nor `PAGE_HOST_BUDGET_BYTES` (9,000), the one ceiling it is
+sized against — which sizes the room and is no ceiling anything composes against (§2.18
+holds). `PAGE_MIN_RENDER_BYTES` (240, the smallest room worth cutting a page into) went
+with the cut, 2026-10-09.
 
-`PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
+`PREFACE_RESERVE_BYTES` (293) is **not** tunable: it is the room the renderer subtracts from
 the host's ceiling because delivery will add exactly that line, and one test bounds the
-preface at its widest plausible day, date and store size against the same constant.
+preface at its widest plausible day, date and store size against the same constant. 160
+until 2026-10-10, when the line gained the whole wake's way back (`WAKE_WHOLE_SENTENCE`,
+133 bytes with its space) and the reserve grew by exactly that.
 
 **Chapter addresses (v12, 2026-10-03; working default).** **[M]** `epi_…#N` (N from 1)
 names one chapter and `chapter-address.ts#resolveChapter` resolves it — derived from the

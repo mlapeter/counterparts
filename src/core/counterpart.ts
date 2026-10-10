@@ -158,6 +158,7 @@ import {
   markWakeBehind,
   noteWakeBuild,
   noteWakeCaught,
+  pageRoomNote,
   settledOver,
   threadsShown,
   spliceBeforeSentinel,
@@ -1971,17 +1972,28 @@ export class Counterpart {
       ownerName: () => this.ownerDisplayName(),
       dreamLine: (dreamId) => this.dreams.handBackOf(dreamId),
       writePage: (body, o) => {
-        const written = this.self.revisePage(body, {
-          by: "reflection",
+        const common = {
+          by: "reflection" as const,
           reason: o.reason,
           session: o.session,
           ...(o.model === null ? {} : { model: o.model }),
-        });
+        };
+        // The page with its short version, or — `body: null` — the short
+        // version alone, added to the page as it stands (2026-10-10).
+        const written =
+          body === null
+            ? this.self.addPageShort(o.short ?? "", { ...common, ...(o.ifVersion === undefined ? {} : { ifVersion: o.ifVersion }) })
+            : this.self.revisePage(body, { ...common, ...(o.short === undefined ? {} : { short: o.short }) });
+        const note = pageRoomNote(
+          written,
+          this.self.tunables.PAGE_ROOM_BYTES,
+          "call finish again with page.short alone (the entry and the page stand)",
+        );
         return written.written && written.version !== null
-          ? { ok: true, version: written.version }
+          ? { ok: true, version: written.version, note }
           : written.reason === "too-large"
-            ? { ok: false, reason: written.reason, bytes: written.bytes, limit: this.self.tunables.PAGE_MAX_BYTES }
-            : { ok: false, reason: written.reason };
+            ? { ok: false, reason: written.reason, bytes: written.bytes, limit: this.self.tunables.PAGE_MAX_BYTES, note }
+            : { ok: false, reason: written.reason, note };
       },
       emit: (name, ref, data) => this.emit(name, ref, data),
     });
@@ -3924,6 +3936,11 @@ export class Counterpart {
     return this.self.revisePage(body, opts);
   }
 
+  /** Add a short version to the page as it stands (2026-10-10) — the same seam, the same battery. */
+  addPageShort(short: string, opts: Omit<PageWriteOptions, "short" | "reason"> & { reason?: string }): PageRevision {
+    return this.self.addPageShort(short, opts);
+  }
+
   // ── the nightly page writer (S2) ───────────────────────────────────────────
 
   /**
@@ -5160,6 +5177,18 @@ export class Counterpart {
             lane: stringField(e, "lane"),
           })),
           trimmedTotal: trims.length,
+          // THE SELF PAGE'S RUNG (2026-10-10, `self/briefing.ts#PageRung`): what
+          // this wake printed of the page, and its size — what doctor's Self
+          // page line reports. Absent when the store has no page.
+          ...((stringField(rendered, "pageRung") ?? "") === ""
+            ? {}
+            : {
+                page: {
+                  rung: stringField(rendered, "pageRung"),
+                  bytes: numberField(rendered, "page") ?? 0,
+                  whole: numberField(rendered, "pageWhole") ?? 0,
+                },
+              }),
         },
       });
     } catch (err) {
