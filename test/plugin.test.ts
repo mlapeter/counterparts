@@ -33,7 +33,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import { isOurHookCommand as wireIsOurs } from "../src/adapters/cli/wire.js";
 import { HOST_SESSION_ENV } from "../src/adapters/claude-code/night-run.js";
-import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall } from "../src/adapters/host-wiring.js";
+import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook } from "../src/adapters/host-wiring.js";
 import {
   PACKAGE_ROOT,
   ensureFirstRun,
@@ -354,6 +354,73 @@ describe("npmWiring and the two gates", () => {
     expect(serverSide.mcp).toHaveLength(1);
   });
 
+  // VERSION SKEW (2026-10-09, seen live): 0.3.14's `connect` added two Bun
+  // flags, a plugin built before them did not read the line as ours, and every
+  // session got two wakes and two recall blocks. The stand-down reads the
+  // SCRIPT, so the next flag cannot do that again.
+  test("a flag this build has never heard of still reads as the npm wiring, and the plugin stands down", () => {
+    const bun = `"${process.execPath}"`;
+    const hook = `"${HOOK_SCRIPT}"`;
+    const future = [
+      `${bun} --smol --no-env-file "--config=${join(work, "c.toml")}" run ${hook}`,
+      `${bun} --no-env-file run --prefer-offline ${hook}`,
+      `${bun} --config=x --foo=bar run ${hook} --config "${join(home, ".counterparts", "claude-code.json")}"`,
+      `${bun} --prefer-offline ${hook}`,
+    ];
+    for (const command of future) {
+      // The writer's question stays strict: `connect` rewrites only what it can fully parse.
+      expect(isOurHookCommand(command)).toBe(false);
+      expect(readOurHook(command)).toMatchObject({ shape: "script", exe: process.execPath, script: HOOK_SCRIPT });
+    }
+    writeSettings({ SessionStart: future.slice(0, 2), UserPromptSubmit: future.slice(2) });
+    const w = npmWiring({ home, env: {}, cwd: project });
+    expect(w.hooks).toHaveLength(4);
+    expect(w.hooks.every((h) => h.live)).toBe(true);
+    expect(hookGate(w, home).standDown).toBe(true);
+  });
+
+  test("every shape a version writes reads as ours, and says whether Bun reads the project's .env", () => {
+    const bun = process.execPath;
+    expect(readOurHook(`"${bun}" run "${HOOK_SCRIPT}"`)).toMatchObject({ shape: "script", projectEnv: "read" });
+    expect(readOurHook(`"${bun}" --no-env-file "--config=/e.toml" run "${HOOK_SCRIPT}"`)).toMatchObject({ projectEnv: "ignored" });
+    expect(readOurHook(`"/usr/bin/node" --import "/x/src/adapters/node-hooks.mjs" "${HOOK_SCRIPT}"`)).toMatchObject({ shape: "script", projectEnv: "ignored" });
+    expect(readOurHook(`"${bun}" --no-env-file "/x/src/adapters/claude-code/bin/hook.mjs"`)).toMatchObject({ shape: "script" });
+    expect(readOurHook("counterparts-hook")).toMatchObject({ shape: "shim" });
+    expect(readOurHook(`/usr/local/bin/counterparts-hook --config "/c.json"`)).toMatchObject({ shape: "shim" });
+    expect(readOurHook(`"/d/counterparts-0.3.15-darwin-arm64" hook`)).toMatchObject({ shape: "binary" });
+    expect(readOurHook(`"/d/counterparts" --smol hook --config "/c.json"`)).toMatchObject({ shape: "binary" });
+  });
+
+  test("our flags around another script, or our script behind another, are not ours", () => {
+    const bun = `"${process.execPath}"`;
+    const other = join(work, "other", "script.ts");
+    const notOurs = [
+      `${bun} --no-env-file "--config=${join(work, "c.toml")}" run "${other}"`,
+      `${bun} --no-env-file run "${other}" "${HOOK_SCRIPT}"`,
+      `${bun} --smol --config=x "${other}"`,
+      `${bun} --no-env-file run "${HOOK_SCRIPT}" && echo done`,
+      `"/d/counterparts" mcp`,
+      `${bun} --no-env-file`,
+      `${bun} run`,
+      "echo counterparts-hook",
+      // Review of #355: another tool's Claude Code hook at a lookalike path,
+      // under our exact flags and under the runtimes this reading accepts.
+      `${bun} --no-env-file "--config=${join(work, "c.toml")}" run "/opt/othertool/claude-code/bin/hook.ts"`,
+      `tsx "/opt/othertool/claude-code/bin/hook.ts"`,
+      `deno run -A "/opt/othertool/packages/claude-code/bin/hook.ts"`,
+      `node "/opt/othertool/claude-code/bin/hook.mjs"`,
+      `node --import "/x/src/adapters/node-hooks.mjs" "${other}"`,
+      // Our path inside a snippet, beside our name, or behind a redirect.
+      `${bun} -e "import('${HOOK_SCRIPT}')"`,
+      `${bun} run "${HOOK_SCRIPT}.bak"`,
+      `${bun} run "${join(work, "src", "adapters", "claude-code", "bin", "myhook.ts")}"`,
+      `${bun} run "${HOOK_SCRIPT}" 2>/dev/null`,
+    ];
+    for (const command of notOurs) expect({ command, read: readOurHook(command) }).toEqual({ command, read: null });
+    writeSettings({ SessionStart: notOurs });
+    expect(npmWiring({ home, env: {}, cwd: project }).hooks).toEqual([]);
+  });
+
   test("a registration whose runtime is gone does not stand anybody down", () => {
     const entry = { type: "stdio", command: join(work, "gone", "bun"), args: ["run", MCP_SCRIPT] };
     writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: entry } }));
@@ -468,6 +535,45 @@ describe("plugin-run.sh", () => {
     expect(prompt.stdout).toBe("");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
+
+  test("a plugin that did not stand down beside a settings hook: each event once, by claim", async () => {
+    // The 2026-10-09 shape: both wirings run, over one store. (Here the plugin
+    // misses the npm wiring because none is in settings; on the owner's machine
+    // it was an older plugin that could not read 0.3.14's line.)
+    expect(launch("hook", payload("SessionStart", "claim-setup"), pluginEnv()).code).toBe(0);
+    const settingsEnv = pluginEnv();
+    delete settingsEnv["CLAUDE_PLUGIN_ROOT"];
+    delete settingsEnv["CLAUDE_PLUGIN_DATA"];
+    const start = (args: readonly string[], env: Record<string, string>, input: string): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((done, fail) => {
+        const child = spawn(args[0] ?? "", args.slice(1), { env, stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+        child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+        child.on("error", fail);
+        child.on("close", () => done({ stdout, stderr }));
+        child.stdin.end(input);
+      });
+    for (const event of ["SessionStart", "UserPromptSubmit"]) {
+      const input = payload(event, "claim-both");
+      const [plugin, settings] = await Promise.all([
+        start(["/bin/sh", LAUNCHER, "hook"], pluginEnv(), input),
+        start([process.execPath, "run", HOOK_SCRIPT], settingsEnv, input),
+      ]);
+      const lost = [plugin, settings].filter((r) => r.stderr.includes("stood down by claim"));
+      expect(lost).toHaveLength(1);
+      expect(lost[0]?.stdout).toBe("");
+    }
+    const s = Store.open({ dir: join(home, ".counterparts", "store") });
+    try {
+      const rows = s.eventLog({ name: "adapter.hook.claim.lost" }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) expect([row["lost"], row["won"]].sort()).toEqual(["plugin", "settings"]);
+    } finally {
+      s.close();
+    }
+  }, 120_000);
 
   test("not launched as the plugin (no CLAUDE_PLUGIN_ROOT): no first run", () => {
     const env = pluginEnv();
@@ -752,6 +858,17 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.severity).toBe("green");
     expect(f.detail).not.toMatch(/plugin/i);
     expect(f.fix).toBe("");
+  });
+
+  test("a hook line a later version wrote, with flags this build does not know: connected, and its runtime kept", () => {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [`"${process.execPath}" --smol --no-env-file "--config=/e.toml" run "${HOOK_SCRIPT}"`];
+    writeSettings(hooks);
+    const host = readHost(home, project, {});
+    expect(host.events).toEqual([...HOST_EVENTS].sort());
+    expect(host.runtimes).toEqual([
+      { exe: process.execPath, kind: "bun", present: true, used: ["hooks"], projectEnv: [] },
+    ]);
   });
 
   test("the plugin AND the npm wiring: amber, and both ways out", () => {

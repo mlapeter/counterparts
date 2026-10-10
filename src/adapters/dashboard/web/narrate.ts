@@ -356,6 +356,10 @@ export const NARRATORS = {
     amber(
       `My background worker opened the store and then failed at ${String(t.p["step"] ?? "an unnamed step")} (${String(t.p["code"] ?? "no code")}).`,
     ),
+  "adapter.hook.claim.lost": (t) =>
+    amber(
+      `Two Counterparts installs ran the same ${String(t.p["hook"] ?? "hook")} at once; the ${String(t.p["lost"] ?? "second")} one found it already taken and said nothing, so nothing reached the session twice. Keeping one install stops the doubling.`,
+    ),
   "adapter.writeup.failed": (t) =>
     amber(
       `A session started and I could not hand it the pointer to an earlier session's write-up (${String(t.p["code"] ?? "no code")}). The next session start tries again.`,
@@ -1164,6 +1168,7 @@ export const REF_KIND = {
   "adapter.recall": "none",
   "adapter.runner.failed": "none",
   "adapter.writeup.failed": "none",
+  "adapter.hook.claim.lost": "none",
   "remember.capture.failed": "none",
   "adapter.semantic.lag": "none",
   "adapter.spawn.failed": "none",

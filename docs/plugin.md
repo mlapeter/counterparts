@@ -102,9 +102,25 @@ identical, and ours never is. So when the npm wiring is live, the plugin stands 
   `instructions`, so `/mcp` shows connected, not failed.
 - An npm entry is dead when its runtime or script is gone. Nobody stands down for
   a dead entry; the plugin runs and names the stale lines.
+- "A hook of ours" is read by the script it runs (`adapters/claude-code/bin/hook.ts`, its
+  `.mjs` shim, `counterparts-hook`, or the single binary's `hook`), whatever flags
+  come before or after `run`. A plugin from before 0.3.14 read only the flags it
+  knew, missed the line 0.3.14's `connect` writes, and didn't stand down: two wakes,
+  two recall blocks per prompt (seen 2026-10-09). A new flag must stay one token
+  (`--name` or `--name=value`) so older readers still see the script.
 
 The rule has to live on the plugin side because npm installs already out there
 can't learn about the plugin.
+
+**A claim per event, as the backstop.** Whatever the stand-down misses, each hook
+claims its event in the store before doing anything (one `meta` row, keyed by the
+session, the event and the host's `prompt_id`). The first claim does the whole job:
+the wake, the recall, the Stop's question, the boundary, the worker. A hook with the
+same key that started before the first one finished is its twin: it exits with no
+output and leaves an `adapter.hook.claim.lost` row, and doctor's "Installed twice"
+line counts them. A hook with the same key that starts after the first one finished
+is a new event and runs. This holds between any two versions from this one on. If the
+claim can't be written, the hook delivers anyway.
 
 **Moving from npm to the plugin:** install the plugin, then run `counterparts
 disconnect` (it removes the settings hooks and the `claude mcp` registration, with

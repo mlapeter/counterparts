@@ -61,6 +61,7 @@ import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { ensureFirstRun, hookGate, runningAsPlugin } from "../../plugin.js";
+import { claimDelivery, deliveryClaimKey, finishClaim } from "../claim.js";
 
 /**
  * The host's own spellings of the two events that carry a notice — one
@@ -782,6 +783,33 @@ async function runHook(
   said.log = opened;
   // No start line at a prompt, the most frequent event: its end carries `ms`.
   if (name !== "user-prompt-submit") opened.start();
+  // ONE DELIVERY PER EVENT (`../claim.ts`, 2026-10-09). Two wirings of
+  // Counterparts live in this host both run this event at once; the first to
+  // claim it does the whole job — the wake, the recall, the ask, the boundary,
+  // the worker — and its twin leaves here, before any of it, with no output.
+  // Fail-open: no claim made is a delivery, so one wiring is exactly as it was.
+  const claimKey = deliveryClaimKey(name, payload);
+  const claim = claimDelivery(adapter.counterpart, {
+    hook: name,
+    key: claimKey,
+    sessionId: said.sessionId,
+    side: runningAsPlugin(process.env) ? "plugin" : "settings",
+    observer: config.observer === true,
+  });
+  if (claim.outcome === "lost") {
+    process.stderr.write(
+      `[counterparts] ${name} stood down by claim: another Counterparts hook (${claim.heldBy ?? "?"}) already took this event — two wirings are live in this host\n`,
+    );
+    try {
+      adapter.counterpart.close();
+    } finally {
+      opened.end("claimed-elsewhere", { heldBy: claim.heldBy ?? null });
+    }
+    return;
+  }
+  if (claim.detail !== undefined && claim.detail !== "no session id" && claim.detail !== "observer") {
+    process.stderr.write(`[counterparts] ${name} delivered unclaimed: ${claim.detail}\n`);
+  }
   let outcome = "ok";
   try {
     // ONE read of the transcript, shared by the hook and the notice: `toHookInput`
@@ -859,6 +887,11 @@ async function runHook(
       }
     }
   } finally {
+    // The claim says it is done, so the next event that looks the same — one
+    // that starts after this — is not taken for this one's twin (`../claim.ts`).
+    if (claim.outcome === "won" && claimKey !== null && claim.at !== undefined) {
+      finishClaim(adapter.counterpart, claimKey, claim.at);
+    }
     adapter.counterpart.close();
   }
   // A throw above never reaches this line: `main`'s handler writes it instead.

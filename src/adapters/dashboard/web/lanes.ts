@@ -110,6 +110,7 @@ export const LANES = {
   "adapter.semantic.lag": "flow",
   "adapter.spawn.failed": "flow",
   "adapter.spawn.refused": "flow",
+  "adapter.hook.claim.lost": "flow",
   "adapter.spawn.started": "flow",
   "adapter.wake.delivered": "flow",
   "adapter.wake.injected": "flow",

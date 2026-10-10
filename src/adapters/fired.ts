@@ -1065,6 +1065,16 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // 2026-10-09: two wirings of Counterparts both ran one event, and the per-event
+    // claim kept the second from delivering. Silent whenever there is one wiring.
+    id: "hook-claim",
+    label: "a second Counterparts hook found its event already taken, and said nothing",
+    module: "claude-code/claim.ts",
+    cadence: { kind: "occasion", when: "two Counterparts installs run the same hook at once" },
+    evidence: { kind: "event", names: ["adapter.hook.claim.lost"] },
+    since: "2026-10-09",
+  },
+  {
     id: "checkout",
     label: "which copy of the code the hooks were actually running",
     module: "claude-code/doctor.ts",
