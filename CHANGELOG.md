@@ -10,8 +10,10 @@
   is credited as *engaged*: half a use, its fading clock restarts, half a return, at most
   three per reply and once a day each. Being shown still earns nothing, and a memory that a
   newer one replaced is never revived this way. Opening it later the same day lifts the
-  credit to a full use. No model call; nothing scans the store. Measured on past
-  transcripts at about 0.8 estimated precision against a matched control.
+  credit to a full use. No model call; nothing scans the store. How precise it is is not
+  settled: on past transcripts a matched control estimated about 0.8, but hand-labelled
+  samples put it near 0.2 when only a visible draw counts and near 0.75 when carrying on
+  the memory's topic counts (recall NOTES §29).
   Each credit on the `recall.credit` row now says how it was earned (`how`: `expanded`,
   `quoted` or `engaged`). Repetition credit now levels off (0.14 after one use, 0.24 after
   two, 0.40 after five, never past 0.5) instead of climbing in straight steps to a wall.

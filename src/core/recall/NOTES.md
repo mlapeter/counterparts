@@ -1093,8 +1093,11 @@ shows, a footnote could only earn credit by being opened, and the quote door (lo
 - **The inputs.** The host adapter carries tool-call inputs beside the turn list
   (`claude-code/transcript.ts#ToolInput`, first 4,096 characters of each call's JSON), sliced
   by the same cursor as expansions; this package's own tools are left out (the write-up
-  restating a footnote must not train it). The person's typed turns in the slice are the
-  prompt. A caller that passes no `userTurns` gets no engaged credit.
+  restating a footnote must not train it) under both of the host's names for them,
+  `mcp__counterparts__*` (npm) and `mcp__plugin_counterparts_counterparts__*` (the plugin;
+  review of #371). A recall or wake block pasted back whole, markers and all, is cut before
+  matching: an echo of the display is not a draw (review of #371). The person's typed turns
+  in the slice are the prompt. A caller that passes no `userTurns` gets no engaged credit.
 - **The row.** `recall.credit` carries `engaged` (decided), `how` (aligned with `ids`:
   `expanded` / `quoted` / `engaged`) and `engagedCapped`. §28's score now counts an engaged
   memory as used, so its line "a footnote can be used only by an expansion" is out of date.
@@ -1128,3 +1131,45 @@ whose title shares a word with the prompt; (shown − control) / shown estimates
   tool inputs and one-word phrases. Revisit after ~5 lived days with the row's `how`.
 - The memory counts span several stores (the parallel run's, then the live store from 09-21),
   so they are an upper bound on what one store would have credited.
+
+**Hand-labelled, review of #371** (2026-10-10, g1b-reviewer; harness, rubric, the 206 labels
+and the cards in `~/counterparts-notes/2026-10-10-mechanisms-review/g1b-measure/review-371/`).
+The approval's bar was precision ~0.8. Nothing below reaches it, so no tightening is chosen
+here: the question is back with Mike.
+- **Method.** Same transcripts and df proxy; the harness reproduces the shipped function
+  exactly (0 mismatches) and adds the shipped physics' birth-day refusal, which the build's
+  count left out. For each variant, a random 60 of the credits it would land (coordinated
+  samples, so one label serves every variant that lands the same hit). Rubric fixed before
+  reading: **Y** the reply uses what the title says, and the session did not already have it;
+  **T** the same topic carried on, the phrase already in the session before the footnote
+  showed; **N** a path, command or commit-message fragment, an ordinary word, a contraction
+  fragment ("won't" is the phrase "won t"), or the reply naming its footnotes as display.
+  Strict = Y; lenient = Y + T. n = 60 per row unless marked, about ±0.1 at 95%.
+- **At df share 0.015 on the proxy** (store-like, by the build's own calibration above):
+
+  | rule | strict | lenient | memory-days | memories |
+  |---|---|---|---|---|
+  | **shipped** | 0.22 | 0.77 | 121 | 100 |
+  | 1. reply text only, no tool inputs | 0.17 | 0.67 | 69 | 63 |
+  | 2. text + prose fields of answering/reading tools (no paths, commands, commit messages) | 0.20 | 0.70 | 92 | 80 |
+  | 3. every phrase two rare words or a three-word run | 0.23 | 0.78 | 90 | 76 |
+  | 3, tool-input phrases only, as a three-word run | 0.25 | 0.72 | 87 | 75 |
+  | 3 + the evidence new to the session before the footnote first showed (n = 45) | 0.33 | 0.60 | 45 | 38 |
+
+  At the proxy's 0.03: shipped 0.15 / 0.55 (256 memory-days, 204 memories); text only
+  0.17 / 0.62; the best tightening 0.22 / 0.72. Variant 2's hits came only from
+  Agent / SendMessage briefs; search, fetch and question tools carried none.
+- **Why the control read ~0.8.** It is matched on the PROMPT; most hits match the SESSION.
+  The footnote names the work in progress (often written the day before by this session or a
+  sibling), and the reply carries its phrase because the work does. The control counts that
+  as a draw; a hand label does only under the lenient reading. Shipped misses at 0.015, by
+  cause: session topic 30 of 60, the reply naming its footnotes or a fragment 8, path or
+  command 5, ordinary word 4. Text-only is no cure: tool-input hits were no worse than prose.
+- **Birth day.** 81 of 202 attempted credits at 0.015 (154 of 410 at 0.03) fall on the
+  memory's birth day and physics refuses them, so the window would have credited ~121
+  memory-days on ~100 memories at store-like df, not 375 on 299.
+- **Production is looser than this measurement on hand-back turns.** `lifecycle.ts` hands
+  only typed `conversation` turns over as `userTurns`, so a reply to a subagent's hand-back, a
+  task notification or a peer message has an empty prompt; the measurement used that text.
+  With the empty prompt: 147 memory-days instead of 121 at 0.015. Live precision is likely
+  lower than the table.
