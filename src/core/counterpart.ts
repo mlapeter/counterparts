@@ -3402,24 +3402,11 @@ export class Counterpart {
   }
 
   /**
-   * One boundary's score of recall's ambient showings (2026-10-09; Hawkins
-   * "2a", measurement only). The stretch is every memory this session's gate
-   * state records as shown after the session's `judged` mark — loud,
-   * footnoted, or footnoted as a quiet pointer — and the mark then moves to the
-   * session's newest recall turn, so the next boundary scores only what came
-   * after. A showing used at a later boundary than its own is still counted
-   * once as not used here, and then as used there (`expandedIds`, or a quote):
-   * the score is of the reply it was shown for. A deliberate answer's memories
-   * (`asked`) are not ambient and are not in the gate state's `surfaced`.
-   *
-   * Never throws: a mark that cannot be read scores from the session's start,
-   * one that cannot be written is re-scored next time — both say more misses,
-   * never fewer, and neither costs the boundary its credit. Under observer the
-   * mark is not written (an instrument deposits nothing).
-   *
-   * `replied` false (the slice held no reply and no expansion): nothing is
-   * scored and the mark stays, so the showings wait for the first boundary
-   * that read a reply (review of #329).
+   * THE THIRD DOOR's candidates and verdict (2026-10-10, G1b): every memory the
+   * gate state shows as footnoted or loud, training, on the judged stretch or
+   * up to `ENGAGED_TURN_WINDOW` recall turns before it, and not already opened
+   * or quoted; titles as the model saw them; one `docFrequency` query and one
+   * count for "rare". The decision is `reference.ts#resolveEngagement`.
    */
   private engagedUses(
     sessionId: string,
@@ -3477,6 +3464,26 @@ export class Counterpart {
     return { engaged: result.engaged, considered: result.considered, budgetExceeded: budgetExceeded || result.budgetExceeded };
   }
 
+  /**
+   * One boundary's score of recall's ambient showings (2026-10-09; Hawkins
+   * "2a", measurement only). The stretch is every memory this session's gate
+   * state records as shown after the session's `judged` mark — loud,
+   * footnoted, or footnoted as a quiet pointer — and the mark then moves to the
+   * session's newest recall turn, so the next boundary scores only what came
+   * after. A showing used at a later boundary than its own is still counted
+   * once as not used here, and then as used there (`expandedIds`, or a quote):
+   * the score is of the reply it was shown for. A deliberate answer's memories
+   * (`asked`) are not ambient and are not in the gate state's `surfaced`.
+   *
+   * Never throws: a mark that cannot be read scores from the session's start,
+   * one that cannot be written is re-scored next time — both say more misses,
+   * never fewer, and neither costs the boundary its credit. Under observer the
+   * mark is not written (an instrument deposits nothing).
+   *
+   * `replied` false (the slice held no reply and no expansion): nothing is
+   * scored and the mark stays, so the showings wait for the first boundary
+   * that read a reply (review of #329).
+   */
   private scoreShowings(
     sessionId: string,
     state: GateState,

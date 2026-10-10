@@ -145,6 +145,41 @@ describe("resolveEngagement — the drew-on rule (review 05 R6)", () => {
     expect(r.engaged).toEqual([]);
   });
 
+  test("a recall or wake block pasted back whole is the display, not a draw (review of #371)", () => {
+    const block = [
+      "<!-- counterparts:recall t=4 -->",
+      "Quietly available (in the background; draw on what helps, open an id before relying on one):",
+      `- ${PRUNE.title} [${PRUNE.id}]`,
+      "<!-- counterparts:recall/end surfaced=0 footnotes=1 affect=0 bytes=120 -->",
+    ].join("\n");
+    const echoed = resolveEngagement({
+      replyTexts: [`Here is exactly what I saw:\n${block}`],
+      toolTexts: [JSON.stringify({ prompt: `Sample of the lane:\n${block}` })],
+      promptTexts: ["what did you see?"],
+      candidates: [PRUNE],
+      df: DF,
+      storeSize: 1000,
+    });
+    expect(echoed.engaged).toEqual([]);
+    const wake = resolveEngagement({
+      replyTexts: [`<!-- counterparts:wake day=3 elements=1 bytes=90 -->\n- ${PRUNE.title}\n<!-- counterparts:wake/end day=3 elements=1 bytes=90 -->`],
+      promptTexts: ["what did you wake with?"],
+      candidates: [PRUNE],
+      df: DF,
+      storeSize: 1000,
+    });
+    expect(wake.engaged).toEqual([]);
+    // Outside the markers the same words still count.
+    const drawn = resolveEngagement({
+      replyTexts: [`${block}\nSo the orchard ladder is back; I'll use the new rung.`],
+      promptTexts: ["what did you see?"],
+      candidates: [PRUNE],
+      df: DF,
+      storeSize: 1000,
+    });
+    expect(drawn.engaged.map((e) => e.memoryId)).toEqual([PRUNE.id]);
+  });
+
   test("common words never make a phrase: rarity is the share of the store, with a floor for a young store", () => {
     const common = { id: "mem_bbbbbbbbbbbb", title: "Came back from the shop", shownTurn: 1 };
     const r = resolveEngagement({
@@ -526,6 +561,34 @@ describe("transcript and boundary (G1b)", () => {
     expect(read.toolInputs?.[0]?.atTurn).toBe(2);
     // The turn list does not grow (a live cursor indexes it).
     expect(read.turns.length).toBe(2);
+  });
+
+  test("the plugin install's names for this package's tools are left out too (review of #371)", () => {
+    // Under the Claude Code plugin the same server's tools are
+    // `mcp__plugin_counterparts_counterparts__<tool>` (docs/plugin.md). A
+    // write-up restating a footnote must not train it there either.
+    const lines = [
+      { type: "user", message: { role: "user", content: "wrap up" } },
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Writing it up." },
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "mcp__plugin_counterparts_counterparts__session_end",
+              input: { memories: [{ title: "The orchard ladder came back from repair" }] },
+            },
+            { type: "tool_use", id: "t2", name: "mcp__plugin_counterparts_counterparts__chapter", input: { title: "Day 3", text: "orchard ladder" } },
+            { type: "tool_use", id: "t3", name: "mcp__plugin_other_tools__lookup", input: { query: "orchard ladder" } },
+          ],
+        },
+      },
+    ];
+    const read = parseTranscript(lines.map((l) => JSON.stringify(l)).join("\n"));
+    expect(read.toolInputs?.map((t) => t.text)).toEqual([JSON.stringify({ query: "orchard ladder" })]);
   });
 
   test("a Stop's recall.credit row says how each credit was earned", () => {

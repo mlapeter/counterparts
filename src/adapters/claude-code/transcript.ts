@@ -1071,8 +1071,14 @@ export interface ToolSpills {
   readonly short: boolean;
 }
 
-/** THIS package's tools, as the host names them. */
-export const COUNTERPARTS_TOOL = /^mcp__counterparts__/;
+/**
+ * THIS package's tools, as the host names them: `mcp__counterparts__<tool>` from
+ * the npm install's MCP server, `mcp__plugin_counterparts_counterparts__<tool>`
+ * from the Claude Code plugin's (docs/plugin.md, "Tool names change"). Both
+ * forms, or a plugin session's write-ups read as somebody else's tool calls
+ * (review of #371, 2026-10-10: the engaged door's own-tools exclusion).
+ */
+export const COUNTERPARTS_TOOL = /^mcp__(?:plugin_counterparts_)?counterparts__/;
 
 /**
  * **CAL.** How much of a transcript the pass reads. A night's run is a few

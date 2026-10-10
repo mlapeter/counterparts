@@ -222,9 +222,11 @@ export function resolveReferences(input: ReferenceInput): ReferenceResult {
 // the title the model was shown, new to what the person said. Measured against
 // a topically matched control (memories not shown that turn): ~0.8 precision
 // for this rule, where any shared title word or any title bigram was ~0.5
-// (half of it co-mention). What it never does: credit a memory for being
-// shown, read a body, call a model, or read the store (titles and word
-// frequencies arrive on the input).
+// (half of it co-mention). Hand-labelled (review of #371, NOTES §29): ~0.2
+// when only a visible draw counts, ~0.75 when carrying on the footnote's
+// topic counts; the control is matched on the prompt, not the session. What
+// it never does: credit a memory for being shown, read a body, call a model,
+// or read the store (titles and word frequencies arrive on the input).
 
 /**
  * "Rare" is a word in at most this share of the live store's memories (review
@@ -329,12 +331,21 @@ export function engagementTitleWords(title: string): string[] {
 /** A typed memory address never counts as drawing on anything (IMPROVEMENTS U5: ids echoed unread). */
 const ID_IN_TEXT = /\bmem_[0-9a-f]{12,16}\b/gi;
 
+/**
+ * A recall or wake block quoted back whole — the reply (or a brief it writes)
+ * pasting what it was shown, markers and all. Its titles are the DISPLAY, not
+ * the reply drawing on it: "never for being shown" would leak through an echo
+ * (review of #371, 2026-10-10: five of ~200 hand-labelled hits were pasted
+ * blocks). Only a span with both markers is cut; prose about a block stays.
+ */
+const SHOWN_BLOCK = /<!-- counterparts:(recall|wake)\b[^>]*-->[\s\S]*?<!-- counterparts:\1\/end\b[^>]*-->/g;
+
 /** Words of some texts, with an empty word between texts: a phrase split across two texts is not a phrase. */
 function wordsOf(texts: readonly string[]): string[] {
   const out: string[] = [];
   for (const text of texts) {
     if (text.trim().length === 0) continue;
-    out.push("", ...normalizeWords(text.replace(ID_IN_TEXT, " ")));
+    out.push("", ...normalizeWords(text.replace(SHOWN_BLOCK, " ").replace(ID_IN_TEXT, " ")));
   }
   return out;
 }
