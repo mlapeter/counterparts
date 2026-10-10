@@ -36,18 +36,27 @@ come first. Nothing here quotes a memory.
 
 ### Revised from Mike's rulings
 
-1. **Credit for drawing on a footnote.** Revised by b2+f8, 2026-10-10, from Mike's 2026-09-14
+1. **A dated memory is held until its date (no decay before it arrives), then fades on the
+   steepest slope.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
+   2026-09-26 prospective decision, whose note says "decay (`FADED_STRENGTH`) still holds" for a
+   memory with an explicit date (the contract's G10, "no decay exemption before arrival"). Why:
+   under the new curve a quiet reminder set a month out would fade and be refused before its
+   day; people hold pending intentions. **What happens after the window, worth a look first:**
+   once its date and the grace week have passed, the memory fades as if nothing about it
+   mattered — its salience and feeling no longer slow it — so a 0.25 reminder leaves reach
+   within a day and is archived about 5 lived days later, and a 0.6 or felt one is archived
+   about two weeks after its window. That holds for every memory whose date came after the day
+   it was written, not only reminders: a fact dated by what it is about, written a day before
+   that date, reads as a reminder too. On a copy of the live store (review of #372), 9 of the
+   17 dated memories were archived within 30 lived days, among them a felt fact about Mike and
+   an agreed way of working that their own curves would have kept in reach for months.
+   (Group 1a.)
+2. **Credit for drawing on a footnote.** Revised by b2+f8, 2026-10-10, from Mike's 2026-09-14
    ruling ("never for being named in prose"); approved by Mike on 2026-10-10 through f8,
    lightly held. Why: without it, use is hardly counted, so the links and the core's
    recurrence starve. A memory counts as drawn on only when a rare phrase from its title shows
    up in the reply and not in the prompt (about 8 in 10 right against a control), the credit
    saturates, and nothing is ever credited for being shown. (Group 1b.)
-2. **A dated memory is held until its date (no decay before it arrives).** Revised by b2+f8,
-   2026-10-10, lightly held — and it may reverse Mike's 2026-09-26 prospective decision, whose
-   note says "decay (`FADED_STRENGTH`) still holds" for a memory with an explicit date (the
-   contract's G10, "no decay exemption before arrival"). Why: under the new curve a quiet
-   reminder set a month out would fade and be refused before its day; people hold pending
-   intentions. After its window closes it fades steeply. (Group 1a.)
 
 The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
 reverse older defaults and contract lines; those go to the rules audit.
@@ -70,7 +79,7 @@ reverse older defaults and contract lines; those go to the rules audit.
    except Mike's own `counterparts remove`. Why: exit should follow reach; at 90 the first
    possible exit was lived day 91. If any later change would delete rows, it waits for Mike.
    (1a)
-6. **A dated memory holds until its date and fades steeply after.** See item 2. (1a)
+6. **A dated memory holds until its date and fades steeply after.** See item 1. (1a)
 7. **Feeling sets how slowly a memory fades, not its band; `emotional` is out of the
    salience average.** A feeling now counts once for height and once for steepness. Why:
    feeling was the one signal that told readings from changelog on the live store; it was
@@ -136,7 +145,12 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
 - **Not fixed, flagged:** a memory of a kind whose salience weighs 0.4 (skill, place) written
   at the 0.25 default is born at about 0.10 — below reach from its first day, and labelled
   faded by deliberate recall. 03 warned that the routine default must sit above 0.15; for
-  those kinds it does not. Encoding (1c) or a kind weight should settle it.
+  those kinds it does not. Encoding (1c) or a kind weight should settle it. The cause is the
+  kind's salience weight in `base` (`KINDS.skill/place.wSal` 0.4), not its κ: a skill claimed
+  under 0.375 is born below reach, and one deliberate open (a use adds 0.12) does not bring a
+  0.25 one back. On a copy of the live store 19 of 102 skills are below reach at once and about
+  half by 30 lived days, and the wake's work lines count every skill as work. Under Group 1c's
+  defaults a done work skill starts at 0.04. (Review of #372.)
 
 ### Also noted
 

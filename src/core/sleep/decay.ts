@@ -82,6 +82,14 @@ const DECAY_PHASE: Phase = "decay";
  * produced it are the ones this build runs; a build with another curve forgets
  * them all once (`clearNextChangeDays`) and looks at every row on its first
  * pass. Meta key + the signature it holds.
+ *
+ * EVERY constant that moves a strength, a line or the hold belongs here —
+ * height's (`base`: each kind's `wSal`/`wRep`, `REP_PER_USE`, `REP_CAP`,
+ * `CONS_BONUS`; `salArm`'s lift), steepness's, the lines', the hold's (review
+ * of #372: the height constants were missing, so a build that changed a
+ * kind's salience weight would have trusted next-change days computed under
+ * the old heights). A constant added to `salArm` or `base` later (Group 1c's
+ * `FELT_HEIGHT_CAP`) joins it when it lands.
  */
 export const CURVE_META_KEY = "decay.curve";
 export function curveSignature(): string {
@@ -94,12 +102,16 @@ export function curveSignature(): string {
     lift: PHYSICS.EMO_LIFT,
     beta: PHYSICS.BETA,
     ret: PHYSICS.RETURN_GAIN,
+    rep: PHYSICS.REP_PER_USE,
+    repCap: PHYSICS.REP_CAP,
+    cons: PHYSICS.CONS_BONUS,
     sem: PHYSICS.THETA_SEM,
     reach: PHYSICS.REACH,
     floor: PHYSICS.PHI_PRUNE,
     dwell: PHYSICS.D_FLOOR_DAYS,
     grace: PHYSICS.HOLD_GRACE_DAYS,
-    kappa: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, v.kappa])),
+    lead: PHYSICS.HOLD_LEAD_DAYS,
+    kinds: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, [v.wSal, v.wRep, v.kappa]])),
   });
 }
 
