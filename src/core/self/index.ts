@@ -1607,7 +1607,12 @@ export class Self {
       preface === null || delivery?.date === undefined
         ? raw
         : arrivingTense(raw, delivery.date, PREFACE_RESERVE_BYTES - byteLength(preface) - 1 - 2);
-    const delivered = preface === null ? null : applyPreface(body, preface);
+    // Only through the splice: a bundle `applyPreface` will not rewrite (an
+    // opening line it does not recognise) is delivered exactly as found, and a
+    // tensed body there would carry byte counts that no longer describe it
+    // (review2 of #350).
+    const spliced = preface === null ? null : applyPreface(body, preface);
+    const delivered = preface === null || spliced === null || spliced.applied ? spliced : applyPreface(raw, preface);
     this.emit("self.wake", undefined, {
       ok: reason === "delivered",
       reason,

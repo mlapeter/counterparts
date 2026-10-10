@@ -592,6 +592,27 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
     expect(lane(next, FRAMING.horizon)).toBe(null);
     expect(next).not.toContain("due 2026-10-08");
   });
+
+  test("a bundle the preface splice will not take is delivered exactly as found — untensed, its byte counts still true (review2 of #350)", () => {
+    clock("America/Denver", "2026-10-09", 8);
+    const a = adapter("America/Denver");
+    const arriving: Ranked = { id: "mem_h0", lane: "horizon", kind: "fact", band: "semantic", strength: 0.9, protected: false, bornDay: 0, personScoped: false, lastRendered: -1 };
+    const kept = { identity: [], craft: [], threads: [], hints: [], horizon: [arriving] };
+    const resolve: Resolve = () => ({ statement: "The dentist appointment is at nine.", learnedOn: "2026-10-01", due: "2026-10-08" });
+    const whole = compose(kept, 3, resolve).text;
+    // The same bytes, an opening line the splice does not recognise: the
+    // sentinel still matches, so it is read as delivered, and the preface is
+    // not applied.
+    const damaged = whole.replace(/^(<!-- counterparts:wake .*)elements=/, "$1elementz=");
+    expect(Buffer.byteLength(damaged)).toBe(Buffer.byteLength(whole));
+    expect(readSentinel(damaged).intact).toBe(true);
+    a.counterpart.store.setMeta(BRIEFING_KEY, damaged);
+    const woke = a.counterpart.wake(BUDGET, { date: "2026-10-09" });
+    expect(woke.preface).toBe(null);
+    expect(woke.text).toBe(damaged);
+    expect(readSentinel(woke.text).intact).toBe(true);
+    expect(woke.text).toContain("(due 2026-10-08)");
+  });
 });
 
 describe("the tense, as a function", () => {
