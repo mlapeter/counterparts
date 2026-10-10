@@ -493,6 +493,11 @@ describe('the body, laid out', () => {
     expect(t.some(l => l.startsWith('● ') && l.endsWith('…'))).toBe(false)
     // two rows fewer take one item away, its two lines, rather than a line from each
     expect(layoutBody({ ...BASE, saved: many, rows: 38 }).folds).toEqual(['saved shows 4'])
+    // a long session's list draws twelve at most, its heading the whole count
+    const dozens = Array.from({ length: 40 }, (_, i) => ({ ...BASE.saved[1]!, key: `d${String(i)}`, title: `Item ${String(i)}` }))
+    const all = textOf(layoutBody({ ...BASE, saved: dozens, rows: 200 }).lines)
+    expect(all.filter(l => l.startsWith('● Item')).length).toBe(12)
+    expect(all).toContain('Saved this session ' + '─'.repeat(10) + ' 40')
     const short = layoutBody({ ...BASE, saved: many, rows: 29 })
     const lines = textOf(short.lines)
     expect(lines.length).toBeLessThanOrEqual(29)

@@ -68,6 +68,12 @@ export const EXPAND_MAX_LINES = 12
  */
 const SAVED_LINES = 2
 const EVENT_LINES = 2
+/**
+ * The most saved items the list draws (the seed reads as many): a long
+ * session's dozens would only lengthen the fold ladder, a step an item, and
+ * every drawing walks it.
+ */
+const SAVED_MAX = 12
 
 export type Seg = { t: string; c: string; b?: true; i?: true }
 /** One row of the body: its pieces, and what a click on it names. */
@@ -188,7 +194,7 @@ type Fold = {
 }
 
 const FULL: Fold = {
-  memLines: 3, text: 99, sub: 4, savedShow: 99, savedFolded: false, chartFolded: false,
+  memLines: 3, text: 99, sub: 4, savedShow: SAVED_MAX, savedFolded: false, chartFolded: false,
   events: 6, dreamLines: 3, excerpt: 9, dreamFolded: false, mindFolded: false,
 }
 
@@ -230,7 +236,7 @@ const EVENTS_DOWN = [eventsTo(5), eventsTo(4), eventsTo(3), eventsTo(2)]
  * item keeps its room longest: the rest folds around it.
  */
 function ladders(s: BodyState): Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> {
-  const n = s.saved.length
+  const n = Math.min(s.saved.length, SAVED_MAX)
   const saved = [...savedFewer(n), savedFold]
   return {
     default: [...saved, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
