@@ -45,7 +45,7 @@ here, `/counterparts caps` swaps the switch ends.
   root that would include the 154 bun test files, which can't load in a mod's
   environment, and the runner refuses a folder with no `hooks/hooks.json`.
 - `bunfig.toml` sets `[test] root = "./test"`, so `bun test` never picks up the
-  mod's tests. It ran 5,532 tests across 164 files on 2026-10-10, the
+  mod's tests. It ran 5,534 tests across 164 files on 2026-10-10, the
   sidebar's drift test among them (`test/sidebar-mechanism-drift.test.ts`).
 - The engine's declarations (`.claude-plugin/types/`) are generated per build
   and gitignored. `check.sh` lays them for `tsc`, from the copy a
