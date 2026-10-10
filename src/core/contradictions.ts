@@ -800,8 +800,12 @@ export function heldPairs(store: Pick<Store, "eventLog">, opts: { sinceDay?: num
       return {};
     }
   };
-  // The newest holds, and every settle from the day of the oldest of them on
-  // (`eventLog` reads 500 rows unless told otherwise, oldest first).
+  // The newest holds, and the settles from the day of the oldest of them on —
+  // both read NEWEST first (`eventLog` reads 500 rows unless told otherwise,
+  // oldest first). Past the limit an ascending settle read kept the oldest
+  // and dropped the newest, so the newest holds read as never settled
+  // (2026-10-09, audit #1's last caller). Under the limit the same rows come
+  // back, and `settledAfter` does not depend on their order.
   const holds = store
     .eventLog({ name: CONTRADICTION_HELD_EVENT, ...(opts.sinceDay === undefined ? {} : { sinceDay: opts.sinceDay }), order: "desc", limit })
     .map((e) => ({ seq: e.seq, day: e.day, p: read(e.payload) }));
@@ -809,7 +813,7 @@ export function heldPairs(store: Pick<Store, "eventLog">, opts: { sinceDay?: num
   const settles =
     holds.length === 0
       ? []
-      : store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, sinceDay: from, limit }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
+      : store.eventLog({ name: CONTRADICTION_SETTLED_EVENT, sinceDay: from, order: "desc", limit }).map((e) => ({ seq: e.seq, p: read(e.payload) }));
   const str = (v: unknown): string => (typeof v === "string" ? v : "");
   return holds.map((h) => ({
     seq: h.seq,

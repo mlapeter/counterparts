@@ -717,13 +717,17 @@ function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["sel
   const pageId = page?.id ?? null;
   const zone = src.store.zone();
   try {
+    // NEWEST first (2026-10-09, audit #1's last caller): past `LOG_LIMIT` an
+    // ascending read kept the oldest rows, and the newest versions — the ones
+    // the timeline ends on — lost their dates. The first row seen for a version
+    // is its newest, as the last one seen was when this read ascended.
     const rows = pageId === null
-      ? src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, limit: LOG_LIMIT })
-      : src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, ref: pageId, limit: LOG_LIMIT });
+      ? src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, order: "desc", limit: LOG_LIMIT })
+      : src.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, ref: pageId, order: "desc", limit: LOG_LIMIT });
     for (const row of rows) {
       const payload = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
       const v = payload["version"];
-      if (typeof v === "number") {
+      if (typeof v === "number" && !at.has(v)) {
         at.set(v, row.at);
         onDay.set(v, row.day);
       }
@@ -763,7 +767,8 @@ function pageHistory(src: DashboardSource, page: ReturnType<DashboardSource["sel
   return steps;
 }
 
-const LOG_LIMIT = 2_000;
+/** Rows the page's history and its day strip read per event name, newest first. */
+export const LOG_LIMIT = 2_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // the page's history as one strip of lived days (round 3b, item 1)
@@ -840,9 +845,12 @@ function pageDays(src: DashboardSource, history: readonly PageStep[]): { pageDay
   // records the calendar date it closed.
   const cycleDate = new Map<number, string>();
   try {
-    for (const row of src.store.eventLog({ name: "sleep.cycle", sinceDay: first, limit: LOG_LIMIT })) {
+    // NEWEST first, so past `LOG_LIMIT` it is the oldest days that go undated,
+    // not today's (one row per session end; 2026-10-09). Each day keeps its
+    // OLDEST row's date, as before: the last one seen wins.
+    for (const row of src.store.eventLog({ name: "sleep.cycle", sinceDay: first, order: "desc", limit: LOG_LIMIT })) {
       const date = (JSON.parse(row.payload ?? "{}") as Record<string, unknown>)["date"];
-      if (typeof date === "string" && isIsoDay(date) && !cycleDate.has(row.day)) cycleDate.set(row.day, date);
+      if (typeof date === "string" && isIsoDay(date)) cycleDate.set(row.day, date);
     }
   } catch {
     /* undated days stay undated */

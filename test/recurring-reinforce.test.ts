@@ -158,7 +158,8 @@ describe("each occurrence that reaches the person counts as a use", () => {
     // A schedule earns no RETURN: the credit is `surfaced`, so the core's
     // lanes do not move on the calendar alone.
     expect(row.return_days).toBe(0);
-  });
+    // 200 nights through the hooks: over bun's 5 s default on a loaded machine.
+  }, 30_000);
 
   test("a YEARLY plain repeat survives three years: credited each May 14, kept between by the prune's `recurring` gate", async () => {
     const a = hooks();
@@ -227,7 +228,8 @@ describe("each occurrence that reaches the person counts as a use", () => {
     // Each occurrence spent a fire and was credited once.
     for (const r of s.prospectiveFor(id)) expect(r.fires).toBeGreaterThan(0);
     expect(uses(s, id)).toBe(0.25 * 3);
-  });
+    // Two years of nights through the hooks: over bun's 5 s default on a loaded machine.
+  }, 30_000);
 
   test("a QUIET weekly fired twice in each window is credited once per window, on its first fire", async () => {
     const a = hooks();

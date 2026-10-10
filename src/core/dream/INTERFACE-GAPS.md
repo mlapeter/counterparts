@@ -59,8 +59,9 @@ What this module still owes, or asks of others (2026-09-26).
    (confidential memories counted), or leaves it off for a guest's — its call.
    *(CLOSED 2026-09-27, then moot; noted 2026-10-09: `DashboardSource` gained `dreams`
    and the Tonight line read the gate's preview (#263, `8032668`), and the next day Home
-   round 4 took the Tonight box out (#273, `2cc96b0`). `DashboardSource.dreams` is still
-   wired, but nothing in the dashboard calls `previewAsk` today.)*
+   round 4 took the Tonight box out (#273, `2cc96b0`). With no caller left outside its
+   own tests, `previewAsk` and `DashboardSource.dreams` were removed on 2026-10-09
+   (NOTES). A dashboard that wants the gate again asks for it anew.)*
 
 9. **Trait nudges have no reader in the core (2026-09-27), on purpose.** The dashboard's
    Self tab is to draw each axis as a firmness-weighted balance from `Store#traitsAll()`
