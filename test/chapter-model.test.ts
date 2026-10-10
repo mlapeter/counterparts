@@ -223,7 +223,7 @@ describe("the row records it too — schema v7's `model` column (2026-09-25)", (
     const chapter = payload(await s.call("chapter", { session: SESSION, text: "The stretch so far, in my own words." }));
     expect(s.counterpart.store.read(chapter["episodeId"] as string).model).toBe(OPUS);
 
-    const note = payload(await s.call("note", { text: "The kiln at the studio runs hot on the left side, so glaze tests go right." }));
+    const note = payload(await s.call("remember", { text: "The kiln at the studio runs hot on the left side, so glaze tests go right." }));
     expect(note["stored"]).toBe(true);
     expect(s.counterpart.store.read(note["id"] as string).model).toBe(OPUS);
 
@@ -245,7 +245,7 @@ describe("the row records it too — schema v7's `model` column (2026-09-25)", (
 
   test("an unbound note records NULL — never a guess", async () => {
     const s = server();
-    const note = payload(await s.call("note", { text: "A note from a server that never learned its session's model." }));
+    const note = payload(await s.call("remember", { text: "A note from a server that never learned its session's model." }));
     expect(note["stored"]).toBe(true);
     expect(s.counterpart.store.read(note["id"] as string).model).toBeNull();
   });

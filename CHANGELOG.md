@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+- **Forgetting now changes what comes to mind (store v13).** Each memory fades on its own
+  curve: steep at first and flat later, slower the more it mattered, the more it was felt,
+  used or came back. A routine note leaves the working layer in about two days; a felt
+  reading lasts months; a strong fact about a year. Under a line ("below reach") a memory
+  stops coming up on its own — in turns, as a pointer from a link, or in the wake's work
+  lines — but asking for it still finds it, listed after the main results as faded, and
+  using it, opening it or a dream replaying it brings it back. A memory that has sat under
+  the floor for 14 lived days (was 90) is archived — never deleted, still readable by id.
+  A reminder is held at full strength until its date and the week after, then fades a little faster until it is used again;
+  a repeating date is held around each time it comes round. Chapters, their copies and live handoffs are never let
+  go. A feeling now counts once for how high a memory stands and once for how slowly it
+  fades, and softens from the day it was recorded. The nightly pass reads only the
+  memories whose standing changes that day. The dashboard counts "below reach now" and
+  "exited" apart. Skills and places now count their salience as fully as any other memory
+  (they counted it at 0.4, which left a quiet skill out of reach from the day it was written).
+  The band-symmetry check now warns only when memories climb with nothing behind it; fading
+  down a band is the curve working. The store upgrades to v13 on the first open, after taking a copy; a
+  build from before refuses the upgraded store, and the copy is the way back. These are
+  lightly held decisions; they are listed in `docs/IMPROVEMENTS.md` under "Decisions to
+  review".
+- **`note` is now `remember`, and memory is asked for by attention.** The tool Claude
+  writes a memory with in the moment is called `remember`. **The old name `note` still
+  works** for at least this release — a session that started before the upgrade keeps
+  calling `note` and is served exactly as `remember`; only `remember` is listed. Its words
+  changed with it: memory forms only from what Claude writes here and at the end-of-session
+  ask (nothing reads the transcript afterwards), so it asks Claude to write in the moment,
+  as things catch its attention — a line read and why it struck, something said about the
+  person or about Claude, news, a decision, a work event — one idea per call. The
+  end-of-session ask now asks for "what caught your attention since you last wrote, one idea
+  each — what you read, what they said, what happened" (474 characters at most), and no
+  longer says "nothing worth keeping is a real answer"; an empty list is still accepted, as
+  the `memories` field says. The salience field gives an anchored scale by attention (about
+  0.1–0.2 a routine merge or status change; 0.4 or more a line that struck, or a reading
+  engaged with; the person's rulings, preferences and corrections high even about work), and
+  `relevance` now means how much it bears on the person, on Claude or on the two of them —
+  not only on the task. A dated decision, a kill or renew date and an outside deadline are
+  named as `eventDate`s. The CLI's `counterparts note` keeps its name.
+- **An unclaimed memory starts by what it is about.** A memory written without a salience
+  used to start at 0.25 whatever it was. Now: 0.20 for a work event that is done, 0.25 for
+  other work and for an unmarked one, 0.35 for the world (readings, news), 0.40 for the
+  person, the two of you or Claude (or said by the person). All stay under the semantic
+  floor, and a strong feeling on a silent memory lifts it to at most 0.49: a default sets how
+  high a memory starts, never its band.
+- **The core's fast lane can open again.** "Strongly felt" is read against the word's own
+  default: a feeling at 0.6, or one at 0.5 or more that is 0.1 above what its word is stored
+  at when nobody weighs it, now counts. Since the feelings wheel gave every word a default (all at or under 0.55),
+  nothing written without a number could reach the old 0.6 bar. A word nobody weighed
+  still never opens the lane on its own.
+- **Mood no longer lifts memories in recall** (both weights 0, the code kept for a re-test):
+  memories it lifted were used less than others (1.3% against 2.4%). Recall also stops
+  reading recent feelings each turn while it is off.
+- **What a session said and nobody wrote up stays owed for fourteen days of use**, not
+  three, so the nightly write-up (oldest first, four sessions a night) reaches it; past that
+  it is let go and said as lost. And a session at its ask limit for the day is still asked
+  when it holds an unwritten stretch that is due.
+- **Three things you may notice after upgrading.** If your Claude Code settings already allow
+  `mcp__counterparts__note`, you will be asked once to allow `mcp__counterparts__remember`.
+  A few strongly felt memories claimed at 0.42–0.50 now start episodic rather than semantic.
+  The text of a session that still owes a write-up is now kept up to 14 days of use plus the
+  ordinary 7 days, not 2.
 - **A reader for which memories recall shows and the replies ignore.** `probeMemoryHits`
   reads the ids the credit row already lists as shown and not used, and gives a hit rate
   per memory and per lane (loud, footnote, pointer). It only measures. Nothing reads it

@@ -44,7 +44,7 @@
  * less than a fresh one, and an old hurt less than an old warmth.
  */
 import { softenedFeeling } from "../physics/index.js";
-import { feelingValence } from "../store/index.js";
+import { feelingValence, feltDay } from "../store/index.js";
 import type { FeelingRow, Store } from "../store/index.js";
 import type { RecallTunables } from "./tunables.js";
 
@@ -122,7 +122,7 @@ export function moodLift(
   for (const f of feelings) {
     if (f.created_at >= mood.sinceMs) continue; // the mood itself, not a memory of one
     const valence = feelingValence(f);
-    const felt = softenedFeeling(f.strength, day - f.birth_day, valence);
+    const felt = softenedFeeling(f.strength, day - feltDay(f), valence);
     for (const [person, now] of mood.byPerson) {
       const match = moodMatch(valence, now, t.MOOD_VALENCE_SPAN, t.MOOD_LOW_LOW_WEIGHT);
       if (match <= 0) continue;

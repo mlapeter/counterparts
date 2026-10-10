@@ -871,7 +871,7 @@ describe("plugin-run.sh", () => {
     const [, list] = responses(r.stdout);
     const tools = (list?.["result"] as { tools: { name: string }[] }).tools.map((t) => t.name);
     expect(tools).toContain("recall");
-    expect(tools).toContain("note");
+    expect(tools).toContain("remember");
     expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
   });
 

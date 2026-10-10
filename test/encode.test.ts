@@ -1087,8 +1087,9 @@ describe("novelty — prediction error, or an explicit null", () => {
     expect(accepted.salience.novelty).toBeNull();
     expect(result.novelty.blind).toBe(true);
     expect(result.novelty.reason).toBe("no-chunk-vector");
-    // physics then averages the THREE supplied dimensions, not four with a zero
-    expect(sal(accepted.salience)).toBeCloseTo((0.8 + 0.2 + 0.4) / 3, 10);
+    // physics then averages the supplied dimensions, not with a zero for
+    // novelty — and since 2026-10-10 without `emotional` (review 02 C1)
+    expect(sal(accepted.salience)).toBeCloseTo((0.8 + 0.4) / 2, 10);
     expect(result.events.some((e) => e.event === "encode.blind")).toBe(true);
   });
 
@@ -1124,7 +1125,8 @@ describe("guarantee 6 — the claimed salience is a FLOOR, and the lift emits it
     expect(evt!.ref).toBe("p1");
     expect(evt!.data?.["claimed"]).toBeCloseTo(0.9, 10);
     expect(evt!.data?.["applied"]).toBeCloseTo(0.9, 10);
-    expect(evt!.data?.["computed"]).toBeCloseTo(0.4 / 3, 10);
+    // The mean of relevance and predictive (emotional left out, 2026-10-10).
+    expect(evt!.data?.["computed"]).toBeCloseTo(0.3 / 2, 10);
   });
 
   test("the stored dimensions are NEVER rewritten to satisfy the claim", () => {

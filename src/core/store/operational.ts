@@ -12,8 +12,9 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import { remapV10Feeling } from "../feelings-wheel.js";
-import { spacingWeight } from "../physics/index.js";
-import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
+import { TUNABLES as PHYSICS_TUNABLES, spacingWeight } from "../physics/index.js";
+import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, parseCalendarDate } from "../time.js";
+import type { Band, DatedHold, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
@@ -139,7 +140,22 @@ import type { ProseType } from "./prose.js";
  * migrated open MUST converge on the identical schema; a test asserts
  * table_info equality.
  */
-export const SCHEMA_VERSION = 12;
+/*
+ * Bumped to 13 (2026-10-10, the mechanisms review's ONE schema bump, synthesis
+ * §3): additive only — new columns, one table, indexes and four triggers;
+ * nothing dropped, nothing rewritten but the backfill of a new column. Groups
+ * 1–4 are pre-provisioned so none of them bumps again: `memories.next_change_day`
+ * (+ index, + the triggers that clear it; Group 1's turn-down),
+ * `feelings.recorded_day` (Group 1, backfilled), `memories.dream_shown_day`
+ * (+ index), `returns.session` and the `derivations` table (+ index on
+ * `parent`) for Group 3, `edges.source` / `edges.reinforced` for Group 4, and
+ * the indexes `memories(archived, birth_day)`, `feelings(created_at)`,
+ * `edges(last_day)`, `edges(weight)`, `edges(dst)`. The copy is taken before
+ * migrating, like every bump since v7 (`copyBeforeMigrating`); a build that
+ * knows only v12 refuses the file `SCHEMA_AHEAD`, and the way back is that
+ * copy (`store/NOTES.md` 2026-10-10).
+ */
+export const SCHEMA_VERSION = 13;
 /**
  * The oldest schema an OBSERVER may open without a migration having run.
  *
@@ -184,6 +200,11 @@ export const SCHEMA_VERSION = 12;
  * table first and says it is waiting for the upgrade. Keeping the floor keeps
  * doctor and the dashboard reading a v11 store between an install and the
  * first writer that opens it.
+ *
+ * NOT raised with v13 (2026-10-10), for v12's reason: rows are read `m.*`, a
+ * v12 row simply has no `next_change_day` / `dream_shown_day` (nothing an
+ * instrument reads), and a v12 feeling with no `recorded_day` softens from its
+ * memory's birth (`feelings.ts#feltDay`) — what every build before v13 did.
  */
 export const OBSERVER_READ_FLOOR = 11;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2).
@@ -286,7 +307,9 @@ export const DDL: readonly string[] = [
      fade              REAL NOT NULL DEFAULT 1,
      occurred_on       TEXT,
      said_by           TEXT,
-     status            TEXT
+     status            TEXT,
+     next_change_day   INTEGER,
+     dream_shown_day   INTEGER
    )`,
   `CREATE INDEX IF NOT EXISTS memories_band ON memories (band, archived)`,
   `CREATE INDEX IF NOT EXISTS memories_kind ON memories (kind, archived)`,
@@ -328,6 +351,10 @@ export const DDL: readonly string[] = [
      -- v7 moments: first linked, last re-weighted.
      created_at INTEGER,
      updated_at INTEGER,
+     -- v13 (pre-provisioned for Group 4): what laid the link, and how often
+     -- it was reinforced since.
+     source     TEXT,
+     reinforced INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (src, dst)
    )`,
   `CREATE TABLE IF NOT EXISTS prospective (
@@ -366,7 +393,8 @@ export const DDL: readonly string[] = [
      recorded_later TEXT,
      valence     REAL,
      core_v10    TEXT,
-     emotion_v10 TEXT
+     emotion_v10 TEXT,
+     recorded_day INTEGER
    )`,
   `CREATE INDEX IF NOT EXISTS feelings_memory ON feelings (memory_id)`,
   // v9, folded in before any build published it (2026-09-27, the owner's
@@ -401,6 +429,7 @@ export const DDL: readonly string[] = [
      gap        INTEGER NOT NULL,
      dream_id   TEXT,
      at         INTEGER NOT NULL,
+     session    TEXT,
      PRIMARY KEY (memory_id, day, source)
    )`,
   `CREATE INDEX IF NOT EXISTS returns_at ON returns (at)`,
@@ -570,6 +599,22 @@ export const DDL: readonly string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS contradiction_settles_pair ON contradiction_settles (pair_id)`,
   `CREATE INDEX IF NOT EXISTS contradiction_settles_at ON contradiction_settles (at)`,
+  // v13 (2026-10-10, pre-provisioned for Group 3 — the mechanisms review's
+  // one schema bump): DERIVATIONS — one row per (child, parent, how): a gist
+  // or a fold and each memory it was made from, a memory filed under another,
+  // a merge, a citation. Reverse provenance, so a source can find what was
+  // made of it without scanning every meta bag (`meaning.ts` does today).
+  // Ids and a lived day only. Not foreign-keyed, like `contradictions`: the
+  // owner's removal deletes a removed memory's rows itself. Nothing writes
+  // it yet.
+  `CREATE TABLE IF NOT EXISTS derivations (
+     child  TEXT NOT NULL,
+     parent TEXT NOT NULL,
+     how    TEXT NOT NULL,
+     day    INTEGER,
+     PRIMARY KEY (child, parent, how)
+   )`,
+  `CREATE INDEX IF NOT EXISTS derivations_parent ON derivations (parent)`,
   // v12 (2026-10-03): WHAT A MEMORY NAMES — one row per memory and entity
   // card (schema `role: entity`) its title or body names as a whole word,
   // by the alias index's one rule (`schemas/aliases.ts`). `via` says how the
@@ -766,6 +811,16 @@ export interface MemoryRow extends Row {
   said_by: string | null;
   /** v12: what kind of thing it is — `done`, `planned`, `proposed`, `asked` (`STATUSES`). */
   status: string | null;
+  /**
+   * v13 (2026-10-10): the next lived day the nightly turn-down must look at
+   * this row — when its band, reach or prune eligibility next changes
+   * (`physics#nextChangeDay`). DERIVED, never an input: NULL means "look at it
+   * on the next pass", and a trigger clears it whenever an input of the curve
+   * is written. Undefined on a v12 file read before its upgrade.
+   */
+  next_change_day: number | null;
+  /** v13 (pre-provisioned for Group 3): the last lived day a standing dream SHOWED it. Nothing writes it yet. */
+  dream_shown_day: number | null;
 }
 
 export interface ReflectionRow extends Row {
@@ -859,6 +914,8 @@ export interface ReturnRow extends Row {
   gap: number;
   dream_id: string | null;
   at: number;
+  /** v13 (pre-provisioned for Group 3): the session it came back in. Nothing writes it yet. */
+  session: string | null;
 }
 
 export interface WakeDisplayRow extends Row {
@@ -931,6 +988,12 @@ export interface CoreEventRow extends Row {
  * intensity falls back to the numeric `emotional` score (physics §5.10).
  */
 export interface FeelingPeak {
+  /**
+   * NOT A COLUMN (2026-10-10): the store's calendar today (`meta.lastActiveDate`,
+   * the date of `livedDay`), read beside the row so the dated hold
+   * (`datedHold`) needs no second read. Absent on a bare `SELECT *`.
+   */
+  today_date?: string | null;
   feeling_peak?: number | null;
   /** v9: the same peak without the feelings a reflection recorded later. */
   feeling_peak_lived?: number | null;
@@ -965,6 +1028,10 @@ export interface EdgeRow extends Row {
   last_day: number;
   created_at: number | null;
   updated_at: number | null;
+  /** v13 (pre-provisioned for Group 4): what laid the link. Nothing writes it yet. */
+  source: string | null;
+  /** v13 (pre-provisioned for Group 4): how often it was reinforced. 0 until something does. */
+  reinforced: number;
 }
 
 export interface ProspectiveRow extends Row {
@@ -1383,6 +1450,20 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
           JSON.stringify({ from: now, day: Number.parseInt(lived, 10) || 0, at: Date.now(), memories }),
         );
       }
+      // v13 (2026-10-10, the mechanisms review's one schema bump): every
+      // feeling learns the lived day it was recorded (`backfillRecordedDays`),
+      // and the moment is kept for doctor. `next_change_day` stays NULL on
+      // every row, so the first turn-down after the upgrade looks at all of
+      // them once — which is also the night the new curve is first read.
+      if (now !== null && Number.parseInt(now, 10) < 13) {
+        const backfilled = backfillRecordedDays(db);
+        const lived = db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'livedDay'")?.value ?? "0";
+        db.run(
+          "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+          V13_UPGRADE_KEY,
+          JSON.stringify({ from: now, day: Number.parseInt(lived, 10) || 0, at: Date.now(), ...backfilled }),
+        );
+      }
       const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
       put.run("livedDay", "0");
       put.run("lastActiveDate", "");
@@ -1468,6 +1549,49 @@ export const DDL_AFTER_COLUMNS: readonly string[] = [
   // v7: `Store.datedMemories` without a scan (prospective/INTERFACE-GAPS §2).
   // Partial, because almost no memory carries one.
   `CREATE INDEX IF NOT EXISTS memories_event_date ON memories (event_date) WHERE event_date IS NOT NULL`,
+  // v13 (2026-10-10, the mechanisms review's one schema bump — additive only).
+  // The nightly turn-down reads the rows whose band or reach changes today
+  // (`sleep/decay.ts`, review 13 C2); the dream queue, the rows it has not
+  // shown (13 C6, Group 3); the census and the dream's window, by birth (13
+  // C3); the mood read, by moment (13 C4); the association sweeps (06).
+  `CREATE INDEX IF NOT EXISTS memories_next_change ON memories (archived, next_change_day)`,
+  `CREATE INDEX IF NOT EXISTS memories_dream_shown ON memories (archived, dream_shown_day, birth_day)`,
+  `CREATE INDEX IF NOT EXISTS memories_birth ON memories (archived, birth_day)`,
+  `CREATE INDEX IF NOT EXISTS feelings_created ON feelings (created_at)`,
+  `CREATE INDEX IF NOT EXISTS edges_last_day ON edges (last_day)`,
+  `CREATE INDEX IF NOT EXISTS edges_weight ON edges (weight)`,
+  `CREATE INDEX IF NOT EXISTS edges_dst ON edges (dst)`,
+  // v13: WHEN A MEMORY'S CURVE CHANGES, ITS NEXT-CHANGE DAY IS FORGOTTEN.
+  // `next_change_day` is derived (`physics#nextChangeDay`): the lived day the
+  // turn-down must look at the row again. Any write to an input of the curve —
+  // a use, a return, a replay, a fade, a claim, a kind, a promotion, a date, a
+  // repeat word in the meta — and any feeling added, changed or removed, clears
+  // it to NULL ("look again"), here, so no writer can forget to. So does a
+  // write to the BAND column from anywhere (U8: the decay pass is what keeps
+  // the band of record true, and it can only do that for a row it reads). The
+  // decay pass writes the day back after its own band writes; the day is not
+  // an input, so writing it fires nothing.
+  `CREATE TRIGGER IF NOT EXISTS memories_next_change_inputs
+     AFTER UPDATE OF kind, novelty, relevance, emotional, predictive, claimed, uses, last_used_day,
+                     consolidated, promoted_identity, legacy, returns, last_return_day, last_dream_day,
+                     fade, event_date, meta, learned_on, archived, band
+     ON memories
+     WHEN NEW.next_change_day IS NOT NULL
+   BEGIN
+     UPDATE memories SET next_change_day = NULL WHERE id = NEW.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS feelings_next_change_insert AFTER INSERT ON feelings
+   BEGIN
+     UPDATE memories SET next_change_day = NULL WHERE id = NEW.memory_id AND next_change_day IS NOT NULL;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS feelings_next_change_update AFTER UPDATE OF strength, memory_id ON feelings
+   BEGIN
+     UPDATE memories SET next_change_day = NULL WHERE id IN (NEW.memory_id, OLD.memory_id) AND next_change_day IS NOT NULL;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS feelings_next_change_delete AFTER DELETE ON feelings
+   BEGIN
+     UPDATE memories SET next_change_day = NULL WHERE id = OLD.memory_id AND next_change_day IS NOT NULL;
+   END`,
 ];
 
 /**
@@ -1544,6 +1668,21 @@ export const ADDED_COLUMNS: readonly { table: string; column: string; ddl: strin
   { table: "versions", column: "occurred_on", ddl: "ALTER TABLE versions ADD COLUMN occurred_on TEXT" },
   { table: "versions", column: "said_by", ddl: "ALTER TABLE versions ADD COLUMN said_by TEXT" },
   { table: "versions", column: "status", ddl: "ALTER TABLE versions ADD COLUMN status TEXT" },
+  // v13 (2026-10-10, the mechanisms review's ONE schema bump, synthesis §3):
+  // additive only, every column nullable or defaulted, so groups 1–4 need no
+  // second bump. NULL `next_change_day` means "the turn-down looks at it on
+  // its next pass" — every row the upgrade finds, once. `dream_shown_day`
+  // (Group 3: the last day a standing dream SHOWED a memory; `last_dream_day`
+  // is set on returns, not shows), `returns.session` (Group 3: recurrence
+  // counts sessions), `edges.source` / `edges.reinforced` (Group 4) — nothing
+  // writes those yet. `feelings.recorded_day` is backfilled in the migrating
+  // transaction (`backfillRecordedDays`).
+  { table: "memories", column: "next_change_day", ddl: "ALTER TABLE memories ADD COLUMN next_change_day INTEGER" },
+  { table: "memories", column: "dream_shown_day", ddl: "ALTER TABLE memories ADD COLUMN dream_shown_day INTEGER" },
+  { table: "edges", column: "source", ddl: "ALTER TABLE edges ADD COLUMN source TEXT" },
+  { table: "edges", column: "reinforced", ddl: "ALTER TABLE edges ADD COLUMN reinforced INTEGER NOT NULL DEFAULT 0" },
+  { table: "feelings", column: "recorded_day", ddl: "ALTER TABLE feelings ADD COLUMN recorded_day INTEGER" },
+  { table: "returns", column: "session", ddl: "ALTER TABLE returns ADD COLUMN session TEXT" },
 ];
 
 /**
@@ -1612,6 +1751,46 @@ export const V11_UPGRADE_KEY = "feelings.v11.upgrade";
 
 /** Meta key: when the v12 upgrade ran (`recall.v12.upgrade`) — doctor's "since v12". */
 export const V12_UPGRADE_KEY = "recall.v12.upgrade";
+
+/** Meta key: what the v13 upgrade did (`physics.v13.upgrade`) — the mechanisms bump. */
+export const V13_UPGRADE_KEY = "physics.v13.upgrade";
+
+/**
+ * THE v13 BACKFILL of `feelings.recorded_day` (2026-10-10, review 02 C5): the
+ * lived day each feeling was recorded, which its softening counts from.
+ *
+ *   - a feeling written in a session at the time (`source` `session`, or none)
+ *     was recorded on its memory's birth day — what softening read until now,
+ *     so nothing about it moves;
+ *   - a feeling recorded LATER (a dream, a reflection, an awake feeling-now)
+ *     gets the lived day of the last logged event at or before its moment
+ *     (`events.at` -> `events.day`), never before its memory's birth; with no
+ *     such event, the birth day — the old reading, so the fallback moves
+ *     nothing either.
+ *
+ * Only rows still NULL; idempotent. In the migrating transaction, after the
+ * copy. Counts only come back.
+ */
+export function backfillRecordedDays(db: Db): { feelings: number; mapped: number } {
+  const all = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM feelings WHERE recorded_day IS NULL")?.n ?? 0;
+  db.run(
+    `UPDATE feelings SET recorded_day = (SELECT m.birth_day FROM memories m WHERE m.id = feelings.memory_id)
+      WHERE recorded_day IS NULL AND (source IS NULL OR source = 'session')`,
+  );
+  const later = db.all<{ id: string; created_at: number; birth_day: number | null }>(
+    `SELECT f.id, f.created_at, m.birth_day FROM feelings f LEFT JOIN memories m ON m.id = f.memory_id
+      WHERE f.recorded_day IS NULL`,
+  );
+  let mapped = 0;
+  for (const f of later) {
+    const birth = f.birth_day ?? 0;
+    const hit = db.get<{ day: number }>("SELECT day FROM events WHERE at <= ? ORDER BY seq DESC LIMIT 1", f.created_at);
+    const day = hit !== undefined && Number.isFinite(hit.day) ? Math.max(birth, hit.day) : birth;
+    if (day !== birth) mapped += 1;
+    db.run("UPDATE feelings SET recorded_day = ? WHERE id = ? AND recorded_day IS NULL", day, f.id);
+  }
+  return { feelings: all, mapped };
+}
 
 /**
  * THE v11 RE-FILING: every feeling the first wheel stored, moved onto the
@@ -1948,8 +2127,117 @@ export function rowToSalience(row: MemoryRow): Salience {
   };
 }
 
-export function rowToPhysics(row: MemoryRow & FeelingPeak): MemoryPhysics {
+/**
+ * HOW OFTEN A REMINDER DATE COMES ROUND — the meta key (`store/index.ts`
+ * re-exports it; the full note is there). Spelled here so the read seam's
+ * dated hold can ask it without importing the store's index.
+ */
+export const RECURRING_META = "recurring";
+
+/** `self/page.ts#SELF_PAGE_ROLE`, spelled here (store imports no core module); a test holds them equal. */
+export const SELF_PAGE_ROLE_SPELLED = "page";
+
+/**
+ * THE DATED HOLD of one row on calendar day `today` (2026-10-10, Group 1;
+ * physics §5.4, review 07 C1/C2), or null for a memory with no reminder date:
+ *
+ *   - a date that REPEATS (a day `event_date` and a `recurring` word in its
+ *     meta): `pending` before its first occurrence (when written before it, as
+ *     any reminder) and inside each occurrence's window — `HOLD_LEAD_DAYS`
+ *     before it to `HOLD_GRACE_DAYS` after; between windows, null: it fades on
+ *     its curve, as the owner's 2026-10-09 design says, and each occurrence
+ *     told is a use (decided by g1a-builder, 2026-10-10, lightly held; revisit
+ *     after ~5 lived days. Why: ambient recall now leaves out what is below
+ *     reach, and a yearly date used once a year would be below reach on the
+ *     day it comes round). A daily or weekly repeat is always in a window;
+ *   - a date whose last day was AFTER the day it was written (a reminder, not
+ *     a note about the past): `pending` while `today` is on or before its last
+ *     day plus `HOLD_GRACE_DAYS`, then `spent` with the calendar days since;
+ *   - anything else — no date, an unreadable one, a date that was already past
+ *     when it was written (an `event_date` used as "the date it is about",
+ *     before v12 split `occurred_on` off), or no calendar today: null.
+ *
+ * Pure: the caller hands it the row's columns and the calendar today.
+ */
+export function datedHold(
+  row: Pick<MemoryRow, "event_date" | "learned_on" | "meta">,
+  today: string | null | undefined,
+): DatedHold | null {
+  if (row.event_date === null || row.event_date === undefined || row.event_date === "") return null;
+  if (typeof today !== "string" || !isDay(today)) return null;
+  if (isDay(row.event_date) && typeof row.meta === "string" && row.meta.includes(`"${RECURRING_META}"`)) {
+    let rule: unknown = null;
+    try {
+      rule = (JSON.parse(row.meta) as Record<string, unknown>)[RECURRING_META];
+    } catch {
+      /* unreadable meta: the date is once */
+    }
+    if (isRecurrence(rule)) {
+      const anchor = row.event_date;
+      const written = typeof row.learned_on === "string" ? row.learned_on.slice(0, 10) : "";
+      if (daysBetween(today, anchor) > 0 && (!isDay(written) || daysBetween(written, anchor) > 0)) return { state: "pending" };
+      const near = occurrenceBetween(
+        anchor,
+        rule,
+        addDays(today, -PHYSICS_TUNABLES.HOLD_GRACE_DAYS),
+        addDays(today, PHYSICS_TUNABLES.HOLD_LEAD_DAYS),
+      );
+      return near === null ? null : { state: "pending" };
+    }
+  }
+  const date = parseCalendarDate(row.event_date);
+  if (date === null) return null;
+  const written = typeof row.learned_on === "string" ? row.learned_on.slice(0, 10) : "";
+  if (isDay(written) && daysBetween(written, date.last) <= 0) return null;
+  const closes = addDays(date.last, PHYSICS_TUNABLES.HOLD_GRACE_DAYS);
+  const since = daysBetween(closes, today);
+  return since <= 0 ? { state: "pending" } : { state: "spent", closedDaysAgo: since };
+}
+
+/**
+ * OUTSIDE REACH ALTOGETHER (2026-10-10, Group 1, review 03 C2/C4): the rows
+ * whose strength is not a working-layer question, so "below reach" never
+ * applies to them — the decay pass does not rank them, ambient recall does not
+ * leave them out for it, and the dashboard does not count them:
+ *
+ *   - a journal CHAPTER (`type = 'episode'`) and a chapter's COPY (`source =
+ *     'episode'` with the chapter's id in `origin_ref`) — the journal, which
+ *     recall folds into one result (U13);
+ *   - a HANDOFF (a schema row whose meta says `role: handoff`) — its own
+ *     lived-day expiry is its clock;
+ *   - an ENTITY CARD (`role: entity`) — a name's card, a stub at salience 0 by
+ *     design, faded by `schemas/`' own verdict, never by the floor;
+ *   - the SELF PAGE (`role: page`, `self/page.ts#SELF_PAGE_ROLE`) — never
+ *     pruned, decayed below reach, merged or deduplicated (the `self_page`
+ *     tool's promise). The prune also skips it by name (`sleep/prune.ts`),
+ *     beside the `protected` flag it is born with.
+ *
+ * Read off the row's own columns and meta; no prose read. Decided by
+ * g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: each
+ * is born at strength 0 by design, so a reach line would hide all of them from
+ * birth — the chapter fold, the card's name — which no one decided.
+ */
+export function reachExempt(row: Pick<MemoryRow, "type" | "source" | "origin_ref" | "meta">): boolean {
+  if (row.type === "episode") return true;
+  if (row.type === "memory") return row.source === "episode" && row.origin_ref !== null && row.origin_ref.length > 0;
+  if (row.type !== "schema" || typeof row.meta !== "string" || !row.meta.includes('"role"')) return false;
+  try {
+    const role = (JSON.parse(row.meta) as { role?: unknown } | null)?.role;
+    return role === "handoff" || role === "entity" || role === SELF_PAGE_ROLE_SPELLED;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A row as physics reads it. `today` is the calendar day the dated hold is
+ * judged on (`datedHold`); absent, the row's own `today_date` — the store's
+ * `lastActiveDate`, which `Store.row()` reads beside it, so every
+ * `rowToPhysics(store.row(id))` carries the hold without asking.
+ */
+export function rowToPhysics(row: MemoryRow & FeelingPeak, today?: string | null): MemoryPhysics {
   return {
+    hold: datedHold(row, today ?? row.today_date ?? null),
     kind: row.kind,
     salience: rowToSalience(row),
     birthDay: row.birth_day,

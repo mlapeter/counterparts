@@ -841,7 +841,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   settle:
     "Two memories that disagree. With no flags (or --list), the pairs nobody has settled — a dream flags them — and the ones settled lately: how, which holds, who settled it and why; and the corrections held in the last 7 lived days (a memory said it changes or corrects one that didn't look related, so nothing was settled) that nobody has settled since, each with the command that settles it. --pair <id> --holds <memory id> --how changed|corrected|open --why \"...\" settles one as you (or --holds <id> --against <id> for two memories no dream flagged): changed — both were true at their time, the older fades once and is shown as earlier; corrected — the older was wrong, it leaves recall and stays readable by its id; open — a real disagreement, both kept and shown together. No memory is rewritten. --undo <pair> reverses a settle: the strength comes back, a corrected memory comes back into recall, and the pair is unsettled again. Reading works under observer; the two changes refuse there.",
   coverage:
-    "What is written up, and what is not yet, for one date (default today): each session that captured something that day, how much of it is written up, and what is not yet written up — how many pieces, over how long, since when — and whether that is owed (the next session in its project is asked to write it up), lapsed (nobody did in two days of use; nothing is deleted), under the floor, or still at work. Read-only.",
+    "What is written up, and what is not yet, for one date (default today): each session that captured something that day, how much of it is written up, and what is not yet written up — how many pieces, over how long, since when — and whether that is owed (the next session in its project is asked to write it up), lapsed (let go unwritten after fourteen days of use — lost to memory; nothing is deleted), under the floor, or still at work. Read-only.",
   dashboard:
     "Open the dashboard in your browser: the web view of the store your configuration names, served on 127.0.0.1 and nowhere else. Ctrl-C stops it. Looking is read-only — it strengthens nothing and deposits nothing. What you do there on purpose (write a note, remove a memory, back up, …) runs through these same commands, and a removal asks you to type the id back.",
   version: "The version of Counterparts you have. It opens nothing.",
@@ -3572,7 +3572,7 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   io.out(`     '${BIN.hook}' on a PATH that lacks the runtime is a`);
   io.out("     hook that never runs and says nothing.");
   io.out("");
-  io.out("  2. Register the MCP server, so note, recall and session_end exist:");
+  io.out("  2. Register the MCP server, so remember, recall and session_end exist:");
   io.out("");
   io.out(`     ${mcpCommand(resolved, undefined, custom)}`);
   io.out("");
@@ -8777,7 +8777,7 @@ function scopeEffect(mode: ScopeMode, resumeTo: string | undefined): string {
     case "on":
       return "Sessions there capture, deposit, wake and recall, as everywhere else.";
     case "observer":
-      return "Sessions there deliver the wake and recall and record nothing; the note, session_end and chapter tools stand down.";
+      return "Sessions there deliver the wake and recall and record nothing; the remember, session_end and chapter tools stand down.";
     case "off":
       return "The hooks there produce no output and write nothing, and every tool refuses. `--resume` turns it back on.";
     default:

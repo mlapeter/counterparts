@@ -143,14 +143,14 @@ describe("core by meaning: the about mark, not the kind", () => {
     open.splice(0);
     const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true });
     try {
-      const note = await s.call("note", { text: "Mike lets an AI act for itself, and that changed how I work with him.", kind: "person", about: "us" });
+      const note = await s.call("remember", { text: "Mike lets an AI act for itself, and that changed how I work with him.", kind: "person", about: "us" });
       const id = note.structuredContent["id"] as string;
       expect(note.structuredContent["about"]).toEqual({ stored: true, mark: "us" });
       expect(s.counterpart.store.read(id).about).toBe("us");
       expect(s.counterpart.store.read(id).aboutBy).toBe("writer");
       expect(s.counterpart.store.coreEvents({ memoryId: id, action: "about" })[0]?.actor).toBe("writer");
 
-      const bad = await s.call("note", { text: "A note with a made-up mark on it.", about: "core" });
+      const bad = await s.call("remember", { text: "A note with a made-up mark on it.", about: "core" });
       expect(bad.isError).toBe(true);
       expect(bad.structuredContent["reason"]).toBe("about-malformed");
 

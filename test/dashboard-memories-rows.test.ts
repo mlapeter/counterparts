@@ -295,7 +295,9 @@ describe("a date that still repeats is kept, so it is never fading (2026-10-09)"
   test("the same faded physics: fading as a one-off, settling as a repeat, with no let-go day", () => {
     withSrc((src) => {
       const day = src.store.livedDay();
-      const p = src.store.physicsOf(ids.repeat as string);
+      // As a one-off: without the dated hold physics now gives a repeat
+      // (2026-10-10, `DatedHold` — a date that repeats is always held).
+      const p = { ...src.store.physicsOf(ids.repeat as string), hold: null };
       // Not vacuous: as a one-off this memory is let go within the fortnight.
       expect(letGoDay(p, day, NEAR_LET_GO_DAYS)).not.toBeNull();
       expect(holdOf(p, day, { prunable: true })).toBe("fading");
@@ -330,7 +332,7 @@ describe("a date that still repeats is kept, so it is never fading (2026-10-09)"
     withSrc((src) => {
       const card = memoryDetail(src, ids.repeat as string);
       // The same maths would put it below the archive line tomorrow…
-      expect(fadeCurve(src.store.physicsOf(ids.repeat as string), card.day).archiveDay).not.toBeNull();
+      expect(fadeCurve({ ...src.store.physicsOf(ids.repeat as string), hold: null }, card.day).archiveDay).not.toBeNull();
       // …but the prune keeps it, so the card names no day.
       expect(card.curve?.archiveDay).toBeNull();
       expect(card.curve?.repeats).toBe("every May 14");

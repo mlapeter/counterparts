@@ -160,7 +160,7 @@ function hostFiles(root: string): Record<string, string> {
  * `TOOL_NAMES`, so a tool added without an entry fails the lookup, not silently.
  */
 const ARGS: Record<string, Record<string, unknown>> = {
-  note: { text: "The reservoir loop is four miles and takes forty minutes at an easy pace.", salience: 0.6 },
+  remember: { text: "The reservoir loop is four miles and takes forty minutes at an easy pace.", salience: 0.6 },
   recall: { question: "how long is the reservoir loop", mode: "facts" },
   status: {},
   session_end: {
@@ -262,11 +262,11 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
     const ops = outside(paths.operational(dir));
     const cache = outside(paths.cache(dir));
     ops.run("UPDATE meta SET value = ? WHERE key = 'schemaVersion'", String(SCHEMA_VERSION + 1));
-    expect((await s.call("note", ARGS["note"] ?? {})).structuredContent["reason"]).toBe("schema-ahead");
+    expect((await s.call("remember", ARGS["remember"] ?? {})).structuredContent["reason"]).toBe("schema-ahead");
 
     ops.run("UPDATE meta SET value = ? WHERE key = 'schemaVersion'", String(SCHEMA_VERSION));
     const before = census(ops, cache);
-    const noted = await s.call("note", ARGS["note"] ?? {});
+    const noted = await s.call("remember", ARGS["remember"] ?? {});
     expect(noted.structuredContent["stored"]).toBe(true);
     // The census is SENSITIVE: the same call on a current store moves it. A
     // census that could not see this write could not see a leak either.
@@ -320,7 +320,7 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
     const s = server({ observer: true });
     const ops = outside(paths.operational(dir));
     ops.run("UPDATE meta SET value = ? WHERE key = 'schemaVersion'", String(SCHEMA_VERSION + 1));
-    const r = await s.call("note", ARGS["note"] ?? {});
+    const r = await s.call("remember", ARGS["remember"] ?? {});
     expect(r.structuredContent["reason"]).toBe("schema-ahead");
     expect(s.events("mcp.observer.standdown")).toHaveLength(0);
   });
@@ -385,7 +385,7 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
    * the stamps at each write, so a migration that lands in that wait refuses
    * the write and the call, and nothing more is written.
    */
-  for (const tool of ["note", "session_end"] as const) {
+  for (const tool of ["remember", "session_end"] as const) {
     test(`${tool}: a migration during the embedder's wait refuses every write after it`, async () => {
       const ops = outside(paths.operational(dir));
       let cacheDb: Db | null = null;
@@ -414,7 +414,7 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
       }
       if (tool === "session_end") recordSession(dir, { sessionId: SESSION, scope: projectDir, phase: "start" });
       const args =
-        tool === "note"
+        tool === "remember"
           ? { text: "The reservoir loop is four miles and takes forty minutes at an easy pace." }
           : {
               session: SESSION,

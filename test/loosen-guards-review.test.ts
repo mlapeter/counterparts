@@ -131,7 +131,7 @@ describe("the credential scan covers `emotion` at every door", () => {
   test("the note door: the same", async () => {
     const s = openServer({ dir, scope: "/tmp/review268-project", owner: true, bundlesAsOwner: true });
     open.push({ close: () => s.counterpart.close() });
-    const r = await s.call("note", {
+    const r = await s.call("remember", {
       text: "The release went out after a long night.",
       feelings: [{ whose: "self", core: "happy", emotion: `relieved: ${GHP}`, strength: 0.5 }],
     });

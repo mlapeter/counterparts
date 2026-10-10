@@ -1608,9 +1608,11 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // (2026-10-03) decided to KEEP it at 11: v12 re-files nothing, rows are
     // read `m.*`, and its one new reader (doctor's `Write fields`) asks for
     // the column first — no instrument gets a wrong answer from a v11 file
-    // (`operational.ts#OBSERVER_READ_FLOOR`). Raising SCHEMA_VERSION without
-    // touching this line still fails here.
-    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 12, floor: 11 });
+    // (`operational.ts#OBSERVER_READ_FLOOR`). v13 (2026-10-10) decided the
+    // same, for the same reason: its new columns are nothing an instrument
+    // reads, and a v12 feeling softens from its memory's birth as before.
+    // Raising SCHEMA_VERSION without touching this line still fails here.
+    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 13, floor: 11 });
   });
 
   test("a store below the floor refuses under observer — there is no floor below v6", () => {
@@ -1693,6 +1695,13 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
       "versions.occurred_on",
       "versions.said_by",
       "versions.status",
+      // v13 (2026-10-10): the mechanisms review's one additive bump.
+      "memories.next_change_day",
+      "memories.dream_shown_day",
+      "edges.source",
+      "edges.reinforced",
+      "feelings.recorded_day",
+      "returns.session",
     ]);
     for (const spec of ADDED_COLUMNS) {
       expect({ column: spec.column, namesAFloorColumn: V6_COLUMNS.includes(spec.column) }).toEqual({
@@ -1874,6 +1883,10 @@ describe("observer mode is enforced at the store seam", () => {
     undoContradictionSettle: [{ pairId: "ctr_x", settleSeq: 1, actor: "owner", actorId: null, why: null, day: 0 }],
     // v12 (2026-10-03): a card's birth and the backfill link what names it.
     linkSubjects: [[{ memoryId: "mem_x", subjectId: "sch_x" }], "birth"],
+    // v13 (2026-10-10, the turn-down): derived bookkeeping and box 3.
+    dropRanking: [["mem_000000000000"]],
+    setNextChangeDays: [[{ id: "mem_000000000000", day: 1 }]],
+    clearNextChangeDays: [],
   };
 
   function populated(): { id: string; snapshot: string } {

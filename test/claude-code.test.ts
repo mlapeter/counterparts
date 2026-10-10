@@ -84,6 +84,7 @@ import { hostConfig, hostDelivery } from "../src/adapters/claude-code/bin/hook.j
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
 import { STOP_HUMAN_LINE } from "../src/adapters/claude-code/hooks.js";
 import { toolSpec } from "../src/adapters/mcp/index.js";
+import { findable } from "./store-fixture.js";
 
 /**
  * The wake's first line, and a recall note's, is the person's clock since
@@ -3121,13 +3122,17 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     const spec = JSON.stringify(toolSpec("session_end"));
     expect(spec).toContain("`updates` is a FIELD on an entry, not prose");
     expect(spec).toContain("A salience you claim is a floor");
-    expect(spec).toContain("An entry that claims no salience gets an ordinary default floor");
+    expect(spec).toContain("An entry that claims no salience gets a default floor by what it is about");
   });
 
-  test("it keeps the sentence that sanctions an honest no, and names the empty answer", () => {
+  test("the honest no moved to the field: the ask asks for what caught attention, and `[]` is said on `memories` (2026-10-10)", () => {
+    // 01 D4: "Nothing worth keeping is a real answer" was the sentence that
+    // licensed dropping a reading night's news. `[]` stays legal — on the field.
     const text = stopAsk("s1", 2);
-    expect(text).toContain("Nothing worth keeping is a real answer");
-    expect(text).toContain("`memories: []`");
+    expect(text).not.toContain("Nothing worth keeping");
+    expect(text).toContain("what caught your attention");
+    const memories = (toolSpec("session_end")?.inputSchema as { properties: Record<string, { description: string }> }).properties["memories"];
+    expect(memories?.description).toContain("`[]` only when nothing happened since you last wrote");
   });
 
   test("the chapter it asks for names its NUMBER, and the number is the store's", () => {
@@ -3245,6 +3250,8 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
 
   /** Enough memories that the gate leaves the cold-start regime. */
   function seed(c: Counterpart): { otter: string; kite: string } {
+    // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+    findable(c.store);
     const otter = c.store.put({
       type: "memory",
       kind: "fact",

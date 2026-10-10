@@ -244,27 +244,35 @@ function symmetryBlock(src: DashboardSource, style: Style): string {
   const rows = KINDS.map((kind) => {
     let up = 0;
     let down = 0;
+    let unexplained = 0;
     for (const row of src.store.eventLog({ name: "band.transition", limit: 100_000 })) {
       if (row.payload === null) continue;
       try {
-        const p = JSON.parse(row.payload) as { kind?: string; direction?: string };
+        const p = JSON.parse(row.payload) as { kind?: string; direction?: string; cause?: string };
         if (p.kind !== kind) continue;
-        if (p.direction === "up") up += 1;
-        else if (p.direction === "down") down += 1;
+        // A new curve's own moves (`recurve`, review of #372) are not counted.
+        if (p.cause === "recurve") continue;
+        if (p.direction === "up") {
+          up += 1;
+          if (p.cause === "unexplained") unexplained += 1;
+        } else if (p.direction === "down") down += 1;
       } catch {
         continue;
       }
     }
-    const verdict = symmetryCheck(kind, { up, down });
+    // Only an UP-ratchet is an alarm (2026-10-10): fading down a band is the
+    // curve working, so downs past any ratio read as within expectation.
+    const verdict = symmetryCheck(kind, { up, down, unexplained });
+    const counts = `${up}\u2191/${down}\u2193${unexplained > 0 ? `, ${unexplained} unexplained` : ""}`;
     const label =
       verdict.reason === "never-asked"
-        ? style.warn(`never-asked (${up}\u2191/${down}\u2193)`)
+        ? style.warn(`never-asked (${counts})`)
         : verdict.reason === "within-expectation"
-          ? `within-expectation (${up}\u2191/${down}\u2193)`
-          : style.warn(`${verdict.reason} (${up}\u2191/${down}\u2193)`);
+          ? `within-expectation (${counts})`
+          : style.warn(`up-ratchet suspected (${counts})`);
     return [kind, label];
   });
-  return `${subheading("Band symmetry \u2014 the ratchet tripwire, by reason", style)}\n${indent(table(rows))}`;
+  return `${subheading("Band symmetry \u2014 the up-ratchet tripwire, by reason", style)}\n${indent(table(rows))}`;
 }
 
 // ── what I have kept, and what I let go ──────────────────────────────────────

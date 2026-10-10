@@ -393,7 +393,7 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
   });
 
   test("the about field asks for owner or us on anything personal", () => {
-    const about = (toolSpec("note")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];
+    const about = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];
     expect(about?.description).toContain("Mark anything personal — people, feelings, life outside the work — owner or us");
     expect(about?.description).not.toContain("Leave it out when unsure");
   });
@@ -420,16 +420,16 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
   test("note sets it; the thread is under Still open; updates with unresolved: false closes it", async () => {
     const c = counterpart();
     const mcp = server(c);
-    const r = await mcp.call("note", { text: "I promised to send Dana the cut list for the bookshelf by Friday.", unresolved: true });
+    const r = await mcp.call("remember", { text: "I promised to send Dana the cut list for the bookshelf by Friday.", unresolved: true });
     const id = (r.structuredContent as Record<string, unknown>)["id"] as string;
     expect(flagged(c, id)).toBe(true);
     expect(stillOpen(c)).toContain("the cut list for the bookshelf");
 
     // A revision that says nothing about the thread leaves it open.
-    await mcp.call("note", { text: "The cut list for the bookshelf needs the shelf depth first.", updates: id, how: "open" });
+    await mcp.call("remember", { text: "The cut list for the bookshelf needs the shelf depth first.", updates: id, how: "open" });
     expect(flagged(c, id)).toBe(true);
 
-    const done = await mcp.call("note", { text: "Sent Dana the cut list for the bookshelf on Thursday.", updates: id, unresolved: false, how: "open" });
+    const done = await mcp.call("remember", { text: "Sent Dana the cut list for the bookshelf on Thursday.", updates: id, unresolved: false, how: "open" });
     expect((done.structuredContent as Record<string, unknown>)["thread"]).toEqual({ closed: id });
     expect(flagged(c, id)).toBe(false);
     expect(stillOpen(c)).not.toContain("the cut list for the bookshelf");
@@ -457,9 +457,9 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
   test("how: changed with the answer closes it too, by settling", async () => {
     const c = counterpart();
     const mcp = server(c);
-    const r = await mcp.call("note", { text: "Whether the shop lease renews in spring is still an open question.", unresolved: true });
+    const r = await mcp.call("remember", { text: "Whether the shop lease renews in spring is still an open question.", unresolved: true });
     const id = (r.structuredContent as Record<string, unknown>)["id"] as string;
-    await mcp.call("note", { text: "The shop lease renewed for two more years.", updates: id, how: "changed" });
+    await mcp.call("remember", { text: "The shop lease renewed for two more years.", updates: id, how: "changed" });
     expect(stillOpen(c)).not.toContain("shop lease renews");
   });
 
@@ -533,15 +533,17 @@ describe("the write-up ask says to close what got done (item 4)", () => {
     const clause = "`updates` anything dated or open now done";
     const ask = stopAsk("123e4567-e89b-12d3-a456-426614174000", 2);
     expect(ask).toContain(clause);
-    // The widest it gets: a real UUID and a four-digit chapter, with a margin under the 480 pin.
-    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(470);
+    // The widest it gets: a real UUID and a four-digit chapter, under the 480
+    // pin — 474 since 2026-10-10 (01 C1's attention ask; the 10-character
+    // margin this held was spent on "what you read, what they said, what happened").
+    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(480);
     expect(desktopWriteUpAsk("s1")).toContain(clause);
     // Inside the 2,048 characters Claude Code serves of a tool description.
     expect(renderDescription(toolSpec("session_end")!).slice(0, 2_048)).toContain(clause);
     const entry = (toolSpec("session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, { description: string }> } } } })
       .properties.memories.items.properties;
     expect(entry["updates"]?.description).toContain("with `eventDate: null` or `unresolved: false`");
-    const note = (toolSpec("note")?.inputSchema as { properties: Record<string, { description: string }> }).properties;
+    const note = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties;
     expect(note["updates"]?.description).toContain("with `eventDate: null` or `unresolved: false`");
   });
 });

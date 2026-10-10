@@ -23,6 +23,7 @@ import { Self, hintReading } from "../src/core/self/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { SCHEMA_VERSION, Store, paths } from "../src/core/store/index.js";
 import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { stripV13 } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 let root: string;
@@ -86,7 +87,7 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const d = store.livedDay();
     const s0 = strength(store.physicsOf(old), d);
     await s.call("recall", { ids: [old] });
-    await s.call("note", { text: "I used to build everything in React; now Vue is my default.", updates: old, how: "changed" });
+    await s.call("remember", { text: "I used to build everything in React; now Vue is my default.", updates: old, how: "changed" });
     s.counterpart.creditReferences("sessA", { assistantTurns: ["ok, Vue now."], expansions: [old] });
     const p2 = store.physicsOf(old);
     expect(p2.fade).toBe(0.5);
@@ -115,7 +116,8 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const store = storeOnly();
     days(store, 2);
     const old = put(store, "The office printer on floor two jams on duplex.", { relevance: 0.1, emotional: 0, predictive: 0.1 }, { claimed: 0.1 });
-    days(store, 60, "2026-09-10");
+    // Ten lived days: inside the 14-day dwell (2026-10-10; it was 60 inside 90).
+    days(store, 10, "2026-09-10");
     const d = store.livedDay();
     const lastUsed = store.physicsOf(old).lastUsedDay;
     const neu = put(store, "The floor-two printer was replaced; duplex works now.");
@@ -147,7 +149,9 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
-    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too
+    // — and v13's (2026-10-10).
+    stripV13(db);
     for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");
@@ -231,7 +235,7 @@ describe("S5: undoing a settle nobody flagged withdraws the pair", () => {
     const store = s.counterpart.store;
     days(store, 4);
     const old = put(store, "My editor is VS Code.");
-    const r = payload(await s.call("note", { text: "I switched my editor to Zed.", updates: old, how: "changed" }));
+    const r = payload(await s.call("remember", { text: "I switched my editor to Zed.", updates: old, how: "changed" }));
     const pairId = String((r["settled"] as Record<string, unknown>)["pair"]);
     const u = undo(store, { pair: pairId, actor: "owner", why: "not a change, just more detail" });
     expect(u.ok && u.state).toBe("withdrawn");
@@ -330,8 +334,8 @@ describe("the minors", () => {
     const a = put(store, "Retro is on Fridays.");
     const b = put(store, "Retro is on Thursdays.");
     const text = "Retro moved from Fridays to Thursdays this sprint.";
-    await s.call("note", { text });
-    const dup = await s.call("note", { text, settle: { holds: b, over: a, how: "changed", why: "moved" } });
+    await s.call("remember", { text });
+    const dup = await s.call("remember", { text, settle: { holds: b, over: a, how: "changed", why: "moved" } });
     expect(payload(dup)["stored"]).toBe(false);
     expect((payload(dup)["settle"] as Record<string, unknown>)["ok"]).toBe(true);
     expect(dup.isError ?? false).toBe(false);
@@ -365,7 +369,9 @@ describe("the minors", () => {
     const db = new Database(paths.operational(dir));
     db.run("DROP TABLE contradictions");
     db.run("DROP TABLE contradiction_settles");
-    // v12's columns came after `fade`; a real v9 file has neither, so they go too.
+    // v12's columns came after `fade`; a real v9 file has neither, so they go too
+    // — and v13's (2026-10-10).
+    stripV13(db);
     for (const c of ["status", "said_by", "occurred_on"]) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
     db.run("ALTER TABLE memories DROP COLUMN fade");
     db.run("UPDATE meta SET value = '9' WHERE key = 'schemaVersion'");
@@ -382,7 +388,7 @@ describe("the minors", () => {
     const core = put(store, "Mike works at Google.", { relevance: 0.9, emotional: 0.5, predictive: 0.9 }, { kind: "person" });
     store.updatePhysics(core, { promotedIdentity: true });
     store.setBand(core, "identity", store.livedDay());
-    const r = payload(await s.call("note", { text: "Mike works at Meta; I had Google wrong.", updates: core, how: "corrected" }));
+    const r = payload(await s.call("remember", { text: "Mike works at Meta; I had Google wrong.", updates: core, how: "corrected" }));
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["applied"]).toBe(false);
     expect(String(settled["detail"])).toContain("recorded unsettled");

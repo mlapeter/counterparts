@@ -95,7 +95,13 @@ alone.
   the `band.transition` rows the same pass emits. Strength is still cache-only, the write
   fires only on disagreement, the reconciliation counts into the phase's `changed` and is
   reported as `reconciled` on the phase report and the durable `sleep.cycle` row, and
-  `NOTES.md` §5 carries the reasoning.)*
+  `NOTES.md` §5 carries the reasoning.)* *(Amended 2026-10-10, Group 1, review 13 C2: the
+  pass is a TURN-DOWN — it reads only the rows whose band, reach or prune eligibility
+  changes today, keyed by store v13's `next_change_day`, which a trigger clears whenever an
+  input of the curve is written. Chapters' copies, handoffs and entity cards are not ranked
+  (`store/operational.ts#reachExempt`); the prune never takes a chapter's copy or a live
+  handoff; the dwell is 14 lived days (`physics/` §5.8, archival). The census is one
+  grouped read. `NOTES.md` 2026-10-10.)*
 - **The accommodation phase, the ledger phase, and their forensics holds are gone** (owner
   decision, settled) — see `schemas/CONTRACT.md` §4.
 - **Hygiene's model-proposed gist merges are dropped in favour of physics dedup**: hash plus

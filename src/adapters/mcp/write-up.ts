@@ -403,9 +403,9 @@ async function handOver(
       part,
       of: parts.length,
       next:
-        `Hand back what is worth keeping from this part with session_end: session: ${input.session}, ` +
+        `Hand back what caught your attention in this part, one idea each, with session_end: session: ${input.session}, ` +
         `writeUp: ${ended}, part: ${String(part)}, memories: [...] — in your own words, as this session's. ` +
-        `memories: [] if nothing in it is worth keeping. Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up. ` +
+        `memories: [] only if nothing in it held your attention. Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up. ` +
         `Lines marked ${WRITE_UP_REPLY_MARK} are what that session said back — context for what was said to it; you are writing it up second-hand.` +
         (part < parts.length
           ? st.granted

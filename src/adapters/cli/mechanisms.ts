@@ -153,8 +153,11 @@ export const MEMORY_MECHANISMS: readonly MemoryMechanism[] = [
       const letGo = part(v, "pruned");
       const dropped = part(v, "faded");
       const cards = part(v, "cards");
+      const below = part(v, "belowReach");
       const parts: string[] = [];
-      if (letGo > 0) parts.push(`${plural(letGo, "memory", "memories")} let go at the floor`);
+      // Below reach and exited, counted apart (2026-10-10, review 03 C3).
+      if (below > 0) parts.push(`${plural(below, "memory", "memories")} below reach now`);
+      if (letGo > 0) parts.push(`${plural(letGo, "memory", "memories")} exited (archived at the floor)`);
       if (dropped > 0) parts.push(`${plural(dropped, "memory", "memories")} faded a band`);
       if (cards > 0) parts.push("unused names faded");
       if (letGo === 0) parts.push("nothing at the floor yet");

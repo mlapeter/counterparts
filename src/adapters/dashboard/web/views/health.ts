@@ -31,7 +31,7 @@ import { LOG_CEILING, eventCountsByName } from "./shared.js";
 
 export interface HealthView {
   readonly phases: { phase: string; day: number | null; ago: number | null; torn: boolean; absent: string | null }[];
-  readonly symmetry: { kind: Kind; up: number; down: number; reason: string; ok: boolean }[];
+  readonly symmetry: { kind: Kind; up: number; down: number; unexplained: number; reason: string; ok: boolean }[];
   /**
    * ONE TABLE, LED BY ENGLISH. There were two — "what a host told me" over the
    * eleven `adapter.*` names, and "everything I can record durably" over all
@@ -317,19 +317,25 @@ export function healthView(src: DashboardSource): HealthView {
   const symmetry = KINDS.map((kind) => {
     let up = 0;
     let down = 0;
+    let unexplained = 0;
     for (const row of transitions) {
       if (row.payload === null) continue;
       try {
-        const p = JSON.parse(row.payload) as { kind?: string; direction?: string };
+        const p = JSON.parse(row.payload) as { kind?: string; direction?: string; cause?: string };
         if (p.kind !== kind) continue;
-        if (p.direction === "up") up += 1;
-        else if (p.direction === "down") down += 1;
+        // A new curve's own moves (`recurve`, review of #372) are not counted.
+        if (p.cause === "recurve") continue;
+        if (p.direction === "up") {
+          up += 1;
+          if (p.cause === "unexplained") unexplained += 1;
+        } else if (p.direction === "down") down += 1;
       } catch {
         continue;
       }
     }
-    const verdict = symmetryCheck(kind, { up, down });
-    return { kind, up, down, reason: verdict.reason, ok: verdict.reason === "within-expectation" };
+    // Only an UP-ratchet is an alarm (2026-10-10, `physics#symmetryCheck`).
+    const verdict = symmetryCheck(kind, { up, down, unexplained });
+    return { kind, up, down, unexplained, reason: verdict.reason, ok: verdict.reason === "within-expectation" };
   });
 
   // The merged record table. Every durable name appears exactly once — the

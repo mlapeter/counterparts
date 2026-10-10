@@ -1062,6 +1062,28 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
     state's `surfaced`, and are not scored.
   - Recorded only where the credit pass runs (INTERFACE-GAPS §9).
 
+## 29. Below reach (2026-10-10, Group 1, g1a — kept minimal in this module)
+
+Physics now has a line under which a memory is out of the working layer (`REACH = 0.15`,
+review 03 C2). Ambient recall leaves it out:
+
+- `activate()` takes `includeBelowReach` (absent on the ambient turn, its only caller; a turn
+  with `feeling` set counts as deliberate). On an ambient turn the token top-K and the inline
+  semantic top-K are PREFILTERED on box 3's ranking (`Store#search` / `nearestTo`'s
+  `minStrength`, `cache.ts#reachJoin`), so a faded row takes no slot, and `recallable`
+  RECHECKS the exact strength, which also covers spreading's landings and the temporal cue.
+  `ActivationResult.belowReach` counts what the recheck left out (reported, not recorded).
+  The lagged semantic cue (`Counterpart#noteSessionSemantic`) is prefiltered the same way.
+- Outside reach altogether: chapters, their copies, handoffs, entity cards
+  (`store/operational.ts#reachExempt`); the identity band is never below it.
+- **Stale by one pass, named:** a memory revived since the last decay pass (a use, an open)
+  still reads below reach in the prefilter until the next pass; the exact recheck passes it,
+  but the top-K never offered it. Deliberate recall, which does not prefilter, finds it.
+- `gatedSal` (G10): `sal()` lost its emotional dimension, so a felt turn adds `EMO_LIFT × I`
+  (`salArm`), an unfelt one reads `sal()`.
+- Softening reads `feelings.recorded_day` (`feltDay`), store v13.
+- Untouched on purpose: the credit tiers and `resolveUse` (Group 1b), the mood weights (1c).
+
 ## 2026-10-10 — near-universal cue words are not looked up (Lane 0, scale review C4)
 
 `activate` fetched every cue's postings, and a word in almost every memory has postings the
@@ -1079,3 +1101,11 @@ with a minimum store size. `storeSize` is `countMemories` now, not
 the length of a list of every live id (16% of a 10x turn). Not done here, from the same
 finding: persisting the alias index and indexing `feelings(created_at)` (a canonical index —
 Group 1).
+
+## 30. Mood weights to 0 (2026-10-10, review 02 C3)
+
+`MOOD_SAME_WEIGHT` and `MOOD_CROSS_WEIGHT` are 0. Decided by b2+f8, 2026-10-10, lightly
+held. Evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after
+Group 1's engaged credit gives a real signal. The code in `mood.ts` is kept whole and its
+tests run it at the old weights; with both at 0, `Recall#build` skips `currentMood` (the
+per-turn `feelings` scan with no index on `created_at`).

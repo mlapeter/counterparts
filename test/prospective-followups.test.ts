@@ -59,7 +59,7 @@ function server(opts: { now?: number; timeZone?: string } = {}): McpServer {
 }
 
 async function note(s: McpServer, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const body = (await s.call("note", args)).structuredContent;
+  const body = (await s.call("remember", args)).structuredContent;
   expect(body["stored"]).toBe(true);
   return body;
 }
