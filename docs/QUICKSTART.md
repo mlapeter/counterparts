@@ -107,8 +107,8 @@ bun add -g counterparts@latest
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
-Coming from 0.3.13 or earlier, run this once after upgrading. If you connected Claude
-Desktop, quit it first:
+Coming from 0.3.13 or earlier, or from 0.3.14 with Claude Desktop connected, run this
+once after upgrading. If you connected Claude Desktop, quit it first:
 
 ```
 counterparts connect
