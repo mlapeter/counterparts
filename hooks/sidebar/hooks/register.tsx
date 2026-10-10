@@ -681,38 +681,34 @@ async function onRecallBlock($: EngineInterface, block: RecallBlock): Promise<vo
   if (block.surfaced.length > 0 && (await read($, dashA)) !== 'down') quiet(titleSurfaced($, block.turn))
 }
 
-/** The surfaced memories' ids and titles, from the dashboard: once now, once more a moment later if the row was not written yet. */
-async function titleSurfaced($: EngineInterface, turn: number): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt > 0) await $.clock.sleep(1500)
-    if (run.session === '') run.session = await $.session.id()
-    let events: DashEvent[] = []
-    try {
-      events = ((await fetchJson($, '/api/activity?name=recall.decision&limit=8')) as { events?: DashEvent[] }).events ?? []
-    } catch {
-      return
-    }
-    const row = decisionFor(events, run.session, turn)
-    if (row === undefined) continue
-    const ids = surfacedIds(row)
-    const titles = await Promise.all(
-      ids.map(id =>
-        fetchJson($, `/api/memory?id=${encodeURIComponent(id)}`).then(
-          d => (d as { found?: boolean; title?: string }).found === true ? (d as { title?: string }).title ?? null : null,
-          () => null,
-        ),
-      ),
-    )
-    const mind = await read($, mindA)
-    if (mind === null || mind.turn !== turn) return
-    const surfaced = mind.surfaced.map((s, i) => ({ id: ids[i] ?? s.id, title: titles[i] ?? s.title }))
-    await update($, mindA, m => (m === null || m.turn !== turn ? m : { ...m, surfaced }))
-    const first = surfaced[0]
-    const latest = await read($, latestA)
-    if (first !== undefined && latest !== null && latest.text.startsWith('remembered: ') && latest.at >= mind.at) {
-      await update($, latestA, l => (l === null ? l : { ...l, text: words('remembered', first.title) }))
-    }
+/**
+ * The surfaced memories' ids and titles, from the dashboard: once now, and
+ * once more a moment later (a timer, not a wait inside the hook that made the
+ * block) if the turn's row was not written yet.
+ */
+async function titleSurfaced($: EngineInterface, turn: number, again = true): Promise<void> {
+  if (run.session === '') run.session = await $.session.id()
+  let events: DashEvent[] = []
+  try {
+    events = ((await fetchJson($, '/api/activity?name=recall.decision&limit=8')) as { events?: DashEvent[] }).events ?? []
+  } catch {
     return
+  }
+  const row = decisionFor(events, run.session, turn)
+  if (row === undefined) {
+    if (again) $.clock.after(1500, () => quiet(titleSurfaced($, turn, false)))
+    return
+  }
+  const ids = surfacedIds(row)
+  const titles = await Promise.all(ids.map(id => memoryTitle($, id)))
+  const mind = await read($, mindA)
+  if (mind === null || mind.turn !== turn) return
+  const surfaced = mind.surfaced.map((s, i) => ({ id: ids[i] ?? s.id, title: titles[i] ?? s.title }))
+  await update($, mindA, m => (m === null || m.turn !== turn ? m : { ...m, surfaced }))
+  const first = surfaced[0]
+  const latest = await read($, latestA)
+  if (first !== undefined && latest !== null && latest.text.startsWith('remembered: ') && latest.at >= mind.at) {
+    await update($, latestA, l => (l === null ? l : { ...l, text: words('remembered', first.title) }))
   }
 }
 

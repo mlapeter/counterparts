@@ -210,6 +210,19 @@ test('Memories and Subconscious: what the recall block put in front of Claude, t
   expect(await tail($, w)).toBeUndefined() // the pane is open: no tail
 })
 
+test('a turn’s row not written yet when the block arrives: the gist stands, and the title comes a moment later', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await block($, w)
+  expect((await bodyLines(ui))[1]).toBe('Mike chose 35 columns on')
+  w.events.push(DECISION_T3) // written now
+  await w.clock.advance(1600)
+  await settle(w)
+  expect((await bodyLines(ui))[1]).toBe('The sidebar is 35 columns wide')
+  await ui.unmount()
+})
+
 test('a message with nothing said in full: no Memories section, and the time moves to Subconscious; the dashboard down leaves the words Claude read', async ($, on) => {
   const w = world(on, { down: true })
   await start($, w)
