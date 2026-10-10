@@ -32,7 +32,7 @@ hides it (as its `✕` does), `/counterparts resume` resumes a folder paused
 here, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (65 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (70 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -69,20 +69,30 @@ Found on the way (each **verified** unless marked):
 - **`$.mcp.call` goes through the permission check** and can open a dialog
   ("Tool use · from the counterparts plugin … Yes / No"). The debug log shows
   `$.mcp.call` → `$.tool.call` → permission. The 2.1.295 and 2.1.296 doc
-  comments both say "No permission prompt". So the sidebar never calls the
-  server unasked unless `$.tool.check` says `allow`. A press may ask, because
+  comments both say "No permission prompt". So the sidebar calls the server
+  unasked only when `$.tool.check` says `allow`, and a press may ask, because
   the person just asked. The dialog offered only Yes or No. An allow rule for
   `mcp__counterparts__recall` ends the asking for search. **Not for `scope`**:
-  with that rule the model could pause or turn off folders unasked. (Mike runs
-  in auto mode; whether its classifier passes these quietly is **assumed**,
-  not measured.) The quiet read happens at **session start** in every
-  interactive session (since 2026-10-09; before, at the pane's first drawing),
-  and the first drawing tries again only if that found no server. Each read is
-  one `mcp.scope.read` line in the event log, so every interactive session now
-  logs one. That the memory server is already listed at `session.start` is
-  **assumed** (the test world answers at once; live, MCP may connect later):
-  if it isn't, the start read looks again at 2 s, 5 s and 15 s, then leaves it
-  to the first drawing.
+  with that rule the model could pause or turn off folders unasked. **Auto
+  mode, measured in round 1:** a plugin's call skips the auto-mode classifier
+  and raises no dialog. But `$.tool.check` doesn't answer `allow` there without
+  a rule, so an unasked read gated on it is never made: on Mike's machine a
+  session started in a paused folder showed `?` until clicked.
+- **So where the folder stands is read from the registry file, not the tool**
+  (since 2026-10-09). `hooks/scopes.ts` copies the core's rules: the file is
+  `scopes.json` beside the configuration the wired hook names (its own
+  `--config` after the hook, in the user's settings and then this folder's;
+  else `COUNTERPARTS_CONFIG`; else `~/.counterparts/claude-code.json`), the
+  longest ancestor governs, segment-aware, both sides realpathed with
+  `$.fs.stat({ resolve })`. `$.fs` is read-only here and asks nothing; no
+  event is logged. It is read at session start, on every dashboard poll while
+  the pane is drawn, once a minute otherwise (hidden, quiet, or not shown),
+  and on every `/counterparts`, so a pause made in another session shows here
+  within a poll, or within a minute with the pane hidden. The `scope` tool is
+  used for writes (after the confirm, and resumes), and for a read only when
+  the file can't be read and the person pressed. **Assumed:** that
+  `COUNTERPARTS_CONFIG` set in a settings `env` block reaches `$.env.get` (a
+  configuration named only there would be missed, and the default read).
 - The recall block arrives at `session.append` as door `hook-context`, name
   `hook_additional_context`, origin `{ kind: 'hook', event: 'UserPromptSubmit' }`,
   inside a system reminder (a `-p` run with a settings hook printing a block).
@@ -304,10 +314,14 @@ Mike's first real run is the real measurement.
   hooks return before logging). Since then:
   - the switches read **"Counterparts memory · this folder"** and **"Claude
     Code's own memory"**, one a line, and hovered each says what a click does
-    (a hidden Box revealed by `hover: { display: 'flex' }` in the row's keyed
-    Box: **verified** in the test kit that the words are drawn; the reveal
-    itself is the surface's, **assumed** from the reference, and it pushes the
-    rows below down while the pointer is on the row);
+    in two lines kept for it under both switches (a fixed-height Box, overflow
+    hidden; each row joins a hover group, `hover: { scope }`, that reveals its
+    own lines there). The first version revealed the words inside the row,
+    which pushed the Claude memory switch down three rows while the pointer was
+    on the Counterparts one: controls moving under the pointer, where the
+    misclick happened. **Verified** in the test kit: the words are drawn, the
+    rows hold nothing hidden, and the room is fixed; the reveal itself is the
+    surface's, **assumed** from the reference;
   - **an unknown state is never drawn as on**: a grey track with a `?`, and
     "state unknown · click to check" (or "checking…" while reading);
   - **a pause asks first**: a confirm row, "Pause Counterparts memory in
@@ -318,8 +332,9 @@ Mike's first real run is the real measurement.
     status line ("⏸ Counterparts memory paused in this folder · /counterparts
     resume") in every view, hidden included. `$.ui.status` takes text only, so
     the status line can't be amber: the ⏸ and the words carry it;
-  - the folder is read at session start (above), so a session started in a
-    paused folder says so before anything is drawn.
+  - the folder is read from the registry file (above) at session start, so a
+    session started in a paused folder says so before anything is drawn, with
+    no permission rule.
 - **The Counterparts switch shows four folder states, not two, and acts on only
   some of them.**
   - **States:** `on` and `unset` (on by default) draw on. `observer` draws

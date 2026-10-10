@@ -14,6 +14,9 @@ export const SESSION = 'sess-0001'
 /** The folder the test session runs in. */
 export const HERE = '/work/project'
 export const PANE = 'counterparts'
+/** The test's home folder: the registry is read beside `<HOME>/.counterparts/claude-code.json` unless a settings hook names another. */
+export const HOME = '/home/test'
+export const SCOPES_FILE = `${HOME}/.counterparts/scopes.json`
 /** 2026-10-09, 1:35pm in whatever zone the test runs in. */
 export const T0 = new Date(2026, 9, 9, 13, 35, 0).getTime()
 
@@ -125,6 +128,14 @@ export type WorldOptions = {
   permission?: 'allow' | 'ask' | 'deny';
   /** A read of the folder's scope takes this long on the mocked clock (none unless given). */
   scopeReadMs?: number;
+  /** The scope registry file is there but `$.fs` refuses to read it. */
+  scopesUnreadable?: boolean;
+  /** Where the registry is (`SCOPES_FILE` unless given): beside the configuration a settings hook names. */
+  registryAt?: string;
+  /** Other files the sidebar may read (a settings file), by absolute path. */
+  files?: Record<string, string>;
+  /** The environment the module reads (`HOME` only, unless given). */
+  env?: Record<string, string>;
 }
 
 export type World = {
@@ -138,6 +149,8 @@ export type World = {
   invalidations: string[];
   /** Commands the module ran (`$.process.run`): the URL opener. */
   runs: string[][];
+  /** Files the module read (`$.fs.read`), in order. */
+  fsReads: string[];
   /** The plugin's store as it stands. */
   store: Record<string, unknown>;
   scope: { mode: string; setBy: string | null; resumeTo: string };
@@ -173,6 +186,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     mcp: [],
     invalidations: [],
     runs: [],
+    fsReads: [],
     store,
     scope: { mode: opts.scopeMode ?? 'on', setBy: opts.scopeSetBy === undefined ? HERE : opts.scopeSetBy, resumeTo: 'on' },
     shown: opts.shown ?? true,
@@ -180,6 +194,28 @@ export function world(on: On, opts: WorldOptions = {}): World {
     denied: 0,
     lastStatus: () => w.statuses.filter((s): s is string => typeof s === 'string').at(-1) ?? '',
   }
+  mock.env(on, opts.env ?? { HOME })
+  // The scope registry as the server keeps it: `w.scope` is its one entry (none
+  // when nothing is set), so a write through the tool shows in the next read.
+  const registryAt = opts.registryAt ?? SCOPES_FILE
+  const files = opts.files ?? {}
+  const registry = () =>
+    JSON.stringify({
+      version: 1,
+      scopes:
+        w.scope.setBy === null
+          ? {}
+          : { [w.scope.setBy]: { mode: w.scope.mode, since: '2026-10-09T13:00:00.000Z', ...(w.scope.mode === 'paused' ? { resumeTo: w.scope.resumeTo } : {}) } },
+    })
+  on('fs.exists', (_$, e) => ({ value: e.path === registryAt || e.path in files }))
+  on('fs.read', (_$, e) => {
+    w.fsReads.push(e.path)
+    if (e.path === registryAt) return opts.scopesUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: registry() }
+    const text = files[e.path]
+    return text === undefined ? { deny: `ENOENT: no such file or directory, open '${e.path}'` } : { value: text }
+  })
+  // Every folder resolves to itself: no links in the test's tree.
+  on('fs.stat', (_$, e) => ({ value: { kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false, ...(e.resolve ? { realPath: e.path } : {}) } }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: SESSION }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))

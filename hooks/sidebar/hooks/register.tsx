@@ -5,14 +5,16 @@
  * memory), the brain turning in braille, the twelve mechanisms in their stage
  * colours, a search box, and ACTIVITY — what was kept, what came to mind,
  * what the night did — from the dashboard's feed and from this session live.
- * `‹` slides it to a rail of dots; the rail slides it back.
+ * `‹` makes it quiet (narrow, nothing moving); `›` opens it full.
  *
  * Where things come from:
  *   - the dashboard (`counterparts dashboard`, http://localhost:4747): day,
  *     memory count, the event feed. Never started from here;
+ *   - the scope registry file the hooks read (`scopes.json` beside the
+ *     configuration, read-only, `./scopes.ts`): where this folder stands;
  *   - the memory server over MCP, whichever this session connected (the npm
- *     install's `counterparts`, or this plugin's own): `scope` for the
- *     switch, `recall` (facts) for search;
+ *     install's `counterparts`, or this plugin's own): `scope` to pause or
+ *     resume, after the confirm; `recall` (facts) for search;
  *   - this session: `tool.call` on note / session_end / chapter (kept), and
  *     the recall block the classic UserPromptSubmit hook injects (came to mind).
  *
@@ -55,6 +57,8 @@ import { DASHBOARD, MECHS, MEMORIES_URL, hex, mechById, stageOf } from './mechan
 import type { MechId } from './mechanisms'
 import type { ListNote, ListProps, ListRow } from './list'
 import { ellipsizeCells, padCells } from './width'
+import { lookup, parentOf, parseRegistry, settingsHookConfig } from './scopes'
+import type { RegistryMode } from './scopes'
 import type { SidebarHit } from '../types'
 
 // ── constants ───────────────────────────────────────────────────────────────
@@ -72,8 +76,13 @@ const POLL_IDLE_MS = 30000
 /** A gap longer than this since the last read starts over from a cold read. */
 const STALE_MS = 10 * 60000
 const AUTO_CLOSE_MS = 30000
-/** When to look for the memory server again if it had not connected at session start. */
-const START_READ_RETRIES_MS = [2000, 5000, 15000] as const
+/** How often the folder's registry is read again while no dashboard poll reads it (the pane hidden, quiet or not shown). */
+const SCOPE_RECHECK_MS = 60000
+/** How long the registry's path, found from the settings, is trusted before it is looked up again. */
+const SCOPES_FILE_TTL_MS = 5 * 60000
+/** The hover groups that light each switch's line in the reserved space under the switches. */
+const HOVER_CP = 'counterparts-switch-cp'
+const HOVER_MEM = 'counterparts-switch-mem'
 const FIRING_MS = 2600
 const FEED_LIMIT = 30
 /**
@@ -161,8 +170,18 @@ const run = {
   drawn: false,
   /** The first drawing's one-time work (a quiet scope read, if the start's found none) is done. */
   woke: false,
-  /** A read of this folder's scope is on its way. */
+  /** A read of this folder's registry is on its way. */
   scopeReading: false,
+  /** The folder this session started in (`session.start`'s `cwd`). */
+  cwd: '',
+  /** The registry the hooks read, and when (`$.clock`) that was found. */
+  scopesFile: null as string | null,
+  scopesFileAt: 0,
+  /** When (`$.clock`) the registry was last read. */
+  scopeReadAt: 0,
+  scopeTimer: null as { cancel: () => void } | null,
+  /** Canonical forms of paths that resolved whole (a folder's realpath rarely moves). */
+  canon: new Map<string, string>(),
   /** Whether to open the pane unasked has been decided (from the first band drawing). */
   placementDecided: false,
   cold: false,
@@ -522,6 +541,7 @@ async function pollLoop($: EngineInterface): Promise<void> {
     return
   }
   const moved = await poll($)
+  await refreshScope($)
   run.quietPolls = moved ? 0 : run.quietPolls + 1
   $.clock.after(run.quietPolls >= 4 ? POLL_IDLE_MS : POLL_MS, () => quiet(pollLoop($)))
 }
@@ -562,25 +582,8 @@ function scopeOf(payload: Record<string, unknown> | null, isError: boolean, befo
   return { mode, own, setBy, dir, error: null, busy: false, unread: null }
 }
 
-/**
- * Whether the person's permission settings let this call run with no dialog.
- * A plugin's `$.mcp.call` goes through the same check as the model's call
- * (measured on 2.1.296), so a read nobody asked for is made only when nothing
- * would be asked; a press may ask, since the person just asked for it.
- */
-async function quietlyAllowed($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<boolean> {
-  const server = await memoryServer($)
-  if (server === null) return false
-  try {
-    const verdict = await $.tool.check({ tool: `mcp__${server}__${tool}`, input })
-    return verdict.decision === 'allow'
-  } catch {
-    return false
-  }
-}
-
+/** Asks the memory server where this folder stands: only when the registry file could not be read and the person pressed. */
 async function readScope($: EngineInterface): Promise<void> {
-  run.scopeReading = true
   const before = await read($, scopeA)
   await update($, scopeA, () => ({ ...before, busy: true }))
   try {
@@ -588,46 +591,130 @@ async function readScope($: EngineInterface): Promise<void> {
     await update($, scopeA, () => scopeOf(payload, isError, before))
   } catch (err) {
     await update($, scopeA, () => ({ ...before, busy: false, error: err instanceof Error ? err.message : String(err) }))
-  } finally {
-    run.scopeReading = false
   }
   look.mono = isPaused((await read($, scopeA)).mode)
   await refreshStatus($)
 }
 
-/**
- * Where this folder stands, read without asking: only while it is unknown,
- * one read at a time, and only when the person's permission settings would
- * open no dialog for it (otherwise the switch says it is unknown, never on).
- * Each read is one `mcp.scope.read` line in the event log.
- */
-async function readScopeQuietly($: EngineInterface): Promise<void> {
-  if (run.scopeReading) return
-  const now = await read($, scopeA)
-  if (now.mode !== 'unknown' || now.busy) return
-  run.scopeReading = true
-  let allowed = false
-  let server: string | null = null
+/** A file's text, or null when it is not there or can't be read. */
+async function readText($: EngineInterface, path: string): Promise<string | null> {
   try {
-    server = await memoryServer($)
-    allowed = server !== null && (await quietlyAllowed($, 'scope', {}))
-  } finally {
-    run.scopeReading = false
+    if (!(await $.fs.exists(path))) return null
+    const text = await $.fs.read(path)
+    return typeof text === 'string' ? text : null
+  } catch {
+    return null
   }
-  if (allowed) {
-    await readScope($)
-    return
-  }
-  const unread = server === null ? ('no-server' as const) : ('ask' as const)
-  await update($, scopeA, s => (s.mode === 'unknown' ? { ...s, unread } : s))
 }
 
-/** At session start: a session in a paused folder shows it at once. The server may connect after the session starts, so it looks again a few times. */
-async function readScopeAtStart($: EngineInterface, attempt: number): Promise<void> {
-  await readScopeQuietly($)
-  const now = await read($, scopeA)
-  if (now.mode === 'unknown' && now.unread === 'no-server' && attempt < START_READ_RETRIES_MS.length) {
-    $.clock.after(START_READ_RETRIES_MS[attempt] ?? 5000, () => quiet(readScopeAtStart($, attempt + 1)))
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+/**
+ * The registry this session's hooks read, found as they find it
+ * (`config-path.ts`): the wired hook's `--config` (the user's settings, then
+ * this folder's), else `COUNTERPARTS_CONFIG`, else
+ * `~/.counterparts/claude-code.json`; `scopes.json` beside it. Read-only, no
+ * permission asked. Found again after five minutes, or when asked to.
+ */
+async function scopesFile($: EngineInterface, fresh: boolean): Promise<string | null> {
+  const now = await $.clock.now()
+  if (!fresh && run.scopesFile !== null && now - run.scopesFileAt < SCOPES_FILE_TTL_MS) return run.scopesFile
+  const home = ((await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? '').trim()
+  const moved = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? '').trim()
+  const settings = [
+    ...(moved.length > 0 ? [`${moved}/settings.json`] : home.length > 0 ? [`${home}/.claude/settings.json`] : []),
+    ...(run.cwd.length > 0 ? [`${run.cwd}/.claude/settings.json`, `${run.cwd}/.claude/settings.local.json`] : []),
+  ]
+  let named: string | null = null
+  for (const file of settings) {
+    const text = await readText($, file)
+    const config = text === null ? undefined : settingsHookConfig(text)
+    if (typeof config === 'string') {
+      named = config
+      break
+    }
+  }
+  if (named === null) {
+    const env = ((await $.env.get('COUNTERPARTS_CONFIG')) ?? '').trim()
+    named = env.length > 0 ? env : home.length > 0 ? `${home}/.counterparts/claude-code.json` : null
+  }
+  // A named configuration that is not absolute is refused by the hooks too: nothing to read.
+  run.scopesFile = named !== null && isAbsolutePath(named) ? `${parentOf(named)}/scopes.json` : null
+  run.scopesFileAt = now
+  return run.scopesFile
+}
+
+/** `scopes.ts#canonicalScopePath`: the deepest existing ancestor realpathed, the rest kept. */
+async function canonicalPath($: EngineInterface, path: string): Promise<string> {
+  const known = run.canon.get(path)
+  if (known !== undefined) return known
+  let head = path.length > 1 ? path.replace(/[/\\]+$/, '') : path
+  const tail: string[] = []
+  for (let i = 0; i < 64; i += 1) {
+    const real = await $.fs.stat(head, { resolve: true }).then(
+      st => st.realPath,
+      () => undefined,
+    )
+    if (real !== undefined) {
+      if (tail.length === 0) {
+        if (run.canon.size > 200) run.canon.clear()
+        run.canon.set(path, real)
+        return real
+      }
+      return `${real.replace(/[/\\]+$/, '')}/${tail.join('/')}`
+    }
+    const parent = parentOf(head)
+    if (parent === head || parent.length === 0) break
+    tail.unshift(head.slice(parent.length).replace(/^[/\\]+/, ''))
+    head = parent
+  }
+  return path
+}
+
+/** Where this folder stands, from the registry file: null when it can't be read (no home folder, no folder, a read refused). */
+async function readScopeFile($: EngineInterface, fresh: boolean): Promise<SidebarScope | null> {
+  if (run.cwd.length === 0) return null
+  const file = await scopesFile($, fresh)
+  if (file === null) return null
+  let entries: Record<string, RegistryMode> = {}
+  try {
+    // Absent is ordinary: every folder is unset. Present and unparseable reads
+    // the same way, as the hooks read it (`scopes.ts#readScopes`).
+    if (await $.fs.exists(file)) entries = parseRegistry(String(await $.fs.read(file)))
+  } catch {
+    return null
+  }
+  const target = await canonicalPath($, run.cwd)
+  const list = await Promise.all(
+    Object.entries(entries).map(async ([key, mode]) => ({ key, mode, canonical: await canonicalPath($, key) })),
+  )
+  const v = lookup(list, target)
+  return { mode: v.mode, own: v.canonical !== null && v.canonical === target, setBy: v.matched, dir: target, error: null, busy: false, unread: null }
+}
+
+/**
+ * Reads this folder's registry entry and shows any change: at session start,
+ * on each dashboard poll while the pane is drawn, once a minute otherwise, and
+ * on every `/counterparts`. A pause made in another session shows here within
+ * one of those. No tool is called and nothing is logged.
+ */
+async function refreshScope($: EngineInterface, fresh = false): Promise<void> {
+  if (run.scopeReading) return
+  run.scopeReading = true
+  try {
+    const found = await readScopeFile($, fresh).catch(() => null)
+    run.scopeReadAt = await $.clock.now()
+    const before = await read($, scopeA)
+    if (before.busy) return
+    const next: SidebarScope = found ?? (before.mode === 'unknown' ? { ...before, unread: 'unreadable' } : before)
+    if (next.mode === before.mode && next.own === before.own && next.setBy === before.setBy && next.dir === before.dir && next.unread === before.unread && before.error === null) return
+    await update($, scopeA, () => next)
+    look.mono = isPaused(next.mode)
+    await refreshStatus($)
+  } finally {
+    run.scopeReading = false
   }
 }
 
@@ -650,9 +737,11 @@ async function noteSwitch($: EngineInterface, text: string | null): Promise<void
  */
 async function toggleScope($: EngineInterface): Promise<void> {
   const scope = await read($, scopeA)
-  if (scope.busy || run.scopeReading) return
+  if (scope.busy) return
   if (scope.mode === 'unknown') {
-    await readScope($)
+    // The registry file first; only if it still can't be read, the server (which may ask permission: the person just pressed).
+    await refreshScope($, true)
+    if ((await read($, scopeA)).mode === 'unknown') await readScope($)
     const now = await read($, scopeA)
     if (now.mode === 'unknown' || now.error !== null) await noteSwitch($, `Couldn't read this folder: ${now.error ?? 'no answer'}`)
     else {
@@ -728,25 +817,19 @@ async function setScope($: EngineInterface, to: 'pause' | 'resume'): Promise<voi
   await refreshStatus($)
 }
 
-/** What the Counterparts switch does, said under it while the pointer is on it. */
+/** What a click on the Counterparts switch does: two lines at most, shown while the pointer is on it. */
 function scopeHover(scope: SidebarScope): string {
-  if (scope.mode === 'unknown') {
-    return "Counterparts memory for every session in this folder: the wake, recall and what's remembered. Not read yet: a click checks where it stands and changes nothing."
-  }
-  if (switchExplains(scope) !== null) {
-    return 'Counterparts memory for every session in this folder. A click says why this switch cannot change it here, and what can.'
-  }
-  if (scope.mode === 'paused') {
-    return 'Paused for every session in this folder: no wake, no recall, nothing remembered. A click turns it back on.'
-  }
-  return "Pauses Counterparts for every session in this folder: no wake, no recall, nothing remembered, until you turn it back on. It asks first. What's kept stays kept."
+  if (scope.mode === 'unknown') return 'Not read yet. A click checks where this folder stands; it changes nothing.'
+  if (switchExplains(scope) !== null) return "This switch can't change it here. A click says why, and what can."
+  if (scope.mode === 'paused') return 'Paused for every session here: no wake, recall or saving. A click resumes.'
+  return 'Pauses this for every session here: no wake, recall or saving. Asks first.'
 }
 
-/** What the Claude Code memory switch does, said under it while the pointer is on it. */
+/** What a click on the Claude Code memory switch does: two lines at most. */
 function memoryHover(on: boolean): string {
   return on
-    ? "Turns off Claude Code's own memory (its MEMORY.md files and memory instructions) in every session, from your next message. Counterparts is the other switch and stays as it is."
-    : "Claude Code's own memory is off in every session. A click turns it back on from your next message."
+    ? "Turns off Claude Code's own MEMORY.md in every session, from your next message."
+    : "Claude Code's own memory is off in every session. A click turns it back on."
 }
 
 async function toggleClaudeMemory($: EngineInterface): Promise<void> {
@@ -988,7 +1071,7 @@ function wake($: EngineInterface, hasRaster: boolean, full: boolean): void {
   armPolling($, run.cold ? POLL_MS : 0)
   if (!run.woke) {
     run.woke = true
-    quiet(readScopeQuietly($))
+    quiet(refreshScope($))
   }
 }
 
@@ -1033,6 +1116,7 @@ async function openUrl($: EngineInterface, url: string): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     run.interactive = e.isInteractive
+    run.cwd = e.cwd
     run.session = await $.session.id()
     if (run.startedAt === 0) run.startedAt = await $.clock.now()
     await $.command.register({
@@ -1060,12 +1144,17 @@ export const register: Register = on => {
     // started in a paused folder says so at once, pane or not. The status line
     // also says, in every session, when Claude Code's own memory is off.
     quiet(refreshStatus($))
-    if (run.interactive) quiet(readScopeAtStart($, 0))
+    if (run.interactive) {
+      quiet(refreshScope($))
+      run.scopeTimer?.cancel()
+      run.scopeTimer = $.clock.every(SCOPE_RECHECK_MS, () => quiet(refreshScope($)))
+    }
     return next(e)
   })
 
   on('command.run', { command: 'counterparts' }, async ($, e) => {
     const [verb = '', arg = ''] = e.args.trim().split(/\s+/)
+    await refreshScope($, true)
     if (verb === 'fps') {
       if (arg !== '') {
         const n = Math.round(Number(arg))
@@ -1096,7 +1185,7 @@ export const register: Register = on => {
       return { text: nextCaps === 'block' ? 'Switch ends drawn with half blocks.' : 'Switch ends drawn with Powerline round caps.' }
     }
     if (verb === 'resume') {
-      if ((await read($, scopeA)).mode === 'unknown') await readScope($)
+      if ((await read($, scopeA)).mode === 'unknown') await readScope($) // the registry could not be read: ask the server
       const scope = await read($, scopeA)
       if (scope.mode === 'paused' && scope.own) {
         await setScope($, 'resume')
@@ -1326,42 +1415,44 @@ export const register: Register = on => {
         </Text>
       ))
     const labelled = (label: string) => padCells(ellipsizeCells(label, w - 5), w - 4)
-    const said = (key: string, text: string) => (
-      <Box display="none" hover={{ display: 'flex' }} flexDirection="column">
-        {wrap(text, w - 2).map((l, i) => (
-          <Box key={`${key}${String(i)}`} flexDirection="row">
-            <Text color={C.faint}>{'  '}</Text>
-            <Text color={C.dim}>{l}</Text>
-          </Box>
-        ))}
-      </Box>
-    )
     const cpLabel = readsOnly ? 'Counterparts reads only · this folder' : 'Counterparts memory · this folder'
     rows.push(
-      <Box key="row-cp" flexDirection="column" width={w}>
+      <Box key="row-cp" flexDirection="column" width={w} hover={{ scope: HOVER_CP }}>
         <Button key="toggle-cp" plain onPress={() => toggleScope($)}>
           <Text color={cpOn ? C.text : C.dim}>{labelled(cpLabel)}</Text>
           {swCells(known ? switchCells(cpOn, caps, scope.busy, readsOnly ? C.trackRead : undefined) : unknownCells(caps))}
         </Button>
         {known ? null : (
           <Text key="cp-unknown" color={C.dim}>
-            {scope.busy || run.scopeReading
-              ? '  checking…'
-              : scope.unread === 'no-server'
-                ? '  state unknown · no memory server yet'
-                : '  state unknown · click to check'}
+            {scope.busy ? '  checking…' : '  state unknown · click to check'}
           </Text>
         )}
-        {said('cpw', scopeHover(scope))}
       </Box>,
     )
     rows.push(
-      <Box key="row-mem" flexDirection="column" width={w}>
+      <Box key="row-mem" flexDirection="column" width={w} hover={{ scope: HOVER_MEM }}>
         <Button key="toggle-mem" plain onPress={() => toggleClaudeMemory($)}>
           <Text color={memoryOn ? C.text : C.dim}>{labelled("Claude Code's own memory")}</Text>
           {swCells(switchCells(memoryOn, caps, false))}
         </Button>
-        {said('memw', memoryHover(memoryOn))}
+      </Box>,
+    )
+    // What a click on the hovered switch does, in two lines kept for it under
+    // both switches: the surface reveals one line set or the other, and since
+    // the room is always there, nothing moves under the pointer (2026-10-09).
+    const why = (key: string, group: string, text: string) => (
+      <Box display="none" hover={{ display: 'flex', scope: group }} flexDirection="column">
+        {wrap(text, w - 2)
+          .slice(0, 2)
+          .map((l, i) => (
+            <Text key={`${key}${String(i)}`} color={C.dim}>{`  ${l}`}</Text>
+          ))}
+      </Box>
+    )
+    rows.push(
+      <Box key="switch-why" flexDirection="column" width={w} height={2} overflow="hidden">
+        {why('cpw', HOVER_CP, scopeHover(scope))}
+        {why('memw', HOVER_MEM, memoryHover(memoryOn))}
       </Box>,
     )
     if (pauseAsk !== null && cpOn) {

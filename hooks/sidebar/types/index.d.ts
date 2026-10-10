@@ -86,12 +86,11 @@ export type SidebarScope = {
   error: string | null;
   busy: boolean;
   /**
-   * Why the mode is still `unknown`: `ask` (the person's permission settings
-   * would open a dialog for an unasked read, so none was made), `no-server`
-   * (no Counterparts memory server in this session yet), or null (not tried,
-   * or read). An unknown mode is never drawn as on.
+   * Why the mode is still `unknown`: `unreadable` (the scope registry file the
+   * hooks read could not be found or read: no home folder, a read refused), or
+   * null (not tried yet, or read). An unknown mode is never drawn as on.
    */
-  unread: 'ask' | 'no-server' | null;
+  unread: 'unreadable' | null;
 };
 
 /** A line or two the switch explains itself with, under the switches. */

@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { decodeCells } from '../hooks/cells'
-import { BAND_PROPS, HERE, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SESSION, VIEWPORT, settle, start, world } from './world'
+import { BAND_PROPS, HERE, HOME, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SCOPES_FILE, SESSION, VIEWPORT, settle, start, world } from './world'
 import type { World } from './world'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -56,12 +56,13 @@ async function band($: Engine, w: World, docks: boolean): Promise<void> {
   await ui.unmount()
 }
 
-test('at session start nothing is opened or drawn and the dashboard is not read, but where this folder stands is; a docking surface opens it, 44 columns', async ($, on) => {
+test('at session start nothing is opened or drawn and the dashboard is not read, but this folder’s registry entry is; a docking surface opens it, 44 columns', async ($, on) => {
   const w = world(on)
   await start($, w)
   expect(w.opens).toHaveLength(0)
   expect(w.fetches).toHaveLength(0)
-  expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }]) // one read, no dialog (the world allows it)
+  expect(w.mcp).toHaveLength(0) // no tool: the registry file, read-only
+  expect(w.fsReads).toContain(SCOPES_FILE)
   await band($, w, true)
   expect(w.opens).toEqual([{ id: PANE, title: 'Counterparts', columns: 44 }])
   expect(w.fetches).toHaveLength(0) // still nothing read: the pane has not drawn
@@ -517,7 +518,7 @@ test('search counts what matched in all, from the answer’s header, and says wh
 test('the Counterparts switch asks before it pauses a folder set on, and resumes it at once; paused, the brain is grey and the list says so', async ($, on) => {
   const w = world(on)
   await start($, w)
-  expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }]) // the quiet read at start, once
+  expect(w.mcp).toHaveLength(0) // read from the registry file, not the tool
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     const before = w.mcp.length
@@ -545,7 +546,7 @@ test('the Counterparts switch asks before it pauses a folder set on, and resumes
     expect(await ui.find({ type: 'Text', text: 'ACTIVITY' })).toBeDefined()
     await ui.unmount()
   }
-  expect(w.mcp.filter(c => c.tool === 'scope' && c.args['mode'] === undefined)).toHaveLength(1)
+  expect(w.mcp.filter(c => c.tool === 'scope' && c.args['mode'] === undefined)).toHaveLength(0)
 })
 
 test('a folder set off shows off, and the switch explains rather than turning it on', async ($, on) => {
@@ -612,23 +613,22 @@ test('observer shows as reads-only, not on; a pause of it resumes to observer', 
   }
 })
 
-test('unasked, the switch reads this folder only when no permission dialog would open; a press asks', async ($, on) => {
-  const w = world(on, { permission: 'ask' })
+test('where the folder stands is read from the registry file, with no permission check: the tool is called only for a confirmed pause or a resume', async ($, on) => {
+  const w = world(on, { permission: 'ask' }) // auto mode with no allow rule, as on Mike's machine
   await start($, w)
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     if (surface === 'terminal') {
-      expect(w.mcp).toHaveLength(0) // nothing asked behind the person's back, at start or at the drawing
-      await ui.press({ key: 'toggle-cp' }) // the first press learns where the folder stands
-      expect(w.mcp).toEqual([{ server: 'counterparts', tool: 'scope', args: {} }])
-      expect((await texts(ui)).replace(/▎/g, '').replace(/\s+/g, ' ')).toContain('Counterparts memory is on in this folder. Press again to pause it (it asks first).')
+      expect(w.mcp).toHaveLength(0) // nothing asked, at start or at the drawing
+      expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(true) // and yet known: on
       await ui.press({ key: 'toggle-cp' })
+      expect(w.mcp).toHaveLength(0)
       await ui.press({ key: 'confirm-pause' })
     } else await ui.press({ key: 'toggle-cp' }) // a resume asks nothing
     expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: { mode: surface === 'terminal' ? 'pause' : 'resume' } })
     await ui.unmount()
   }
-  expect(w.mcp).toHaveLength(3)
+  expect(w.mcp).toHaveLength(2)
 })
 
 test('‹ makes it quiet: narrow, no brain, no reads, a compact list and a still ◉ that lights for an event; › opens it full', async ($, on) => {
@@ -796,11 +796,12 @@ test('turned off in an earlier session: every session’s status line says so, p
 test('headless (-p): nothing opens, ticks or reads', async ($, on) => {
   const w = world(on)
   await start($, w, false)
-  await w.clock.advance(60000)
+  await w.clock.advance(120000)
   expect(w.opens).toHaveLength(0)
   expect(w.blits).toHaveLength(0)
   expect(w.fetches).toHaveLength(0)
-  expect(w.mcp).toHaveLength(0) // not even the folder's scope
+  expect(w.mcp).toHaveLength(0)
+  expect(w.fsReads).toHaveLength(0) // not even the folder's registry
 })
 
 // ── 2026-10-09: a press meant for Claude Code's memory paused ~/random, and
@@ -817,8 +818,8 @@ function drawnOn(cells: { props: Record<string, unknown> }[]): boolean {
   return cells.some(c => c.props['backgroundColor'] === '#00e5ff' || c.props['backgroundColor'] === '#0b6f7c' || c.props['color'] === '#f4fcff')
 }
 
-test('an unknown state is never drawn as on: unread for a permission dialog it says “state unknown · click to check”; reading, “checking…”', async ($, on) => {
-  const w = world(on, { permission: 'ask', scopeReadMs: 800 })
+test('an unknown state is never drawn as on: a registry it cannot read says “state unknown · click to check”; a press asks the server, “checking…” meanwhile', async ($, on) => {
+  const w = world(on, { scopesUnreadable: true, scopeReadMs: 800 })
   await start($, w)
   expect(w.mcp).toHaveLength(0)
   for (const surface of SURFACES) {
@@ -843,7 +844,7 @@ test('an unknown state is never drawn as on: unread for a permission dialog it s
   }
 })
 
-test('each switch says what it governs, and hovered, what a click does', async ($, on) => {
+test('each switch says what it governs; hovered, what a click does, in two lines kept for it so nothing moves', async ($, on) => {
   const w = world(on)
   await start($, w)
   for (const surface of SURFACES) {
@@ -851,12 +852,54 @@ test('each switch says what it governs, and hovered, what a click does', async (
     const shown = (await texts(ui)).replace(/\s+/g, ' ')
     expect(shown).toContain('Counterparts memory · this folder')
     expect(shown).toContain("Claude Code's own memory")
-    // The hover lines are drawn hidden (display none) and shown under the pointer by the surface.
-    expect(shown).toContain('Pauses Counterparts for every session in this folder: no wake, no recall, nothing remembered, until you turn it back on.')
-    expect(shown).toContain('Counterparts is the other switch and stays as it is.')
+    // The hover lines are drawn hidden (display none) and revealed by the surface while a switch's row is hovered.
+    expect(shown).toContain('Pauses this for every session here: no wake, recall or saving. Asks first.')
+    expect(shown).toContain("Turns off Claude Code's own MEMORY.md in every session, from your next message.")
+    // Nothing hidden sits in a switch's own row, so a reveal can't push a control; the room for it is fixed.
+    for (const key of ['row-cp', 'row-mem']) {
+      const row = drawnNode(await ui.drawn(), key)
+      expect(row).toBeDefined()
+      expect(hiddenBoxes(row)).toHaveLength(0)
+      expect(row?.hover?.['scope']).toMatch(/^counterparts-switch-/)
+    }
+    const room = drawnNode(await ui.drawn(), 'switch-why')
+    expect(room?.props['height']).toBe(2)
+    expect(room?.props['overflow']).toBe('hidden')
+    const reveals = hiddenBoxes(room).map(b => b.hover)
+    expect(reveals).toEqual([
+      { display: 'flex', scope: 'counterparts-switch-cp' },
+      { display: 'flex', scope: 'counterparts-switch-mem' },
+    ])
     await ui.unmount()
   }
 })
+
+type Node = { type?: string; props: Record<string, unknown>; hover?: Record<string, unknown>; children?: unknown[] }
+
+/** The element keyed `key` in a drawn tree (where a Box's `hover` sits beside its props). */
+function drawnNode(tree: unknown, key: string): Node | undefined {
+  if (tree === null || typeof tree !== 'object') return undefined
+  const node = tree as Node
+  if (node.props?.['key'] === key) return node
+  for (const c of node.children ?? []) {
+    const hit = drawnNode(c, key)
+    if (hit !== undefined) return hit
+  }
+  return undefined
+}
+
+/** The Boxes drawn hidden beneath an element. */
+function hiddenBoxes(el: unknown): Node[] {
+  const out: Node[] = []
+  const walk = (n: unknown): void => {
+    if (n === null || typeof n !== 'object') return
+    const node = n as Node
+    if (node.props?.['display'] === 'none') out.push(node)
+    for (const c of node.children ?? []) walk(c)
+  }
+  for (const c of (el as Node | undefined)?.children ?? []) walk(c)
+  return out
+}
 
 test('pausing asks first: Cancel calls nothing, and an unanswered ask closes by itself', async ($, on) => {
   const w = world(on)
@@ -929,12 +972,12 @@ test('paused by a parent folder: the banner names it and explains, and resumes n
 })
 
 test('repro 2026-10-09: another session pauses this folder; a session started there shows paused at once, and never draws on', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { permission: 'ask' }) // auto mode, no allow rule for the scope tool
   // The other session's press, as the server kept it: this folder's own entry, paused.
   Object.assign(w.scope, { mode: 'paused', setBy: HERE, resumeTo: 'on' })
   await start($, w)
   expect(w.opens).toHaveLength(0)
-  expect(w.mcp.at(-1)).toEqual({ server: 'counterparts', tool: 'scope', args: {} }) // read at start
+  expect(w.mcp).toHaveLength(0) // read from the registry file: no tool, no dialog
   expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · /counterparts resume')
   await band($, w, true)
   for (const surface of SURFACES) {
@@ -944,4 +987,36 @@ test('repro 2026-10-09: another session pauses this folder; a session started th
     expect(drawnOn(await switchCellsOf(ui, 'toggle-cp'))).toBe(false)
     await ui.unmount()
   }
+})
+
+test('stale no longer: a pause made in another session shows within one poll while the pane is drawn, and within a minute while hidden', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  expect(await ui.find({ type: 'Text', text: '⏸ Counterparts paused in this folder' })).toBeUndefined()
+  Object.assign(w.scope, { mode: 'paused', setBy: HERE, resumeTo: 'on' }) // the other session's pause
+  await w.clock.advance(16000) // one dashboard poll
+  await settle(w)
+  expect(await ui.find({ type: 'Text', text: '⏸ Counterparts paused in this folder' })).toBeDefined()
+  expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · /counterparts resume')
+  const out = await $.command.run({ command: 'counterparts', args: 'hide' } as never)
+  expect(out.text).toContain('hidden')
+  await ui.unmount()
+  Object.assign(w.scope, { mode: 'on' }) // resumed elsewhere
+  await w.clock.advance(61000)
+  await settle(w)
+  expect(w.lastStatus()).toBe('◉ /counterparts to open')
+  Object.assign(w.scope, { mode: 'paused' })
+  await $.command.run({ command: 'counterparts', args: 'fps' } as never) // any /counterparts reads it at once
+  expect(w.lastStatus()).toContain('⏸ Counterparts memory paused in this folder')
+})
+
+test('the registry is the one the wired hooks read: a settings hook’s own --config moves it (and a Bun --config= before the script is Bun’s)', async ($, on) => {
+  const hook = '"bun" --no-env-file "--config=/opt/cp/src/adapters/empty-bunfig.toml" run "/opt/cp/src/adapters/claude-code/bin/hook.ts" --config "/cfg/alt/claude-code.json"'
+  const settings = JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: hook }] }] } })
+  const w = world(on, { scopeMode: 'paused', registryAt: '/cfg/alt/scopes.json', files: { [`${HOME}/.claude/settings.json`]: settings } })
+  await start($, w)
+  expect(w.fsReads).toContain('/cfg/alt/scopes.json')
+  expect(w.fsReads).not.toContain(SCOPES_FILE)
+  expect(w.lastStatus()).toBe('⏸ Counterparts memory paused in this folder · /counterparts resume')
 })

@@ -8,6 +8,7 @@ import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
 import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, shortDir, wrap } from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
+import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
 import { MECHS, STAGES } from '../hooks/mechanisms'
 import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0 } from './world'
 
@@ -217,4 +218,55 @@ test('a folder as a person says it: a home folder as ~', () => {
   expect(shortDir('/work/project')).toBe('/work/project')
   expect(shortDir('/Users')).toBe('/Users')
   expect(shortDir(null)).toBe('this folder')
+})
+
+describe('the scope registry, read as the hooks read it', () => {
+  test('entries: a bad one is skipped by itself; a file that is not a registry holds none', () => {
+    const text = JSON.stringify({
+      version: 1,
+      scopes: {
+        '/a': { mode: 'paused', since: '2026-10-09', resumeTo: 'on' },
+        '/b': { mode: 'sleepy', since: '2026-10-09' },
+        '/c': { mode: 'off' },
+        'claude-desktop:': { mode: 'off', since: '2026-10-09' },
+        '/d': { mode: 'observer', since: '2026-10-09', note: 'reads only' },
+      },
+    })
+    expect(parseRegistry(text)).toEqual({ '/a': 'paused', '/d': 'observer' })
+    expect(parseRegistry('{"version":2,"scopes":{"/a":{"mode":"off","since":"x"}}}')).toEqual({})
+    expect(parseRegistry('not json')).toEqual({})
+    expect(parseRegistry('{"version":1}')).toEqual({})
+  })
+
+  test('the longest ancestor governs, segment-aware; two keys for one folder go to the more restrictive', () => {
+    const e = (key: string, mode: 'on' | 'observer' | 'off' | 'paused') => ({ key, canonical: key, mode })
+    const list = [e('/work', 'paused'), e('/work/project', 'on'), e('/work/pro', 'off')]
+    expect(lookup(list, '/work/project/sub')).toEqual({ mode: 'on', matched: '/work/project', canonical: '/work/project' })
+    expect(lookup(list, '/work/projects')).toEqual({ mode: 'paused', matched: '/work', canonical: '/work' })
+    expect(lookup(list, '/elsewhere')).toEqual({ mode: 'unset', matched: null, canonical: null })
+    expect(lookup([e('/x', 'on'), { key: '/x/.', canonical: '/x', mode: 'paused' }], '/x').mode).toBe('paused')
+    expect(under('/a/b', '/a/bc')).toBe(false)
+  })
+
+  test('which configuration a wired hook names: its own --config after the hook, in every shape an install writes', () => {
+    expect(hookConfig('"bun" run "/p/src/adapters/claude-code/bin/hook.ts"')).toBeNull()
+    expect(hookConfig('"bun" run "/p/src/adapters/claude-code/bin/hook.ts" --config "/c/claude-code.json"')).toBe('/c/claude-code.json')
+    expect(hookConfig('"bun" --no-env-file "--config=/p/src/adapters/empty-bunfig.toml" run "/p/src/adapters/claude-code/bin/hook.ts"')).toBeNull()
+    expect(
+      hookConfig('"bun" --no-env-file "--config=/p/empty-bunfig.toml" run "/p/src/adapters/claude-code/bin/hook.ts" --config=/c/x.json'),
+    ).toBe('/c/x.json')
+    expect(hookConfig('"/opt/bin/counterparts" hook --config "/c/y.json"')).toBe('/c/y.json')
+    expect(hookConfig('"/opt/bin/counterparts" hook')).toBeNull()
+    expect(hookConfig('"/opt/bin/counterparts" dashboard')).toBeUndefined()
+    expect(hookConfig('node --import /p/node-hooks.mjs /p/src/adapters/claude-code/bin/hook.ts')).toBeNull()
+    expect(hookConfig('"bun" run "/p/other.ts" --config /c/z.json')).toBeUndefined()
+    expect(hookConfig('bun run /p/src/adapters/claude-code/bin/hook.ts && echo hi')).toBeUndefined()
+    const settings = (command: string) => JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo other' }] }], SessionStart: [{ hooks: [{ command }] }] } })
+    expect(settingsHookConfig(settings('"bun" run "/p/src/adapters/claude-code/bin/hook.ts" --config "/c/w.json"'))).toBe('/c/w.json')
+    expect(settingsHookConfig(settings('"bun" run "/p/src/adapters/claude-code/bin/hook.ts"'))).toBeNull()
+    expect(settingsHookConfig(settings('echo nothing of ours'))).toBeUndefined()
+    expect(settingsHookConfig('{')).toBeUndefined()
+    expect(parentOf('/c/claude-code.json')).toBe('/c')
+    expect(parentOf('/claude-code.json')).toBe('/')
+  })
 })
