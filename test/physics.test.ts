@@ -1212,8 +1212,11 @@ describe("[M] guarantee 12 — up-moves and down-moves counted separately, per k
     expect(check.reason).toBe("never-asked");
   });
 
-  test("the counter can move both ways — a down-ratchet is also named", () => {
-    expect(symmetryCheck("place", { up: 2, down: 40 }).reason).toBe("reverse-ratchet-suspected");
+  test("only an UP-ratchet trips it (2026-10-10): fading down is the curve, an unexplained climb is the alarm", () => {
+    expect(symmetryCheck("place", { up: 2, down: 40 })).toMatchObject({ ok: true, reason: "within-expectation" });
+    expect(symmetryCheck("place", { up: 0, down: 400 }).ok).toBe(true);
+    // One band climb with no input behind it is enough, however small the sample.
+    expect(symmetryCheck("fact", { up: 1, down: 3, unexplained: 1 })).toMatchObject({ ok: false, reason: "ratchet-suspected", unexplained: 1 });
   });
 
   test("every kind is countable — the totality check", () => {
@@ -1258,13 +1261,13 @@ describe("the TUNABLE table matches the contract, in one visible place", () => {
     expect(TUNABLES.D_FLOOR_DAYS).toBe(14);
   });
 
-  test("the per-kind table is v1 §4.3, verbatim", () => {
+  test("the per-kind table is v1 §4.3, but skill and place salience weigh 1.0 (2026-10-10, review of #372)", () => {
     expect(TUNABLES.KINDS).toEqual({
       self: { wSal: 1.0, wRep: 0.0, kappa: 0.7, iota: 0.9 },
       person: { wSal: 1.0, wRep: 0.0, kappa: 0.75, iota: 0.8 },
       entity: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.5 },
-      skill: { wSal: 0.4, wRep: 1.0, kappa: 0.5, iota: 0.25 },
-      place: { wSal: 0.4, wRep: 1.0, kappa: 0.85, iota: 0.25 },
+      skill: { wSal: 1.0, wRep: 1.0, kappa: 0.5, iota: 0.25 },
+      place: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.25 },
       fact: { wSal: 1.0, wRep: 1.0, kappa: 1.0, iota: 0.2 },
     });
   });

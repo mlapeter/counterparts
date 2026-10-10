@@ -567,6 +567,14 @@ anything, and the first possible exit at lived day 91. What changed here, all li
   band. `nextChangeDay(m, d)`: the next band / reach / prune-eligibility day (13 C2), d + 1 for
   a dated memory (the calendar turns it), `NEVER_CHANGES` for the core.
 - **Exit** (b2+f8, 03 C3): `D_FLOOR_DAYS` 90 → 14, dwell from the anchor. Archival.
+- **Review of #372, on a copy of the live store (b2, lightly held):** the spent slope is the
+  memory's own stability / `SPENT_STABILITY_DIVISOR` (4), until a use after the window (q = 0
+  had archived 9 of 17 dated memories in 30 lived days, among them a felt fact); skill and place
+  `wSal` 0.4 → 1.0 (a 0.25 skill was born at 0.10, below reach); `symmetryCheck` flags only
+  up-ratchets — an up-move with no input behind it (`BandTransition.cause`, recorded by the
+  decay pass from the row's cleared next-change day) or ups past the ratio; downs never.
+  "Used after the window" reads lived days since the anchor against calendar days since the
+  close: on a store mostly left alone during a window it errs toward ordinary.
 - **Revision pressure stays exponential** (g1a-builder): `pressureAt` defaults its own shape.
 - **Expected the first night on an existing store:** many rows cross `THETA_SEM` downward at
   once (the curve and `sal()` both moved), so the symmetry tripwire may read

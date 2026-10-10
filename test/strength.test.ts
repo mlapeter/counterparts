@@ -249,6 +249,34 @@ describe("the dated hold (review 07 C1/C2)", () => {
     expect(datedHold(row, "")).toBeNull();
   });
 
+  test("a repeat is never spent: held in each occurrence's window, absent between, across years (b2, 2026-10-10)", () => {
+    for (const rule of ["daily", "weekly", "monthly", "yearly"]) {
+      const repeat = { event_date: "2026-05-14", learned_on: "2026-05-01", meta: JSON.stringify({ recurring: rule }) };
+      let day = "2026-05-02";
+      for (let i = 0; i < 800; i++) {
+        expect(datedHold(repeat, day)?.state === "spent").toBe(false);
+        day = addDays(day, 1);
+      }
+    }
+  });
+
+  test("after the window: the memory's own stability / 4, not zeroed, until it is used again (b2, 2026-10-10)", () => {
+    const spent = { state: "spent", closedDaysAgo: 10 } as const;
+    // A felt 0.6 fact written 30 lived days before its date, unused since.
+    const felt = memory({ claimed: 0.6, feelingPeak: 0.6, hold: spent });
+    expect(stability(felt, { spent: true })).toBeCloseTo(stability(felt) / PHYSICS.SPENT_STABILITY_DIVISOR, 8);
+    // Ten days past its window it is still well in reach, and stays for months.
+    expect(strength(felt, 40)).toBeGreaterThan(0.6);
+    expect(belowReach({ ...felt, hold: { state: "spent", closedDaysAgo: 120 } }, 150)).toBe(false);
+    // A 0.25 reminder leaves reach within a day of its window closing.
+    const note = memory({ claimed: 0.25, hold: { state: "spent", closedDaysAgo: 1 } });
+    expect(belowReach(note, 30)).toBe(true);
+    // Used after the window (fewer lived days since its use than days since the
+    // close): an ordinary memory again, on its own curve.
+    const used = memory({ claimed: 0.25, lastUsedDay: 28, uses: 1, hold: { state: "spent", closedDaysAgo: 5 } });
+    expect(strength(used, 30)).toBeCloseTo(strength({ ...used, hold: null }, 30), 10);
+  });
+
   test("a memory dated a month out stays in reach until its date; then it fades steeply", () => {
     const s = store();
     let date = "2026-10-01";

@@ -420,12 +420,22 @@ export interface BandTransition {
   readonly direction: "up" | "down";
   readonly site: "decay" | "consolidate";
   readonly day: number;
+  /**
+   * WHY IT MOVED (2026-10-10, the up-ratchet tripwire): `curve` for a move
+   * down (the design); for a move up, `promoted` (into the core), `input` (an
+   * input of the curve was written since the last reading — a use, a return,
+   * a replay, a feeling, a claim, a fade; store v13's trigger cleared the
+   * row's next-change day), `held` (a dated memory's window opened), else
+   * `unexplained` — a strength that rose by itself, which the arithmetic
+   * should never do (`physics#symmetryCheck`).
+   */
+  readonly cause: "curve" | "promoted" | "input" | "held" | "unexplained";
 }
 
 export const BAND_TRANSITION_EVENT = "band.transition";
 /** The transition row's payload fields, in order — a G12 surface-set component
  *  (parallel-run CONTRACT §5 G12), pinned by `satisfies` at the append site. */
-export const BAND_TRANSITION_FIELDS = ["kind", "from", "to", "direction", "site"] as const;
+export const BAND_TRANSITION_FIELDS = ["kind", "from", "to", "direction", "site", "cause"] as const;
 export type BandTransitionField = (typeof BAND_TRANSITION_FIELDS)[number];
 
 /** The per-id, per-day latch: a replayed day re-appends nothing (§5 G3). */
@@ -444,6 +454,7 @@ export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
     to: t.to,
     direction: t.direction,
     site: t.site,
+    cause: t.cause,
     day: t.day,
   });
   if (!ctx.apply) return;
@@ -452,7 +463,7 @@ export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
     day: t.day,
     ref: t.id,
     dedupKey: bandTransitionKey(t),
-    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site } satisfies Record<
+    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site, cause: t.cause } satisfies Record<
       BandTransitionField,
       unknown
     >,

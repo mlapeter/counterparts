@@ -10,12 +10,15 @@
   lines — but asking for it still finds it, listed after the main results as faded, and
   using it, opening it or a dream replaying it brings it back. A memory that has sat under
   the floor for 14 lived days (was 90) is archived — never deleted, still readable by id.
-  A reminder is held at full strength until its date and the week after, then fades fast;
+  A reminder is held at full strength until its date and the week after, then fades a little faster until it is used again;
   a repeating date is held around each time it comes round. Chapters, their copies and live handoffs are never let
   go. A feeling now counts once for how high a memory stands and once for how slowly it
   fades, and softens from the day it was recorded. The nightly pass reads only the
   memories whose standing changes that day. The dashboard counts "below reach now" and
-  "exited" apart. The store upgrades to v13 on the first open, after taking a copy; a
+  "exited" apart. Skills and places now count their salience as fully as any other memory
+  (they counted it at 0.4, which left a quiet skill out of reach from the day it was written).
+  The band-symmetry check now warns only when memories climb with nothing behind it; fading
+  down a band is the curve working. The store upgrades to v13 on the first open, after taking a copy; a
   build from before refuses the upgraded store, and the copy is the way back. These are
   lightly held decisions; they are listed in `docs/IMPROVEMENTS.md` under "Decisions to
   review".

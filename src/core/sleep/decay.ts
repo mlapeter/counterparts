@@ -111,6 +111,9 @@ export function curveSignature(): string {
     dwell: PHYSICS.D_FLOOR_DAYS,
     grace: PHYSICS.HOLD_GRACE_DAYS,
     lead: PHYSICS.HOLD_LEAD_DAYS,
+    spent: PHYSICS.SPENT_STABILITY_DIVISOR,
+    // Group 1c's height cap; absent until that PR lands (the merge picks it up).
+    felt: (PHYSICS as Readonly<Record<string, unknown>>)["FELT_HEIGHT_CAP"] ?? null,
     kinds: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, [v.wSal, v.wRep, v.kappa]])),
   });
 }
@@ -313,6 +316,21 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (was !== undefined && was.band !== b) {
       const direction = bandMove(was.band, b);
       if (direction !== "none") {
+        // Why it moved (2026-10-10): down is the curve; up has to have an
+        // input behind it, or it is the ratchet the tripwire exists for.
+        // `row.next_change_day` is as read BEFORE this pass wrote anything:
+        // NULL means a trigger cleared it because an input changed (or a new
+        // curve, or a rebuilt cache, cleared them all).
+        const cause: BandTransition["cause"] =
+          direction === "down"
+            ? "curve"
+            : b === "identity"
+              ? "promoted"
+              : row.next_change_day === null || row.next_change_day === undefined
+                ? "input"
+                : p.hold?.state === "pending"
+                  ? "held"
+                  : "unexplained";
         const transition: BandTransition = {
           id,
           kind: row.kind,
@@ -321,6 +339,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
           direction,
           site: "decay",
           day,
+          cause,
         };
         transitions.push(transition);
         recordBandTransition(ctx, transition);

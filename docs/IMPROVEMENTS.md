@@ -36,21 +36,20 @@ come first. Nothing here quotes a memory.
 
 ### Revised from Mike's rulings
 
-1. **A dated memory is held until its date (no decay before it arrives), then fades on the
-   steepest slope.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
+1. **A dated memory is held until its date (no decay before it arrives), then fades a little
+   faster.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
    2026-09-26 prospective decision, whose note says "decay (`FADED_STRENGTH`) still holds" for a
    memory with an explicit date (the contract's G10, "no decay exemption before arrival"). Why:
    under the new curve a quiet reminder set a month out would fade and be refused before its
-   day; people hold pending intentions. **What happens after the window, worth a look first:**
-   once its date and the grace week have passed, the memory fades as if nothing about it
-   mattered — its salience and feeling no longer slow it — so a 0.25 reminder leaves reach
-   within a day and is archived about 5 lived days later, and a 0.6 or felt one is archived
-   about two weeks after its window. That holds for every memory whose date came after the day
-   it was written, not only reminders: a fact dated by what it is about, written a day before
-   that date, reads as a reminder too. On a copy of the live store (review of #372), 9 of the
-   17 dated memories were archived within 30 lived days, among them a felt fact about Mike and
-   an agreed way of working that their own curves would have kept in reach for months.
-   (Group 1a.)
+   day; people hold pending intentions. **After the window** (its date and the grace week):
+   the memory's own stability is divided by 4 — steeper on its own curve, not zeroed — until
+   it is used again (a use means it still matters). A 0.25 reminder leaves reach within a day;
+   a felt 0.6 fact still lasts months. A repeating date (a birthday) is never "spent": each
+   occurrence is held, and between them it fades on its own curve. The first build zeroed
+   salience and feeling after the window, and on a copy of the live store (review of #372)
+   9 of 17 dated memories were archived within 30 lived days, among them a felt fact about
+   Mike and an agreed way of working; changed by b2, 2026-10-10, lightly held. That holds for
+   every memory whose date came after the day it was written, not only reminders. (Group 1a.)
 2. **Credit for drawing on a footnote.** Revised by b2+f8, 2026-10-10, from Mike's 2026-09-14
    ruling ("never for being named in prose"); approved by Mike on 2026-10-10 through f8,
    lightly held. Why: without it, use is hardly counted, so the links and the core's
@@ -125,9 +124,10 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   (180 days, 365 for people) is what keeps an unused card now. Before, a card used once stayed
   over the floor for months. Cards are rarely born today (the title-vs-name bug, Group 3), so
   this is noted rather than changed; review 03 C5 (one clock for cards) is where it belongs.
-- **"Fades steeply after" = the steepest slope (no salience, no feeling), counted from the
-  window's close.** Use, returns and kind still count. A spent reminder at 0.6 leaves reach
-  about two lived days after its window closes and exits about 12 lived days after that.
+- **"Fades faster after" = its own stability divided by 4, counted from the window's close,
+  until it is used after the window.** Decided by b2, 2026-10-10, lightly held; revisit after
+  ~5 lived days. Why: completed intentions are inhibited, gently; zeroing salience and
+  feeling (the first build) archived felt facts and agreed conventions within weeks.
 - **A dream replay or a reflection's citation re-anchors the curve** (as a use does, without
   being one). Why: the synthesis says a replay revives; a return's longer stability alone
   lifts a faded default note by about 0.01, not back into reach.
@@ -142,15 +142,24 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   each born at strength 0 by design (the journal; a pointer with its own expiry; a name's
   card, faded by its own rule), so a reach line would hide every one of them from birth.
   Beliefs and every other memory are inside it.
-- **Not fixed, flagged:** a memory of a kind whose salience weighs 0.4 (skill, place) written
-  at the 0.25 default is born at about 0.10 — below reach from its first day, and labelled
-  faded by deliberate recall. 03 warned that the routine default must sit above 0.15; for
-  those kinds it does not. Encoding (1c) or a kind weight should settle it. The cause is the
-  kind's salience weight in `base` (`KINDS.skill/place.wSal` 0.4), not its κ: a skill claimed
-  under 0.375 is born below reach, and one deliberate open (a use adds 0.12) does not bring a
-  0.25 one back. On a copy of the live store 19 of 102 skills are below reach at once and about
-  half by 30 lived days, and the wake's work lines count every skill as work. Under Group 1c's
-  defaults a done work skill starts at 0.04. (Review of #372.)
+- **Skill and place salience weigh 1.0, as every other kind (was 0.4).** Decided by b2 (with
+  f8), 2026-10-10, lightly held; revisit after ~5 lived days. Why: the 0.4 weight put any skill
+  claimed under 0.375 below reach from birth (a 0.25 skill was born at 0.10, and one deliberate
+  open could not bring it back; on a copy of the live store 19 of 102 skills were below reach at
+  once). Procedural memory is the slowest to fade in the brain; if skill notes are
+  over-produced, that is encoding's job, not a special weight's. The repetition weight is
+  unchanged.
+- **The symmetry tripwire flags only UP-ratchets.** Decided by b2, 2026-10-10, lightly held;
+  revisit after ~5 lived days. Why: under the new curve, falling a band is the design, and
+  climbing one comes only from an input (a use, a return, a replay, a feeling, a promotion), so
+  the old 4:1 expectation flagged ordinary forgetting as a "reverse ratchet". It now trips on a
+  climb no input explains (each up-move records its cause) or on climbs far outnumbering falls.
+  The dashboard's Health/Flow panel, `status` and `sleep.symmetry.tripped` say "up-ratchet".
+- **Your existing store will fade slowly.** On the 10-10 snapshot, 497 of ~770 live memories
+  were claimed ≥ 0.5 under the old salience text ("set it on anything that should last"), and
+  under the new curve those stay in reach for months. New memories, claimed by attention, fade
+  as designed. No re-score was done (decided: no one-off fixes). A one-time scale-down of old
+  claims is a separate decision for Mike.
 
 ### Also noted
 

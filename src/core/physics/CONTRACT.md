@@ -223,7 +223,7 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
 D(m, d) = ( 1 + t / S(m) )^−ψ                         ψ = 1 (hyperbolic)            # 03 C1
 t       = d − anchor(m)                               anchor = max(last use, last return, last replay)
         = 0                                           while a dated memory is PENDING (§5.4a)
-        = min(d − anchor, days since its window closed)   once SPENT, on S with q = 0
+        = days since its window closed                once SPENT (unused since), on S / 4
 S(m)    = S0 × e^(G·q) × (1 + β ln(1 + uses)) × R(m) / κ(k)   S0 = 0.4, G = 8, β = 0.5
 q(m)    = clamp01( sal(m) + EMO_Q × I(m) )            EMO_Q = 0.5                    # §5.10
 R(m)    = 1 + RETURN_GAIN × ln(1 + returns(m))        # §5.11; 1 at no returns
@@ -257,8 +257,10 @@ reverses prospective G10, "no decay exemption before arrival").** A memory whose
 (prospective's grace, one owner); a date that still repeats is held through each occurrence's
 window (`HOLD_LEAD_DAYS = 3` before to the grace after) and fades on its curve between them, as
 the owner's 2026-10-09 design says. After the window
-closes it is SPENT: the steep slope (q = 0) with t counted from the close at the latest, so it
-leaves reach in a day or two. A date already past when the memory was written is not a
+closes it is SPENT: its own stability divided by `SPENT_STABILITY_DIVISOR` (4), t counted from
+the close, until it is used after the window — then it is ordinary again (b2, 2026-10-10,
+lightly held; the first build zeroed q, and archived felt facts within weeks). A repeating date
+is never spent. A date already past when the memory was written is not a
 reminder and is not held. Computed at the read seam from `event_date`, `learned_on`, the
 repeat word and the store's calendar today (`store/operational.ts#datedHold`) — no column,
 no use credited, `uses` / `lastUsedDay` / returns untouched.

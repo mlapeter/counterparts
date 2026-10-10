@@ -263,6 +263,14 @@ export const TUNABLES = {
    * once a year would be below reach on the very day it comes round.
    */
   HOLD_LEAD_DAYS: 3,
+  /**
+   * AFTER THE WINDOW: a dated memory's own stability is divided by this until
+   * it is used again (`elapsed`, `stability`'s `spent`). Steeper on its own
+   * curve, not zeroed: a 0.25 reminder (S ≈ 3) then leaves reach within a day,
+   * a felt 0.6 fact (S in the hundreds) still lasts months. Decided by b2,
+   * 2026-10-10, lightly held; revisit after ~5 lived days (review of #372).
+   */
+  SPENT_STABILITY_DIVISOR: 4,
 
   // --- §5.1 salience ---
   /** CAL. Size of the nearest-neighbour slice in E(m) for novelty (v1's top-M). */
@@ -378,14 +386,23 @@ export const TUNABLES = {
   // --- §5.2 per-kind physics [v1 §4.3] ---
   /** CAL, all of it. v1 recorded which ARM DRIVES, not a weight, so every
    *  non-driving omega below is a proposed reading, not a measurement
-   *  (open question 3 asks whether the 0.4s exist at all). */
+   *  (open question 3 asks whether the 0.4s exist at all).
+   *
+   *  SKILL AND PLACE SALIENCE WEIGH 1.0 (2026-10-10, review of #372; was 0.4).
+   *  Decided by b2 (with f8), 2026-10-10, lightly held; revisit after ~5 lived
+   *  days. Why: under the reach line a 0.4 weight put every skill claimed
+   *  under 0.375 below reach from birth (a 0.25 skill was born at 0.10), and
+   *  one deliberate open could not bring it back; procedural memory is the
+   *  slowest to fade in the brain, not the first to vanish. If skill notes are
+   *  over-produced, that is encoding's to fix, not a special weight's. (Open
+   *  question 3 answered for these two kinds: no 0.4.) */
   KINDS: {
     //         driver (v1)    omega_sal  omega_rep  kappa  iota
     self: { wSal: 1.0, wRep: 0.0, kappa: 0.7, iota: 0.9 },
     person: { wSal: 1.0, wRep: 0.0, kappa: 0.75, iota: 0.8 },
     entity: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.5 },
-    skill: { wSal: 0.4, wRep: 1.0, kappa: 0.5, iota: 0.25 },
-    place: { wSal: 0.4, wRep: 1.0, kappa: 0.85, iota: 0.25 },
+    skill: { wSal: 1.0, wRep: 1.0, kappa: 0.5, iota: 0.25 },
+    place: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.25 },
     fact: { wSal: 1.0, wRep: 1.0, kappa: 1.0, iota: 0.2 },
   } as const satisfies Record<Kind, KindPhysics>,
 } as const;
@@ -712,9 +729,14 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  * κ is 0 (none today; the owner's records later). `(1 + t/∞)^−1 = 1`, so the
  * exemption is the arithmetic, not a branch in every reader (03 D6).
  *
- * `spent` is the steep slope of a dated memory whose window has closed (07
- * C2, `DatedHold`): q is taken as 0 — the completed intention is inhibited —
- * while use, returns and kind still count.
+ * `spent` is the steeper slope of a dated memory whose window has closed (07
+ * C2, `DatedHold`): its own stability divided by `SPENT_STABILITY_DIVISOR`
+ * (4) — the completed intention is inhibited, gently, on its own curve.
+ * Decided by b2, 2026-10-10, lightly held; revisit after ~5 lived days (review
+ * of #372). Why: the first version zeroed q, so salience and feeling no longer
+ * slowed it at all — on a copy of the live store 9 of 17 dated memories were
+ * archived within 30 lived days, among them a felt fact about the owner and an
+ * agreed convention their own curves kept for months.
  */
 export function stability(
   m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
@@ -723,14 +745,14 @@ export function stability(
 ): number {
   const kappa = kindPhysics(m.kind).kappa;
   if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
-  const q = opts.spent === true ? 0 : steepnessInput(m);
-  return (
+  const q = steepnessInput(m);
+  const s =
     (TUNABLES.S0 *
       Math.exp(TUNABLES.STABILITY_GAIN * q) *
       (1 + TUNABLES.BETA * Math.log(1 + Math.max(0, m.uses))) *
       returnFactor(m.returns ?? 0)) /
-    kappa
-  );
+    kappa;
+  return opts.spent === true ? s / TUNABLES.SPENT_STABILITY_DIVISOR : s;
 }
 
 /** The returns' share of stability: `1 + RETURN_GAIN x ln(1 + returns)`. */
@@ -783,17 +805,28 @@ export function decayAnchor(
  *   - PENDING (a future date, or its window still open; a live repeat): t = 0.
  *     The memory holds at its height until its window closes. No use is
  *     credited — `uses`, `lastUsedDay` and returns are untouched.
- *   - SPENT (its window closed): t counts from the window's close at the
- *     latest (`closedDaysAgo`, calendar days, an upper bound on the lived days
- *     since), on the steep slope.
+ *   - SPENT (its window closed): t counts from the window's close
+ *     (`closedDaysAgo`, calendar days, an upper bound on the lived days
+ *     since), on the steeper slope (stability / `SPENT_STABILITY_DIVISOR`).
+ *   - …until it is USED after the window: a use means it still matters, so
+ *     it is an ordinary memory again, t from its anchor on its own curve
+ *     (decided by b2, 2026-10-10, lightly held). "Used after" is read as
+ *     fewer lived days since the anchor than calendar days since the close;
+ *     on a store left alone for most of a window that errs toward ordinary —
+ *     the gentle direction.
  *   - otherwise: t = d − `decayAnchor`.
+ *
+ * A REPEATING date is never spent: its hold is pending in each occurrence's
+ * window and absent between them (`store/operational.ts#datedHold`).
  */
 export function elapsed(m: MemoryPhysics, d: number): { t: number; spent: boolean } {
   const t = Math.max(0, d - decayAnchor(m));
   const hold = m.hold ?? null;
   if (hold === null) return { t, spent: false };
   if (hold.state === "pending") return { t: 0, spent: false };
-  return { t: Math.min(t, Math.max(0, hold.closedDaysAgo)), spent: true };
+  const since = Math.max(0, hold.closedDaysAgo);
+  if (t < since) return { t, spent: false };
+  return { t: since, spent: true };
 }
 
 /**
@@ -1415,7 +1448,6 @@ export function bandMove(from: Band, to: Band): "up" | "down" | "none" {
 export type SymmetryReason =
   | "within-expectation"
   | "ratchet-suspected"
-  | "reverse-ratchet-suspected"
   | "never-asked";
 
 export interface SymmetryCheck {
@@ -1427,26 +1459,41 @@ export interface SymmetryCheck {
   /** up : down. Infinity when nothing ever moved down — v1's exact shape. */
   ratio: number;
   expectedMax: number;
+  /** Up-moves no input explains — a strength that rose with no use, return,
+   *  replay, feeling, claim, promotion or hold behind it (2026-10-10). */
+  unexplained: number;
 }
 
 /**
- * Up-moves and down-moves, counted separately, PER KIND, against a stated
- * expected ratio (guarantee 12). This is the tripwire v1 lacked: it ran
- * 279 up-moves against zero down-moves for three days and nothing fired.
- * Below the minimum sample the answer is "never-asked", not "healthy".
+ * Up-moves and down-moves, counted separately, PER KIND (guarantee 12). This
+ * is the tripwire v1 lacked: it ran 279 up-moves against zero down-moves for
+ * three days and nothing fired. Below the minimum sample the answer is
+ * "never-asked", not "healthy".
+ *
+ * IT FLAGS UP-RATCHETS ONLY (2026-10-10, review of #372). Decided by b2,
+ * 2026-10-10, lightly held; revisit after ~5 lived days. Why: under the
+ * power-law curve memories fading down a band is the design, and up-moves come
+ * only from an input — so the old "reverse ratchet" (downs over ups past the
+ * stated ratio) flagged ordinary forgetting as an alarm. Two up-ratchet signs:
+ *   - `unexplained` up-moves: a band crossing upward that the decay pass could
+ *     tie to no input since its last reading (`sleep/decay.ts` records each
+ *     up-move's cause). The arithmetic never raises a strength by itself, so
+ *     one is enough;
+ *   - up-moves out of all proportion to down-moves (`ratio` over
+ *     `SYMMETRY_MAX_UP_DOWN_RATIO`), v1's exact shape, past the minimum sample.
+ * Down-moves past any ratio are not an alarm.
  */
-export function symmetryCheck(kind: Kind, counts: { up: number; down: number }): SymmetryCheck {
+export function symmetryCheck(kind: Kind, counts: { up: number; down: number; unexplained?: number }): SymmetryCheck {
   const { up, down } = counts;
+  const unexplained = Math.max(0, counts.unexplained ?? 0);
   const ratio = down === 0 ? (up === 0 ? 0 : Infinity) : up / down;
   const expectedMax = TUNABLES.SYMMETRY_MAX_UP_DOWN_RATIO;
-  const shape = { kind, up, down, ratio, expectedMax };
+  const shape = { kind, up, down, ratio, expectedMax, unexplained };
+  if (unexplained > 0) return { ok: false, reason: "ratchet-suspected", ...shape };
   if (up + down < TUNABLES.SYMMETRY_MIN_SAMPLE) {
     return { ok: true, reason: "never-asked", ...shape };
   }
   if (ratio > expectedMax) return { ok: false, reason: "ratchet-suspected", ...shape };
-  if (up > 0 && down / up > expectedMax) {
-    return { ok: false, reason: "reverse-ratchet-suspected", ...shape };
-  }
   return { ok: true, reason: "within-expectation", ...shape };
 }
 
