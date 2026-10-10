@@ -567,7 +567,7 @@ anything, and the first possible exit at lived day 91. What changed here, all li
   band. `nextChangeDay(m, d)`: the next band / reach / prune-eligibility day (13 C2), d + 1 for
   a dated memory (the calendar turns it), `NEVER_CHANGES` for the core.
 - **Exit** (b2+f8, 03 C3): `D_FLOOR_DAYS` 90 → 14, dwell from the anchor. Archival.
-- **Review of #372, on a copy of the live store (b2, lightly held):** the spent slope is the
+- **Review of #372, on a copy of the live store (decided by Mike, 2026-10-10, loosely held):** the spent slope is the
   memory's own stability / `SPENT_STABILITY_DIVISOR` (4), until a use after the window (q = 0
   had archived 9 of 17 dated memories in 30 lived days, among them a felt fact); skill and place
   `wSal` 0.4 → 1.0 (a 0.25 skill was born at 0.10, below reach); `symmetryCheck` flags only

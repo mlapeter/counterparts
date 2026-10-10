@@ -258,7 +258,7 @@ reverses prospective G10, "no decay exemption before arrival").** A memory whose
 window (`HOLD_LEAD_DAYS = 3` before to the grace after) and fades on its curve between them, as
 the owner's 2026-10-09 design says. After the window
 closes it is SPENT: its own stability divided by `SPENT_STABILITY_DIVISOR` (4), t counted from
-the close, until it is used after the window — then it is ordinary again (b2, 2026-10-10,
+the close, until it is used after the window — then it is ordinary again (Mike, 2026-10-10,
 lightly held; the first build zeroed q, and archived felt facts within weeks). A repeating date
 is never spent. A date already past when the memory was written is not a
 reminder and is not held. Computed at the read seam from `event_date`, `learned_on`, the

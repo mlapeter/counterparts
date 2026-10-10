@@ -267,7 +267,7 @@ export const TUNABLES = {
    * AFTER THE WINDOW: a dated memory's own stability is divided by this until
    * it is used again (`elapsed`, `stability`'s `spent`). Steeper on its own
    * curve, not zeroed: a 0.25 reminder (S ≈ 3) then leaves reach within a day,
-   * a felt 0.6 fact (S in the hundreds) still lasts months. Decided by b2,
+   * a felt 0.6 fact (S in the hundreds) still lasts months. Decided by Mike,
    * 2026-10-10, lightly held; revisit after ~5 lived days (review of #372).
    */
   SPENT_STABILITY_DIVISOR: 4,
@@ -389,7 +389,7 @@ export const TUNABLES = {
    *  (open question 3 asks whether the 0.4s exist at all).
    *
    *  SKILL AND PLACE SALIENCE WEIGH 1.0 (2026-10-10, review of #372; was 0.4).
-   *  Decided by b2 (with f8), 2026-10-10, lightly held; revisit after ~5 lived
+   *  Decided by Mike, 2026-10-10, loosely held (b2 and f8 proposed it); revisit after ~5 lived
    *  days. Why: under the reach line a 0.4 weight put every skill claimed
    *  under 0.375 below reach from birth (a 0.25 skill was born at 0.10), and
    *  one deliberate open could not bring it back; procedural memory is the
@@ -732,7 +732,7 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  * `spent` is the steeper slope of a dated memory whose window has closed (07
  * C2, `DatedHold`): its own stability divided by `SPENT_STABILITY_DIVISOR`
  * (4) — the completed intention is inhibited, gently, on its own curve.
- * Decided by b2, 2026-10-10, lightly held; revisit after ~5 lived days (review
+ * Decided by Mike, 2026-10-10, loosely held (b2 proposed it); revisit after ~5 lived days (review
  * of #372). Why: the first version zeroed q, so salience and feeling no longer
  * slowed it at all — on a copy of the live store 9 of 17 dated memories were
  * archived within 30 lived days, among them a felt fact about the owner and an
@@ -810,7 +810,7 @@ export function decayAnchor(
  *     since), on the steeper slope (stability / `SPENT_STABILITY_DIVISOR`).
  *   - …until it is USED after the window: a use means it still matters, so
  *     it is an ordinary memory again, t from its anchor on its own curve
- *     (decided by b2, 2026-10-10, lightly held). "Used after" is read as
+ *     (decided by Mike, 2026-10-10, loosely held). "Used after" is read as
  *     fewer lived days since the anchor than calendar days since the close;
  *     on a store left alone for most of a window that errs toward ordinary —
  *     the gentle direction.
@@ -1470,7 +1470,7 @@ export interface SymmetryCheck {
  * three days and nothing fired. Below the minimum sample the answer is
  * "never-asked", not "healthy".
  *
- * IT FLAGS UP-RATCHETS ONLY (2026-10-10, review of #372). Decided by b2,
+ * IT FLAGS UP-RATCHETS ONLY (2026-10-10, review of #372). Decided by Mike,
  * 2026-10-10, lightly held; revisit after ~5 lived days. Why: under the
  * power-law curve memories fading down a band is the design, and up-moves come
  * only from an input — so the old "reverse ratchet" (downs over ups past the

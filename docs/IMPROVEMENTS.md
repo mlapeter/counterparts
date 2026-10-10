@@ -48,14 +48,12 @@ come first. Nothing here quotes a memory.
    occurrence is held, and between them it fades on its own curve. The first build zeroed
    salience and feeling after the window, and on a copy of the live store (review of #372)
    9 of 17 dated memories were archived within 30 lived days, among them a felt fact about
-   Mike and an agreed way of working; changed by b2, 2026-10-10, lightly held. That holds for
+   Mike and an agreed way of working; changed by Mike, 2026-10-10, loosely held. That holds for
    every memory whose date came after the day it was written, not only reminders. (Group 1a.)
-2. **Credit for drawing on a footnote.** Revised by b2+f8, 2026-10-10, from Mike's 2026-09-14
-   ruling ("never for being named in prose"); approved by Mike on 2026-10-10 through f8,
-   lightly held. Why: without it, use is hardly counted, so the links and the core's
-   recurrence starve. A memory counts as drawn on only when a rare phrase from its title shows
-   up in the reply and not in the prompt (about 8 in 10 right against a control), the credit
-   saturates, and nothing is ever credited for being shown. (Group 1b.)
+2. **PARKED — engaged footnote credit** (G1b, #371). Parked by Mike, 2026-10-10:
+   hand-labelled strict precision 0.17–0.33, lenient 0.60–0.78, below the 0.8 bar; the 09-14
+   ruling ("never for being named in prose") stands in practice. Successor: an explicit `drewOn`
+   field (planned). Not a reversal that shipped.
 
 The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
 reverse older defaults and contract lines; those go to the rules audit.
@@ -125,7 +123,7 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   over the floor for months. Cards are rarely born today (the title-vs-name bug, Group 3), so
   this is noted rather than changed; review 03 C5 (one clock for cards) is where it belongs.
 - **"Fades faster after" = its own stability divided by 4, counted from the window's close,
-  until it is used after the window.** Decided by b2, 2026-10-10, lightly held; revisit after
+  until it is used after the window.** Decided by Mike, 2026-10-10, loosely held; revisit after
   ~5 lived days. Why: completed intentions are inhibited, gently; zeroing salience and
   feeling (the first build) archived felt facts and agreed conventions within weeks.
 - **A dream replay or a reflection's citation re-anchors the curve** (as a use does, without
@@ -142,14 +140,14 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   each born at strength 0 by design (the journal; a pointer with its own expiry; a name's
   card, faded by its own rule), so a reach line would hide every one of them from birth.
   Beliefs and every other memory are inside it.
-- **Skill and place salience weigh 1.0, as every other kind (was 0.4).** Decided by b2 (with
-  f8), 2026-10-10, lightly held; revisit after ~5 lived days. Why: the 0.4 weight put any skill
+- **Skill and place salience weigh 1.0, as every other kind (was 0.4).** Decided by Mike,
+  2026-10-10, loosely held (proposed by b2 and f8); revisit after ~5 lived days. Why: the 0.4 weight put any skill
   claimed under 0.375 below reach from birth (a 0.25 skill was born at 0.10, and one deliberate
   open could not bring it back; on a copy of the live store 19 of 102 skills were below reach at
   once). Procedural memory is the slowest to fade in the brain; if skill notes are
   over-produced, that is encoding's job, not a special weight's. The repetition weight is
   unchanged.
-- **The symmetry tripwire flags only UP-ratchets.** Decided by b2, 2026-10-10, lightly held;
+- **The symmetry tripwire flags only UP-ratchets.** Decided by Mike, 2026-10-10, loosely held;
   revisit after ~5 lived days. Why: under the new curve, falling a band is the design, and
   climbing one comes only from an input (a use, a return, a replay, a feeling, a promotion), so
   the old 4:1 expectation flagged ordinary forgetting as a "reverse ratchet". It now trips on a
