@@ -69,21 +69,39 @@ What the binary changes in `src/`, and why:
 With none of them, it fetches the binary:
 
 - **Which file.** The platform is darwin-arm64 (`sysctl hw.optional.arm64`, which stays
-  truthful under Rosetta), darwin-x64, linux-x64, linux-arm64 (glibc; musl is told it has
-  no binary) or windows-x64. The version is `.claude-plugin/plugin.json`'s.
-- **Which checksum.** `.claude-plugin/binaries.json`, **inside the plugin**, names the
-  asset and its sha256 twice: compressed and unpacked. A checksum fetched from the same
+  truthful under Rosetta), darwin-x64, linux-x64 or linux-arm64 (glibc; musl is told it
+  has no binary). **Not Windows yet:** CI builds a Windows binary, but no release offers
+  one (`build.ts#RELEASED`), so on Windows the launcher still says to install Bun or
+  Node. The version is `.claude-plugin/plugin.json`'s, and the URL is built from it
+  alone: `https://github.com/mlapeter/counterparts/releases/download/v<version>/counterparts-<version>-<platform>.gz`.
+- **Which checksum.** `.claude-plugin/binaries.json`, **inside the plugin**, gives the
+  asset's sha256 twice: compressed and unpacked. A checksum fetched from the same
   release as the file would prove the transfer and nothing about where it came from. A
   `binaries.json` for another version is not used.
 - **The download.**
   - It runs in the background, detached: `setsid` where it exists, job control
     otherwise.
   - It runs once: a lock in `$CLAUDE_PLUGIN_DATA/bin`, taken by the hook or the server,
-    whichever starts first; a lock older than 30 minutes is a dead download.
-  - The steps: `curl` from
-    `https://github.com/mlapeter/counterparts/releases/download/v<version>/`, check the
-    `.gz`, unpack, check the program, `chmod`, then one `mv` into place. Nothing is ever
-    run before both checks pass. A failed file is deleted.
+    whichever starts first; a lock older than 30 minutes is a dead download (curl gives
+    up at 25).
+  - `curl` takes HTTPS only, redirects included, at most five redirects and no more
+    bytes than `binaries.json` names. GitHub hands a release asset on to its own CDN,
+    whose host curl can't pin (and GitHub has changed it before); the pinned sha256 is
+    what makes any host's bytes safe.
+  - The steps, in a directory only this user can enter (`umask 077`): check the `.gz`,
+    unpack, check the program, `chmod 700`, then one `mv` into place. Nothing is ever
+    run, or made executable, before both checks pass. A failed file is deleted, and a
+    partial left by a killed download is swept at the next one.
+- **Every later launch re-checks it.** A full check writes `verified` beside the
+  program: the sha256 it matched, and the file's inode, size and mtime. A hook runs the
+  program when that stamp names this plugin's checksum and this very file and is under a
+  day old (one `stat`, about 1 ms). The server's start, once a session, re-hashes the
+  whole file, as does a hook finding the stamp old, missing or different (about 75 ms
+  for 100 MiB with `openssl`). A program that no longer matches is deleted, never run,
+  and downloaded again.
+- **Old versions.** When a new version's program lands, another version's whose stamp
+  is a week old (no server has started it since) is deleted: each is 100–150 MiB
+  unpacked.
 - **What the person sees.**
   - The first SessionStart says Counterparts is getting ready, the size, where it comes
     from, and that memory starts next session.
@@ -108,45 +126,60 @@ milliseconds (measured 23–33 ms for the first SessionStart).
 
 ## Releasing
 
-The binary must be built from the release's version, and its checksums must be in the
+The binary must be built from the release's own code, and its checksums must be in the
 release commit. The plugin pins that commit's tag, so `binaries.json` has to be at the
 tag. `binaries.json` itself is not embedded in the binaries, so committing it doesn't
 change them.
 
-1. **In the release commit, after the version bump, on macOS:**
+Who does what: the release agent builds, commits `binaries.json` and keeps the files;
+**the upload is the owner's**, at publish, from the PUBLISH sheet, like the tag push.
+
+1. **Build, after the last change to `src/` in the release** (the version bump
+   included), on macOS, in the clean clone of the release branch after
+   `bun install --frozen-lockfile`:
 
    ```sh
    bun tools/single-binary/build.ts --release
    ```
 
-   This builds all five platforms with `--bytecode`. It re-signs both macOS binaries
-   ad-hoc, which needs `codesign`, so `--release` refuses on any other OS. It runs
-   `selfcheck` on the one this Mac can run, and gzips each into
-   `dist/single-binary/<version>/` beside a `SHA256SUMS`. Finally it writes
-   `.claude-plugin/binaries.json`. **Commit `binaries.json` with the version bump.**
-   `test/single-binary.test.ts` fails while it names another version. Keep the `dist`
-   folder for step 3: the bytecode builds are not byte-reproducible (two builds differ
-   in about 6 KB), so the uploaded files must be these ones.
-2. **At publish**, as `docs/plugin.md` describes: `npm publish`, then tag the packed
-   commit and push the tag.
-3. **Attach the binaries to that tag's GitHub release, right away.** Until they are
-   there, a plugin install with no runtime gets a "download failed" line and retries ten
-   minutes later.
+   This builds the four released platforms (`build.ts#RELEASED`: both macOS, both
+   Linux; not Windows yet) with `--bytecode`. It re-signs both macOS binaries ad-hoc,
+   which needs `codesign`, so `--release` refuses on any other OS. It runs `selfcheck`
+   on the one this Mac can run, and gzips each into `dist/single-binary/<version>/`
+   beside a `SHA256SUMS`. Finally it writes `.claude-plugin/binaries.json`.
+   - **Commit `binaries.json`** on the release branch; the tarball is packed from that
+     head. `test/single-binary.test.ts` fails while it names another version.
+   - **Any later change to `src/`** means building again and committing the new
+     `binaries.json`.
+   - **Copy `dist/single-binary/<version>/`** into the release folder beside the
+     tarball. The clean clone is thrown away, and the builds are not byte-reproducible
+     (two differ in about 6 KB), so the uploaded files must be these very ones.
+2. **The PUBLISH sheet** carries, right after the tag push, the two commands below with
+   the release folder's absolute paths, and a notes file there (the version's CHANGELOG
+   entry).
+3. **At publish**, as `docs/plugin.md` describes: `npm publish`, then tag the packed
+   commit and push the tag. **Then attach the binaries to that tag's release, right
+   away.** Until they are there, a plugin install with no runtime gets a "download
+   failed" line and retries ten minutes later; nothing else breaks.
 
    ```sh
-   gh release create v<version> --verify-tag --title "counterparts <version>" --notes-file <notes> \
-     dist/single-binary/<version>/*.gz dist/single-binary/<version>/SHA256SUMS
-   # or, if the release exists: gh release upload v<version> dist/single-binary/<version>/*.gz dist/single-binary/<version>/SHA256SUMS
+   gh release create v<version> --verify-tag --title "counterparts <version>" --notes-file <folder>/release-notes.md \
+     <folder>/single-binary/*.gz <folder>/single-binary/SHA256SUMS
+   # or, if the release exists: gh release upload v<version> <folder>/single-binary/*.gz <folder>/single-binary/SHA256SUMS
    ```
 
-4. **Check** what is published against what the plugin carries:
+4. **Check** what is published against what the plugin carries, from the tagged commit:
 
    ```sh
    bun tools/single-binary/verify-release.ts
    ```
 
    It downloads every asset from the release and checks both checksums. Exit 0 means a
-   plugin user on any of the five platforms gets a program that runs.
+   plugin user on any released platform gets a program that runs.
+
+A version released without binaries (every one up to 0.3.13, whose launcher has no
+download at all) keeps the old behaviour: with no Bun or Node, one line saying to
+install one.
 
 Signing is ad-hoc. That is enough here because `curl` sets no quarantine attribute, so
 macOS's Gatekeeper never assesses the file and only the kernel's signature check applies.
@@ -160,7 +193,10 @@ offered as a browser download.
   - `test/plugin-binary.test.ts`: the launcher's download path, against a local server
     and a two-line fake program. It covers the message and the timing, one download for
     concurrent starts, the not-ready server, a checksum failure that is never run and
-    is retried later, the opt-out, and another version's checksums.
+    is retried later, the opt-out, and another version's checksums; the kept program's
+    permissions and stamp, a changed program deleted and fetched again (by a hook, and
+    by the server's re-hash when only the bytes changed), a refused redirect to plain
+    HTTP, and old versions cleared.
   - `test/project-env.test.ts`: a project's `.env` changes nothing.
 - **The real binary:**
   - `tools/single-binary/smoke.sh <binary>`: the binary alone, under `env -i` with no
@@ -169,7 +205,8 @@ offered as a browser download.
     `plugin-run.sh`, downloaded from a local server and verified.
 - **CI** (`.github/workflows/single-binary.yml`): on pull requests that touch the binary
   or the launcher, each of macOS arm64, macOS Intel, Linux x64, Linux arm64 and Windows
-  builds its own platform and runs all of the above. **Windows may fail** for now.
+  builds its own platform and runs all of the above. **Windows may fail** for now, and
+  is not released until it doesn't.
 
 ## Limits, said plainly
 
@@ -180,11 +217,13 @@ offered as a browser download.
 - **Start-up**: a UserPromptSubmit hook takes about 86 ms with the bytecode build, vs.
   about 102 ms for `bun hook.mjs` today (M3 Pro).
 - **Untested so far:**
-  - **darwin-x64**: no Bun x64 program runs under Rosetta 2 on macOS 14. CI's Intel
-    runner is its first real run.
-  - **Windows** has never been run. Its untested parts are the `B:\~BUN\root`
-    path handling, `plugin-run.sh` under Git Bash, and an unsigned exe that
-    Defender may flag.
+  - **darwin-x64**: no Bun x64 program runs under Rosetta 2 on macOS 14, so only CI's
+    Intel runner has run it (green on 2026-10-09); no person has.
+  - **Windows is not supported by the binary path yet.** No release offers a Windows
+    binary, so a Windows computer with no Bun or Node is told to install one, as before.
+    CI builds it to get there; its open parts are the `B:\~BUN\root` path handling,
+    `plugin-run.sh` under Git Bash, and an unsigned exe that Defender may flag. To
+    release it, add it to `build.ts#RELEASED` once its CI job is green.
 - **"Version on disk"** in the binary is its own embedded version. Each plugin version
   runs its own binary, and an open MCP server keeps the code it started with, as with
   the sources.
