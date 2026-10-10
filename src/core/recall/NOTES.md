@@ -1055,3 +1055,16 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
   - Ambient recall only. A deliberate answer's memories (`asked`) are not in the gate
     state's `surfaced`, and are not scored.
   - Recorded only where the credit pass runs (INTERFACE-GAPS §9).
+
+## 2026-10-10 — near-universal cue words are not looked up (Lane 0, scale review C4)
+
+`activate` fetched every cue's postings, and a word in almost every memory has postings the
+size of the store: the review measured `searchIndex` at 52% of a turn at 10x. A cue whose
+`informativeness(df, storeSize)` is under `CUE_FETCH_MIN_IDF` (0.1 — a word in more than
+~80% of memories) now stays a cue and fetches nothing; `ActivationResult.unfetched` counts
+them (not a `RecallDecision` field, for `capped`'s reason). Its evidence was a few percent of
+one rare word's, so what surfaces does not change in practice; the side effect is that such a
+word no longer adds to a candidate's `matched` count. `storeSize` is `countMemories` now, not
+the length of a list of every live id (16% of a 10x turn). Not done here, from the same
+finding: persisting the alias index and indexing `feelings(created_at)` (a canonical index —
+Group 1).
