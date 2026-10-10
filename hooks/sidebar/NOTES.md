@@ -254,25 +254,30 @@ mechanism.
   firing lights its region (`Brain.flash`) in the pane's next drawing, and
   the drawing 2.6 s later puts it out (`Brain.dark`): two drawings an event.
 - **off**: no Raster; the header is two lines.
-- **CPU** of the `claude` process (`top`, 30 s windows unless said; term-loop
-  at 200x60, the pane drawn, the dashboard polled every 15–30 s with Mike's
-  other sessions writing events; load average 3–4):
+- **CPU** of the `claude` process (`top`, 30 s windows; term-loop at 200x60,
+  the pane drawn, the dashboard polled every 15–30 s while Mike's other
+  sessions wrote events; load average 3–7, one window at 10; four runs, the
+  last from a frozen copy with nothing edited during it, since a
+  `--plugin-dir` working tree hot-reloads on every edit and the earlier runs'
+  odd windows lined up with edits):
 
   | Mode | CPU | v0.1 |
   |---|---|---|
-  | turning, swaying (the minute after an open or an event) | 1.2–4.5% (10 s windows 1.2–2.8%) | 2.8–4.2% swaying |
-  | turning, at rest | 0.1–0.2% | 0.3–1.2% |
-  | still | 1.0–1.9% | — |
+  | turning, swaying (the minute after an open or an event) | 1.2–4.5% | 2.8–4.2% swaying |
+  | turning, at rest, in a fresh session | 0.1–0.8% | 0.3–1.2% |
+  | turning, at rest, after a slash command | 1.6% | — |
+  | still | 1.0–2.2% | — |
   | off | 0.7–1.7% | — |
-  | quiet (no pane, no reads) | 0.6–1.5% | 0.6–0.8% quiet, 0.7% hidden |
+  | quiet (no pane, no reads) | 0.6–1.6% | 0.6–0.8% quiet, 0.7% hidden |
   | a static probe pane (no Counterparts) | 0.3–0.5% | 0.6% no plugin |
 
-  Still and off run no timer, so their extra over the probe is the polls'
-  redraws (and noise: the windows after a slash command include its own
-  work); turning at rest measured lower than both in every run, which is
-  noise of the same size. Read the table as: turning costs a couple of
-  percent while it moves and nothing once it rests; still and off cost what
-  the polls cost.
+  Still and off run no timer. At rest, the brain's mode makes no difference
+  the measurement can see: turning at rest measured as low as 0.1% in a fresh
+  session and 1.6% once the transcript held a command's output, the same as
+  still and off (whose windows all came after the command that set them).
+  Read it as: idle, about 1–2% whatever the mode (the polls and their
+  redraws, and the session's own); turning adds two or three percent for the
+  minute it moves after an open or an event.
 
 ### Where the build differs from the mockups, and why
 
