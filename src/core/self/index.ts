@@ -75,9 +75,7 @@ import {
   WAKE_SYSTEM,
   applyPreface,
   arrivingTense,
-  besidePageBytes,
   flatten,
-  identityShareBytes,
   PAGE_FLOOR_RESERVE_BYTES,
   PAGE_MIN_RENDER_BYTES,
   pageDateline,
@@ -653,15 +651,15 @@ export class Self {
     // falls back to the identity list `omit` left standing, which is what that
     // composition carried before the page existed.
     //
-    // **AND IT LEAVES ROOM FOR THE LINES BESIDE IT** (2026-10-09): the
-    // Yesterday line, Arriving, and the first of "Still open"
-    // (`besidePageBytes`), measured on the lines this render will write. The
-    // owner's wake that morning printed "Still open:" over no item at all.
-    const yesterday = req.omit === undefined ? req.yesterday : undefined;
+    // **THE PAGE IS NOT CUT FOR THE LANES BESIDE IT** (review of #350,
+    // 2026-10-09): it is the self the wake exists to carry, so a page under
+    // its cap prints whole. When "Still open" would list nothing beside it,
+    // the room for its first item comes out of the other lanes, in the
+    // renderer (`briefing.ts#keepFirstOpen`).
     const block =
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
         ? null
-        : this.pageBlock(req.budgetBytes, besidePageBytes(lanes, resolve, this.tunables, yesterday));
+        : this.pageBlock(req.budgetBytes);
     // A page that will not FIT is not a page that does not EXIST: the renderer
     // is told `pageExists` so the still-forming line stays off a store that has
     // one, whatever the ceiling did (MINOR-D).
@@ -676,8 +674,16 @@ export class Self {
         ...(coreName === null ? {} : { coreName }),
         ...(page === null ? {} : { page }),
         // The "Yesterday" line (2026-10-01): the owner's wake only — a
-        // composition that filters (`omit`) is bound elsewhere.
-        ...(yesterday === undefined ? {} : { yesterday }),
+        // composition that filters (`omit`) is bound elsewhere. Its shorter
+        // forms ride beside it (review of #350).
+        ...(req.yesterday === undefined || req.omit !== undefined ? {} : { yesterday: req.yesterday }),
+        ...(req.yesterdayShorter === undefined || req.yesterday === undefined || req.omit !== undefined
+          ? {}
+          : { yesterdayShorter: req.yesterdayShorter }),
+        // The room held for "Work here", lent to "Still open"'s first item
+        // (review of #350): the owner's wake only, which is the one delivered
+        // with work lines.
+        ...(req.lendBytes === undefined || req.omit !== undefined ? {} : { lendBytes: req.lendBytes }),
       },
       resolve,
       this.tunables,
@@ -1321,7 +1327,7 @@ export class Self {
    * page exists and does not fit, in one line — the one thing that is both true
    * and short enough to say.
    */
-  private pageBlock(budgetBytes: number, beside = 0): PageBlock | typeof NO_ROOM | null {
+  private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
     const page = this.page();
     if (page === null) return null;
     const dateline = pageDateline(
@@ -1348,13 +1354,11 @@ export class Self {
     // "no page has been written here yet" — the class of lie PR #71's rule
     // forbids, moved from identity to the page (adversarial review MINOR-D).
     if (room <= 0) return NO_ROOM;
-    // THE LINES BESIDE IT (2026-10-09, `besidePageBytes`): a long page leaves
-    // them their room — but never below the identity share of this budget, the
-    // part the identity list was always kept while other lanes competed, so a
-    // small ceiling still carries the page rather than a line saying it did not
-    // fit. A page shorter than what is left is not cut at all.
-    const share = Math.min(room, identityShareBytes(budgetBytes, this.tunables));
-    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, Math.max(room - beside, share));
+    // NOT CUT FOR THE LANES BESIDE IT (review of #350, 2026-10-09): the lines
+    // that compete with the page give way to it, never the other way round —
+    // "Still open" gets its first item out of the other lanes
+    // (`briefing.ts#keepFirstOpen`), not out of the page.
+    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
     if (cap < PAGE_MIN_RENDER_BYTES && bodyBytes > cap) {
       return {
         text: pageTooLargeLine(bodyBytes),

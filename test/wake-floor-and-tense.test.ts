@@ -2,14 +2,15 @@
  * TWO WAKE LINES THE OWNER READ ON 2026-10-09, through the real wake path.
  *
  * 1. "Still open:" over no item at all, then "(20 more still open; recall ids
- *    (the first 5): …)". The page is furniture the trim cannot pop, and it was
- *    cut to leave room for the wake's other furniture and nothing else; the
- *    Yesterday line and Arriving (which trims after "Still open") took what was
- *    left, and the room that remained held the lane's "more" line but not one
- *    open item. Now a long page leaves room for the lines beside it
- *    (`self/briefing.ts#besidePageBytes`, `THREADS_FLOOR_BYTES`), and a lane
- *    that still lists nothing is ONE line with its heading inside it
- *    (`collapsedLine`) — never a heading over a count.
+ *    (the first 5): …)". The page is furniture the trim cannot pop, and so is
+ *    the Yesterday line; the trim order takes "Still open" before Arriving, so
+ *    beside a long page the lane gave up its last item while Arriving kept
+ *    every line. The PAGE IS NOT WHAT GIVES WAY (review of #350): it prints
+ *    whole under its cap. "Still open" keeps its first item and its count out
+ *    of, in order, the room held for "Work here", Arriving beyond its first
+ *    line and the Yesterday line's titles (`self/briefing.ts#keepFirstOpen`),
+ *    and a lane that still lists nothing is ONE line with its heading inside
+ *    it (`collapsedLine`) — never a heading over a count.
  *
  * 2. "Arriving: … (due 2026-10-08)" read on 10-09. By design: a one-off stays
  *    in the horizon lane for its grace days, and the wake composed at the
@@ -47,9 +48,12 @@ import {
   arrivingTense,
   collapsedLane,
   collapsedLine,
+  compose,
+  moreLine,
   prefaceLine,
   readSentinel,
   render,
+  renderPage,
   WAKE_SYSTEM,
 } from "../src/core/self/index.js";
 import type { Lanes, Ranked, Resolve } from "../src/core/self/index.js";
@@ -131,12 +135,27 @@ function openQuestions(a: ReturnType<typeof openAdapter>, n = 25): string[] {
   return ids;
 }
 
-/** A long page, about 7 KB — longer than the wake's page cap at 9,000. */
-function longPage(a: ReturnType<typeof openAdapter>): void {
-  const para = "I keep a careful account of the studio and the people in it, and I say what I do not know before I guess. ";
-  let page = "";
-  while (Buffer.byteLength(page) < 7_000) page += `${para.repeat(4)}\n\n`;
+/** A page of exactly `bytes` bytes, in paragraphs of about 420. */
+function pageOf(bytes: number): string {
+  const para = "I keep a careful account of the studio and the people in it, and I say what I do not know before I guess. ".repeat(4).trim();
+  const paras: string[] = [];
+  let total = 0;
+  while (total + (paras.length === 0 ? 0 : 2) + Buffer.byteLength(para) <= bytes) {
+    total += (paras.length === 0 ? 0 : 2) + Buffer.byteLength(para);
+    paras.push(para);
+  }
+  let page = paras.join("\n\n");
+  const short = bytes - Buffer.byteLength(page);
+  if (short > 3) page += `\n\n${"And one more thing I keep. ".repeat(Math.ceil(short / 27)).slice(0, short - 3)}.`;
+  expect(Buffer.byteLength(page)).toBe(bytes);
+  return page;
+}
+
+/** Write a page of `bytes` bytes; returns it, as the store holds it. */
+function longPage(a: ReturnType<typeof openAdapter>, bytes: number): string {
+  const page = pageOf(bytes);
   expect(a.counterpart.revisePage(page, { by: "owner", reason: "a long page" }).written).toBe(true);
+  return page;
 }
 
 /** Chapters written on `ymd`, so the wake carries a Yesterday line the next day. */
@@ -199,47 +218,68 @@ function reminder(a: ReturnType<typeof openAdapter>, due: string, body: string, 
 // 1. "Still open:" lists what it can, or says so in one line
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("Still open keeps its first lines beside a long page (2026-10-09)", () => {
-  for (const zone of ZONES) {
-    test(`${zone}: 25 open items, a 7 KB page, Yesterday, two Arriving lines and this directory's work, at the 9,000-byte default — open items listed, never a heading over a count`, async () => {
-      clock(zone, "2026-10-07", 20);
-      const a = adapter(zone);
-      chapters(a, "2026-10-07");
-      await worker(zone);
-      clock(zone, "2026-10-08", 21);
-      const ids = openQuestions(a);
-      longPage(a);
-      work(a);
-      reminder(a, "2026-10-08", "The dentist appointment is at nine and the forms are in the blue folder.");
-      reminder(a, "2026-10-10", "Rosa's surgery is on the tenth; send a note the evening before.");
-      await worker(zone);
+describe("Still open keeps its first item beside a long page, and the page is never cut for it (2026-10-09)", () => {
+  /**
+   * The owner's wake that morning, rebuilt: 25 open items, a long page, a
+   * Yesterday line naming four chapters, two Arriving lines and this
+   * directory's handoffs and work, at the 9,000-byte default — the delivery
+   * reserves bring the composition to ~7.2 KB.
+   */
+  async function morning(zone: string, pageBytes: number): Promise<{ a: ReturnType<typeof openAdapter>; ids: string[]; page: string; text: string; stored: string }> {
+    clock(zone, "2026-10-07", 20);
+    const a = adapter(zone);
+    chapters(a, "2026-10-07");
+    await worker(zone);
+    clock(zone, "2026-10-08", 21);
+    const ids = openQuestions(a);
+    const page = longPage(a, pageBytes);
+    work(a);
+    reminder(a, "2026-10-08", "The dentist appointment is at nine and the forms are in the blue folder.");
+    reminder(a, "2026-10-10", "Rosa's surgery is on the tenth; send a note the evening before.");
+    await worker(zone);
+    clock(zone, "2026-10-09", 8);
+    const { text } = sessionStart(a, zone, "s-morning");
+    return { a, ids, page, text, stored: a.counterpart.store.getMeta(BRIEFING_KEY) ?? "" };
+  }
 
-      clock(zone, "2026-10-09", 8);
-      const { text } = sessionStart(a, zone, "s-morning");
-      expect(readSentinel(text).intact).toBe(true);
-      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
-      // The squeeze is real: the delivery reserves took ~1.8 KB of the 9,000,
-      // the page was cut, the Yesterday line and both Arriving lines are there,
-      // and this directory's work and handoffs rode at the foot. Before the fix
-      // this wake read "Still open:" over "(25 more still open; …)" alone.
-      const rows = a.counterpart.store.eventLog({ name: "self.briefing" });
-      const composed = JSON.parse(rows[rows.length - 1]?.payload ?? "{}") as { budget?: number };
-      expect(composed.budget).toBeLessThan(7_400);
-      expect(text).toContain("the wake shows the first");
-      expect(text).toContain("Yesterday, 10-07: ");
-      expect(lane(text, FRAMING.horizon)?.length).toBe(2);
-      expect(text).toContain("Work here, if it helps:");
-      expect(text).toContain("Where the work in this directory was left off");
-      // AND STILL OPEN LISTS ITEMS: at least two of the 25, and a count, when
-      // there is room for one, says how many more.
+  for (const zone of ZONES) {
+    // The owner's page is 5,845 bytes (version 16); 6,100 is one a little
+    // longer, under the page's cap and past the room the lanes beside it had.
+    for (const bytes of [5_845, 6_100]) {
+      test(`${zone}: a ${String(bytes)}-byte page is printed whole, byte for byte, and "Still open" still lists its first item and its count`, async () => {
+        const { a, ids, page, text, stored } = await morning(zone, bytes);
+        expect(readSentinel(text).intact).toBe(true);
+        expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
+        // THE PAGE, WHOLE: in the stored bundle and in what the session got.
+        expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(stored).not.toContain("the wake shows the first");
+        // STILL OPEN: an item first, then how many more — never a heading over a count.
+        const open = lane(text, FRAMING.threads) ?? [];
+        const listed = open.filter((l) => l.startsWith("- "));
+        expect(listed.length).toBeGreaterThanOrEqual(1);
+        expect(open[0]?.startsWith("- ")).toBe(true);
+        const bodies = ids.map((id) => a.counterpart.store.readProse(id).body);
+        for (const line of listed) expect(bodies).toContain(line.slice(line.indexOf(" · ") + 3));
+        expect(open[open.length - 1]).toStartWith(`(${String(25 - listed.length)} more still open; `);
+        // And what gave way was "Work here" (fewer lines), not the reminders or
+        // yesterday's chapters: both Arriving lines, all four titles.
+        expect(lane(text, FRAMING.horizon)?.filter((l) => l.startsWith("- ")).length).toBe(2);
+        expect(text).toContain("Yesterday, 10-07: ");
+        expect(text.split("\n").find((l) => l.startsWith("Yesterday, 10-07: "))).not.toContain(" more.");
+        expect(text).toContain("Where the work in this directory was left off");
+      });
+    }
+
+    test(`${zone}: a page past its cap is cut to the cap and no further — the lanes beside it take nothing from it`, async () => {
+      const { text, stored, page } = await morning(zone, 7_000);
+      const capped = renderPage(page, SELF_TUNABLES.PAGE_WAKE_BYTES);
+      expect(capped.truncated).toBe(true);
+      expect(stored).toContain(`${FRAMING.identity}\n${capped.text}\n`);
+      expect(text).toContain(`${FRAMING.identity}\n${capped.text}\n`);
       const open = lane(text, FRAMING.threads) ?? [];
-      const listed = open.filter((l) => l.startsWith("- "));
-      expect(listed.length).toBeGreaterThanOrEqual(2);
       expect(open[0]?.startsWith("- ")).toBe(true);
-      const bodies = ids.map((id) => a.counterpart.store.readProse(id).body);
-      for (const line of listed) expect(bodies).toContain(line.slice(line.indexOf(" · ") + 3));
-      const rest = open.find((l) => l.startsWith("("));
-      if (rest !== undefined) expect(rest).toStartWith(`(${String(25 - listed.length)} more still open; `);
+      expect(readSentinel(text).intact).toBe(true);
     });
   }
 
@@ -320,6 +360,119 @@ describe("a lane that lists nothing is one line, its heading inside it", () => {
     expect(parts.find((p) => p.key === "page")?.bytes).toBe(Buffer.byteLength("The page.\n\n"));
     // A page line that merely opens with the words is not one.
     expect(collapsedLane("Still open: two questions about the kiln.")).toBe(null);
+  });
+});
+
+describe("what gives way for Still open's first item, in order — never the page (review of #350)", () => {
+  const ranked = (id: string, lane: "threads" | "horizon"): Ranked => ({ id, lane, kind: "fact", band: "semantic", strength: 0.9, protected: false, bornDay: 0, personScoped: false, lastRendered: -1 });
+  const resolve: Resolve = (id) => ({
+    statement: id.startsWith("mem_t")
+      ? `The open question ${id}: whether the kiln shelf needs a second coat of wash before the next firing.`
+      : `Arriving ${id}: the appointment is at nine and the forms are in the blue folder.`,
+    learnedOn: "2026-10-01",
+  });
+  const body = pageOf(3_000);
+  const page = { text: body, dateline: null, truncated: false, wholeBytes: 3_000 };
+  const title = (i: number): string => `"Seating the relief valves on kiln number ${String(i)}" (epi_${String(i)})`;
+  const full = `Yesterday, 10-07: ${[0, 1, 2, 3].map(title).join("; ")}.`;
+  const shorter = [3, 2, 1].map((n) => `Yesterday, 10-07: ${[0, 1, 2].slice(0, n).map(title).join("; ")}; and ${String(4 - n)} more.`);
+  const shortest = shorter[shorter.length - 1] ?? "";
+  function lanes(horizon = 3): Lanes {
+    return {
+      identity: [],
+      craft: [],
+      hints: [],
+      threads: Array.from({ length: 5 }, (_, i) => ranked(`mem_t${String(i)}`, "threads")),
+      horizon: Array.from({ length: horizon }, (_, i) => ranked(`mem_h${String(i)}`, "horizon")),
+      overflow: { identity: [], craft: [], threads: Array.from({ length: 15 }, (_, i) => `mem_t${String(i + 5)}`), hints: [], horizon: [] },
+    };
+  }
+  const req = (budgetBytes: number, opts: { lend?: number; yesterday?: string; shorter?: readonly string[] } = {}) => ({
+    budgetBytes,
+    day: 3,
+    page,
+    pageExists: true,
+    yesterday: opts.yesterday ?? full,
+    yesterdayShorter: opts.shorter ?? shorter,
+    ...(opts.lend === undefined ? {} : { lendBytes: opts.lend }),
+  });
+  const floor = render(lanes(), req(100), resolve, SELF_TUNABLES).bytes;
+  /** The smallest the rescue can make it: one open item and its count, one Arriving line, the shortest Yesterday. */
+  function tightest(): ReturnType<typeof compose> {
+    const all = lanes();
+    const rest = [...all.threads.slice(1).map((r) => r.id), ...(all.overflow?.threads ?? [])];
+    const kept = { identity: [], craft: [], hints: [], threads: all.threads.slice(0, 1), horizon: all.horizon.slice(0, 1) };
+    return compose(kept, 3, resolve, undefined, { page, forming: null }, { threads: moreLine("threads", rest) }, shortest);
+  }
+  /** Arriving whole when "Still open" has nothing to list: the trim loop's own room for it. */
+  const arrivingWhole = (b: number): boolean =>
+    render({ ...lanes(), threads: [], overflow: { identity: [], craft: [], threads: [], hints: [], horizon: [] } }, req(b), resolve, SELF_TUNABLES).counts.horizon === 3;
+
+  test("down every budget: Arriving gives up its later lines before Still open gives up its first item, Yesterday its titles only after that", () => {
+    const seen = { arriving: 0, yesterday: 0 };
+    for (let b = floor; b <= floor + 1_500; b += 3) {
+      const out = render(lanes(), req(b), resolve, SELF_TUNABLES);
+      expect(out.bytes).toBeLessThanOrEqual(b);
+      expect(out.budgetBytes).toBe(b);
+      expect(readSentinel(out.text).intact).toBe(true);
+      // The page is the caller's block, printed as given at every budget.
+      expect(out.text).toContain(`${FRAMING.identity}\n${body}\n`);
+      const open = lane(out.text, FRAMING.threads);
+      const y = out.text.split("\n").find((l) => l.startsWith("Yesterday, "));
+      if (out.counts.threads === 0) {
+        // Nothing listed — and the first item and its count would not have
+        // fit had Arriving and the Yesterday line given all they could: all or
+        // nothing. (With Arriving's first line already trimmed, the trim order
+        // stands: that line outranks the first open item.)
+        expect(open).toBe(null);
+        if (out.counts.horizon > 0) expect(tightest().bytes).toBeGreaterThan(b);
+      } else {
+        expect(open?.[0]).toStartWith("- ");
+      }
+      if (out.counts.threads > 0 && out.counts.horizon < 3) {
+        // Arriving gave a line: Still open kept exactly its first item, and its count.
+        seen.arriving += 1;
+        expect(out.counts.threads).toBe(1);
+        expect(open?.[1]).toStartWith("(19 more still open; ");
+      }
+      if (y !== undefined && y !== full) {
+        // Yesterday gave titles: only once Arriving was down to its first line.
+        seen.yesterday += 1;
+        expect(out.counts.horizon).toBe(1);
+        expect(out.counts.threads).toBe(1);
+        expect(shorter).toContain(y);
+      }
+    }
+    expect(seen.arriving).toBeGreaterThan(0);
+    expect(seen.yesterday).toBeGreaterThan(0);
+  });
+
+  test("the room held for 'Work here' is lent first: Arriving and Yesterday stay whole, and only Still open's first item and its count ride on it", () => {
+    // A budget where, without the lend, Arriving gives up a line it had room for.
+    let b = floor;
+    while (b < floor + 1_500) {
+      const out = render(lanes(), req(b), resolve, SELF_TUNABLES);
+      if (out.counts.threads === 1 && out.counts.horizon < 3 && arrivingWhole(b)) break;
+      b += 1;
+    }
+    expect(b).toBeLessThan(floor + 1_500);
+    const lent = render(lanes(), req(b, { lend: 2_000 }), resolve, SELF_TUNABLES);
+    expect(lent.counts.horizon).toBe(3);
+    expect(lent.counts.threads).toBe(1);
+    expect(lane(lent.text, FRAMING.threads)?.[1]).toStartWith("(19 more still open; ");
+    expect(lent.text).toContain(`\n${full}\n`);
+    expect(lent.text).toContain(`${FRAMING.identity}\n${body}\n`);
+    // It ran past the budget by what it borrowed, and says what it was composed to.
+    expect(lent.bytes).toBeGreaterThan(b);
+    expect(lent.budgetBytes).toBe(lent.bytes);
+    expect(lent.overBudget).toBe(false);
+    expect(readSentinel(lent.text).intact).toBe(true);
+    // Nothing else rides on borrowed bytes: no "more arriving" line, no second item.
+    expect(lent.text).not.toContain("more arriving");
+    // A wake with room for everything borrows nothing.
+    const roomy = render(lanes(), req(floor + 5_000, { lend: 2_000 }), resolve, SELF_TUNABLES);
+    expect(roomy.budgetBytes).toBe(floor + 5_000);
+    expect(roomy.counts.threads).toBe(5);
   });
 });
 

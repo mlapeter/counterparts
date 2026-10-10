@@ -186,11 +186,18 @@ proposals and their archive; render and delivery telemetry.
    it leaves out is the rest of the warm store, which recall finds by asking. **A lane that
    kept no element is one line, its heading inside it** (2026-10-09,
    `briefing.ts#collapsedLine`): `Still open: 20 — no room to list them in this wake;
-   recall ids …`, never a heading over a count. **A long page leaves room for the lines
-   beside it** (2026-10-09, a working default): the page is furniture cut to size before
-   the lanes compose, and it leaves the Yesterday line, Arriving and the first
-   `THREADS_FLOOR_BYTES` of "Still open" their room (`besidePageBytes`), but is never cut
-   below the identity share of the budget for them.
+   recall ids …`, never a heading over a count. **The page is never cut for the lanes
+   beside it** (review of #350): it prints whole under its cap, `min(PAGE_WAKE_BYTES,
+   budget − PAGE_FLOOR_RESERVE_BYTES)`. **"Still open" keeps its first item and its count
+   before Arriving keeps its second line** (2026-10-09, a working default; the one
+   exception to the trim order above, `briefing.ts#keepFirstOpen`): when the trim loop fits
+   with "Still open" empty, the room for its first item and its "N more" line comes, in
+   order, out of the room the delivery holds for "Work here" (`lendBytes`, the caller's
+   work reserve — the delivery then shows fewer work lines, and the render's `budgetBytes`
+   states what it borrowed), Arriving beyond its first line, and the Yesterday line's
+   titles (`yesterdayShorter`, fewer titles and the rest by count). All or nothing: when
+   even that leaves no room, or the trim already took Arriving's first line, the render is
+   the trim loop's, and the lane collapses to its one line.
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the
@@ -507,7 +514,6 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WORK_HERE_POOL` | 8 | Work lines ranked for the day's rotation to choose `WORK_HERE_MAX` from (2026-10-02): the newest stays first, the others take turns by lived day (`work.ts#rotateWork`). |
 | `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
 | `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
-| `THREADS_FLOOR_BYTES` | 768 | The room a long page leaves "Still open" (2026-10-09): its heading, first lines and "more" line, up to this many bytes, beside the Yesterday line and Arriving (`briefing.ts#besidePageBytes`). Never below the identity share. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |
 | `HINT_RECOVERY_DAYS` | 3 | Lived days for that load to fall to 1/e once the memory stops being shown. |

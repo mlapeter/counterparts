@@ -2,14 +2,15 @@
 
 ## Unreleased
 
-- **"Still open" lists open items beside a long self page, and never prints a heading over
-  a count.** The page was cut to leave room for the wake's own furniture and nothing else,
-  so with the Yesterday line and the Arriving lines taking the rest, a 9,000-byte wake
-  could print "Still open:" with only "(20 more still open; recall ids …)" under it. A
-  long page now leaves room for the Yesterday line, Arriving and the first open items (up
-  to 768 bytes, about two), and is never cut below half the wake for them. A lane that
-  still has room for nothing says so in one line: "Still open: 20 — no room to list them
-  in this wake; recall ids …".
+- **"Still open" lists its first item beside a long self page, and never prints a heading
+  over a count.** With a long page, the Yesterday line and the Arriving lines taking the
+  room, a 9,000-byte wake could print "Still open:" with only "(20 more still open; recall
+  ids …)" under it. The self page is still never cut for this: it prints whole up to its
+  cap, as before. Instead "Still open" keeps its first item and its count, and the room
+  comes, in order, from the "Work here" lines (fewer of them that morning), Arriving past
+  its first line, and the Yesterday line's titles (fewer named, the rest counted). A lane
+  that still has room for nothing says so in one line: "Still open: 20 — no room to list
+  them in this wake; recall ids …".
 - **An Arriving reminder past its date says it was due.** A one-off reminder stays under
   "Arriving:" for a week after its date, and the wake written the evening before is read
   the next morning, so "(due 2026-10-08)" was read on the 9th as if still to come. The

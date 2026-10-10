@@ -59,17 +59,6 @@ export interface SelfTunables {
   /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12;
    *  5 since 2026-10-01, when a session could first set the flag — kept small] */
   THREADS_MAX: number;
-  /**
-   * THE ROOM A LONG PAGE LEAVES FOR "STILL OPEN" (2026-10-09), in bytes: the
-   * lane's heading, its first lines and its "N more" line, up to this many.
-   * The page is furniture the trim cannot pop, so it is sized before the
-   * lanes; it was sized to leave room for the wake's other furniture and
-   * nothing else, and on 10-09 the owner's wake read "Still open:" over no
-   * item at all (`Self#pageBlock`, NOTES). Taken from the page only when the
-   * page is long enough to need it, and never below the identity share. CAL:
-   * two ~300-byte lines and the "more" line.
-   */
-  THREADS_FLOOR_BYTES: number;
   /** Most warm-shelf hints considered. CAL. */
   HINTS_MAX: number;
   /** Most arriving occasions considered. CAL. */
@@ -227,7 +216,6 @@ export const SELF_TUNABLES: SelfTunables = {
   WORK_HERE_POOL: 8,
   WORK_HERE_EXCERPT: 60,
   THREADS_MAX: 5,
-  THREADS_FLOOR_BYTES: 768,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   WARM_FLOOR: 0.35,

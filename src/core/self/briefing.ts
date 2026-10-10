@@ -18,7 +18,9 @@
  *     There is no default in this module to fall back to.
  *   - **The trim order is declared and tested** (`TRIM_ORDER`), and trimming eats
  *     from the END of a lane, whose ordering is itself policy: *truncation must
- *     never be iteration luck* (§1 G3–G4).
+ *     never be iteration luck* (§1 G3–G4). One declared exception, after the
+ *     loop: "Still open" keeps its first item before Arriving keeps its second
+ *     line (`keepFirstOpen`, 2026-10-09).
  *   - **The identity SHARE decides how the total is split when lanes compete.**
  *     The budget still governs the composed total (§5 G2); the share is not a
  *     lane budget but a rule about who wins the contested bytes, and it exists
@@ -376,6 +378,24 @@ export interface BriefingRequest {
    * the floor would not fit with it. Absent: no line.
    */
   readonly yesterday?: string;
+  /**
+   * SHORTER FORMS OF THE SAME LINE, widest first (review of #350,
+   * 2026-10-09): fewer titles, the rest by count — composed by the caller,
+   * which holds the chapters the count is of. Stepped down only to make room
+   * for "Still open"'s first item (`keepFirstOpen`). Ignored without
+   * `yesterday`.
+   */
+  readonly yesterdayShorter?: readonly string[];
+  /**
+   * THE ROOM THE DELIVERY HOLDS FOR "WORK HERE" (review of #350, 2026-10-09),
+   * in bytes: the caller's reserve for this directory's work lines, which it
+   * took out of `budgetBytes` before composing. Lent to "Still open"'s first
+   * item and its count only (`keepFirstOpen`), and before Arriving or the
+   * Yesterday line give anything up: the work lines are hints, and the
+   * delivery shows fewer of them in what is left. Nothing else composes into
+   * it. Absent: nothing to lend.
+   */
+  readonly lendBytes?: number;
 }
 
 export interface TrimEvent {
@@ -683,48 +703,6 @@ export function identityShareBytes(budgetBytes: number, t: SelfTunables): number
 }
 
 /**
- * WHAT A LONG PAGE LEAVES ROOM FOR (2026-10-09), in bytes: the lines the wake
- * carries beside it that the page would otherwise starve.
- *
- * The page is furniture — the trim loop cannot pop it — so it is cut to size
- * BEFORE the lanes compose (`Self#pageBlock`), and it was cut to leave room for
- * the wake's other furniture (`PAGE_FLOOR_RESERVE_BYTES`) and nothing else. On
- * the owner's store that morning the page took ~6 KB of a compose budget the
- * delivery reserves had already brought to ~7 KB; the Yesterday line (furniture
- * too) and the Arriving lines (trimmed after "Still open") took most of the
- * rest, and what was left held no open item but did hold the lane's "N more"
- * line — so "Still open:" printed over a count and nothing else.
- *
- * Three things, each only when it is there: the Yesterday line, whole; the
- * Arriving lane, whole (its heading and lines — it trims after "Still open", so
- * room left for open items alone would go to it first); and "Still open" up to
- * `THREADS_FLOOR_BYTES` — its heading, its first lines and its "more" line. Not
- * Nearby, which trims first and has recall behind it. Measured on the lines the
- * render will write, through the same `elementLine`.
- */
-export function besidePageBytes(
-  lanes: {
-    readonly threads: readonly Ranked[];
-    readonly horizon: readonly Ranked[];
-    readonly overflow?: Partial<Record<LaneName, readonly string[]>>;
-  },
-  resolve: Resolve,
-  t: SelfTunables,
-  yesterday?: string,
-): number {
-  const block = (lane: LaneName, items: readonly Ranked[]): number =>
-    byteLength(`\n${laneHeading(lane)}\n`) + items.reduce((n, item) => n + elementBytes(item, resolve), 0);
-  let bytes = yesterday === undefined || yesterday.length === 0 ? 0 : byteLength(`${flatten(yesterday)}\n`);
-  if (lanes.horizon.length > 0) bytes += block("horizon", lanes.horizon);
-  if (lanes.threads.length > 0) {
-    const past = lanes.overflow?.threads ?? [];
-    const more = past.length === 0 ? 0 : byteLength(`${moreLine("threads", past)}\n`);
-    bytes += Math.min(t.THREADS_FLOOR_BYTES, block("threads", lanes.threads) + more);
-  }
-  return bytes;
-}
-
-/**
  * Cut the identity lane down to its share, BY WHOLE ELEMENTS, and return what
  * was held back (in rank order) so the leftover pass can offer it the room.
  *
@@ -816,6 +794,98 @@ function lostByLane(
 }
 
 /**
+ * "STILL OPEN" KEEPS ITS FIRST ITEM, AND ITS COUNT, BEFORE ARRIVING KEEPS ITS
+ * SECOND LINE OR THE YESTERDAY LINE ITS TITLES (review of #350, 2026-10-09).
+ *
+ * The owner's wake on 10-09 read "Still open:" over "(20 more still open; …)"
+ * and no item. The self page is furniture the trim cannot pop, the Yesterday
+ * line is too, and `TRIM_ORDER` takes "Still open" before "Arriving" — so
+ * beside a long page the lane gave up its last item while Arriving kept every
+ * line. The page is not what gives way: it is the self the wake is for, and it
+ * prints whole under its cap (`Self#pageBlock`). What gives way is, in order
+ * — Nearby and craft are already gone by the time this runs, since they trim
+ * first —
+ *
+ *   1. "Work here": the room the delivery holds for this directory's work
+ *      lines (`lendBytes`), which it then fills with fewer of them;
+ *   2. Arriving beyond its first line (each a `TrimEvent`, so its own "N more"
+ *      line can still say so if there is room);
+ *   3. the Yesterday line, down its shorter forms (`yesterdayShorter`: fewer
+ *      titles, the rest by count — the caller's, which holds the chapters).
+ *
+ * The target is the lane's first item AND its "N more" line: one item under a
+ * heading with no count reads as the only thing open. Only after the trim loop
+ * has FIT, only when it left "Still open" with nothing, and all or nothing:
+ * when even the last step leaves no room, the render is exactly what the trim
+ * loop made, and the lane says so in one line (`collapsedLine`). Returns null
+ * then, or when there is nothing to keep.
+ */
+function keepFirstOpen(
+  arrived: readonly Ranked[],
+  arrivedHorizon: number,
+  overflow: readonly string[],
+  kept: Kept,
+  trimmed: readonly TrimEvent[],
+  yesterday: string | undefined,
+  req: BriefingRequest,
+  resolve: Resolve,
+  coreName: string | undefined,
+  identity: IdentityBlock,
+): {
+  kept: Kept;
+  trimmed: TrimEvent[];
+  yesterday: string | undefined;
+  pinned: Partial<Record<LaneName, string[]>>;
+  composed: Composed;
+  /** Bytes taken from `lendBytes`: what the composition runs past `budgetBytes`. */
+  lent: number;
+} | null {
+  const first = arrived[0];
+  if (first === undefined || kept.threads.length > 0) return null;
+  // Arriving's FIRST line still outranks it, as the trim order says: when the
+  // trim already took that, this budget has no room to rearrange.
+  if (arrivedHorizon > 0 && kept.horizon.length === 0) return null;
+  const k: Kept = {
+    identity: [...kept.identity],
+    craft: [...kept.craft],
+    threads: [first],
+    hints: [...kept.hints],
+    horizon: [...kept.horizon],
+  };
+  const t = trimmed.filter((e) => !(e.lane === "threads" && e.id === first.id));
+  // The rest of the lane, as `lostByLane` will list it: the trim's (popped
+  // from the end, so reversed back), then what the lane's cap left out.
+  const rest = [...t.filter((e) => e.lane === "threads").map((e) => e.id).reverse(), ...overflow];
+  const pinned: Partial<Record<LaneName, string[]>> = rest.length === 0 ? {} : { threads: rest };
+  const lines: Partial<Record<LaneName, string>> = rest.length === 0 ? {} : { threads: moreLine("threads", rest) };
+  const shorter =
+    yesterday === undefined ? [] : (req.yesterdayShorter ?? []).filter((s) => s.length > 0 && byteLength(s) < byteLength(yesterday));
+  const lend = Math.max(0, Math.floor(req.lendBytes ?? 0));
+  let limit = req.budgetBytes;
+  let y = yesterday;
+  let rung = 0;
+  for (;;) {
+    const c = compose(k, req.day, resolve, coreName, identity, lines, y);
+    if (c.bytes <= limit) {
+      return { kept: k, trimmed: t, yesterday: y, pinned, composed: c, lent: Math.max(0, c.bytes - req.budgetBytes) };
+    }
+    if (limit < req.budgetBytes + lend) {
+      limit = req.budgetBytes + lend;
+      continue;
+    }
+    if (k.horizon.length > 1) {
+      const dropped = k.horizon.pop();
+      if (dropped !== undefined) t.push({ lane: "horizon", id: dropped.id, strength: dropped.strength });
+      continue;
+    }
+    const next = shorter[rung];
+    if (next === undefined) return null;
+    y = next;
+    rung += 1;
+  }
+}
+
+/**
  * Add each lane's "N more" line, in `MORE_ORDER`, only while the whole
  * composition still fits the budget. A line that does not fit is left out and
  * the next lane's is tried: they are one line each, and a shorter one may fit.
@@ -830,14 +900,23 @@ function withMoreLines(
     coreName: string | undefined;
     identity: IdentityBlock;
     yesterday?: string;
+    /** Lines already in `composed`, paid for before the others are offered
+     *  room (`keepFirstOpen`'s count): kept, never re-tried. */
+    pinned?: Partial<Record<LaneName, string[]>>;
   },
 ): { composed: Composed; more: Partial<Record<LaneName, number>> } {
   let current = composed;
   const lines: Partial<Record<LaneName, string>> = {};
   const more: Partial<Record<LaneName, number>> = {};
+  for (const lane of LANE_ORDER) {
+    const ids = ctx.pinned?.[lane];
+    if (ids === undefined || ids.length === 0) continue;
+    lines[lane] = moreLine(lane, ids);
+    more[lane] = ids.length;
+  }
   for (const lane of MORE_ORDER) {
     const ids = ctx.lost[lane];
-    if (ids === undefined || ids.length === 0) continue;
+    if (ids === undefined || ids.length === 0 || lines[lane] !== undefined) continue;
     // A lane that kept nothing gets the one collapsed line instead: "N more"
     // over no item is neither a list nor a count (2026-10-09).
     lines[lane] = lane !== "identity" && ctx.kept[lane].length === 0 ? collapsedLine(lane, ids) : moreLine(lane, ids);
@@ -957,13 +1036,31 @@ export function render(
       }
     }
     if (fits || cut === null) {
+      // "STILL OPEN" KEEPS ITS FIRST ITEM AND ITS COUNT (review of #350,
+      // 2026-10-09), out of Arriving's later lines and the Yesterday line's
+      // titles, never out of the page — or the render stays as the trim
+      // loop left it (`keepFirstOpen`).
+      const first = fits
+        ? keepFirstOpen(lanes.threads, lanes.horizon.length, lanes.overflow?.threads ?? [], kept, trimmed, yesterday, req, resolve, coreName, identity)
+        : null;
+      if (first !== null) {
+        for (const lane of LANE_ORDER) kept[lane] = first.kept[lane];
+        trimmed.splice(0, trimmed.length, ...first.trimmed);
+      }
+      const said = first === null ? yesterday : first.yesterday;
       // The leftover clause. Only when NOTHING had to be trimmed: a lane that
       // lost an element wanted the room, and handing it to identity instead
       // would make the share decide the opposite of what it was set for. When
       // the other lanes are all present and the budget is still not spent, the
-      // held-back identity elements take it back, in rank order, whole.
+      // held-back identity elements take it back, in rank order, whole. Not
+      // beside a kept first item: its count is already in, and the leftover
+      // composes without it.
       const offered =
-        trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName, identity, yesterday) : c;
+        first !== null
+          ? first.composed
+          : trimmed.length === 0
+            ? offerLeftover(kept, held, c, req, resolve, coreName, identity, yesterday)
+            : c;
       // THE "N MORE" LINES, last: they take only room nothing else wanted.
       const told = withMoreLines(offered, {
         kept,
@@ -972,12 +1069,18 @@ export function render(
         resolve,
         coreName,
         identity,
-        ...(yesterday === undefined ? {} : { yesterday }),
+        ...(said === undefined ? {} : { yesterday: said }),
+        ...(first === null ? {} : { pinned: first.pinned }),
       });
       const composed = told.composed;
+      // What it was composed to: the caller's budget, and what "Work here"
+      // lent "Still open" (`keepFirstOpen`) — so a reader comparing the bundle
+      // to its ceiling sees one that fits, which it does: the delivery shows
+      // fewer work lines in what is left.
+      const budgetBytes = req.budgetBytes + (first?.lent ?? 0);
       return {
         ...composed,
-        budgetBytes: req.budgetBytes,
+        budgetBytes,
         day: req.day,
         kept: {
           identity: kept.identity.map((r) => r.id),
@@ -988,7 +1091,7 @@ export function render(
         },
         trimmed,
         more: told.more,
-        pressure: composed.bytes >= req.budgetBytes * t.BUDGET_PRESSURE,
+        pressure: composed.bytes >= budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
         page:
           identity.page === null

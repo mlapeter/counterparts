@@ -1614,14 +1614,30 @@ recall ids (the first 5): …)`; and an Arriving reminder due 10-08 read `(due 2
   Yesterday line and two Arriving lines: at compose budgets 7,100–7,250 the page showed
   5,961 bytes and "Still open:" printed over `(25 more still open; …)` — the room left
   (~150–290 bytes) held the 150-byte "more" line but not one item and its heading.
-- **The floor.** `besidePageBytes` measures the lines beside the page — the Yesterday
-  line, the Arriving lane, and "Still open" up to `THREADS_FLOOR_BYTES` (768: its heading,
-  two ~300-byte lines and its "more" line) — and the page leaves them that room, never
-  going below the identity share of the budget for it (the part the identity list was
-  always kept), and not at all when the page is shorter than what is left. Not in the trim
-  loop: `TRIM_ORDER` stays as declared, and the zero case only arises beside furniture.
-  Same scenario after: compose 7,200 → page 5,109 bytes, three items and `(22 more …)`;
-  6,590 → page 4,683, two items; at the owner's measured 7,786 → page 5,535, four items.
+- **The floor — first drafted out of the page, and moved off it in review (#350).** The
+  first draft cut the page to leave the Yesterday line, Arriving and 768 bytes of "Still
+  open" their room (never below half the budget). Measured at the 9,000 default with a
+  349-byte Yesterday line and two Arriving lines (compose budget 7,205): the page's cap
+  fell from 6,144 to 5,361, and the owner's 5,845-byte page (version 16) printed 5,098 —
+  the self the wake exists for, cut to make room for a list. So the page keeps its old
+  cap, `min(PAGE_WAKE_BYTES, budget − PAGE_FLOOR_RESERVE_BYTES)`, and the room comes out
+  of the lanes instead (`keepFirstOpen`): only when the trim loop fits with "Still open"
+  empty, the lane's first item AND its "N more" line (one item with no count reads as the
+  only thing open) are put back, and what gives way is, in order, the room the delivery
+  holds for "Work here" (lent: the composition may run past its budget by up to the work
+  reserve, the delivery then shows fewer work lines, and the render's `budgetBytes`
+  states what it borrowed so Health's "runs over its ceiling" stays true), Arriving
+  beyond its first line, and the Yesterday line's titles (shorter forms the root
+  composes, fewer titles and the rest by count). All or nothing, and never past
+  Arriving's first line, which the trim order still ranks above the first open item.
+  Same scenario after: 5,845 → whole, one item and `(24 more …)` inside the budget, nothing
+  lent; 6,100 and 6,144 → whole, one item and its count on 213 and 257 lent bytes, both
+  Arriving lines and all four Yesterday titles kept, and "Work here" at four lines (the
+  reserves' margins covered it) and three. The delivered wake then sits near the
+  ceiling, so the clock line above it goes over by a few bytes — counted by doctor,
+  never amber, as for any full wake (review of #318). Without the lend
+  the same two drop Arriving's second line and two or three Yesterday titles. One item,
+  not two: every byte past the first is taken from a reminder or from yesterday.
   Without a page the identity share already leaves the lane its room (5 of 25 listed).
 - **The backstop.** A lane (not identity) that keeps no element and has something to say
   about what it left out is ONE line with its heading in it (`collapsedLine`): `Still
