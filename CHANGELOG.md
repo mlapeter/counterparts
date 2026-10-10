@@ -48,13 +48,21 @@
   line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
   handoffs are shown in full (the rest still named by id, and the newest always shown).
   Only then does a dated item go unlisted. An arriving item past the two the wake lists is
-  no longer left out silently: the lane's "N more arriving" line names it by id. "Still open" keeps its first item before Arriving's second line, as before,
-  but now after those same lanes give way. A plain reminder due the day the wake is read
+  no longer left out silently: the lane's "N more arriving" line names it by id. "Still
+  open" keeps its first item before Arriving's second line, as before, but now after
+  those same lanes give way. A plain reminder due the day the wake is read
   comes first in "Arriving:" (and in the two the wake is offered), and it outranks the
   self page borrowing past its room: the page steps down to its short version or outline
   rather than leave it out. The page within its own room still comes first. Beside a page
   that borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
   dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
+- **A new plugin user is told their memory was set up, again.** In 0.3.15, the
+  sidebar's hooks module makes Claude Code start the plugin's SessionStart hook later,
+  after the plugin's server has already made the new memory, so the first session
+  didn't show "Counterparts: first run — a new memory was set up". Now whichever of the
+  two makes the memory leaves a note, and the first session start shows the line once,
+  never again after. Beside a live npm install the plugin still stands down and says
+  nothing about a first run. Nothing else changes.
 
 ## 0.3.15 — 2026-10-10
 
