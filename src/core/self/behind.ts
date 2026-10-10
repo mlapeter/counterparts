@@ -35,10 +35,13 @@ export const WAKE_CAUGHT_KEY = "self.wake.caught";
 export const WAKE_BUILD_KEY = "self.wake.build";
 
 /** What made the wake behind: the self page written, a write-up landed, the
- *  nightly run ended, or the bundle was published by another build. */
-export type WakeTrigger = "page" | "write-up" | "run-end" | "version";
+ *  nightly run ended, the bundle was published by another build, or a plain
+ *  reminder was told on its day (`told`, 2026-10-09) — told, it leaves
+ *  "Arriving:", and a wake composed before the telling would still list it
+ *  the next morning. */
+export type WakeTrigger = "page" | "write-up" | "run-end" | "version" | "told";
 
-export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version"];
+export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version", "told"];
 
 /** The mark as it stands, with its raw value — the thing a render records as caught. */
 export interface WakeBehind {

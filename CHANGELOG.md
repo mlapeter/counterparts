@@ -16,6 +16,24 @@
   faster than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire
   Claude Code or Claude Desktop itself: `counterparts connect` from it says to use the
   npm install for that. How it is built and released: `docs/single-binary.md`.
+- **"Still open" lists its first item beside a long self page, and never prints a heading
+  over a count.** With a long page, the Yesterday line and the Arriving lines taking the
+  room, a 9,000-byte wake could print "Still open:" with only "(20 more still open; recall
+  ids …)" under it. The self page is still never cut for this: it prints whole up to its
+  cap, as before. Instead "Still open" keeps its first item and its count, and the room
+  comes, in order, from the "Work here" lines (fewer of them that morning), Arriving past
+  its first line, and the Yesterday line's titles (fewer named, the rest counted). A lane
+  that still has room for nothing says so in one line: "Still open: 20 — no room to list
+  them in this wake; recall ids …".
+- **An Arriving reminder past its date says it was due.** A one-off reminder stays under
+  "Arriving:" for a week after its date, and the wake written the evening before is read
+  the next morning, so "(due 2026-10-08)" was read on the 9th as if still to come. The
+  line now reads "(was due yesterday, 2026-10-08)" the morning after and "(was due
+  2026-10-05)" later. A reminder due on the day it was noted now reads "due 2026-10-08"
+  rather than the date alone.
+- **A plain reminder said on its day leaves "Arriving:" at the next turn.** When the
+  day's wake was written before the reminder was said (a session running past midnight),
+  it stayed under "Arriving:" all day and into the next morning.
 - **A project's `.env` and `bunfig.toml` no longer reach into Counterparts.** Bun reads
   both from the folder it starts in, and Claude Code starts the hooks and the memory
   server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR` or
@@ -40,7 +58,6 @@
   corrections for never settled, and the self tab's page history left its newest
   versions and days undated. They read the newest now. Below those limits nothing
   changes.
-
 - **Facts recall now names corrected memories, so they can be opened.** A memory
   settled as corrected (it was wrong) is never offered as a fact. Facts answers used to
   say only "1 corrected version hidden" under the memory that corrected it, with no way
