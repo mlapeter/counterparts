@@ -6,11 +6,11 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
-import { classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, shortDir, wrap } from '../hooks/feed'
+import { alsoLine, cameRow, classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, shortDir, wrap } from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
 import { MECHS, STAGES } from '../hooks/mechanisms'
-import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0 } from './world'
+import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0, ev } from './world'
 
 describe('the brain', () => {
   test('a frame is cols x rows cells of braille or blank, every one a Raster may hold', () => {
@@ -91,14 +91,62 @@ describe('the feed', () => {
     expect(rows[1]).toMatchObject({ mech: 'retrieval', word: 'recalled', text: '2 came to mind', who: 'here', more: ['· Release notes go out on Fridays', '· Publishing waits for a review'] })
     expect(rows[2]).toMatchObject({ mech: 'retrieval', who: 'other', keys: ['turn:sess-older:7'] })
     expect(rows[3]).toBeNull() // a quiet turn
-    expect(rows[4]).toMatchObject({ mech: 'dreaming', word: 'dreamed', who: 'night' })
+    expect(rows[4]).toMatchObject({ mech: 'dreaming', mechs: ['dreaming'], word: 'dreamed', who: 'night' })
     expect(rows[5]).toBeNull() // a sleep check that faded nothing
+    expect(rows[0]?.mechs).toEqual(['salience'])
+    expect(rows[1]?.mechs).toEqual(['retrieval'])
     expect(classify(EVENTS[0]!, 'another-session')?.who).toBe('other')
     // a contradiction a session settled is that session's, not the night's
     const settled = (actorId: string) => ({ seq: 1, at: T0, name: 'contradiction.settled', text: 'A session settled a contradiction.', detail: [{ key: 'actor', value: 'session' }, { key: 'actorId', value: actorId }] })
     expect(classify(settled(SESSION), SESSION)?.who).toBe('here')
     expect(classify(settled('sess-else'), SESSION)?.who).toBe('other')
     expect(classify({ ...settled('x'), detail: [{ key: 'actor', value: 'dream' }] }, SESSION)?.who).toBe('night')
+  })
+
+  test('one event, every mechanism it proves: one row, its own word and colour, the rest in `mechs` and in an opened row’s “also” line', () => {
+    // a mood-matched recall (2026-10-10 live: 7 of the last 40 turns): Retrieval's row, Emotion lit too
+    const mood = ev(501, 'recall.decision', 'On turn 4 I kept “Choosing the cores” as a footnote.', 1, {
+      session: SESSION, turn: '4', surfacedCount: '0', footnoteCount: '2', moodMatched: '1',
+    })
+    const recalled = classify(mood, SESSION)!
+    expect(recalled).toMatchObject({ mech: 'retrieval', mechs: ['retrieval', 'emotional'], word: 'recalled', text: '2 came to mind', who: 'here' })
+    expect(alsoLine(recalled)).toBe('also Emotion')
+    // a mood match the render trimmed to nothing shown is still Emotion's, said as such
+    const trimmed = classify({ ...mood, detail: mood.detail.map(d => (d.key === 'footnoteCount' ? { ...d, value: '0' } : d)) }, SESSION)!
+    expect(trimmed).toMatchObject({ mech: 'emotional', mechs: ['emotional'], text: '1 brought closer by a matching mood' })
+    // a dream that merged near-copies and wrote a gist (live: 10 of the last 21 dreams wrote one)
+    const dream = ev(502, 'dream.changed', 'In a dream I changed 47 things (1 merge, 20 link, 20 replayed, 2 gist, 3 feeling-now).', 1, {
+      applied: '49', merge: '1', gist: '2', link: '20', 'nominate-core': '2',
+    })
+    const dreamed = classify(dream, SESSION)!
+    expect(dreamed).toMatchObject({ id: 'seq:502', mech: 'dreaming', word: 'dreamed', who: 'night' })
+    expect(dreamed.mechs).toEqual(['dreaming', 'episodic-semantic', 'interference', 'consolidation'])
+    expect(alsoLine(dreamed)).toBe('also Gist · Interference · Consolidation')
+    // a gist alone is Gist's and Dreaming's; a dream that changed nothing and suggested nothing proves none
+    expect(classify(ev(503, 'dream.changed', 'In a dream I changed 1 thing (1 gist).', 1, { applied: '1', gist: '1' }))?.mechs).toEqual(['dreaming', 'episodic-semantic'])
+    expect(classify(ev(504, 'dream.changed', 'In a dream I changed nothing; 8 were refused.', 1, { applied: '0', refused: '8' }))).toBeNull()
+    expect(classify(ev(505, 'dream.changed', 'It suggested 1 memory for the core.', 1, { applied: '0', 'nominate-core': '1' }))?.mechs).toEqual(['dreaming'])
+    // a contradiction settled `changed`: Reconsolidation's row, Interference too (the earlier memory fades)
+    const changed = ev(506, 'contradiction.settled', 'The dream settled a contradiction as changed.', 1, { how: 'changed', actor: 'dream' })
+    expect(classify(changed)).toMatchObject({ mech: 'reconsolidation', mechs: ['reconsolidation', 'interference'], word: 'settled' })
+    expect(classify(ev(507, 'contradiction.settled', 'Settled as open.', 1, { how: 'open', actor: 'dream' }))?.mechs).toEqual(['reconsolidation'])
+    // a band move is one or the other, never both
+    expect(classify(ev(508, 'band.transition', 'Faded.', 1, { site: 'decay', direction: 'down' }))?.mechs).toEqual(['decay'])
+    expect(classify(ev(509, 'band.transition', 'Rose.', 1, { site: 'consolidate', direction: 'up' }))?.mechs).toEqual(['consolidation'])
+    expect(classify(ev(510, 'band.transition', 'Crossed into identity.', 1, { site: 'decay', direction: 'up' }))).toBeNull()
+  })
+
+  test('a live came-to-mind row takes on the mechanisms its dashboard twin proves (the block says nothing of mood)', () => {
+    const live = cameRow({ turn: 4, surfaced: ['The cores'], footnotes: [] }, SESSION, T0)!
+    expect(live.mechs).toEqual(['retrieval'])
+    const twin = classify(ev(511, 'recall.decision', 'On turn 4 I said “The cores” out loud.', 0, {
+      session: SESSION, turn: '4', surfacedCount: '1', footnoteCount: '0', moodMatched: '1',
+    }), SESSION)!
+    const merged = mergeRows([twin, live], 10)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({ id: live.id, mech: 'retrieval', mechs: ['retrieval', 'emotional'], text: '1 came to mind' })
+    // without a twin, a live row is left as it was
+    expect(mergeRows([live], 10)[0]).toBe(live)
   })
 
   test('the twelve mechanisms, by the website’s names, schemas not built', () => {
@@ -183,16 +231,22 @@ describe('the feed', () => {
     expect(clock(new Date(2026, 9, 8, 22, 0).getTime(), T0)).toBe('Oct 8')
   })
 
-  test('events naming no session: from after this session began, this session’s; a link flush by its sessions list', () => {
+  test('events naming no session (a look-up, a reminder, a link flush): from after this session began, this session’s', () => {
     const at = (minutesAgo: number) => T0 - minutesAgo * 60000
     const lookup = (minutesAgo: number) => ({ seq: 9, at: at(minutesAgo), name: 'mcp.recall', text: 'A deliberate look-up.', detail: [] })
     expect(classify(lookup(5), SESSION, at(30))?.who).toBe('here')
     expect(classify(lookup(60), SESSION, at(30))?.who).toBe('other')
     const reminder = { seq: 10, at: at(1), name: 'prospective.plain', text: 'A reminder was said.', detail: [] }
     expect(classify(reminder, SESSION, at(30))?.who).toBe('here')
-    const flush = (sessions: string) => ({ seq: 11, at: at(1), name: 'associate.flush', text: '2 pairs got more connected.', detail: [{ key: 'rows', value: '4' }, { key: 'sessions', value: sessions }] })
-    expect(classify(flush(`["${SESSION}","sess-x"]`), SESSION, at(30))?.who).toBe('here')
-    expect(classify(flush('["sess-x"]'), SESSION, at(30))?.who).toBe('other')
+    // A flush names no session (live keys, 2026-10-10: reason, day, dayFrom, claims, passes, pairs,
+    // rows, blocked, evicted, swept, dropped, pendingDropped, corrupt, stuck, oldestMs, and a
+    // `contiguity` object whose `sessions` is a count), so it is placed by time like the others.
+    const flush = (minutesAgo: number) => ({
+      seq: 11, at: at(minutesAgo), name: 'associate.flush', text: '2 pairs got more connected.',
+      detail: [{ key: 'reason', value: 'flushed' }, { key: 'rows', value: '4' }, { key: 'contiguity', value: '{"reason":"buffered","sessions":1}' }],
+    })
+    expect(classify(flush(1), SESSION, at(30))?.who).toBe('here')
+    expect(classify(flush(60), SESSION, at(30))?.who).toBe('other')
   })
 
   test('widths are terminal cells: a wide character takes two, so wrapping and padding never overrun', () => {
