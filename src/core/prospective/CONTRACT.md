@@ -35,7 +35,9 @@ clothes. **Hold debts, lose deadlines.**
   is everything above, unchanged. A plain item told today is not also offered as a quiet
   cue that day (`told-plainly-today`), and once its LAST beat is told (the day; a month's
   or range's last day) it leaves the wake's horizon lane for the rest of its grace
-  (2026-09-29): it was said, and "Arriving:" would say it again as still to come. It
+  (2026-09-29): it was said, and "Arriving:" would say it again as still to come. The
+  telling marks the wake behind (`told`, 2026-10-09), so a wake composed before it is
+  re-rendered at the next turn-end rather than the next day. It
   still arrives as a cue, so recall still finds it.
 - **A date can repeat, by the owner's design (2026-10-09, a working default, held
   lightly).** A dated memory may carry `recurring: daily | weekly | monthly | yearly`,

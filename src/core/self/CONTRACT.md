@@ -183,7 +183,21 @@ proposals and their archive; render and delivery telemetry.
    only while the whole still fits the budget, lanes that trim last first; one that does
    not fit is left out and the trim's count stays in telemetry. Identity says nothing
    while the page replaces the list, and Nearby says nothing at all since 2026-10-01: what
-   it leaves out is the rest of the warm store, which recall finds by asking.
+   it leaves out is the rest of the warm store, which recall finds by asking. **A lane that
+   kept no element is one line, its heading inside it** (2026-10-09,
+   `briefing.ts#collapsedLine`): `Still open: 20 — no room to list them in this wake;
+   recall ids …`, never a heading over a count. **The page is never cut for the lanes
+   beside it** (review of #350): it prints whole under its cap, `min(PAGE_WAKE_BYTES,
+   budget − PAGE_FLOOR_RESERVE_BYTES)`. **"Still open" keeps its first item and its count
+   before Arriving keeps its second line** (2026-10-09, a working default; the one
+   exception to the trim order above, `briefing.ts#keepFirstOpen`): when the trim loop fits
+   with "Still open" empty, the room for its first item and its "N more" line comes, in
+   order, out of the room the delivery holds for "Work here" (`lendBytes`, the caller's
+   work reserve — the delivery then shows fewer work lines, and the render's `budgetBytes`
+   states what it borrowed), Arriving beyond its first line, and the Yesterday line's
+   titles (`yesterdayShorter`, fewer titles and the rest by count). All or nothing: when
+   even that leaves no room, or the trim already took Arriving's first line, the render is
+   the trim loop's, and the lane collapses to its one line.
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the
@@ -233,8 +247,14 @@ proposals and their archive; render and delivery telemetry.
    `- YYYY-MM-DD (of YYYY-MM-DD) · statement` when the content date differs (neutral,
    because the horizon lane's dates are in the future), `- YYYY-MM-DD (due YYYY-MM-DD) ·
    statement` for an arriving occasion (2026-10-01) — `(due YYYY-MM-DD, every May 14)`
-   when its date repeats (2026-10-09) — and no prefix when the statement
-   already opens with that same date. Leading, not trailing: the age is
+   when its date repeats (2026-10-09), `- due YYYY-MM-DD · statement` when it is due on
+   the day it was learned (a migrated row's `by` bound is not printed there: the due date
+   is the line's claim), and `was due` for a date already behind the day the wake was
+   composed for (2026-10-09) — and no prefix when the statement
+   already opens with that same date. **The delivery puts an Arriving date in the past
+   tense** (2026-10-09, `briefing.ts#arrivingTense`): it alone knows the reading day, so a
+   line due before it reads `(was due YYYY-MM-DD)`, `(was due yesterday, YYYY-MM-DD)` the
+   day after — inside the preface's reserve, and only the date prefix of an Arriving line. Leading, not trailing: the age is
    read before the claim, the element's own text still ends the line, and it costs 14 bytes
    at day precision against 21 for a trailing form — counted in the composed budget and in
    the identity share, on the same line the sentinel counts. The element text itself is

@@ -140,7 +140,7 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere } from "./handoff/last-here.js";
 import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
 import type { Recurrence } from "./time.js";
@@ -2389,15 +2389,23 @@ export class Counterpart {
    * id, the date in the line (`handoff/last-here.ts#yesterdayLine`). Undefined
    * without a date or a chapter that day; never throws — a store that will not
    * answer composes the wake without it.
+   *
+   * Its SHORTER FORMS ride beside it (review of #350, 2026-10-09): fewer
+   * titles, the rest by count, for the wake to step down only when "Still
+   * open" would otherwise list nothing (`handoff/last-here.ts#yesterdayShorter`).
    */
-  private yesterdayFor(at: string | undefined): string | undefined {
-    if (at === undefined || !isDay(at)) return undefined;
+  private yesterdayFor(at: string | undefined): { yesterday?: string; yesterdayShorter?: string[] } {
+    if (at === undefined || !isDay(at)) return {};
     try {
       const date = addDays(at, -1);
       const fromDay = Math.max(0, this.store.livedDay() - LAST_HERE_LIFE_DAYS + 1);
-      return yesterdayLine(chaptersOn(this.store, date, { fromDay }), date) ?? undefined;
+      const day = chaptersOn(this.store, date, { fromDay });
+      const line = yesterdayLine(day, date);
+      if (line === null) return {};
+      const shorter = yesterdayShorter(day, date);
+      return shorter.length === 0 ? { yesterday: line } : { yesterday: line, yesterdayShorter: shorter };
     } catch {
-      return undefined;
+      return {};
     }
   }
 
@@ -2590,7 +2598,7 @@ export class Counterpart {
    * pointer cost more than the eighth it could already. With no handoff and
    * no chapter here inside the fortnight, the reserve is zero as before.
    */
-  private wakeReserveBytes(budgetBytes: number): number {
+  private wakeReserveBytes(budgetBytes: number, work = this.workReserveBytes(budgetBytes)): number {
     const norm = (s: string): string => s.trim().replace(/\/+$/, "");
     const blocks: number[] = [];
     let byScope = new Map<string, number[]>();
@@ -2620,7 +2628,7 @@ export class Counterpart {
     } catch {
       /* no chapter lines is the reserve as it was */
     }
-    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes) + this.workReserveBytes(budgetBytes);
+    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes) + work;
   }
 
   /**
@@ -2864,6 +2872,14 @@ export class Counterpart {
       const first = this.prospective.occurrenceUndelivered(reminder.memoryId, reminder.windowKey);
       const claimed = this.prospective.claimPlain(reminder, { at: input.at, day });
       if (claimed && first) this.creditOccurrence(reminder.memoryId, reminder.windowKey, day, "plain");
+      // TOLD ON ITS DAY, IT LEAVES "ARRIVING:" (2026-09-29) — and the wake
+      // published before the telling still lists it, until something
+      // re-renders. A day's first render can come before the day's first tell
+      // (a late session's turn ending after midnight), and on 2026-10-09 a
+      // reminder said outright on the 8th was still under "Arriving:" the next
+      // morning. So the telling marks the wake behind, and the next turn-end
+      // worker re-renders it (`refreshWake`).
+      if (claimed && reminder.beat !== "opens") markWakeBehind(this.store, "told");
       return claimed;
     } catch (err) {
       this.emit("counterpart.prospective.plain.failed", reminder.memoryId, { code: errCode(err) });
@@ -4210,8 +4226,12 @@ export class Counterpart {
   async sessionEnd(input: SessionEndInput = {}): Promise<SessionEndReport> {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
+    // The "Work here" reserve, once: part of what the composition leaves the
+    // delivery, and lent back to "Still open"'s first item when that is all
+    // that would otherwise go unlisted (review of #350).
+    const work = budgetBytes === null ? 0 : this.workReserveBytes(budgetBytes);
     const composeBudget =
-      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes), 0);
+      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work), 0);
 
     // Three states, not two (I32): swept, skipped-and-said-so, or not asked for.
     // The middle one still writes the gate row — `ran: 0, scopes: 0`, with the
@@ -4260,11 +4280,11 @@ export class Counterpart {
       this.emit("counterpart.episode.reconcile.failed", undefined, { code: errCode(err) });
     }
 
-    const yesterday = this.yesterdayFor(input.at);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
-      ...(yesterday === undefined ? {} : { yesterday }),
+      ...this.yesterdayFor(input.at),
+      lendBytes: work,
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // The PHYSICS date key, and the host's to supply — every live entry point
@@ -4661,12 +4681,14 @@ export class Counterpart {
         counts: {},
       };
     }
-    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes), 0);
-    const yesterday = this.yesterdayFor(input.at);
+    const work = this.workReserveBytes(budgetBytes);
+    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work), 0);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
-      ...(yesterday === undefined ? {} : { yesterday }),
+      ...this.yesterdayFor(input.at),
+      // Lent to "Still open"'s first item only (review of #350).
+      lendBytes: work,
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // Read before the render, as the boundary reads it (`self/behind.ts`).
