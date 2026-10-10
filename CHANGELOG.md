@@ -62,10 +62,10 @@
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
   layout, a pane beside the transcript shows the brain turning in braille, the twelve
   mechanisms, search, and what this session kept and recalled (with the night's dreams and
-  fading, and other sessions folded into one line). Each event lights every mechanism it
-  proves: a turn where a matching mood brought a memory closer lights Emotion beside
-  Retrieval, and a dream that wrote a gist and merged near-copies lights Gist,
-  Interference and Consolidation beside Dreaming, one row each. It also has two switches,
+  fading, and other sessions folded into one line). Each event is one row and lights every
+  mechanism it proves: a turn where a matching mood brought a memory closer lights Emotion
+  beside Retrieval, and a dream that wrote a gist and merged near-copies lights Gist,
+  Interference and Consolidation beside Dreaming. It also has two switches,
   "Counterparts memory · this folder" and "Claude Code's own memory". Pausing Counterparts
   asks first; a folder paused for every session shows it in amber in the pane and says so
   in the status line; a state the sidebar hasn't read yet never shows as on. `‹` makes it
