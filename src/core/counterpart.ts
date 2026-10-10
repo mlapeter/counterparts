@@ -6002,8 +6002,8 @@ export class Counterpart {
   /**
    * The fallback path's `apply`. ONE chunk's proposals go through `encodeChunk`
    * together — never `gateProposal` one at a time — so the chunk-level
-   * all-rejected rule holds and a fully-gated chunk moves zero durable state,
-   * prediction checks included (SEAMS item 1, scar §7b).
+   * all-rejected rule holds and a fully-gated chunk moves zero durable state
+   * (SEAMS item 1, scar §7b).
    *
    * A throw here is per-chunk failure isolation, not a lost sweep: `remember/`
    * catches it, records `APPLY_FAILED`, and restores that chunk's spans for the
@@ -6103,8 +6103,8 @@ export class Counterpart {
     // THE DURABLE RECORD, and it is written for EVERY chunk that reached the
     // gate — a fully-gated one above all, since those are most of what a refusal
     // distribution is made of. This is telemetry, not a `DurableEffect`: the
-    // chunk-level "gated means gated" rule is about strength, uses, revisions,
-    // mentions and prediction checks (encode §5 G3), and encode's own
+    // chunk-level "gated means gated" rule is about strength, uses, revisions
+    // and mentions (encode §5 G3), and encode's own
     // `encode.fullyGated` event stands on exactly the same footing.
     //
     // The latch is (chunk content, lived day): a replayed day appends nothing a

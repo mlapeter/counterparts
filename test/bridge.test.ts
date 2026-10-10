@@ -108,6 +108,5 @@ describe("bridge — the remember→encode composition (SEAMS 1–3)", () => {
     const result = gateSweepChunk(chunk, badProposals, 3);
     expect(result.fullyGated).toBe(true);
     expect(result.effects).toEqual([]);
-    expect(result.predictionChecks).toEqual([]);
   });
 });

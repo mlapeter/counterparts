@@ -456,3 +456,13 @@ code:
   The archived copy's rows stay until they decay to the floor and a flush sweeps them, so
   a re-run of the 10-02 count will still find them for a while; count what the live copy
   holds, not what the archived one still has.
+
+## 16. The frontier's scan, measured (2026-10-09)
+
+The 2026-09-28 audit said the spread frontier was not sorted by what each node carries and
+asked for a priority queue. Build 2 (§14) made it best-first the same day: `head()` picks
+the strongest waiting node by one linear scan per expansion, so nothing sorts repeatedly.
+Measured in memory on the densest graph the tunables allow (5,000 nodes, 32 strong edges
+each, 40 seeds, 64 expansions, 1,632 contributions): about 0.9 ms a spread, of which
+`head()` is about 0.3 ms. A heap would save at most that, per recall, beside the 64 edge
+reads from the store a real spread makes. Not done.

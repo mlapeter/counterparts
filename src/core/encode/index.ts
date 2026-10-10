@@ -55,7 +55,6 @@ export type {
   GateStatus,
   GatedProposal,
   PrecisionGateRecord,
-  PredictionCheck,
   Proposal,
   RefusalReason,
   RefusedProposal,
