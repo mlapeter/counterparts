@@ -2024,7 +2024,7 @@ Groups 2–4 are pre-provisioned so none of them bumps again.
   columns an instrument needs, and a v12 feeling with no `recorded_day` softens from its
   memory's birth (`feltDay`), as every build before did.
 - **The way back.** A build that knows only v12 refuses a v13 file `SCHEMA_AHEAD` — measured
-  2026-10-10 with master `3a3f655d` (what 0.3.16 is cut from): writer and observer both
+  2026-10-10 with master `3a3f655d` and again with `dc960651` (#366 merged — what 0.3.16 is cut from): writer and observer both
   refused `{"expected":12,"found":"13"}`, as 0.3.7 refused v10. Going back means restoring the
   pre-migration copy: with every process on the store closed, copy
   `<snapshots>/<instant>-pre-migration-v12-to-v13/counterparts.sqlite` over
