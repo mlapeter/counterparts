@@ -204,6 +204,10 @@ describe('steps and the keyboard guard', () => {
     expect(() => parseStep('shot:../x', 0)).toThrow();
     expect(() => parseStep('wait:-1', 0)).toThrow();
     expect(() => parseStep('type:a\nb', 0)).toThrow();
+    expect(() => parseStep(`type:/counterparts:doctor${E}[13u`, 0)).toThrow(/control/);
+    expect(() => parseStep(`type:x${E}OM`, 0)).toThrow(/control/);
+    expect(() => parseStep('type:a\x7fb', 0)).toThrow(/control/);
+    expect(parseStep('type:publish é ⣿', 0)).toEqual({ kind: 'type', text: 'publish é ⣿' });
     expect(() => parseStep('nope', 0)).toThrow(/unknown step/);
     expect(parseSteps([])).toEqual([{ kind: 'shot', name: 'full' }]);
   });

@@ -82,6 +82,8 @@ export function parseStep(raw: string, index: number): Step {
     case 'type': {
       if (arg === '') throw new Error('type: give the text');
       if (/[\r\n]/.test(arg)) throw new Error('type: no newlines (an Enter is keys:Enter, guarded)');
+      // an escape sequence typed as text is a key to the terminal (ESC [13u is Enter in the kitty protocol)
+      if (/\p{Cc}/u.test(arg)) throw new Error('type: printable text only, no control characters (keys are keys:, guarded)');
       return { kind, text: arg };
     }
     case 'click':
