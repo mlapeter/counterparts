@@ -286,7 +286,7 @@ describe("the pointer: the next session start in that project is pointed at it",
     expect(ask).toContain("session: new-1, writeUp: old-1 and no memories");
     expect(occurrences(ask, "old-1")).toBe(1);
     // The attention framing (review of #369): `[]` stays a legal answer, offered last.
-    expect(ask).toContain("(memories: [] only if nothing in it held your attention)");
+    expect(ask).toContain("(memories: [] only if nothing did)");
     // A POINTER: none of the words ride beside the wake.
     expect(ask).not.toContain(wordsOf("old-1 #0", 40));
     expect(Buffer.byteLength(ask, "utf8")).toBeLessThan(600);
