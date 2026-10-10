@@ -176,8 +176,11 @@ proposals and their archive; render and delivery telemetry.
    habituation rows); one gone, now open, arriving, settled over or — a hint — covered by
    the page is left out. Reads only: no ranking scan of the store, no model, no embedding,
    no write of any state; what it costs is a ring event (`counterpart.wake.assembled`).
-   Measured 2026-10-10 on synthetic stores: +4 ms at 925 memories, +21 ms at 9,250
-   written in one day with 250 open questions; the terms grow with open questions, dated
+   Measured 2026-10-10 on synthetic stores, SessionStart through the hook: 3.7 → 6.6 ms at
+   925 memories, 12.3 → 28.2 ms at 9,250 written in one day with 250 open questions. The
+   record carries the bundle's hash and is written in the bundle's own transaction, so a
+   session start assembles around the bundle published now or not at all. The terms grow
+   with open questions, dated
    items and the day's writes, not the store, where the store has the indexes
    (`memories_open`, `memories_created`, `memories_origin_ref`, created at a store's next
    migration). Anything missing — no record (a bundle an older build published), another

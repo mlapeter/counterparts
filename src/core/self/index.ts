@@ -249,6 +249,9 @@ export const WAKE_SHOWN_KEY = "self.briefing.shown";
 
 export interface WakeShown {
   readonly v: 1;
+  /** The published bundle's hash (`hashText`): the record speaks for that
+   *  bundle only. */
+  readonly hash: string;
   /** The host's reported budget the render was composed under, or null. */
   readonly ceiling: number | null;
   /** The composition's budget (`BriefingRequest.budgetBytes`). */
@@ -281,11 +284,14 @@ export function wakeShown(store: Pick<Store, "getMeta">): WakeShown | null {
     const moreIdentity = ids(more["identity"] ?? []);
     const moreCraft = ids(more["craft"] ?? []);
     const budget = num(r["budget"]);
+    const hash = r["hash"];
+    if (typeof hash !== "string" || hash.length === 0) return null;
     if (r["v"] !== 1 || identity === null || craft === null || hints === null || moreIdentity === null || moreCraft === null || budget === null) {
       return null;
     }
     return {
       v: 1,
+      hash,
       ceiling: num(r["ceiling"]),
       budget,
       lend: num(r["lend"]) ?? 0,
@@ -314,6 +320,9 @@ export interface AssembleRequest
     "day" | "yesterday" | "yesterdayShorter" | "elsewhere" | "elsewhereShorter"
   > {
   readonly ceilingBytes: number;
+  /** The hash of the bundle published now (`hashText`): a record written
+   *  beside another bundle is not this one's. */
+  readonly publishedHash: string;
   readonly horizon?: readonly HorizonItem[];
   readonly horizonMore?: readonly string[];
 }
@@ -870,7 +879,7 @@ export class Self {
    */
   assemble(req: AssembleRequest): BriefingResult | null {
     const shown = wakeShown(this.store);
-    if (shown === null || shown.ceiling === null || shown.ceiling !== req.ceilingBytes) return null;
+    if (shown === null || shown.hash !== req.publishedHash || shown.ceiling === null || shown.ceiling !== req.ceilingBytes) return null;
     const day = req.day;
     const settled = settledOver(this.store);
     const docs = new Map<string, ProseDoc>();
@@ -2039,14 +2048,18 @@ export class Self {
       return { briefing, schema, published: false, reason: "observer", hash };
     }
 
-    this.store.setMeta(BRIEFING_KEY, briefing.text);
-    // What this bundle lists as still open, so the delivery's "since" line
-    // does not name it again (review of #332). Written at every publish, an
-    // empty lane included, so it never describes an older bundle.
-    this.store.setMeta(THREADS_SHOWN_KEY, JSON.stringify(briefing.kept.threads));
-    // What it showed of the stateful lanes, and in what room (2026-10-10), so
-    // a session start can assemble its wake around them (`assemble`).
-    this.store.setMeta(WAKE_SHOWN_KEY, JSON.stringify(shownRecord(briefing, lanes, req)));
+    // ONE TRANSACTION for the bundle and what is read beside it (2026-10-10):
+    // what this bundle lists as still open, so the delivery's "since" line
+    // does not name it again (review of #332) — written at every publish, an
+    // empty lane included, so it never describes an older bundle — and what it
+    // showed of the stateful lanes and in what room, with the bundle's hash,
+    // so a session start assembles around THIS bundle or not at all
+    // (`assemble`).
+    this.store.setMetaMany([
+      [BRIEFING_KEY, briefing.text],
+      [THREADS_SHOWN_KEY, JSON.stringify(briefing.kept.threads)],
+      [WAKE_SHOWN_KEY, JSON.stringify(shownRecord(briefing, lanes, req, hash))],
+    ]);
     // The rotation's memory: the identity ids this bundle KEPT, stamped with
     // the day. Kept, not ranked — an element the budget trimmed did not render
     // and keeps its place at the front of the next rotation.
@@ -3121,7 +3134,7 @@ export { BRIEFING_TRIM_LOG_CAP, COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDE
  * will not answer has settled nothing.
  */
 /** The `WAKE_SHOWN_KEY` record for a published briefing and its lanes. */
-function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryRequest): WakeShown {
+function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryRequest, hash: string): WakeShown {
   const lost = (lane: "identity" | "craft"): string[] => {
     const kept = new Set(briefing.kept[lane]);
     return [...lanes[lane].map((r) => r.id), ...(lanes.overflow?.[lane] ?? [])].filter((id) => !kept.has(id));
@@ -3129,6 +3142,7 @@ function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryReques
   const whole = (n: number | undefined): number => Math.max(0, Math.floor(n ?? 0));
   return {
     v: 1,
+    hash,
     ceiling: req.ceilingBytes === undefined || req.omit !== undefined ? null : req.ceilingBytes,
     budget: req.budgetBytes,
     lend: req.omit !== undefined ? 0 : whole(req.lendBytes),

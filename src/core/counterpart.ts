@@ -2144,6 +2144,7 @@ export class Counterpart {
       const out = this.self.assemble({
         day,
         ceilingBytes: budget,
+        publishedHash: hashText(stored),
         horizon: asked.items,
         ...(asked.more.length === 0 ? {} : { horizonMore: asked.more }),
         ...this.yesterdayFor(at),
@@ -2233,11 +2234,13 @@ export class Counterpart {
         if (named(scope)) dirOf(scope).memories = count;
       }
       const chapters = this.chaptersInWindow(this.store.livedDay());
-      // The chapter the "About me, from another directory" line names: not
-      // named twice.
-      const aboutMe = this.selfChapterElsewhere(chapters, new Set(), reader, exportsFrom);
+      // The chapter the "About me, from another directory" line names — with
+      // the chapters "Last here" names in this directory set aside, as that
+      // line sets them aside (`lastHereLadder`) — is not named twice.
+      const hereIds = new Set(this.chaptersHereFor(here?.scope ?? "", reader, chapters).map((f) => f.chapter.id));
+      const aboutMe = this.selfChapterElsewhere(chapters, hereIds, reader, exportsFrom);
       for (const c of chapters.values()) {
-        if (c.scope === null || c.writtenAt < since || c.writtenAt >= until) continue;
+        if (c.scope === null || c.writtenAt < since || c.writtenAt >= until || hereIds.has(c.id)) continue;
         if (c.confidential === true || c.aboutMe !== true || c.id === aboutMe?.id) continue;
         if (reader !== null && c.session === reader) continue;
         if (!named(c.scope)) continue;

@@ -1998,8 +1998,13 @@ random-f8's, lightly held.
   craft; `takeRoom` does the same for a rescue.
 - **The preface says so:** "— assembled at session start" in place of "— composed at the
   last boundary" (fewer bytes, inside `PREFACE_RESERVE_BYTES`).
-- **Cost, measured (synthetic, hermetic; bench in the PR):** delivery 2.1 → 6.2 ms at 925
-  memories, 9.5 → 30.6 ms at 9,250 written in one day with 250 open questions and 44 dated.
+- **The record speaks for one bundle.** It is written in the same transaction as
+  `BRIEFING_KEY` (`setMetaMany`) and carries the bundle's hash; a session start whose
+  published bundle has another hash delivers it as published.
+- **Cost, measured (synthetic, hermetic; bench in the PR):** SessionStart through the hook,
+  200 registry records: 3.7 → 6.6 ms at 925 memories, 12.3 → 28.2 ms at 9,250 written in
+  one day with 250 open questions and 44 dated. `Counterpart#wake` alone: 2.1 → 6.2 and
+  9.5 → 30.6 ms.
   The terms are the open questions (≈5 ms of it at 250), the horizon (≈4.5 ms, the same
   read the per-turn cue path makes), the day's counts and the episode list (≈3 ms each,
   linear until the indexes exist). One chapter walk per delivery (`deliveryWalk`), shared

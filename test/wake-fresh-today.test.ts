@@ -245,6 +245,11 @@ describe("a session started before any turn-end today reads today's lanes", () =
     expect(c.wake(BUDGET + 500, { date: D2 }, { scope: HERE, session: B }).text).not.toContain("gate latch");
     // No date: nothing to assemble for.
     expect(c.wake(BUDGET, {}, { scope: HERE, session: B }).text).not.toContain("gate latch");
+    // A record written beside another bundle than the one published now.
+    const record = JSON.parse(c.store.getMeta(WAKE_SHOWN_KEY) ?? "{}") as Record<string, unknown>;
+    expect(c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B }).text).toContain("gate latch");
+    c.store.setMeta(WAKE_SHOWN_KEY, JSON.stringify({ ...record, hash: "0000000000000000" }));
+    expect(c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B }).text).not.toContain("gate latch");
     // A bundle an older build published (no record).
     c.store.setMeta(WAKE_SHOWN_KEY, "");
     expect(c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B }).text).not.toContain("gate latch");
@@ -345,6 +350,19 @@ describe("Today, elsewhere", () => {
     const lines = text.split("\n");
     const nearby = lines.indexOf(FRAMING.hints);
     if (nearby >= 0) expect(lines.indexOf(line as string)).toBeLessThan(nearby);
+  });
+
+  test("when this directory holds the newest chapter about me, the About-me line names the next, and the line does not name it again", () => {
+    const m = morning();
+    m.set(at(D2, 9, 45));
+    const mine = episode(m.c, { session: E, scope: HERE, title: "Weeding the herb bed", date: D2, text: "I weeded the herb bed slowly." });
+    copy(m.c, mine, E, HERE, "me", "Weeding the herb bed slowly is how I think.");
+    m.set(at(D2, 10));
+    const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
+    expect(text).toContain(`About me, from another directory: session c9cacbcc, 10-10 in ${tilde(YON)} — "Pruning the old pear"`);
+    expect(text.split("\n").filter((l) => l.includes("Pruning the old pear"))).toHaveLength(1);
+    expect(lineOf(text)).toContain(`${tilde(YON)} 08:05–09:40, 1 memory`);
+    expect(lineOf(text)).not.toContain("Weeding the herb bed");
   });
 
   test("its own directory, a directory whose scope is off, the nightly run's, and yesterday's sessions are skipped", () => {
