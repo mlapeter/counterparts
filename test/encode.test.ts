@@ -1181,10 +1181,6 @@ describe("guarantee 3 — GATED MEANS GATED: a fully-gated chunk moves NOTHING",
         proposal({ ref: "b", content: "placeholder" }),
         proposal({ ref: "c", content: "TBD", updates: "mem_deadbeef" }),
       ],
-      predictionChecks: [
-        { schemaId: "sch_bun", ref: "a", outcome: "confirmed" },
-        { schemaId: "sch_bun", ref: null, outcome: "contradicted" },
-      ],
     });
   }
 
@@ -1206,21 +1202,12 @@ describe("guarantee 3 — GATED MEANS GATED: a fully-gated chunk moves NOTHING",
       "memory.create",
       "entity.mention",
       "revision.challenge",
-      "prediction.check",
     ]) {
       expect({ kind, moved: r.effects.some((e) => e.effect === kind) }).toEqual({
         kind,
         moved: false,
       });
     }
-  });
-
-  test("THE ELEMENT-LEVEL SIDE CHANNEL IS CLOSED: prediction checks are dropped too", () => {
-    const r = fullyGatedChunk();
-    expect(r.predictionChecks).toEqual([]);
-    const evt = r.events.find((e) => e.event === "encode.fullyGated");
-    expect(evt).toBeDefined();
-    expect(evt!.data?.["droppedPredictionChecks"]).toBe(2);
   });
 
   test("a chunk with ONE survivor was gated in part, not refused", () => {
@@ -1234,20 +1221,11 @@ describe("guarantee 3 — GATED MEANS GATED: a fully-gated chunk moves NOTHING",
         proposal({ ref: "a", content: SPECIMENS[0]!.text }),
         proposal({ ref: "b", content: REAL_CONTENT, updates: "mem_deadbeef" }),
       ],
-      predictionChecks: [
-        { schemaId: "sch_bun", ref: "a", outcome: "confirmed" },
-        { schemaId: "sch_bun", ref: "b", outcome: "contradicted" },
-      ],
     });
     expect(r.fullyGated).toBe(false);
     // ONLY the survivor's effects exist.
     expect(r.effects.filter((e) => e.effect === "memory.create").map((e) => e.ref)).toEqual(["b"]);
     expect(r.effects.some((e) => e.effect === "revision.challenge")).toBe(true);
-    // and only the survivor's prediction check rides along
-    expect(r.effects.filter((e) => e.effect === "prediction.check").map((e) => e.ref)).toEqual([
-      "b",
-    ]);
-    expect(r.predictionChecks.length).toBe(2);
   });
 
   test("a mention that only existed in redacted text is not a mention", () => {
@@ -1263,19 +1241,6 @@ describe("guarantee 3 — GATED MEANS GATED: a fully-gated chunk moves NOTHING",
     expect(r.effects.some((e) => e.effect === "entity.mention")).toBe(false);
   });
 
-  test("a prediction check naming a schema the author never SAW does not survive", () => {
-    const r = encodeChunk({
-      chunkRef: "c",
-      span: REAL_SPAN,
-      day: 1,
-      schemas,
-      proposals: [proposal({ ref: "b" })],
-      predictionChecks: [{ schemaId: "sch_never_shown", ref: "b", outcome: "confirmed" }],
-    });
-    expect(r.predictionChecks).toEqual([]);
-    expect(r.effects.some((e) => e.effect === "prediction.check")).toBe(false);
-  });
-
   test("an OBSERVER emits no effects, and its stand-down is logged (scar E7)", () => {
     const r = encodeChunk({
       chunkRef: "c",
@@ -1287,7 +1252,6 @@ describe("guarantee 3 — GATED MEANS GATED: a fully-gated chunk moves NOTHING",
     });
     expect(r.accepted.length).toBe(1);
     expect(r.effects).toEqual([]);
-    expect(r.predictionChecks).toEqual([]);
     const evt = r.events.find((e) => e.event === "encode.observer.standdown");
     expect(evt).toBeDefined();
     expect(evt!.data?.["suppressedEffects"]).toBe(true);
@@ -1412,12 +1376,10 @@ describe("gated means gated, against a REAL store", () => {
         proposal({ ref: "a", content: SPECIMENS[0]!.text }),
         proposal({ ref: "b", content: "n/a" }),
       ],
-      predictionChecks: [{ schemaId: "sch_bun", ref: "a", outcome: "confirmed" }],
     });
 
     expect(r.fullyGated).toBe(true);
     expect(r.effects).toEqual([]);
-    expect(r.predictionChecks).toEqual([]);
     expect(snapshot(dir)).toEqual(before);
     expect(store.list()).toEqual(beforeIds);
     expect(store.events().length).toBe(beforeEvents);
