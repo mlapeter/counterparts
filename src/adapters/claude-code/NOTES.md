@@ -2177,3 +2177,53 @@ INTERFACE-GAPS §15.
   the user prompt currently being processed … Absent until the first user input". At
   UserPromptSubmit that prompt is the one being processed, so it should be present; not
   watched on a real host. The key carries the prompt's hash either way.
+
+## 2026-10-10 — the claim moves to its own file: the worker held the store past its wait
+
+- **What CI hit.** The first full-suite run on master (a78e1dae, ubuntu, Pacific/Kiritimati)
+  failed two tests that had passed on the PR: one wiring's UserPromptSubmit, and the npm
+  hook's SessionEnd in `plugin.test.ts`, each printed `delivered unclaimed: database is
+  locked`. Fail-open held (both delivered), but the claim was lost and a line printed, on a
+  path every event of every user runs.
+- **Who held the lock.** The detached worker the previous Stop (or SessionEnd) started. A
+  watcher polling `BEGIN IMMEDIATE` on the store while the test's sequence ran showed the
+  long holds start only after the first Stop and go on after the last hook exits. The
+  worker reaches the store one bun start-up after its hook exits, which is just when the
+  next hook, started at that exit, reaches it too. Unloaded the holds are a few ms; in a
+  2-CPU Linux container with busy loops beside it they were 300 to 600 ms each, past the
+  claim's 500 ms. The hook's other writes wait the store's 5 s and went through; the claim
+  was the one write that gave up.
+- **Root cause, and the change.** The claim shared the store's one write lock with every
+  writer the store has, and only it waited 500 ms. A twin needs to wait only on its
+  holder's claim, well under a millisecond of work. So the row moved to its own small
+  database, `sessions/claims/hook-claims.sqlite` (LAYOUT's `sessions` entry is where host
+  state of this kind goes; not backed up), which only claims write. In a directory of its
+  own because `pruneSessions` removes any file directly in `sessions/` untouched for 7
+  days, and in WAL a commit touches the log, not the database file, so the file itself
+  could look a week old in use; the prune skips directories, as it does `log/`. The claim logic is unchanged;
+  `Store#updateMeta`'s `waitMs` (added for the claim in the review of #355) is gone again,
+  with no caller left. WAL with `synchronous = NORMAL`: nothing in the file outlives the
+  15 s window, so a commit a power cut takes back costs nothing, and WAL never corrupts
+  under NORMAL. The two writes of an event, median, in a 2-CPU Linux container: 3-4 ms with
+  the rollback journal and FULL, about 1 ms with WAL and FULL, 0.13-0.23 ms with WAL and
+  NORMAL. Claim plus finish through `claimDelivery`: 0.32 ms, against 0.8-1.2 ms for the
+  old row in `meta`.
+- **Proved.** A stand-in worker holding the store's write lock 700 ms at a time (300 ms
+  gaps) beside the one-wiring sequence (6 hooks, twice each): master delivered unclaimed 4
+  times of 12, this branch 0, with the same hook times (the hook waits for the lock either
+  way, at its first store write). The two failing tests, 4 copies each in parallel with 6
+  busy loops in a 2-CPU container: master failed 3 runs of 48, this branch 0 of 64. In
+  the suite: "a store somebody holds does not hold the claim" (the claim is made inside a
+  second connection's write transaction on the store) and the old held-lock test, now
+  holding the claims file itself.
+- **stderr.** A claim that could not be written goes into the hook's `process.end` line
+  (`unclaimed`, `busy`). It is said on stderr only when it is a fault (the claims file
+  cannot be made, opened or written), where someone chasing two wakes would look; not when
+  another claim held the file past 500 ms, which passes and, with one wiring, lost nothing.
+- **Why one wiring still claims.** It cannot know it has no twin: the claim is the backstop
+  for the reading of the host's wiring being wrong, so it cannot be skipped on that
+  reading. What one wiring pays is two writes of about 0.15 ms each on a file nothing else
+  writes.
+- **Left as is.** A twin's `adapter.hook.claim.lost` row still goes to the store, with the
+  store's 5 s wait. It is written only when two wirings are live, after the twin has
+  decided to stand down, and it is the record doctor reads.

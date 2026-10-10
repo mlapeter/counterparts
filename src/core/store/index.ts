@@ -63,7 +63,7 @@ import type { TraitInput, TraitRead, TraitRow, TraitSource } from "./traits.js";
 import { creditReturn, creditUse } from "../physics/index.js";
 import type { CreditOutcome, ReturnOutcome, UseTier } from "../physics/index.js";
 import type { Db, Statement, WalFold } from "./db.js";
-import { BUSY_TIMEOUT_MS, foldWal, isLocked, wroteOn } from "./db.js";
+import { foldWal, isLocked, wroteOn } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
@@ -3375,44 +3375,15 @@ export class Store {
    * `null` to delete the row, or `undefined` to leave it. What `fn` returned is
    * returned. For a row two processes change at once (the write-up progress
    * map), where `getMeta` then `setMeta` would lose one of them.
-   *
-   * `waitMs` (review of #355): how long THIS write waits on another writer's
-   * lock before it throws, in place of the connection's `BUSY_TIMEOUT_MS`, and
-   * put back afterwards (`db.ts#foldWal`'s pattern). For a caller with a
-   * fallback that should not cost a turn five seconds on a store somebody holds
-   * (the hooks' per-event claim, which delivers anyway when it cannot write).
    */
-  updateMeta(
-    key: string,
-    fn: (current: string | undefined) => string | null | undefined,
-    opts: { readonly waitMs?: number } = {},
-  ): string | null | undefined {
-    const wait = opts.waitMs;
-    let restore: number | null = null;
-    if (wait !== undefined) {
-      const row = this.ops.get<Record<string, number>>("PRAGMA busy_timeout");
-      const was = row === undefined ? undefined : Object.values(row)[0];
-      restore = typeof was === "number" && Number.isFinite(was) ? was : BUSY_TIMEOUT_MS;
-      this.ops.exec(`PRAGMA busy_timeout = ${String(Math.max(0, Math.floor(wait)))}`);
-    }
-    let out: string | null | undefined;
-    try {
-      out = this.mutate("updateMeta", () => {
-        const row = this.ops.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key);
-        const next = fn(row?.value);
-        if (next === null) this.ops.run("DELETE FROM meta WHERE key = ?", key);
-        else if (next !== undefined) this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, next);
-        return next;
-      });
-    } finally {
-      if (restore !== null) {
-        try {
-          this.ops.exec(`PRAGMA busy_timeout = ${String(restore)}`);
-        } catch {
-          /* a closed handle has no timeout to restore */
-        }
-      }
-    }
+  updateMeta(key: string, fn: (current: string | undefined) => string | null | undefined): string | null | undefined {
+    const out = this.mutate("updateMeta", () => {
+      const row = this.ops.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key);
+      const next = fn(row?.value);
+      if (next === null) this.ops.run("DELETE FROM meta WHERE key = ?", key);
+      else if (next !== undefined) this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, next);
+      return next;
+    });
     this.emit("store.meta", undefined, { key });
     return out;
   }

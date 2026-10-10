@@ -812,8 +812,17 @@ async function runHook(
     }
     return;
   }
-  if (claim.detail !== undefined && claim.detail !== "no session id" && claim.detail !== "observer") {
-    process.stderr.write(`[counterparts] ${name} delivered unclaimed: ${claim.detail}\n`);
+  // A CLAIM THAT COULD NOT BE WRITTEN goes into the process log's end line
+  // either way. Only a FAULT (the claims file cannot be made, opened or written)
+  // is said on stderr too, the host's debug log, where someone chasing two wakes
+  // would look. Contention is not: another claim held the file past
+  // `CLAIM_WAIT_MS`, it passes, and with one wiring nothing was lost.
+  const unclaimed =
+    claim.outcome === "unclaimed" && claim.detail !== undefined && claim.detail !== "no session id" && claim.detail !== "observer"
+      ? claim.detail
+      : null;
+  if (unclaimed !== null && claim.busy !== true) {
+    process.stderr.write(`[counterparts] ${name} delivered unclaimed: ${unclaimed}\n`);
   }
   let outcome = "ok";
   try {
@@ -900,7 +909,7 @@ async function runHook(
     adapter.counterpart.close();
   }
   // A throw above never reaches this line: `main`'s handler writes it instead.
-  opened.end(outcome);
+  opened.end(outcome, unclaimed === null ? undefined : { unclaimed, busy: claim.busy === true });
 }
 
 /** `CLAUDE_CODE_SESSION_ATTENDED` as `HookInput.attended`: `1`/`true` and

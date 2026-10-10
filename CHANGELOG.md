@@ -57,12 +57,14 @@
   A plugin from before 0.3.14 didn't recognise the hook lines 0.3.14's `connect` writes,
   so it didn't step aside, and every session got two wakes and two recall blocks per
   prompt. The plugin now recognises our hook by the script it runs, whatever flags a
-  later version adds around it. As a backstop, each hook claims its event in the store
-  first: when two Counterparts hooks fire for the same event, the first does the work
-  (the wake, the recall, the Stop's question, the capture, the background worker) and
-  the other exits without output. This works between any two versions from this one on.
-  With one install nothing changes; the claim adds two small writes per event, about a
-  quarter of a millisecond.
+  later version adds around it. As a backstop, each hook claims its event first: when
+  two Counterparts hooks fire for the same event, the first does the work (the wake,
+  the recall, the Stop's question, the capture, the background worker) and the other
+  exits without output. This works between any two versions from this one on. The
+  claims are kept in a small file of their own in the store's `sessions` folder, so
+  the background worker writing to the store doesn't hold a claim up. With one install
+  nothing changes; the claim adds two small writes per event, about a third of a
+  millisecond.
   Doctor has a new amber line, "Installed twice", when a hook stepped aside this way in
   the last week, and says how to keep just one install. No change to the store's format.
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
