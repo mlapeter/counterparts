@@ -3873,6 +3873,15 @@ async function installConversation(
       u.hint(`You can do it later with: ${BIN.cli} connect`);
     }
   }
+  // CLAUDE DESKTOP'S ENTRY, REPAIRED AS `connect` REPAIRS IT (2026-10-10, left
+  // open by #354): an entry `install --host claude-desktop` wrote in an older
+  // shape gets today's command, by the same path and with the same refusal
+  // while Desktop runs (`repairDesktopEntry`). Outside the Claude Code question
+  // on purpose: Desktop's file is there or not whether Claude Code is. Only
+  // this arm: the scripted install reads no host file at all.
+  const desktop = repairDesktopEntry(io, env, home_, lister, false, now());
+  // Left in the old shape, Desktop's entry keeps doctor's Runtime line amber.
+  const desktopPending = desktop.outcome === "desktop-running" || desktop.outcome === "failed";
   u.blank();
 
   // ── no keys ───────────────────────────────────────────────────────────────
@@ -3933,14 +3942,21 @@ async function installConversation(
   const toolsIn =
     wired !== null &&
     (wired.mcp === "added" || wired.mcp === "re-added" || wired.mcp === "already");
-  if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn && !tableMissing) {
+  const connected = wired !== null && wired.outcome === "ok" && hooksIn && toolsIn;
+  if (connected && !tableMissing && !desktopPending) {
     io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — it should be all green.`);
   } else if (hooksIn && !toolsIn) {
     io.out("The hooks are in; the memory tools are NOT registered — the line above does that.");
     io.out(`Then restart Claude Code and run \`${BIN.cli} doctor\`.`);
-  } else if (wired !== null && wired.outcome === "ok" && hooksIn && toolsIn) {
+  } else if (connected && !desktopPending) {
     // Connected, and the one amber is the table named above.
     io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — everything but recall by meaning should be green.`);
+  } else if (connected) {
+    // Connected, and Claude Desktop's entry is still in the old shape — said
+    // above, with what to do. "All green" here would be false (review M1).
+    io.out(
+      `Restart Claude Code, then run \`${BIN.cli} doctor\` — its Runtime line stays amber until Claude Desktop's entry is rewritten, as said above.`,
+    );
   } else {
     io.out(`Run \`${BIN.cli} doctor\` to see where this got to.`);
   }
@@ -4278,19 +4294,9 @@ async function hostWiringCommand(
   // CLAUDE DESKTOP'S ENTRY TOO (2026-10-10): `install --host claude-desktop`
   // wrote a server command into Desktop's own file, and it needs the same
   // repair the hooks just got — but never while Desktop is open
-  // (`desktop.ts#repairDesktop`).
-  let desktopFailed = false;
-  if (command === "connect") {
-    const sighting = look(lister);
-    const repair = repairDesktop({
-      home: home_,
-      exe: process.execPath,
-      desktopRunning: sighting.looked ? (sighting.desktopRunning ?? null) : null,
-      dryRun: input.dryRun === true,
-      now: now(),
-    });
-    desktopFailed = sayDesktopRepair(ui(io, env), repair, home_);
-  }
+  // (`repairDesktopEntry`).
+  const desktopFailed =
+    command === "connect" && repairDesktopEntry(io, env, home_, lister, input.dryRun === true, now()).outcome === "failed";
   // WHAT AN OPEN SESSION DOES NOW, printed by the CALLER (2026-09-22). `wire()`
   // used to say it itself, which put it in the middle of `install`'s screen two
   // lines above install's own "restart Claude Code, then run doctor". A
@@ -4310,6 +4316,34 @@ async function hostWiringCommand(
     sessionsNote(ui(io, env), lister, { dataDir: store, env });
   }
   return desktopFailed && result.outcome === "ok" ? EXIT.failed : exitFor(result.outcome);
+}
+
+/**
+ * CLAUDE DESKTOP'S ENTRY IN TODAY'S SHAPE — `connect`'s repair, and since
+ * 2026-10-10 `install`'s at a terminal too (the other caller of `wire()`).
+ * One path for both: the process look, `desktop.ts#repairDesktop` (an entry of
+ * ours only, its `env` kept, backed up first, written atomically, never while
+ * Desktop runs or could not be ruled out), and one line saying what happened.
+ * Returns the repair; what it does to the exit is the caller's call.
+ */
+function repairDesktopEntry(
+  io: Io,
+  env: Record<string, string | undefined>,
+  home_: string,
+  lister: ProcessLister,
+  dryRun: boolean,
+  at: number,
+): DesktopRepair {
+  const sighting = look(lister);
+  const repair = repairDesktop({
+    home: home_,
+    exe: process.execPath,
+    desktopRunning: sighting.looked ? (sighting.desktopRunning ?? null) : null,
+    dryRun,
+    now: at,
+  });
+  sayDesktopRepair(ui(io, env), repair, home_);
+  return repair;
 }
 
 /** One line about Claude Desktop's entry, or none. True when the write failed. */
