@@ -51,6 +51,7 @@ import {
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions, ownerStance } from "../src/adapters/mcp/bin/serve.js";
 import { FACTS_JOURNAL_GLOSS } from "../src/adapters/mcp/facts.js";
+import { findable } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_mcp_1";
@@ -79,7 +80,9 @@ afterEach(() => {
 });
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, ...opts });
+  findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
 }
@@ -1261,6 +1264,8 @@ describe("recall — deliberate retrieval", () => {
       type: "memory",
       kind: "fact",
       body: "The sourdough starter recovered after a week of daily feeding and is healthy.",
+      // In reach (2026-10-10): a successor that claims nothing stands at 0.
+      salience: { claimed: 0.5 },
     });
 
     const result = payload(

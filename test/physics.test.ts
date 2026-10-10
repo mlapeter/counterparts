@@ -194,14 +194,15 @@ describe("[M] guarantee 1 — physics makes no model calls and performs no I/O",
 // ---------------------------------------------------------------------------
 
 describe("[M] guarantee 2 — salience is fixed at birth; a claim is a floor with an event", () => {
-  test("sal is the mean of four dimensions [v0 verbatim]", () => {
-    expect(sal({ novelty: 0.2, relevance: 0.4, emotional: 0.6, predictive: 0.8 })).toBeCloseTo(0.5, 10);
+  test("sal is the mean of novelty, relevance and predictive — feeling is not in it (2026-10-10, review 02 C1)", () => {
+    expect(sal({ novelty: 0.2, relevance: 0.4, emotional: 0.6, predictive: 0.8 })).toBeCloseTo((0.2 + 0.4 + 0.8) / 3, 10);
+    expect(sal({ novelty: 0.2, relevance: 0.4, emotional: 0, predictive: 0.8 })).toBeCloseTo((0.2 + 0.4 + 0.8) / 3, 10);
   });
 
   test("a claim above the computed mean lifts, and emits the lift event", () => {
     const clamped = clampSalienceAtSeam(S(0.4), 0.8);
     expect(clamped.lifted).toBe(true);
-    expect(clamped.event).toEqual({
+    expect({ ...clamped.event, computed: Number(clamped.event?.computed.toFixed(10)) }).toEqual({
       event: "salience.lifted",
       computed: 0.4,
       claimed: 0.8,
@@ -338,15 +339,17 @@ describe("[M] guarantee 2 — salience is fixed at birth; a claim is a floor wit
 describe("regression 7 — null novelty is specified, never defaulted", () => {
   const blind: Salience = { novelty: null, relevance: 0.6, emotional: 0.3, predictive: 0.9 };
 
-  test("a blind write scores the mean of the THREE author-supplied dimensions", () => {
-    expect(sal(blind)).toBeCloseTo(0.6, 10);
+  // Since 2026-10-10 `emotional` is out of the mean (review 02 C1): the
+  // author-supplied dimensions in it are relevance and predictive.
+  test("a blind write scores the mean of the TWO author-supplied dimensions in the mean", () => {
+    expect(sal(blind)).toBeCloseTo(0.75, 10);
   });
 
-  test("that is not the mean-of-four with novelty defaulted either way", () => {
-    expect(sal({ ...blind, novelty: 0 })).toBeCloseTo(0.45, 10);
-    expect(sal({ ...blind, novelty: 1 })).toBeCloseTo(0.7, 10);
-    expect(sal(blind)).not.toBeCloseTo(0.45, 3);
-    expect(sal(blind)).not.toBeCloseTo(0.7, 3);
+  test("that is not the mean-of-three with novelty defaulted either way", () => {
+    expect(sal({ ...blind, novelty: 0 })).toBeCloseTo(0.5, 10);
+    expect(sal({ ...blind, novelty: 1 })).toBeCloseTo(2.5 / 3, 10);
+    expect(sal(blind)).not.toBeCloseTo(0.5, 3);
+    expect(sal(blind)).not.toBeCloseTo(2.5 / 3, 3);
   });
 
   test("blindness is RECORDED and countable, and survives the seam", () => {
@@ -563,9 +566,9 @@ describe("[M] guarantee 5 — exactly-once decay, by being a pure function of th
   });
 
   test("uses raise stability logarithmically — slower, never immortal", () => {
-    const s0 = stability({ kind: "fact", uses: 0 });
-    const s5 = stability({ kind: "fact", uses: 5 });
-    const s50 = stability({ kind: "fact", uses: 50 });
+    const s0 = stability({ kind: "fact", uses: 0, salience: S(0.4) });
+    const s5 = stability({ kind: "fact", uses: 5, salience: S(0.4) });
+    const s50 = stability({ kind: "fact", uses: 50, salience: S(0.4) });
     expect(s5).toBeGreaterThan(s0);
     expect(s50 - s5).toBeLessThan(s5 - s0 + (s5 - s0)); // sub-linear growth
     expect(Number.isFinite(s50)).toBe(true);
@@ -583,7 +586,7 @@ describe("[M] guarantee 5 — exactly-once decay, by being a pure function of th
     }
     expect(decayCurve(60, 60, "flat")).toBeLessThan(decayCurve(60, 60, "exponential"));
     expect(decayCurve(60, 60, "exponential")).toBeLessThan(decayCurve(60, 60, "power-law"));
-    expect(TUNABLES.DECAY_SHAPE).toBe("exponential"); // the contract's default
+    expect(TUNABLES.DECAY_SHAPE).toBe("power-law"); // the contract's default since 2026-10-10 (§5.4)
   });
 });
 
@@ -619,7 +622,9 @@ describe("§5.3 bands", () => {
   test("semantic membership is evaluated on DECAYED strength", () => {
     const m = mem({ kind: "fact", salience: S(0.6), uses: 1, lastUsedDay: 0 });
     expect(band(m, 0)).toBe("semantic");
-    expect(band(m, 200)).toBe("episodic");
+    // A felt 0.6 (q = 0.9) is a slow curve since 2026-10-10: still semantic at
+    // 200 lived days, episodic by 400.
+    expect(band(m, 400)).toBe("episodic");
     expect(TUNABLES.THETA_SEM).toBe(0.5);
   });
 });
@@ -758,8 +763,8 @@ describe("§5.5 reinforcement — graded, retrospective, at most once a day", ()
   test("a credited use resets the curve — the testing effect", () => {
     const out = creditUse(m, 30, "referenced");
     expect(out.next.lastUsedDay).toBe(30);
-    expect(stability({ kind: "fact", uses: out.next.uses })).toBeGreaterThan(
-      stability({ kind: "fact", uses: m.uses }),
+    expect(stability({ kind: "fact", uses: out.next.uses, salience: m.salience })).toBeGreaterThan(
+      stability({ kind: "fact", uses: m.uses, salience: m.salience }),
     );
   });
 
@@ -1065,7 +1070,10 @@ describe("[M] guarantee 8 — a declared revision is never deduped into its targ
 // ---------------------------------------------------------------------------
 
 describe("[M] guarantees 9 and 10 — prune is gated on all five, and records nothing readable", () => {
-  const faded = mem({ kind: "fact", salience: Sflat(0.55), uses: 1, lastUsedDay: 0, birthDay: 0 });
+  // On the 2026-10-10 curve (power-law, S = 0.4·e^(8q)·uses/κ ≈ 55 lived days
+  // here): semantic at day 5, episodic and short of the 14-day dwell at 12,
+  // above the floor at 100, under it by 2000.
+  const faded = mem({ kind: "fact", salience: Sflat(0.55), uses: 3, lastUsedDay: 0, birthDay: 0 });
 
   test("superseded versions stay resolvable for H lived days; nothing here deletes one", () => {
     expect(TUNABLES.H_SUPERSEDED_DAYS).toBe(90);
@@ -1075,7 +1083,7 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
 
   test("each of the six gates refuses by name", () => {
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
-    expect(pruneVerdict(faded, 60, { inLiveRevisionChain: false }).blockedBy).toEqual([
+    expect(pruneVerdict(faded, 12, { inLiveRevisionChain: false }).blockedBy).toEqual([
       "above-floor",
       "dwell-too-short",
     ]);
@@ -1085,20 +1093,20 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
       "band-not-episodic",
     ]);
     expect(
-      pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: false }).blockedBy,
+      pruneVerdict({ ...faded, protected: true }, 2000, { inLiveRevisionChain: false }).blockedBy,
     ).toEqual(["protected"]);
-    expect(pruneVerdict(faded, 280, { inLiveRevisionChain: true }).blockedBy).toEqual([
+    expect(pruneVerdict(faded, 2000, { inLiveRevisionChain: true }).blockedBy).toEqual([
       "in-live-revision-chain",
     ]);
     // A reminder date that still repeats (2026-10-09): refused by name, as
     // `protected` is; absent or false, the verdict is the five gates' alone.
-    expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["recurring"]);
-    expect(pruneVerdict(faded, 280, { inLiveRevisionChain: false, recurring: false }).prune).toBe(true);
+    expect(pruneVerdict(faded, 2000, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["recurring"]);
+    expect(pruneVerdict(faded, 2000, { inLiveRevisionChain: false, recurring: false }).prune).toBe(true);
     // An exemption FROM THE FLOOR (review of #341): named only where the floor
     // would have let it go. Above it, `recurring` is not a refusal to report.
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: false, recurring: true }).blockedBy).toEqual(["above-floor"]);
     expect(
-      pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: false, recurring: true }).blockedBy,
+      pruneVerdict({ ...faded, protected: true }, 2000, { inLiveRevisionChain: false, recurring: true }).blockedBy,
     ).toEqual(["protected", "recurring"]);
     // `protected` on the same terms (2026-10-09): named only where the floor
     // would have let it go. Above it, or not yet past the dwell, the verdict is
@@ -1110,7 +1118,7 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
       "dwell-too-short",
       "band-not-episodic",
     ]);
-    for (const d of [5, 60, 100, 280, 2000]) expect(pruneVerdict(kept, d, { inLiveRevisionChain: false }).prune).toBe(false);
+    for (const d of [5, 12, 100, 2000, 4000]) expect(pruneVerdict(kept, d, { inLiveRevisionChain: false }).prune).toBe(false);
     // `in-live-revision-chain` on the same terms (review of #343): a chain
     // holding a row above the floor is not what keeps it.
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: true }).blockedBy).toEqual(["above-floor"]);
@@ -1119,14 +1127,14 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
       "dwell-too-short",
       "band-not-episodic",
     ]);
-    for (const d of [5, 60, 100, 280, 2000]) expect(pruneVerdict(faded, d, { inLiveRevisionChain: true }).prune).toBe(false);
+    for (const d of [5, 12, 100, 2000, 4000]) expect(pruneVerdict(faded, d, { inLiveRevisionChain: true }).prune).toBe(false);
     expect(
-      pruneVerdict({ ...faded, protected: true }, 280, { inLiveRevisionChain: true, recurring: true }).blockedBy,
+      pruneVerdict({ ...faded, protected: true }, 2000, { inLiveRevisionChain: true, recurring: true }).blockedBy,
     ).toEqual(["protected", "in-live-revision-chain", "recurring"]);
   });
 
   test("the prune record carries counts, kind and dates — never a body, never a hash", () => {
-    const v = pruneVerdict(faded, 280, { inLiveRevisionChain: false });
+    const v = pruneVerdict(faded, 2000, { inLiveRevisionChain: false });
     expect(v.prune).toBe(true);
     expect(v.record).not.toBeNull();
     const keys = Object.keys(v.record as object);
@@ -1159,7 +1167,7 @@ describe("regression 5 — a faded semantic demotes and becomes prunable", () =>
   });
 
   test("far enough down the curve, all five conditions pass", () => {
-    const v = pruneVerdict(m, 280, { inLiveRevisionChain: false });
+    const v = pruneVerdict(m, 1200, { inLiveRevisionChain: false });
     expect(v.blockedBy).toEqual([]);
     expect(v.reason).toBe("prunable");
     expect(v.prune).toBe(true);
@@ -1168,7 +1176,7 @@ describe("regression 5 — a faded semantic demotes and becomes prunable", () =>
   });
 
   test("everything short of a prune merely fades — the memory is still there", () => {
-    expect(strength(m, 280)).toBeGreaterThan(0);
+    expect(strength(m, 1200)).toBeGreaterThan(0);
   });
 });
 
@@ -1233,7 +1241,11 @@ describe("the TUNABLE table matches the contract, in one visible place", () => {
     expect(TUNABLES.CORE_FAST_GAP_DAYS).toBe(2);
     expect(TUNABLES.CORE_SLOW_DAYS).toBe(5);
     expect(TUNABLES.CORE_SLOW_SPAN_DAYS).toBe(21);
-    expect(TUNABLES.S_BASE).toBe(60);
+    // The curve (2026-10-10, §5.4): S0 · e^(G·q), q = sal + EMO_Q · I.
+    expect(TUNABLES.S0).toBe(0.4);
+    expect(TUNABLES.STABILITY_GAIN).toBe(8);
+    expect(TUNABLES.EMO_Q).toBe(0.5);
+    expect(TUNABLES.REACH).toBe(0.15);
     expect(TUNABLES.BETA).toBe(0.5);
     expect(TUNABLES.BOUNDARY_HOUR).toBe(4);
     expect(TUNABLES.K_NEAREST).toBe(8);
@@ -1243,7 +1255,7 @@ describe("the TUNABLE table matches the contract, in one visible place", () => {
     expect(TUNABLES.TAU_DUP).toBe(0.95);
     expect(TUNABLES.H_SUPERSEDED_DAYS).toBe(90);
     expect(TUNABLES.PHI_PRUNE).toBe(0.02);
-    expect(TUNABLES.D_FLOOR_DAYS).toBe(90);
+    expect(TUNABLES.D_FLOOR_DAYS).toBe(14);
   });
 
   test("the per-kind table is v1 §4.3, verbatim", () => {

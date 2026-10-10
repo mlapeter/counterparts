@@ -136,3 +136,23 @@ export function makeBodyUnreadable(store: Store, id: string): string {
   }
   return id;
 }
+
+/**
+ * THE SEAM'S DEFAULT, FOR A FIXTURE (2026-10-10, Group 1). Production memories
+ * reach the store through a mint seam that always leaves a claim behind
+ * (`physics AUTHORED_DEFAULT_CLAIM`, a sweep's capped claim, a dream's
+ * ceiling); a raw `store.put` with no `salience` claims nothing, so its
+ * strength is 0 — and since physics' `REACH` line (0.15), a memory at 0 is
+ * below reach from birth: ambient recall never offers it and deliberate recall
+ * lists it as faded. Tests that put memories they expect recall to FIND wrap
+ * their store with this, so a `type: "memory"` put with no `salience` claims
+ * `claimed` (0.5: a fact or a skill stays in reach across any clock a test
+ * advances). An explicit `salience` is passed through untouched, so a test
+ * about salience still means what it says. Returns the same store.
+ */
+export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5): T {
+  const put = store.put.bind(store);
+  (store as { put: Store["put"] }).put = ((input: Parameters<Store["put"]>[0]) =>
+    put(input.type === "memory" && input.salience === undefined ? { ...input, salience: { claimed } } : input)) as Store["put"];
+  return store;
+}

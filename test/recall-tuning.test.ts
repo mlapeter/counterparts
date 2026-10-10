@@ -30,6 +30,7 @@ import type { RecallTunables } from "../src/core/recall/index.js";
 import { Store, paths } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 import type { Embedder, EmbedderIdentity } from "../src/core/store/index.js";
+import { findable } from "./store-fixture.js";
 
 let dir: string;
 const opened: Store[] = [];
@@ -60,7 +61,8 @@ function embedder(identity: EmbedderIdentity | undefined, dim: number): Embedder
 }
 
 function store(embed?: Embedder): Store {
-  const s = Store.open({ dir, ...(embed === undefined ? {} : { embed }) });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir, ...(embed === undefined ? {} : { embed }) }));
   opened.push(s);
   return s;
 }

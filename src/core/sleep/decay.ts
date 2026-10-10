@@ -188,6 +188,10 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     store.clearNextChangeDays?.();
     store.setMeta(CURVE_META_KEY, signature);
   }
+  // A RANKING CACHE THAT IS GONE (`rebuildCache`, `verify --rebuild`) holds
+  // nothing for the rows the turn-down would leave alone, so every row is looked
+  // at again — the same as a new curve.
+  if (turnDown && sameCurve && ctx.apply && cache !== null && prior.size === 0) store.clearNextChangeDays?.();
   const ids = turnDown && store.turnDownDue !== undefined ? store.turnDownDue(day) : store.list();
   const nextChanges: { id: string; day: number }[] = [];
   const dropped: string[] = [];

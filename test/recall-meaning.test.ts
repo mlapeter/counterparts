@@ -36,6 +36,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { wireChars } from "../src/core/fit/index.js";
 import { CHAPTER_AT_META, CHAPTER_MOMENT_GRACE_MS, chapterAt, chapterTimesOf, resolveChapter } from "../src/core/self/index.js";
 import { paths } from "../src/core/store/index.js";
+import { findable } from "./store-fixture.js";
 
 let root: string;
 let dir: string;
@@ -63,7 +64,9 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const c = Counterpart.open({ dir, snapshotsDir: join(root, "snaps"), owner: true, now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
+  findable(c.store);
   open.push(c);
   return c;
 }
@@ -677,6 +680,7 @@ describe("thin evidence", () => {
     expect(meaningRecall(ctx(c), "What has Rua been to me?").notes).toContain("2 chapters, all from one week");
 
     const d = Counterpart.open({ dir: join(root, "other"), snapshotsDir: join(root, "snaps2"), owner: true, now: () => clock });
+    findable(d.store);
     open.push(d);
     card(d, "Rua");
     moment(d, "sess_x", "Rua called about the invoice.");

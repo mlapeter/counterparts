@@ -28,6 +28,7 @@ import { probeOQ4 } from "../src/core/recall/probe.js";
 import type { Candidate } from "../src/core/recall/index.js";
 import { recallTurn } from "../src/core/retrieval.js";
 import { CONTIGUITY_CURSOR_META, Counterpart } from "../src/core/counterpart.js";
+import { findable } from "./store-fixture.js";
 
 let dir: string;
 const stores: Store[] = [];
@@ -56,7 +57,8 @@ afterEach(() => {
 });
 
 function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
-  const s = Store.open({ dir, ...opts });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir, ...opts }));
   stores.push(s);
   return s;
 }
@@ -264,6 +266,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
 
   test("a pointer the reply expands is COUNTED as used, and the expansion credits it (trains)", () => {
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     brains.push(c);
     for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
     const cued = c.store.put({ type: "memory", kind: "fact", body: CUED, physics: { birthDay: 0, lastUsedDay: 0 } });
@@ -490,6 +493,7 @@ describe("4. temporal contiguity: adjacent only, lag-weighted, forward where the
 
   function brainAt(clock: { now: number }, opts: { observer?: boolean } = {}): Counterpart {
     const c = Counterpart.open({ dir, owner: true, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
+    findable(c.store);
     brains.push(c);
     return c;
   }
@@ -733,6 +737,7 @@ describe("4. temporal contiguity: adjacent only, lag-weighted, forward where the
 describe("5. index co-credit: one batch lookup co-credits as a pair set, and the once-a-day rule does not block it", () => {
   test("three ids read in one `recall ids:[…]` link pairwise, today's first time and again later the same day", async () => {
     const c = Counterpart.open({ dir, owner: true });
+    findable(c.store);
     brains.push(c);
     const ids = ["An index line about the kiln.", "An index line about the glaze.", "An index line about the firing."].map((body) =>
       c.store.put({ type: "memory", kind: "fact", body, physics: { birthDay: 0, lastUsedDay: 0 } }),

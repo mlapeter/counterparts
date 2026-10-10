@@ -25,6 +25,7 @@ import { Store, paths } from "../src/core/store/index.js";
 import type { Embedder, EmbedderIdentity } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 import type { DeliberateResult } from "../src/adapters/mcp/deliberate.js";
+import { findable } from "./store-fixture.js";
 
 const WEIGHTS = resolveStaticWeights({ env: {} });
 
@@ -74,7 +75,8 @@ const FILLER = [
 
 /** Seven memories about the lighthouse, among filler — more than one page. */
 function seedLighthouse(embed?: Embedder): string[] {
-  const s = Store.open({ dir, ...(embed === undefined ? {} : { embed }) });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir, ...(embed === undefined ? {} : { embed }) }));
   try {
     for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
     const ids: string[] = [];
@@ -268,7 +270,7 @@ describe("ask is short by default", () => {
   });
 
   test("five or fewer: no 'top', and every one is listed", async () => {
-    const s = Store.open({ dir });
+    const s = findable(Store.open({ dir }));
     for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
     const id = s.put({ type: "memory", kind: "fact", title: "Fernbrook Point", body: "The lighthouse at Fernbrook Point stopped turning in 1974." });
     s.close();
@@ -403,7 +405,7 @@ describe("ask searches by meaning", () => {
     async () => {
       // The store's rows are embedded at write time, as a hook's are.
       const table = openStaticEmbedder({ env: {} });
-      const s = Store.open({ dir, embed: table.embed });
+      const s = findable(Store.open({ dir, embed: table.embed }));
       for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
       const target = s.put({
         type: "memory",
@@ -463,7 +465,7 @@ describe("note embeds on write", () => {
   }
 
   function seedFiller(embed?: Embedder): void {
-    const s = Store.open({ dir, ...(embed === undefined ? {} : { embed }) });
+    const s = findable(Store.open({ dir, ...(embed === undefined ? {} : { embed }) }));
     try {
       for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
     } finally {
