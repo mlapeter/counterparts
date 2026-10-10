@@ -320,3 +320,25 @@ wake time would put ranking on the wake path, which is meant to compute nothing.
   configuration. Named in dream INTERFACE-GAPS §7. *(CLOSED 2026-09-27 by #256
   (`39ca6d0`), noted 2026-10-09: the server reads `pageWriter.mode` from the host's
   config, and with `off` the reflection writes no page.)*
+
+## 13. No door reads a session's whole composed wake — OPEN 2026-10-10
+
+What a Claude Code session is handed at its start is composed per session: the published
+bundle (`Self#wake`), the delivery preface, this directory's handoffs, "Last here" and
+"Work here" lines spliced in at delivery (`Counterpart#wake`), and the clock and plain
+reminders above it (`claude-code/hooks.ts#sessionStart`). Nothing prints that composition
+back. `counterparts rebrief` re-renders the stored bundle and prints its numbers, not its
+text; the MCP `wake` tool composes the same text but is Claude Desktop's, and calling it
+starts a NEW session; the dashboard reads the stored bundle, not a session's delivery.
+
+It matters when a host cuts the wake. Claude Code 2.1.296 (measured 2026-10-10,
+`adapters/config.ts#HOST_OUTPUT_CHARS`, `HOST_PREVIEW_CHARS`) saves a hook field past
+10,000 characters to a file and shows the model about its first 2,000. The file is the
+door today, and the preface says so (`briefing.ts#WAKE_WHOLE_SENTENCE`); the self page's
+own top line names its doors, the `self_page` tool and `counterparts self-page`. A wake
+that is cut and whose host saves no file has no way back to its lanes.
+
+**What would close it:** a read-only door that composes this session's wake as the hook
+would — the CLI (`counterparts wake --scope <dir>`, printing it) or an MCP read that does
+not start a session — and the preface naming it beside the file. Not built on purpose
+(2026-10-10): the owner's brief was to name the door if it existed and file it if not.

@@ -408,12 +408,12 @@ export function stripRevisedLines(body: string): { body: string; stripped: numbe
 
 // ── what the wake prints ────────────────────────────────────────────────────
 //
-// THE PAGE IS NEVER CUT (2026-10-09). The wake prints it whole, or — when its
-// room cannot hold it — one line saying so (`briefing.ts#pageTooLargeLine`,
-// decided in `Self#pageBlock`). The cut this section used to make (paragraph,
-// then line, then bytes, with a marker naming both numbers) is gone with the
-// gap that made it reachable: the write limit is now the room the wake
-// guarantees (`briefing.ts#PAGE_LIMIT_BYTES`). Its history is in self NOTES.
+// THE PAGE IS NEVER CUT (2026-10-09). The wake prints the first rung of its
+// ladder that fits, every rung whole text (2026-10-10, `briefing.ts#PageRung`,
+// decided in `Self#pageBlock`): the page, its short version, the outline below,
+// its headings, one line. The cut this section used to make (paragraph, then
+// line, then bytes, with a marker naming both numbers) is gone. Its history is
+// in self NOTES.
 
 /**
  * The marker a cut page carried, in a wake published BEFORE 2026-10-09. No

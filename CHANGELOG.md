@@ -2,22 +2,30 @@
 
 ## Unreleased
 
-- **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
-  which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
-  a day the wake also holds room for handoffs and "Work here" lines. Before, a page could
-  be written up to 16,384 bytes and the wake showed only its first 6,078 to 6,144, cut
-  with a marker. A longer page is refused, never cut: the self_page tool, the console and
-  the nightly reflection say the limit and how many bytes to take out, and the writer
-  says it shorter. The limit is in bytes, so accented letters, dashes and CJK count for
-  more than one. A page written before this that is over the limit still prints whole
-  when it fits with the room held for "Work here" lent to it (at 9,000, a page of about
-  7,200 bytes fits even on the tightest day), and doctor's Self page line goes amber until the next revision comes in under
-  the limit. Only a page that doesn't fit even then, or a ceiling set below what the page
-  needs, gets one line instead, pointing to the self_page tool or `counterparts
-  self-page` — never part of the page. If the nightly writer's page is refused as too
-  long and the run moves on without sending it again shorter, that night now reads as
-  failed, with the numbers, instead of "nothing to say". And "Still open" keeps its
-  "N more" count beside its first item when a long page leaves no other room for it.
+- **The self page is never cut in the wake, and a long page is kept rather than
+  refused.** Before, a page could be written up to 16,384 bytes and the wake showed only
+  its first 6,078 to 6,144, cut with a marker. Now the page is kept whole up to 16,384
+  bytes, and the wake shows the first of these that fits, each one whole: the page; a
+  short version its writer wrote with it; each section's heading and first sentence; the
+  headings alone; or one line saying where to read it. Each starts with a line giving the
+  page's size and the line it ends with — "if you don't see that line, it was cut off:
+  read it whole with the self_page tool or `counterparts self-page`" — and ends with that
+  line. The page's room at the default 9,000-byte ceiling is 5,681 bytes, counted in
+  bytes (accented letters, dashes and CJK count for more than one): a page within it
+  always shows whole, even on a day the wake also holds handoffs and "Work here" lines.
+  The nightly writer, the reflection and the self_page tool are told to aim under it,
+  and, when a page runs past it, asked for a short version in the same call (the tool's
+  new `short`, the console's new `--short <file>`); a page past it still shows whole on
+  most days, borrowing the room held for "Work here". A short version belongs to the
+  page it was written with: a page rewritten without one shows its headings and first
+  sentences, never an old short version. Doctor's Self page line says what the last wake
+  showed — green for the page or its short version, amber below, with what to do. Every
+  wake's opening line now also says: if a note says this was too large and saved to a
+  file, read that file — which is what Claude Code does with a hook's output past 10,000
+  characters. Past 16,384 bytes a page is refused, never cut, with the numbers, and a
+  nightly writer that moves on without sending it again reads as failed, not "nothing to
+  say". And "Still open" keeps its "N more" count beside its first item when a long page
+  leaves no other room for it.
 - **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
   skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
   Code's server registration to match. It left alone the entry that

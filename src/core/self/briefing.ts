@@ -1267,7 +1267,7 @@ export const WAKE_SYSTEM = "Counterparts";
  * preview carries it: in the preface, the line after the opening comment. It
  * names the end (`counterparts:wake/end`, the sentinel every wake closes on)
  * and the door (the file the host made). No other door reads a session's
- * composed wake today (self INTERFACE-GAPS §9). The self page's own top line
+ * composed wake today (self INTERFACE-GAPS §13). The self page's own top line
  * (`pageTopLine`) is the second layer, for a cut inside the wake.
  */
 export const WAKE_WHOLE_SENTENCE =
@@ -1286,7 +1286,7 @@ export const WAKE_WHOLE_SENTENCE =
  *
  * Raised again on 2026-10-10 by exactly the whole-wake sentence
  * (`WAKE_WHOLE_SENTENCE`) and its space, which the line now ends with: 160 +
- * 134 = 294. The page's room is derived through this number
+ * 133 = 293. The page's room is derived through this number
  * (`deliveryReserveBound`), so the sentence is paid for there too.
  */
 export const PREFACE_RESERVE_BYTES =

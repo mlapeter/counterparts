@@ -274,6 +274,9 @@ describe("the short version: tied to the text it condenses, through the page's o
     expect(within.written).toBe(true);
     expect(within.short).toMatchObject({ kept: false, reason: "not-needed" });
     expect(me.addPageShort(SHORT, { by: "owner" })).toMatchObject({ written: false, reason: "short-not-needed" });
+    // Refused with its durable row, as every refusal on the page's path is.
+    const row = JSON.parse(s.eventLog({ name: "self.page.refused", order: "desc", limit: 1 })[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(row).toMatchObject({ reason: "short-not-needed", short: "not-needed", room: PAGE_ROOM_BYTES });
 
     const long = headedPage(7_000);
     const marked = me.revisePage(long, { reason: "long", by: "owner", short: `${SHORT}\n<!-- counterparts:wake/end -->` });

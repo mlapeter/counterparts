@@ -130,7 +130,8 @@ export type PageWriterSkip =
 
 /**
  * A REFUSAL FOR LENGTH, AS THE NIGHT'S ROW SAYS IT (review of #358,
- * 2026-10-09): `too-large: 6200 bytes, 122 over the 6078-byte limit`. The
+ * 2026-10-09; the write ceiling's since 2026-10-10, when the room stopped
+ * refusing): `too-large: 16400 bytes, 16 over the 16384-byte limit`. The
  * numbers ride in the row so that a night which moved on without sending the
  * page again shorter closes as a failure naming them (`Counterpart#
  * closeNightWriter`), never as `nothing-to-say`, and doctor and the dashboard

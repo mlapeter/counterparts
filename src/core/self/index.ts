@@ -980,17 +980,39 @@ export class Self {
       this.emit("self.observer.standdown", undefined, { site: "addPageShort" });
       return { ...none, written: false, reason: "observer", bytes: 0, short: null };
     }
-    if (page === null) return { ...none, written: false, reason: "no-page", bytes: 0, short: null };
-    if (short.trim().length === 0) return { ...none, written: false, reason: "empty", bytes: 0, short: null };
+    // Every refusal leaves its durable row, as `revisePage`'s do: there is no
+    // silent no-op on the page's path.
+    const refuse = (reason: PageRefusal, detail: Record<string, string | number | boolean>): void => {
+      this.emit("self.page.refused", undefined, { reason, by: opts.by, ...detail });
+      try {
+        this.store.appendEvent({
+          name: SELF_PAGE_REFUSED_EVENT,
+          day: opts.day ?? this.store.livedDay(),
+          payload: { reason, by: opts.by, session: opts.session ?? null, ...detail },
+        });
+      } catch {
+        /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+      }
+    };
+    if (page === null) {
+      refuse("no-page", { short: true });
+      return { ...none, written: false, reason: "no-page", bytes: 0, short: null };
+    }
+    if (short.trim().length === 0) {
+      refuse("empty", { short: true });
+      return { ...none, written: false, reason: "empty", bytes: 0, short: null };
+    }
     if (opts.ifVersion !== undefined && opts.ifVersion !== page.version) {
       return this.revisePage(page.body, { ...opts, reason: opts.reason ?? "added a short version", short });
     }
     const verdict = this.shortVerdict(short, page.bytes, opts.by);
     if (!verdict.outcome.kept) {
+      const reason = verdict.outcome.reason === "not-needed" ? "short-not-needed" : "short-refused";
+      refuse(reason, { short: verdict.outcome.reason, bytes: verdict.outcome.bytes, room: verdict.outcome.room });
       return {
         ...none,
         written: false,
-        reason: verdict.outcome.reason === "not-needed" ? "short-not-needed" : "short-refused",
+        reason,
         id: page.id,
         version: page.version,
         bytes: page.bytes,

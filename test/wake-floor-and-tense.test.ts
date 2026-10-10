@@ -40,7 +40,6 @@ import { deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.j
 import { wakeLanes, wakeParts } from "../src/adapters/dashboard/web/views/mind.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import { yesterdayLine, yesterdayShorter } from "../src/core/handoff/last-here.js";
-import { episodeGate } from "../src/core/bridge.js";
 import {
   BRIEFING_KEY,
   COLLAPSED_WORDS,
@@ -59,7 +58,6 @@ import {
   pageTopLine,
   readSentinel,
   render,
-  Self,
   WAKE_SYSTEM,
 } from "../src/core/self/index.js";
 import type { Lanes, Ranked, Resolve } from "../src/core/self/index.js";
