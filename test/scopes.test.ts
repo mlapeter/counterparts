@@ -27,11 +27,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { openAdapter } from "../src/adapters/claude-code/index.js";
-import { SCOPE_ASK, TUNABLES } from "../src/adapters/claude-code/index.js";
+import { scopeAsk, TUNABLES } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
 import {
   FRESH_SESSION_SOURCES,
@@ -58,6 +58,7 @@ import {
   parseRegistry,
   readScopes,
   resumeTarget,
+  scopeCommandContext,
   scopesPath,
   setScope,
   stanceOfMode,
@@ -1427,12 +1428,21 @@ describe("the first-launch question", () => {
 
   test("an UNSET directory is asked exactly once per session, and never again", () => {
     const a = adapterFor();
-    const first = a.sessionStart({ sessionId: "s1", scope: join(work, "project"), at: "2026-09-10" });
-    expect(first.ask).toBe(SCOPE_ASK);
+    const folder = join(work, "project");
+    const first = a.sessionStart({ sessionId: "s1", scope: folder, at: "2026-09-10" });
+    expect(first.ask).toBe(scopeAsk(folder, { home: homedir(), pluginRoot: null, configPath: null }));
     // It is a QUESTION, in plain words, naming the three answers and the command.
-    expect(SCOPE_ASK).toContain("ask the user once");
-    expect(SCOPE_ASK).toContain("`scope` tool");
-    expect(SCOPE_ASK).toContain("counterparts scope . --on");
+    expect(first.ask).toContain("ask the user once");
+    expect(first.ask).toContain("`scope` tool");
+    // The command NAMES the session's folder, never `.` (2026-10-10): `.` is
+    // wherever the shell stands when the line is run.
+    expect(first.ask).toContain(`\`counterparts scope ${canonicalScopePath(folder)} --on\``);
+    expect(first.ask).not.toContain("scope . ");
+    // Under the plugin, the plugin's launcher; with another registry, `--config`.
+    const plugin = scopeAsk(folder, { home, pluginRoot: join(home, "root"), configPath: join(home, "cfg", "claude-code.json") });
+    expect(plugin).toContain(
+      `\`sh ~/root/src/adapters/plugin-run.sh cli scope ${canonicalScopePath(folder)} --on --config ~/cfg/claude-code.json\``,
+    );
     // The wake itself is untouched: its byte count and its sentinel still
     // describe the bundle and nothing else (§1 G2, scar §2.3) — not even the
     // clock line that rides above it since 2026-09-25 (docs/time.md rule 5).
@@ -1749,6 +1759,59 @@ describe("the MCP server in a directory set off", () => {
     // The refusal precedes the session bind: a model cannot learn anything
     // about which sessions exist by calling into a directory that is off.
     expect(s.events("mcp.session.unbound")).toHaveLength(0);
+  });
+
+  test("a refusal NAMES the folder and the entry that set it, and its console line works typed anywhere (2026-10-10)", async () => {
+    Store.open({ dir: store }).close();
+    const project = join(work, "project");
+    const sub = join(project, "sub");
+    mkdirSync(sub, { recursive: true });
+    const ctx = { home, pluginRoot: null, configPath };
+
+    // Its own pause: the tool's `resume`, or the console line for this folder.
+    put({ [project]: { mode: "paused", since: "t", resumeTo: "on" } });
+    const own = String(body(await server({ scopeCommand: ctx }).call("note", { text: "x" }))["detail"]);
+    expect(own).toBe(
+      `Counterparts is paused for this directory (${canonicalScopePath(project)}). Nothing is recorded or read here until it is resumed — call \`scope\` with mode \`resume\`, or run \`counterparts scope ${canonicalScopePath(project)} --resume --config ${configPath}\`.`,
+    );
+
+    // A PARENT's pause, seen from a subfolder: `--resume` on the subfolder (or
+    // on `.` typed there) is refused, so the line names the parent.
+    const s = server({ scope: sub, scopeCommand: ctx });
+    const detail = String(body(await s.call("note", { text: "x" }))["detail"]);
+    const line = `counterparts scope ${canonicalScopePath(project)} --resume --config ${configPath}`;
+    expect(detail).toContain(`Counterparts is paused for ${canonicalScopePath(project)}, which includes this directory (${canonicalScopePath(sub)})`);
+    expect(detail).toContain(`run \`${line}\``);
+    expect(detail).toContain("mode `resume` refuses here");
+    expect(detail).not.toContain("scope . ");
+    // The tool's own `resume` does refuse here, as the words say.
+    expect(body(await s.call("scope", { mode: "resume" }))["reason"]).toBe("nothing-to-resume");
+
+    // The line, typed as printed (from wherever the console stands), resumes the parent.
+    const c = consoleWith();
+    expect(await run(line.split(" ").slice(1), { io: c.io, env: {}, home })).toBe(EXIT.ok);
+    expect(body(await s.call("status", {}))["reason"]).not.toBe("scope-off");
+
+    // An inherited OFF names both lines: this folder alone, or the whole parent.
+    put({ [project]: { mode: "off", since: "t" } });
+    const off = String(body(await s.call("note", { text: "x" }))["detail"]);
+    expect(off).toContain(`run \`counterparts scope ${canonicalScopePath(sub)} --on --config ${configPath}\`, to turn it on here alone`);
+    expect(off).toContain(`\`counterparts scope ${canonicalScopePath(project)} --on --config ${configPath}\` turns all of`);
+  });
+
+  test("a refusal under the plugin names the plugin's launcher; the default registry adds no `--config`", async () => {
+    Store.open({ dir: store }).close();
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    put({ [project]: { mode: "paused", since: "t" } });
+    const root = join(home, "plugin-root");
+    const plugin = String(
+      body(await server({ scopeCommand: { home, pluginRoot: root, configPath: null } }).call("note", { text: "x" }))["detail"],
+    );
+    expect(plugin).toContain(`run \`sh ~/plugin-root/src/adapters/plugin-run.sh cli scope ${canonicalScopePath(project)} --resume\``);
+    // Built from a configuration path: the default one (under HOME) names nothing.
+    expect(scopeCommandContext({ configPath: join(home, ".counterparts", "claude-code.json"), pluginRoot: null, home }).configPath).toBe(null);
+    expect(scopeCommandContext({ configPath, pluginRoot: "  ", home })).toEqual({ home, pluginRoot: null, configPath });
   });
 
   test("`scope` still answers there — a switch that only turns one way is not a switch", async () => {

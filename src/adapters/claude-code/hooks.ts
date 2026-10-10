@@ -59,9 +59,11 @@ import type { PlainReminder } from "../../core/counterpart.js";
 import { newNightRunId } from "../../core/dream/index.js";
 import type { DreamOffer } from "../../core/dream/index.js";
 import type { BoundaryKind } from "../../core/remember/index.js";
+import { homedir } from "node:os";
 
 import { CODE_TAB_ENTRYPOINT, isDesktopScratchWorkspace } from "../hosts.js";
-import { stanceOfMode } from "../scopes.js";
+import { scopeCommand, scopeCommandContext, stanceOfMode } from "../scopes.js";
+import type { ScopeCommandContext } from "../scopes.js";
 import {
   NON_INTERACTIVE_ENTRYPOINTS,
   decideUpdateNotice,
@@ -79,7 +81,6 @@ import type { LifecycleOptions, PlainLines, SessionInput } from "../lifecycle.js
 import { localDate } from "../../core/time.js";
 import { TUNABLES } from "../config.js";
 import { TUNABLES as RECALL_TUNABLES } from "../../core/recall/tunables.js";
-import { HOST_SESSION_START, HOST_USER_PROMPT_SUBMIT, envelopeJson, escapedBytes } from "./envelope.js";
 import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
 import type { CheckoutReading } from "./doctor.js";
 import { primacy } from "./primacy.js";
@@ -195,7 +196,7 @@ export interface HookResult {
    * blocked moment grew back into two asks (§13 G3).
    *
    * SessionStart uses the same field for the first-launch scope question
-   * (`SCOPE_ASK`, G41) and, since S2, for the nightly page writer's block. It
+   * (`scopeAsk`, G41) and, since S2, for the nightly page writer's block. It
    * is the same field for the same reason: it is the one channel that reaches
    * the model WITHOUT being inside the wake bundle, whose byte count and tail
    * line are stated by its own sentinel.
@@ -304,6 +305,14 @@ export interface AdapterOptions extends LifecycleOptions {
    * the day's line asks instead (`could-not-start`, reason `runner`).
    */
   readonly nightArgs?: readonly string[];
+  /**
+   * What the console line the first-launch question names needs to work where
+   * it is typed (`scopes.ts#ScopeCommandContext`): the plugin's launcher under
+   * the plugin, and `--config` when the registry this hook read is not the
+   * default's. Absent (a test, an embedder): the npm install's `counterparts`,
+   * with `--config` only when `configPath` names another registry.
+   */
+  readonly scopeCommand?: ScopeCommandContext;
 }
 
 /**
@@ -317,37 +326,32 @@ export interface AdapterOptions extends LifecycleOptions {
  * again. So the block asks the MODEL to ask the PERSON, and names the console
  * line that records the reply.
  *
+ * THE LINE NAMES THE FOLDER (2026-10-10, the follow-up to #362). It said
+ * `counterparts scope . --on`, and `.` is wherever the shell stands when the
+ * line is run: after a `cd` into a subfolder the answer landed on the
+ * subfolder, and the session's own folder stayed unset. So it names the
+ * session's folder, with the plugin's launcher and `--config` when this
+ * install needs them (`scopes.ts#scopeCommand`). An `unset` folder has no
+ * entry above it, so there is no inherited setting to name instead.
+ *
  * Advisory wording, mechanized existence (CONTRACT §5 G9): what is guaranteed
  * is that an `unset` directory raises the question exactly once per session and
  * that setting any mode ends it, not the sentences.
  */
-export const SCOPE_ASK = [
-  "<counterparts-scope>",
-  "No setting yet for this directory, so Counterparts is remembering here by default.",
-  "Early on, ask the user once which they want: on, observer (reads and recalls, records",
-  "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
-  "observer | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then",
-  "do not ask again.",
-  "</counterparts-scope>",
-].join("\n");
+export function scopeAsk(folder: string, ctx: ScopeCommandContext): string {
+  return [
+    SCOPE_ASK_OPEN,
+    "No setting yet for this directory, so Counterparts is remembering here by default.",
+    "Early on, ask the user once which they want: on, observer (reads and recalls, records",
+    "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
+    `observer | off), or with \`${scopeCommand(folder, "--on", ctx)}\` (\`--observer\` or \`--off\``,
+    "in place of `--on`). Then do not ask again.",
+    "</counterparts-scope>",
+  ].join("\n");
+}
 
-/** The room the question needs, separator included. Measured, never guessed. */
-export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
-
-/**
- * The room a prompt's JSON envelope keeps for the escaping of RECALL'S OWN
- * text (its newlines and quotes), when sizing the turn's recall (`recallRoom`).
- * Everything else in the envelope is measured exactly — the clock, the context
- * lines, the person's lines and the envelope's own keys, each escaped (review
- * of #285, M2). Recall's text is the one part that does not exist yet when its
- * budget is set, and composing it twice would spend its fires twice, so this
- * stays an estimate: about two hundred escaped characters, against a block
- * whose own item caps keep it to a few dozen lines. Past it, the delivery
- * measures the real envelope and the person's line waits for the next prompt,
- * unclaimed — deferred, never lost. Only the JSON form reserves it; plain
- * stdout escapes nothing.
- */
-export const ENVELOPE_ESCAPE_RESERVE = 200;
+/** The first-launch question's opening tag, which no other block uses. */
+export const SCOPE_ASK_OPEN = "<counterparts-scope>";
 
 /** The budget a SessionStart's asks are measured against: the form the
  *  envelope will take, what the wake and its lead already cost in it, and how
@@ -514,12 +518,14 @@ export const STOP_HUMAN_LINE = "Counterparts: asking the assistant to write up t
  */
 export class ClaudeCodeAdapter extends Lifecycle {
   private readonly nightArgs: readonly string[] | undefined;
+  private readonly scopeCommandCtx: ScopeCommandContext | undefined;
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
 
   constructor(opts: AdapterOptions) {
     super(opts);
     this.nightArgs = opts.nightArgs;
+    this.scopeCommandCtx = opts.scopeCommand;
   }
 
   // ── session start: the wake ────────────────────────────────────────────────
@@ -588,7 +594,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // DEFERRED, never cut, so nothing is spent on a line the session did
       // not get:
       //   1. the owner's notices (doctor, registry) — `bin/hook.ts#hostDelivery`
-      //      drops them before the JSON envelope passes `ENVELOPE_CHARS`;
+      //      drops them when either field of the JSON form would pass the
+      //      host's cap (`fieldsFit`);
       //   2. the write-up pointer — the next start in this project is pointed;
       //   3. the first-launch scope question — the next session asks;
       //   4. plain reminders due today — the first prompt says them, its
@@ -596,14 +603,18 @@ export class ClaudeCodeAdapter extends Lifecycle {
       //   5. the wake, never cut here: it was composed to its own budget at the
       //      boundary, where it trims hints → craft → threads → horizon →
       //      identity, identity last. The clock line rides with it.
-      // THE BUDGET IS THE FORM THE ENVELOPE WILL TAKE. A plain reminder reaches
-      // the person only inside the JSON form (its line is the `systemMessage`),
-      // so when one is due and the wake and the reminders fit that form, the
-      // two asks are measured against IT — escaped, under `ENVELOPE_CHARS` —
-      // and it is they that give way, not the reminder. Otherwise (nothing due,
-      // or reminders that cannot fit even beside the wake alone, which the
-      // delivery then sends to the first prompt) the form is plain stdout,
-      // under `HOST_OUTPUT_CHARS`. What actually gave way is recorded by the
+      // THE BUDGET IS THE MODEL'S FIELD, WHATEVER FORM THE ENVELOPE TAKES
+      // (2026-10-10). The host caps each field of the JSON form on its own,
+      // so the wake and its asks have `HOST_OUTPUT_CHARS` (in bytes, the safe
+      // direction) in either form, and the reminders' line is the other field.
+      // A plain reminder reaches the person only inside the JSON form, so it
+      // rides when the wake and its context lines fit the model's field; the
+      // asks are then measured beside it and it is they that give way, not the
+      // reminder. A wake that does not leave the reminders room sends them to
+      // the first prompt (the delivery decides, `deliverTurn`). Until
+      // 2026-10-10 the JSON form was held to 9,500 characters of whole,
+      // escaped envelope (`ENVELOPE_CHARS`), which cost a full wake its
+      // reminders and both asks. What actually gave way is recorded by the
       // delivery (`noteGaveWay`) and by each ask's own deferral.
       const plain = isInteractive(input) ? this.plainFor(input) : NO_PLAIN;
       // DESKTOP'S CODE TAB (2026-10-01): one line, right under the clock,
@@ -613,14 +624,17 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const codeTab = codeTabSessionLine(input);
       const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}`;
       const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
-      const jsonBase =
-        plain.due.length === 0
-          ? null
-          : Buffer.byteLength(envelopeJson(HOST_SESSION_START, plain.notices.join("\n"), `${lead}${woke.text}`), "utf8");
-      const room: EnvelopeRoom =
-        jsonBase !== null && jsonBase <= TUNABLES.ENVELOPE_CHARS
-          ? { form: "json", spent: jsonBase, limit: TUNABLES.ENVELOPE_CHARS, cost: escapedBytes, plain: plain.due.length }
-          : { form: "plain", spent: sent, limit: TUNABLES.HOST_OUTPUT_CHARS, cost: (t) => Buffer.byteLength(t, "utf8"), plain: 0 };
+      const rides =
+        plain.due.length > 0 &&
+        sent <= TUNABLES.HOST_OUTPUT_CHARS &&
+        Buffer.byteLength(plain.notices.join("\n"), "utf8") <= TUNABLES.HOST_OUTPUT_CHARS;
+      const room: EnvelopeRoom = {
+        form: rides ? "json" : "plain",
+        spent: sent,
+        limit: TUNABLES.HOST_OUTPUT_CHARS,
+        cost: (t) => Buffer.byteLength(t, "utf8"),
+        plain: rides ? plain.due.length : 0,
+      };
       if (budget !== undefined && sent > budget) {
         // Exceeding a reported limit is an EVENT, never silent degradation. The
         // bundle still goes: truncated-and-detectable beats absent.
@@ -733,7 +747,11 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * reported injection budget before, a second ceiling beside the pointer's.
    */
   private deliverScopeAsk(input: HookInput, room: EnvelopeRoom): string {
-    const need = room.cost(`\n\n${SCOPE_ASK}`);
+    const ask = scopeAsk(
+      input.scope,
+      this.scopeCommandCtx ?? scopeCommandContext({ configPath: this.configPath, pluginRoot: null, home: homedir() }),
+    );
+    const need = room.cost(`\n\n${ask}`);
     if (room.spent + need > room.limit) {
       this.emit("adapter.scope.ask.deferred", {
         wakeBytes: room.spent,
@@ -756,8 +774,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
       askedScope: true,
       ...this.recordStamp(),
     });
-    this.emit("adapter.scope.ask", { bytes: SCOPE_ASK_BYTES, recorded: marked !== null });
-    return SCOPE_ASK;
+    this.emit("adapter.scope.ask", { bytes: Buffer.byteLength(`\n\n${ask}`, "utf8"), recorded: marked !== null });
+    return ask;
   }
 
   // ── the turn ───────────────────────────────────────────────────────────────
@@ -808,11 +826,9 @@ export class ClaudeCodeAdapter extends Lifecycle {
       if (text.trim().length === 0) {
         return { ...out, ok: true, reason: "empty-prompt", injection: `${this.nowLine()}${context.length === 0 ? "" : `\n${context.trimEnd()}`}`, ...told };
       }
-      const budgetBytes = this.recallRoom(input, context, [
-        ...plain.notices,
-        ...(dream.told === null ? [] : [dream.told.notice]),
-        ...(dream.note === null ? [] : [dream.note.notice]),
-      ]);
+      // The person's lines (reminders, the dream's) are the JSON form's other
+      // field, so they take nothing from recall's room (2026-10-10).
+      const budgetBytes = this.recallRoom(input, context);
       // The composed recall and its durable row (`Lifecycle#recallTurn`).
       const result = this.recallTurn(input, text, {
         ...(budgetBytes === undefined ? {} : { budgetBytes }),
@@ -857,25 +873,18 @@ export class ClaudeCodeAdapter extends Lifecycle {
    *      line, the day's dream offer — claimed when composed (or, the offer,
    *      at delivery), so they are reserved rather than cut;
    *   4. plain reminders due today and the clock line — last.
-   * The limit is the host's cap, or the JSON envelope's (`ENVELOPE_CHARS`)
-   * when a person-facing line rides this prompt, so it is not that line
-   * which gives way. Undefined means "recall's own default" (nothing to
-   * shrink); a number is the configured budget or less.
+   * The limit is the host's cap on the model's field, in either form: the
+   * JSON form's person-facing line is a field of its own, and its escaping
+   * costs nothing (measured 2026-10-10; until then the JSON form was held to
+   * 9,500 characters of whole, escaped envelope). Undefined means "recall's
+   * own default" (nothing to shrink); a number is the configured budget or less.
    */
-  private recallRoom(input: HookInput, context: string, personLines: readonly string[]): number | undefined {
+  private recallRoom(input: HookInput, context: string): number | undefined {
     const configured = this.config.injectionBudgetBytes;
     const base = configured ?? RECALL_TUNABLES.BUDGET_BYTES;
-    const json = personLines.length > 0;
-    const limit = json ? TUNABLES.ENVELOPE_CHARS : TUNABLES.HOST_OUTPUT_CHARS;
-    // What rides with recall, MEASURED in the form the envelope will take: in
-    // JSON, the clock and context lines escaped, the person's lines escaped,
-    // the envelope's own keys, and the reserve for recall's own escaping; in
-    // plain stdout, the clock and context lines as bytes.
-    const lead = `${this.nowLine()}\n${context}`;
-    const extras = json
-      ? Buffer.byteLength(envelopeJson(HOST_USER_PROMPT_SUBMIT, personLines.join("\n"), lead), "utf8") + ENVELOPE_ESCAPE_RESERVE
-      : Buffer.byteLength(lead, "utf8");
-    const room = Math.max(0, limit - extras);
+    // What rides with recall in the model's field: the clock and context lines, as bytes.
+    const extras = Buffer.byteLength(`${this.nowLine()}\n${context}`, "utf8");
+    const room = Math.max(0, TUNABLES.HOST_OUTPUT_CHARS - extras);
     if (room >= base) return configured;
     this.noteDeliveryWarning(ENVELOPE_GAVE_WAY_EVENT, { hook: "user-prompt-submit", part: "recall", budget: room, base }, input);
     return room;
@@ -1605,12 +1614,13 @@ export class ClaudeCodeAdapter extends Lifecycle {
   /**
    * RECORD THAT THE TERMINAL DID NOT GET THE WARNING, and why.
    *
-   * The host caps a hook's stdout at 10,000 characters, and over that it
-   * replaces the string with a preview — which makes the JSON envelope
-   * unparseable and drops the wake with it. `bin/hook.ts` therefore prints the
-   * PLAIN wake and throws the notice away when the envelope is too big
-   * (`ENVELOPE_MAX_CHARS`), and this is how that choice stays visible instead of
-   * looking like a healthy morning. Ids and counts only, like every other row.
+   * The host caps each field of a hook's JSON output at 10,000 characters and
+   * previews one past it. `bin/hook.ts` prints the PLAIN wake and throws the
+   * notice away when either field would not fit (`fieldsFit`; until 2026-10-10,
+   * when the whole envelope passed 9,500), and this is how that choice stays
+   * visible instead of looking like a healthy morning. `envelopeChars` is the
+   * whole object's length, `limitChars` the per-field cap. Ids and counts only,
+   * like every other row.
    */
   noteNoticeDropped(chars: { noticeChars: number; envelopeChars: number; limitChars: number }): void {
     this.noteDeliveryWarning(NOTICE_DROPPED_EVENT, { ...chars });

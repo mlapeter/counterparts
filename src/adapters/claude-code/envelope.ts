@@ -1,12 +1,12 @@
 /**
  * THE HOOK ENVELOPE'S SHAPE, in one place (2026-09-29, review of #285, S2).
  *
- * `bin/hook.ts#hostDelivery` prints it, and `hooks.ts` measures it BEFORE it
- * decides which asks go beside the wake — so the two cannot disagree about how
- * big the JSON form of an envelope is. A person-facing line (a plain reminder,
- * a doctor notice) reaches the terminal only inside this JSON form, whose
- * budget is `TUNABLES.ENVELOPE_CHARS`; everything else is measured as plain
- * stdout against `TUNABLES.HOST_OUTPUT_CHARS`.
+ * `bin/hook.ts#hostDelivery` prints it. A person-facing line (a plain
+ * reminder, a doctor notice) reaches the terminal only inside this JSON form.
+ * Since 2026-10-10 each of its fields is measured on its own against
+ * `TUNABLES.HOST_OUTPUT_CHARS`, as the host measures it (`bin/hook.ts#fieldsFit`),
+ * so `hooks.ts` sizes the model's text the same way in either form and no
+ * longer measures the escaped object (`escapedBytes` went with that).
  */
 
 /**
@@ -26,13 +26,4 @@ export function envelopeJson(hookEventName: string, systemMessage: string, addit
     systemMessage,
     hookSpecificOutput: { hookEventName, additionalContext },
   });
-}
-
-/**
- * What `text` costs inside the JSON form, in bytes: its escaped length (a
- * newline is two characters, a quote two). Bytes, so the count is never under
- * the characters the host measures.
- */
-export function escapedBytes(text: string): number {
-  return Buffer.byteLength(JSON.stringify(text), "utf8") - 2;
 }
