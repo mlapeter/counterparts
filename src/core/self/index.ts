@@ -3117,22 +3117,6 @@ export type {
 };
 export { BRIEFING_TRIM_LOG_CAP, COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDER, TRIM_ORDER };
 
-/**
- * THE MEMORIES A LATER ONE HAS SETTLED OVER (2026-10-01, random-f2's item 11):
- * the `over` side of a settled `changed` or `corrected` pair, closed directly
- * (a pair closed through another speaks through that one). `rankLanes` keeps
- * them out of every lane but identity, so an answered question is not shown
- * alone as still open.
- *
- * ONLY WHILE SOMETHING LIVE HOLDS (review of #311). A memory is hidden when, in
- * the NEWEST settled pair that names it, it is the `over` — so one re-affirmed
- * by a later pair (holds there) is not hidden by the older one — and that
- * pair's `holds` leads to a live memory: followed through its own newer
- * settles and through `superseded_by` to the live end.
- * A `holds` that is archived, removed, or superseded with no live successor
- * hides nothing, and the `over` stays visible. Never throws — a store that
- * will not answer has settled nothing.
- */
 /** The `WAKE_SHOWN_KEY` record for a published briefing and its lanes. */
 function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryRequest, hash: string): WakeShown {
   const lost = (lane: "identity" | "craft"): string[] => {
@@ -3155,6 +3139,22 @@ function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryReques
   };
 }
 
+/**
+ * THE MEMORIES A LATER ONE HAS SETTLED OVER (2026-10-01, random-f2's item 11):
+ * the `over` side of a settled `changed` or `corrected` pair, closed directly
+ * (a pair closed through another speaks through that one). `rankLanes` keeps
+ * them out of every lane but identity, so an answered question is not shown
+ * alone as still open.
+ *
+ * ONLY WHILE SOMETHING LIVE HOLDS (review of #311). A memory is hidden when, in
+ * the NEWEST settled pair that names it, it is the `over` — so one re-affirmed
+ * by a later pair (holds there) is not hidden by the older one — and that
+ * pair's `holds` leads to a live memory: followed through its own newer
+ * settles and through `superseded_by` to the live end.
+ * A `holds` that is archived, removed, or superseded with no live successor
+ * hides nothing, and the `over` stays visible. Never throws — a store that
+ * will not answer has settled nothing.
+ */
 export function settledOver(store: Pick<Store, "contradictions" | "row">): Set<string> {
   const out = new Set<string>();
   try {

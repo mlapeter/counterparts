@@ -377,6 +377,50 @@ describe("Today, elsewhere", () => {
     expect(there).toContain(`${tilde(HERE)} open since 07:30 (live), 1 memory`);
   });
 
+  test("an observer folder, a paused one and a folder under an off one are not named; a confidential chapter's title stays home (review of #376)", () => {
+    const k = store(at(D1, 18));
+    const { c } = k;
+    c.rebrief({ budgetBytes: BUDGET, at: D1 });
+    const WATCH = join(root, "greenhouse");
+    const REST = join(root, "cellar");
+    const UNDER = join(FAR, "drawer");
+    for (const d of [WATCH, REST, UNDER]) mkdirSync(d, { recursive: true });
+    let reg = setScope(null, FAR, "off", { at: D2 });
+    reg = setScope(reg, WATCH, "observer", { at: D2 });
+    reg = setScope(reg, REST, "paused", { at: D2 });
+    writeScopes(join(root, "scopes.json"), reg);
+    const places: [string, string][] = [
+      [WATCH, "a7a7a7a1"],
+      [REST, "a7a7a7a2"],
+      [UNDER, "a7a7a7a3"],
+      [THERE, "a7a7a7a4"],
+    ];
+    k.set(at(D2, 8, 30));
+    for (const [scope, head] of places) {
+      const session = `${head}-0000-4000-8000-000000000001`;
+      recordSession(storeDir, { sessionId: session, scope, phase: "start", at: at(D2, 8) });
+      // THERE's chapter is confidential; the others' are not, but their folders are not on.
+      const epi = c.store.put({
+        type: "episode",
+        kind: "self",
+        title: `KEPTHOME chapter in ${head}`,
+        body: `## chapter 1 — ${readableDate(D2)} · lived day 1\n\nA placeholder chapter.\n`,
+        meta: { sessionId: session, chapters: 1, ...(scope === THERE ? { confidential: true } : {}) },
+        source: "episode",
+        origin: { session, scope },
+      });
+      copy(c, epi, session, scope, "me", "A placeholder copy about me.");
+      c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", origin: { session, scope } });
+    }
+    k.set(at(D2, 10));
+    const lc = new Lifecycle({ counterpart: c, config: { dataDir: storeDir }, configPath: join(root, "claude-code.json"), now: () => at(D2, 10) });
+    const text = lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
+    const line = lineOf(text) ?? "";
+    for (const kept of [WATCH, REST, FAR]) expect(line).not.toContain(tilde(kept));
+    expect(text).not.toContain("KEPTHOME");
+    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:00 (live), 2 memories.`);
+  });
+
   test("with no way to ask the scope setting, or every directory closed, nothing crosses", () => {
     const m = morning();
     // The Counterpart alone, with no host to ask: no line.
