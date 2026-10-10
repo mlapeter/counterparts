@@ -554,9 +554,10 @@ async function main(): Promise<void> {
   if (run(['tmux', '-V']).code !== 0) throw new Error('tmux is not on PATH');
   guardCwd(o.cwd);
   mkdirSync(o.out, { recursive: true });
-  // the trust dialog is answered only for a folder that is this tool's own, or empty
+  // the trust dialog is answered only for this tool's own scratch folder, and only while it is empty
+  // (an empty folder elsewhere was trusted too: --cwd of a new path is created empty)
   mkdirSync(o.cwd, { recursive: true });
-  const mayTrust = inside(real(o.cwd), real(SCRATCH)) || readdirSync(o.cwd).length === 0;
+  const mayTrust = inside(real(o.cwd), real(SCRATCH)) && readdirSync(o.cwd).length === 0;
 
   const t0 = Date.now();
   const store = storePath(o.pluginDir);
@@ -588,7 +589,7 @@ async function main(): Promise<void> {
     await s.waitFor('the prompt', l => {
       const text = screenText(l.grid);
       if (!trusted && text.includes('Yes, I trust this folder')) {
-        if (!mayTrust) throw new Error(`Claude Code asks to trust ${o.cwd}, which is not empty and not this tool's scratch folder: trust it once by hand, or leave --cwd out`);
+        if (!mayTrust) throw new Error(`Claude Code asks to trust ${o.cwd}, which is not this tool's own empty scratch folder (${SCRATCH}): it trusts no other folder. Trust it once by hand, or leave --cwd out`);
         trusted = true;
         s.keys('Down');
         Bun.sleepSync(200);

@@ -116,10 +116,13 @@ The sessions are real Claude Code sessions with his own login and settings.
   command that the slash typeahead has picked as typed; refused on anything
   else. `type:` is refused while the prompt holds the keyboard.
 - **A scratch folder:** `$TMPDIR/counterparts-term-loop/cwd`. The first run
-  answers Claude Code's trust dialog for that folder (one entry in
-  `~/.claude.json`). `--cwd` refuses the home folder, `~/counterparts`, this
-  checkout, `~/.counterparts`, `~/.bansai`, `~/.claude-engram`; the trust
-  dialog is answered only for the scratch folder or an empty one.
+  there answers Claude Code's trust dialog with yes, for that folder only
+  (`hasTrustDialogAccepted` on its entry in `~/.claude.json`); so does a
+  first run after macOS clears `$TMPDIR`. The tool grants trust to no other
+  folder: with `--cwd` anywhere outside `$TMPDIR/counterparts-term-loop`
+  (or a folder there with files in it), the dialog stops the run and the
+  folder is left untrusted. `--cwd` refuses the home folder, `~/counterparts`,
+  this checkout, `~/.counterparts`, `~/.bansai`, `~/.claude-engram`.
 - **His sidebar preferences.** A `--plugin-dir` plugin's `$.store` is
   `~/.claude/plugins/store/<name>_inline-<12 hex of sha256("<name>@inline")>.json`
   (`counterparts_inline-41db9a71a546.json`), shared by every folder copy named
