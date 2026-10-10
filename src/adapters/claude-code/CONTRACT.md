@@ -616,8 +616,9 @@ row, saying which source answered, existed until the keys were removed — §1a.
       take its value for the script.
     - **The claim is the backstop** (`claim.ts`), for whatever the stand-down
       misses: after the store opens and before anything else, each hook process
-      claims its event in one `BEGIN IMMEDIATE` read-and-write of the
-      `adapter.hook.claims` meta row, keyed by the session id, the event, the
+      claims its event in one `BEGIN IMMEDIATE` read-and-write of the one row
+      of its own small database, `sessions/claims/hook-claims.sqlite` (host
+      state, not memory; never backed up), keyed by the session id, the event, the
       host's `prompt_id` and the event's own fields (the prompt text's hash,
       `source`, `stop_hook_active` and the last assistant message's hash, `reason`,
       `trigger`). A process is the holder's TWIN when its key matches and it
@@ -629,12 +630,16 @@ row, saying which source answered, existed until the keys were removed — §1a.
       are claimed. A matching key from a process that started after the holder
       finished is a separate event (a host with no `prompt_id` sending the same
       words twice) and delivers. **Fail-open:** no session id, an observer, or a
-      store that will not take the write, and the process delivers, so one wiring
-      behaves exactly as before (two small writes: about 0.25 ms measured in
-      process, within noise end to end). Each of the two writes waits at most
-      `CLAIM_WAIT_MS` (500 ms) on another writer's lock, not the store's 5 s, so a
-      store somebody holds costs a turn half a second more than it did, not five.
-      Doctor's `Installed twice` line (amber)
+      claims file that will not take the write, and the process delivers, so one
+      wiring behaves exactly as before (two small writes: about 0.3 ms measured in
+      process, within noise end to end). The claims are in their own file, not
+      the store's `meta`, so a claim waits only on another claim: the store's
+      writers (the worker the last Stop started, the MCP server, the CLI) never
+      hold it up, and a store somebody holds costs it nothing. Each of the two
+      writes waits at most `CLAIM_WAIT_MS` (500 ms). A claim that could not be
+      written is in the hook's `process.end` log line; it is said on stderr too
+      only when it is a fault (the file cannot be made or written), not when
+      another claim held the file. Doctor's `Installed twice` line (amber)
       reads the week's `claim.lost` rows. The transcript's size is not in the key:
       the host may write between the twins starting.
 

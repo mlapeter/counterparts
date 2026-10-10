@@ -19,17 +19,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import {
-  CLAIMS_META_KEY,
+  CLAIMS_ROW,
   CLAIM_KEEP,
   CLAIM_WAIT_MS,
   CLAIM_WINDOW_MS,
   claimDelivery,
+  claimsPath,
   deliveryClaimKey,
   finishClaim,
 } from "../src/adapters/claude-code/claim.js";
 import type { ClaimDoors } from "../src/adapters/claude-code/claim.js";
 import { claimFindings, doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { BOUNDARY_EVENT, Counterpart, HOOK_CLAIM_LOST_EVENT } from "../src/core/counterpart.js";
+import { openDb } from "../src/core/store/db.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 
@@ -92,7 +94,12 @@ describe("deliveryClaimKey", () => {
 
 describe("claimDelivery", () => {
   function claimRow(cp: Counterpart): Record<string, unknown> {
-    return JSON.parse(cp.store.getMeta(CLAIMS_META_KEY) ?? "{}") as Record<string, unknown>;
+    const db = openDb(claimsPath(cp.store.dir));
+    try {
+      return JSON.parse(db.get<{ value: string }>("SELECT value FROM claims WHERE key = ?", CLAIMS_ROW)?.value ?? "{}") as Record<string, unknown>;
+    } finally {
+      db.close();
+    }
   }
 
   test("the first claim wins; a twin (started before the holder finished) loses and is recorded", () => {
@@ -171,13 +178,12 @@ describe("claimDelivery", () => {
     }
   });
 
-  test("fail-open: no session, an observer, or a store that refuses the write all deliver", () => {
+  test("fail-open: no session, an observer, or a claims file that cannot be made all deliver", () => {
+    // A store "directory" that is a plain file: no sessions/ can be made under it.
+    const notADir = join(work, "not-a-dir");
+    writeFileSync(notADir, "", "utf8");
     const refusing: ClaimDoors = {
-      store: {
-        updateMeta: () => {
-          throw new Error("SQLITE_BUSY: database is locked");
-        },
-      },
+      store: { dir: notADir },
       noteAdapterEvent: () => {
         throw new Error("not reached");
       },
@@ -185,10 +191,24 @@ describe("claimDelivery", () => {
     const base = { hook: "session-start" as const, sessionId: "s1", side: "settings" as const };
     expect(claimDelivery(refusing, { ...base, key: null, observer: false })).toEqual({ outcome: "unclaimed", detail: "no session id" });
     expect(claimDelivery(refusing, { ...base, key: "k", observer: true })).toEqual({ outcome: "unclaimed", detail: "observer" });
-    expect(claimDelivery(refusing, { ...base, key: "k", observer: false })).toEqual({
-      outcome: "unclaimed",
-      detail: "SQLITE_BUSY: database is locked",
-    });
+    const failed = claimDelivery(refusing, { ...base, key: "k", observer: false });
+    expect(failed.outcome).toBe("unclaimed");
+    expect(failed.detail ?? "").toMatch(/ENOTDIR|EEXIST|not a directory/i);
+    // A fault, not contention: the hook says this one on stderr.
+    expect(failed.busy).toBeUndefined();
+    expect(finishClaim(refusing, "k", 1)).toBe(false);
+  });
+
+  test("the claims live in their own file in a directory under sessions/, and the store's meta is not touched", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      expect(claimDelivery(cp, { hook: "stop", key: "k1", sessionId: "s", side: "settings", observer: false }).outcome).toBe("won");
+      expect(claimsPath(store)).toBe(join(store, "sessions", "claims", "hook-claims.sqlite"));
+      expect(Object.keys(claimRow(cp))).toEqual(["k1"]);
+      expect(cp.store.getMeta(CLAIMS_ROW)).toBeUndefined();
+    } finally {
+      cp.close();
+    }
   });
 });
 
@@ -432,30 +452,60 @@ describe("two processes claim in the same millisecond", () => {
 // ── a store somebody holds (review of #355) ─────────────────────────────────
 
 describe("a locked store", () => {
-  test("the claim gives up after CLAIM_WAIT_MS, not the store's five seconds, delivers unclaimed, and puts the wait back", () => {
+  const base = { hook: "user-prompt-submit" as const, key: "k", sessionId: "s", side: "settings" as const, observer: false };
+
+  test("a store somebody holds does not hold the claim: it is made at once, beside the held lock", () => {
+    // What CI hit on master a78e1dae: the worker the previous Stop started held
+    // the store's write lock for longer than the claim would wait.
     const cp = Counterpart.open({ dir: store });
     const holder = Counterpart.open({ dir: store });
     try {
-      const base = { hook: "user-prompt-submit" as const, key: "k", sessionId: "s", side: "settings" as const, observer: false };
       let claim: ReturnType<typeof claimDelivery> | null = null;
+      let finished = false;
       let took = -1;
-      // A second connection holds the write lock for the whole claim.
+      // A second connection holds the STORE's write lock for the whole claim.
       holder.store.updateMeta("review.lock.holder", () => {
         const t = Date.now();
         claim = claimDelivery(cp, base);
+        if (claim.at !== undefined) finished = finishClaim(cp, "k", claim.at);
         took = Date.now() - t;
         return "held";
       });
+      expect((claim as ReturnType<typeof claimDelivery> | null)?.outcome).toBe("won");
+      expect(finished).toBe(true);
+      expect(took).toBeLessThan(CLAIM_WAIT_MS);
+    } finally {
+      holder.close();
+      cp.close();
+    }
+  });
+
+  test("a claims file another claim holds: the claim gives up after CLAIM_WAIT_MS, delivers unclaimed, and says it was contention", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      // Made once, so the holder below has a file to lock.
+      expect(claimDelivery(cp, { ...base, key: "first" }).outcome).toBe("won");
+      const holder = openDb(claimsPath(store));
+      let claim: ReturnType<typeof claimDelivery> | null = null;
+      let took = -1;
+      try {
+        holder.transaction(() => {
+          holder.run("UPDATE claims SET value = value WHERE key = ?", CLAIMS_ROW);
+          const t = Date.now();
+          claim = claimDelivery(cp, base);
+          took = Date.now() - t;
+        });
+      } finally {
+        holder.close();
+      }
       expect((claim as ReturnType<typeof claimDelivery> | null)?.outcome).toBe("unclaimed");
       expect((claim as ReturnType<typeof claimDelivery> | null)?.detail ?? "").toMatch(/locked|busy/i);
+      expect((claim as ReturnType<typeof claimDelivery> | null)?.busy).toBe(true);
       expect(took).toBeGreaterThanOrEqual(CLAIM_WAIT_MS - 50);
       expect(took).toBeLessThan(CLAIM_WAIT_MS + 1_500);
-      // The connection's own wait is back where it was.
-      expect(Object.values(cp.store["ops"].get<Record<string, number>>("PRAGMA busy_timeout") ?? {})[0]).toBe(5_000);
       // And with the lock gone, the claim is made.
       expect(claimDelivery(cp, base).outcome).toBe("won");
     } finally {
-      holder.close();
       cp.close();
     }
   });
