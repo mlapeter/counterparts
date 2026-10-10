@@ -185,15 +185,23 @@ tmux-hosted session at 200 x 60 and 256 colours):
 | 15 | 13.7 fps | 2.6 ms |
 | 6 (then the default) | 5.5 fps | 3–8 ms |
 
-CPU of the `claude` process, idle, from `top` over 10 s (before the rebuild;
-re-measure live):
+CPU of the `claude` process, idle, from `top` over 10 s. The rebuilt brain was
+measured live after the merge, in tmux at a load average of about 7, so those
+two rows are noisy:
 
-| State | CPU | Before the fix round |
+| State | CPU | Earlier |
 |---|---|---|
-| Pane drawn, 6 fps | **3.5%** | 6.1% at 10 fps (the review's measure) |
+| Pane drawn, swaying (5.0 fps achieved of a 12 target; 1.9 ms a frame) | **4.4–4.6%** | 3.5% (the old brain at a fixed 6 fps); 6.1% at 10 fps (the review's measure) |
+| Pane drawn, at rest after a quiet minute | **0.8–1.4%** | — |
 | Quiet (`‹`) | 0.6–0.8% | 1.6% on the old rail (timer ticking with nothing drawn) |
 | Hidden (`✕`) | 0.7% | — |
 | No plugin | — | 0.6% (the review's measure) |
+
+What swaying and rest still cost is the timer itself: it ticks at the target (12
+a second) whatever the brain's mode, and swaying draws on every other tick.
+Ticking at the calm rate until a pulse, and stopping the timer at rest until
+something fires or is picked, would bring both close to the bare 0.6%. That is
+a follow-up for the brain's tick.
 
 Nothing runs until the pane draws. The brain's timer stops when a blit is
 refused (the Raster is gone: quiet, hidden, another pane shown) and while the
