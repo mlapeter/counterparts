@@ -14,10 +14,11 @@ line is amber. Claude Code's hooks and server registration are the same as 0.3.1
 with Claude Code alone there is nothing to run (coming from 0.3.13 or earlier, run
 `connect` once, as 0.3.14 said). The Claude Code plugin brings the sidebar mod (v0.1).
 **No change to the store's format (still v12)**: the hooks keep their claims in a small
-file of their own, `sessions/claims/hook-claims.sqlite`. Going back to 0.3.14 is the order
-in QUICKSTART's "Going back to an earlier version": `counterparts disconnect` while 0.3.15
-is still installed, then the 0.3.14 reinstall, then `counterparts connect`, and, if you
-connected Claude Desktop, `counterparts install --host claude-desktop` with Desktop quit.
+file of their own, `sessions/claims/hook-claims.sqlite`, which 0.3.14 leaves alone. Going
+back to 0.3.14 is the order in QUICKSTART's "Going back to an earlier version":
+`counterparts disconnect` while 0.3.15 is still installed, then the 0.3.14 reinstall, then
+`counterparts connect`. The hook and server commands are the same in both versions, and
+Claude Desktop's rewritten entry runs on 0.3.14 as it is.
 
 The self page in the wake (#358).
 
